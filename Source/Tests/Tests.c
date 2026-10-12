@@ -2,20 +2,29 @@
 
 #include "Base/Base.h"
 #include "Platform/Platform.h"
+#include "Platform/Jobs.h"
+#include "Platform/Files.h"
 #include "Renderer/Renderer.h"
 #include "UI/UI.h"
 #include "Program/Program.h"
 
 #if defined(_WIN32)
 #include "Win/WinPlatform.c"
+#include "Win/WinThreads.c"
+#include "Win/WinFiles.c"
 #elif defined(__linux__)
 #include "Linux/LinuxPlatform.c"
+#include "Linux/LinuxThreads.c"
+#include "Linux/LinuxFiles.c"
 #endif
 
 #include "Base/Base.c"
 #include "Platform/PlatformEvents.c"
+#include "Platform/PlatformJobs.c"
 #include "UI/UI.c"
+#include "Program/Directory.c"
 #include "Program/Commands.c"
+#include "Program/Program.c"
 
 global i32 CheckFailures;
 
@@ -28,6 +37,7 @@ global i32 CheckFailures;
     } while (0)
 
 #include "Tests/UI.c"
+#include "Tests/Browsing.c"
 
 global u32 TestModalFrameCount;
 
@@ -415,6 +425,9 @@ int main(void)
     TestUIFrameFontLifetime();
     TestUICommandEventOrder();
     TestProgramCommands();
+    TestProgramVirtualRows();
+    TestJobs();
+    TestBrowsing();
 
     if (CheckFailures != 0) {
         fprintf(stderr, "%d check(s) failed\n", CheckFailures);

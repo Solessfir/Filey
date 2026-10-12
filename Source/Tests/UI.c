@@ -452,6 +452,9 @@ function void TestUIFrameFontLifetime(void)
 function void TestUICommandEventOrder(void)
 {
     Prog_State state = {0};
+    Prog_Entry entries[2] = {0};
+    state.directory.entries = entries;
+    state.directory.count = CArrayCount(entries);
     PlatformEvent clicks[] = {
         {.kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = 20, .y = 60},
         {.kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = 20, .y = 60},
@@ -470,8 +473,8 @@ function void TestUICommandEventOrder(void)
         if (frameIndex) {
             Check(upperInteraction.pressed && upperInteraction.clicked && upperInteraction.pressOrder == 3 && upperInteraction.clickOrder == 4);
             Check(lowerInteraction.pressed && lowerInteraction.clicked && lowerInteraction.pressOrder == 1 && lowerInteraction.clickOrder == 2);
-            Check(!state.hasSelection && state.commandFirst->row == 1 && state.commandLast->row == 0);
-            Check(Prog_ProcessCommands(&state) && state.hasSelection && state.selectedRow == 0);
+            Check(!state.hasFocus && state.commandFirst->row == 1 && state.commandLast->row == 0);
+            Check(Prog_ProcessCommands(&state) && state.hasFocus && state.focusedRow == 0 && entries[0].selected && !entries[1].selected);
         }
     }
     UI_Release(&state.ui);
@@ -481,23 +484,83 @@ function void TestUICommandEventOrder(void)
 function void TestProgramCommands(void)
 {
     Prog_State state = {0};
-    Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 7, 2, 0);
-    Prog_QueueCommand(&state, Prog_CommandKind_Refresh, 0, 0, 0);
-    Check(!state.hasSelection && state.refreshCount == 0 && state.openCount == 0);
-    Check(state.commandFirst->kind == Prog_CommandKind_SelectRow && state.commandLast->kind == Prog_CommandKind_Refresh);
+    Prog_Entry entries[8] = {0};
+    state.directory.entries = entries;
+    state.directory.count = CArrayCount(entries);
+    Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 7, 1, 0);
+    Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 3, 1, 1);
+    Check(!state.hasFocus && !entries[7].selected);
+    Check(state.commandFirst->row == 7 && state.commandLast->row == 3);
     Check(Prog_ProcessCommands(&state));
-    Check(!state.hasSelection && state.selectedRow == 7 && state.openCount == 1 && state.refreshCount == 1);
+    Check(state.hasFocus && state.focusedRow == 3 && entries[3].selected && !entries[7].selected);
     Check(state.commandFirst == NULL && state.commandLast == NULL && !Prog_ProcessCommands(&state));
     ArenaClear(&state.frameArena);
-    Prog_QueueCommand(&state, Prog_CommandKind_Refresh, 0, 0, 0);
-    Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 3, 1, 0);
+    Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 100, 1, 0);
     Check(Prog_ProcessCommands(&state));
-    Check(state.hasSelection && state.selectedRow == 3 && state.refreshCount == 2 && state.openCount == 1);
+    Check(state.hasFocus && state.focusedRow == 3 && entries[3].selected);
     Check(state.commandFirst == NULL && state.commandLast == NULL);
     ArenaClear(&state.frameArena);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 2, 1, 3);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 7, 1, 1);
     Check(state.commandFirst->row == 7 && state.commandLast->row == 2);
-    Check(Prog_ProcessCommands(&state) && state.selectedRow == 2);
+    Check(Prog_ProcessCommands(&state) && state.focusedRow == 2 && entries[2].selected && !entries[7].selected);
+    ArenaClear(&state.frameArena);
+    state.pageRows = 4;
+    Prog_QueueCommand(&state, Prog_CommandKind_MoveFocus, Key_PageDown, 0, 0);
+    Check(Prog_ProcessCommands(&state) && state.focusedRow == 5 && entries[5].selected && !entries[2].selected);
+    Prog_QueueCommand(&state, Prog_CommandKind_MoveFocus, Key_PageDown, 0, 0);
+    Check(Prog_ProcessCommands(&state) && state.focusedRow == 7);
+    Prog_QueueCommand(&state, Prog_CommandKind_MoveFocus, Key_PageUp, 0, 0);
+    Check(Prog_ProcessCommands(&state) && state.focusedRow == 4);
     ArenaRelease(&state.frameArena);
+}
+
+function void TestProgramVirtualRows(void)
+{
+    Prog_State state = {0};
+    state.directory.path = S("/fixture");
+    state.directory.count = 1000;
+    state.directory.entries = ArenaPushArray(&state.directoryArena, state.directory.count, Prog_Entry);
+    for (u64 i = 0; i < state.directory.count; ++i) {
+        state.directory.entries[i].file.name = StrFormat(&state.directoryArena, "item-%u.txt", (u32)i);
+        state.directory.entries[i].type = S("txt file");
+    }
+    UI_Key listKey = UI_KeyFromStr(0, S("Files"));
+    UI_Key directoryKey = UI_KeyFromStr(listKey, state.directory.path);
+    for (u32 frame = 0; frame < 2; ++frame) {
+        if (frame) {
+            state.hasFocus = true;
+            state.focusedRow = state.directory.count - 1;
+            state.revealFocus = true;
+        }
+        TestUIBegin(&state.ui, &state.frameArena, (PlatformEventList){0}, frame);
+        Prog_BuildUI(&state, &TestUIFont, 1);
+        UI_EndFrame();
+        UI_Block *list = UI__Find(listKey);
+        Check(list && list->contentSize.y == (f32)state.directory.count * (TestUIFont.lineHeight + 6));
+        if (!list) break;
+        u64 rows = 0, retained = 0;
+        for (UI_Block *child = list->first; child; child = child->next) {
+            if (FlagIntersects(child->flags, UI_Flag_LeftMouseClickable)) {
+                ++rows;
+                Check(child->clipRect.x0 >= list->clipRect.x0 && child->clipRect.x1 <= list->clipRect.x1);
+                if (child->clipRect.y1 > child->clipRect.y0) Check(child->clipRect.y0 >= list->clipRect.y0 && child->clipRect.y1 <= list->clipRect.y1);
+            }
+        }
+        for (u64 slot = 0; slot < UI_HashSlotCount; ++slot) {
+            for (UI_Block *block = state.ui.hashSlots[slot]; block; block = block->hashNext) {
+                if (block->parent == list && FlagIntersects(block->flags, UI_Flag_LeftMouseClickable)) ++retained;
+            }
+        }
+        Check(rows > 0 && rows < 20 && retained == rows);
+        u64 row = frame ? state.directory.count - 1 : 0;
+        UI_Block *visible = UI__Find(UI_KeyFromStr(directoryKey, state.directory.entries[row].file.name));
+        Check(visible && visible->clipRect.y1 > visible->clipRect.y0);
+        if (frame) {
+            Check(list->scrollOffset.y > 0 && !state.revealFocus);
+            Check(visible && FlagIntersects(visible->flags, UI_Flag_DrawBorder));
+            Check(!UI__Find(UI_KeyFromStr(directoryKey, state.directory.entries[0].file.name)));
+        }
+    }
+    Prog_Release(&state);
 }

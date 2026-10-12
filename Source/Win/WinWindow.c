@@ -27,6 +27,8 @@ typedef struct WinWindowState {
 
 global WinWindowState Win;
 
+#define WinWakeMessage (WM_APP + 1)
+
 function Key WinKeyFromVirtualKey(WPARAM vk)
 {
     if (vk >= 'A' && vk <= 'Z') {
@@ -101,6 +103,12 @@ function void WinMouseButton(PlatformEventKind kind, WPARAM wParam, LPARAM lPara
 function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
+        case WinWakeMessage: {
+            if (Win.sizing) {
+                Platform__RunModalFrame();
+            }
+        } return 0;
+
         case WM_CLOSE: {
             PlatformPushEvent(PlatformEventKind_CloseRequested);
         } return 0;
@@ -338,6 +346,15 @@ function PlatformEventList PlatformPollEvents(b32 wait)
     }
 
     return PlatformTakeEvents();
+}
+
+function void P_WakeWindow(void)
+{
+    PostMessageW(Win.window, WinWakeMessage, 0, 0);
+}
+
+function void P_ReleaseWindowWake(void)
+{
 }
 
 function void PlatformSwapBuffers(void)

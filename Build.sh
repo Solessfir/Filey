@@ -20,7 +20,7 @@ out="$root/Bin/$mode"
 mkdir -p "$out"
 
 cc=${CC:-clang}
-cflags="-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I$root/Source -D_GNU_SOURCE -g"
+cflags="-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I$root/Source -D_GNU_SOURCE -g -pthread"
 if [ "$mode" = release ]; then
     cflags="$cflags -O2 -DNDEBUG"
 else

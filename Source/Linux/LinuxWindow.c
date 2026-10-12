@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <stdlib.h>
+#include <sys/eventfd.h>
 #include <linux/input-event-codes.h>
 
 // wl_registry_listener has a member named `global`, which collides with the
@@ -67,6 +68,7 @@ typedef struct LinuxWindowState {
     i32 scale;           // integer buffer scale
     b32 configured;
     b32 closed;
+    i32 wakeFd;
 } LinuxWindowState;
 
 global LinuxWindowState Wl;
@@ -614,6 +616,11 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
         return false;
     }
 
+    Wl.wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (Wl.wakeFd < 0) {
+        return false;
+    }
+
     PlatformEvent *event = PlatformPushEvent(PlatformEventKind_Resized);
     event->width = Wl.width * Wl.scale;
     event->height = Wl.height * Wl.scale;
@@ -648,23 +655,42 @@ function PlatformEventList PlatformPollEvents(b32 wait)
     }
     wl_display_flush(Wl.display);
 
-    struct pollfd fd = { .fd = wl_display_get_fd(Wl.display), .events = POLLIN };
-    if (poll(&fd, 1, timeout) > 0 && (fd.revents & POLLIN)) {
+    struct pollfd fds[] = {
+        { .fd = wl_display_get_fd(Wl.display), .events = POLLIN },
+        { .fd = Wl.wakeFd, .events = POLLIN },
+    };
+    if (poll(fds, CArrayCount(fds), timeout) > 0 && (fds[0].revents & POLLIN)) {
         wl_display_read_events(Wl.display);
     } else {
         wl_display_cancel_read(Wl.display);
+    }
+    if (fds[1].revents & POLLIN) {
+        u64 count;
+        while (read(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
     }
 
     wl_display_dispatch_pending(Wl.display);
     LinuxGenerateRepeats();
 
     // A dead compositor connection cannot recover; ask the app to quit.
-    if (!Wl.closed && (wl_display_get_error(Wl.display) != 0 || (fd.revents & (POLLHUP | POLLERR)))) {
+    if (!Wl.closed && (wl_display_get_error(Wl.display) != 0 || (fds[0].revents & (POLLHUP | POLLERR)))) {
         Wl.closed = true;
         PlatformPushEvent(PlatformEventKind_CloseRequested);
     }
 
     return PlatformTakeEvents();
+}
+
+function void P_WakeWindow(void)
+{
+    u64 count = 1;
+    while (write(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
+}
+
+function void P_ReleaseWindowWake(void)
+{
+    close(Wl.wakeFd);
+    Wl.wakeFd = -1;
 }
 
 function void PlatformSwapBuffers(void)

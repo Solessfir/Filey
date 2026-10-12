@@ -2,6 +2,8 @@
 
 #include "Base/Base.h"
 #include "Platform/Platform.h"
+#include "Platform/Jobs.h"
+#include "Platform/Files.h"
 #include "Renderer/Renderer.h"
 #include "UI/UI.h"
 #include "Program/Program.h"
@@ -11,10 +13,14 @@
 
 #if defined(_WIN32)
 #include "Win/WinPlatform.c"
+#include "Win/WinThreads.c"
+#include "Win/WinFiles.c"
 #include "Win/WinWindow.c"
 #include "Win/WinFont.c"
 #elif defined(__linux__)
 #include "Linux/LinuxPlatform.c"
+#include "Linux/LinuxThreads.c"
+#include "Linux/LinuxFiles.c"
 #include "Linux/LinuxWindow.c"
 #include "Linux/LinuxFont.c"
 #else
@@ -24,6 +30,8 @@
 #include "Renderer/OpenGLRenderer.c"
 #include "Renderer/Font.c"
 #include "UI/UI.c"
+#include "Platform/PlatformJobs.c"
+#include "Program/Directory.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
 
@@ -50,6 +58,12 @@ typedef struct Prog_Loop {
     b32 needsFrame;
 } Prog_Loop;
 
+function void Prog__Wake(void *user)
+{
+    (void)user;
+    P_WakeWindow();
+}
+
 function void Prog__Frame(void *user, PlatformEventList events)
 {
     Prog_Loop *loop = user;
@@ -69,11 +83,13 @@ function void Prog__Frame(void *user, PlatformEventList events)
         return;
     }
     ArenaClear(&state->frameArena);
+    b32 completed = Prog_TakeCompletions(state);
     PlatformWindowInfo window = PlatformWindowGetInfo();
     UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
+    Prog_HandleInput(state, events);
     Prog_BuildUI(state, &loop->font, window.scale);
     UI_EndFrame();
-    loop->needsFrame = Prog_ProcessCommands(state) || events.count != 0;
+    loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
     R_BeginFrame(window.width, window.height, (R_Color){ 0.11f, 0.12f, 0.14f, 1.0f });
     UI_Draw();
     R_EndFrame();
@@ -86,13 +102,19 @@ int main(void)
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
+    Prog_Loop loop = { .running = true, .needsFrame = true };
+    if (!Prog_Init(&loop.state, S(""), Prog__Wake, NULL)) {
+        fprintf(stderr, "Failed to start workers\n");
+        return 1;
+    }
     if (!R_Init()) {
         fprintf(stderr, "Failed to initialize the renderer\n");
+        Prog_Release(&loop.state);
+        P_ReleaseWindowWake();
         return 1;
     }
 
     Arena permanent = {0};
-    Prog_Loop loop = { .running = true, .needsFrame = true };
     PlatformWindowInfo startWindow = PlatformWindowGetInfo();
 #if defined(_WIN32)
     const f32 fontPixelSize = 9.0f * (96.0f / 72.0f);
@@ -101,6 +123,9 @@ int main(void)
 #endif
     if (!R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font)) {
         fprintf(stderr, "Failed to load fonts\n");
+        Prog_Release(&loop.state);
+        P_ReleaseWindowWake();
+        ArenaRelease(&permanent);
         return 1;
     }
 
@@ -120,8 +145,8 @@ int main(void)
     }
 
     PlatformSetModalFrameCallback(NULL, NULL);
-    UI_Release(&loop.state.ui);
-    ArenaRelease(&loop.state.frameArena);
+    Prog_Release(&loop.state);
+    P_ReleaseWindowWake();
     ArenaRelease(&permanent);
     return 0;
 }

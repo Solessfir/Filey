@@ -61,16 +61,19 @@ Build.bat [release] [analyze] [test]          Windows
 ```text
 Source/
 ├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
-├─ Platform/   Platform.h: the platform contract; PlatformEvents.c: shared event queue
-├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs)
-├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs)
+├─ Platform/   Platform.h + PlatformEvents.c: window/input contract; Jobs.h + PlatformJobs.c: worker queue; Files.h: filesystem contract
+├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs), WinThreads.c + WinFiles.c
+├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
-├─ Tests/      assert-based base-layer tests (link only *Platform.c, no window code)
+├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering
+├─ Program/    Program.h + Directory.c: browser state and background results; Commands.c: deferred actions; Program.c: UI
+├─ Tests/      assert-based base, UI, filesystem, jobs and browser tests (native platform backends, no window code)
 └─ Unity.c     application unity root
 ```
 
 - `function` and `global` expand to `static`. OS headers that use either as an identifier must be included between `#pragma push_macro("name")` / `#undef name` and `#pragma pop_macro("name")`, as `Win/WinPlatform.c` does for `windows.h` (`function`) and `Linux/LinuxWindow.c` does for Wayland (`global`).
 - `u64` is `unsigned long` on Linux and `unsigned long long` on Windows. Write 64-bit constants with `UINT64_C(...)`, not a `ULL` suffix, so `_Generic` helpers such as `Min`/`Max` resolve on both platforms.
+- Job descriptors are managed on the main thread. Submitting transfers the job arena to the worker; taking completion transfers it back. Adopt result arenas or copy results before releasing a job. Publish only the latest directory generation at a frame boundary.
 
 ## Validation
 

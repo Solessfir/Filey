@@ -153,7 +153,7 @@ typedef struct PlatformDoubleClick {
 function PlatformDoubleClick PlatformDoubleClickSettings(void);
 
 // Returns the events received since the previous call. The list stays valid
-// until the next call. With `wait`, blocks until at least one event arrives.
+// until the next call. With `wait`, blocks until an event or background wakeup arrives.
 function PlatformEventList PlatformPollEvents(b32 wait);
 
 typedef void PlatformFrameCallback(void *user, PlatformEventList events);

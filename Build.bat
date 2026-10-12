@@ -30,7 +30,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 set CFLAGS=-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I"%ROOT%Source" -D_CRT_SECURE_NO_WARNINGS -g
 rem The release build has no console window; debug keeps one for logs.
-set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite
+set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite -lshell32 -lole32
 rem The DirectWrite adapter is the only C++ and uses no C++ runtime features.
 set CXXFLAGS=-std=c++20 -Wall -Wextra -fno-exceptions -fno-rtti -I"%ROOT%Source" -g
 if "%MODE%"=="release" (
@@ -52,6 +52,6 @@ if "%ANALYZE%"=="1" (
 "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
 
 if "%TEST%"=="1" (
-    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -o "%OUT%\FileyTests.exe" || exit /b 1
+    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -lshell32 -lole32 -o "%OUT%\FileyTests.exe" || exit /b 1
     "%OUT%\FileyTests.exe" || exit /b 1
 )
