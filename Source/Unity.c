@@ -3,6 +3,8 @@
 #include "Base/Base.h"
 #include "Platform/Platform.h"
 #include "Renderer/Renderer.h"
+#include "UI/UI.h"
+#include "Program/Program.h"
 
 #include "Base/Base.c"
 #include "Platform/PlatformEvents.c"
@@ -21,6 +23,9 @@
 
 #include "Renderer/OpenGLRenderer.c"
 #include "Renderer/Font.c"
+#include "UI/UI.c"
+#include "Program/Commands.c"
+#include "Program/Program.c"
 
 #if defined(LOG_EVENTS)
 function void LogEvent(const PlatformEvent *event)
@@ -38,35 +43,41 @@ function void LogEvent(const PlatformEvent *event)
 }
 #endif
 
-// Temporary renderer smoke test until the UI layer exists.
-function void DrawRendererDemo(const R_Font *uiFont, const R_Font *monoFont, f32 scale)
+typedef struct Prog_Loop {
+    Prog_State state;
+    R_Font font;
+    b32 running;
+    b32 needsFrame;
+} Prog_Loop;
+
+function void Prog__Frame(void *user, PlatformEventList events)
 {
-    R_Color text = { 0.90f, 0.91f, 0.93f, 1.0f };
-    R_Color dim = { 0.60f, 0.62f, 0.66f, 1.0f };
-    R_Color accent = { 0.29f, 0.53f, 0.91f, 1.0f };
-
-    f32 x = 24.0f * scale;
-    f32 y = 24.0f * scale;
-    R_DrawText(uiFont, x, y, text, S("Filey - the quick brown fox jumps over the lazy dog"));
-    y += uiFont->lineHeight;
-    R_DrawText(uiFont, x, y, dim, S("Ångström façade naïve Ťažký 0123456789 !@#$%^&*()"));
-    y += uiFont->lineHeight;
-    R_DrawText(uiFont, x, y, dim, S("Съешь же ещё этих мягких французских булок, да выпей чаю. Ёжик, подъезд, щука"));
-    y += uiFont->lineHeight;
-    R_DrawText(monoFont, x, y, dim, S("int main(void) { return 0; } // monospace"));
-    y += monoFont->lineHeight + 16.0f * scale;
-
-    String label = S("Rounded button");
-    f32 padding = 12.0f * scale;
-    R_Rect button = { x, y, x + R_TextWidth(uiFont, label) + 2.0f * padding, y + uiFont->lineHeight + padding };
-    R_DrawRect(button, accent, 6.0f * scale);
-    R_DrawText(uiFont, button.x0 + padding, button.y0 + 0.5f * padding, text, label);
-
-    R_Rect outline = { button.x1 + 16.0f * scale, button.y0, button.x1 + 176.0f * scale, button.y1 };
-    R_DrawRectOutline(outline, dim, 6.0f * scale, 1.0f * scale);
-    R_PushClip((R_Rect){ outline.x0, outline.y0, outline.x0 + 0.5f * (outline.x1 - outline.x0), outline.y1 });
-    R_DrawText(uiFont, outline.x0 + padding, outline.y0 + 0.5f * padding, text, S("Clipped in half"));
-    R_PopClip();
+    Prog_Loop *loop = user;
+    Prog_State *state = &loop->state;
+    if (!loop->running) {
+        return;
+    }
+    for (PlatformEvent *event = events.first; event; event = event->next) {
+#if defined(LOG_EVENTS)
+        LogEvent(event);
+#endif
+        if (event->kind == PlatformEventKind_CloseRequested) {
+            loop->running = false;
+        }
+    }
+    if (!loop->running) {
+        return;
+    }
+    ArenaClear(&state->frameArena);
+    PlatformWindowInfo window = PlatformWindowGetInfo();
+    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
+    Prog_BuildUI(state, &loop->font, window.scale);
+    UI_EndFrame();
+    loop->needsFrame = Prog_ProcessCommands(state) || events.count != 0;
+    R_BeginFrame(window.width, window.height, (R_Color){ 0.11f, 0.12f, 0.14f, 1.0f });
+    UI_Draw();
+    R_EndFrame();
+    PlatformSwapBuffers();
 }
 
 int main(void)
@@ -81,34 +92,36 @@ int main(void)
     }
 
     Arena permanent = {0};
-    R_Font uiFont = {0};
-    R_Font monoFont = {0};
+    Prog_Loop loop = { .running = true, .needsFrame = true };
     PlatformWindowInfo startWindow = PlatformWindowGetInfo();
-    if (!R_FontCreate(&permanent, S("Segoe UI"), 15.0f * startWindow.scale, &uiFont) ||
-        !R_FontCreate(&permanent, S("Consolas"), 14.0f * startWindow.scale, &monoFont)) {
+#if defined(_WIN32)
+    const f32 fontPixelSize = 9.0f * (96.0f / 72.0f);
+#else
+    const f32 fontPixelSize = 15.0f;
+#endif
+    if (!R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font)) {
         fprintf(stderr, "Failed to load fonts\n");
         return 1;
     }
 
-    b32 running = true;
-    while (running) {
-        PlatformEventList events = PlatformPollEvents(true);
-
-        for (PlatformEvent *event = events.first; event != NULL; event = event->next) {
-#if defined(LOG_EVENTS)
-            LogEvent(event);
-#endif
-            if (event->kind == PlatformEventKind_CloseRequested) {
-                running = false;
-            }
-        }
-
-        PlatformWindowInfo window = PlatformWindowGetInfo();
-        R_BeginFrame(window.width, window.height, (R_Color){ 0.11f, 0.12f, 0.14f, 1.0f });
-        DrawRendererDemo(&uiFont, &monoFont, window.scale);
-        R_EndFrame();
-        PlatformSwapBuffers();
+    loop.state.ui.defaultFont = &loop.font;
+    loop.state.ui.defaultColors = (UI_Colors){
+        .background = { 0.11f, 0.12f, 0.14f, 1 },
+        .border = { 0.25f, 0.27f, 0.31f, 1 },
+        .text = { 0.90f, 0.91f, 0.93f, 1 },
+    };
+    PlatformDoubleClick doubleClick = PlatformDoubleClickSettings();
+    loop.state.ui.doubleClickMicroseconds = doubleClick.intervalMicroseconds;
+    loop.state.ui.doubleClickDistance = doubleClick.distance;
+    PlatformSetModalFrameCallback(Prog__Frame, &loop);
+    while (loop.running) {
+        PlatformEventList events = PlatformPollEvents(!loop.needsFrame);
+        Prog__Frame(&loop, events);
     }
 
+    PlatformSetModalFrameCallback(NULL, NULL);
+    UI_Release(&loop.state.ui);
+    ArenaRelease(&loop.state.frameArena);
+    ArenaRelease(&permanent);
     return 0;
 }

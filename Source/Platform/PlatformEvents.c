@@ -11,11 +11,15 @@ typedef struct PlatformEventQueue {
 } PlatformEventQueue;
 
 global PlatformEventQueue EventQueue;
+global PlatformFrameCallback *ModalFrameCallback;
+global void *ModalFrameUser;
+global b32 ModalFrameActive;
 
 function PlatformEvent *PlatformPushEvent(PlatformEventKind kind)
 {
     PlatformEvent *event = ArenaPushStruct(&EventQueue.arenas[EventQueue.current], PlatformEvent);
     event->kind = (u8)kind;
+    event->timeMicroseconds = PlatformNowMicroseconds();
     QueuePush(EventQueue.pending.first, EventQueue.pending.last, event);
     EventQueue.pending.count += 1;
     return event;
@@ -30,4 +34,19 @@ function PlatformEventList PlatformTakeEvents(void)
     EventQueue.pending = (PlatformEventList){0};
 
     return result;
+}
+
+function void PlatformSetModalFrameCallback(PlatformFrameCallback *callback, void *user)
+{
+    ModalFrameCallback = callback;
+    ModalFrameUser = user;
+}
+
+function void Platform__RunModalFrame(void)
+{
+    if (ModalFrameCallback && !ModalFrameActive) {
+        ModalFrameActive = true;
+        ModalFrameCallback(ModalFrameUser, PlatformTakeEvents());
+        ModalFrameActive = false;
+    }
 }

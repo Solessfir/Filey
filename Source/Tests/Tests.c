@@ -1,7 +1,10 @@
-// Base-layer self-checks. Built and run by `Build test`.
+// Headless self-checks. Built and run by `Build test`.
 
 #include "Base/Base.h"
 #include "Platform/Platform.h"
+#include "Renderer/Renderer.h"
+#include "UI/UI.h"
+#include "Program/Program.h"
 
 #if defined(_WIN32)
 #include "Win/WinPlatform.c"
@@ -10,6 +13,9 @@
 #endif
 
 #include "Base/Base.c"
+#include "Platform/PlatformEvents.c"
+#include "UI/UI.c"
+#include "Program/Commands.c"
 
 global i32 CheckFailures;
 
@@ -20,6 +26,38 @@ global i32 CheckFailures;
             ++CheckFailures; \
         } \
     } while (0)
+
+#include "Tests/UI.c"
+
+global u32 TestModalFrameCount;
+
+function void TestModalFrame(void *user, PlatformEventList events)
+{
+    Check(user == &TestModalFrameCount);
+    ++TestModalFrameCount;
+    Check(events.count == 1 && events.first->kind == PlatformEventKind_Resized);
+    PlatformPushEvent(PlatformEventKind_MouseMove);
+    Platform__RunModalFrame();
+    Check(TestModalFrameCount == 1 && events.first->kind == PlatformEventKind_Resized);
+}
+
+function void TestModalFrames(void)
+{
+    PlatformSetModalFrameCallback(TestModalFrame, &TestModalFrameCount);
+    PlatformPushEvent(PlatformEventKind_Resized);
+    Platform__RunModalFrame();
+    Check(TestModalFrameCount == 1 && !ModalFrameActive);
+    PlatformEventList pending = PlatformTakeEvents();
+    Check(pending.count == 1 && pending.first->kind == PlatformEventKind_MouseMove);
+    PlatformSetModalFrameCallback(NULL, NULL);
+    PlatformPushEvent(PlatformEventKind_CloseRequested);
+    Platform__RunModalFrame();
+    pending = PlatformTakeEvents();
+    Check(TestModalFrameCount == 1 && pending.count == 1 && pending.first->kind == PlatformEventKind_CloseRequested);
+    ArenaRelease(&EventQueue.arenas[0]);
+    ArenaRelease(&EventQueue.arenas[1]);
+    ZeroStruct(&EventQueue);
+}
 
 // -----------------------------------------------------------------------------
 
@@ -367,11 +405,21 @@ int main(void)
     TestStrings();
     TestArrays();
     TestMaps();
+    TestModalFrames();
+    TestUILayout();
+    TestUINestedSizing();
+    TestUIPropertiesAndLifetime();
+    TestUIInteractions();
+    TestUIClippingAndDrawOrder();
+    TestUIScrolling();
+    TestUIFrameFontLifetime();
+    TestUICommandEventOrder();
+    TestProgramCommands();
 
     if (CheckFailures != 0) {
         fprintf(stderr, "%d check(s) failed\n", CheckFailures);
         return 1;
     }
-    printf("All base tests passed\n");
+    printf("All headless tests passed\n");
     return 0;
 }

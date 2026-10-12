@@ -113,6 +113,8 @@ struct PlatformEvent {
 
     i32 width;     // Resized
     i32 height;
+
+    u64 timeMicroseconds;  // PlatformNowMicroseconds when the OS delivered it
 };
 
 typedef struct PlatformEventList {
@@ -143,9 +145,21 @@ typedef struct PlatformWindowInfo {
 function b32                PlatformWindowOpen(PlatformWindowDesc desc);
 function PlatformWindowInfo PlatformWindowGetInfo(void);
 
+typedef struct PlatformDoubleClick {
+    u64 intervalMicroseconds;
+    f32 distance;  // physical pixels the pointer may move between clicks
+} PlatformDoubleClick;
+
+function PlatformDoubleClick PlatformDoubleClickSettings(void);
+
 // Returns the events received since the previous call. The list stays valid
 // until the next call. With `wait`, blocks until at least one event arrives.
 function PlatformEventList PlatformPollEvents(b32 wait);
+
+typedef void PlatformFrameCallback(void *user, PlatformEventList events);
+// Native modal loops may request a frame before PlatformPollEvents returns.
+// The callback runs on the window thread and must not poll events recursively.
+function void PlatformSetModalFrameCallback(PlatformFrameCallback *callback, void *user);
 
 // ISO C does not allow converting object pointers to function pointers, so GL
 // entry points travel as a generic function pointer type.

@@ -676,3 +676,13 @@ function PlatformProc *PlatformGLGetProc(const char *name)
 {
     return (PlatformProc *)eglGetProcAddress(name);
 }
+
+function PlatformDoubleClick PlatformDoubleClickSettings(void)
+{
+    // ponytail: Wayland has no double-click setting; these are GTK's defaults.
+    // Read the desktop's settings portal if users report mismatches.
+    return (PlatformDoubleClick){
+        .intervalMicroseconds = 400000,
+        .distance = 5.0f * (f32)Wl.scale,
+    };
+}

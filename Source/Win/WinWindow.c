@@ -22,6 +22,7 @@ typedef struct WinWindowState {
 
     wchar highSurrogate;
     b32 mouseCaptured;
+    b32 sizing;
 } WinWindowState;
 
 global WinWindowState Win;
@@ -110,6 +111,17 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             PlatformEvent *event = PlatformPushEvent(PlatformEventKind_Resized);
             event->width = Win.width;
             event->height = Win.height;
+            if (Win.sizing) {
+                Platform__RunModalFrame();
+            }
+        } return 0;
+
+        case WM_ENTERSIZEMOVE: {
+            Win.sizing = true;
+        } return 0;
+
+        case WM_EXITSIZEMOVE: {
+            Win.sizing = false;
         } return 0;
 
         case WM_DPICHANGED: {
@@ -342,4 +354,14 @@ function PlatformProc *PlatformGLGetProc(const char *name)
         proc = GetProcAddress(Win.openGL, name);
     }
     return (PlatformProc *)proc;
+}
+
+function PlatformDoubleClick PlatformDoubleClickSettings(void)
+{
+    // SM_C*DOUBLECLK is the full width of the rectangle centered on the first click.
+    i32 size = MaxI32(GetSystemMetrics(SM_CXDOUBLECLK), GetSystemMetrics(SM_CYDOUBLECLK));
+    return (PlatformDoubleClick){
+        .intervalMicroseconds = (u64)GetDoubleClickTime() * 1000,
+        .distance = 0.5f * (f32)size,
+    };
 }
