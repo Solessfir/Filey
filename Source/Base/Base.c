@@ -347,6 +347,37 @@ function String StrFromTo(String s, u64 from, i64 to)
     return result;
 }
 
+function rune StrDecodeUtf8(String s, u64 *pos)
+{
+    Assert(*pos < s.length);
+    const u8 *p = (const u8 *)s.value + *pos;
+    u64 left = s.length - *pos;
+
+    u32 length = 0;
+    rune result = 0;
+    rune minimum = 0;
+    if (p[0] < 0x80) {
+        *pos += 1;
+        return p[0];
+    } else if ((p[0] & 0xE0) == 0xC0) {
+        length = 2, result = p[0] & 0x1F, minimum = 0x80;
+    } else if ((p[0] & 0xF0) == 0xE0) {
+        length = 3, result = p[0] & 0x0F, minimum = 0x800;
+    } else if ((p[0] & 0xF8) == 0xF0) {
+        length = 4, result = p[0] & 0x07, minimum = 0x10000;
+    }
+
+    b32 valid = length != 0 && length <= left;
+    for (u32 i = 1; valid && i < length; ++i) {
+        valid = (p[i] & 0xC0) == 0x80;
+        result = (result << 6) | (p[i] & 0x3F);
+    }
+    valid = valid && result >= minimum && result <= 0x10FFFF && !IsBetween(result, 0xD800, 0xDFFF);
+
+    *pos += valid ? length : 1;
+    return valid ? result : 0xFFFD;
+}
+
 function Index StrSearchResult(String s, b32 found, u64 at, u64 matchLength, StrSearchFlags flags)
 {
     Index result = { .exists = found, .value = found ? at : 0 };

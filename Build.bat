@@ -30,12 +30,16 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 set CFLAGS=-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I"%ROOT%Source" -D_CRT_SECURE_NO_WARNINGS -g
 rem The release build has no console window; debug keeps one for logs.
-set APP_LINK=-luser32 -lgdi32 -lopengl32
+set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite
+rem The DirectWrite adapter is the only C++ and uses no C++ runtime features.
+set CXXFLAGS=-std=c++20 -Wall -Wextra -fno-exceptions -fno-rtti -I"%ROOT%Source" -g
 if "%MODE%"=="release" (
     set CFLAGS=%CFLAGS% -O2 -DNDEBUG
-    set APP_LINK=-luser32 -lgdi32 -lopengl32 -Wl,/SUBSYSTEM:WINDOWS -Wl,/ENTRY:mainCRTStartup
+    set CXXFLAGS=%CXXFLAGS% -O2 -DNDEBUG
+    set APP_LINK=%APP_LINK% -Wl,/SUBSYSTEM:WINDOWS -Wl,/ENTRY:mainCRTStartup
 ) else (
     set CFLAGS=%CFLAGS% -O0 -DDEBUG
+    set CXXFLAGS=%CXXFLAGS% -O0 -DDEBUG
 )
 rem EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 set CFLAGS=%CFLAGS% %EXTRA_CFLAGS%
@@ -44,7 +48,8 @@ if "%ANALYZE%"=="1" (
     "%CLANG%" %CFLAGS% --analyze -Xclang -analyzer-output=text "%ROOT%Source\Unity.c" -o nul || exit /b 1
 )
 
-"%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
+"%CLANG%" -x c++ %CXXFLAGS% -c "%ROOT%Source\Win\WinFontRasterizer.cpp" -o "%OUT%\WinFontRasterizer.obj" || exit /b 1
+"%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
 
 if "%TEST%"=="1" (
     "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -o "%OUT%\FileyTests.exe" || exit /b 1

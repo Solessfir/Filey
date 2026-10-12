@@ -27,7 +27,8 @@ typedef i16      b16;
 typedef i32      b32;
 typedef i64      b64;
 
-typedef i32      rune;
+typedef wchar_t  wchar;  // Wide character, used in Win API
+typedef i32      rune;   // Unicode codepoint
 
 static_assert(sizeof(u32) == 4);
 static_assert(sizeof(u64) == 8);
@@ -452,6 +453,10 @@ function Index    StrIndexChar(String s, char c, StrSearchFlags flags);
 function Index    StrIndexStr(String s, String needle, StrSearchFlags flags);
 // Empty tokens are skipped, so "\\a\\\\b\\" split on '\\' gives ["a", "b"].
 function ArrayStr StrSplit(Arena *arena, String s, char separator);
+
+// Decodes the codepoint at *pos and advances past it. Malformed, overlong or
+// truncated sequences give U+FFFD and advance one byte.
+function rune StrDecodeUtf8(String s, u64 *pos);
 
 // Format specifiers follow printf, plus %S for a String argument.
 function String StrFormat(Arena *arena, const char *format, ...);

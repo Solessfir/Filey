@@ -147,5 +147,39 @@ function PlatformWindowInfo PlatformWindowGetInfo(void);
 // until the next call. With `wait`, blocks until at least one event arrives.
 function PlatformEventList PlatformPollEvents(b32 wait);
 
-function void  PlatformSwapBuffers(void);
-function void *PlatformGLGetProc(const char *name);
+// ISO C does not allow converting object pointers to function pointers, so GL
+// entry points travel as a generic function pointer type.
+typedef void PlatformProc(void);
+
+function void          PlatformSwapBuffers(void);
+function PlatformProc *PlatformGLGetProc(const char *name);
+
+// -----------------------------------------------------------------------------
+// Fonts
+//
+// The OS rasterizer (DirectWrite, FreeType) renders glyphs with its native
+// hinting and antialiasing; packing them into an atlas is left to the caller.
+// -----------------------------------------------------------------------------
+
+typedef struct PlatformGlyph {
+    u8 *pixels;    // width * height grayscale coverage, top-down
+    i32 width;
+    i32 height;
+    f32 offsetX;   // from the pen position on the baseline to the bitmap's top-left
+    f32 offsetY;
+    f32 advance;
+} PlatformGlyph;
+
+typedef struct PlatformFont {
+    f32 ascent;    // pixels above the baseline
+    f32 descent;   // pixels below the baseline, positive
+    f32 lineGap;
+    u32 firstCodepoint;
+    u32 glyphCount;
+    PlatformGlyph *glyphs;  // one per codepoint in [firstCodepoint, firstCodepoint + glyphCount)
+} PlatformFont;
+
+// Rasterizes a contiguous codepoint range of an installed font family at a
+// pixel size. Unknown families fall back to the system's default. Everything
+// is allocated from `arena`.
+function b32 PlatformFontRasterize(Arena *arena, String family, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font);

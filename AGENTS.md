@@ -33,15 +33,17 @@ Spec Section 1.2 describes how to run headless Ghidra MCP against `reference.exe
 - Use `function`, `global`, and `local_persist` instead of bare `static`.
 - Use the base-layer vocabulary (`u64`, `b32`, `S("...")`, `ArenaPushStruct`, `ArrayPush`, `QueuePush`, etc.) instead of raw runtime calls.
 - Prefer standard C23 (`__VA_OPT__`, `static_assert`, `alignof`) over compiler extensions.
+- Use the base type aliases (`u8`..`u64`, `i32`, `f32`, `b32`, `wchar`, `rune`) instead of `int`, `float`, `unsigned`, `size_t`, `WCHAR`, etc., including in the C++ adapter. Internal helpers of a layer use a double underscore (`R__FontFindGlyph`, `GL__PushInstance`).
+- Screenshots of the original source in `%USERPROFILE%\Pictures\Screenshots\Reference\` show its style (`result` return variables, `Prefix__Name` internals, `enum8(...)` fields, `_Count` sentinels). Use them as a loose reference, not a formatting rule.
 - Do not edit generated files (`*.generated.h`, `Meta/*.meta.h`). Change the generator or its input instead.
 
 ## Toolchain
 
-- Clang with `-std=c23` on every platform. MSVC `cl` is not supported; on Windows `Build.bat` uses the Clang bundled with VS Build Tools plus the MSVC/SDK environment from `vcvars64.bat`, linking with lld.
+- Clang with `-std=c23` on every platform. MSVC `cl` is not supported; on Windows `Build.bat` uses the Clang bundled with VS Build Tools plus the MSVC/SDK environment from `vcvars64.bat`, linking with lld. The DirectWrite rasterizer `Win/WinFontRasterizer.cpp` is the only C++ file; it is compiled separately with `-fno-exceptions -fno-rtti` and linked in through the C header `Win/WinFontRasterizer.h`.
 - GCC is a secondary Linux compiler for catching portability issues (`CC=gcc ./Build.sh`).
 - Static analysis uses `clang --analyze` (the `analyze` build flag) and `clang-tidy`. Do not use Cppcheck; it has no C23 support.
 - Linux debug runs SHOULD use the `asan` flag (ASan + UBSan).
-- Linux app dependencies: `wayland` (client, cursor, egl), `libxkbcommon`, and EGL (`mesa`/`libglvnd`), found through `pkg-config`. The xdg-shell protocol code is generated and committed under `Source/Linux/Protocols/`, so `wayland-protocols` is needed only to regenerate it:
+- Linux app dependencies: `wayland` (client, cursor, egl), `libxkbcommon`, EGL (`mesa`/`libglvnd`), `freetype2`, and `fontconfig`, found through `pkg-config`. The xdg-shell protocol code is generated and committed under `Source/Linux/Protocols/`, so `wayland-protocols` is needed only to regenerate it:
   `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`
 - `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
 - WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).
@@ -58,9 +60,9 @@ Build.bat [release] [analyze] [test]          Windows
 Source/
 ├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
 ├─ Platform/   Platform.h: the platform contract; PlatformEvents.c: shared event queue
-├─ Win/        WinPlatform.c (memory, time) and WinWindow.c (Win32 window, input, WGL)
-├─ Linux/      LinuxPlatform.c (memory, time) and LinuxWindow.c (Wayland window, input, EGL)
-├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend
+├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs)
+├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs)
+├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
 ├─ Tests/      assert-based base-layer tests (link only *Platform.c, no window code)
 └─ Unity.c     application unity root
 ```

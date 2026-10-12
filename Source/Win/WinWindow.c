@@ -20,7 +20,7 @@ typedef struct WinWindowState {
     i32 height;
     u32 dpi;
 
-    WCHAR highSurrogate;
+    wchar highSurrogate;
     b32 mouseCaptured;
 } WinWindowState;
 
@@ -145,7 +145,7 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         } return 0;
 
         case WM_CHAR: {
-            WCHAR unit = (WCHAR)wParam;
+            wchar unit = (wchar)wParam;
             if (IS_HIGH_SURROGATE(unit)) {
                 Win.highSurrogate = unit;
                 return 0;
@@ -275,7 +275,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     }
 
     // Win32 wants a null-terminated UTF-16 title.
-    WCHAR title[256] = {0};
+    wchar title[256] = {0};
     MultiByteToWideChar(CP_UTF8, 0, desc.title.value, (int)Min(desc.title.length, (u64)200), title, (int)CArrayCount(title) - 1);
 
     Win.window = CreateWindowExW(0, windowClass.lpszClassName, title, WS_OVERLAPPEDWINDOW,
@@ -333,13 +333,13 @@ function void PlatformSwapBuffers(void)
     SwapBuffers(Win.dc);
 }
 
-function void *PlatformGLGetProc(const char *name)
+function PlatformProc *PlatformGLGetProc(const char *name)
 {
     // wglGetProcAddress only knows extensions and post-1.1 entry points; it may
     // also return small sentinel values instead of NULL on failure.
-    void *proc = (void *)wglGetProcAddress(name);
+    PROC proc = wglGetProcAddress(name);
     if ((uintptr_t)proc <= 3 || (intptr_t)proc == -1) {
-        proc = (void *)GetProcAddress(Win.openGL, name);
+        proc = GetProcAddress(Win.openGL, name);
     }
-    return proc;
+    return (PlatformProc *)proc;
 }

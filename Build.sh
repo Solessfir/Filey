@@ -33,7 +33,7 @@ fi
 # EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 cflags="$cflags ${EXTRA_CFLAGS:-}"
 
-app_packages="wayland-client wayland-cursor wayland-egl egl xkbcommon"
+app_packages="wayland-client wayland-cursor wayland-egl egl xkbcommon freetype2 fontconfig"
 app_cflags=$(pkg-config --cflags $app_packages)
 app_libs=$(pkg-config --libs $app_packages)
 

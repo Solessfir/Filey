@@ -672,7 +672,7 @@ function void PlatformSwapBuffers(void)
     eglSwapBuffers(Wl.eglDisplay, Wl.eglSurface);
 }
 
-function void *PlatformGLGetProc(const char *name)
+function PlatformProc *PlatformGLGetProc(const char *name)
 {
-    return (void *)eglGetProcAddress(name);
+    return (PlatformProc *)eglGetProcAddress(name);
 }

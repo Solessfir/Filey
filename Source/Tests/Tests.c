@@ -208,6 +208,15 @@ function void TestStrings(void)
     Check(parts.header.count == 2);
     Check(StrIsEqual(parts.v[0], S("C:")) && StrIsEqual(parts.v[1], S("Users")));
 
+    // "aé€😀" then an overlong '/', a lone continuation byte and a truncated sequence.
+    String utf8 = S("a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80\xC0\xAF\x80\xE2\x82");
+    rune expected[] = { 'a', 0xE9, 0x20AC, 0x1F600, 0xFFFD, 0xFFFD, 0xFFFD, 0xFFFD, 0xFFFD };
+    u64 pos = 0;
+    for (u64 i = 0; i < CArrayCount(expected); ++i) {
+        Check(StrDecodeUtf8(utf8, &pos) == expected[i]);
+    }
+    Check(pos == utf8.length);
+
     StrBuilder builder = {0};
     StrBuild(&arena, &builder, "Files: ");
     String number = StrBuild(&arena, &builder, (u64)42);
