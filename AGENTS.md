@@ -73,3 +73,7 @@ Source/
 - After logic changes, build with the cheapest useful configuration (`Build.bat` or `./Build.sh`).
 - Base-layer changes (arenas, strings, arrays, maps, lists) need their tests in `Source/Tests/Tests.c` updated or extended, then a `test` run on both Windows and Linux (`./Build.sh asan test` in WSL).
 - Do not reference spec sections in code comments.
+
+## Workflow
+
+- Commit each finished, validated step right away without asking. If follow-up fixes are requested for that work, amend the commit while it is unpushed.
