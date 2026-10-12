@@ -13,6 +13,8 @@ A functional reimplementation of the reference file manager in C23. `AppSpecific
 
 Spec Section 1.2 describes how to run headless Ghidra MCP against `reference.exe`. Use it to verify behavior when the spec is silent or ambiguous. Treat decompiled output as evidence to confirm, not as source to transcribe.
 
+App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the visual reference for UI appearance and layout. Inspect the relevant screenshots before implementing or changing UI.
+
 ## Architecture rules
 
 - Layers are Base, Platform, Renderer, UI, and Program. Dependencies only point downward.
