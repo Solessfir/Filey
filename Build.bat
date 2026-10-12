@@ -1,13 +1,15 @@
 @echo off
 setlocal
 
-rem Usage: build.bat [release] [analyze]
+rem Usage: Build.bat [release] [analyze] [test]
 
 set MODE=debug
 set ANALYZE=0
+set TEST=0
 for %%A in (%*) do (
     if /i "%%A"=="release" set MODE=release
     if /i "%%A"=="analyze" set ANALYZE=1
+    if /i "%%A"=="test" set TEST=1
 )
 
 rem Load the MSVC/Windows SDK environment once per shell.
@@ -26,7 +28,7 @@ set ROOT=%~dp0
 set OUT=%ROOT%Bin\%MODE%
 if not exist "%OUT%" mkdir "%OUT%"
 
-set CFLAGS=-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -D_CRT_SECURE_NO_WARNINGS -g
+set CFLAGS=-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I"%ROOT%Source" -D_CRT_SECURE_NO_WARNINGS -g
 if "%MODE%"=="release" (
     set CFLAGS=%CFLAGS% -O2 -DNDEBUG
 ) else (
@@ -38,3 +40,8 @@ if "%ANALYZE%"=="1" (
 )
 
 "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" -o "%OUT%\Filey.exe" || exit /b 1
+
+if "%TEST%"=="1" (
+    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -o "%OUT%\FileyTests.exe" || exit /b 1
+    "%OUT%\FileyTests.exe" || exit /b 1
+)

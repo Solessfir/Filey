@@ -37,18 +37,34 @@ Spec Section 1.2 describes how to run headless Ghidra MCP against `reference.exe
 
 ## Toolchain
 
-- Clang with `-std=c23` on every platform. MSVC `cl` is not supported; on Windows `build.bat` uses the Clang bundled with VS Build Tools plus the MSVC/SDK environment from `vcvars64.bat`, linking with lld.
-- GCC is a secondary Linux compiler for catching portability issues (`CC=gcc ./build.sh`).
+- Clang with `-std=c23` on every platform. MSVC `cl` is not supported; on Windows `Build.bat` uses the Clang bundled with VS Build Tools plus the MSVC/SDK environment from `vcvars64.bat`, linking with lld.
+- GCC is a secondary Linux compiler for catching portability issues (`CC=gcc ./Build.sh`).
 - Static analysis uses `clang --analyze` (the `analyze` build flag) and `clang-tidy`. Do not use Cppcheck; it has no C23 support.
 - Linux debug runs SHOULD use the `asan` flag (ASan + UBSan).
-- Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`.
+- Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.
 
 ```text
-build.bat [release] [analyze]          Windows
-./build.sh [release] [analyze] [asan]  Linux / WSL
+Build.bat [release] [analyze] [test]          Windows
+./Build.sh [release] [analyze] [asan] [test]  Linux / WSL
 ```
+
+## Source layout
+
+```text
+Source/
+├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
+├─ Platform/   Platform.h: the platform contract
+├─ Win/        Windows implementation of the contract
+├─ Linux/      Linux implementation of the contract
+├─ Tests/      assert-based base-layer tests
+└─ Unity.c     application unity root
+```
+
+- `function` expands to `static`. OS headers that use `function` as an identifier must be included between `#pragma push_macro("function")` / `#undef function` and `#pragma pop_macro("function")`, as `Win/WinPlatform.c` does for `windows.h`.
+- `u64` is `unsigned long` on Linux and `unsigned long long` on Windows. Write 64-bit constants with `UINT64_C(...)`, not a `ULL` suffix, so `_Generic` helpers such as `Min`/`Max` resolve on both platforms.
 
 ## Validation
 
-- After logic changes, build with the cheapest useful configuration (`build.bat` or `./build.sh`).
-- Base-layer changes (arenas, strings, arrays, maps, lists) need their assert-based tests updated or extended (spec Section 30).
+- After logic changes, build with the cheapest useful configuration (`Build.bat` or `./Build.sh`).
+- Base-layer changes (arenas, strings, arrays, maps, lists) need their tests in `Source/Tests/Tests.c` updated or extended, then a `test` run on both Windows and Linux (`./Build.sh asan test` in WSL).
+- Do not reference spec sections in code comments.

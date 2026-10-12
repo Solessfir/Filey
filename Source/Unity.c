@@ -1,10 +1,23 @@
-// Single translation unit for the whole application (spec Section 6.2).
+// Single translation unit for the whole application.
 
-#include <stdio.h>
+#include "Base/Base.h"
+#include "Platform/Platform.h"
+
+#if defined(_WIN32)
+#include "Win/WinPlatform.c"
+#elif defined(__linux__)
+#include "Linux/LinuxPlatform.c"
+#else
+#error "Unsupported platform"
+#endif
+
+#include "Base/Base.c"
 
 int main(void)
 {
-    constexpr int version = 0;
-    printf("Filey %d\n", version);
+    Arena arena = {0};
+    String message = StrFormat(&arena, "Filey %d", 0);
+    printf("%.*s\n", (int)message.length, message.value);
+    ArenaRelease(&arena);
     return 0;
 }
