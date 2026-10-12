@@ -30,11 +30,18 @@ if [ "$asan" = 1 ]; then
     cflags="$cflags -fsanitize=address,undefined -fno-omit-frame-pointer"
 fi
 
+# EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
+cflags="$cflags ${EXTRA_CFLAGS:-}"
+
+app_packages="wayland-client wayland-cursor wayland-egl egl xkbcommon"
+app_cflags=$(pkg-config --cflags $app_packages)
+app_libs=$(pkg-config --libs $app_packages)
+
 if [ "$analyze" = 1 ]; then
-    $cc $cflags --analyze -Xclang -analyzer-output=text "$root/Source/Unity.c" -o /dev/null
+    $cc $cflags $app_cflags --analyze -Xclang -analyzer-output=text "$root/Source/Unity.c" -o /dev/null
 fi
 
-$cc $cflags "$root/Source/Unity.c" -o "$out/filey"
+$cc $cflags $app_cflags "$root/Source/Unity.c" $app_libs -o "$out/filey"
 
 if [ "$test" = 1 ]; then
     $cc $cflags "$root/Source/Tests/Tests.c" -o "$out/filey-tests"

@@ -41,6 +41,10 @@ Spec Section 1.2 describes how to run headless Ghidra MCP against `reference.exe
 - GCC is a secondary Linux compiler for catching portability issues (`CC=gcc ./Build.sh`).
 - Static analysis uses `clang --analyze` (the `analyze` build flag) and `clang-tidy`. Do not use Cppcheck; it has no C23 support.
 - Linux debug runs SHOULD use the `asan` flag (ASan + UBSan).
+- Linux app dependencies: `wayland` (client, cursor, egl), `libxkbcommon`, and EGL (`mesa`/`libglvnd`), found through `pkg-config`. The xdg-shell protocol code is generated and committed under `Source/Linux/Protocols/`, so `wayland-protocols` is needed only to regenerate it:
+  `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`
+- `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
+- WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).
 - Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.
 
 ```text
@@ -53,14 +57,15 @@ Build.bat [release] [analyze] [test]          Windows
 ```text
 Source/
 ├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
-├─ Platform/   Platform.h: the platform contract
-├─ Win/        Windows implementation of the contract
-├─ Linux/      Linux implementation of the contract
-├─ Tests/      assert-based base-layer tests
+├─ Platform/   Platform.h: the platform contract; PlatformEvents.c: shared event queue
+├─ Win/        WinPlatform.c (memory, time) and WinWindow.c (Win32 window, input, WGL)
+├─ Linux/      LinuxPlatform.c (memory, time) and LinuxWindow.c (Wayland window, input, EGL)
+├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend
+├─ Tests/      assert-based base-layer tests (link only *Platform.c, no window code)
 └─ Unity.c     application unity root
 ```
 
-- `function` expands to `static`. OS headers that use `function` as an identifier must be included between `#pragma push_macro("function")` / `#undef function` and `#pragma pop_macro("function")`, as `Win/WinPlatform.c` does for `windows.h`.
+- `function` and `global` expand to `static`. OS headers that use either as an identifier must be included between `#pragma push_macro("name")` / `#undef name` and `#pragma pop_macro("name")`, as `Win/WinPlatform.c` does for `windows.h` (`function`) and `Linux/LinuxWindow.c` does for Wayland (`global`).
 - `u64` is `unsigned long` on Linux and `unsigned long long` on Windows. Write 64-bit constants with `UINT64_C(...)`, not a `ULL` suffix, so `_Generic` helpers such as `Min`/`Max` resolve on both platforms.
 
 ## Validation

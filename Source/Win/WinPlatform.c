@@ -29,3 +29,19 @@ function u64 PlatformVMPageSize(void)
     GetSystemInfo(&info);
     return info.dwPageSize;
 }
+
+function u64 PlatformNowMicroseconds(void)
+{
+    local_persist LARGE_INTEGER frequency;
+    if (frequency.QuadPart == 0) {
+        QueryPerformanceFrequency(&frequency);
+    }
+
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+
+    // Split to avoid overflowing counter * 1e6.
+    u64 ticks = (u64)counter.QuadPart;
+    u64 perSecond = (u64)frequency.QuadPart;
+    return (ticks / perSecond) * Millions(1) + (ticks % perSecond) * Millions(1) / perSecond;
+}
