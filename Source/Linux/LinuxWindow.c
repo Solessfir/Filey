@@ -904,41 +904,49 @@ function PlatformEventList PlatformPollEvents(b32 wait)
     wl_display_dispatch_pending(Wl.display);
     LinuxGenerateRepeats();
 
-    i32 timeout = 0;
-    if (wait && EventQueue.pending.count == 0) {
-        timeout = -1;
-        if (Wl.repeating) {
-            u64 now = PlatformNowMicroseconds();
-            timeout = Wl.repeatNextUs > now ? (i32)((Wl.repeatNextUs - now + 999) / 1000) : 0;
+    // A wait ends only for something the program sees: an event, a wake from a job, or a key repeat that is due.
+    // Compositor traffic alone, such as the buffer release that follows every swap, would otherwise wake the loop to draw again, forever.
+    b32 woken = false;
+    for (;;) {
+        i32 timeout = 0;
+        if (wait && EventQueue.pending.count == 0) {
+            timeout = -1;
+            if (Wl.repeating) {
+                u64 now = PlatformNowMicroseconds();
+                timeout = Wl.repeatNextUs > now ? (i32)((Wl.repeatNextUs - now + 999) / 1000) : 0;
+            }
         }
-    }
 
-    while (wl_display_prepare_read(Wl.display) != 0) {
+        while (wl_display_prepare_read(Wl.display) != 0) {
+            wl_display_dispatch_pending(Wl.display);
+        }
+        wl_display_flush(Wl.display);
+
+        struct pollfd fds[] = {
+            { .fd = wl_display_get_fd(Wl.display), .events = POLLIN },
+            { .fd = Wl.wakeFd, .events = POLLIN },
+        };
+        if (poll(fds, CArrayCount(fds), timeout) > 0 && (fds[0].revents & POLLIN)) {
+            wl_display_read_events(Wl.display);
+        } else {
+            wl_display_cancel_read(Wl.display);
+        }
+        if (fds[1].revents & POLLIN) {
+            u64 count;
+            while (read(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
+            woken = true;
+        }
+
         wl_display_dispatch_pending(Wl.display);
-    }
-    wl_display_flush(Wl.display);
+        LinuxGenerateRepeats();
 
-    struct pollfd fds[] = {
-        { .fd = wl_display_get_fd(Wl.display), .events = POLLIN },
-        { .fd = Wl.wakeFd, .events = POLLIN },
-    };
-    if (poll(fds, CArrayCount(fds), timeout) > 0 && (fds[0].revents & POLLIN)) {
-        wl_display_read_events(Wl.display);
-    } else {
-        wl_display_cancel_read(Wl.display);
-    }
-    if (fds[1].revents & POLLIN) {
-        u64 count;
-        while (read(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
-    }
+        // A dead compositor connection cannot recover; ask the app to quit.
+        if (!Wl.closed && (wl_display_get_error(Wl.display) != 0 || (fds[0].revents & (POLLHUP | POLLERR)))) {
+            Wl.closed = true;
+            PlatformPushEvent(PlatformEventKind_CloseRequested);
+        }
 
-    wl_display_dispatch_pending(Wl.display);
-    LinuxGenerateRepeats();
-
-    // A dead compositor connection cannot recover; ask the app to quit.
-    if (!Wl.closed && (wl_display_get_error(Wl.display) != 0 || (fds[0].revents & (POLLHUP | POLLERR)))) {
-        Wl.closed = true;
-        PlatformPushEvent(PlatformEventKind_CloseRequested);
+        if (timeout == 0 || woken || Wl.closed || EventQueue.pending.count) break;
     }
 
     return PlatformTakeEvents();
