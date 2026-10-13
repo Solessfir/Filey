@@ -54,6 +54,7 @@ typedef struct UI_Properties {
     R_Color imageTint;
     UI_Vec2 floatingOffset;
     f32 cornerRadius;  // background and border
+    f32 borderThickness;  // 0 draws one pixel
 } UI_Properties;
 
 typedef struct UI_Interaction {
@@ -145,4 +146,5 @@ function void UI_SetNextText(String text);
 function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_Color tint);
 function void UI_SetNextFloatingOffset(UI_Vec2 offset);
 function void UI_SetNextCornerRadius(f32 radius);
+function void UI_SetNextBorderThickness(f32 thickness);
 function void UI_SetNextScrollOffset(UI_Vec2 offset);

@@ -448,6 +448,19 @@ command ToggleGroup {
 command RemoveBookmark {
 }
 
+// The title bar: a press on the tab strip's empty space moves the window, and the buttons at its right end.
+command WindowMove {
+}
+
+command WindowMinimize {
+}
+
+command WindowToggleMaximize {
+}
+
+command WindowClose {
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."

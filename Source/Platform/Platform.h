@@ -151,6 +151,17 @@ function PlatformWindowInfo PlatformWindowGetInfo(void);
 // Windows adds its Acrylic blur; Wayland compositors blur by their own settings (Hyprland's blur).
 function void               PlatformWindowSetTransparent(b32 transparent);
 
+// The window has no system title bar; the program draws its own and drives the window from it.
+// Without buttons (tiling compositors) the program draws no minimize, maximize or close buttons.
+function b32  PlatformWindowHasButtons(void);
+function b32  PlatformWindowIsMaximized(void);
+function void PlatformWindowMinimize(void);
+function void PlatformWindowToggleMaximize(void);
+// Pushes CloseRequested, as the system's close does.
+function void PlatformWindowClose(void);
+// Called while the left button is down: the system moves the window with the pointer and keeps the release, so a MouseUp is pushed in its place.
+function void PlatformWindowStartMove(void);
+
 typedef struct PlatformDoubleClick {
     u64 intervalMicroseconds;
     f32 distance;  // physical pixels the pointer may move between clicks

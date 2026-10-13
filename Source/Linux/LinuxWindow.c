@@ -106,6 +106,9 @@ typedef struct LinuxWindowState {
     b32 closeRequested;  // the compositor asked the window to close
     // Not visible at all, for example on a hidden workspace, so nothing is drawn until that changes.
     b32 suspended;
+    b32 maximized;
+    // Tiling compositors cannot minimize; without that the window draws no buttons of its own.
+    b32 noMinimize;
     // Frame pacing: the next frame waits for the compositor's callback for the last one, or for the deadline when it never comes.
     struct wl_callback *frameCallback;
     u64 frameDeadline;
@@ -695,8 +698,13 @@ function void ToplevelConfigure(void *data, struct xdg_toplevel *toplevel, i32 w
     Wl.pendingWidth = width;
     Wl.pendingHeight = height;
     b32 suspended = false;
-    for (u32 *state = states->data; (u8 *)state < (u8 *)states->data + states->size; ++state) suspended |= *state == XDG_TOPLEVEL_STATE_SUSPENDED;
+    b32 maximized = false;
+    for (u32 *state = states->data; (u8 *)state < (u8 *)states->data + states->size; ++state) {
+        suspended |= *state == XDG_TOPLEVEL_STATE_SUSPENDED;
+        maximized |= *state == XDG_TOPLEVEL_STATE_MAXIMIZED;
+    }
     Wl.suspended = suspended;
+    Wl.maximized = maximized;
 }
 
 function void ToplevelClose(void *data, struct xdg_toplevel *toplevel)
@@ -706,7 +714,14 @@ function void ToplevelClose(void *data, struct xdg_toplevel *toplevel)
 }
 
 function void ToplevelConfigureBounds(void *data, struct xdg_toplevel *toplevel, i32 width, i32 height) {}
-function void ToplevelWmCapabilities(void *data, struct xdg_toplevel *toplevel, struct wl_array *capabilities) {}
+function void ToplevelWmCapabilities(void *data, struct xdg_toplevel *toplevel, struct wl_array *capabilities)
+{
+    b32 minimize = false;
+    for (u32 *capability = capabilities->data; (u8 *)capability < (u8 *)capabilities->data + capabilities->size; ++capability) {
+        minimize |= *capability == XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE;
+    }
+    Wl.noMinimize = !minimize;
+}
 
 global const struct xdg_toplevel_listener ToplevelListener = {
     .configure        = ToplevelConfigure,
@@ -1025,6 +1040,29 @@ function void PlatformWindowSetTransparent(b32 transparent)
 {
     // The alpha the renderer writes is all Wayland needs.
     (void)transparent;
+}
+
+// Compositors older than xdg-shell version 5 never send their capabilities, and those are taken to support everything.
+function b32 PlatformWindowHasButtons(void) { return !Wl.noMinimize; }
+function b32 PlatformWindowIsMaximized(void) { return Wl.maximized; }
+function void PlatformWindowMinimize(void) { xdg_toplevel_set_minimized(Wl.toplevel); }
+function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
+
+function void PlatformWindowToggleMaximize(void)
+{
+    if (Wl.maximized) xdg_toplevel_unset_maximized(Wl.toplevel);
+    else xdg_toplevel_set_maximized(Wl.toplevel);
+}
+
+function void PlatformWindowStartMove(void)
+{
+    if (!Wl.seat) return;
+    xdg_toplevel_move(Wl.toplevel, Wl.seat, Wl.pointerSerial);
+    // The compositor keeps the button's release.
+    PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseUp);
+    event->button = MouseButton_Left;
+    event->x = Wl.pointerX;
+    event->y = Wl.pointerY;
 }
 
 // The data device needs both the seat and the manager, which the registry may announce in either order.

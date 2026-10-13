@@ -37,6 +37,19 @@ subsetter = subset.Subsetter(options)
 subsetter.populate(glyphs=glyphs)
 subsetter.subset(font)
 
+# Center every glyph's ink in its advance, so that icons whose strokes lean to one side of Lucide's grid still center in their boxes. A subset glyph's stored bounds are stale until recalculated.
+glyf = font["glyf"]
+for name in font.getGlyphOrder():
+    glyph = glyf[name]
+    if glyph.numberOfContours <= 0:
+        continue
+    glyph.recalcBounds(glyf)
+    advance, _ = font["hmtx"][name]
+    shift = round((advance - (glyph.xMax - glyph.xMin)) / 2 - glyph.xMin)
+    glyph.coordinates.translate((shift, 0))
+    glyph.recalcBounds(glyf)
+    font["hmtx"][name] = (advance, glyph.xMin)
+
 for table in font["cmap"].tables:
     if table.isUnicode():
         table.cmap = {FIRST_RUNE + i: glyph for i, glyph in enumerate(glyphs)}

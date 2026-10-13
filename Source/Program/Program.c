@@ -19,6 +19,7 @@ typedef struct Prog_Theme {
     R_Color selection;
     R_Color focus;         // outline of the focused row
     R_Color tabBorder;     // outline of the shown tab
+    R_Color closeHover;    // the window's close button under the pointer
     R_Color text;
     R_Color textDim;
     R_Color textHeading;   // sidebar section titles
@@ -39,7 +40,8 @@ global const Prog_Theme Prog_ThemeCustom = {
     .hover        = Prog_Gray(80),
     .selection    = Prog_Gray(44),
     .focus        = Prog_Gray(80),
-    .tabBorder    = Prog_Gray(52),
+    .tabBorder    = Prog_Gray(29),
+    .closeHover   = Prog_Rgb(196, 43, 28),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
@@ -62,7 +64,8 @@ global const Prog_Theme Prog_ThemeGlass = {
     .hover        = Prog_White(0.2f),
     .selection    = Prog_White(0.09f),
     .focus        = Prog_White(0.22f),
-    .tabBorder    = Prog_White(0.12f),
+    .tabBorder    = Prog_White(0.04f),
+    .closeHover   = Prog_Rgb(196, 43, 28),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
@@ -209,51 +212,151 @@ function String Prog__FolderName(String path)
     return slash.exists && slash.value + 1 < trimmed.length ? StrFrom(trimmed, slash.value + 1) : trimmed;
 }
 
-// One tab per slot, as in the reference: the shown one is an outlined tab joined to the toolbar below, the others are separated by short lines.
-// Tabs share the strip's width up to a fixed size; dragging one moves it between the others.
-function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
+typedef enum Prog_WindowButton {
+    Prog_WindowButton_Minimize,
+    Prog_WindowButton_Maximize,
+    Prog_WindowButton_Restore,
+    Prog_WindowButton_Close,
+} Prog_WindowButton;
+
+// A window button at the strip's right end; the close button turns red under the pointer, as the system's does.
+// The glyphs are thin shapes the size of the system's caption glyphs, which the icon font's strokes are too heavy for; only the close cross comes from the font.
+function void Prog__WindowButton(Prog_State *state, String identity, Prog_WindowButton kind, Prog_CommandKind command, f32 width, f32 height, f32 scale, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, identity);
+    b32 hot = UI->hotKey == key;
+    b32 close = kind == Prog_WindowButton_Close;
+    R_Color background = close ? theme->closeHover : theme->selection;
+    R_Color ink = !hot ? theme->icon : close ? (R_Color){ 1, 1, 1, 1 } : theme->text;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextColors((UI_Colors){ .background = background, .text = ink });
+    if (close) {
+        UI_SetNextFont(m->icons);
+        UI_SetNextText(Icon_X);
+    }
+    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (close ? UI_Flag_DrawText : 0) | (hot ? UI_Flag_DrawBackground : 0));
+    UI_Interaction interaction = UI_InteractionFromBlock(button);
+    if (interaction.clicked) Prog_QueueCommand(state, command, 0, 0, interaction.clickOrder);
+    f32 glyph = floorf(10.0f * scale);
+    f32 line = MaxF32(1.0f, floorf(1.25f * scale + 0.5f));
+    UI_Parent(button) {
+        if (kind == Prog_WindowButton_Minimize) {
+            Prog__Box(UI_Pixels(glyph), UI_Pixels(line), UI_Layout_Horizontal, ink, 0);
+        } else if (kind == Prog_WindowButton_Maximize) {
+            UI_SetNextPrefWidth(UI_Pixels(glyph));
+            UI_SetNextPrefHeight(UI_Pixels(glyph));
+            UI_SetNextColors((UI_Colors){ .border = ink });
+            UI_AddBlock(UI_Flag_DrawBorder);
+        } else if (kind == Prog_WindowButton_Restore) {
+            // A square in front of another one, which shows only above and to the right of it.
+            f32 offset = floorf(2.0f * scale + 0.5f);
+            f32 size = glyph - offset;
+            UI_SetNextPrefWidth(UI_Pixels(glyph));
+            UI_SetNextPrefHeight(UI_Pixels(glyph));
+            UI_Block *squares = UI_AddBlock(0);
+            UI_Parent(squares) {
+                UI_SetNextFloatingOffset((UI_Vec2){ offset, 0 });
+                UI_SetNextPrefWidth(UI_Pixels(size));
+                UI_SetNextPrefHeight(UI_Pixels(size));
+                UI_SetNextColors((UI_Colors){ .border = ink });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, offset });
+                UI_SetNextPrefWidth(UI_Pixels(size));
+                UI_SetNextPrefHeight(UI_Pixels(size));
+                UI_SetNextColors((UI_Colors){ .background = hot ? background : theme->panel, .border = ink });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+            }
+        }
+    }
+}
+
+function UI_Key Prog__TabKey(Prog_State *state, u32 slot)
+{
+    return UI_KeyFromStr(0, StrFormat(&state->frameArena, "Tab/%" PRIu64, state->tabs[slot].id));
+}
+
+// Under the pointer, itself or its close button; false past either end of the strip.
+function b32 Prog__TabHot(Prog_State *state, i64 slot)
+{
+    if (slot < 0 || slot >= state->tabCount) return false;
+    UI_Key key = Prog__TabKey(state, (u32)slot);
+    return UI->hotKey == key || UI->hotKey == UI_KeyFromStr(key, S("Close"));
+}
+
+// The title bar, as in the reference: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
+// Tabs share the strip's width up to a fixed size; dragging one moves it between the others, and the strip's empty space moves the window.
+function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog__EnsureTab(state);
-    f32 top = floorf(m->bar * 0.17f);
+    f32 windowWidth = UI->root->rect.x1 - UI->root->rect.x0;
+    f32 top = floorf(m->bar * 0.15f);
     UI_SetNextChildrenPadding((UI_Padding){ 0, top, 0, 0 });
     UI_Block *strip = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
     // Children start at the top, so that tabs taller than the strip hang below it.
     strip->props.childrenAlignment.y = 0;
     UI_Parent(strip) {
+        // Under everything else on the strip, so that only its empty space moves the window.
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, -top });
+        UI_SetNextPrefWidth(UI_Pixels(windowWidth));
+        UI_SetNextPrefHeight(UI_Pixels(m->bar));
+        UI_Interaction caption = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("Caption")), UI_Flag_Floating | UI_Flag_LeftMouseClickable));
+        if (caption.pressed && caption.button == MouseButton_Left) {
+            Prog_QueueCommand(state, caption.pressCount == 2 ? Prog_CommandKind_WindowToggleMaximize : Prog_CommandKind_WindowMove, 0, 0, caption.pressOrder);
+        }
+        // The line under the strip, which the shown tab opens into the toolbar; it is as thick as the sidebar's edge it meets.
+        f32 stroke = m->separator;
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, m->bar - top - stroke });
+        UI_SetNextPrefWidth(UI_Pixels(windowWidth));
+        UI_SetNextPrefHeight(UI_Pixels(stroke));
+        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+
         // The sidebar button sits at the sidebar's right edge, or at the window's left edge while the sidebar is hidden.
         f32 button = floorf(m->bar * 0.75f);
-        f32 lead = state->sidebarHidden ? button + m->inset : m->sidebar + m->separator + m->inset * 0.5f;
+        f32 lead = state->sidebarHidden ? button + m->inset : m->sidebar + m->separator + floorf(6.0f * scale + 0.5f);
         UI_SetNextPrefWidth(UI_Pixels(lead));
         UI_SetNextPrefHeight(UI_Pixels(m->bar - top));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ state->sidebarHidden ? 0.5f : 1, 0.5f });
-        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, state->sidebarHidden ? 0 : m->inset, 0 });
+        // Centered on the whole strip rather than on the tabs.
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, state->sidebarHidden ? 0 : m->inset, top });
         UI_Block *leading = UI_AddBlock(0);
         UI_Parent(leading) {
             UI_Interaction toggle = Prog__TextButton(S("ToggleQuickAccess"), Icon_PanelLeft, m->icons, UI_Pixels(button), button, 0,
                                                      theme->icon, theme->text, theme->iconDisabled, true, m);
             if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder);
         }
-        f32 plus = m->bar * 0.9f;
-        f32 room = MaxF32(0, UI->root->rect.x1 - UI->root->rect.x0 - lead - plus - m->inset);
-        f32 width = floorf(MinF32(m->line * 12.0f, room / (f32)state->tabCount));
+        b32 controls = PlatformWindowHasButtons();
+        f32 controlWidth = floorf(40.0f * scale);
+        f32 plus = floorf(m->bar * 0.9f);
+        f32 room = MaxF32(0, windowWidth - lead - plus - m->inset - (controls ? controlWidth * 3 : 0));
+        f32 slot = floorf(MinF32(m->line * 12.0f, room / (f32)state->tabCount));
+        f32 width = MaxF32(0, slot - m->separator);
         f32 height = m->bar - top;
         // The shown tab hangs past the strip by its corner radius, so the toolbar drawn after it covers its lower corners and border.
-        f32 hang = ceilf(m->radius * 2) + 1;
+        f32 tabRadius = floorf(8.0f * scale + 0.5f);
+        f32 hang = tabRadius + stroke + 1;
         u32 dragFrom = UINT32_MAX;
         f32 dragX = 0;
         for (u32 i = 0; i < state->tabCount; ++i) {
             b32 shown = i == state->activeTab;
             String path = Prog_TabPath(state, i);
             String name = Prog__FolderName(path);
-            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Tab/%" PRIu64, state->tabs[i].id));
-            b32 hot = UI->hotKey == key;
+            UI_Key key = Prog__TabKey(state, i);
+            UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
+            b32 hot = Prog__TabHot(state, i);
             UI_SetNextPrefWidth(UI_Pixels(width));
             UI_SetNextPrefHeight(UI_Pixels(height));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, floorf(m->gap * 0.5f), 0 });
+            f32 tabInset = floorf(14.0f * scale);
+            UI_SetNextChildrenPadding((UI_Padding){ tabInset, 0, floorf(m->gap * 0.75f), 0 });
             UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
             UI_Interaction interaction = UI_InteractionFromBlock(tab);
             if (interaction.pressed && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
@@ -263,22 +366,47 @@ function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
                 dragX = UI->mouse.x;
             }
             UI_Parent(tab) {
-                if (shown) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                if (shown || hot) {
+                    // Floating offsets start inside the padding.
+                    // A hovered tab has the shown tab's shape cut off square above the strip's bottom line.
+                    UI_SetNextFloatingOffset((UI_Vec2){ -tabInset, 0 });
                     UI_SetNextPrefWidth(UI_Pixels(width));
-                    UI_SetNextPrefHeight(UI_Pixels(height + hang));
-                    UI_SetNextCornerRadius(m->radius * 2);
-                    UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->tabBorder });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-                } else if (hot) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf(height * 0.1f) });
-                    UI_SetNextPrefWidth(UI_Pixels(width));
-                    UI_SetNextPrefHeight(UI_Pixels(floorf(height * 0.8f)));
-                    UI_SetNextCornerRadius(m->radius * 2);
-                    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    UI_SetNextPrefHeight(UI_Pixels(shown ? height + hang : height - stroke));
+                    UI_Block *outline = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+                    UI_Parent(outline) {
+                        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                        UI_SetNextPrefWidth(UI_Pixels(width));
+                        UI_SetNextPrefHeight(UI_Pixels(height + hang));
+                        UI_SetNextCornerRadius(tabRadius);
+                        UI_SetNextBorderThickness(stroke);
+                        UI_SetNextColors((UI_Colors){ .background = shown ? theme->background : theme->alternateRow, .border = theme->tabBorder });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                    }
                 }
-                Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
+                // The shown tab's sides curve out into the strip's bottom line: a square of the tab's color with a quarter of a strip-colored circle cut from it.
+                // Each square also covers the tab's own border column, which the circle's border takes over.
+                // Next to a hovered tab the side stays straight, so that the curve does not cut into the hovered tab's corner.
+                if (shown) {
+                    f32 flare = floorf(m->radius + 0.5f) + stroke;
+                    for (u32 side = 0; side < 2; ++side) {
+                        if (Prog__TabHot(state, side ? (i64)i + 1 : (i64)i - 1)) continue;
+                        UI_SetNextFloatingOffset((UI_Vec2){ side ? width - tabInset - stroke : -tabInset - flare, height - flare });
+                        UI_SetNextPrefWidth(UI_Pixels(flare + stroke));
+                        UI_SetNextPrefHeight(UI_Pixels(flare));
+                        UI_SetNextColors((UI_Colors){ .background = theme->background });
+                        UI_Block *corner = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip);
+                        UI_Parent(corner) {
+                            UI_SetNextFloatingOffset((UI_Vec2){ side ? 0 : stroke - flare, -flare });
+                            UI_SetNextPrefWidth(UI_Pixels(flare * 2));
+                            UI_SetNextPrefHeight(UI_Pixels(flare * 2));
+                            UI_SetNextCornerRadius(flare);
+                            UI_SetNextBorderThickness(stroke);
+                            UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                        }
+                    }
+                }
+                Prog_Entry folder = { .file = { .name = name, .kind = P_FileKind_Directory } };
                 const Prog_Icon *icon = path.length ? Prog_FileIcon(state, Prog_ParentPath(path), &folder) : NULL;
                 if (icon) {
                     UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + m->gap));
@@ -289,10 +417,9 @@ function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
                 } else {
                     Prog__Icon(Icon_Folder, (f32)state->iconSize + m->gap, height, theme->icon, 0, m);
                 }
-                Prog__Label(name, UI_Flex(), height, 0, shown || hot ? theme->text : theme->textHeading, 0);
+                Prog__Label(name, UI_Flex(), height, 0, theme->text, 0);
                 // The close button shows on the shown and the hovered tab.
-                UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
-                if (shown || hot || UI->hotKey == closeKey) {
+                if (shown || hot) {
                     b32 closeHot = UI->hotKey == closeKey;
                     f32 size = floorf(m->line * 1.3f);
                     UI_SetNextPrefWidth(UI_Pixels(size));
@@ -300,25 +427,48 @@ function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                     UI_SetNextCornerRadius(m->radius);
                     UI_SetNextFont(m->icons);
-                    UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = closeHot ? theme->text : theme->icon });
+                    UI_SetNextColors((UI_Colors){ .background = theme->selection, .text = closeHot ? theme->text : theme->icon });
                     UI_SetNextText(Icon_X);
                     UI_Block *close = UI_AddBlockFromKey(closeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (closeHot ? UI_Flag_DrawBackground : 0));
                     UI_Interaction closing = UI_InteractionFromBlock(close);
                     if (closing.clicked) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, closing.clickOrder);
                 }
             }
-            // Lines part the tabs that are not shown.
-            b32 nextShown = i + 1 == state->activeTab;
-            if (!shown && !nextShown) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->selection, 0);
-            else Prog__Spacer(UI_Pixels(m->separator), UI_Pixels(height));
+            // Lines part the tabs that are neither shown nor hovered, centered on the tabs.
+            b32 nextLit = i + 1 == state->activeTab || Prog__TabHot(state, (i64)i + 1);
+            UI_Block *gap = Prog__Box(UI_Pixels(m->separator), UI_Pixels(height), UI_Layout_Horizontal, (R_Color){0}, 0);
+            if (!shown && !hot && !nextLit) {
+                UI_Parent(gap) Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(height * 0.62f)), UI_Layout_Horizontal, theme->alternateRow, 0);
+            }
         }
-        UI_Interaction add = Prog__TextButton(S("TabNew"), Icon_Plus, m->icons, UI_Pixels(plus * 0.85f), plus * 0.75f, 0, theme->icon, theme->text, theme->iconDisabled,
-                                              state->tabCount < Prog_MaxTabs, m);
-        if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
+        UI_SetNextPrefWidth(UI_Pixels(plus));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_Block *plusBox = UI_AddBlock(0);
+        UI_Parent(plusBox) {
+            UI_Interaction add = Prog__TextButton(S("TabNew"), Icon_Plus, m->icons, UI_Pixels(floorf(plus * 0.8f)), floorf(plus * 0.75f), 0, theme->icon, theme->text, theme->iconDisabled,
+                                                  state->tabCount < Prog_MaxTabs, m);
+            if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
+        }
+        // The window buttons fill the strip's full height at its right end.
+        if (controls) {
+            UI_SetNextFloatingOffset((UI_Vec2){ windowWidth - controlWidth * 3, -top });
+            UI_SetNextPrefWidth(UI_Pixels(controlWidth * 3));
+            UI_SetNextPrefHeight(UI_Pixels(m->bar));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_Block *buttons = UI_AddBlock(UI_Flag_Floating);
+            UI_Parent(buttons) {
+                Prog_WindowButton maximize = PlatformWindowIsMaximized() ? Prog_WindowButton_Restore : Prog_WindowButton_Maximize;
+                Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, m->bar, scale, m);
+                Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, m->bar, scale, m);
+                Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, m->bar, scale, m);
+            }
+        }
         // A dragged tab takes the slot under the pointer.
-        if (dragFrom != UINT32_MAX && width > 0) {
+        if (dragFrom != UINT32_MAX && slot > 0) {
             f32 x = dragX - (UI->root->rect.x0 + lead);
-            u32 to = (u32)MinF32(MaxF32(0, x / (width + m->separator)), (f32)(state->tabCount - 1));
+            u32 to = (u32)MinF32(MaxF32(0, x / slot), (f32)(state->tabCount - 1));
             if (to != dragFrom) {
                 Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MoveTab, dragFrom, 0, 0);
                 command->target = to;
@@ -1085,7 +1235,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__Columns(columns, scale);
 
     UI->root->props.childrenPadding = (UI_Padding){0};
-    Prog__TabStrip(state, m);
+    Prog__TabStrip(state, scale, m);
     UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(body) {
         if (!state->sidebarHidden) {

@@ -188,9 +188,34 @@ global IDropTargetVtbl WinDropVtbl = {
 };
 global IDropTarget WinDropTarget = { &WinDropVtbl };
 
+// The resize band along the top edge, which the client area covers once the caption is gone.
+function i32 WinFrameThickness(void)
+{
+    return GetSystemMetricsForDpi(SM_CYFRAME, Win.dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, Win.dpi);
+}
+
 function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
+        case WM_NCCALCSIZE: {
+            if (!wParam) break;
+            // The client area takes the caption's place; the side and bottom frames stay, invisible, for resizing.
+            NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lParam;
+            LONG top = params->rgrc[0].top;
+            DefWindowProcW(window, message, wParam, lParam);
+            params->rgrc[0].top = top;
+            // A maximized window hangs its frame off the screen.
+            if (IsZoomed(window)) params->rgrc[0].top += WinFrameThickness();
+        } return 0;
+
+        case WM_NCHITTEST: {
+            LRESULT hit = DefWindowProcW(window, message, wParam, lParam);
+            if (hit != HTCLIENT || IsZoomed(window)) return hit;
+            POINT point = { (i16)LOWORD(lParam), (i16)HIWORD(lParam) };
+            ScreenToClient(window, &point);
+            return point.y < WinFrameThickness() ? HTTOP : HTCLIENT;
+        }
+
         case WinWakeMessage: {
             if (Win.sizing) {
                 Platform__RunModalFrame();
@@ -409,8 +434,10 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
         .bottom = MulDiv(desc.height, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),
     };
     AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0, Win.dpi);
+    // There is no caption above the client area.
+    rect.top = 0;
     SetWindowPos(Win.window, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
     // Loading the OpenGL driver takes over 100 ms, so the window is shown in the theme's colors first.
     // DWM composes it while this thread waits on the driver; the program's first frame then replaces it.
@@ -502,6 +529,28 @@ function void PlatformWindowSetTransparent(b32 transparent)
     DwmExtendFrameIntoClientArea(Win.window, &margins);
     i32 backdrop = transparent ? DWMSBT_TRANSIENTWINDOW : DWMSBT_AUTO;
     DwmSetWindowAttribute(Win.window, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
+}
+
+function b32 PlatformWindowHasButtons(void) { return true; }
+function b32 PlatformWindowIsMaximized(void) { return IsZoomed(Win.window) != 0; }
+function void PlatformWindowMinimize(void) { ShowWindow(Win.window, SW_MINIMIZE); }
+function void PlatformWindowToggleMaximize(void) { ShowWindow(Win.window, IsZoomed(Win.window) ? SW_RESTORE : SW_MAXIMIZE); }
+function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
+
+function void PlatformWindowStartMove(void)
+{
+    // The system's move loop runs until the button is released, with snapping and the drag to the top that maximizes.
+    POINT point;
+    GetCursorPos(&point);
+    ReleaseCapture();
+    Win.mouseCaptured = false;
+    SendMessageW(Win.window, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(point.x, point.y));
+    GetCursorPos(&point);
+    ScreenToClient(Win.window, &point);
+    PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseUp);
+    event->button = MouseButton_Left;
+    event->x = (f32)point.x;
+    event->y = (f32)point.y;
 }
 
 function void PlatformClipboardSetText(String text)

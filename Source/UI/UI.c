@@ -244,6 +244,7 @@ function void UI_SetNextFont(const R_Font *font) { UI->next.font = font; UI->nex
 function void UI_SetNextText(String text) { UI->next.text = text; }
 function void UI_SetNextFloatingOffset(UI_Vec2 offset) { UI->next.floatingOffset = offset; }
 function void UI_SetNextCornerRadius(f32 radius) { UI->next.cornerRadius = radius; }
+function void UI_SetNextBorderThickness(f32 thickness) { UI->next.borderThickness = thickness; }
 function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_Color tint)
 {
     UI->next.image = image;
@@ -410,7 +411,7 @@ function void UI__DrawBlock(UI_Block *block)
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     if (visible) {
         if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, block->props.colors.background, block->props.cornerRadius);
-        if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, block->props.colors.border, block->props.cornerRadius, 1);
+        if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, block->props.colors.border, block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
         if (FlagExists(block->flags, UI_Flag_DrawImage)) {
             UI_Padding pad = block->props.childrenPadding;
             UI_Vec2 size = block->props.imageSize;

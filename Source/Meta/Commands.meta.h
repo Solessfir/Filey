@@ -85,6 +85,10 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_SidebarOpenInTab,
     Prog_CommandKind_ToggleGroup,
     Prog_CommandKind_RemoveBookmark,
+    Prog_CommandKind_WindowMove,
+    Prog_CommandKind_WindowMinimize,
+    Prog_CommandKind_WindowToggleMaximize,
+    Prog_CommandKind_WindowClose,
     Prog_CommandKind_ToggleTransparency,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
@@ -170,6 +174,10 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_SidebarOpenInTab] = { .name = { "SidebarOpenInTab", 16 } },
     [Prog_CommandKind_ToggleGroup] = { .name = { "ToggleGroup", 11 } },
     [Prog_CommandKind_RemoveBookmark] = { .name = { "RemoveBookmark", 14 } },
+    [Prog_CommandKind_WindowMove] = { .name = { "WindowMove", 10 } },
+    [Prog_CommandKind_WindowMinimize] = { .name = { "WindowMinimize", 14 } },
+    [Prog_CommandKind_WindowToggleMaximize] = { .name = { "WindowToggleMaximize", 20 } },
+    [Prog_CommandKind_WindowClose] = { .name = { "WindowClose", 11 } },
     [Prog_CommandKind_ToggleTransparency] = { .name = { "ToggleTransparency", 18 }, .label = { "Transparency", 12 }, .aliases = { "blur,acrylic,glass,translucent", 30 }, .tooltip = { "Show the desktop blurred through the window.", 44 }, .noRepeat = true },
 };
 
