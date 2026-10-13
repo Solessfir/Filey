@@ -182,7 +182,8 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->historyAt = historyAt;
     job->input = input;
     state->directoryJob = job;
-    state->loading = true;
+    // Refreshing the shown folder keeps its rows usable until the new listing replaces them.
+    state->loading = !StrIsEqual(path, state->directory.path);
     ArenaClear(&state->errorArena);
     state->error = (String){0};
     P_JobSubmit(job);
@@ -202,9 +203,21 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
     return true;
 }
 
+// Coalesces bursts such as a copy or a build into a few reloads.
+#define Prog_WatchInterval UINT64_C(100000)
+
 function b32 Prog_TakeCompletions(Prog_State *state)
 {
     b32 changed = false;
+    u64 now = PlatformNowMicroseconds();
+    if (P_DirectoryWatchTakeChanged(&state->watch)) state->watchDirty = true;
+    if (state->watchDirty && !state->directoryJob && now - state->watchReloadTime >= Prog_WatchInterval) {
+        state->watchDirty = false;
+        state->watchReloadTime = now;
+        Prog_Reload(state);
+    }
+    // A deferred reload needs frames until it runs.
+    changed |= state->watchDirty;
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         if (input->kind == Prog_JobKind_Icons) {
@@ -224,7 +237,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "Rename %S: %S", input->name, error->message);
             } else if (StrIsEqual(state->directory.path, input->path)) {
-                // ponytail: a reload shows the new name; watch the folder when change notifications exist.
+                // Reloading now, rather than on the watch, selects the new name without waiting.
                 MemCopy(state->selectText, input->newName.value, input->newName.length);
                 state->selectLength = (u32)input->newName.length;
                 Prog_Reload(state);
@@ -254,8 +267,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         }
                     }
                     // After a shell command, the one item it created is renamed, as in Explorer.
-                    b32 renameCreated = samePath && state->renameCreated;
-                    state->renameCreated = false;
+                    // Commands such as Send to a zip may finish after this listing, so the wait spans a few.
+                    b32 renameCreated = samePath && now < state->renameCreatedUntil;
+                    if (!renameCreated) state->renameCreatedUntil = 0;
                     struct { MapHeader header; struct { String key; b32 value; } *v; } known = {0};
                     if (renameCreated) {
                         for (u64 i = 0; i < state->directory.count; ++i) MapsPut(&state->frameArena, known, state->directory.entries[i].file.name, true);
@@ -278,6 +292,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
                     b32 renamePicked = renameCreated && created == 1 && !pick.length;
+                    if (created) state->renameCreatedUntil = 0;
                     state->selectLength = 0;
                     if (!renameStillThere) state->renaming = false;
                     if (pickRow < result->count) {
@@ -301,6 +316,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->directoryArena = job->arena;
                     state->directory = *result;
                     job->arena = (Arena){0};
+                    // ponytail: changes between enumerating and starting the watch are missed; start it before the listing if that shows.
+                    if (!samePath || !state->watch.native) {
+                        P_DirectoryWatchStart(&state->watch, state->directory.path, state->jobs.wake, state->jobs.wakeUser);
+                        state->watchDirty = false;
+                    }
                     if (renamePicked) Prog_BeginRename(state, pickRow);
                     if (state->warmMenus && state->directory.count) {
                         state->warmMenus = false;
@@ -368,6 +388,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 
 function void Prog_Release(Prog_State *state)
 {
+    // Its thread wakes the window, like the workers.
+    P_DirectoryWatchStop(&state->watch);
     Prog_CloseMenu(state);
     ArenaRelease(&state->menuArena);
     P_JobsShutdown(&state->jobs);

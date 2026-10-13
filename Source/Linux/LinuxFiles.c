@@ -1,9 +1,13 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/eventfd.h>
+#include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -292,4 +296,77 @@ function P_FileError P_RenamePath(Arena *arena, String directory, String from, S
     }
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+typedef struct P__Watch {
+    i32 notify;
+    i32 stop;
+    pthread_t thread;
+    b32 started;
+    atomic_bool changed;
+    P_JobWakeCallback *wake;
+    void *user;
+} P__Watch;
+
+function void *P__WatchThread(void *user)
+{
+    P__Watch *watch = user;
+    struct pollfd fds[2] = { { .fd = watch->stop, .events = POLLIN }, { .fd = watch->notify, .events = POLLIN } };
+    u8 events[4096];
+    for (;;) {
+        if (poll(fds, 2, -1) < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (fds[0].revents) break;
+        if (fds[1].revents & POLLIN) {
+            while (read(watch->notify, events, sizeof(events)) > 0) {}
+            // Only the first change since the program last looked needs a wakeup.
+            if (!atomic_exchange(&watch->changed, true) && watch->wake) watch->wake(watch->user);
+        } else if (fds[1].revents) {
+            break;
+        }
+    }
+    return NULL;
+}
+
+function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user)
+{
+    P_DirectoryWatchStop(watch);
+    Scratch scratch = GetScratch();
+    char *native = P__FilePathCString(scratch.arena, path);
+    P__Watch *state = ArenaPushStruct(&watch->arena, P__Watch);
+    *state = (P__Watch){ .notify = -1, .stop = -1, .wake = wake, .user = user };
+    watch->native = state;
+    state->notify = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    u32 mask = IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB | IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF | IN_ONLYDIR;
+    b32 ok = native && state->notify >= 0 && inotify_add_watch(state->notify, native, mask) >= 0;
+    ReleaseScratch(scratch);
+    if (ok) state->stop = eventfd(0, EFD_CLOEXEC);
+    ok = ok && state->stop >= 0 && pthread_create(&state->thread, NULL, P__WatchThread, state) == 0;
+    state->started = ok;
+    if (!ok) P_DirectoryWatchStop(watch);
+    return ok;
+}
+
+function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch)
+{
+    P__Watch *state = watch->native;
+    return state && atomic_exchange(&state->changed, false);
+}
+
+function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
+{
+    P__Watch *state = watch->native;
+    if (state) {
+        if (state->started) {
+            u64 one = 1;
+            while (write(state->stop, &one, sizeof(one)) < 0 && errno == EINTR) {}
+            pthread_join(state->thread, NULL);
+        }
+        if (state->stop >= 0) close(state->stop);
+        if (state->notify >= 0) close(state->notify);
+    }
+    ArenaRelease(&watch->arena);
+    *watch = (P_DirectoryWatch){0};
 }

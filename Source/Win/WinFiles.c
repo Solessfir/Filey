@@ -178,3 +178,66 @@ function P_FileError P_RenamePath(Arena *arena, String directory, String from, S
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
+
+typedef struct P__Watch {
+    HANDLE change;
+    HANDLE stop;
+    HANDLE thread;
+    atomic_bool changed;
+    P_JobWakeCallback *wake;
+    void *user;
+} P__Watch;
+
+function DWORD WINAPI P__WatchThread(void *user)
+{
+    P__Watch *watch = user;
+    HANDLE handles[2] = { watch->stop, watch->change };
+    while (WaitForMultipleObjects(2, handles, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+        // Only the first change since the program last looked needs a wakeup.
+        if (!atomic_exchange(&watch->changed, true) && watch->wake) watch->wake(watch->user);
+        if (!FindNextChangeNotification(watch->change)) break;
+    }
+    return 0;
+}
+
+function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user)
+{
+    P_DirectoryWatchStop(watch);
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    P__Watch *state = ArenaPushStruct(&watch->arena, P__Watch);
+    *state = (P__Watch){ .wake = wake, .user = user };
+    state->change = wide ? FindFirstChangeNotificationW(wide, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                                                                     FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE) : INVALID_HANDLE_VALUE;
+    ReleaseScratch(scratch);
+    state->stop = state->change != INVALID_HANDLE_VALUE ? CreateEventW(NULL, TRUE, FALSE, NULL) : NULL;
+    state->thread = state->stop ? CreateThread(NULL, 0, P__WatchThread, state, 0, NULL) : NULL;
+    watch->native = state;
+    if (!state->thread) {
+        P_DirectoryWatchStop(watch);
+        return false;
+    }
+    return true;
+}
+
+function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch)
+{
+    P__Watch *state = watch->native;
+    return state && atomic_exchange(&state->changed, false);
+}
+
+function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
+{
+    P__Watch *state = watch->native;
+    if (state) {
+        if (state->thread) {
+            SetEvent(state->stop);
+            WaitForSingleObject(state->thread, INFINITE);
+            CloseHandle(state->thread);
+        }
+        if (state->stop) CloseHandle(state->stop);
+        if (state->change != INVALID_HANDLE_VALUE) FindCloseChangeNotification(state->change);
+    }
+    ArenaRelease(&watch->arena);
+    *watch = (P_DirectoryWatch){0};
+}

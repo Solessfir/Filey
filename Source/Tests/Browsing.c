@@ -266,11 +266,11 @@ function u64 TestSelectionCount(Prog_State *state)
 function b32 TestWaitDirectory(Prog_State *state)
 {
     u64 start = PlatformNowMicroseconds();
-    while (state->loading && PlatformNowMicroseconds() - start < Millions(5)) {
+    while (state->directoryJob && PlatformNowMicroseconds() - start < Millions(5)) {
         Prog_TakeCompletions(state);
-        if (state->loading) P__TestPause();
+        if (state->directoryJob) P__TestPause();
     }
-    return !state->loading;
+    return !state->directoryJob;
 }
 
 function void TestBrowsingCommand(Prog_State *state, Prog_CommandKind kind, u64 row)
@@ -582,9 +582,9 @@ function void TestRename(TestFileFixture *fixture)
     TestRenameKey(&state, Key_Enter, 0);
     Check(!state.renaming);
     u64 start = PlatformNowMicroseconds();
-    while (!state.loading && PlatformNowMicroseconds() - start < Millions(5)) {
+    while (!state.directoryJob && PlatformNowMicroseconds() - start < Millions(5)) {
         Prog_TakeCompletions(&state);
-        if (!state.loading) P__TestPause();
+        if (!state.directoryJob) P__TestPause();
     }
     Check(TestWaitDirectory(&state) && !state.error.length);
     u64 moved = TestEntryIndex(&state, S("moved.txt"));
@@ -595,16 +595,55 @@ function void TestRename(TestFileFixture *fixture)
 
     // The one item a shell command adds goes straight into rename.
     Check(P__TestWriteFile(fixture, S("created.txt"), 1, false));
-    state.renameCreated = true;
+    state.renameCreatedUntil = PlatformNowMicroseconds() + Millions(5);
     TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
     Check(state.renaming && StrIsEqual(Prog_RenameText(&state), S("created.txt")) && state.renameCursor == 7);
     Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("created.txt")));
     TestRenameKey(&state, Key_Escape, 0);
-    Check(!state.renaming && !state.renameCreated);
+    Check(!state.renaming && !state.renameCreatedUntil);
     Check(P__TestRemovePath(fixture, S("created.txt"), false));
 finish:
     Prog_Release(&state);
     ArenaRelease(&arena);
+}
+
+function void TestWatch(TestFileFixture *fixture)
+{
+    P_DirectoryWatch watch = {0};
+    Check(P_DirectoryWatchStart(&watch, fixture->path, NULL, NULL));
+    Check(!P_DirectoryWatchTakeChanged(&watch));
+    Check(P__TestWriteFile(fixture, S("watched.txt"), 1, false));
+    b32 changed = false;
+    for (u64 start = PlatformNowMicroseconds(); !changed && PlatformNowMicroseconds() - start < Millions(5);) {
+        changed = P_DirectoryWatchTakeChanged(&watch);
+        if (!changed) P__TestPause();
+    }
+    Check(changed);
+    P_DirectoryWatchStop(&watch);
+    Check(!watch.native && !P_DirectoryWatchTakeChanged(&watch));
+    Arena arena = {0};
+    Check(!P_DirectoryWatchStart(&watch, Prog_JoinPath(&arena, fixture->path, S("missing")), NULL, NULL) && !watch.native);
+    ArenaRelease(&arena);
+
+    // The shown folder follows changes by itself and stays usable while it refreshes.
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (state.jobs.initialized) {
+        Check(TestWaitDirectory(&state) && state.watch.native);
+        Check(TestEntryIndex(&state, S("watched.txt")) != UINT64_MAX);
+        Check(P__TestRemovePath(fixture, S("watched.txt"), false));
+        b32 gone = false, usable = true;
+        for (u64 start = PlatformNowMicroseconds(); !gone && PlatformNowMicroseconds() - start < Millions(5);) {
+            Prog_TakeCompletions(&state);
+            usable &= !state.loading;
+            gone = TestEntryIndex(&state, S("watched.txt")) == UINT64_MAX;
+            if (!gone) P__TestPause();
+        }
+        Check(gone && usable);
+    }
+    Prog_Release(&state);
+    Check(!state.watch.native);
+    P__TestRemovePath(fixture, S("watched.txt"), false);
 }
 
 function void TestBrowsing(void)
@@ -620,6 +659,7 @@ function void TestBrowsing(void)
 #endif
         TestProgramBrowsing(&fixture);
         TestRename(&fixture);
+        TestWatch(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);

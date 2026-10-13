@@ -174,9 +174,13 @@ typedef struct Prog_State {
     u32 renameCursor;
     u32 renameAnchor;
     R_Rect renameRect;        // last layout of the edit box
-    b32 renameCreated;        // rename the one item the next listing of this folder adds
+    u64 renameCreatedUntil;   // until then, rename the one item a listing of this folder adds
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
+    // The shown folder's watch. Changes reload it, at most every Prog_WatchInterval.
+    P_DirectoryWatch watch;
+    b32 watchDirty;
+    u64 watchReloadTime;
     // Set by the app so that the first listing loads shell extensions in the
     // background; the first context menu would otherwise stall on them.
     b32 warmMenus;

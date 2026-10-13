@@ -60,6 +60,19 @@ typedef struct P_FileOrder {
 // as Photos the rest of the folder in `order`. May block while the application
 // starts. Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
+// Reports changes to the items of one folder, not of its subfolders, from a
+// thread of its own. {0} is a stopped watch. `wake` runs on that thread when
+// a change follows a call to P_DirectoryWatchTakeChanged.
+typedef struct P_DirectoryWatch {
+    Arena arena;
+    void *native;
+} P_DirectoryWatch;
+
+function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user);
+// True once for any number of changes since the previous call.
+function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch);
+function void P_DirectoryWatchStop(P_DirectoryWatch *watch);
+
 // Renames `from` to `to` inside `directory`. Never replaces an existing item,
 // and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.
@@ -127,5 +140,5 @@ function void P_ContextMenuClose(P_ContextMenu *menu);
 // the window, so call it outside a frame.
 function b32 P_DragFiles(String directory, const String *names, u64 count);
 // The folder that files dropped on the window go into, updated as the pointer
-// moves; empty refuses drops. A completed drop sends PlatformEventKind_Dropped.
+// moves; empty refuses drops.
 function void P_SetDropDirectory(String path);

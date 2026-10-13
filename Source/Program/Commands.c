@@ -293,11 +293,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         }
     } else {
         // Submenu commands such as New > Folder create one item that Explorer would put into rename.
-        state->renameCreated = index >= state->menu.rootCount && !StrIsEqual(item.verb, S("paste"));
+        b32 creates = index >= state->menu.rootCount && !StrIsEqual(item.verb, S("paste"));
+        state->renameCreatedUntil = creates ? PlatformNowMicroseconds() + Millions(5) : 0;
         P_FileError error = P_ContextMenuInvoke(&state->frameArena, &state->menu, item.id);
         ArenaClear(&state->errorArena);
         state->error = error.code ? StrFormat(&state->errorArena, "%S: %S", item.label, error.message) : (String){0};
-        // ponytail: verbs that change files (delete, paste, new) show up on this reload; watch the folder when change notifications exist.
+        // The watch would catch the change too; reloading now shows it without waiting.
         Prog_Reload(state);
     }
     Prog_CloseMenu(state);
@@ -314,12 +315,10 @@ function void Prog_DragSelection(Prog_State *state)
         if (state->directory.entries[i].selected) names[count++] = state->directory.entries[i].file.name;
     }
     state->dragging = true;
-    b32 dropped = P_DragFiles(state->directory.path, names, count);
+    P_DragFiles(state->directory.path, names, count);
     state->dragging = false;
     // The system's drag loop took the button release.
     UI_CancelActive();
-    // ponytail: items moved away disappear on this reload; watch the folder when change notifications exist.
-    if (dropped) Prog_Reload(state);
     ReleaseScratch(scratch);
 }
 
@@ -429,8 +428,6 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
-        // ponytail: shows the dropped files once; copies that are still running appear when watching the folder exists.
-        if (event->kind == PlatformEventKind_Dropped) Prog_QueueCommand(state, Prog_CommandKind_Refresh, 0, 0, order);
         // The rename box takes the keyboard; a click anywhere else commits it.
         if (state->renaming) {
             if (event->kind == PlatformEventKind_MouseDown) {

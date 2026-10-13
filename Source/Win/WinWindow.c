@@ -159,7 +159,7 @@ function HRESULT STDMETHODCALLTYPE WinDropDrop(IDropTarget *target, IDataObject 
     (void)target;
     (void)data;
     WinDropPointer(keys, point);
-    if (P__DropDrop(keys, point, effect)) PlatformPushEvent(PlatformEventKind_Dropped);
+    P__DropDrop(keys, point, effect);
     return S_OK;
 }
 
