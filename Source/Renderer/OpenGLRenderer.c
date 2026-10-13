@@ -62,6 +62,7 @@ typedef i64       GLsizeiptr;
     X(void,            BlendFuncSeparate,       GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) \
     X(void,            Scissor,                 GLint x, GLint y, GLsizei width, GLsizei height) \
     X(void,            GenTextures,             GLsizei n, GLuint *textures) \
+    X(void,            DeleteTextures,          GLsizei n, const GLuint *textures) \
     X(void,            BindTexture,             GLenum target, GLuint texture) \
     X(void,            TexImage2D,              GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) \
     X(void,            TexSubImage2D,           GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels) \
@@ -287,6 +288,12 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     return GL__TextureHandleFromRef(texture);
+}
+
+function void R_TextureRelease(R_TextureHandle texture)
+{
+    GLuint ref = GL__TextureRefFromHandle(texture);
+    if (ref) GL.DeleteTextures(1, &ref);
 }
 
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)

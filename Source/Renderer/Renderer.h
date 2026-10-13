@@ -55,6 +55,8 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
 // NULL pixels leave it undefined for later updates.
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels);
 function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u32 *pixels);
+// A {0} handle is ignored.
+function void R_TextureRelease(R_TextureHandle texture);
 
 // Draw calls are only valid between R_BeginFrame and R_EndFrame and are submitted in order.
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius);

@@ -60,13 +60,45 @@ function void LogEvent(const PlatformEvent *event)
 
 typedef struct Prog_Loop {
     Prog_State state;
+    Arena fontArena;
     R_Font font;
     R_Font icons;
+    f32 fontScale;    // the display scale the fonts were rasterized for
     b32 running;
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
     u64 startTime;  // cleared once the first frame is presented
 } Prog_Loop;
+
+// Fonts are rasterized for one display scale, so another scale (a window moved to another monitor, or a changed display setting) rebuilds them.
+// The old fonts stay when the new ones fail.
+function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
+{
+#if defined(_WIN32)
+    const f32 fontPixelSize = 9.0f * (96.0f / 72.0f);
+#else
+    const f32 fontPixelSize = 15.0f;
+#endif
+    Arena arena = {0};
+    R_Font font = {0}, icons = {0};
+    // Icons are drawn a little larger than the text's line height, as in the reference.
+    b32 ok = R_FontCreate(&arena, S("Segoe UI"), fontPixelSize * scale, &font) &&
+             R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 1.1f + 0.5f),
+                                    Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &icons);
+    if (!ok) {
+        R_TextureRelease(font.atlas);
+        ArenaRelease(&arena);
+        return false;
+    }
+    R_TextureRelease(loop->font.atlas);
+    R_TextureRelease(loop->icons.atlas);
+    ArenaRelease(&loop->fontArena);
+    loop->fontArena = arena;
+    loop->font = font;
+    loop->icons = icons;
+    loop->fontScale = scale;
+    return true;
+}
 
 function void Prog__Wake(void *user)
 {
@@ -97,6 +129,10 @@ function void Prog__Frame(void *user, PlatformEventList events)
         b32 completed = false;
         ProfileScope("TakeCompletions") completed = Prog_TakeCompletions(state);
         PlatformWindowInfo window = PlatformWindowGetInfo();
+        if (window.scale != loop->fontScale) {
+            ProfileScope("LoadFonts") Prog__LoadFonts(loop, window.scale);
+            state->ui.doubleClickDistance = PlatformDoubleClickSettings().distance;
+        }
         ProfileScope("BuildUI") {
             UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
             Prog_HandleInput(state, events);
@@ -168,18 +204,7 @@ int main(void)
     }
 
     Arena permanent = {0};
-    PlatformWindowInfo startWindow = PlatformWindowGetInfo();
-#if defined(_WIN32)
-    const f32 fontPixelSize = 9.0f * (96.0f / 72.0f);
-#else
-    const f32 fontPixelSize = 15.0f;
-#endif
-    // Icons are drawn a little larger than the text's line height, as in the reference.
-    ProfileScope("LoadFonts") {
-        ok = R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font) &&
-             R_FontCreateFromMemory(&permanent, Icon_FontData, sizeof(Icon_FontData), floorf(loop.font.lineHeight * 1.1f + 0.5f),
-                                    Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &loop.icons);
-    }
+    ProfileScope("LoadFonts") ok = Prog__LoadFonts(&loop, PlatformWindowGetInfo().scale);
     if (!ok) {
         fprintf(stderr, "Failed to load fonts\n");
         Prog_Release(&loop.state);

@@ -47,8 +47,8 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
 - GCC is a secondary Linux compiler for catching portability issues (`CC=gcc ./Build.sh`).
 - Static analysis uses `clang --analyze` (the `analyze` build flag) and `clang-tidy`. Do not use Cppcheck; it has no C23 support.
 - Linux debug runs SHOULD use the `asan` flag (ASan + UBSan).
-- Linux app dependencies: `wayland` (client, cursor, egl), `libxkbcommon`, EGL (`mesa`/`libglvnd`), `freetype2`, and `fontconfig`, found through `pkg-config`. The xdg-shell protocol code is generated and committed under `Source/Linux/Protocols/`, so `wayland-protocols` is needed only to regenerate it:
-  `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`
+- Linux app dependencies: `wayland` (client, cursor, egl), `libxkbcommon`, EGL (`mesa`/`libglvnd`), `freetype2`, and `fontconfig`, found through `pkg-config`. The xdg-shell, fractional-scale and viewporter protocol code is generated and committed under `Source/Linux/Protocols/`, so `wayland-protocols` is needed only to regenerate it:
+  `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`, and likewise `staging/fractional-scale/fractional-scale-v1.xml` to `FractionalScale.generated.{h,c}` and `stable/viewporter/viewporter.xml` to `Viewporter.generated.{h,c}`.
 - The `profile` flag defines `PROFILE`, which turns `ProfileScope("Name") { ... }` (`Platform/Profile.h`) into timed scopes on any thread. On exit the app writes `Filey.trace.json` to the working directory; open it in https://ui.perfetto.dev. Without the flag the macros compile to nothing.
 - `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
 - WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).

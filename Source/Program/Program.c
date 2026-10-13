@@ -40,7 +40,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
-    .textMatch    = Prog_Rgb(0, 121, 166),
+    .textMatch    = Prog_Rgb(0, 170, 255),
     .icon         = Prog_Gray(154),
     .iconDisabled = Prog_Gray(70),
 };
@@ -61,7 +61,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
-    .textMatch    = Prog_Rgb(0, 121, 166),
+    .textMatch    = Prog_Rgb(0, 170, 255),
     .icon         = Prog_Gray(160),
     .iconDisabled = Prog_Gray(90),
 };

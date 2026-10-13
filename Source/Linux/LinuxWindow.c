@@ -19,6 +19,10 @@
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "Linux/Protocols/XdgShell.generated.h"
 #include "Linux/Protocols/XdgShell.generated.c"
+#include "Linux/Protocols/FractionalScale.generated.h"
+#include "Linux/Protocols/FractionalScale.generated.c"
+#include "Linux/Protocols/Viewporter.generated.h"
+#include "Linux/Protocols/Viewporter.generated.c"
 #pragma GCC diagnostic pop
 #pragma pop_macro("global")
 
@@ -55,6 +59,12 @@ typedef struct LinuxWindowState {
     u32 clipboardCount;
     u32 inputSerial;          // of the latest key or button press, which setting the selection needs
     struct xdg_wm_base   *wmBase;
+    // Fractional scaling: the buffer is drawn at the exact scale and the viewport maps it onto the logical size.
+    // Without them the compositor gets an integer buffer scale.
+    struct wp_fractional_scale_manager_v1 *fractionalManager;
+    struct wp_viewporter *viewporter;
+    struct wp_fractional_scale_v1 *fractional;
+    struct wp_viewport *viewport;
     u32 compositorVersion;
 
     struct wl_surface    *surface;
@@ -75,7 +85,7 @@ typedef struct LinuxWindowState {
     struct wl_pointer       *pointer;
     struct wl_cursor_theme  *cursorTheme;
     struct wl_surface       *cursorSurface;
-    i32 cursorThemeScale;
+    i32 cursorThemeScale;     // cursors only take integer scales
     f32 pointerX;
     f32 pointerY;
 
@@ -90,7 +100,7 @@ typedef struct LinuxWindowState {
     i32 height;
     i32 pendingWidth;
     i32 pendingHeight;
-    i32 scale;           // integer buffer scale
+    f32 scale;           // physical / logical, fractional when the compositor supports it
     b32 configured;
     b32 closed;
     i32 wakeFd;
@@ -305,14 +315,15 @@ function void LinuxGenerateRepeats(void)
 function void LinuxSetCursor(u32 serial)
 {
     // Themes are rasterized per size, so reload when the scale changes.
-    if (Wl.cursorTheme == NULL || Wl.cursorThemeScale != Wl.scale) {
+    i32 cursorScale = (i32)Wl.scale + (Wl.scale > (f32)(i32)Wl.scale);
+    if (Wl.cursorTheme == NULL || Wl.cursorThemeScale != cursorScale) {
         if (Wl.cursorTheme != NULL) {
             wl_cursor_theme_destroy(Wl.cursorTheme);
         }
         const char *sizeText = getenv("XCURSOR_SIZE");
         i32 size = sizeText != NULL ? atoi(sizeText) : 0;
-        Wl.cursorTheme = wl_cursor_theme_load(getenv("XCURSOR_THEME"), (size > 0 ? size : 24) * Wl.scale, Wl.shm);
-        Wl.cursorThemeScale = Wl.scale;
+        Wl.cursorTheme = wl_cursor_theme_load(getenv("XCURSOR_THEME"), (size > 0 ? size : 24) * cursorScale, Wl.shm);
+        Wl.cursorThemeScale = cursorScale;
     }
     if (Wl.cursorTheme == NULL) {
         return;
@@ -327,12 +338,12 @@ function void LinuxSetCursor(u32 serial)
     }
 
     struct wl_cursor_image *image = cursor->images[0];
-    wl_surface_set_buffer_scale(Wl.cursorSurface, Wl.scale);
+    wl_surface_set_buffer_scale(Wl.cursorSurface, cursorScale);
     wl_surface_attach(Wl.cursorSurface, wl_cursor_image_get_buffer(image), 0, 0);
     wl_surface_damage(Wl.cursorSurface, 0, 0, INT32_MAX, INT32_MAX);
     wl_surface_commit(Wl.cursorSurface);
     wl_pointer_set_cursor(Wl.pointer, serial, Wl.cursorSurface,
-                          (i32)image->hotspot_x / Wl.scale, (i32)image->hotspot_y / Wl.scale);
+                          (i32)image->hotspot_x / cursorScale, (i32)image->hotspot_y / cursorScale);
 }
 
 function void PointerEnter(void *data, struct wl_pointer *pointer, u32 serial, struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y)
@@ -634,10 +645,17 @@ global const struct xdg_wm_base_listener WmBaseListener = {
     .ping = WmBasePing,
 };
 
+// The buffer size for a logical size, rounded as the fractional scale protocol asks.
+function i32 LinuxPhysical(i32 logical)
+{
+    return (i32)((f32)logical * Wl.scale + 0.5f);
+}
+
 function void LinuxApplySize(void)
 {
-    i32 width = Wl.width * Wl.scale;
-    i32 height = Wl.height * Wl.scale;
+    i32 width = LinuxPhysical(Wl.width);
+    i32 height = LinuxPhysical(Wl.height);
+    if (Wl.viewport) wp_viewport_set_destination(Wl.viewport, Wl.width, Wl.height);
     if (Wl.eglWindow != NULL) {
         wl_egl_window_resize(Wl.eglWindow, width, height, 0, 0);
     }
@@ -687,13 +705,25 @@ function void SurfaceLeave(void *data, struct wl_surface *surface, struct wl_out
 
 function void SurfacePreferredBufferScale(void *data, struct wl_surface *surface, i32 scale)
 {
-    // ponytail: integer scale only; fractional scaling needs wp_fractional_scale_v1 + wp_viewporter.
-    if (scale > 0 && scale != Wl.scale) {
-        Wl.scale = scale;
-        wl_surface_set_buffer_scale(surface, scale);
-        LinuxApplySize();
-    }
+    // The fractional scale says the same more precisely when the compositor has it.
+    if (Wl.fractional || scale <= 0 || (f32)scale == Wl.scale) return;
+    Wl.scale = (f32)scale;
+    wl_surface_set_buffer_scale(surface, scale);
+    LinuxApplySize();
 }
+
+// The scale arrives in 120ths, so 125% is 150.
+function void FractionalPreferredScale(void *data, struct wp_fractional_scale_v1 *fractional, u32 scale)
+{
+    f32 value = (f32)scale / 120.0f;
+    if (scale == 0 || value == Wl.scale) return;
+    Wl.scale = value;
+    LinuxApplySize();
+}
+
+global const struct wp_fractional_scale_v1_listener FractionalListener = {
+    .preferred_scale = FractionalPreferredScale,
+};
 
 function void SurfacePreferredBufferTransform(void *data, struct wl_surface *surface, u32 transform) {}
 
@@ -714,6 +744,10 @@ function void RegistryGlobal(void *data, struct wl_registry *registry, u32 name,
     } else if (strcmp(interface, wl_seat_interface.name) == 0 && Wl.seat == NULL) {
         Wl.seat = wl_registry_bind(registry, name, &wl_seat_interface, Min(version, (u32)5));
         wl_seat_add_listener(Wl.seat, &SeatListener, NULL);
+    } else if (strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0) {
+        Wl.fractionalManager = wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1);
+    } else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
+        Wl.viewporter = wl_registry_bind(registry, name, &wp_viewporter_interface, 1);
     } else if (strcmp(interface, wl_data_device_manager_interface.name) == 0) {
         Wl.dataManager = wl_registry_bind(registry, name, &wl_data_device_manager_interface, Min(version, (u32)3));
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
@@ -773,7 +807,7 @@ function b32 LinuxCreateGLContext(void)
         return false;
     }
 
-    Wl.eglWindow = wl_egl_window_create(Wl.surface, Wl.width * Wl.scale, Wl.height * Wl.scale);
+    Wl.eglWindow = wl_egl_window_create(Wl.surface, LinuxPhysical(Wl.width), LinuxPhysical(Wl.height));
     Wl.eglSurface = eglCreateWindowSurface(Wl.eglDisplay, config, (EGLNativeWindowType)Wl.eglWindow, NULL);
     if (Wl.eglSurface == EGL_NO_SURFACE || !eglMakeCurrent(Wl.eglDisplay, Wl.eglSurface, Wl.eglSurface, Wl.eglContext)) {
         return false;
@@ -815,6 +849,12 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     Wl.surface = wl_compositor_create_surface(Wl.compositor);
     Wl.cursorSurface = wl_compositor_create_surface(Wl.compositor);
     wl_surface_add_listener(Wl.surface, &SurfaceListener, NULL);
+    if (Wl.fractionalManager && Wl.viewporter) {
+        Wl.viewport = wp_viewporter_get_viewport(Wl.viewporter, Wl.surface);
+        wp_viewport_set_destination(Wl.viewport, Wl.width, Wl.height);
+        Wl.fractional = wp_fractional_scale_manager_v1_get_fractional_scale(Wl.fractionalManager, Wl.surface);
+        wp_fractional_scale_v1_add_listener(Wl.fractional, &FractionalListener, NULL);
+    }
 
     Wl.xdgSurface = xdg_wm_base_get_xdg_surface(Wl.wmBase, Wl.surface);
     xdg_surface_add_listener(Wl.xdgSurface, &XdgSurfaceListener, NULL);
@@ -845,17 +885,17 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     }
 
     PlatformEvent *event = PlatformPushEvent(PlatformEventKind_Resized);
-    event->width = Wl.width * Wl.scale;
-    event->height = Wl.height * Wl.scale;
+    event->width = LinuxPhysical(Wl.width);
+    event->height = LinuxPhysical(Wl.height);
     return true;
 }
 
 function PlatformWindowInfo PlatformWindowGetInfo(void)
 {
     return (PlatformWindowInfo){
-        .width  = Wl.width * Wl.scale,
-        .height = Wl.height * Wl.scale,
-        .scale  = (f32)Wl.scale,
+        .width  = LinuxPhysical(Wl.width),
+        .height = LinuxPhysical(Wl.height),
+        .scale  = Wl.scale,
     };
 }
 
@@ -932,7 +972,7 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void)
     // Read the desktop's settings portal if users report mismatches.
     return (PlatformDoubleClick){
         .intervalMicroseconds = 400000,
-        .distance = 5.0f * (f32)Wl.scale,
+        .distance = 5.0f * Wl.scale,
     };
 }
 
