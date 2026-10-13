@@ -1,5 +1,5 @@
 #!/bin/sh
-# Usage: ./Build.sh [release] [analyze] [asan] [profile] [test]
+# Usage: ./Build.sh [release] [analyze] [asan] [profile] [test] [install]
 set -e
 
 mode=debug
@@ -7,6 +7,7 @@ analyze=0
 asan=0
 test=0
 profile=0
+install=0
 for arg in "$@"; do
     case "$arg" in
         release) mode=release ;;
@@ -14,6 +15,7 @@ for arg in "$@"; do
         asan)    asan=1 ;;
         test)    test=1 ;;
         profile) profile=1 ;;
+        install) install=1 ;;
     esac
 done
 
@@ -56,4 +58,23 @@ $cc $cflags $app_cflags "$root/Source/Unity.c" $app_libs -lm -o "$out/filey"
 if [ "$test" = 1 ]; then
     $cc $cflags "$root/Source/Tests/Tests.c" -lm -o "$out/filey-tests"
     "$out/filey-tests"
+fi
+
+# Installs this build for the current user: the binary in ~/.local/bin, and the desktop entry and icons that launchers and the compositor find it by.
+if [ "$install" = 1 ]; then
+    data=${XDG_DATA_HOME:-$HOME/.local/share}
+    bin="$HOME/.local/bin"
+    resources="$root/Source/Resources"
+    install -Dm755 "$out/filey" "$bin/filey"
+    mkdir -p "$data/applications"
+    sed "s|^Exec=filey|Exec=$bin/filey|" "$resources/filey.desktop" > "$data/applications/filey.desktop"
+    install -Dm644 "$resources/Filey.svg" "$data/icons/hicolor/scalable/apps/filey.svg"
+    for png in "$resources"/Icons/filey-*.png; do
+        size=${png##*-}
+        size=${size%.png}
+        install -Dm644 "$png" "$data/icons/hicolor/${size}x${size}/apps/filey.png"
+    done
+    if command -v update-desktop-database >/dev/null; then update-desktop-database "$data/applications"; fi
+    if command -v gtk-update-icon-cache >/dev/null; then gtk-update-icon-cache -q -t "$data/icons/hicolor" || true; fi
+    echo "Installed to $bin/filey and $data"
 fi

@@ -29,11 +29,27 @@ typedef struct WinWindowState {
     b32 mouseCaptured;
     b32 sizing;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
+    HICON icons[2];     // the app icon at the window's size and at the small size, for its DPI
 } WinWindowState;
 
 global WinWindowState Win;
 
 #define WinWakeMessage (WM_APP + 1)
+
+// The executable's icon resource (Resources/Filey.rc), loaded at the sizes the window's DPI asks for so the title bar and taskbar get sharp images.
+function void WinSetIcons(void)
+{
+    HINSTANCE instance = GetModuleHandleW(NULL);
+    i32 sizes[2] = { GetSystemMetricsForDpi(SM_CXICON, Win.dpi), GetSystemMetricsForDpi(SM_CXSMICON, Win.dpi) };
+    WPARAM kinds[2] = { ICON_BIG, ICON_SMALL };
+    for (u32 i = 0; i < 2; ++i) {
+        HICON icon = (HICON)LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, sizes[i], sizes[i], LR_DEFAULTCOLOR);
+        if (!icon) continue;
+        SendMessageW(Win.window, WM_SETICON, kinds[i], (LPARAM)icon);
+        if (Win.icons[i]) DestroyIcon(Win.icons[i]);
+        Win.icons[i] = icon;
+    }
+}
 
 function Key WinKeyFromVirtualKey(WPARAM vk)
 {
@@ -206,6 +222,7 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
 
         case WM_DPICHANGED: {
             Win.dpi = HIWORD(wParam);
+            WinSetIcons();
             const RECT *suggested = (const RECT *)lParam;
             SetWindowPos(window, NULL, suggested->left, suggested->top,
                          suggested->right - suggested->left, suggested->bottom - suggested->top,
@@ -386,6 +403,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 
     // Size the client area for the monitor the window landed on.
     Win.dpi = GetDpiForWindow(Win.window);
+    WinSetIcons();
     RECT rect = {
         .right  = MulDiv(desc.width, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),
         .bottom = MulDiv(desc.height, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),

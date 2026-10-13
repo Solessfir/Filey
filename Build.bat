@@ -25,6 +25,8 @@ call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 
 set CLANG=clang
 where clang >nul 2>nul || set "CLANG=%VCINSTALLDIR%Tools\Llvm\x64\bin\clang.exe"
+set RC=llvm-rc
+where llvm-rc >nul 2>nul || set "RC=%VCINSTALLDIR%Tools\Llvm\x64\bin\llvm-rc.exe"
 
 set ROOT=%~dp0
 set OUT=%ROOT%Bin\%MODE%
@@ -56,7 +58,9 @@ if "%ANALYZE%"=="1" (
 )
 
 "%CLANG%" -x c++ %CXXFLAGS% -c "%ROOT%Source\Win\WinFontRasterizer.cpp" -o "%OUT%\WinFontRasterizer.obj" || exit /b 1
-"%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
+rem The icon and version details are a resource linked into the executable.
+"%RC%" /nologo /fo "%OUT%\Filey.res" "%ROOT%Source\Resources\Filey.rc" || exit /b 1
+"%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" "%OUT%\Filey.res" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
 
 if "%TEST%"=="1" (
     "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -o "%OUT%\FileyTests.exe" || exit /b 1

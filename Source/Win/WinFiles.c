@@ -430,3 +430,17 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
 {
     return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING);
 }
+
+function String P_StartupPath(Arena *arena)
+{
+    i32 count = 0;
+    wchar **arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    String result = {0};
+    if (arguments && count > 1) {
+        Scratch scratch = GetScratchEx(arena);
+        result = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, arguments[1], lstrlenW(arguments[1])));
+        ReleaseScratch(scratch);
+    }
+    if (arguments) LocalFree(arguments);
+    return result;
+}

@@ -52,6 +52,8 @@ typedef struct P_DirectoryTotals {
 function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel);
 // Lexically normalized absolute path with '/' separators; empty means failure.
 function String P_AbsolutePath(Arena *arena, String path);
+// The path the app was started with as its first argument, made absolute; empty when there is none.
+function String P_StartupPath(Arena *arena);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
 // The order a folder is shown in, so that an app opened on one of its files can step through the rest in the same order, as from Explorer.
 typedef enum P_FileOrderKey {

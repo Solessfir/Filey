@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Filey
+GenericName=File Manager
+Comment=Browse and manage files
+Exec=filey %F
+Icon=filey
+Terminal=false
+Categories=System;FileTools;FileManager;
+Keywords=folder;files;explorer;browser;
+MimeType=inode/directory;
+StartupWMClass=filey

@@ -852,3 +852,21 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
+
+function String P_StartupPath(Arena *arena)
+{
+    // The arguments are null-separated in /proc, which spares the program's entry point from passing them down.
+    Scratch scratch = GetScratchEx(arena);
+    char buffer[PATH_MAX + 4096];
+    i32 fd = open("/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
+    ssize_t length = fd >= 0 ? read(fd, buffer, sizeof(buffer) - 1) : -1;
+    if (fd >= 0) close(fd);
+    String result = {0};
+    if (length > 0) {
+        buffer[length] = 0;
+        u64 first = strlen(buffer) + 1;
+        if ((ssize_t)first < length) result = P_AbsolutePath(arena, StrCopy(scratch.arena, StrFromCStr(buffer + first)));
+    }
+    ReleaseScratch(scratch);
+    return result;
+}

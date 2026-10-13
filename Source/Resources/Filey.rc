@@ -1,0 +1,30 @@
+// The app icon, which Explorer, the taskbar and the window show, and the details Explorer lists for the executable.
+// Built by Build.bat with llvm-rc.
+
+#define FILEY_ICON 1
+
+FILEY_ICON ICON "Filey.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Filey"
+            VALUE "ProductName", "Filey"
+            VALUE "FileVersion", "0.1.0"
+            VALUE "ProductVersion", "0.1.0"
+            VALUE "OriginalFilename", "Filey.exe"
+            VALUE "LegalCopyright", "MIT License"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

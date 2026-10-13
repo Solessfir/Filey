@@ -190,7 +190,11 @@ int main(void)
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
-    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, S(""), Prog__Wake, NULL);
+    // A folder given on the command line, as the desktop entry and "Open with" pass it, opens instead of the working directory.
+    Scratch startup = GetScratch();
+    String startPath = P_StartupPath(startup.arena);
+    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPath, Prog__Wake, NULL);
+    ReleaseScratch(startup);
     if (!ok) {
         fprintf(stderr, "Failed to start workers\n");
         return 1;

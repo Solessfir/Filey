@@ -39,6 +39,8 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
 - Screenshots of the original source in `%USERPROFILE%\Pictures\Screenshots\Reference\` show its style (`result` return variables, `Prefix__Name` internals, `enum8(...)` fields, `_Count` sentinels). Use them as a loose reference, not a formatting rule.
 - Do not edit generated files (`*.generated.h`, `Meta/*.meta.h`). Change the generator or its input instead.
 - Commands and their default hotkeys are declared once in `Source/Program/Commands.txt`. Add a command there, then handle its `Prog_CommandKind_` case in `Prog_ProcessCommands`.
+- The app icon is `Source/Resources/Filey.svg`. After changing it, run `python3 Source/Tools/IconBake.py` (needs `rsvg-convert`), which rewrites `Filey.ico` (linked into the Windows executable through `Filey.rc`) and the Linux theme sizes in `Resources/Icons/`; commit all of them.
+- `./Build.sh install` installs a build for the current user (`~/.local/bin`, the desktop entry `Resources/filey.desktop` and the hicolor icons); `Packaging/Arch/PKGBUILD` builds the `filey-git` package.
 - UI icons are a Lucide subset (ISC) embedded with `#embed`. To add one, append its Lucide name to `Source/Lib/Lucide/Icons.txt` and run `python Source/Tools/LucideSubset.py <extracted lucide-static npm package>` (needs `fonttools`). It rewrites `Lucide.ttf`, its `LICENSE` and `Meta/Icons.meta.h` (`Icon_<Name>` strings drawn with the icon font); commit all of them.
 
 ## Toolchain
@@ -73,7 +75,8 @@ Source/
 ├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Icons.c: file icon cache and atlas; Program.c: UI
 ├─ Meta/       generated tables (Commands.meta.h) and icon codepoints (Icons.meta.h)
 ├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG), nanosvg (SVG, Linux icons)
-├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter
+├─ Resources/  app icon (Filey.svg master, generated Filey.ico and Icons/ sizes), Filey.rc for the Windows executable, filey.desktop
+├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter; IconBake.py: app icon sizes
 ├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)
 └─ Unity.c     application unity root
 ```
