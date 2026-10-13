@@ -516,6 +516,97 @@ function void TestFileIcons(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+function void TestRenameInput(Prog_State *state, PlatformEvent *events, u64 count)
+{
+    for (u64 i = 0; i + 1 < count; ++i) events[i].next = &events[i + 1];
+    ArenaClear(&state->frameArena);
+    Prog_HandleInput(state, (PlatformEventList){ count ? events : NULL, count ? &events[count - 1] : NULL, count });
+    Prog_ProcessCommands(state);
+}
+
+function void TestRenameType(Prog_State *state, String text)
+{
+    PlatformEvent events[64] = {0};
+    u64 count = 0;
+    for (u64 at = 0; at < text.length && count < CArrayCount(events);) {
+        events[count].kind = PlatformEventKind_Text;
+        events[count++].codepoint = StrDecodeUtf8(text, &at);
+    }
+    TestRenameInput(state, events, count);
+}
+
+function void TestRenameKey(Prog_State *state, Key key, KeyMods mods)
+{
+    PlatformEvent event = { .kind = PlatformEventKind_KeyDown, .key = key, .mods = mods };
+    TestRenameInput(state, &event, 1);
+}
+
+function void TestRename(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Check(P_RenamePath(&arena, fixture->path, S("plain.txt"), S("file2.txt")).code);
+    Check(P_RenamePath(&arena, fixture->path, S("plain.txt"), S("Folder2/plain.txt")).code);
+    Check(P_RenamePath(&arena, fixture->path, S("plain.txt"), S("..")).code);
+    Check(P_RenamePath(&arena, fixture->path, S("plain.txt"), (String){0}).code);
+    Check(!P_RenamePath(&arena, fixture->path, S("plain.txt"), S("plain2.txt")).code);
+    Check(!P_RenamePath(&arena, fixture->path, S("plain2.txt"), S("plain.txt")).code);
+
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized) goto finish;
+    Check(TestWaitDirectory(&state));
+    u64 plain = TestEntryIndex(&state, S("plain.txt"));
+    Check(plain != UINT64_MAX);
+    if (plain == UINT64_MAX) goto finish;
+
+    // Files start with the name before the extension selected; Escape keeps the old name.
+    Prog_BeginRename(&state, plain);
+    Check(state.renaming && state.renameAnchor == 0 && state.renameCursor == 5);
+    TestRenameType(&state, S("ż"));
+    Check(StrIsEqual(Prog_RenameText(&state), S("ż.txt")) && state.renameCursor == 2);
+    TestRenameKey(&state, Key_Backspace, 0);
+    TestRenameKey(&state, Key_End, KeyMod_Shift);
+    Check(StrIsEqual(Prog_RenameText(&state), S(".txt")) && state.renameAnchor == 0 && state.renameCursor == 4);
+    TestRenameKey(&state, Key_Left, 0);
+    TestRenameKey(&state, Key_Right, 0);
+    TestRenameKey(&state, Key_Left, KeyMod_Shift);
+    TestRenameKey(&state, Key_Delete, 0);
+    Check(StrIsEqual(Prog_RenameText(&state), S("txt")));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.renaming && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX);
+
+    // Enter renames on a job, then the new name is selected.
+    Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));
+    TestRenameKey(&state, Key_A, KeyMod_Control);
+    TestRenameType(&state, S("moved.txt"));
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(!state.renaming);
+    u64 start = PlatformNowMicroseconds();
+    while (!state.loading && PlatformNowMicroseconds() - start < Millions(5)) {
+        Prog_TakeCompletions(&state);
+        if (!state.loading) P__TestPause();
+    }
+    Check(TestWaitDirectory(&state) && !state.error.length);
+    u64 moved = TestEntryIndex(&state, S("moved.txt"));
+    Check(moved != UINT64_MAX && TestEntryIndex(&state, S("plain.txt")) == UINT64_MAX);
+    Check(moved != UINT64_MAX && state.directory.entries[moved].selected && state.selectedCount == 1 && state.focusedRow == moved);
+    Check(!P_RenamePath(&arena, fixture->path, S("moved.txt"), S("plain.txt")).code);
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+
+    // The one item a shell command adds goes straight into rename.
+    Check(P__TestWriteFile(fixture, S("created.txt"), 1, false));
+    state.renameCreated = true;
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+    Check(state.renaming && StrIsEqual(Prog_RenameText(&state), S("created.txt")) && state.renameCursor == 7);
+    Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("created.txt")));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.renaming && !state.renameCreated);
+    Check(P__TestRemovePath(fixture, S("created.txt"), false));
+finish:
+    Prog_Release(&state);
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -528,6 +619,7 @@ function void TestBrowsing(void)
         P__TestOpenPath(&fixture);
 #endif
         TestProgramBrowsing(&fixture);
+        TestRename(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
 #endif

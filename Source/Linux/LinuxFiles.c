@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -234,6 +235,12 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     return true;
 }
 
+function void P_ContextMenuWarm(String directory, String name)
+{
+    (void)directory;
+    (void)name;
+}
+
 function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id)
 {
     return P__FileError(arena, ENOTSUP);
@@ -256,4 +263,31 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
 function void P_SetDropDirectory(String path)
 {
     (void)path;
+}
+
+// A '/' would turn a rename into a move.
+function b32 P__ValidFileName(String name)
+{
+    return name.length && !StrIsEqual(name, S(".")) && !StrIsEqual(name, S("..")) && !StrIndexChar(name, '/', SSF_None).exists;
+}
+
+function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)
+{
+    if (!P__ValidFileName(from) || !P__ValidFileName(to)) return P__FileError(arena, EINVAL);
+    Scratch scratch = GetScratchEx(arena);
+    char *source = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, from));
+    char *target = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, to));
+    u32 error = 0;
+    if (!source || !target) {
+        error = (u32)errno;
+    } else if (renameat2(AT_FDCWD, source, AT_FDCWD, target, RENAME_NOREPLACE) != 0) {
+        error = (u32)errno;
+        // ponytail: filesystems without RENAME_NOREPLACE get a check-then-rename race; fine for interactive renames.
+        if (error == EINVAL || error == ENOSYS) {
+            struct stat existing;
+            error = lstat(target, &existing) == 0 ? EEXIST : rename(source, target) == 0 ? 0 : (u32)errno;
+        }
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
 }

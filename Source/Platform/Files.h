@@ -43,6 +43,10 @@ function String P_AbsolutePath(Arena *arena, String path);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
 // May block while the system launches its default application. Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path);
+// Renames `from` to `to` inside `directory`. Never replaces an existing item,
+// and refuses names that are empty, "." or "..", or contain a path separator.
+// May touch a slow disk, so run it in a job.
+function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to);
 
 // Straight-alpha RGBA8 pixels (red in the lowest byte), top row first.
 typedef struct P_Image {
@@ -91,6 +95,9 @@ typedef struct P_ContextMenu {
 // them, and their verbs may need its message loop (clipboard, dialogs). Loading
 // shell extensions can take a moment.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu);
+// Builds and drops the menus of `directory` and of `name` inside it, on any
+// thread, so that shell extensions are loaded before the first real menu.
+function void P_ContextMenuWarm(String directory, String name);
 function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id);
 function void P_ContextMenuClose(P_ContextMenu *menu);
 

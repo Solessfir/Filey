@@ -133,3 +133,18 @@ command ContextMenuClose {
 // A selected row dragged with the left button.
 command DragSelection {
 }
+
+command Rename {
+    label   = "Rename^rename,name"
+    tooltip = "Rename the focused item in place."
+    hotkey  = "F2"
+    repeat  = "false"
+}
+
+// Enter in the rename box, or a click outside it.
+command RenameCommit {
+}
+
+// Escape in the rename box.
+command RenameCancel {
+}

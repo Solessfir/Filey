@@ -175,3 +175,22 @@ function P_FileError P_OpenPath(Arena *arena, String path)
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
+
+// Separators would turn a rename into a move.
+function b32 P__ValidFileName(String name)
+{
+    return name.length && !StrIsEqual(name, S(".")) && !StrIsEqual(name, S("..")) &&
+           !StrIndexChar(name, '/', SSF_None).exists && !StrIndexChar(name, '\\', SSF_None).exists;
+}
+
+function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)
+{
+    if (!P__ValidFileName(from) || !P__ValidFileName(to)) return P__FileError(arena, ERROR_INVALID_NAME);
+    Scratch scratch = GetScratchEx(arena);
+    wchar *source = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, from));
+    wchar *target = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, to));
+    // Without MOVEFILE_REPLACE_EXISTING an existing target fails with ERROR_ALREADY_EXISTS.
+    u32 error = !source || !target ? GetLastError() : MoveFileExW(source, target, 0) ? 0 : GetLastError();
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}

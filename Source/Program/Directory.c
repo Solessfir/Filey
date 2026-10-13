@@ -97,10 +97,17 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, cons
 function void Prog__DirectoryJob(P_Job *job)
 {
     Prog_JobInput *input = job->input;
-    if (input->kind == Prog_JobKind_Open) {
+    if (input->kind == Prog_JobKind_Open || input->kind == Prog_JobKind_Rename) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
-        if (!P_IsCancelled(&job->cancelToken)) *error = P_OpenPath(&job->arena, input->path);
+        if (!P_IsCancelled(&job->cancelToken)) {
+            *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, input->path)
+                                                      : P_RenamePath(&job->arena, input->path, input->name, input->newName);
+        }
         job->result = error;
+        return;
+    }
+    if (input->kind == Prog_JobKind_WarmMenu) {
+        ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
     }
     Prog_Directory *result = ArenaPushStruct(&job->arena, Prog_Directory);
@@ -210,6 +217,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrCopy(&state->errorArena, error->message);
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_Rename) {
+            P_FileError *error = job->result;
+            changed = true;
+            if (error && error->code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "Rename %S: %S", input->name, error->message);
+            } else if (StrIsEqual(state->directory.path, input->path)) {
+                // ponytail: a reload shows the new name; watch the folder when change notifications exist.
+                MemCopy(state->selectText, input->newName.value, input->newName.length);
+                state->selectLength = (u32)input->newName.length;
+                Prog_Reload(state);
+            }
+        } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->generation == state->generation) {
             state->directoryJob = NULL;
             state->loading = false;
@@ -233,6 +253,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             if (state->directory.entries[i].selected) MapsPut(&state->frameArena, selected, state->directory.entries[i].file.name, true);
                         }
                     }
+                    // After a shell command, the one item it created is renamed, as in Explorer.
+                    b32 renameCreated = samePath && state->renameCreated;
+                    state->renameCreated = false;
+                    struct { MapHeader header; struct { String key; b32 value; } *v; } known = {0};
+                    if (renameCreated) {
+                        for (u64 i = 0; i < state->directory.count; ++i) MapsPut(&state->frameArena, known, state->directory.entries[i].file.name, true);
+                    }
+                    String pick = samePath ? StrMake((const char *)state->selectText, state->selectLength) : (String){0};
+                    u64 created = 0, pickRow = UINT64_MAX;
+                    b32 renameStillThere = false;
+                    String renameFrom = StrMake((const char *)state->renameFrom, state->renameFromLength);
                     state->hasFocus = state->hasAnchor = false;
                     state->selectedCount = 0;
                     for (u64 i = 0; i < result->count; ++i) {
@@ -241,6 +272,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->selectedCount += entry->selected != 0;
                         if (samePath && StrIsEqual(focus, entry->file.name)) { state->hasFocus = true; state->focusedRow = i; }
                         if (samePath && StrIsEqual(anchor, entry->file.name)) { state->hasAnchor = true; state->anchorRow = i; }
+                        if (renameCreated && !MapsGet(known, b32, entry->file.name) && ++created == 1) pickRow = i;
+                        if (pick.length && StrIsEqual(pick, entry->file.name)) pickRow = i;
+                        renameStillThere |= samePath && StrIsEqual(renameFrom, entry->file.name);
+                    }
+                    if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
+                    b32 renamePicked = renameCreated && created == 1 && !pick.length;
+                    state->selectLength = 0;
+                    if (!renameStillThere) state->renaming = false;
+                    if (pickRow < result->count) {
+                        for (u64 i = 0; i < result->count; ++i) result->entries[i].selected = i == pickRow;
+                        state->selectedCount = 1;
+                        state->hasFocus = state->hasAnchor = true;
+                        state->focusedRow = state->anchorRow = pickRow;
+                        state->revealFocus = true;
                     }
                     if (!samePath) state->resetScroll = true;
                     if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {
@@ -256,6 +301,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->directoryArena = job->arena;
                     state->directory = *result;
                     job->arena = (Arena){0};
+                    if (renamePicked) Prog_BeginRename(state, pickRow);
+                    if (state->warmMenus && state->directory.count) {
+                        state->warmMenus = false;
+                        u64 file = 0;
+                        while (file + 1 < state->directory.count && state->directory.entries[file].file.kind == P_FileKind_Directory) ++file;
+                        P_Job *warm = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                        Prog_JobInput *warmInput = ArenaPushStruct(&warm->arena, Prog_JobInput);
+                        warmInput->kind = Prog_JobKind_WarmMenu;
+                        warmInput->path = StrCopy(&warm->arena, state->directory.path);
+                        warmInput->name = StrCopy(&warm->arena, state->directory.entries[file].file.name);
+                        warm->input = warmInput;
+                        P_JobSubmit(warm);
+                    }
                 }
             }
         }

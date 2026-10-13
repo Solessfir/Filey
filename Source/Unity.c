@@ -189,6 +189,7 @@ int main(void)
     PlatformDoubleClick doubleClick = PlatformDoubleClickSettings();
     loop.state.ui.doubleClickMicroseconds = doubleClick.intervalMicroseconds;
     loop.state.ui.doubleClickDistance = doubleClick.distance;
+    loop.state.warmMenus = true;
     PlatformSetModalFrameCallback(Prog__Frame, &loop);
     while (loop.running) {
         PlatformEventList events = {0};

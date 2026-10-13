@@ -290,3 +290,12 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
     ReleaseScratch(scratch);
     return result;
 }
+
+function void P_ContextMenuWarm(String directory, String name)
+{
+    Arena arena = {0};
+    P_ContextMenu menu = {0};
+    if (P_ContextMenuOpen(&arena, directory, NULL, 0, &menu)) P_ContextMenuClose(&menu);
+    if (name.length && P_ContextMenuOpen(&arena, directory, &name, 1, &menu)) P_ContextMenuClose(&menu);
+    ArenaRelease(&arena);
+}

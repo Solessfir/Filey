@@ -49,6 +49,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Directory,
     Prog_JobKind_Open,
     Prog_JobKind_Icons,
+    Prog_JobKind_Rename,
+    Prog_JobKind_WarmMenu,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -82,6 +84,9 @@ typedef struct Prog_JobInput {
     b32 showHidden;
     b32 addHistory;
     u64 historyAt;
+    // Rename `name` to `newName` inside `path`; WarmMenu uses `path` and `name`.
+    String name;
+    String newName;
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
@@ -156,6 +161,22 @@ typedef struct Prog_State {
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
     b32 hasHoverRow;
+    // Inline rename of the entry named renameFrom. Offsets are bytes into
+    // renameText; names never reach the buffer sizes on any file system.
+    b32 renaming;
+    u8 renameFrom[1024];
+    u32 renameFromLength;
+    u8 renameText[1024];
+    u32 renameLength;
+    u32 renameCursor;
+    u32 renameAnchor;
+    R_Rect renameRect;        // last layout of the edit box
+    b32 renameCreated;        // rename the one item the next listing of this folder adds
+    u8 selectText[1024];      // select this name in the next listing
+    u32 selectLength;
+    // Set by the app so that the first listing loads shell extensions in the
+    // background; the first context menu would otherwise stall on them.
+    b32 warmMenus;
 } Prog_State;
 
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user);
@@ -176,4 +197,7 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
 function void Prog_SubmitIconRequests(Prog_State *state);
 function void Prog_CloseMenu(Prog_State *state);
 function void Prog_DragSelection(Prog_State *state);
+function void Prog_Reload(Prog_State *state);
+function void Prog_BeginRename(Prog_State *state, u64 row);
+function String Prog_RenameText(const Prog_State *state);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

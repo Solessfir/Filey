@@ -250,6 +250,54 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
     }
 }
 
+// The name being edited, with its selection and caret, in place of the name label.
+function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    String text = Prog_RenameText(state);
+    f32 pad = floorf(m->gap * 0.5f);
+    f32 caret = MaxF32(1.0f, floorf(m->separator * 0.75f));
+    f32 height = m->line + pad;
+    f32 textY = floorf((height - m->line) * 0.5f);
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenPadding((UI_Padding){ m->gap - pad, 0, m->gap, 0 });
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
+    UI_Parent(cell) {
+        UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->font, text) + 2 * pad + caret));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextCornerRadius(m->radius);
+        UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->focus });
+        UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
+        state->renameRect = box->rect;
+        UI_Parent(box) {
+            u32 from = Min(state->renameCursor, state->renameAnchor), to = Max(state->renameCursor, state->renameAnchor);
+            f32 x0 = pad + R_TextWidth(m->font, StrMake(text.value, from));
+            f32 x1 = pad + R_TextWidth(m->font, StrMake(text.value, to));
+            if (to > from) {
+                UI_SetNextFloatingOffset((UI_Vec2){ x0, textY });
+                UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
+                UI_SetNextPrefHeight(UI_Pixels(m->line));
+                UI_SetNextColors((UI_Colors){ .background = theme->hover });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            UI_SetNextFloatingOffset((UI_Vec2){ pad, textY });
+            UI_SetNextPrefHeight(UI_Pixels(m->line));
+            UI_SetNextColors((UI_Colors){ .text = theme->text });
+            UI_SetNextText(text);
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+            f32 caretX = state->renameCursor == from ? x0 : x1;
+            UI_SetNextFloatingOffset((UI_Vec2){ caretX, textY });
+            UI_SetNextPrefWidth(UI_Pixels(caret));
+            UI_SetNextPrefHeight(UI_Pixels(m->line));
+            UI_SetNextColors((UI_Colors){ .background = theme->text });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+    }
+}
+
 function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = &Prog_ThemeCustom;
@@ -278,14 +326,17 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     UI_Interaction interaction = UI_InteractionFromBlock(row);
     // A plain press inside a multi-selection keeps it so that it can be dragged; the click narrows it.
     b32 keepSelection = entry->selected && state->selectedCount > 1 && !interaction.mods && interaction.pressCount == 1;
-    if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
+    b32 renaming = state->renaming && StrIsEqual(entry->file.name, StrMake((const char *)state->renameFrom, state->renameFromLength));
+    // Clicks inside the name being edited stay in the box instead of reopening or dragging the row.
+    if (renaming && UI__Contains(state->renameRect, UI->mouse)) {
+    } else if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
     } else if (!state->loading && ((interaction.pressed && !keepSelection) || (interaction.clicked && keepSelection && interaction.button == MouseButton_Left))) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount,
                                                   interaction.pressed ? interaction.pressOrder : interaction.clickOrder);
         command->mods = interaction.mods;
     }
-    if (!state->loading && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && entry->selected) {
+    if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && entry->selected) {
         Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
     }
     String values[Prog_Sort_Count] = { entry->file.name, entry->type, entry->modified, entry->size };
@@ -303,6 +354,10 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
                        highlighted ? theme->text : faded ? theme->iconDisabled : theme->icon, 1, m);
         }
         for (u32 i = 0; i < Prog_Sort_Count; ++i) {
+            if (i == Prog_Sort_Name && renaming) {
+                Prog__RenameBox(state, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m);
+                continue;
+            }
             R_Color color = (i == Prog_Sort_Name && !faded) || highlighted ? theme->text : theme->textDim;
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
         }
