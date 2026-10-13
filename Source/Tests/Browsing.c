@@ -528,6 +528,9 @@ function void TestBrowsing(void)
         P__TestOpenPath(&fixture);
 #endif
         TestProgramBrowsing(&fixture);
+#if defined(_WIN32)
+        P__TestDropForwarding(&fixture);
+#endif
     }
     P__TestRemoveFixture(&fixture);
 }

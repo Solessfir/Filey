@@ -125,6 +125,8 @@ function void UI_Release(UI_Context *context);
 function UI_Block *UI_AddBlockFromKey(UI_Key key, UI_Flags flags);
 function UI_Block *UI_AddBlock(UI_Flags flags);
 function UI_Interaction UI_InteractionFromBlock(UI_Block *block);
+// Ends the current press without a release, for when the OS took the button up.
+function void UI_CancelActive(void);
 function UI_Block *UI_PushParent(UI_Block *block);
 function void UI_PopParent(UI_Block *previous);
 #define UI_Parent(block) for (UI_Block *UI__previous = UI_PushParent(block), *UI__once = (block); UI__once; UI_PopParent(UI__previous), UI__once = NULL)

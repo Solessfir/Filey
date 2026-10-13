@@ -89,6 +89,7 @@ typedef enum PlatformEventKind {
     PlatformEventKind_MouseDown,
     PlatformEventKind_MouseUp,
     PlatformEventKind_MouseWheel,
+    PlatformEventKind_Dropped,  // files were dropped on the window
 
     PlatformEventKind_Count,
 } PlatformEventKind;

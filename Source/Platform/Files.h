@@ -93,3 +93,15 @@ typedef struct P_ContextMenu {
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu);
 function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id);
 function void P_ContextMenuClose(P_ContextMenu *menu);
+
+// Drag and drop between Filey and other programs, through the system's own
+// drag protocol. Main thread only.
+//
+// Starts a drag of `names` inside `directory` and returns once they are dropped
+// (true) or the drag is cancelled. The system's drag loop runs inside this call
+// and renders frames through the modal frame callback while the pointer is over
+// the window, so call it outside a frame.
+function b32 P_DragFiles(String directory, const String *names, u64 count);
+// The folder that files dropped on the window go into, updated as the pointer
+// moves; empty refuses drops. A completed drop sends PlatformEventKind_Dropped.
+function void P_SetDropDirectory(String path);

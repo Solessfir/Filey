@@ -1,5 +1,7 @@
 // Shell context menus: the IContextMenu of a selection or folder background is
 // read into P_MenuItems for Filey's own menu UI and invoked by command id.
+// Drag and drop uses the shell's data objects and folder drop targets, so other
+// programs see the same drags as Explorer's.
 // Requires WinFiles.c and WinIcons.c (P__EnsureCom).
 
 #pragma push_macro("function")
@@ -13,6 +15,9 @@ global HWND P__shellOwner;
 global const IID P__IID_IShellFolder  = { 0x000214E6, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
 global const IID P__IID_IContextMenu  = { 0x000214E4, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
 global const IID P__IID_IContextMenu3 = { 0xBCFCE0A0, 0xEC17, 0x11D0, { 0x8D, 0x10, 0x00, 0xA0, 0xC9, 0x0F, 0x27, 0x19 } };
+global const IID P__IID_IUnknown      = { 0x00000000, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+global const IID P__IID_IDataObject   = { 0x0000010E, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+global const IID P__IID_IDropTarget   = { 0x00000122, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
 
 #define P__MenuFirstId 1
 #define P__MenuLastId  0x7FFF
@@ -83,31 +88,48 @@ function void P__MenuRead(Arena *arena, P__ShellMenu *shell, HMENU popup, P__Arr
     }
 }
 
+function IShellFolder *P__ShellFolder(const wchar *path)
+{
+    IShellFolder *result = NULL;
+    PIDLIST_ABSOLUTE list = NULL;
+    if (path && SUCCEEDED(SHParseDisplayName(path, NULL, &list, 0, NULL))) {
+        if (FAILED(SHBindToObject(NULL, list, NULL, &P__IID_IShellFolder, (void **)&result))) result = NULL;
+        ILFree(list);
+    }
+    return result;
+}
+
+// A shell object (`iid`) for `names` inside `folder`, such as their context menu or data object.
+function b32 P__ShellChildren(IShellFolder *folder, const String *names, u64 count, const IID *iid, void **object)
+{
+    Scratch scratch = GetScratch();
+    PITEMID_CHILD *children = ArenaPushArray(scratch.arena, Max(count, (u64)1), PITEMID_CHILD);
+    u64 parsed = 0;
+    b32 ok = true;
+    for (; parsed < count && ok; ++parsed) {
+        wchar *name = P__FilePathWide(scratch.arena, names[parsed]);
+        ok = name && SUCCEEDED(folder->lpVtbl->ParseDisplayName(folder, P__shellOwner, NULL, name, NULL, (PIDLIST_RELATIVE *)&children[parsed], NULL));
+    }
+    ok = ok && SUCCEEDED(folder->lpVtbl->GetUIObjectOf(folder, P__shellOwner, (UINT)count, (PCUITEMID_CHILD_ARRAY)children, iid, NULL, object));
+    for (u64 i = 0; i < parsed; ++i) ILFree(children[i]);
+    ReleaseScratch(scratch);
+    return ok;
+}
+
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
     P__EnsureCom();
-    Scratch scratch = GetScratchEx(arena);
     P__ShellMenu *shell = ArenaPushStruct(arena, P__ShellMenu);
     shell->directory = P__FilePathWide(arena, directory);
-    PIDLIST_ABSOLUTE directoryList = NULL;
-    IShellFolder *folder = NULL;
-    PITEMID_CHILD *children = ArenaPushArray(scratch.arena, Max(count, (u64)1), PITEMID_CHILD);
-    u64 parsed = 0;
-    b32 ok = shell->directory && SUCCEEDED(SHParseDisplayName(shell->directory, NULL, &directoryList, 0, NULL)) &&
-             SUCCEEDED(SHBindToObject(NULL, directoryList, NULL, &P__IID_IShellFolder, (void **)&folder));
+    IShellFolder *folder = P__ShellFolder(shell->directory);
+    b32 ok = folder != NULL;
     if (ok && count == 0) {
         ok = SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
     } else if (ok) {
-        for (; parsed < count && ok; ++parsed) {
-            wchar *name = P__FilePathWide(scratch.arena, names[parsed]);
-            ok = name && SUCCEEDED(folder->lpVtbl->ParseDisplayName(folder, P__shellOwner, NULL, name, NULL, (PIDLIST_RELATIVE *)&children[parsed], NULL));
-        }
-        ok = ok && SUCCEEDED(folder->lpVtbl->GetUIObjectOf(folder, P__shellOwner, (UINT)count, (PCUITEMID_CHILD_ARRAY)children, &P__IID_IContextMenu, NULL, (void **)&shell->menu));
+        ok = P__ShellChildren(folder, names, count, &P__IID_IContextMenu, (void **)&shell->menu);
     }
-    for (u64 i = 0; i < parsed; ++i) ILFree(children[i]);
     if (folder) folder->lpVtbl->Release(folder);
-    if (directoryList) ILFree(directoryList);
 
     if (ok) {
         shell->popup = CreatePopupMenu();
@@ -125,7 +147,6 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         menu->native = shell;
         P_ContextMenuClose(menu);
     }
-    ReleaseScratch(scratch);
     return ok;
 }
 
@@ -159,4 +180,113 @@ function void P_ContextMenuClose(P_ContextMenu *menu)
         if (shell->popup) DestroyMenu(shell->popup);
     }
     *menu = (P_ContextMenu){0};
+}
+
+// Drags over the window are forwarded to the shell drop target of the folder
+// Filey points at, which copies, moves, links and asks like Explorer does.
+// WinWindow.c registers the window's IDropTarget that calls these.
+typedef struct P__Drop {
+    IDataObject *data;    // the drag over the window
+    IDropTarget *shell;   // drop target of `bound`, entered with `data`
+    Arena wantedArena, boundArena;
+    String wanted;        // from P_SetDropDirectory
+    String bound;         // the folder `shell` belongs to
+    b32 entered;          // `bound` was chosen during this drag
+    b32 dragging;         // a drag started by P_DragFiles is running
+} P__Drop;
+
+global P__Drop P__drop;
+
+function void P_SetDropDirectory(String path)
+{
+    if (StrIsEqual(path, P__drop.wanted)) return;
+    ArenaClear(&P__drop.wantedArena);
+    P__drop.wanted = StrCopy(&P__drop.wantedArena, path);
+}
+
+function void P__DropLeaveShell(void)
+{
+    if (P__drop.shell) {
+        P__drop.shell->lpVtbl->DragLeave(P__drop.shell);
+        P__drop.shell->lpVtbl->Release(P__drop.shell);
+        P__drop.shell = NULL;
+    }
+}
+
+function void P__DropLeave(void)
+{
+    P__DropLeaveShell();
+    if (P__drop.data) P__drop.data->lpVtbl->Release(P__drop.data);
+    P__drop.data = NULL;
+}
+
+function void P__DropEnter(IDataObject *data)
+{
+    P__DropLeave();
+    P__drop.data = data;
+    data->lpVtbl->AddRef(data);
+    P__drop.entered = false;
+}
+
+// `effect` holds the source's allowed effects on input and the chosen one on output.
+function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
+{
+    DWORD allowed = *effect;
+    *effect = DROPEFFECT_NONE;
+    if (!P__drop.data) return;
+    if (!P__drop.entered || !StrIsEqual(P__drop.bound, P__drop.wanted)) {
+        P__DropLeaveShell();
+        ArenaClear(&P__drop.boundArena);
+        P__drop.bound = StrCopy(&P__drop.boundArena, P__drop.wanted);
+        P__drop.entered = true;
+        Scratch scratch = GetScratch();
+        IShellFolder *folder = P__drop.bound.length ? P__ShellFolder(P__FilePathWide(scratch.arena, P__drop.bound)) : NULL;
+        IDropTarget *shell = NULL;
+        if (folder && SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IDropTarget, (void **)&shell))) {
+            DWORD entered = allowed;
+            if (SUCCEEDED(shell->lpVtbl->DragEnter(shell, P__drop.data, keys, point, &entered))) P__drop.shell = shell;
+            else shell->lpVtbl->Release(shell);
+        }
+        if (folder) folder->lpVtbl->Release(folder);
+        ReleaseScratch(scratch);
+    }
+    if (P__drop.shell) {
+        *effect = allowed;
+        if (FAILED(P__drop.shell->lpVtbl->DragOver(P__drop.shell, keys, point, effect))) *effect = DROPEFFECT_NONE;
+    }
+}
+
+function b32 P__DropDrop(DWORD keys, POINTL point, DWORD *effect)
+{
+    P__DropOver(keys, point, effect);
+    b32 result = false;
+    if (P__drop.shell && *effect != DROPEFFECT_NONE) {
+        result = SUCCEEDED(P__drop.shell->lpVtbl->Drop(P__drop.shell, P__drop.data, keys, point, effect));
+        // Drop ends the shell target's drag; it must not also get DragLeave.
+        P__drop.shell->lpVtbl->Release(P__drop.shell);
+        P__drop.shell = NULL;
+    }
+    P__DropLeave();
+    return result;
+}
+
+function b32 P_DragFiles(String directory, const String *names, u64 count)
+{
+    if (!count || P__drop.dragging) return false;
+    P__EnsureCom();
+    Scratch scratch = GetScratch();
+    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, directory));
+    IDataObject *data = NULL;
+    b32 result = false;
+    if (folder && P__ShellChildren(folder, names, count, &P__IID_IDataObject, (void **)&data)) {
+        DWORD effect = DROPEFFECT_NONE;
+        P__drop.dragging = true;
+        // A NULL drop source selects the shell's own, which also draws the drag image.
+        result = SHDoDragDrop(P__shellOwner, data, NULL, DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &effect) == DRAGDROP_S_DROP;
+        P__drop.dragging = false;
+        data->lpVtbl->Release(data);
+    }
+    if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+    return result;
 }

@@ -243,3 +243,17 @@ function void P_ContextMenuClose(P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
 }
+
+// ponytail: no drag and drop yet; needs wl_data_device offers (text/uri-list) and a copy engine for drops.
+function b32 P_DragFiles(String directory, const String *names, u64 count)
+{
+    (void)directory;
+    (void)names;
+    (void)count;
+    return false;
+}
+
+function void P_SetDropDirectory(String path)
+{
+    (void)path;
+}

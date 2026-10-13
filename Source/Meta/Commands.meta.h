@@ -27,6 +27,7 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_ContextMenuAt,
     Prog_CommandKind_ContextMenuInvoke,
     Prog_CommandKind_ContextMenuClose,
+    Prog_CommandKind_DragSelection,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
 #endif
@@ -53,6 +54,7 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_ContextMenuAt] = { .name = { "ContextMenuAt", 13 } },
     [Prog_CommandKind_ContextMenuInvoke] = { .name = { "ContextMenuInvoke", 17 } },
     [Prog_CommandKind_ContextMenuClose] = { .name = { "ContextMenuClose", 16 } },
+    [Prog_CommandKind_DragSelection] = { .name = { "DragSelection", 13 } },
 };
 
 global const Prog_Hotkey Prog_DefaultHotkeys[] = {

@@ -271,12 +271,22 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
     UI_Block *row = UI_AddBlockFromKey(key, flags);
     if (focused) state->focusedRowRect = row->rect;
+    if (hot) {
+        state->hoverRow = index;
+        state->hasHoverRow = true;
+    }
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    // A plain press inside a multi-selection keeps it so that it can be dragged; the click narrows it.
+    b32 keepSelection = entry->selected && state->selectedCount > 1 && !interaction.mods && interaction.pressCount == 1;
     if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
-    } else if (!state->loading && interaction.pressed) {
-        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount, interaction.pressOrder);
+    } else if (!state->loading && ((interaction.pressed && !keepSelection) || (interaction.clicked && keepSelection && interaction.button == MouseButton_Left))) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount,
+                                                  interaction.pressed ? interaction.pressOrder : interaction.clickOrder);
         command->mods = interaction.mods;
+    }
+    if (!state->loading && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && entry->selected) {
+        Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
     }
     String values[Prog_Sort_Count] = { entry->file.name, entry->type, entry->modified, entry->size };
     UI_Parent(row) {
@@ -537,6 +547,7 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
+    state->hasHoverRow = false;
     const Prog_Theme *theme = &Prog_ThemeCustom;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);

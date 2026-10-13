@@ -150,6 +150,12 @@ typedef struct Prog_State {
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     UI_Key menuHot;           // hot block when the menu was last built
     R_Rect focusedRowRect;    // last layout, to place a keyboard-opened menu
+    // Drag and drop. The system's drag loop is modal, so a drag is requested
+    // during a frame and run between frames by Prog_DragSelection.
+    b32 dragRequested;
+    b32 dragging;
+    u64 hoverRow;             // row under the pointer in the last build
+    b32 hasHoverRow;
 } Prog_State;
 
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user);
@@ -169,4 +175,5 @@ function f32 Prog_RowHeight(const R_Font *font);
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);
 function void Prog_SubmitIconRequests(Prog_State *state);
 function void Prog_CloseMenu(Prog_State *state);
+function void Prog_DragSelection(Prog_State *state);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

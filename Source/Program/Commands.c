@@ -166,6 +166,26 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     Prog_CloseMenu(state);
 }
 
+function void Prog_DragSelection(Prog_State *state)
+{
+    state->dragRequested = false;
+    if (state->loading || !state->selectedCount) return;
+    Scratch scratch = GetScratch();
+    String *names = ArenaPushArray(scratch.arena, state->selectedCount, String);
+    u64 count = 0;
+    for (u64 i = 0; i < state->directory.count && count < state->selectedCount; ++i) {
+        if (state->directory.entries[i].selected) names[count++] = state->directory.entries[i].file.name;
+    }
+    state->dragging = true;
+    b32 dropped = P_DragFiles(state->directory.path, names, count);
+    state->dragging = false;
+    // The system's drag loop took the button release.
+    UI_CancelActive();
+    // ponytail: items moved away disappear on this reload; watch the folder when change notifications exist.
+    if (dropped) Prog__Reload(state);
+    ReleaseScratch(scratch);
+}
+
 function b32 Prog_ProcessCommands(Prog_State *state)
 {
     b32 changed = state->commandFirst != NULL;
@@ -244,11 +264,22 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_DragSelection: if (!state->dragging && !state->loading) state->dragRequested = true; break;
             default: InvalidPath;
         }
     }
     state->commandFirst = NULL;
     state->commandLast = NULL;
+    // Files dragged onto the window go into the folder under the pointer, else into this one.
+    String drop = state->loading ? (String){0} : state->directory.path;
+    if (!state->loading && state->hasHoverRow && state->hoverRow < state->directory.count) {
+        const Prog_Entry *entry = &state->directory.entries[state->hoverRow];
+        // A dragged folder cannot take itself.
+        if (entry->file.kind == P_FileKind_Directory && !(state->dragging && entry->selected)) {
+            drop = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
+        }
+    }
+    P_SetDropDirectory(drop);
     Prog_SubmitIconRequests(state);
     return changed;
 }
@@ -258,6 +289,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
+        // ponytail: shows the dropped files once; copies that are still running appear when watching the folder exists.
+        if (event->kind == PlatformEventKind_Dropped) Prog_QueueCommand(state, Prog_CommandKind_Refresh, 0, 0, order);
         if (event->kind != PlatformEventKind_KeyDown) continue;
         KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
         // An open menu takes the keyboard.

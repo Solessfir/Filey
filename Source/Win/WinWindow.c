@@ -101,6 +101,73 @@ function void WinMouseButton(PlatformEventKind kind, WPARAM wParam, LPARAM lPara
     WinPushMouseEvent(kind, lParam, button);
 }
 
+// The window's drop target. Drags hover the UI like the mouse does, so the program
+// can pick the folder under the pointer; WinShell.c forwards to that folder's
+// shell drop target.
+function void WinDropPointer(DWORD keys, POINTL point)
+{
+    POINT client = { point.x, point.y };
+    ScreenToClient(Win.window, &client);
+    PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseMove);
+    event->x = (f32)client.x;
+    event->y = (f32)client.y;
+    event->mods = ((keys & MK_SHIFT) ? KeyMod_Shift : 0) | ((keys & MK_CONTROL) ? KeyMod_Control : 0) | ((keys & MK_ALT) ? KeyMod_Alt : 0);
+    // Filey's own drag runs the system's modal loop instead of the main loop.
+    if (P__drop.dragging) Platform__RunModalFrame();
+}
+
+function HRESULT STDMETHODCALLTYPE WinDropQueryInterface(IDropTarget *target, REFIID iid, void **object)
+{
+    if (IsEqualIID(iid, &P__IID_IUnknown) || IsEqualIID(iid, &P__IID_IDropTarget)) {
+        *object = target;
+        return S_OK;
+    }
+    *object = NULL;
+    return E_NOINTERFACE;
+}
+
+// The target is a global that outlives the registration.
+function ULONG STDMETHODCALLTYPE WinDropAddRef(IDropTarget *target) { (void)target; return 1; }
+function ULONG STDMETHODCALLTYPE WinDropRelease(IDropTarget *target) { (void)target; return 1; }
+
+function HRESULT STDMETHODCALLTYPE WinDropDragEnter(IDropTarget *target, IDataObject *data, DWORD keys, POINTL point, DWORD *effect)
+{
+    (void)target;
+    P__DropEnter(data);
+    WinDropPointer(keys, point);
+    P__DropOver(keys, point, effect);
+    return S_OK;
+}
+
+function HRESULT STDMETHODCALLTYPE WinDropDragOver(IDropTarget *target, DWORD keys, POINTL point, DWORD *effect)
+{
+    (void)target;
+    WinDropPointer(keys, point);
+    P__DropOver(keys, point, effect);
+    return S_OK;
+}
+
+function HRESULT STDMETHODCALLTYPE WinDropDragLeave(IDropTarget *target)
+{
+    (void)target;
+    P__DropLeave();
+    return S_OK;
+}
+
+function HRESULT STDMETHODCALLTYPE WinDropDrop(IDropTarget *target, IDataObject *data, DWORD keys, POINTL point, DWORD *effect)
+{
+    (void)target;
+    (void)data;
+    WinDropPointer(keys, point);
+    if (P__DropDrop(keys, point, effect)) PlatformPushEvent(PlatformEventKind_Dropped);
+    return S_OK;
+}
+
+global IDropTargetVtbl WinDropVtbl = {
+    WinDropQueryInterface, WinDropAddRef, WinDropRelease, WinDropDragEnter, WinDropDragOver, WinDropDragLeave, WinDropDrop,
+};
+global IDropTarget WinDropTarget = { &WinDropVtbl };
+
 function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
@@ -316,9 +383,10 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     SetWindowPos(Win.window, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Shell context menus and the clipboard need OLE on this thread.
+    // Shell context menus, drag and drop and the clipboard need OLE on this thread.
     OleInitialize(NULL);
     P__shellOwner = Win.window;
+    RegisterDragDrop(Win.window, &WinDropTarget);
 
     Win.dc = GetDC(Win.window);
     if (!WinCreateGLContext()) {

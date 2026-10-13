@@ -46,7 +46,7 @@ function void LogEvent(const PlatformEvent *event)
 {
     static const char *names[] = {
         "None", "CloseRequested", "Resized", "FocusChanged", "KeyDown", "KeyUp",
-        "Text", "MouseMove", "MouseDown", "MouseUp", "MouseWheel",
+        "Text", "MouseMove", "MouseDown", "MouseUp", "MouseWheel", "Dropped",
     };
     static_assert(CArrayCount(names) == PlatformEventKind_Count);
 
@@ -194,6 +194,10 @@ int main(void)
         PlatformEventList events = {0};
         ProfileScope("PollEvents") events = PlatformPollEvents(!loop.needsFrame);
         Prog__Frame(&loop, events);
+        if (loop.state.dragRequested) {
+            Prog_DragSelection(&loop.state);
+            loop.needsFrame = true;
+        }
     }
 
     PlatformSetModalFrameCallback(NULL, NULL);

@@ -73,7 +73,7 @@ function void UI__ResetNext(void)
     UI->nextFontSet = UI->nextColorsSet = UI->nextScrollSet = false;
 }
 
-function void UI__CancelActive(void)
+function void UI_CancelActive(void)
 {
     UI_Block *block = UI__Find(UI->activeKey);
     if (block) {
@@ -93,7 +93,7 @@ function void UI__Input(PlatformEventList events)
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++eventOrder;
         if (event->kind == PlatformEventKind_FocusChanged && !event->focused) {
-            UI__CancelActive();
+            UI_CancelActive();
             UI->mouseKnown = false;
             UI->lastPressKey = 0;
             continue;
@@ -137,7 +137,7 @@ function void UI__Input(PlatformEventList events)
                 block->interaction.button = UI->activeButton;
                 block->interaction.mods = UI->activeMods;
             }
-            UI__CancelActive();
+            UI_CancelActive();
         } else if (event->kind == PlatformEventKind_MouseWheel) {
             UI->wheel.x += event->wheelX;
             UI->wheel.y += event->wheelY;
@@ -202,7 +202,7 @@ function UI_Block *UI_AddBlockFromKey(UI_Key key, UI_Flags flags)
     if (UI->nextScrollSet) block->scrollOffset = UI->nextScroll;
     QueuePush(UI->parent->first, UI->parent->last, block);
     UI__ResetNext();
-    if (UI->activeKey == key && key && !FlagExists(flags, UI__ButtonFlags[UI->activeButton])) UI__CancelActive();
+    if (UI->activeKey == key && key && !FlagExists(flags, UI__ButtonFlags[UI->activeButton])) UI_CancelActive();
     return block;
 }
 
@@ -390,7 +390,7 @@ function void UI_EndFrame(void)
         while (*link) {
             UI_Block *block = *link;
             if (block->lastFrameTouched != UI->frameIndex) {
-                if (block->key == UI->activeKey) UI__CancelActive();
+                if (block->key == UI->activeKey) UI_CancelActive();
                 if (block->key == UI->hotKey) UI->hotKey = 0;
                 if (block->key == UI->lastPressKey) UI->lastPressKey = 0;
                 *link = block->hashNext;

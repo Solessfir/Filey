@@ -69,3 +69,50 @@ function void P__TestPause(void)
 {
     Sleep(1);
 }
+
+// Forwards a copy of the fixture's plain.txt into its Empty folder through the
+// shell drop target, as a drag from another program would. Only touches the fixture.
+function void P__TestDropForwarding(TestFileFixture *fixture)
+{
+    Scratch scratch = GetScratchEx(&fixture->arena);
+    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, fixture->path));
+    IDataObject *data = NULL;
+    String names[] = { S("plain.txt") };
+    Check(folder && P__ShellChildren(folder, names, 1, &P__IID_IDataObject, (void **)&data));
+    if (data) {
+        FORMATETC drop = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        Check(data->lpVtbl->QueryGetData(data, &drop) == S_OK);
+
+        POINTL point = {0};
+        DWORD effect = DROPEFFECT_COPY;
+        P_SetDropDirectory((String){0});
+        P__DropEnter(data);
+        P__DropOver(0, point, &effect);
+        Check(effect == DROPEFFECT_NONE);
+        P__DropLeave();
+
+        String target = StrFormat(scratch.arena, "%S/Empty", fixture->path);
+        P_SetDropDirectory(target);
+        effect = DROPEFFECT_COPY;
+        P__DropEnter(data);
+        P__DropOver(0, point, &effect);
+        Check(effect == DROPEFFECT_COPY);
+        effect = DROPEFFECT_COPY;
+        Check(P__DropDrop(0, point, &effect));
+        Check(P__drop.data == NULL && P__drop.shell == NULL);
+
+        // The shell may copy on its own thread.
+        wchar *copy = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/plain.txt", target));
+        b32 copied = false;
+        for (u32 i = 0; i < 500 && !copied; ++i) {
+            copied = GetFileAttributesW(copy) != INVALID_FILE_ATTRIBUTES;
+            if (!copied) Sleep(10);
+        }
+        Check(copied);
+        if (copied) Check(DeleteFileW(copy) != 0);
+        P_SetDropDirectory((String){0});
+        data->lpVtbl->Release(data);
+    }
+    if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+}
