@@ -13,10 +13,12 @@
 #include "Win/WinPlatform.c"
 #include "Win/WinThreads.c"
 #include "Win/WinFiles.c"
+#include "Win/WinIcons.c"
 #elif defined(__linux__)
 #include "Linux/LinuxPlatform.c"
 #include "Linux/LinuxThreads.c"
 #include "Linux/LinuxFiles.c"
+#include "Linux/LinuxIcons.c"
 #endif
 
 #include "Base/Base.c"
@@ -24,6 +26,7 @@
 #include "Platform/PlatformJobs.c"
 #include "Platform/PlatformProfile.c"
 #include "UI/UI.c"
+#include "Program/Icons.c"
 #include "Program/Directory.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"

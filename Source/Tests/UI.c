@@ -45,6 +45,20 @@ function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String
     TestUIRecordDraw((R_Rect){x, y, x + R_TextWidth(font, text), y + font->lineHeight}, color, 2);
 }
 
+function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
+{
+    return (R_TextureHandle){ { 1 } };
+}
+
+function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u32 *pixels)
+{
+}
+
+function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint)
+{
+    TestUIRecordDraw(rect, tint, 3);
+}
+
 function void R_PushClip(R_Rect rect)
 {
     Check(TestUIClipDepth < CArrayCount(TestUIClips));

@@ -1,3 +1,5 @@
+#include <math.h>
+
 #include "UI.h"
 
 function UI_Size UI_Pixels(f32 value) { return (UI_Size){UI_SizeKind_Pixels, value}; }
@@ -242,6 +244,13 @@ function void UI_SetNextFont(const R_Font *font) { UI->next.font = font; UI->nex
 function void UI_SetNextText(String text) { UI->next.text = text; }
 function void UI_SetNextFloatingOffset(UI_Vec2 offset) { UI->next.floatingOffset = offset; }
 function void UI_SetNextCornerRadius(f32 radius) { UI->next.cornerRadius = radius; }
+function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_Color tint)
+{
+    UI->next.image = image;
+    UI->next.imageUV = uv;
+    UI->next.imageSize = size;
+    UI->next.imageTint = tint;
+}
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
@@ -403,6 +412,16 @@ function void UI__DrawBlock(UI_Block *block)
     if (visible) {
         if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, block->props.colors.background, block->props.cornerRadius);
         if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, block->props.colors.border, block->props.cornerRadius, 1);
+        if (FlagExists(block->flags, UI_Flag_DrawImage)) {
+            UI_Padding pad = block->props.childrenPadding;
+            UI_Vec2 size = block->props.imageSize;
+            f32 innerWidth = block->rect.x1 - block->rect.x0 - pad.left - pad.right;
+            f32 innerHeight = block->rect.y1 - block->rect.y0 - pad.top - pad.bottom;
+            // Whole pixels, since images are uploaded at their drawn size.
+            f32 x = floorf(block->rect.x0 + pad.left + (innerWidth - size.x) * UI__Clamp(block->props.textAlignment.x, 0, 1) + 0.5f);
+            f32 y = floorf(block->rect.y0 + pad.top + (innerHeight - size.y) * UI__Clamp(block->props.textAlignment.y, 0, 1) + 0.5f);
+            R_DrawImage((R_Rect){ x, y, x + size.x, y + size.y }, block->props.imageUV, block->props.image, block->props.imageTint);
+        }
         if (FlagExists(block->flags, UI_Flag_DrawText) && block->props.font) {
             UI_Padding pad = block->props.childrenPadding;
             UI_Vec2 text = UI__TextSize(block);

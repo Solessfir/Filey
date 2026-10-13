@@ -259,6 +259,8 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     if (entry->selected) background = theme->selection;
     if (hot) background = theme->hover;
     b32 highlighted = entry->selected || hot;
+    // Hidden and dot-named items are faded whether or not the OS marks them hidden.
+    b32 faded = entry->file.hidden || (entry->file.name.length && entry->file.name.value[0] == '.');
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -273,11 +275,20 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     }
     String values[Prog_Sort_Count] = { entry->file.name, entry->type, entry->modified, entry->size };
     UI_Parent(row) {
-        // ponytail: generic glyphs until shell (Windows) and theme (Linux) file icons exist.
-        Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, m->iconSlot - m->gap, m->row,
-                   highlighted ? theme->text : theme->icon, 1, m);
+        const Prog_Icon *icon = Prog_FileIcon(state, state->directory.path, entry);
+        if (icon) {
+            UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
+            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+            UI_AddBlock(UI_Flag_DrawImage);
+        } else {
+            // Glyphs stand in while the system icon loads or when it has none.
+            Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, m->iconSlot - m->gap, m->row,
+                       highlighted ? theme->text : faded ? theme->iconDisabled : theme->icon, 1, m);
+        }
         for (u32 i = 0; i < Prog_Sort_Count; ++i) {
-            R_Color color = i == Prog_Sort_Name || highlighted ? theme->text : theme->textDim;
+            R_Color color = (i == Prog_Sort_Name && !faded) || highlighted ? theme->text : theme->textDim;
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
         }
     }
@@ -400,6 +411,8 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
 {
     const Prog_Theme *theme = &Prog_ThemeCustom;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
+    i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
+    if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
     const Prog_Metrics *m = &metrics;
     Prog_Column columns[Prog_Sort_Count];
     Prog__Columns(columns, scale);

@@ -456,6 +456,40 @@ finish:
     Check(!state.jobs.initialized && !state.directory.path.length && ArenaPos(&state.directoryArena) == 0);
 }
 
+function void TestFileIcons(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Check(StrIsEqual(P_FileIconKey(&arena, S("/a/b/Readme.TXT"), P_FileKind_File), S(".txt")));
+    Check(StrIsEqual(P_FileIconKey(&arena, S("/a/b/LICENSE"), P_FileKind_File), S("/file")));
+    Check(StrIsEqual(P_FileIconKey(&arena, S("/a/b/dir.d"), P_FileKind_Directory), S("/folder")));
+#if defined(_WIN32)
+    Check(StrIsEqual(P_FileIconKey(&arena, S("C:/a/.gitignore"), P_FileKind_File), S(".gitignore")));
+    Check(StrIsEqual(P_FileIconKey(&arena, S("C:/a/Tool.EXE"), P_FileKind_File), S("C:/a/Tool.EXE")));
+#else
+    Check(StrIsEqual(P_FileIconKey(&arena, S("/a/.profile"), P_FileKind_File), S("/file")));
+#endif
+
+    // 2x2 to 1x1: alpha-weighted color, mean alpha.
+    u32 quad[4] = { 0xFF0000FFu, 0xFF0000FFu, 0x00FF0000u, 0x00FF0000u };
+    u32 *one = Prog_ResizeIcon(&arena, (P_Image){ quad, 2, 2 }, 1);
+    Check(one[0] == 0x800000FFu);
+    // 2x1 into 4x4: fitted and centered, transparent around it.
+    u32 wide[2] = { 0xFF00FF00u, 0xFF00FF00u };
+    u32 *fit = Prog_ResizeIcon(&arena, (P_Image){ wide, 2, 1 }, 4);
+    Check(fit[0] == 0 && fit[4] == 0xFF00FF00u && fit[11] == 0xFF00FF00u && fit[12] == 0);
+
+    P_Image image = {0};
+    String file = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));
+    b32 loaded = P_LoadFileIcon(&arena, file, P_FileKind_File, 16, &image);
+#if defined(_WIN32)
+    Check(loaded);
+#endif
+    Check(!loaded || (image.width > 0 && image.height > 0 && image.pixels != NULL));
+    loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, &image);
+    Check(!loaded || (image.width > 0 && image.height > 0));
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -463,6 +497,7 @@ function void TestBrowsing(void)
     Check(created);
     if (created) {
         TestDirectoryFiles(&fixture);
+        TestFileIcons(&fixture);
 #if defined(__linux__)
         P__TestOpenPath(&fixture);
 #endif

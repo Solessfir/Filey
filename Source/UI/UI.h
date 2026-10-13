@@ -17,6 +17,7 @@ typedef u64 UI_Flags;
 #define UI_Flag_Floating             BBit(6)
 #define UI_Flag_Clip                 BBit(7)
 #define UI_Flag_Scrollable           BBit(8)
+#define UI_Flag_DrawImage            BBit(9)
 
 typedef struct UI_Vec2 { f32 x, y; } UI_Vec2;
 typedef struct UI_Padding { f32 left, top, right, bottom; } UI_Padding;
@@ -46,6 +47,11 @@ typedef struct UI_Properties {
     UI_Colors colors;
     const R_Font *font;
     String text;
+    // Drawn at imageSize, placed inside the padding by textAlignment.
+    R_TextureHandle image;
+    R_Rect imageUV;
+    UI_Vec2 imageSize;
+    R_Color imageTint;
     UI_Vec2 floatingOffset;
     f32 cornerRadius;  // background and border
 } UI_Properties;
@@ -132,6 +138,7 @@ function void UI_SetNextTextAlignment(UI_Vec2 alignment);
 function void UI_SetNextColors(UI_Colors colors);
 function void UI_SetNextFont(const R_Font *font);
 function void UI_SetNextText(String text);
+function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_Color tint);
 function void UI_SetNextFloatingOffset(UI_Vec2 offset);
 function void UI_SetNextCornerRadius(f32 radius);
 function void UI_SetNextScrollOffset(UI_Vec2 offset);

@@ -48,8 +48,30 @@ typedef struct Prog_Entry {
 typedef enum Prog_JobKind {
     Prog_JobKind_Directory,
     Prog_JobKind_Open,
+    Prog_JobKind_Icons,
     Prog_JobKind_Count,
 } Prog_JobKind;
+
+typedef struct Prog_IconRequest {
+    String path;
+    String key;
+    enum8(P_FileKind) kind;
+} Prog_IconRequest;
+
+typedef struct Prog_ArrayIconRequest { ArrayHeader header; Prog_IconRequest *v; } Prog_ArrayIconRequest;
+
+typedef enum Prog_IconState {
+    Prog_IconState_Pending,
+    Prog_IconState_Loaded,
+    Prog_IconState_Failed,
+    Prog_IconState_Count,
+} Prog_IconState;
+
+typedef struct Prog_Icon {
+    enum8(Prog_IconState) state;
+    R_TextureHandle texture;
+    R_Rect uv;
+} Prog_Icon;
 
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
@@ -60,6 +82,10 @@ typedef struct Prog_JobInput {
     b32 showHidden;
     b32 addHistory;
     u64 historyAt;
+    // Icons
+    Prog_IconRequest *icons;
+    u64 iconCount;
+    i32 iconSize;
 } Prog_JobInput;
 
 typedef struct Prog_Directory {
@@ -102,6 +128,16 @@ typedef struct Prog_State {
     b32 revealFocus;
     b32 resetScroll;
     u64 pageRows;  // rows visible in the last layout, for Page Up/Down
+    // File icons, keyed by P_FileIconKey. The map and keys live in iconArena;
+    // atlas pages survive resets and are reused.
+    Arena iconArena;
+    struct { MapHeader header; struct { String key; Prog_Icon value; } *v; } icons;
+    Prog_ArrayIconRequest iconRequests;  // queued while building UI, submitted by Prog_ProcessCommands
+    i32 iconSize;
+    u32 iconCell;
+    u32 iconPageCount;
+    // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
+    R_TextureHandle iconPages[8];
 } Prog_State;
 
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user);
@@ -118,3 +154,6 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events);
 function b32 Prog_ProcessCommands(Prog_State *state);
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale);
 function f32 Prog_RowHeight(const R_Font *font);
+function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);
+function void Prog_SubmitIconRequests(Prog_State *state);
+function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

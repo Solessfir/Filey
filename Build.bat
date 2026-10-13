@@ -59,6 +59,6 @@ if "%ANALYZE%"=="1" (
 "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
 
 if "%TEST%"=="1" (
-    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -lshell32 -lole32 -o "%OUT%\FileyTests.exe" || exit /b 1
+    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -o "%OUT%\FileyTests.exe" || exit /b 1
     "%OUT%\FileyTests.exe" || exit /b 1
 )

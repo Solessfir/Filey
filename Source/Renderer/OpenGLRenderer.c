@@ -29,6 +29,7 @@ typedef i64       GLsizeiptr;
 #define GL_UNSIGNED_BYTE         0x1401
 #define GL_FLOAT                 0x1406
 #define GL_RED                   0x1903
+#define GL_RGBA                  0x1908
 #define GL_VERSION               0x1F02
 #define GL_NEAREST               0x2600
 #define GL_TEXTURE_MAG_FILTER    0x2800
@@ -37,6 +38,7 @@ typedef i64       GLsizeiptr;
 #define GL_TEXTURE_WRAP_T        0x2803
 #define GL_COLOR_BUFFER_BIT      0x00004000
 #define GL_CLAMP_TO_EDGE         0x812F
+#define GL_RGBA8                 0x8058
 #define GL_R8                    0x8229
 #define GL_ARRAY_BUFFER          0x8892
 #define GL_STREAM_DRAW           0x88E0
@@ -62,6 +64,7 @@ typedef i64       GLsizeiptr;
     X(void,            GenTextures,             GLsizei n, GLuint *textures) \
     X(void,            BindTexture,             GLenum target, GLuint texture) \
     X(void,            TexImage2D,              GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) \
+    X(void,            TexSubImage2D,           GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels) \
     X(void,            TexParameteri,           GLenum target, GLenum pname, GLint param) \
     X(void,            PixelStorei,             GLenum pname, GLint param) \
     X(GLuint,          CreateShader,            GLenum type) \
@@ -98,7 +101,7 @@ typedef struct GL_Instance {
     R_Color color;
     f32     radius;
     f32     thickness;  // 0 fills; otherwise an inner outline this wide
-    f32     textured;   // 1 multiplies alpha by the texture's coverage
+    f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA
     f32     pad;
 } GL_Instance;
 
@@ -176,10 +179,13 @@ global const char GL_FragmentShader[] =
     "    if (vStyle.y > 0.0) {\n"
     "        alpha *= clamp(0.5 + distance + vStyle.y, 0.0, 1.0);\n"
     "    }\n"
-    "    if (vStyle.z > 0.0) {\n"
+    "    vec4 color = vColor;\n"
+    "    if (vStyle.z > 1.5) {\n"
+    "        color *= texture(uTexture, vUV);\n"
+    "    } else if (vStyle.z > 0.0) {\n"
     "        alpha *= texture(uTexture, vUV).r;\n"
     "    }\n"
-    "    fragColor = vec4(vColor.rgb, vColor.a * alpha);\n"
+    "    fragColor = vec4(color.rgb, color.a * alpha);\n"
     "}\n";
 
 function R_TextureHandle GL__TextureHandleFromRef(GLuint ref)
@@ -282,6 +288,26 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
     return GL__TextureHandleFromRef(texture);
 }
 
+function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
+{
+    GLuint texture = 0;
+    GL.GenTextures(1, &texture);
+    GL.BindTexture(GL_TEXTURE_2D, texture);
+    GL.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    // Images are uploaded at the size they are drawn.
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return GL__TextureHandleFromRef(texture);
+}
+
+function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u32 *pixels)
+{
+    GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
+    GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+}
+
 function R_Rect GL__CurrentClip(void)
 {
     if (GL.clipDepth > 0) {
@@ -336,6 +362,11 @@ function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f3
 function void R_DrawTexturedRect(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color color)
 {
     GL__PushInstance((GL_Instance){ .rect = rect, .uv = uv, .color = color, .textured = 1.0f }, GL__TextureRefFromHandle(texture));
+}
+
+function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint)
+{
+    GL__PushInstance((GL_Instance){ .rect = rect, .uv = uv, .color = tint, .textured = 2.0f }, GL__TextureRefFromHandle(texture));
 }
 
 function void R_PushClip(R_Rect rect)

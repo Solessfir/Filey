@@ -16,12 +16,14 @@
 #include "Win/WinPlatform.c"
 #include "Win/WinThreads.c"
 #include "Win/WinFiles.c"
+#include "Win/WinIcons.c"
 #include "Win/WinWindow.c"
 #include "Win/WinFont.c"
 #elif defined(__linux__)
 #include "Linux/LinuxPlatform.c"
 #include "Linux/LinuxThreads.c"
 #include "Linux/LinuxFiles.c"
+#include "Linux/LinuxIcons.c"
 #include "Linux/LinuxWindow.c"
 #include "Linux/LinuxFont.c"
 #else
@@ -33,6 +35,7 @@
 #include "UI/UI.c"
 #include "Platform/PlatformJobs.c"
 #include "Platform/PlatformProfile.c"
+#include "Program/Icons.c"
 #include "Program/Directory.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"

@@ -197,7 +197,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     b32 changed = false;
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
-        if (input->kind == Prog_JobKind_Open) {
+        if (input->kind == Prog_JobKind_Icons) {
+            Prog__TakeIcons(state, job);
+            changed = true;
+        } else if (input->kind == Prog_JobKind_Open) {
             P_FileError *error = job->result;
             if (error && error->code) {
                 ArenaClear(&state->errorArena);
@@ -306,6 +309,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->directoryArena);
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->errorArena);
+    ArenaRelease(&state->iconArena);
     ArenaRelease(&state->jobsArena);
     *state = (Prog_State){0};
 }

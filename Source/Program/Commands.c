@@ -115,6 +115,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     state->commandFirst = NULL;
     state->commandLast = NULL;
+    Prog_SubmitIconRequests(state);
     return changed;
 }
 
