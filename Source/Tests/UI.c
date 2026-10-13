@@ -82,6 +82,14 @@ function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
     return paths->header.count != 0;
 }
 
+#if defined(__linux__)
+// Drags start in the window code, which the tests leave out.
+function b32 LinuxStartDrag(String directory, const String *names, u64 count)
+{
+    return false;
+}
+#endif
+
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
 {
     return (R_TextureHandle){ { 1 } };

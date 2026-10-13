@@ -285,18 +285,83 @@ function void P_ContextMenuClose(P_ContextMenu *menu)
     *menu = (P_ContextMenu){0};
 }
 
-// ponytail: no drag and drop yet; needs wl_data_device offers (text/uri-list) and a copy engine for drops.
+// Wayland drags are asynchronous: this starts one and returns, and the window code handles the rest.
+function b32 LinuxStartDrag(String directory, const String *names, u64 count);
+
 function b32 P_DragFiles(String directory, const String *names, u64 count)
 {
-    (void)directory;
-    (void)names;
-    (void)count;
-    return false;
+    return LinuxStartDrag(directory, names, count);
 }
+
+// Where dropped files go; the window's drop handler reads it.
+global struct { char path[PATH_MAX]; u64 length; } P__drop;
 
 function void P_SetDropDirectory(String path)
 {
-    (void)path;
+    P__drop.length = path.length < sizeof(P__drop.path) ? path.length : 0;
+    MemCopy(P__drop.path, path.value, P__drop.length);
+}
+
+function String P__FilePathFromUri(Arena *arena, String uri);
+
+// Parses a file list the way the clipboard and drag and drop carry it: GNOME's starts with "copy" or "cut", and both list file:// URIs.
+function void P__ParseFileList(Arena *arena, String list, b32 gnome, ArrayStr *paths, b32 *cut)
+{
+    *paths = (ArrayStr){0};
+    *cut = false;
+    Scratch scratch = GetScratchEx(arena);
+    ArrayStr lines = StrSplit(scratch.arena, list, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        String line = lines.v[i];
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (gnome && i == 0) {
+            *cut = StrIsEqual(line, S("cut"));
+            continue;
+        }
+        if (!line.length || line.value[0] == '#') continue;
+        String path = P__FilePathFromUri(arena, line);
+        if (path.length) ArrayPush(arena, *paths, path);
+    }
+    ReleaseScratch(scratch);
+}
+
+typedef struct P__DropTransfer {
+    Arena arena;
+    String *paths;
+    u64 count;
+    String directory;
+    b32 move;
+} P__DropTransfer;
+
+function void *P__DropThread(void *user)
+{
+    P__DropTransfer *transfer = user;
+    P_CancelToken token = {0};
+    P_FileError error = P_TransferItems(&transfer->arena, transfer->paths, transfer->count, transfer->directory, transfer->move, &token);
+    // ponytail: drop errors only reach stderr; report them in the status bar through the program if drops fail in practice.
+    if (error.code) fprintf(stderr, "Filey: dropping into %.*s failed: %.*s\n", (i32)transfer->directory.length, transfer->directory.value, (i32)error.message.length, error.message.value);
+    Arena arena = transfer->arena;
+    ArenaRelease(&arena);
+    return NULL;
+}
+
+// Copies or moves dropped files into the drop folder on a thread of their own, so a big drop never holds the window; the folder's watch shows the result.
+function void P__TransferDropped(const ArrayStr *paths, b32 move)
+{
+    if (!paths->header.count || !P__drop.length) return;
+    P__DropTransfer *transfer = ArenaBootstrapStruct(P__DropTransfer, arena);
+    transfer->directory = StrCopy(&transfer->arena, StrMake(P__drop.path, P__drop.length));
+    transfer->paths = ArenaPushArray(&transfer->arena, paths->header.count, String);
+    for (u64 i = 0; i < paths->header.count; ++i) transfer->paths[i] = StrCopy(&transfer->arena, paths->v[i]);
+    transfer->count = paths->header.count;
+    transfer->move = move;
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, P__DropThread, transfer) == 0) {
+        pthread_detach(thread);
+    } else {
+        Arena arena = transfer->arena;
+        ArenaRelease(&arena);
+    }
 }
 
 // A '/' would turn a rename into a move.

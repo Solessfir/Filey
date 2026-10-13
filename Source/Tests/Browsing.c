@@ -950,6 +950,18 @@ function void TestFileOperations(TestFileFixture *fixture)
     Check(!TestHasFile(&arena, fixture, S("Ops"), S("New file (2).txt")) && TestHasFile(&arena, fixture, S("Ops/data/Trash/files"), S("New file (2).txt")));
     Check(TestHasFile(&arena, fixture, S("Ops/data/Trash/info"), S("New file (2).txt.trashinfo")));
 
+    // File lists travel as file:// URIs, percent-encoded; GNOME's first line says whether they were cut.
+    Check(StrIsEqual(P__FileUri(&arena, S("/tmp/a b%.txt")), S("file:///tmp/a%20b%25.txt")));
+    Check(StrIsEqual(P__FilePathFromUri(&arena, S("file:///tmp/a%20b%25.txt")), S("/tmp/a b%.txt")));
+    Check(StrIsEqual(P__FilePathFromUri(&arena, S("file://localhost/x")), S("/x")) && !P__FilePathFromUri(&arena, S("file://host/x")).length);
+    Check(!P__FilePathFromUri(&arena, S("https://x/y")).length && !P__FilePathFromUri(&arena, S("file:///a%00b")).length);
+    ArrayStr parsed = {0};
+    b32 parsedCut = false;
+    P__ParseFileList(&arena, S("cut\nfile:///one\nfile:///two%20x"), true, &parsed, &parsedCut);
+    Check(parsedCut && parsed.header.count == 2 && StrIsEqual(parsed.v[1], S("/two x")));
+    P__ParseFileList(&arena, S("# comment\r\nfile:///one\r\n"), false, &parsed, &parsedCut);
+    Check(!parsedCut && parsed.header.count == 1 && StrIsEqual(parsed.v[0], S("/one")));
+
     // Links copy as links.
     String link = Prog_JoinPath(&arena, fixture->path, S("broken-link"));
     Check(!P_TransferItems(&arena, &link, 1, ops, false, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("broken-link")));

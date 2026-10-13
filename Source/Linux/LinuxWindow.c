@@ -34,11 +34,21 @@ typedef struct LinuxWindowState {
     struct wl_data_offer *newOffer;
     const char *newOfferMime;
     const char *newOfferFiles;
+    b32 newOfferUris;
     struct wl_data_offer *selection;
     const char *selectionMime;
     const char *selectionFiles;
     struct wl_data_offer *dragOffer;
+    const char *dragFiles;    // the file list type the offer under the pointer has
+    u32 dragSerial;
+    u32 dragAction;           // what the compositor settled on for that offer
     struct wl_data_source *source;
+    // A drag that Filey started; its own drops read the list from here instead of through a pipe this thread would have to fill.
+    struct wl_data_source *dragSource;
+    Arena dragArena;
+    String dragList;
+    String dragFolder;
+    u32 pointerSerial;        // of the latest button press, which starting a drag needs
     Arena clipboardArena;     // what Filey offers while it owns the selection
     const char *clipboardMimes[8];
     String clipboardData[8];
@@ -358,7 +368,7 @@ function void PointerButton(void *data, struct wl_pointer *pointer, u32 serial, 
     }
 
     b32 down = state == WL_POINTER_BUTTON_STATE_PRESSED;
-    if (down) Wl.inputSerial = serial;
+    if (down) Wl.inputSerial = Wl.pointerSerial = serial;
     PlatformEvent *event = PlatformPushEvent(down ? PlatformEventKind_MouseDown : PlatformEventKind_MouseUp);
     event->button = mouseButton;
     event->x = Wl.pointerX;
@@ -435,6 +445,7 @@ function void DataOfferOffer(void *data, struct wl_data_offer *offer, const char
     for (u32 i = 0; i < CArrayCount(LinuxFileMimes); ++i) {
         if (strcmp(mime, LinuxFileMimes[i]) == 0 && (!Wl.newOfferFiles || i == 0)) Wl.newOfferFiles = LinuxFileMimes[i];
     }
+    if (strcmp(mime, "text/uri-list") == 0) Wl.newOfferUris = true;
     for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) {
         if (strcmp(mime, LinuxTextMimes[i]) != 0) continue;
         // Keeps the most preferred type offered.
@@ -447,7 +458,10 @@ function void DataOfferOffer(void *data, struct wl_data_offer *offer, const char
 }
 
 function void DataOfferSourceActions(void *data, struct wl_data_offer *offer, u32 actions) {}
-function void DataOfferAction(void *data, struct wl_data_offer *offer, u32 action) {}
+function void DataOfferAction(void *data, struct wl_data_offer *offer, u32 action)
+{
+    if (offer == Wl.dragOffer) Wl.dragAction = action;
+}
 
 global const struct wl_data_offer_listener DataOfferListener = {
     .offer = DataOfferOffer,
@@ -460,24 +474,79 @@ function void DataDeviceDataOffer(void *data, struct wl_data_device *device, str
     Wl.newOffer = offer;
     Wl.newOfferMime = NULL;
     Wl.newOfferFiles = NULL;
+    Wl.newOfferUris = false;
     wl_data_offer_add_listener(offer, &DataOfferListener, NULL);
 }
 
-// ponytail: drag and drop from other apps is not handled yet, so their offers are only released.
+// Pointer events stop while a drag is over the window, so drag motion moves the program's pointer to keep the folder under it highlighted.
+function void LinuxDragPointer(wl_fixed_t x, wl_fixed_t y)
+{
+    Wl.pointerX = (f32)(wl_fixed_to_double(x) * Wl.scale);
+    Wl.pointerY = (f32)(wl_fixed_to_double(y) * Wl.scale);
+    PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseMove);
+    event->x = Wl.pointerX;
+    event->y = Wl.pointerY;
+    event->mods = Wl.mods;
+}
+
+// Files are taken as uri-lists, copied by default and moved when the source or the user asks for it; Filey's own drags move.
+function void LinuxAcceptDrag(void)
+{
+    if (!Wl.dragOffer) return;
+    wl_data_offer_accept(Wl.dragOffer, Wl.dragSerial, Wl.dragFiles && P__drop.length ? Wl.dragFiles : NULL);
+    if (wl_data_offer_get_version(Wl.dragOffer) >= 3) {
+        u32 actions = Wl.dragFiles && P__drop.length ? WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : 0;
+        u32 preferred = !actions ? 0 : Wl.dragSource ? WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
+        wl_data_offer_set_actions(Wl.dragOffer, actions, preferred);
+    }
+}
+
 function void DataDeviceEnter(void *data, struct wl_data_device *device, u32 serial, struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y, struct wl_data_offer *offer)
 {
     if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
     Wl.dragOffer = offer;
+    Wl.dragSerial = serial;
+    Wl.dragAction = 0;
+    Wl.dragFiles = offer && offer == Wl.newOffer ? (Wl.newOfferUris ? "text/uri-list" : Wl.newOfferFiles) : NULL;
+    LinuxDragPointer(x, y);
+    LinuxAcceptDrag();
 }
 
 function void DataDeviceLeave(void *data, struct wl_data_device *device)
 {
     if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
     Wl.dragOffer = NULL;
+    Wl.dragFiles = NULL;
 }
 
-function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 time, wl_fixed_t x, wl_fixed_t y) {}
-function void DataDeviceDrop(void *data, struct wl_data_device *device) { DataDeviceLeave(data, device); }
+function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 time, wl_fixed_t x, wl_fixed_t y)
+{
+    LinuxDragPointer(x, y);
+    // The folder under the pointer changes as it moves, so whether a drop is welcome does too.
+    LinuxAcceptDrag();
+}
+
+function String LinuxClipboardReceive(Arena *arena, const char *mime);
+function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const char *mime);
+
+function void DataDeviceDrop(void *data, struct wl_data_device *device)
+{
+    if (Wl.dragOffer && Wl.dragFiles && P__drop.length) {
+        Scratch scratch = GetScratch();
+        String folder = StrMake(P__drop.path, P__drop.length);
+        b32 own = Wl.dragSource != NULL;
+        String list = own ? Wl.dragList : LinuxReceive(scratch.arena, Wl.dragOffer, Wl.dragFiles);
+        ArrayStr paths = {0};
+        b32 cut = false;
+        P__ParseFileList(scratch.arena, list, strcmp(Wl.dragFiles, LinuxFileMimes[0]) == 0, &paths, &cut);
+        b32 move = Wl.dragAction == WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
+        // Dropping Filey's own files back where they are would only duplicate them.
+        if (!(own && StrIsEqual(folder, Wl.dragFolder))) P__TransferDropped(&paths, move);
+        if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
+        ReleaseScratch(scratch);
+    }
+    DataDeviceLeave(data, device);
+}
 
 function void DataDeviceSelection(void *data, struct wl_data_device *device, struct wl_data_offer *offer)
 {
@@ -501,8 +570,12 @@ function void DataSourceTarget(void *data, struct wl_data_source *source, const 
 function void DataSourceSend(void *data, struct wl_data_source *source, const char *mime, i32 fd)
 {
     String text = {0};
-    for (u32 i = 0; i < Wl.clipboardCount; ++i) {
-        if (strcmp(mime, Wl.clipboardMimes[i]) == 0) text = Wl.clipboardData[i];
+    if (source == Wl.dragSource) {
+        text = Wl.dragList;
+    } else {
+        for (u32 i = 0; i < Wl.clipboardCount; ++i) {
+            if (strcmp(mime, Wl.clipboardMimes[i]) == 0) text = Wl.clipboardData[i];
+        }
     }
     for (u64 at = 0; at < text.length;) {
         ssize_t written = write(fd, text.value + at, text.length - at);
@@ -513,8 +586,20 @@ function void DataSourceSend(void *data, struct wl_data_source *source, const ch
     close(fd);
 }
 
+function void LinuxEndDrag(struct wl_data_source *source)
+{
+    wl_data_source_destroy(source);
+    Wl.dragSource = NULL;
+    ArenaClear(&Wl.dragArena);
+    Wl.dragList = Wl.dragFolder = (String){0};
+}
+
 function void DataSourceCancelled(void *data, struct wl_data_source *source)
 {
+    if (source == Wl.dragSource) {
+        LinuxEndDrag(source);
+        return;
+    }
     wl_data_source_destroy(source);
     if (source == Wl.source) {
         Wl.source = NULL;
@@ -524,7 +609,11 @@ function void DataSourceCancelled(void *data, struct wl_data_source *source)
 }
 
 function void DataSourceDropPerformed(void *data, struct wl_data_source *source) {}
-function void DataSourceFinished(void *data, struct wl_data_source *source) {}
+// A target that moves the files moves them itself, so the source only lets go.
+function void DataSourceFinished(void *data, struct wl_data_source *source)
+{
+    if (source == Wl.dragSource) LinuxEndDrag(source);
+}
 function void DataSourceAction(void *data, struct wl_data_source *source, u32 action) {}
 
 global const struct wl_data_source_listener DataSourceListener = {
@@ -905,12 +994,12 @@ function void PlatformClipboardSetText(String text)
     LinuxClipboardOffer();
 }
 
-// Reads what the selection holds as `mime`.
-function String LinuxClipboardReceive(Arena *arena, const char *mime)
+// Reads what `offer` holds as `mime`.
+function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const char *mime)
 {
     i32 fds[2];
-    if (!Wl.selection || !mime || pipe2(fds, O_CLOEXEC) != 0) return (String){0};
-    wl_data_offer_receive(Wl.selection, mime, fds[1]);
+    if (!offer || !mime || pipe2(fds, O_CLOEXEC) != 0) return (String){0};
+    wl_data_offer_receive(offer, mime, fds[1]);
     close(fds[1]);
     wl_display_flush(Wl.display);
     // ponytail: a fixed 1 MiB cap and a one second wait per read; text fields never need more.
@@ -928,11 +1017,40 @@ function String LinuxClipboardReceive(Arena *arena, const char *mime)
     return StrMake(bytes, length);
 }
 
+function String LinuxClipboardReceive(Arena *arena, const char *mime)
+{
+    return LinuxReceive(arena, Wl.selection, mime);
+}
+
 function String PlatformClipboardGetText(Arena *arena)
 {
     // Reading our own selection through the compositor would wait on a pipe this thread has to fill.
     if (Wl.source) return StrCopy(arena, LinuxClipboardOwn(LinuxTextMimes[0]));
     return LinuxClipboardReceive(arena, Wl.selectionMime);
+}
+
+// Hands the drag to the compositor and returns; drops and the end of the drag arrive as data device and source events.
+function b32 LinuxStartDrag(String directory, const String *names, u64 count)
+{
+    LinuxEnsureDataDevice();
+    if (!Wl.dataDevice || !count || !Wl.pointerSerial) return false;
+    if (Wl.dragSource) LinuxEndDrag(Wl.dragSource);
+    StrBuilder list = {0};
+    for (u64 i = 0; i < count; ++i) {
+        StrBuildStr(&Wl.dragArena, &list, P__FileUri(&Wl.dragArena, StrFormat(&Wl.dragArena, "%S/%S", directory, names[i])));
+        StrBuildCStr(&Wl.dragArena, &list, "\r\n");
+    }
+    Wl.dragList = list.buffer;
+    Wl.dragFolder = StrCopy(&Wl.dragArena, directory);
+    Wl.dragSource = wl_data_device_manager_create_data_source(Wl.dataManager);
+    wl_data_source_add_listener(Wl.dragSource, &DataSourceListener, NULL);
+    wl_data_source_offer(Wl.dragSource, "text/uri-list");
+    if (wl_data_source_get_version(Wl.dragSource) >= 3) {
+        wl_data_source_set_actions(Wl.dragSource, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE);
+    }
+    wl_data_device_start_drag(Wl.dataDevice, Wl.dragSource, Wl.surface, NULL, Wl.pointerSerial);
+    wl_display_flush(Wl.display);
+    return true;
 }
 
 function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
@@ -967,19 +1085,7 @@ function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
     if (!mime) return false;
     Scratch scratch = GetScratchEx(arena);
     String list = Wl.source ? LinuxClipboardOwn(mime) : LinuxClipboardReceive(scratch.arena, mime);
-    b32 gnome = strcmp(mime, LinuxFileMimes[0]) == 0;
-    ArrayStr lines = StrSplit(scratch.arena, list, '\n');
-    for (u64 i = 0; i < lines.header.count; ++i) {
-        String line = lines.v[i];
-        if (line.length && line.value[line.length - 1] == '\r') --line.length;
-        if (gnome && i == 0) {
-            *cut = StrIsEqual(line, S("cut"));
-            continue;
-        }
-        if (!line.length || line.value[0] == '#') continue;
-        String path = P__FilePathFromUri(arena, line);
-        if (path.length) ArrayPush(arena, *paths, path);
-    }
+    P__ParseFileList(arena, list, strcmp(mime, LinuxFileMimes[0]) == 0, paths, cut);
     ReleaseScratch(scratch);
     return paths->header.count != 0;
 }
