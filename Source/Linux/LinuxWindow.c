@@ -103,6 +103,9 @@ typedef struct LinuxWindowState {
     f32 scale;           // physical / logical, fractional when the compositor supports it
     b32 configured;
     b32 closed;
+    b32 closeRequested;  // the compositor asked the window to close
+    // Not visible at all, for example on a hidden workspace, so nothing is drawn until that changes.
+    b32 suspended;
     // Frame pacing: the next frame waits for the compositor's callback for the last one, or for the deadline when it never comes.
     struct wl_callback *frameCallback;
     u64 frameDeadline;
@@ -691,16 +694,25 @@ function void ToplevelConfigure(void *data, struct xdg_toplevel *toplevel, i32 w
 {
     Wl.pendingWidth = width;
     Wl.pendingHeight = height;
+    b32 suspended = false;
+    for (u32 *state = states->data; (u8 *)state < (u8 *)states->data + states->size; ++state) suspended |= *state == XDG_TOPLEVEL_STATE_SUSPENDED;
+    Wl.suspended = suspended;
 }
 
 function void ToplevelClose(void *data, struct xdg_toplevel *toplevel)
 {
+    Wl.closeRequested = true;
     PlatformPushEvent(PlatformEventKind_CloseRequested);
 }
 
+function void ToplevelConfigureBounds(void *data, struct xdg_toplevel *toplevel, i32 width, i32 height) {}
+function void ToplevelWmCapabilities(void *data, struct xdg_toplevel *toplevel, struct wl_array *capabilities) {}
+
 global const struct xdg_toplevel_listener ToplevelListener = {
-    .configure = ToplevelConfigure,
-    .close     = ToplevelClose,
+    .configure        = ToplevelConfigure,
+    .close            = ToplevelClose,
+    .configure_bounds = ToplevelConfigureBounds,
+    .wm_capabilities  = ToplevelWmCapabilities,
 };
 
 function void SurfaceEnter(void *data, struct wl_surface *surface, struct wl_output *output) {}
@@ -754,7 +766,8 @@ function void RegistryGlobal(void *data, struct wl_registry *registry, u32 name,
     } else if (strcmp(interface, wl_data_device_manager_interface.name) == 0) {
         Wl.dataManager = wl_registry_bind(registry, name, &wl_data_device_manager_interface, Min(version, (u32)3));
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
-        Wl.wmBase = wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
+        // Version 6 adds the suspended state.
+        Wl.wmBase = wl_registry_bind(registry, name, &xdg_wm_base_interface, Min(version, (u32)6));
         xdg_wm_base_add_listener(Wl.wmBase, &WmBaseListener, NULL);
     }
 }
@@ -909,12 +922,14 @@ function PlatformEventList PlatformPollEvents(b32 wait)
     // A wait ends only for something the program sees: an event, a wake from a job, or a key repeat that is due.
     // Compositor traffic alone, such as the buffer release that follows every swap, would otherwise wake the loop to draw again, forever.
     // While the last frame is still waiting for its callback, everything that arrives is held for the next frame, so bursts of input draw once per refresh and a hidden window does not draw at all.
+    // A suspended window holds everything until the compositor shows it again, except a request to close.
     b32 woken = false;
     for (;;) {
         u64 now = PlatformNowMicroseconds();
-        b32 pacing = Wl.frameCallback && !Wl.closed && now < Wl.frameDeadline;
+        b32 holding = !Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && now < Wl.frameDeadline));
+        b32 pacing = holding && !Wl.suspended;
         i32 timeout = 0;
-        if (pacing || (wait && EventQueue.pending.count == 0)) {
+        if (holding || (wait && EventQueue.pending.count == 0)) {
             timeout = pacing ? (i32)((Wl.frameDeadline - now + 999) / 1000) : -1;
             if (Wl.repeating) {
                 i32 repeat = Wl.repeatNextUs > now ? (i32)((Wl.repeatNextUs - now + 999) / 1000) : 0;
@@ -951,7 +966,7 @@ function PlatformEventList PlatformPollEvents(b32 wait)
             PlatformPushEvent(PlatformEventKind_CloseRequested);
         }
 
-        if (Wl.frameCallback && !Wl.closed && PlatformNowMicroseconds() < Wl.frameDeadline) continue;
+        if (!Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && PlatformNowMicroseconds() < Wl.frameDeadline))) continue;
         if (!wait || timeout == 0 || woken || Wl.closed || EventQueue.pending.count) break;
     }
 
