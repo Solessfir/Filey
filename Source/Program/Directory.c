@@ -30,6 +30,90 @@ function u8 Prog__FoldAscii(u8 c)
     return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
 }
 
+// The lowercase form of `c` for matching.
+// Accents stay, so "e" does not match "é", as in the reference.
+// ponytail: Latin, Greek and Cyrillic only; add a generated case table if other scripts need it.
+function rune Prog__FoldRune(rune c)
+{
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    if (c < 0xC0) return c;
+    if (c <= 0xDE && c != 0xD7) return c + 32;
+    if (c >= 0x100 && c <= 0x137 && c != 0x130) return c | 1;
+    if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E)) return c + (c & 1);
+    if (c >= 0x14A && c <= 0x177) return c | 1;
+    if (c == 0x178) return 0xFF;
+    if (c >= 0x391 && c <= 0x3AB && c != 0x3A2) return c + 32;
+    if (c >= 0x410 && c <= 0x42F) return c + 32;
+    if (c >= 0x400 && c <= 0x40F) return c + 80;
+    return c;
+}
+
+// Whether the letters of `filter` appear in `name` in order, ignoring case, as the reference matches.
+// Each letter takes its first occurrence after the previous one.
+// `marks`, when not NULL, flags the bytes of `name` that matched.
+function b32 Prog_FilterMatch(String name, String filter, u8 *marks)
+{
+    if (marks) MemZero(marks, name.length);
+    u64 at = 0;
+    for (u64 from = 0; from < filter.length;) {
+        rune want = Prog__FoldRune(StrDecodeUtf8(filter, &from));
+        for (;;) {
+            if (at >= name.length) return false;
+            u64 start = at;
+            if (Prog__FoldRune(StrDecodeUtf8(name, &at)) == want) {
+                if (marks) for (u64 i = start; i < at; ++i) marks[i] = 1;
+                break;
+            }
+        }
+    }
+    return true;
+}
+
+// Rebuilds the view from the filter and drops hidden rows from the selection.
+// After an edit the focus moves to the first match, so that Enter opens it.
+function void Prog_ApplyFilter(Prog_State *state, b32 edited)
+{
+    ArenaClear(&state->viewArena);
+    String filter = Prog_EditText(&state->filter);
+    state->view = ArenaPushArrayNoZero(&state->viewArena, Max(state->directory.count, (u64)1), u64);
+    state->viewCount = 0;
+    state->selectedCount = 0;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        Prog_Entry *entry = &state->directory.entries[i];
+        if (Prog_FilterMatch(entry->file.name, filter, NULL)) state->view[state->viewCount++] = i;
+        else entry->selected = false;
+        state->selectedCount += entry->selected != 0;
+    }
+    if (edited || (state->hasFocus && Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX)) {
+        state->hasFocus = state->viewCount != 0;
+        state->focusedRow = state->viewCount ? state->view[0] : 0;
+        state->revealFocus = true;
+    }
+    if (state->hasAnchor && Prog_ViewPosition(state, state->anchorRow) == UINT64_MAX) {
+        state->hasAnchor = state->hasFocus;
+        state->anchorRow = state->focusedRow;
+    }
+}
+
+function void Prog_ClearFilter(Prog_State *state)
+{
+    if (state->filter.length) ++state->filter.version;
+    state->filter.length = state->filter.cursor = state->filter.anchor = 0;
+    state->filtering = false;
+}
+
+// Where listing row `row` is in the view, or UINT64_MAX when the filter hides it.
+function u64 Prog_ViewPosition(const Prog_State *state, u64 row)
+{
+    u64 low = 0, high = state->viewCount;
+    while (low < high) {
+        u64 middle = low + (high - low) / 2;
+        if (state->view[middle] < row) low = middle + 1;
+        else high = middle;
+    }
+    return low < state->viewCount && state->view[low] == row ? low : UINT64_MAX;
+}
+
 function String Prog_ParentPath(String path)
 {
     u64 root = 1;
@@ -385,6 +469,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         }
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
+                    // The filter resets in another folder, and gives way to an item that was just created or renamed.
+                    if (!samePath || (pickRow < result->count && !Prog_FilterMatch(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL))) {
+                        Prog_ClearFilter(state);
+                    }
                     b32 renamePicked = renameCreated && created == 1 && !pick.length;
                     if (created) state->renameCreatedUntil = 0;
                     state->selectLength = 0;
@@ -411,6 +499,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->directory = *result;
                     job->arena = (Arena){0};
                     ++state->listing;
+                    Prog_ApplyFilter(state, false);
                     // A walk under way in this folder carries on; refreshes would otherwise restart it forever.
                     if (!samePath && state->measureJob) {
                         P_RequestCancel(&state->measureJob->cancelToken);
@@ -445,16 +534,18 @@ function b32 Prog_TakeCompletions(Prog_State *state)
 
 function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods)
 {
-    if (row >= state->directory.count) return;
+    u64 at = Prog_ViewPosition(state, row), anchorAt = state->hasAnchor ? Prog_ViewPosition(state, state->anchorRow) : UINT64_MAX;
+    if (at == UINT64_MAX) return;
     if (!(mods & KeyMod_Control)) {
         for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = false;
         state->selectedCount = 0;
     }
-    if ((mods & KeyMod_Shift) && state->hasAnchor) {
-        u64 first = Min(row, state->anchorRow), last = Max(row, state->anchorRow);
-        for (u64 i = first; i <= last; ++i) {
-            if (!state->directory.entries[i].selected) ++state->selectedCount;
-            state->directory.entries[i].selected = true;
+    if ((mods & KeyMod_Shift) && anchorAt != UINT64_MAX) {
+        // The range runs over the rows the filter shows.
+        for (u64 i = Min(at, anchorAt); i <= Max(at, anchorAt); ++i) {
+            Prog_Entry *entry = &state->directory.entries[state->view[i]];
+            if (!entry->selected) ++state->selectedCount;
+            entry->selected = true;
         }
     } else {
         state->directory.entries[row].selected = (mods & KeyMod_Control) ? !state->directory.entries[row].selected : true;
@@ -497,6 +588,7 @@ function void Prog_Release(Prog_State *state)
     UI_Release(&state->ui);
     ArenaRelease(&state->frameArena);
     ArenaRelease(&state->directoryArena);
+    ArenaRelease(&state->viewArena);
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->iconArena);

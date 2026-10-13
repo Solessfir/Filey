@@ -561,17 +561,17 @@ function void TestRename(TestFileFixture *fixture)
 
     // Files start with the name before the extension selected; Escape keeps the old name.
     Prog_BeginRename(&state, plain);
-    Check(state.renaming && state.renameAnchor == 0 && state.renameCursor == 5);
+    Check(state.renaming && state.rename.anchor == 0 && state.rename.cursor == 5);
     TestRenameType(&state, S("ż"));
-    Check(StrIsEqual(Prog_RenameText(&state), S("ż.txt")) && state.renameCursor == 2);
+    Check(StrIsEqual(Prog_EditText(&state.rename), S("ż.txt")) && state.rename.cursor == 2);
     TestRenameKey(&state, Key_Backspace, 0);
     TestRenameKey(&state, Key_End, KeyMod_Shift);
-    Check(StrIsEqual(Prog_RenameText(&state), S(".txt")) && state.renameAnchor == 0 && state.renameCursor == 4);
+    Check(StrIsEqual(Prog_EditText(&state.rename), S(".txt")) && state.rename.anchor == 0 && state.rename.cursor == 4);
     TestRenameKey(&state, Key_Left, 0);
     TestRenameKey(&state, Key_Right, 0);
     TestRenameKey(&state, Key_Left, KeyMod_Shift);
     TestRenameKey(&state, Key_Delete, 0);
-    Check(StrIsEqual(Prog_RenameText(&state), S("txt")));
+    Check(StrIsEqual(Prog_EditText(&state.rename), S("txt")));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.renaming && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX);
 
@@ -597,7 +597,7 @@ function void TestRename(TestFileFixture *fixture)
     Check(P__TestWriteFile(fixture, S("created.txt"), 1, false));
     state.renameCreatedUntil = PlatformNowMicroseconds() + Millions(5);
     TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
-    Check(state.renaming && StrIsEqual(Prog_RenameText(&state), S("created.txt")) && state.renameCursor == 7);
+    Check(state.renaming && StrIsEqual(Prog_EditText(&state.rename), S("created.txt")) && state.rename.cursor == 7);
     Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("created.txt")));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.renaming && !state.renameCreatedUntil);
@@ -605,6 +605,74 @@ function void TestRename(TestFileFixture *fixture)
 finish:
     Prog_Release(&state);
     ArenaRelease(&arena);
+}
+
+// Every row the view shows matches the filter, and no hidden row stays selected.
+function b32 TestFilterConsistent(Prog_State *state)
+{
+    b32 result = true;
+    String filter = Prog_EditText(&state->filter);
+    u64 shown = 0;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        b32 match = Prog_FilterMatch(state->directory.entries[i].file.name, filter, NULL);
+        b32 inView = Prog_ViewPosition(state, i) != UINT64_MAX;
+        result &= match == inView && (inView || !state->directory.entries[i].selected);
+        shown += inView != 0;
+    }
+    return result && shown == state->viewCount && TestSelectionCount(state) <= state->viewCount;
+}
+
+function void TestFilter(TestFileFixture *fixture)
+{
+    // the reference's rules: letters in order, Unicode case folded, accents kept.
+    u8 marks[16];
+    Check(Prog_FilterMatch(S("my_folder.txt"), S("mfd"), marks) && marks[0] && !marks[1] && marks[3] && marks[6] && !marks[7]);
+    Check(Prog_FilterMatch(S("Élan.txt"), S("éLAN"), marks) && marks[0] && marks[1] && marks[4] && !marks[5]);
+    Check(Prog_FilterMatch(S("ÄBC.txt"), S("äbc"), NULL) && Prog_FilterMatch(S("ŁÓDŹ"), S("łódź"), NULL) && Prog_FilterMatch(S("ПРИВЕТ"), S("привет"), NULL));
+    Check(!Prog_FilterMatch(S("Élan.txt"), S("elan"), NULL) && !Prog_FilterMatch(S("elan2.txt"), S("élan"), NULL));
+    Check(Prog_FilterMatch(S("plain.txt"), (String){0}, NULL) && !Prog_FilterMatch(S("plain.txt"), S("plainer"), NULL));
+
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized) return;
+    Check(TestWaitDirectory(&state));
+    Check(state.viewCount == state.directory.count && state.directory.count >= 7);
+
+    // Typing filters and focuses the first match; hidden rows leave the selection.
+    TestBrowsingCommand(&state, Prog_CommandKind_SelectAll, 0);
+    TestRenameType(&state, S("FOLDER"));
+    Check(state.filtering && state.viewCount == 2 && TestFilterConsistent(&state) && TestSelectionCount(&state) == 2);
+    Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder2")));
+    TestRenameKey(&state, Key_Down, 0);
+    Check(StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder10")) && TestSelectionCount(&state) == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_SelectAll, 0);
+    Check(TestSelectionCount(&state) == 2);
+
+    // Backspace edits the filter instead of going up, and Enter hands the keyboard back to the list.
+    TestRenameKey(&state, Key_Backspace, 0);
+    Check(StrIsEqual(Prog_EditText(&state.filter), S("FOLDE")) && StrIsEqual(state.directory.path, fixture->path));
+    TestRenameType(&state, S("r1"));
+    Check(state.viewCount == 1 && TestFilterConsistent(&state));
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(!state.filtering && state.filter.length == 7 && state.viewCount == 1 && !state.loading);
+
+    // A refresh keeps the filter; Escape removes it.
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+    Check(state.viewCount == 1 && TestFilterConsistent(&state));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.filter.length && !state.filtering && state.viewCount == state.directory.count);
+
+    TestRenameType(&state, S("nothing matches this"));
+    Check(!state.viewCount && !state.hasFocus && !TestSelectionCount(&state));
+    TestRenameKey(&state, Key_A, KeyMod_Control);
+    TestRenameType(&state, S("folder2"));
+    Check(state.viewCount == 1 && state.hasFocus);
+
+    // Another folder starts unfiltered.
+    TestBrowsingCommand(&state, Prog_CommandKind_OpenFocused, 0);
+    Check(StrIsEqual(state.directory.entries[0].file.name, S("inside.txt")));
+    Check(!state.filter.length && !state.filtering && state.viewCount == 1);
+    Prog_Release(&state);
 }
 
 function void TestWatch(TestFileFixture *fixture)
@@ -705,6 +773,7 @@ function void TestBrowsing(void)
 #endif
         TestProgramBrowsing(&fixture);
         TestRename(&fixture);
+        TestFilter(&fixture);
         TestWatch(&fixture);
         TestMeasure(&fixture);
 #if defined(_WIN32)

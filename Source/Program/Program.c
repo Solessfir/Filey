@@ -21,6 +21,7 @@ typedef struct Prog_Theme {
     R_Color text;
     R_Color textDim;
     R_Color textHeading;   // sidebar section titles
+    R_Color textMatch;     // letters a filter matched
     R_Color icon;
     R_Color iconDisabled;
 } Prog_Theme;
@@ -39,6 +40,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
+    .textMatch    = Prog_Rgb(0, 121, 166),
     .icon         = Prog_Gray(154),
     .iconDisabled = Prog_Gray(70),
 };
@@ -59,6 +61,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
+    .textMatch    = Prog_Rgb(0, 121, 166),
     .icon         = Prog_Gray(160),
     .iconDisabled = Prog_Gray(90),
 };
@@ -111,6 +114,11 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
 function f32 Prog_RowHeight(const R_Font *font)
 {
     return floorf(font->lineHeight * 1.6f + 0.5f);
+}
+
+function f32 Prog__CaretWidth(const Prog_Metrics *m)
+{
+    return MaxF32(1.0f, floorf(m->separator * 0.75f));
 }
 
 function UI_Block *Prog__Box(UI_Size width, UI_Size height, UI_Layout layout, R_Color background, UI_Flags flags)
@@ -294,15 +302,42 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
     }
 }
 
+// The text of `edit` with its selection and, when `caret` is set, its caret, floating at `x`, `y` in the current parent.
+function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    String text = Prog_EditText(edit);
+    u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
+    f32 x0 = x + R_TextWidth(m->font, StrMake(text.value, from));
+    f32 x1 = x + R_TextWidth(m->font, StrMake(text.value, to));
+    if (caret && to > from) {
+        UI_SetNextFloatingOffset((UI_Vec2){ x0, y });
+        UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
+        UI_SetNextPrefHeight(UI_Pixels(m->line));
+        UI_SetNextColors((UI_Colors){ .background = theme->hover });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextPrefHeight(UI_Pixels(m->line));
+    UI_SetNextColors((UI_Colors){ .text = theme->text });
+    UI_SetNextText(text);
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+    if (caret) {
+        UI_SetNextFloatingOffset((UI_Vec2){ edit->cursor == from ? x0 : x1, y });
+        UI_SetNextPrefWidth(UI_Pixels(Prog__CaretWidth(m)));
+        UI_SetNextPrefHeight(UI_Pixels(m->line));
+        UI_SetNextColors((UI_Colors){ .background = theme->text });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+}
+
 // The name being edited, with its selection and caret, in place of the name label.
 function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    String text = Prog_RenameText(state);
+    String text = Prog_EditText(&state->rename);
     f32 pad = floorf(m->gap * 0.5f);
-    f32 caret = MaxF32(1.0f, floorf(m->separator * 0.75f));
     f32 height = m->line + pad;
-    f32 textY = floorf((height - m->line) * 0.5f);
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenPadding((UI_Padding){ m->gap - pad, 0, m->gap, 0 });
@@ -310,46 +345,41 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metri
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(cell) {
-        UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->font, text) + 2 * pad + caret));
+        UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->font, text) + 2 * pad + Prog__CaretWidth(m)));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextCornerRadius(m->radius);
         UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->focus });
         UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
         state->renameRect = box->rect;
-        UI_Parent(box) {
-            u32 from = Min(state->renameCursor, state->renameAnchor), to = Max(state->renameCursor, state->renameAnchor);
-            f32 x0 = pad + R_TextWidth(m->font, StrMake(text.value, from));
-            f32 x1 = pad + R_TextWidth(m->font, StrMake(text.value, to));
-            if (to > from) {
-                UI_SetNextFloatingOffset((UI_Vec2){ x0, textY });
-                UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
-                UI_SetNextPrefHeight(UI_Pixels(m->line));
-                UI_SetNextColors((UI_Colors){ .background = theme->hover });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-            }
-            UI_SetNextFloatingOffset((UI_Vec2){ pad, textY });
-            UI_SetNextPrefHeight(UI_Pixels(m->line));
-            UI_SetNextColors((UI_Colors){ .text = theme->text });
-            UI_SetNextText(text);
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
-            f32 caretX = state->renameCursor == from ? x0 : x1;
-            UI_SetNextFloatingOffset((UI_Vec2){ caretX, textY });
-            UI_SetNextPrefWidth(UI_Pixels(caret));
-            UI_SetNextPrefHeight(UI_Pixels(m->line));
-            UI_SetNextColors((UI_Colors){ .background = theme->text });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        UI_Parent(box) Prog__EditContents(&state->rename, pad, floorf((height - m->line) * 0.5f), true, m);
+    }
+}
+
+// A name with the bytes a filter matched, flagged in `marks`, in the match color.
+function void Prog__MatchLabel(String name, const u8 *marks, UI_Size width, R_Color color, const Prog_Metrics *m)
+{
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
+    UI_Parent(cell) {
+        for (u64 start = 0, end = 0; start < name.length; start = end) {
+            while (end < name.length && marks[end] == marks[start]) ++end;
+            Prog__Label(StrFromTo(name, start, (i64)end), UI_TextContent(), m->row, 0, marks[start] ? Prog_CurrentTheme()->textMatch : color, 0);
         }
     }
 }
 
-function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
+function void Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
     // Hover wins over selection, matching the reference.
-    R_Color background = index & 1 ? theme->alternateRow : theme->background;
+    R_Color background = position & 1 ? theme->alternateRow : theme->background;
     if (entry->selected) background = theme->selection;
     if (hot) background = theme->hover;
     b32 highlighted = entry->selected || hot;
@@ -418,6 +448,11 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
                 continue;
             }
             R_Color color = (i == Prog_ColumnId_Name && !faded) || highlighted ? theme->text : theme->textDim;
+            u8 *marks = i == Prog_ColumnId_Name && state->filter.length ? ArenaPushArrayNoZero(frame, Max(entry->file.name.length, (u64)1), u8) : NULL;
+            if (marks && Prog_FilterMatch(entry->file.name, Prog_EditText(&state->filter), marks)) {
+                Prog__MatchLabel(entry->file.name, marks, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), color, m);
+                continue;
+            }
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
         }
     }
@@ -440,7 +475,8 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     if (state->resetScroll) { list->scrollOffset = (UI_Vec2){0}; state->resetScroll = false; }
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / rowHeight);
     if (state->revealFocus && state->hasFocus) {
-        f32 top = (f32)state->focusedRow * rowHeight;
+        u64 position = Prog_ViewPosition(state, state->focusedRow);
+        f32 top = (f32)(position == UINT64_MAX ? 0 : position) * rowHeight;
         f32 height = Max(0.0f, list->rect.y1 - list->rect.y0);
         if (top < list->scrollOffset.y) list->scrollOffset.y = top;
         else if (top + rowHeight > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + rowHeight - height);
@@ -449,18 +485,20 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     // Only rows near the viewport get blocks; spacers stand in for the rest.
     u64 first = (u64)(Max(0.0f, list->scrollOffset.y) / rowHeight);
     if (first > 2) first -= 2; else first = 0;
-    first = Min(first, state->directory.count);
+    first = Min(first, state->viewCount);
     f32 visibleHeight = Max(rowHeight, UI->root->rect.y1 - UI->root->rect.y0);
-    u64 end = Min(state->directory.count, first + (u64)(visibleHeight / rowHeight) + 6);
+    u64 end = Min(state->viewCount, first + (u64)(visibleHeight / rowHeight) + 6);
     UI_Parent(list) {
         if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * rowHeight));
         UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path);
         for (u64 i = first; i < end; ++i) {
-            Prog__Row(state, i, UI_KeyFromStr(directoryKey, state->directory.entries[i].file.name), columns, m);
+            u64 row = state->view[i];
+            Prog__Row(state, row, i, UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name), columns, m);
         }
-        if (end < state->directory.count) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(state->directory.count - end) * rowHeight));
-        if (!state->directory.count && !state->loading) {
-            Prog__Label(S("This folder is empty"), UI_Flex(), rowHeight, m->iconSlot, theme->textDim, 0);
+        if (end < state->viewCount) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(state->viewCount - end) * rowHeight));
+        if (!state->viewCount && !state->loading) {
+            String empty = state->directory.count ? S("No items match the filter") : S("This folder is empty");
+            Prog__Label(empty, UI_Flex(), rowHeight, m->iconSlot, theme->textDim, 0);
         }
     }
 }
@@ -470,14 +508,29 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(bar) {
-        // ponytail: the filter pill is a placeholder until text editing exists.
-        String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
+        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f)));
+        UI_SetNextPrefHeight(UI_Pixels(m->pill));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
         UI_SetNextCornerRadius(m->radius * 2);
-        UI_Block *filter = Prog__Box(UI_Pixels(floorf(m->line * 15.3f)), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->panel, UI_Flag_Clip);
+        UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->focus });
+        UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterBox")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable |
+                                              (state->filtering ? UI_Flag_DrawBorder : 0));
+        state->filterRect = filter->rect;
+        UI_Interaction interaction = UI_InteractionFromBlock(filter);
+        if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_StartFilter, 0, interaction.pressCount, interaction.pressOrder);
         UI_Parent(filter) {
-            Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
-            Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
+            Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, state->filter.length ? theme->text : theme->textDim, 0.5f, m);
+            if (state->filtering || state->filter.length) {
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(m->pill));
+                UI_Block *field = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((m->pill - m->line) * 0.5f), state->filtering, m);
+            } else {
+                String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
+                Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
+            }
         }
 
         Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));

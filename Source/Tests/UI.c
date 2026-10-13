@@ -469,6 +469,7 @@ function void TestUICommandEventOrder(void)
     Prog_Entry entries[2] = {0};
     state.directory.entries = entries;
     state.directory.count = CArrayCount(entries);
+    Prog_ApplyFilter(&state, false);
     PlatformEvent clicks[] = {
         {.kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = 20, .y = 60},
         {.kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = 20, .y = 60},
@@ -493,6 +494,7 @@ function void TestUICommandEventOrder(void)
     }
     UI_Release(&state.ui);
     ArenaRelease(&state.frameArena);
+    ArenaRelease(&state.viewArena);
 }
 
 function void TestProgramCommands(void)
@@ -501,6 +503,7 @@ function void TestProgramCommands(void)
     Prog_Entry entries[8] = {0};
     state.directory.entries = entries;
     state.directory.count = CArrayCount(entries);
+    Prog_ApplyFilter(&state, false);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 7, 1, 0);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 3, 1, 1);
     Check(!state.hasFocus && !entries[7].selected);
@@ -527,6 +530,7 @@ function void TestProgramCommands(void)
     Prog_QueueCommand(&state, Prog_CommandKind_FocusPageUp, 0, 0, 0);
     Check(Prog_ProcessCommands(&state) && state.focusedRow == 4);
     ArenaRelease(&state.frameArena);
+    ArenaRelease(&state.viewArena);
 }
 
 function void TestProgramVirtualRows(void)
@@ -539,6 +543,7 @@ function void TestProgramVirtualRows(void)
         state.directory.entries[i].file.name = StrFormat(&state.directoryArena, "item-%u.txt", (u32)i);
         state.directory.entries[i].type = S("txt file");
     }
+    Prog_ApplyFilter(&state, false);
     UI_Key listKey = UI_KeyFromStr(0, S("Files"));
     UI_Key directoryKey = UI_KeyFromStr(listKey, state.directory.path);
     for (u32 frame = 0; frame < 2; ++frame) {

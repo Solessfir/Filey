@@ -121,6 +121,16 @@ typedef struct Prog_Measured {
     u64 count;
 } Prog_Measured;
 
+// A single-line text field.
+// Offsets are bytes into `text`; names never reach the buffer size on any file system.
+typedef struct Prog_TextEdit {
+    u8 text[1024];
+    u32 length;
+    u32 cursor;
+    u32 anchor;
+    u32 version;  // bumped by every change to the text
+} Prog_TextEdit;
+
 typedef struct Prog_Directory {
     String path;
     Prog_Entry *entries;
@@ -190,18 +200,22 @@ typedef struct Prog_State {
     u64 hoverRow;             // row under the pointer in the last build
     b32 hasHoverRow;
     // Inline rename of the entry named renameFrom.
-    // Offsets are bytes into renameText; names never reach the buffer sizes on any file system.
     b32 renaming;
     u8 renameFrom[1024];
     u32 renameFromLength;
-    u8 renameText[1024];
-    u32 renameLength;
-    u32 renameCursor;
-    u32 renameAnchor;
+    Prog_TextEdit rename;
     R_Rect renameRect;        // last layout of the edit box
     u64 renameCreatedUntil;   // until then, rename the one item a listing of this folder adds
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
+    // Live filter of the listing.
+    // The view holds the rows it lets through, in listing order; rows it hides are never selected, so commands cannot act on them.
+    Prog_TextEdit filter;
+    b32 filtering;            // the filter box has the keyboard
+    R_Rect filterRect;        // last layout of the filter box
+    Arena viewArena;
+    u64 *view;
+    u64 viewCount;
     // Folder totals.
     // Each adopted listing gets a new id; results for an older listing of the same folder are matched by name.
     u64 listing;
@@ -238,5 +252,9 @@ function void Prog_DragSelection(Prog_State *state);
 function void Prog_Reload(Prog_State *state);
 function void Prog_BeginRename(Prog_State *state, u64 row);
 function void Prog_SetTransparent(Prog_State *state, b32 transparent);
-function String Prog_RenameText(const Prog_State *state);
+function String Prog_EditText(const Prog_TextEdit *edit);
+function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
+function void Prog_ApplyFilter(Prog_State *state, b32 edited);
+function void Prog_ClearFilter(Prog_State *state);
+function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

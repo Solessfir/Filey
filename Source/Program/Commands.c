@@ -141,113 +141,38 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     if (!mouse) Prog__MenuMove(state, 1);
 }
 
-function String Prog_RenameText(const Prog_State *state)
+function String Prog_EditText(const Prog_TextEdit *edit)
 {
-    return StrMake((const char *)state->renameText, state->renameLength);
-}
-
-function void Prog_BeginRename(Prog_State *state, u64 row)
-{
-    if (state->loading || row >= state->directory.count) return;
-    const Prog_Entry *entry = &state->directory.entries[row];
-    String name = entry->file.name;
-    if (name.length >= sizeof(state->renameText)) return;
-    Prog_CloseMenu(state);
-    MemCopy(state->renameText, name.value, name.length);
-    MemCopy(state->renameFrom, name.value, name.length);
-    state->renameLength = state->renameFromLength = (u32)name.length;
-    // Files start with the part before the extension selected, as in Explorer.
-    u32 end = state->renameLength;
-    if (entry->file.kind != P_FileKind_Directory) {
-        for (u32 i = state->renameLength; i > 1; --i) {
-            if (state->renameText[i - 1] == '.') { end = i - 1; break; }
-        }
-    }
-    state->renameAnchor = 0;
-    state->renameCursor = end;
-    state->renaming = true;
-    state->focusedRow = row;
-    state->hasFocus = true;
-    state->revealFocus = true;
-}
-
-function void Prog__EndRename(Prog_State *state, b32 commit)
-{
-    if (!state->renaming) return;
-    state->renaming = false;
-    String from = StrMake((const char *)state->renameFrom, state->renameFromLength);
-    String to = Prog_RenameText(state);
-    if (!commit || !to.length || StrIsEqual(from, to) || state->loading) return;
-    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
-    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
-    input->kind = Prog_JobKind_Rename;
-    input->path = StrCopy(&job->arena, state->directory.path);
-    input->name = StrCopy(&job->arena, from);
-    input->newName = StrCopy(&job->arena, to);
-    job->input = input;
-    P_JobSubmit(job);
+    return StrMake((const char *)edit->text, edit->length);
 }
 
 // The next codepoint boundary before (`step` < 0) or after `at`.
-function u32 Prog__RenameStep(const Prog_State *state, u32 at, i32 step)
+function u32 Prog__EditStep(const Prog_TextEdit *edit, u32 at, i32 step)
 {
     if (step < 0) {
         if (at) --at;
-        while (at && (state->renameText[at] & 0xC0) == 0x80) --at;
-    } else if (at < state->renameLength) {
+        while (at && (edit->text[at] & 0xC0) == 0x80) --at;
+    } else if (at < edit->length) {
         ++at;
-        while (at < state->renameLength && (state->renameText[at] & 0xC0) == 0x80) ++at;
+        while (at < edit->length && (edit->text[at] & 0xC0) == 0x80) ++at;
     }
     return at;
 }
 
 // Replaces the selection with `bytes`.
-function void Prog__RenameReplace(Prog_State *state, const u8 *bytes, u32 count)
+function void Prog__EditReplace(Prog_TextEdit *edit, const u8 *bytes, u32 count)
 {
-    u32 from = Min(state->renameCursor, state->renameAnchor), to = Max(state->renameCursor, state->renameAnchor);
-    u32 length = state->renameLength - (to - from) + count;
-    if (length >= sizeof(state->renameText)) return;
-    MemMove(state->renameText + from + count, state->renameText + to, state->renameLength - to);
-    MemCopy(state->renameText + from, bytes, count);
-    state->renameLength = length;
-    state->renameCursor = state->renameAnchor = from + count;
+    u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
+    u32 length = edit->length - (to - from) + count;
+    if (length >= sizeof(edit->text)) return;
+    MemMove(edit->text + from + count, edit->text + to, edit->length - to);
+    MemCopy(edit->text + from, bytes, count);
+    edit->length = length;
+    edit->cursor = edit->anchor = from + count;
+    if (from != to || count) ++edit->version;
 }
 
-function void Prog__RenameKey(Prog_State *state, const PlatformEvent *event, u64 order)
-{
-    b32 shift = (event->mods & KeyMod_Shift) != 0;
-    u32 from = Min(state->renameCursor, state->renameAnchor), to = Max(state->renameCursor, state->renameAnchor);
-    switch (event->key) {
-        case Key_Left:
-        case Key_Right: {
-            i32 step = event->key == Key_Left ? -1 : 1;
-            if (!shift && from != to) state->renameCursor = step < 0 ? from : to;
-            else state->renameCursor = Prog__RenameStep(state, state->renameCursor, step);
-            if (!shift) state->renameAnchor = state->renameCursor;
-        } break;
-        case Key_Home:
-        case Key_End: {
-            state->renameCursor = event->key == Key_Home ? 0 : state->renameLength;
-            if (!shift) state->renameAnchor = state->renameCursor;
-        } break;
-        case Key_Backspace:
-        case Key_Delete: {
-            if (from == to) state->renameAnchor = Prog__RenameStep(state, state->renameCursor, event->key == Key_Backspace ? -1 : 1);
-            Prog__RenameReplace(state, NULL, 0);
-        } break;
-        case Key_A: {
-            if (event->mods & KeyMod_Control) {
-                state->renameAnchor = 0;
-                state->renameCursor = state->renameLength;
-            }
-        } break;
-        case Key_Enter: Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order); break;
-        case Key_Escape: Prog_QueueCommand(state, Prog_CommandKind_RenameCancel, 0, 0, order); break;
-        default: break;
-    }
-}
-
-function void Prog__RenameText(Prog_State *state, rune c)
+function void Prog__EditInsert(Prog_TextEdit *edit, rune c)
 {
     u8 bytes[4];
     u32 count = 0;
@@ -266,7 +191,84 @@ function void Prog__RenameText(Prog_State *state, rune c)
         bytes[count++] = (u8)(0x80 | ((c >> 6) & 0x3F));
         bytes[count++] = (u8)(0x80 | (c & 0x3F));
     }
-    Prog__RenameReplace(state, bytes, count);
+    Prog__EditReplace(edit, bytes, count);
+}
+
+// Caret movement, deletion and Ctrl+A.
+// Returns false for keys the field does not use.
+function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
+{
+    b32 shift = (event->mods & KeyMod_Shift) != 0;
+    u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
+    switch (event->key) {
+        case Key_Left:
+        case Key_Right: {
+            i32 step = event->key == Key_Left ? -1 : 1;
+            if (!shift && from != to) edit->cursor = step < 0 ? from : to;
+            else edit->cursor = Prog__EditStep(edit, edit->cursor, step);
+            if (!shift) edit->anchor = edit->cursor;
+        } return true;
+        case Key_Home:
+        case Key_End: {
+            edit->cursor = event->key == Key_Home ? 0 : edit->length;
+            if (!shift) edit->anchor = edit->cursor;
+        } return true;
+        case Key_Backspace:
+        case Key_Delete: {
+            if (from == to) edit->anchor = Prog__EditStep(edit, edit->cursor, event->key == Key_Backspace ? -1 : 1);
+            Prog__EditReplace(edit, NULL, 0);
+        } return true;
+        case Key_A: {
+            if (!(event->mods & KeyMod_Control)) return false;
+            edit->anchor = 0;
+            edit->cursor = edit->length;
+        } return true;
+        default: return false;
+    }
+}
+
+function void Prog_BeginRename(Prog_State *state, u64 row)
+{
+    if (state->loading || row >= state->directory.count) return;
+    const Prog_Entry *entry = &state->directory.entries[row];
+    String name = entry->file.name;
+    if (name.length >= sizeof(state->rename.text)) return;
+    Prog_CloseMenu(state);
+    state->filtering = false;
+    Prog_TextEdit *edit = &state->rename;
+    MemCopy(edit->text, name.value, name.length);
+    MemCopy(state->renameFrom, name.value, name.length);
+    edit->length = state->renameFromLength = (u32)name.length;
+    // Files start with the part before the extension selected, as in Explorer.
+    u32 end = edit->length;
+    if (entry->file.kind != P_FileKind_Directory) {
+        for (u32 i = edit->length; i > 1; --i) {
+            if (edit->text[i - 1] == '.') { end = i - 1; break; }
+        }
+    }
+    edit->anchor = 0;
+    edit->cursor = end;
+    state->renaming = true;
+    state->focusedRow = row;
+    state->hasFocus = true;
+    state->revealFocus = true;
+}
+
+function void Prog__EndRename(Prog_State *state, b32 commit)
+{
+    if (!state->renaming) return;
+    state->renaming = false;
+    String from = StrMake((const char *)state->renameFrom, state->renameFromLength);
+    String to = Prog_EditText(&state->rename);
+    if (!commit || !to.length || StrIsEqual(from, to) || state->loading) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Rename;
+    input->path = StrCopy(&job->arena, state->directory.path);
+    input->name = StrCopy(&job->arena, from);
+    input->newName = StrCopy(&job->arena, to);
+    job->input = input;
+    P_JobSubmit(job);
 }
 
 function void Prog__InvokeMenu(Prog_State *state, u32 index)
@@ -367,8 +369,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_SelectAll: {
                 if (!state->loading) {
-                    for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = true;
-                    state->selectedCount = state->directory.count;
+                    for (u64 i = 0; i < state->viewCount; ++i) state->directory.entries[state->view[i]].selected = true;
+                    state->selectedCount = state->viewCount;
                 }
             } break;
             case Prog_CommandKind_FocusUp:
@@ -377,10 +379,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_FocusLast:
             case Prog_CommandKind_FocusPageUp:
             case Prog_CommandKind_FocusPageDown: {
-                if (!state->loading && state->directory.count) {
-                    u64 row = state->hasFocus ? state->focusedRow : 0;
+                if (!state->loading && state->viewCount) {
+                    // Moves through the rows the filter shows.
+                    u64 row = state->hasFocus ? Prog_ViewPosition(state, state->focusedRow) : 0;
+                    if (row == UINT64_MAX) row = 0;
                     u64 page = state->pageRows > 1 ? state->pageRows - 1 : 1;
-                    u64 last = state->directory.count - 1;
+                    u64 last = state->viewCount - 1;
                     switch (command->kind) {
                         case Prog_CommandKind_FocusUp: if (row) --row; break;
                         case Prog_CommandKind_FocusDown: if (state->hasFocus && row < last) ++row; break;
@@ -390,6 +394,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                         case Prog_CommandKind_FocusPageDown: row = Min(row + page, last); break;
                         default: InvalidPath;
                     }
+                    row = state->view[row];
                     if (command->mods & KeyMod_Control) { state->focusedRow = row; state->hasFocus = true; }
                     else Prog_SelectRow(state, row, command->mods);
                     state->revealFocus = true;
@@ -403,6 +408,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_Rename: if (state->hasFocus) Prog_BeginRename(state, state->focusedRow); break;
             case Prog_CommandKind_RenameCommit: Prog__EndRename(state, true); break;
             case Prog_CommandKind_RenameCancel: Prog__EndRename(state, false); break;
+            case Prog_CommandKind_StartFilter: {
+                if (!state->renaming) {
+                    state->filtering = true;
+                    state->filter.anchor = 0;
+                    state->filter.cursor = state->filter.length;
+                }
+            } break;
             case Prog_CommandKind_DragSelection: if (!state->dragging && !state->loading) state->dragRequested = true; break;
             default: InvalidPath;
         }
@@ -436,14 +448,47 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
                 }
             } else if (event->kind == PlatformEventKind_Text) {
-                Prog__RenameText(state, event->codepoint);
+                Prog__EditInsert(&state->rename, event->codepoint);
             } else if (event->kind == PlatformEventKind_KeyDown) {
-                Prog__RenameKey(state, event, order);
+                if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
+                else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_RenameCancel, 0, 0, order);
+                else Prog__EditKey(&state->rename, event);
             }
+            continue;
+        }
+        // A click outside the filter box gives the keyboard back to the list and keeps the filter.
+        if (event->kind == PlatformEventKind_MouseDown && state->filtering) {
+            R_Rect box = state->filterRect;
+            if (!(event->x >= box.x0 && event->x < box.x1 && event->y >= box.y0 && event->y < box.y1)) state->filtering = false;
+        }
+        // Typing anywhere in the browser filters it, as the reference does by default.
+        if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
+            u32 version = state->filter.version;
+            state->filtering = true;
+            Prog__EditInsert(&state->filter, event->codepoint);
+            if (state->filter.version != version) Prog_ApplyFilter(state, true);
             continue;
         }
         if (event->kind != PlatformEventKind_KeyDown) continue;
         KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+        // Escape removes the filter and Enter applies it; the other keys the box does not use, such as Up and Down, still move through the list.
+        if (!state->menuOpen && event->key == Key_Escape && (state->filtering || state->filter.length)) {
+            Prog_ClearFilter(state);
+            Prog_ApplyFilter(state, false);
+            state->revealFocus = true;
+            continue;
+        }
+        if (!state->menuOpen && state->filtering) {
+            if (event->key == Key_Enter && !mods) {
+                state->filtering = false;
+                continue;
+            }
+            u32 version = state->filter.version;
+            if (Prog__EditKey(&state->filter, event)) {
+                if (state->filter.version != version) Prog_ApplyFilter(state, true);
+                continue;
+            }
+        }
         // An open menu takes the keyboard.
         if (state->menuOpen) {
             switch (event->key) {

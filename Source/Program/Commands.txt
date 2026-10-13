@@ -149,6 +149,13 @@ command RenameCommit {
 command RenameCancel {
 }
 
+command StartFilter {
+    label   = "Filter^search"
+    tooltip = "Start filtering the current folder's contents."
+    hotkey  = "Ctrl+F"
+    repeat  = "false"
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."
