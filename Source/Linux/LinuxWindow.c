@@ -28,6 +28,18 @@ typedef struct LinuxWindowState {
     struct wl_compositor *compositor;
     struct wl_shm        *shm;
     struct wl_seat       *seat;
+    // Clipboard. Offers are tracked from their first event, so the one that becomes the selection knows whether it has text.
+    struct wl_data_device_manager *dataManager;
+    struct wl_data_device *dataDevice;
+    struct wl_data_offer *newOffer;
+    const char *newOfferMime;
+    struct wl_data_offer *selection;
+    const char *selectionMime;
+    struct wl_data_offer *dragOffer;
+    struct wl_data_source *source;
+    Arena clipboardArena;     // the text Filey offers while it owns the selection
+    String clipboardText;
+    u32 inputSerial;          // of the latest key or button press, which setting the selection needs
     struct xdg_wm_base   *wmBase;
     u32 compositorVersion;
 
@@ -210,6 +222,7 @@ function void KeyboardKey(void *data, struct wl_keyboard *keyboard, u32 serial, 
 
     u32 keycode = key + 8;
     b32 down = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+    if (down) Wl.inputSerial = serial;
     LinuxPushKey(keycode, down, false);
 
     if (down && Wl.repeatRate > 0 && xkb_keymap_key_repeats(Wl.keymap, keycode)) {
@@ -341,6 +354,7 @@ function void PointerButton(void *data, struct wl_pointer *pointer, u32 serial, 
     }
 
     b32 down = state == WL_POINTER_BUTTON_STATE_PRESSED;
+    if (down) Wl.inputSerial = serial;
     PlatformEvent *event = PlatformPushEvent(down ? PlatformEventKind_MouseDown : PlatformEventKind_MouseUp);
     event->button = mouseButton;
     event->x = Wl.pointerX;
@@ -403,6 +417,107 @@ function void SeatName(void *data, struct wl_seat *seat, const char *name) {}
 global const struct wl_seat_listener SeatListener = {
     .capabilities = SeatCapabilities,
     .name         = SeatName,
+};
+
+// Text types in the order they are preferred.
+global const char *const LinuxTextMimes[] = { "text/plain;charset=utf-8", "UTF8_STRING", "text/plain" };
+
+function void DataOfferOffer(void *data, struct wl_data_offer *offer, const char *mime)
+{
+    if (offer != Wl.newOffer) return;
+    for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) {
+        if (strcmp(mime, LinuxTextMimes[i]) != 0) continue;
+        // Keeps the most preferred type offered.
+        b32 better = !Wl.newOfferMime;
+        for (u32 j = 0; j < CArrayCount(LinuxTextMimes) && !better; ++j) {
+            if (Wl.newOfferMime == LinuxTextMimes[j]) better = i < j;
+        }
+        if (better) Wl.newOfferMime = LinuxTextMimes[i];
+    }
+}
+
+function void DataOfferSourceActions(void *data, struct wl_data_offer *offer, u32 actions) {}
+function void DataOfferAction(void *data, struct wl_data_offer *offer, u32 action) {}
+
+global const struct wl_data_offer_listener DataOfferListener = {
+    .offer = DataOfferOffer,
+    .source_actions = DataOfferSourceActions,
+    .action = DataOfferAction,
+};
+
+function void DataDeviceDataOffer(void *data, struct wl_data_device *device, struct wl_data_offer *offer)
+{
+    Wl.newOffer = offer;
+    Wl.newOfferMime = NULL;
+    wl_data_offer_add_listener(offer, &DataOfferListener, NULL);
+}
+
+// ponytail: drag and drop from other apps is not handled yet, so their offers are only released.
+function void DataDeviceEnter(void *data, struct wl_data_device *device, u32 serial, struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y, struct wl_data_offer *offer)
+{
+    if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
+    Wl.dragOffer = offer;
+}
+
+function void DataDeviceLeave(void *data, struct wl_data_device *device)
+{
+    if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
+    Wl.dragOffer = NULL;
+}
+
+function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 time, wl_fixed_t x, wl_fixed_t y) {}
+function void DataDeviceDrop(void *data, struct wl_data_device *device) { DataDeviceLeave(data, device); }
+
+function void DataDeviceSelection(void *data, struct wl_data_device *device, struct wl_data_offer *offer)
+{
+    if (Wl.selection) wl_data_offer_destroy(Wl.selection);
+    Wl.selection = offer;
+    Wl.selectionMime = offer && offer == Wl.newOffer ? Wl.newOfferMime : NULL;
+}
+
+global const struct wl_data_device_listener DataDeviceListener = {
+    .data_offer = DataDeviceDataOffer,
+    .enter = DataDeviceEnter,
+    .leave = DataDeviceLeave,
+    .motion = DataDeviceMotion,
+    .drop = DataDeviceDrop,
+    .selection = DataDeviceSelection,
+};
+
+function void DataSourceTarget(void *data, struct wl_data_source *source, const char *mime) {}
+
+function void DataSourceSend(void *data, struct wl_data_source *source, const char *mime, i32 fd)
+{
+    for (u64 at = 0; at < Wl.clipboardText.length;) {
+        ssize_t written = write(fd, Wl.clipboardText.value + at, Wl.clipboardText.length - at);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) break;
+        at += (u64)written;
+    }
+    close(fd);
+}
+
+function void DataSourceCancelled(void *data, struct wl_data_source *source)
+{
+    wl_data_source_destroy(source);
+    if (source == Wl.source) {
+        Wl.source = NULL;
+        ArenaClear(&Wl.clipboardArena);
+        Wl.clipboardText = (String){0};
+    }
+}
+
+function void DataSourceDropPerformed(void *data, struct wl_data_source *source) {}
+function void DataSourceFinished(void *data, struct wl_data_source *source) {}
+function void DataSourceAction(void *data, struct wl_data_source *source, u32 action) {}
+
+global const struct wl_data_source_listener DataSourceListener = {
+    .target = DataSourceTarget,
+    .send = DataSourceSend,
+    .cancelled = DataSourceCancelled,
+    .dnd_drop_performed = DataSourceDropPerformed,
+    .dnd_finished = DataSourceFinished,
+    .action = DataSourceAction,
 };
 
 function void WmBasePing(void *data, struct xdg_wm_base *wmBase, u32 serial)
@@ -494,6 +609,8 @@ function void RegistryGlobal(void *data, struct wl_registry *registry, u32 name,
     } else if (strcmp(interface, wl_seat_interface.name) == 0 && Wl.seat == NULL) {
         Wl.seat = wl_registry_bind(registry, name, &wl_seat_interface, Min(version, (u32)5));
         wl_seat_add_listener(Wl.seat, &SeatListener, NULL);
+    } else if (strcmp(interface, wl_data_device_manager_interface.name) == 0) {
+        Wl.dataManager = wl_registry_bind(registry, name, &wl_data_device_manager_interface, Min(version, (u32)3));
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
         Wl.wmBase = wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
         xdg_wm_base_add_listener(Wl.wmBase, &WmBaseListener, NULL);
@@ -567,6 +684,8 @@ function b32 LinuxCreateGLContext(void)
 // Platform contract
 // -----------------------------------------------------------------------------
 
+function void LinuxEnsureDataDevice(void);
+
 function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 {
     Wl.display = wl_display_connect(NULL);
@@ -578,6 +697,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     Wl.registry = wl_display_get_registry(Wl.display);
     wl_registry_add_listener(Wl.registry, &RegistryListener, NULL);
     wl_display_roundtrip(Wl.display);
+    LinuxEnsureDataDevice();
 
     if (Wl.compositor == NULL || Wl.wmBase == NULL || Wl.shm == NULL || Wl.xkb == NULL) {
         return false;
@@ -715,4 +835,52 @@ function void PlatformWindowSetTransparent(b32 transparent)
 {
     // The alpha the renderer writes is all Wayland needs.
     (void)transparent;
+}
+
+// The data device needs both the seat and the manager, which the registry may announce in either order.
+function void LinuxEnsureDataDevice(void)
+{
+    if (!Wl.dataDevice && Wl.dataManager && Wl.seat) {
+        Wl.dataDevice = wl_data_device_manager_get_data_device(Wl.dataManager, Wl.seat);
+        wl_data_device_add_listener(Wl.dataDevice, &DataDeviceListener, NULL);
+    }
+}
+
+function void PlatformClipboardSetText(String text)
+{
+    LinuxEnsureDataDevice();
+    if (!Wl.dataDevice) return;
+    if (Wl.source) wl_data_source_destroy(Wl.source);
+    ArenaClear(&Wl.clipboardArena);
+    Wl.clipboardText = StrCopy(&Wl.clipboardArena, text);
+    Wl.source = wl_data_device_manager_create_data_source(Wl.dataManager);
+    wl_data_source_add_listener(Wl.source, &DataSourceListener, NULL);
+    for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) wl_data_source_offer(Wl.source, LinuxTextMimes[i]);
+    wl_data_device_set_selection(Wl.dataDevice, Wl.source, Wl.inputSerial);
+    wl_display_flush(Wl.display);
+}
+
+function String PlatformClipboardGetText(Arena *arena)
+{
+    // Reading our own selection through the compositor would wait on a pipe this thread has to fill.
+    if (Wl.source) return StrCopy(arena, Wl.clipboardText);
+    if (!Wl.selection || !Wl.selectionMime) return (String){0};
+    i32 fds[2];
+    if (pipe2(fds, O_CLOEXEC) != 0) return (String){0};
+    wl_data_offer_receive(Wl.selection, Wl.selectionMime, fds[1]);
+    close(fds[1]);
+    wl_display_flush(Wl.display);
+    // ponytail: a fixed 1 MiB cap and a one second wait per read; text fields never need more.
+    u64 capacity = Millions(1);
+    char *bytes = ArenaPushArrayNoZero(arena, capacity, char);
+    u64 length = 0;
+    struct pollfd fd = { .fd = fds[0], .events = POLLIN };
+    while (length < capacity && poll(&fd, 1, 1000) > 0) {
+        ssize_t count = read(fds[0], bytes + length, capacity - length);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        length += (u64)count;
+    }
+    close(fds[0]);
+    return StrMake(bytes, length);
 }

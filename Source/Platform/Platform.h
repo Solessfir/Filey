@@ -158,6 +158,11 @@ typedef struct PlatformDoubleClick {
 
 function PlatformDoubleClick PlatformDoubleClickSettings(void);
 
+// Plain text on the system clipboard, as UTF-8.
+// Reading may wait briefly for the application that owns the clipboard.
+function String PlatformClipboardGetText(Arena *arena);
+function void   PlatformClipboardSetText(String text);
+
 // Returns the events received since the previous call.
 // The list stays valid until the next call.
 // With `wait`, blocks until an event or background wakeup arrives.

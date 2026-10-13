@@ -194,7 +194,57 @@ function void Prog__EditInsert(Prog_TextEdit *edit, rune c)
     Prog__EditReplace(edit, bytes, count);
 }
 
-// Caret movement, deletion and Ctrl+A.
+function b32 Prog__IsWordByte(u8 c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80;
+}
+
+// Places the caret at byte `at` from a click.
+// Shift or a drag extends the selection, and a double click selects the word.
+function void Prog__EditClick(Prog_TextEdit *edit, u32 at, KeyMods mods, u32 pressCount)
+{
+    at = Min(at, edit->length);
+    while (at && at < edit->length && (edit->text[at] & 0xC0) == 0x80) --at;
+    if (pressCount == 2 && !(mods & KeyMod_Shift)) {
+        u32 from = at, to = at;
+        while (from && Prog__IsWordByte(edit->text[from - 1])) --from;
+        while (to < edit->length && Prog__IsWordByte(edit->text[to])) ++to;
+        edit->anchor = from;
+        edit->cursor = to;
+        return;
+    }
+    edit->cursor = at;
+    if (!(mods & KeyMod_Shift)) edit->anchor = at;
+}
+
+// Pastes the clipboard over the selection.
+// Names are one line, so line breaks and other control characters are dropped, and text that does not fit is cut at a codepoint.
+function void Prog__EditPaste(Prog_TextEdit *edit)
+{
+    Scratch scratch = GetScratch();
+    String text = PlatformClipboardGetText(scratch.arena);
+    u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
+    u32 room = (u32)sizeof(edit->text) - 1 - (edit->length - (to - from));
+    u8 *bytes = ArenaPushArrayNoZero(scratch.arena, Max(text.length, (u64)1), u8);
+    u32 count = 0;
+    u64 at = 0;
+    for (; at < text.length && count < room; ++at) {
+        u8 c = (u8)text.value[at];
+        if (c >= 0x20 && c != 0x7F) bytes[count++] = c;
+    }
+    if (at < text.length && count) {
+        // Drops a last sequence that lost its tail.
+        u32 lead = count - 1;
+        while (lead && (bytes[lead] & 0xC0) == 0x80) --lead;
+        u8 c = bytes[lead];
+        u32 size = c < 0x80 ? 1 : c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : 2;
+        if (lead + size > count) count = lead;
+    }
+    Prog__EditReplace(edit, bytes, count);
+    ReleaseScratch(scratch);
+}
+
+// Caret movement, deletion, Ctrl+A and the clipboard.
 // Returns false for keys the field does not use.
 function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
 {
@@ -222,6 +272,18 @@ function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
             if (!(event->mods & KeyMod_Control)) return false;
             edit->anchor = 0;
             edit->cursor = edit->length;
+        } return true;
+        case Key_C:
+        case Key_X: {
+            if (!(event->mods & KeyMod_Control)) return false;
+            if (from != to) {
+                PlatformClipboardSetText(StrMake((const char *)edit->text + from, to - from));
+                if (event->key == Key_X) Prog__EditReplace(edit, NULL, 0);
+            }
+        } return true;
+        case Key_V: {
+            if (!(event->mods & KeyMod_Control)) return false;
+            Prog__EditPaste(edit);
         } return true;
         default: return false;
     }
@@ -413,6 +475,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->filtering = true;
                     state->filter.anchor = 0;
                     state->filter.cursor = state->filter.length;
+                }
+            } break;
+            case Prog_CommandKind_RenameCaret: {
+                if (state->renaming) Prog__EditClick(&state->rename, (u32)command->row, command->mods, command->pressCount);
+            } break;
+            case Prog_CommandKind_FilterCaret: {
+                if (!state->renaming) {
+                    state->filtering = true;
+                    Prog__EditClick(&state->filter, (u32)command->row, command->mods, command->pressCount);
                 }
             } break;
             case Prog_CommandKind_ApplyFilter: state->filtering = false; break;

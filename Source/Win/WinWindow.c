@@ -485,3 +485,36 @@ function void PlatformWindowSetTransparent(b32 transparent)
     i32 backdrop = transparent ? DWMSBT_TRANSIENTWINDOW : DWMSBT_AUTO;
     DwmSetWindowAttribute(Win.window, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
 }
+
+function void PlatformClipboardSetText(String text)
+{
+    if (text.length > INT32_MAX || !OpenClipboard(Win.window)) return;
+    EmptyClipboard();
+    i32 length = text.length ? MultiByteToWideChar(CP_UTF8, 0, text.value, (i32)text.length, NULL, 0) : 0;
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, ((u64)length + 1) * sizeof(wchar));
+    wchar *wide = memory ? GlobalLock(memory) : NULL;
+    if (wide) {
+        if (length) MultiByteToWideChar(CP_UTF8, 0, text.value, (i32)text.length, wide, length);
+        wide[length] = 0;
+        GlobalUnlock(memory);
+        // The clipboard owns the memory once it takes it.
+        if (!SetClipboardData(CF_UNICODETEXT, memory)) GlobalFree(memory);
+    } else if (memory) {
+        GlobalFree(memory);
+    }
+    CloseClipboard();
+}
+
+function String PlatformClipboardGetText(Arena *arena)
+{
+    String result = {0};
+    if (!OpenClipboard(Win.window)) return result;
+    HANDLE data = GetClipboardData(CF_UNICODETEXT);
+    const wchar *wide = data ? GlobalLock(data) : NULL;
+    if (wide) {
+        result = P__FileStringWide(arena, wide, lstrlenW(wide));
+        GlobalUnlock(data);
+    }
+    CloseClipboard();
+    return result;
+}

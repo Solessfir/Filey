@@ -340,6 +340,35 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     }
 }
 
+// The caret position in `edit` nearest to `x`, measured from where its text starts.
+function u32 Prog__EditOffsetAt(const Prog_TextEdit *edit, const R_Font *font, f32 x)
+{
+    String text = Prog_EditText(edit);
+    u32 result = 0;
+    f32 previous = 0;
+    for (u64 at = 0; at < text.length;) {
+        u64 next = at;
+        StrDecodeUtf8(text, &next);
+        f32 width = R_TextWidth(font, StrMake(text.value, next));
+        if (x < (previous + width) * 0.5f) break;
+        result = (u32)next;
+        previous = width;
+        at = next;
+    }
+    return result;
+}
+
+// Clicks and drags in `block`, where the text of `edit` starts `x` in, become `kind` commands that move the caret.
+function void Prog__EditMouse(Prog_State *state, UI_Block *block, const Prog_TextEdit *edit, f32 x, Prog_CommandKind kind, const Prog_Metrics *m)
+{
+    UI_Interaction interaction = UI_InteractionFromBlock(block);
+    b32 drag = interaction.active && !interaction.pressed;
+    if (interaction.button != MouseButton_Left || (!interaction.pressed && !drag)) return;
+    u32 at = Prog__EditOffsetAt(edit, m->font, UI->mouse.x - block->rect.x0 - x);
+    Prog_Command *command = Prog_QueueCommand(state, kind, at, interaction.pressCount, interaction.pressed ? interaction.pressOrder : 0);
+    command->mods = interaction.mods | (drag ? KeyMod_Shift : 0);
+}
+
 // The name being edited, with its selection and caret, in place of the name label.
 function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metrics *m)
 {
@@ -358,8 +387,9 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metri
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextCornerRadius(m->radius);
         UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->focus });
-        UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
+        UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->renameRect = box->rect;
+        Prog__EditMouse(state, box, &state->rename, pad, Prog_CommandKind_RenameCaret, m);
         UI_Parent(box) Prog__EditContents(&state->rename, pad, floorf((height - m->line) * 0.5f), true, m);
     }
 }
@@ -534,7 +564,8 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             if (state->filtering || state->filter.length) {
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
-                UI_Block *field = UI_AddBlock(UI_Flag_Clip);
+                UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+                Prog__EditMouse(state, field, &state->filter, floorf(m->gap * 0.5f), Prog_CommandKind_FilterCaret, m);
                 UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((m->pill - m->line) * 0.5f), state->filtering, m);
                 Prog__PillButton(state, S("FilterPin"), state->filterSticky ? Icon_Pin : Icon_PinOff, Prog_CommandKind_ToggleFilterPin, state->filterSticky, m);
                 Prog__PillButton(state, S("FilterApply"), Icon_Check, Prog_CommandKind_ApplyFilter, false, m);

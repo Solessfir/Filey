@@ -601,6 +601,14 @@ function void TestRename(TestFileFixture *fixture)
     Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("created.txt")));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.renaming && !state.renameCreatedUntil);
+    {
+        Prog_TextEdit edit = {0};
+        u8 wide[2000];
+        for (u32 i = 0; i < sizeof(wide); i += 2) { wide[i] = 0xC5; wide[i + 1] = 0xBC; }
+        PlatformClipboardSetText(StrMake((const char *)wide, sizeof(wide)));
+        Prog__EditPaste(&edit);
+        Check(edit.length == 1022 && edit.text[edit.length - 2] == 0xC5);
+    }
     Check(P__TestRemovePath(fixture, S("created.txt"), false));
 finish:
     Prog_Release(&state);
@@ -677,6 +685,26 @@ function void TestFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("folder2"));
     Check(state.viewCount == 1 && state.hasFocus);
+
+    // The clipboard and clicks in the box.
+    TestRenameKey(&state, Key_A, KeyMod_Control);
+    TestRenameKey(&state, Key_X, KeyMod_Control);
+    Check(StrIsEqual(TestClipboard, S("folder2")) && !state.filter.length);
+    PlatformClipboardSetText(S("fol\r\nder2"));
+    TestRenameKey(&state, Key_V, KeyMod_Control);
+    Check(StrIsEqual(Prog_EditText(&state.filter), S("folder2")) && state.viewCount == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_FilterCaret, 3);
+    Check(state.filtering && state.filter.cursor == 3 && state.filter.anchor == 3);
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_FilterCaret, 5, 1, 0)->mods = KeyMod_Shift;
+    Prog_ProcessCommands(&state);
+    Check(state.filter.anchor == 3 && state.filter.cursor == 5);
+    TestRenameKey(&state, Key_C, KeyMod_Control);
+    Check(StrIsEqual(TestClipboard, S("de")));
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_FilterCaret, 2, 2, 0);
+    Prog_ProcessCommands(&state);
+    Check(state.filter.anchor == 0 && state.filter.cursor == 7);
 
     // Another folder starts unfiltered unless the filter is pinned; Enter opens the focused match.
     TestBrowsingCommand(&state, Prog_CommandKind_ToggleFilterPin, 0);

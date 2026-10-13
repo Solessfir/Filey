@@ -45,6 +45,21 @@ function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String
     TestUIRecordDraw((R_Rect){x, y, x + R_TextWidth(font, text), y + font->lineHeight}, color, 2);
 }
 
+// The tests never touch the real clipboard.
+global Arena TestClipboardArena;
+global String TestClipboard;
+
+function void PlatformClipboardSetText(String text)
+{
+    ArenaClear(&TestClipboardArena);
+    TestClipboard = StrCopy(&TestClipboardArena, text);
+}
+
+function String PlatformClipboardGetText(Arena *arena)
+{
+    return StrCopy(arena, TestClipboard);
+}
+
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)
 {
     return (R_TextureHandle){ { 1 } };

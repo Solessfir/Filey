@@ -156,6 +156,13 @@ command StartFilter {
     repeat  = "false"
 }
 
+// A click or drag in the rename or filter box; the row is the byte offset under the pointer.
+command RenameCaret {
+}
+
+command FilterCaret {
+}
+
 command ApplyFilter {
     label   = "Apply Filter to Folder"
     tooltip = "Keep the filter and give the keyboard back to the list."
