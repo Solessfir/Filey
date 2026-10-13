@@ -146,15 +146,17 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
     return result;
 }
 
-function char *P__FileLauncher(Arena *arena, u32 *error)
+// The executable `name` runs: itself when it has a slash, else the first match on PATH.
+function char *P__FindExecutable(Arena *arena, String name, u32 *error)
 {
     const char *environmentPath = getenv("PATH");
-    String searchPath = environmentPath ? StrFromCStr(environmentPath) : S("/bin:/usr/bin");
+    b32 direct = StrIndexChar(name, '/', SSF_None).exists;
+    String searchPath = direct ? S("") : environmentPath ? StrFromCStr(environmentPath) : S("/bin:/usr/bin");
     *error = ENOENT;
     for (u64 from = 0, to = 0; to <= searchPath.length; ++to) {
         if (to != searchPath.length && searchPath.value[to] != ':') continue;
         String directory = StrFromTo(searchPath, from, (i64)to);
-        String candidate = StrFormat(arena, "%S%Sxdg-open", directory, directory.length ? S("/") : S(""));
+        String candidate = direct ? name : StrFormat(arena, "%S%S%S", directory, directory.length ? S("/") : S(""), name);
         String absolute = P_AbsolutePath(arena, candidate);
         if (!absolute.length) {
             *error = (u32)errno;
@@ -176,6 +178,53 @@ function char *P__FileLauncher(Arena *arena, u32 *error)
     return NULL;
 }
 
+// Starts `executable` with `args` in `directory` (the current one when NULL), detached from Filey.
+// Returns the error of starting it, which includes a failed exec.
+function u32 P__Spawn(const char *executable, char **args, const char *directory)
+{
+    u32 error = 0;
+    i32 pipeEnds[2] = {0};
+    if (pipe2(pipeEnds, O_CLOEXEC) != 0) error = (u32)errno;
+    else {
+        // The orphaned launcher is reaped by init; the error pipe closes on successful exec.
+        pid_t child = _Fork();
+        if (child == 0) {
+            close(pipeEnds[0]);
+            pid_t launcher = _Fork();
+            if (launcher == 0) {
+                setsid();
+                if (!directory || chdir(directory) == 0) execve(executable, args, environ);
+            }
+            if (launcher <= 0) {
+                u32 launchError = (u32)errno;
+                while (write(pipeEnds[1], &launchError, sizeof(launchError)) < 0 && errno == EINTR) {}
+            }
+            _exit(0);
+        }
+        if (child < 0) error = (u32)errno;
+        close(pipeEnds[1]);
+        if (child > 0) {
+            pid_t waited;
+            do {
+                waited = waitpid(child, NULL, 0);
+            } while (waited < 0 && errno == EINTR);
+            if (waited < 0) error = (u32)errno;
+            u64 received = 0;
+            u32 launchError = 0;
+            while (!error && received < sizeof(launchError)) {
+                i64 count = read(pipeEnds[0], (u8 *)&launchError + received, sizeof(launchError) - received);
+                if (count < 0 && errno == EINTR) continue;
+                if (count < 0) error = (u32)errno;
+                if (count <= 0) break;
+                received += (u64)count;
+            }
+            if (!error && received) error = received == sizeof(launchError) ? launchError : EIO;
+        }
+        close(pipeEnds[0]);
+    }
+    return error;
+}
+
 // ponytail: `order` is unused until a Linux launcher protocol carries neighboring files.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
 {
@@ -184,106 +233,13 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     String absolute = P_AbsolutePath(scratch.arena, path);
     char *file = absolute.length ? P__FilePathCString(scratch.arena, absolute) : NULL;
     u32 error = file ? 0 : (u32)errno;
-    char *executable = file ? P__FileLauncher(scratch.arena, &error) : NULL;
+    char *executable = file ? P__FindExecutable(scratch.arena, S("xdg-open"), &error) : NULL;
     if (executable) {
         char *args[] = {"xdg-open", file, NULL};
-        i32 pipeEnds[2] = {0};
-        if (pipe2(pipeEnds, O_CLOEXEC) != 0) error = (u32)errno;
-        else {
-            // The orphaned launcher is reaped by init; the error pipe closes on successful exec.
-            pid_t child = _Fork();
-            if (child == 0) {
-                close(pipeEnds[0]);
-                pid_t launcher = _Fork();
-                if (launcher == 0) {
-                    setsid();
-                    execve(executable, args, environ);
-                }
-                if (launcher <= 0) {
-                    u32 launchError = (u32)errno;
-                    while (write(pipeEnds[1], &launchError, sizeof(launchError)) < 0 && errno == EINTR) {}
-                }
-                _exit(0);
-            }
-            if (child < 0) error = (u32)errno;
-            close(pipeEnds[1]);
-            if (child > 0) {
-                pid_t waited;
-                do {
-                    waited = waitpid(child, NULL, 0);
-                } while (waited < 0 && errno == EINTR);
-                if (waited < 0) error = (u32)errno;
-                u64 received = 0;
-                u32 launchError = 0;
-                while (!error && received < sizeof(launchError)) {
-                    i64 count = read(pipeEnds[0], (u8 *)&launchError + received, sizeof(launchError) - received);
-                    if (count < 0 && errno == EINTR) continue;
-                    if (count < 0) error = (u32)errno;
-                    if (count <= 0) break;
-                    received += (u64)count;
-                }
-                if (!error && received) error = received == sizeof(launchError) ? launchError : EIO;
-            }
-            close(pipeEnds[0]);
-        }
+        error = P__Spawn(executable, args, NULL);
     }
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
-}
-
-// Every item is something the program carries out itself: Open and Rename by their verbs, the rest by their actions.
-// ponytail: no Open With or Open in Terminal yet; they need the desktop's application database.
-function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
-{
-    *menu = (P_ContextMenu){0};
-    P_MenuItem items[16];
-    u32 itemCount = 0;
-    P_MenuItem separator = { .separator = true };
-    if (count) {
-        items[itemCount++] = (P_MenuItem){ .label = S("Open"), .verb = S("open"), .isDefault = true };
-        items[itemCount++] = separator;
-        items[itemCount++] = (P_MenuItem){ .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
-        items[itemCount++] = (P_MenuItem){ .label = S("Copy"), .verb = S("copy"), .action = P_MenuAction_Copy };
-        items[itemCount++] = (P_MenuItem){ .label = S("Duplicate"), .action = P_MenuAction_Duplicate };
-        items[itemCount++] = (P_MenuItem){ .label = S("Copy As Path"), .action = P_MenuAction_CopyAsPath };
-        items[itemCount++] = separator;
-        if (count == 1) items[itemCount++] = (P_MenuItem){ .label = S("Rename"), .verb = S("rename") };
-        items[itemCount++] = (P_MenuItem){ .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
-    } else {
-        items[itemCount++] = (P_MenuItem){ .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
-        items[itemCount++] = separator;
-        items[itemCount++] = (P_MenuItem){ .label = S("New"), .firstChild = 0, .childCount = 2 };
-    }
-    u32 rootCount = itemCount;
-    if (!count) {
-        items[rootCount - 1].firstChild = rootCount;
-        items[itemCount++] = (P_MenuItem){ .label = S("Folder"), .action = P_MenuAction_NewFolder };
-        items[itemCount++] = (P_MenuItem){ .label = S("File"), .action = P_MenuAction_NewFile };
-    }
-    menu->items = ArenaPushArray(arena, itemCount, P_MenuItem);
-    for (u32 i = 0; i < itemCount; ++i) {
-        menu->items[i] = items[i];
-        if (!items[i].separator) menu->items[i].id = i + 1;
-    }
-    menu->count = itemCount;
-    menu->rootCount = rootCount;
-    return true;
-}
-
-function void P_ContextMenuWarm(String directory, String name)
-{
-    (void)directory;
-    (void)name;
-}
-
-function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id)
-{
-    return P__FileError(arena, ENOTSUP);
-}
-
-function void P_ContextMenuClose(P_ContextMenu *menu)
-{
-    *menu = (P_ContextMenu){0};
 }
 
 // Wayland drags are asynchronous: this starts one and returns, and the window code handles the rest.

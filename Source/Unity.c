@@ -26,6 +26,7 @@
 #include "Linux/LinuxThreads.c"
 #include "Linux/LinuxFiles.c"
 #include "Linux/LinuxIcons.c"
+#include "Linux/LinuxApps.c"
 #include "Linux/LinuxWindow.c"
 #include "Linux/LinuxFont.c"
 #else

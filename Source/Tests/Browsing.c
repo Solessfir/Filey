@@ -1062,9 +1062,11 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     ArenaClear(&state.frameArena);
     Prog_QueueCommand(&state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, 1, 0);
     Prog_ProcessCommands(&state);
-    Check(state.menuOpen && state.menu.rootCount == 3 && state.menu.items[2].childCount == 2);
+    // The background menu ends with New, whatever comes before it.
+    u32 newMenu = state.menuOpen ? state.menu.rootCount - 1 : 0;
+    Check(state.menuOpen && StrIsEqual(state.menu.items[newMenu].label, S("New")) && state.menu.items[newMenu].childCount == 2);
     if (state.menuOpen) {
-        u32 newFolder = state.menu.items[2].firstChild;
+        u32 newFolder = state.menu.items[newMenu].firstChild;
         Check(state.menu.items[newFolder].action == P_MenuAction_NewFolder);
         ArenaClear(&state.frameArena);
         Prog_QueueCommand(&state, Prog_CommandKind_ContextMenuInvoke, newFolder, 1, 0);
@@ -1182,6 +1184,101 @@ function void TestSidebar(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+#if defined(__linux__)
+function void TestWriteText(Arena *arena, TestFileFixture *fixture, String relative, String text, u32 mode)
+{
+    Check(!P_WriteFile(arena, Prog_JoinPath(arena, fixture->path, relative), text).code);
+    Check(chmod(P__FilePathCString(arena, Prog_JoinPath(arena, fixture->path, relative)), mode) == 0);
+}
+
+// Reads `relative` once something has written it.
+function String TestWaitText(Arena *arena, TestFileFixture *fixture, String relative)
+{
+    String text = {0};
+    for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        if (P_ReadFile(arena, Prog_JoinPath(arena, fixture->path, relative), &text) && text.length && text.value[text.length - 1] == '\n') break;
+    }
+    return text;
+}
+
+// Desktop entries, mimeapps.list and launching, against entries, a terminal and an opener made in the fixture.
+function void TestApps(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String root = Prog_JoinPath(&arena, fixture->path, S("Apps"));
+    Check(P__TestMakeDirectory(fixture, S("Apps")));
+    Check(P__TestMakeDirectory(fixture, S("Apps/data")));
+    Check(P__TestMakeDirectory(fixture, S("Apps/data/applications")));
+    Check(P__TestMakeDirectory(fixture, S("Apps/data/applications/vendor")));
+    Check(P__TestMakeDirectory(fixture, S("Apps/config")));
+    Check(P__TestMakeDirectory(fixture, S("Apps/bin")));
+    String opener = Prog_JoinPath(&arena, root, S("bin/opener"));
+    TestWriteText(&arena, fixture, S("Apps/data/applications/test.desktop"),
+                  StrFormat(&arena, "[Desktop Entry]\nType=Application\nName=Test Opener\nExec=%S --flag \"two words\" 100%%%% %%F\nMimeType=inode/directory;text/plain;\n", opener), 0600);
+    TestWriteText(&arena, fixture, S("Apps/data/applications/vendor/other.desktop"),
+                  S("[Desktop Entry]\nType=Application\nName=Another\nExec=other %u\nMimeType=inode/directory;\n"), 0600);
+    TestWriteText(&arena, fixture, S("Apps/data/applications/hidden.desktop"),
+                  S("[Desktop Entry]\nType=Application\nName=Hidden\nExec=hidden %f\nHidden=true\nMimeType=inode/directory;\n"), 0600);
+    TestWriteText(&arena, fixture, S("Apps/data/applications/helper.desktop"),
+                  S("[Desktop Entry]\nType=Application\nName=Helper\nExec=helper %f\nNoDisplay=true\nMimeType=inode/directory;\n"), 0600);
+    TestWriteText(&arena, fixture, S("Apps/config/mimeapps.list"), S("[Default Applications]\ninode/directory=missing.desktop;vendor-other.desktop;\n"), 0600);
+    TestWriteText(&arena, fixture, S("Apps/bin/opener"), S("#!/bin/sh\n{ pwd; printf '%s|' \"$@\"; echo; } > \"${0%/*}/../opened.tmp\" && /bin/mv \"${0%/*}/../opened.tmp\" \"${0%/*}/../opened\"\n"), 0700);
+    TestWriteText(&arena, fixture, S("Apps/bin/kitty"), S("#!/bin/sh\n{ pwd; } > \"${0%/*}/../terminal.tmp\" && /bin/mv \"${0%/*}/../terminal.tmp\" \"${0%/*}/../terminal\"\n"), 0700);
+
+    const char *names[] = { "XDG_DATA_HOME", "XDG_DATA_DIRS", "XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "PATH", "TERMINAL" };
+    String saved[CArrayCount(names)] = {0};
+    b32 had[CArrayCount(names)] = {0};
+    for (u32 i = 0; i < CArrayCount(names); ++i) {
+        const char *value = getenv(names[i]);
+        had[i] = value != NULL;
+        if (value) saved[i] = StrCopy(&arena, StrFromCStr(value));
+    }
+    String values[CArrayCount(names)] = {
+        Prog_JoinPath(&arena, root, S("data")), Prog_JoinPath(&arena, root, S("none")), Prog_JoinPath(&arena, root, S("config")),
+        Prog_JoinPath(&arena, root, S("none")), Prog_JoinPath(&arena, root, S("bin")), {0},
+    };
+    for (u32 i = 0; i < CArrayCount(names); ++i) {
+        if (values[i].length) Check(setenv(names[i], P__FilePathCString(&arena, values[i]), 1) == 0);
+        else Check(unsetenv(names[i]) == 0);
+    }
+
+    P__AppData data = {0};
+    P__LoadApps(&data);
+    P__App *apps[8];
+    u64 count = P__AppsFor(&data, S("inode/directory"), apps, CArrayCount(apps));
+    // The default comes first, past the missing one; hidden and NoDisplay entries are left out.
+    Check(count == 2 && StrIsEqual(apps[0]->id, S("vendor-other.desktop")) && StrIsEqual(apps[1]->name, S("Test Opener")));
+    P__App *textApps[8];
+    Check(P__AppsFor(&data, S("text/plain"), textApps, CArrayCount(textApps)) == 1);
+
+    String paths[2] = { Prog_JoinPath(&arena, fixture->path, S("plain.txt")), Prog_JoinPath(&arena, fixture->path, S("Zażółć 1.txt")) };
+    ArrayStr args = {0};
+    u64 used = P__ExpandExec(&arena, apps[0], paths, 2, &args);
+    Check(used == 1 && args.header.count == 2 && StrIsEqual(args.v[0], S("other")) && TestEndsWith(args.v[1], S("/plain.txt")));
+    Check(args.header.count == 2 && StrIsEqual(StrFromTo(args.v[1], 0, 8), S("file:///")));
+    P__App *test = P__FindApp(&data, S("test.desktop"));
+    Check(test != NULL);
+    if (test) {
+        used = P__ExpandExec(&arena, test, paths, 2, &args);
+        Check(used == 2 && args.header.count == 6 && StrIsEqual(args.v[1], S("--flag")) && StrIsEqual(args.v[2], S("two words")) && StrIsEqual(args.v[3], S("100%")));
+        Check(StrIsEqual(args.v[4], paths[0]) && StrIsEqual(args.v[5], paths[1]));
+        Check(!P__LaunchApp(&arena, test, paths, 2, root).code);
+        String opened = TestWaitText(&arena, fixture, S("Apps/opened"));
+        Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|%S|\n", root, paths[0], paths[1])));
+    }
+    Check(!P__OpenTerminal(&arena, Prog_JoinPath(&arena, fixture->path, S("Empty"))).code);
+    Check(StrIsEqual(TestWaitText(&arena, fixture, S("Apps/terminal")), StrFormat(&arena, "%S/Empty\n", fixture->path)));
+
+    for (u32 i = 0; i < CArrayCount(names); ++i) {
+        if (had[i]) Check(setenv(names[i], P__FilePathCString(&arena, saved[i]), 1) == 0);
+        else Check(unsetenv(names[i]) == 0);
+    }
+    ArenaRelease(&data.arena);
+    TestRemoveTree(&arena, fixture, S("Apps"));
+    ArenaRelease(&arena);
+}
+#endif
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -1192,6 +1289,7 @@ function void TestBrowsing(void)
         TestFileIcons(&fixture);
 #if defined(__linux__)
         P__TestOpenPath(&fixture);
+        TestApps(&fixture);
 #endif
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);

@@ -395,7 +395,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         }
     } else {
         // Submenu commands such as New > Folder create one item that Explorer would put into rename.
-        b32 creates = index >= state->menu.rootCount && !StrIsEqual(item.verb, S("paste"));
+        b32 creates = index >= state->menu.rootCount && !StrIsEqual(item.verb, S("paste")) && !StrIsEqual(item.verb, S("openwith"));
         state->renameCreatedUntil = creates ? PlatformNowMicroseconds() + Millions(5) : 0;
         P_FileError error = P_ContextMenuInvoke(&state->frameArena, &state->menu, item.id);
         ArenaClear(&state->errorArena);

@@ -21,6 +21,7 @@
 #include "Linux/LinuxThreads.c"
 #include "Linux/LinuxFiles.c"
 #include "Linux/LinuxIcons.c"
+#include "Linux/LinuxApps.c"
 #endif
 
 #include "Base/Base.c"
