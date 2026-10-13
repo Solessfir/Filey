@@ -69,6 +69,7 @@ if [ "$install" = 1 ]; then
     mkdir -p "$data/applications"
     sed "s|^Exec=filey|Exec=$bin/filey|" "$resources/filey.desktop" > "$data/applications/filey.desktop"
     install -Dm644 "$resources/Filey.svg" "$data/icons/hicolor/scalable/apps/filey.svg"
+    install -Dm644 "$resources/filey-symbolic.svg" "$data/icons/hicolor/symbolic/apps/filey-symbolic.svg"
     for png in "$resources"/Icons/filey-*.png; do
         size=${png##*-}
         size=${size%.png}

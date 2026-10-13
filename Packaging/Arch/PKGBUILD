@@ -32,6 +32,7 @@ package() {
     install -Dm755 Bin/release/filey "$pkgdir/usr/bin/filey"
     install -Dm644 Source/Resources/filey.desktop "$pkgdir/usr/share/applications/filey.desktop"
     install -Dm644 Source/Resources/Filey.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/filey.svg"
+    install -Dm644 Source/Resources/filey-symbolic.svg "$pkgdir/usr/share/icons/hicolor/symbolic/apps/filey-symbolic.svg"
     for png in Source/Resources/Icons/filey-*.png; do
         size=${png##*-}
         size=${size%.png}
