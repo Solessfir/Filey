@@ -10,20 +10,22 @@ typedef enum Prog_Sort {
     Prog_Sort_Count,
 } Prog_Sort;
 
-typedef enum Prog_CommandKind {
-    Prog_CommandKind_None,
-    Prog_CommandKind_SelectRow,
-    Prog_CommandKind_OpenRow,
-    Prog_CommandKind_Refresh,
-    Prog_CommandKind_Back,
-    Prog_CommandKind_Forward,
-    Prog_CommandKind_Up,
-    Prog_CommandKind_Sort,
-    Prog_CommandKind_ToggleHidden,
-    Prog_CommandKind_SelectAll,
-    Prog_CommandKind_MoveFocus,
-    Prog_CommandKind_Count,
-} Prog_CommandKind;
+// Prog_CommandKind is generated from Program/Commands.txt.
+#include "Meta/Commands.meta.h"
+
+typedef struct Prog_CommandDesc {
+    String name;
+    String label;    // empty for internal commands that never reach a palette or menu
+    String aliases;  // comma-separated search words
+    String tooltip;
+    b32 noRepeat;    // ignore auto-repeat key events
+} Prog_CommandDesc;
+
+typedef struct Prog_Hotkey {
+    Key key;
+    KeyMods mods;  // matched exactly
+    enum8(Prog_CommandKind) command;
+} Prog_Hotkey;
 
 typedef struct Prog_Command Prog_Command;
 struct Prog_Command {

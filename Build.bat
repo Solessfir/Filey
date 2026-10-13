@@ -44,6 +44,10 @@ if "%MODE%"=="release" (
 rem EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 set CFLAGS=%CFLAGS% %EXTRA_CFLAGS%
 
+rem Generators run on every build and rewrite their outputs only when the content changes.
+"%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tools\Codegen.c" -o "%OUT%\Codegen.exe" || exit /b 1
+"%OUT%\Codegen.exe" "%ROOT%Source" || exit /b 1
+
 if "%ANALYZE%"=="1" (
     "%CLANG%" %CFLAGS% --analyze -Xclang -analyzer-output=text "%ROOT%Source\Unity.c" -o nul || exit /b 1
 )

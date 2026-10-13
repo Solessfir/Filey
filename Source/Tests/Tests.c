@@ -38,6 +38,7 @@ global i32 CheckFailures;
 
 #include "Tests/UI.c"
 #include "Tests/Browsing.c"
+#include "Tests/Codegen.c"
 
 global u32 TestModalFrameCount;
 
@@ -425,6 +426,8 @@ int main(void)
     TestUIFrameFontLifetime();
     TestUICommandEventOrder();
     TestProgramCommands();
+    TestCodegenParse();
+    TestHotkeyDispatch();
     TestProgramVirtualRows();
     TestJobs();
     TestBrowsing();

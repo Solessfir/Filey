@@ -37,6 +37,10 @@ app_packages="wayland-client wayland-cursor wayland-egl egl xkbcommon freetype2 
 app_cflags=$(pkg-config --cflags $app_packages)
 app_libs=$(pkg-config --libs $app_packages)
 
+# Generators run on every build and rewrite their outputs only when the content changes.
+$cc $cflags "$root/Source/Tools/Codegen.c" -o "$out/codegen"
+"$out/codegen" "$root/Source"
+
 if [ "$analyze" = 1 ]; then
     $cc $cflags $app_cflags --analyze -Xclang -analyzer-output=text "$root/Source/Unity.c" -o /dev/null
 fi

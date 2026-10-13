@@ -1,0 +1,107 @@
+// Canonical command list. Source/Tools/Codegen.c turns it into
+// Source/Meta/Commands.meta.h during every build.
+//
+// command Name {
+//     label   = "Shown Label^search,aliases"   palette/menu label; omit for internal commands
+//     tooltip = "One sentence."
+//     hotkey  = "Ctrl+Shift+Key"               repeatable; Key is a Key_ name without the prefix
+//     repeat  = "false"                        ignore auto-repeat key events
+// }
+//
+// Hotkeys match modifiers exactly, so every accepted combination is listed.
+
+// Row press from the file list; carries the row, press count and modifiers.
+command SelectRow {
+}
+
+// Header click; carries the Prog_Sort column.
+command Sort {
+}
+
+command OpenFocused {
+    label   = "Open^enter,launch,run"
+    tooltip = "Open the focused file or folder."
+    hotkey  = "Enter"
+    repeat  = "false"
+}
+
+command Refresh {
+    label   = "Refresh^reload"
+    tooltip = "Reload the current folder."
+    hotkey  = "F5"
+}
+
+command Back {
+    label   = "Go Back^previous,history"
+    tooltip = "Go to the previous folder in the history."
+    hotkey  = "Alt+Left"
+}
+
+command Forward {
+    label   = "Go Forward^next,history"
+    tooltip = "Go to the next folder in the history."
+    hotkey  = "Alt+Right"
+}
+
+command Up {
+    label   = "Go Up^parent"
+    tooltip = "Go to the parent folder."
+    hotkey  = "Alt+Up"
+    hotkey  = "Backspace"
+}
+
+command ToggleHidden {
+    label   = "Toggle Hidden Files^show,hide"
+    tooltip = "Show or hide hidden files and folders."
+    hotkey  = "Ctrl+H"
+}
+
+command SelectAll {
+    label   = "Select All^everything"
+    tooltip = "Select every item in the current folder."
+    hotkey  = "Ctrl+A"
+}
+
+// Focus movement. Shift extends the selection; Ctrl moves the focus without selecting.
+
+command FocusUp {
+    hotkey = "Up"
+    hotkey = "Shift+Up"
+    hotkey = "Ctrl+Up"
+    hotkey = "Ctrl+Shift+Up"
+}
+
+command FocusDown {
+    hotkey = "Down"
+    hotkey = "Shift+Down"
+    hotkey = "Ctrl+Down"
+    hotkey = "Ctrl+Shift+Down"
+}
+
+command FocusFirst {
+    hotkey = "Home"
+    hotkey = "Shift+Home"
+    hotkey = "Ctrl+Home"
+    hotkey = "Ctrl+Shift+Home"
+}
+
+command FocusLast {
+    hotkey = "End"
+    hotkey = "Shift+End"
+    hotkey = "Ctrl+End"
+    hotkey = "Ctrl+Shift+End"
+}
+
+command FocusPageUp {
+    hotkey = "PageUp"
+    hotkey = "Shift+PageUp"
+    hotkey = "Ctrl+PageUp"
+    hotkey = "Ctrl+Shift+PageUp"
+}
+
+command FocusPageDown {
+    hotkey = "PageDown"
+    hotkey = "Shift+PageDown"
+    hotkey = "Ctrl+PageDown"
+    hotkey = "Ctrl+Shift+PageDown"
+}

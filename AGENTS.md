@@ -38,6 +38,7 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
 - Use the base type aliases (`u8`..`u64`, `i32`, `f32`, `b32`, `wchar`, `rune`) instead of `int`, `float`, `unsigned`, `size_t`, `WCHAR`, etc., including in the C++ adapter. Internal helpers of a layer use a double underscore (`R__FontFindGlyph`, `GL__PushInstance`).
 - Screenshots of the original source in `%USERPROFILE%\Pictures\Screenshots\Reference\` show its style (`result` return variables, `Prefix__Name` internals, `enum8(...)` fields, `_Count` sentinels). Use them as a loose reference, not a formatting rule.
 - Do not edit generated files (`*.generated.h`, `Meta/*.meta.h`). Change the generator or its input instead.
+- Commands and their default hotkeys are declared once in `Source/Program/Commands.txt`. Add a command there, then handle its `Prog_CommandKind_` case in `Prog_ProcessCommands`.
 
 ## Toolchain
 
@@ -49,6 +50,7 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
   `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`
 - `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
 - WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).
+- Both build scripts first compile and run `Source/Tools/Codegen.c`, which regenerates `Source/Meta/*.meta.h` (committed) and fails the build on malformed input.
 - Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.
 
 ```text
@@ -66,8 +68,10 @@ Source/
 ├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
 ├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering
-├─ Program/    Program.h + Directory.c: browser state and background results; Commands.c: deferred actions; Program.c: UI
-├─ Tests/      assert-based base, UI, filesystem, jobs and browser tests (native platform backends, no window code)
+├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Program.c: UI
+├─ Meta/       generated tables (Commands.meta.h)
+├─ Tools/      Codegen.c: build-time table generator
+├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)
 └─ Unity.c     application unity root
 ```
 

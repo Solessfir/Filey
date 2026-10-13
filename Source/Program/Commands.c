@@ -1,3 +1,6 @@
+#define Prog_CommandsTable
+#include "Meta/Commands.meta.h"
+
 function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kind, u64 row, u32 pressCount, u64 inputOrder)
 {
     Assert(kind > Prog_CommandKind_None && kind < Prog_CommandKind_Count);
@@ -44,7 +47,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (command->pressCount == 2) Prog_OpenRow(state, command->row);
                 }
             } break;
-            case Prog_CommandKind_OpenRow: if (state->hasFocus) Prog_OpenRow(state, state->focusedRow); break;
+            case Prog_CommandKind_OpenFocused: if (state->hasFocus) Prog_OpenRow(state, state->focusedRow); break;
             case Prog_CommandKind_Refresh: {
                 Prog__Reload(state);
             } break;
@@ -75,16 +78,25 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->selectedCount = state->directory.count;
                 }
             } break;
-            case Prog_CommandKind_MoveFocus: {
+            case Prog_CommandKind_FocusUp:
+            case Prog_CommandKind_FocusDown:
+            case Prog_CommandKind_FocusFirst:
+            case Prog_CommandKind_FocusLast:
+            case Prog_CommandKind_FocusPageUp:
+            case Prog_CommandKind_FocusPageDown: {
                 if (!state->loading && state->directory.count) {
                     u64 row = state->hasFocus ? state->focusedRow : 0;
                     u64 page = state->pageRows > 1 ? state->pageRows - 1 : 1;
-                    if (command->row == Key_Home) row = 0;
-                    else if (command->row == Key_End) row = state->directory.count - 1;
-                    else if (command->row == Key_Up && row) --row;
-                    else if (command->row == Key_Down && state->hasFocus && row + 1 < state->directory.count) ++row;
-                    else if (command->row == Key_PageUp) row = row > page ? row - page : 0;
-                    else if (command->row == Key_PageDown) row = Min(row + page, state->directory.count - 1);
+                    u64 last = state->directory.count - 1;
+                    switch (command->kind) {
+                        case Prog_CommandKind_FocusUp: if (row) --row; break;
+                        case Prog_CommandKind_FocusDown: if (state->hasFocus && row < last) ++row; break;
+                        case Prog_CommandKind_FocusFirst: row = 0; break;
+                        case Prog_CommandKind_FocusLast: row = last; break;
+                        case Prog_CommandKind_FocusPageUp: row = row > page ? row - page : 0; break;
+                        case Prog_CommandKind_FocusPageDown: row = Min(row + page, last); break;
+                        default: InvalidPath;
+                    }
                     if (command->mods & KeyMod_Control) { state->focusedRow = row; state->hasFocus = true; }
                     else Prog_SelectRow(state, row, command->mods);
                     state->revealFocus = true;
@@ -104,19 +116,15 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
         if (event->kind != PlatformEventKind_KeyDown) continue;
-        Prog_CommandKind kind = Prog_CommandKind_None;
-        if (event->key == Key_F5) kind = Prog_CommandKind_Refresh;
-        else if (event->key == Key_H && (event->mods & KeyMod_Control)) kind = Prog_CommandKind_ToggleHidden;
-        else if (event->key == Key_A && (event->mods & KeyMod_Control)) kind = Prog_CommandKind_SelectAll;
-        else if (event->key == Key_Left && (event->mods & KeyMod_Alt)) kind = Prog_CommandKind_Back;
-        else if (event->key == Key_Right && (event->mods & KeyMod_Alt)) kind = Prog_CommandKind_Forward;
-        else if ((event->key == Key_Up && (event->mods & KeyMod_Alt)) || event->key == Key_Backspace) kind = Prog_CommandKind_Up;
-        else if (event->key == Key_Enter && !event->isRepeat) kind = Prog_CommandKind_OpenRow;
-        else if (event->key == Key_Up || event->key == Key_Down || event->key == Key_Home || event->key == Key_End ||
-                 event->key == Key_PageUp || event->key == Key_PageDown) kind = Prog_CommandKind_MoveFocus;
-        if (kind != Prog_CommandKind_None) {
-            Prog_Command *command = Prog_QueueCommand(state, kind, event->key, 0, order);
-            command->mods = event->mods;
+        KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+        for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
+            const Prog_Hotkey *hotkey = &Prog_DefaultHotkeys[i];
+            if (hotkey->key != event->key || hotkey->mods != mods) continue;
+            if (!event->isRepeat || !Prog_Commands[hotkey->command].noRepeat) {
+                Prog_Command *command = Prog_QueueCommand(state, hotkey->command, 0, 0, order);
+                command->mods = event->mods;
+            }
+            break;
         }
     }
 }
