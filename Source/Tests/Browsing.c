@@ -796,6 +796,20 @@ function void TestMeasure(TestFileFixture *fixture)
             TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
             folder = TestEntryIndex(&state, S("Folder2"));
             Check(folder != UINT64_MAX && state.directory.entries[folder].measured && !state.measureJob);
+            // Size, Files and Folders sort folders by their totals, keeping the focus on the same item.
+            Prog_SelectRow(&state, folder, 0);
+            TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Size);
+            Check(TestEntryIndex(&state, S("Folder2")) == 2 && TestEntryIndex(&state, S("Empty")) == 0);
+            Check(state.hasFocus && state.focusedRow == 2 && state.directory.entries[2].selected);
+            TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Size);
+            Check(state.descending && TestEntryIndex(&state, S("Folder2")) == 0 && state.focusedRow == 0);
+            TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Files);
+            Check(!state.descending && TestEntryIndex(&state, S("Folder2")) == 2);
+            // A folder measured after the listing moves into place.
+            state.directory.entries[0].measured = true;
+            state.directory.entries[0].files = 9;
+            Prog__SortByTotals(&state);
+            Check(state.directory.entries[2].files == 9 && state.directory.entries[state.focusedRow].selected);
         }
     }
     Prog_Release(&state);

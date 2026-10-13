@@ -263,10 +263,9 @@ typedef struct Prog_Column {
     f32 alignX;
 } Prog_Column;
 
-// The sort a column header selects; Prog_Sort_Count for columns that do not sort.
-// ponytail: Folders and Files do not sort, and folders sort by name under Size; sort on totals once they are wanted.
+// The sort a column header selects.
 global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
-    Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Size,
+    Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size,
 };
 
 function void Prog__Columns(Prog_Column *columns, f32 scale)

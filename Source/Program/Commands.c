@@ -505,6 +505,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     state->commandFirst = NULL;
     state->commandLast = NULL;
+    if (state->sortPending) Prog__SortByTotals(state);
     // Files dragged onto the window go into the folder under the pointer, else into this one.
     String drop = state->loading ? (String){0} : state->directory.path;
     if (!state->loading && state->hasHoverRow && state->hoverRow < state->directory.count) {

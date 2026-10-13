@@ -2,16 +2,19 @@
 
 #include "../Platform/Files.h"
 
-// Matches P_FileOrderKey, which carries it to the platform.
+// The first values match P_FileOrderKey, which carries them to the platform.
+// The platform does not know folder totals, so files open in name order under the rest.
 typedef enum Prog_Sort {
     Prog_Sort_Name,
     Prog_Sort_Type,
     Prog_Sort_Modified,
     Prog_Sort_Size,
+    Prog_Sort_Folders,
+    Prog_Sort_Files,
     Prog_Sort_Count,
 } Prog_Sort;
 
-static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Count == (i32)P_FileOrderKey_Count);
+static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Folders == (i32)P_FileOrderKey_Count);
 
 typedef enum Prog_ColumnId {
     Prog_ColumnId_Name,
@@ -227,6 +230,7 @@ typedef struct Prog_State {
     // Each adopted listing gets a new id; results for an older listing of the same folder are matched by name.
     u64 listing;
     P_Job *measureJob;
+    b32 sortPending;          // totals arrived while a menu or drag held the rows still
     // The shown folder's watch. Changes reload it, at most every Prog_WatchInterval.
     P_DirectoryWatch watch;
     b32 watchDirty;

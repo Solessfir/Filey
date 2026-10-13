@@ -184,23 +184,87 @@ function i32 Prog_CompareNames(String a, String b)
     return a.length == b.length ? 0 : a.length < b.length ? -1 : 1;
 }
 
-function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, const Prog_JobInput *input)
+#define Prog__Order(a, b) ((a) == (b) ? 0 : (a) < (b) ? -1 : 1)
+
+// Folders first, then by `sort`, then by name.
+// Folders sort by their totals once measured, and by zero until then.
+function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending)
 {
     b32 ad = a->file.kind == P_FileKind_Directory;
     b32 bd = b->file.kind == P_FileKind_Directory;
     if (ad != bd) return ad ? -1 : 1;
     i32 result = 0;
-    switch (input->sort) {
+    switch (sort) {
         case Prog_Sort_Name: break;
         case Prog_Sort_Type: result = Prog_CompareNames(a->type, b->type); break;
         case Prog_Sort_Modified:
             result = a->file.modifiedTimeUnix == b->file.modifiedTimeUnix ? 0 : a->file.modifiedTimeUnix < b->file.modifiedTimeUnix ? -1 : 1;
             break;
-        case Prog_Sort_Size: result = a->file.size == b->file.size ? 0 : a->file.size < b->file.size ? -1 : 1; break;
+        case Prog_Sort_Size: result = ad ? Prog__Order(a->bytes, b->bytes) : Prog__Order(a->file.size, b->file.size); break;
+        case Prog_Sort_Folders: result = Prog__Order(a->folders, b->folders); break;
+        case Prog_Sort_Files: result = Prog__Order(a->files, b->files); break;
         default: InvalidPath;
     }
     if (!result) result = Prog_CompareNames(a->file.name, b->file.name);
-    return input->descending ? -result : result;
+    return descending ? -result : result;
+}
+
+// Stable bottom-up merge sort that alternates between `entries` and `buffer`.
+// Returns the one that ends up sorted, or NULL when cancelled.
+function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, u64 count, Prog_Sort sort, b32 descending, const P_CancelToken *cancel)
+{
+    for (u64 width = 1; width < count; width *= 2) {
+        for (u64 start = 0; start < count; start += width * 2) {
+            u64 middle = Min(start + width, count);
+            u64 end = Min(start + width * 2, count);
+            u64 left = start, right = middle;
+            for (u64 out = start; out < end; ++out) {
+                if (cancel && (out & 255) == 0 && P_IsCancelled(cancel)) return NULL;
+                b32 takeLeft = right == end || (left < middle && Prog__CompareEntries(&entries[left], &entries[right], sort, descending) <= 0);
+                buffer[out] = entries[takeLeft ? left++ : right++];
+            }
+        }
+        Prog_Entry *swap = entries;
+        entries = buffer;
+        buffer = swap;
+    }
+    return entries;
+}
+
+// Sorts on folder totals are redone as the totals arrive.
+// Focus, anchor and selection stay on the same items.
+function void Prog__SortByTotals(Prog_State *state)
+{
+    Prog_Directory *directory = &state->directory;
+    Prog_Sort sort = directory->sort;
+    if (sort != Prog_Sort_Size && sort != Prog_Sort_Folders && sort != Prog_Sort_Files) return;
+    // An open menu or a drag refers to rows by index.
+    if (state->menuOpen || state->dragging) {
+        state->sortPending = true;
+        return;
+    }
+    state->sortPending = false;
+    b32 sorted = true;
+    for (u64 i = 1; i < directory->count && sorted; ++i) {
+        sorted = Prog__CompareEntries(&directory->entries[i - 1], &directory->entries[i], sort, directory->descending) <= 0;
+    }
+    if (sorted) return;
+    String focus = state->hasFocus ? directory->entries[state->focusedRow].file.name : (String){0};
+    String anchor = state->hasAnchor ? directory->entries[state->anchorRow].file.name : (String){0};
+    Scratch scratch = GetScratch();
+    Prog_Entry *buffer = ArenaPushArrayNoZero(scratch.arena, directory->count, Prog_Entry);
+    Prog_Entry *result = Prog__SortEntries(directory->entries, buffer, directory->count, sort, directory->descending, NULL);
+    if (result != directory->entries) MemCopy(directory->entries, result, directory->count * sizeof(Prog_Entry));
+    ReleaseScratch(scratch);
+    for (u64 i = 0; i < directory->count; ++i) {
+        String name = directory->entries[i].file.name;
+        if (state->hasFocus && StrIsEqual(name, focus)) state->focusedRow = i;
+        if (state->hasAnchor && StrIsEqual(name, anchor)) state->anchorRow = i;
+    }
+    state->hasHoverRow = false;
+    // Measure results for the old order are matched by name.
+    ++state->listing;
+    Prog_ApplyFilter(state, false);
 }
 
 function void Prog__DirectoryJob(P_Job *job)
@@ -271,21 +335,9 @@ function void Prog__DirectoryJob(P_Job *job)
         }
     }
     Prog_Entry *buffer = ArenaPushArray(&job->arena, result->count, Prog_Entry);
-    for (u64 width = 1; width < result->count; width *= 2) {
-        for (u64 start = 0; start < result->count; start += width * 2) {
-            u64 middle = Min(start + width, result->count);
-            u64 end = Min(start + width * 2, result->count);
-            u64 left = start, right = middle;
-            for (u64 out = start; out < end; ++out) {
-                if ((out & 255) == 0 && P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
-                b32 takeLeft = right == end || (left < middle && Prog__CompareEntries(&result->entries[left], &result->entries[right], input) <= 0);
-                buffer[out] = result->entries[takeLeft ? left++ : right++];
-            }
-        }
-        Prog_Entry *swap = result->entries;
-        result->entries = buffer;
-        buffer = swap;
-    }
+    Prog_Entry *sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, &job->cancelToken);
+    if (sorted) result->entries = sorted;
+    else result->cancelled = true;
 }
 
 // Measures the shown folder's subfolders that have no totals yet, one job at a time.
@@ -411,6 +463,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     entry->bytes = result->totals[i].bytes;
                 }
                 changed = true;
+                Prog__SortByTotals(state);
             }
             Prog__MeasureFolders(state);
         } else if (input->generation == state->generation) {
@@ -507,6 +560,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     job->arena = (Arena){0};
                     ++state->listing;
                     Prog_ApplyFilter(state, false);
+                    Prog__SortByTotals(state);
                     // A walk under way in this folder carries on; refreshes would otherwise restart it forever.
                     if (!samePath && state->measureJob) {
                         P_RequestCancel(&state->measureJob->cancelToken);
