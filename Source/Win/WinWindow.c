@@ -480,3 +480,12 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void)
         .distance = 0.5f * (f32)size,
     };
 }
+
+function void PlatformWindowSetTransparent(b32 transparent)
+{
+    // The client area becomes glass, and the frame's backdrop fills it wherever the alpha is below one.
+    MARGINS margins = transparent ? (MARGINS){ -1, -1, -1, -1 } : (MARGINS){0};
+    DwmExtendFrameIntoClientArea(Win.window, &margins);
+    i32 backdrop = transparent ? DWMSBT_TRANSIENTWINDOW : DWMSBT_AUTO;
+    DwmSetWindowAttribute(Win.window, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
+}

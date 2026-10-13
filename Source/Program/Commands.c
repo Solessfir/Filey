@@ -400,6 +400,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_ToggleTransparency: Prog_SetTransparent(state, !state->transparent); break;
             case Prog_CommandKind_Rename: if (state->hasFocus) Prog_BeginRename(state, state->focusedRow); break;
             case Prog_CommandKind_RenameCommit: Prog__EndRename(state, true); break;
             case Prog_CommandKind_RenameCancel: Prog__EndRename(state, false); break;

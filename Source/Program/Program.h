@@ -210,6 +210,8 @@ typedef struct Prog_State {
     P_DirectoryWatch watch;
     b32 watchDirty;
     u64 watchReloadTime;
+    // See-through window with the glass theme; the app applies it to the window.
+    b32 transparent;
     // Set by the app so that the first listing loads shell extensions in the
     // background; the first context menu would otherwise stall on them.
     b32 warmMenus;
@@ -236,5 +238,6 @@ function void Prog_CloseMenu(Prog_State *state);
 function void Prog_DragSelection(Prog_State *state);
 function void Prog_Reload(Prog_State *state);
 function void Prog_BeginRename(Prog_State *state, u64 row);
+function void Prog_SetTransparent(Prog_State *state, b32 transparent);
 function String Prog_RenameText(const Prog_State *state);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

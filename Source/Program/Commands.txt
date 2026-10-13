@@ -148,3 +148,10 @@ command RenameCommit {
 // Escape in the rename box.
 command RenameCancel {
 }
+
+command ToggleTransparency {
+    label   = "Transparency^blur,acrylic,glass,translucent"
+    tooltip = "Show the desktop blurred through the window."
+    hotkey  = "Ctrl+Alt+B"
+    repeat  = "false"
+}

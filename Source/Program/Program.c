@@ -10,7 +10,9 @@
 #define Prog_Rgb(r, g, b) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, 1 }
 
 typedef struct Prog_Theme {
-    R_Color background;    // window, toolbar and list base
+    R_Color window;        // cleared behind everything
+    R_Color background;    // toolbar and list base
+    R_Color menu;          // context menus, which cover other content
     R_Color panel;         // sidebar and bottom pills
     R_Color alternateRow;
     R_Color separator;
@@ -26,7 +28,9 @@ typedef struct Prog_Theme {
 
 // The neutral "custom" scheme from the reference screenshots.
 global const Prog_Theme Prog_ThemeCustom = {
+    .window       = Prog_Gray(25),
     .background   = Prog_Gray(25),
+    .menu         = Prog_Gray(31),
     .panel        = Prog_Gray(31),
     .alternateRow = Prog_Gray(28),
     .separator    = Prog_Gray(28),
@@ -39,6 +43,39 @@ global const Prog_Theme Prog_ThemeCustom = {
     .icon         = Prog_Gray(154),
     .iconDisabled = Prog_Gray(70),
 };
+
+#define Prog_White(a) { 1, 1, 1, (a) }
+
+// The custom scheme over a see-through window: the window is one translucent
+// layer and the surfaces on it are faint white tints, so they do not stack
+// into an opaque color.
+global const Prog_Theme Prog_ThemeGlass = {
+    .window       = { 25 / 255.0f, 25 / 255.0f, 25 / 255.0f, 0.55f },
+    .background   = { 0, 0, 0, 0 },
+    .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.97f },
+    .panel        = Prog_White(0.025f),
+    .alternateRow = Prog_White(0.012f),
+    .separator    = Prog_White(0.03f),
+    .hover        = Prog_White(0.2f),
+    .selection    = Prog_White(0.09f),
+    .focus        = Prog_White(0.22f),
+    .text         = Prog_Rgb(221, 222, 224),
+    .textDim      = Prog_Rgb(150, 155, 162),
+    .textHeading  = Prog_Gray(170),
+    .icon         = Prog_Gray(160),
+    .iconDisabled = Prog_Gray(90),
+};
+
+global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
+
+function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
+
+function void Prog_SetTransparent(Prog_State *state, b32 transparent)
+{
+    state->transparent = transparent;
+    Prog_Theme_ = transparent ? &Prog_ThemeGlass : &Prog_ThemeCustom;
+    state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
+}
 
 typedef struct Prog_Metrics {
     f32 line;        // font line height
@@ -126,7 +163,7 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
     UI_SetNextChildrenPadding((UI_Padding){ padding, 0, padding, 0 });
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
     UI_SetNextCornerRadius(m->radius);
-    UI_SetNextColors((UI_Colors){ .background = Prog_ThemeCustom.panel, .text = !enabled ? disabledColor : hot ? hotColor : color });
+    UI_SetNextColors((UI_Colors){ .background = Prog_CurrentTheme()->panel, .text = !enabled ? disabledColor : hot ? hotColor : color });
     UI_SetNextText(text);
     if (font) UI_SetNextFont(font);
     UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
@@ -137,7 +174,7 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
 
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
                                                   theme->icon, theme->text, theme->iconDisabled, enabled, m);
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
@@ -145,7 +182,7 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
 
 function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Block *strip = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(strip) {
         Prog__Spacer(UI_Pixels(m->sidebar + m->separator + m->inset), UI_Pixels(m->bar));
@@ -167,7 +204,7 @@ function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
 // "C:/Git/Filey" -> "C:" › "Git" › "Filey"; every segment but the current one opens its folder.
 function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     String path = state->directory.path;
     u64 start = path.length && path.value[0] == '/' ? 1 : 0;
     if (start) {
@@ -191,7 +228,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
 
 function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(toolbar) {
         Prog__Spacer(UI_Pixels(m->inset * 0.6f), UI_Pixels(m->bar));
@@ -231,7 +268,7 @@ function void Prog__Columns(Prog_Column *columns, f32 scale)
 
 function void Prog__Header(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
     UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(header) {
@@ -263,7 +300,7 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
 // The name being edited, with its selection and caret, in place of the name label.
 function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     String text = Prog_RenameText(state);
     f32 pad = floorf(m->gap * 0.5f);
     f32 caret = MaxF32(1.0f, floorf(m->separator * 0.75f));
@@ -310,7 +347,7 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metri
 
 function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
@@ -391,7 +428,7 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
 
 function void Prog__List(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     f32 rowHeight = m->row;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
@@ -433,7 +470,7 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
 
 function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(bar) {
         // ponytail: the filter pill is a placeholder until text editing exists.
@@ -494,7 +531,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 
 function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->gap, 0 });
     UI_Block *sidebar = Prog__Box(UI_Pixels(m->sidebar), UI_Flex(), UI_Layout_Vertical, theme->panel, UI_Flag_Clip);
     UI_Parent(sidebar) {
@@ -517,7 +554,7 @@ typedef struct Prog_MenuPlace {
 // when one of its items has its submenu open.
 function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child)
 {
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
     u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, visible);
     if (!shown) return false;
@@ -546,7 +583,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
     UI_SetNextCornerRadius(m->radius * 2);
-    UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->hover });
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
     // Clickable so that clicks on the padding do not reach the catcher behind it.
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuPanel/%u", level)),
                                          UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
@@ -628,7 +665,7 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->hasHoverRow = false;
-    const Prog_Theme *theme = &Prog_ThemeCustom;
+    const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);

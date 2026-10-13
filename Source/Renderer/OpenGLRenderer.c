@@ -21,6 +21,7 @@ typedef i64       GLsizeiptr;
 
 #define GL_TRIANGLE_STRIP        0x0005
 #define GL_SRC_ALPHA             0x0302
+#define GL_ONE                   1
 #define GL_ONE_MINUS_SRC_ALPHA   0x0303
 #define GL_BLEND                 0x0BE2
 #define GL_SCISSOR_TEST          0x0C11
@@ -59,7 +60,7 @@ typedef i64       GLsizeiptr;
     X(void,            Clear,                   GLbitfield mask) \
     X(const GLubyte *, GetString,               GLenum name) \
     X(void,            Enable,                  GLenum cap) \
-    X(void,            BlendFunc,               GLenum sfactor, GLenum dfactor) \
+    X(void,            BlendFuncSeparate,       GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) \
     X(void,            Scissor,                 GLint x, GLint y, GLsizei width, GLsizei height) \
     X(void,            GenTextures,             GLsizei n, GLuint *textures) \
     X(void,            BindTexture,             GLenum target, GLuint texture) \
@@ -268,7 +269,8 @@ function b32 R_Init(void)
     }
 
     GL.Enable(GL_BLEND);
-    GL.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // The window's alpha is premultiplied coverage, which compositors blend with what is behind it.
+    GL.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     GL.Enable(GL_SCISSOR_TEST);
     GL.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
     return true;
@@ -327,7 +329,7 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
 
     GL.Viewport(0, 0, width, height);
     GL.Scissor(0, 0, width, height);
-    GL.ClearColor(clear.r, clear.g, clear.b, clear.a);
+    GL.ClearColor(clear.r * clear.a, clear.g * clear.a, clear.b * clear.a, clear.a);
     GL.Clear(GL_COLOR_BUFFER_BIT);
 }
 

@@ -64,6 +64,7 @@ typedef struct Prog_Loop {
     R_Font icons;
     b32 running;
     b32 needsFrame;
+    b32 transparent;  // what the window was last set to
     u64 startTime;  // cleared once the first frame is presented
 } Prog_Loop;
 
@@ -104,7 +105,11 @@ function void Prog__Frame(void *user, PlatformEventList events)
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
         ProfileScope("Render") {
-            R_BeginFrame(window.width, window.height, Prog_ThemeCustom.background);
+            if (loop->transparent != state->transparent) {
+                loop->transparent = state->transparent;
+                PlatformWindowSetTransparent(loop->transparent);
+            }
+            R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
             UI_Draw();
             R_EndFrame();
         }
@@ -142,7 +147,7 @@ int main(void)
     }
 #endif
     b32 ok = false;
-    R_Color background = Prog_ThemeCustom.background;
+    R_Color background = Prog_ThemeCustom.window;
     u32 backgroundRgb = (u32)(background.r * 255.0f + 0.5f) << 16 | (u32)(background.g * 255.0f + 0.5f) << 8 | (u32)(background.b * 255.0f + 0.5f);
     ProfileScope("OpenWindow") ok = PlatformWindowOpen((PlatformWindowDesc){ .title = S("Filey"), .width = 1280, .height = 800, .background = backgroundRgb });
     if (!ok) {
@@ -184,11 +189,7 @@ int main(void)
     }
 
     loop.state.ui.defaultFont = &loop.font;
-    loop.state.ui.defaultColors = (UI_Colors){
-        .background = Prog_ThemeCustom.background,
-        .border = Prog_ThemeCustom.separator,
-        .text = Prog_ThemeCustom.text,
-    };
+    Prog_SetTransparent(&loop.state, false);
     PlatformDoubleClick doubleClick = PlatformDoubleClickSettings();
     loop.state.ui.doubleClickMicroseconds = doubleClick.intervalMicroseconds;
     loop.state.ui.doubleClickDistance = doubleClick.distance;

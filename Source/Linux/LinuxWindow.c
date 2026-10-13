@@ -524,14 +524,14 @@ function b32 LinuxCreateGLContext(void)
         return false;
     }
 
-    // No alpha channel, so the compositor treats the window as opaque.
+    // Opaque frames write an alpha of one; transparent ones let the compositor blend and blur.
     const EGLint configAttribs[] = {
         EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
         EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
         EGL_RED_SIZE,        8,
         EGL_GREEN_SIZE,      8,
         EGL_BLUE_SIZE,       8,
-        EGL_ALPHA_SIZE,      0,
+        EGL_ALPHA_SIZE,      8,
         EGL_NONE,
     };
     EGLConfig config = NULL;
@@ -712,4 +712,10 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void)
         .intervalMicroseconds = 400000,
         .distance = 5.0f * (f32)Wl.scale,
     };
+}
+
+function void PlatformWindowSetTransparent(b32 transparent)
+{
+    // The alpha the renderer writes is all Wayland needs.
+    (void)transparent;
 }

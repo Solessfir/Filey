@@ -147,6 +147,9 @@ typedef struct PlatformWindowInfo {
 
 function b32                PlatformWindowOpen(PlatformWindowDesc desc);
 function PlatformWindowInfo PlatformWindowGetInfo(void);
+// Lets the window's alpha show the desktop through it. Windows adds its Acrylic
+// blur; Wayland compositors blur by their own settings (Hyprland's blur).
+function void               PlatformWindowSetTransparent(b32 transparent);
 
 typedef struct PlatformDoubleClick {
     u64 intervalMicroseconds;

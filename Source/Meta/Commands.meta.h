@@ -31,6 +31,7 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_Rename,
     Prog_CommandKind_RenameCommit,
     Prog_CommandKind_RenameCancel,
+    Prog_CommandKind_ToggleTransparency,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
 #endif
@@ -61,6 +62,7 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_Rename] = { .name = { "Rename", 6 }, .label = { "Rename", 6 }, .aliases = { "rename,name", 11 }, .tooltip = { "Rename the focused item in place.", 33 }, .noRepeat = true },
     [Prog_CommandKind_RenameCommit] = { .name = { "RenameCommit", 12 } },
     [Prog_CommandKind_RenameCancel] = { .name = { "RenameCancel", 12 } },
+    [Prog_CommandKind_ToggleTransparency] = { .name = { "ToggleTransparency", 18 }, .label = { "Transparency", 12 }, .aliases = { "blur,acrylic,glass,translucent", 30 }, .tooltip = { "Show the desktop blurred through the window.", 44 }, .noRepeat = true },
 };
 
 global const Prog_Hotkey Prog_DefaultHotkeys[] = {
@@ -99,5 +101,6 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_F10, .mods = KeyMod_Shift, .command = Prog_CommandKind_ContextMenu },
     { .key = Key_ContextMenu, .mods = 0, .command = Prog_CommandKind_ContextMenu },
     { .key = Key_F2, .mods = 0, .command = Prog_CommandKind_Rename },
+    { .key = Key_B, .mods = KeyMod_Control | KeyMod_Alt, .command = Prog_CommandKind_ToggleTransparency },
 };
 #endif
