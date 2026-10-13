@@ -51,11 +51,17 @@ typedef struct P_Image {
     i32 height;
 } P_Image;
 
-// Files whose icon depends only on their type share a key (".txt", the folder
-// key); files with their own icon (executables, shortcuts) are keyed by path.
-// Pure string work, safe while building UI.
+// Key shared by files of one type: lowercase ".ext", or the folder and
+// extensionless-file keys. Pure string work, safe while building UI.
+function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind);
+// The type key, except that files with their own icon (executables,
+// shortcuts) are keyed by path.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
 // The system icon for `path`, at least `size` pixels when available. The
 // image may be larger or smaller; scaling is left to the caller. May touch
 // the disk, so run it in a job.
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image);
+// Display name of a file's type ("Text Document", "File folder") from the shell
+// on Windows and shared-mime-info on Linux. Only the name is used, never the
+// file. Slow enough to run in a job and cache per P_FileTypeKey.
+function String P_FileTypeName(Arena *arena, String name, P_FileKind kind);

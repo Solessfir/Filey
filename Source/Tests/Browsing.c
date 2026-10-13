@@ -465,6 +465,7 @@ function void TestFileIcons(TestFileFixture *fixture)
 #if defined(_WIN32)
     Check(StrIsEqual(P_FileIconKey(&arena, S("C:/a/.gitignore"), P_FileKind_File), S(".gitignore")));
     Check(StrIsEqual(P_FileIconKey(&arena, S("C:/a/Tool.EXE"), P_FileKind_File), S("C:/a/Tool.EXE")));
+    Check(StrIsEqual(P_FileTypeKey(&arena, S("C:/a/Tool.EXE"), P_FileKind_File), S(".exe")));
 #else
     Check(StrIsEqual(P_FileIconKey(&arena, S("/a/.profile"), P_FileKind_File), S("/file")));
 #endif
@@ -477,6 +478,11 @@ function void TestFileIcons(TestFileFixture *fixture)
     u32 wide[2] = { 0xFF00FF00u, 0xFF00FF00u };
     u32 *fit = Prog_ResizeIcon(&arena, (P_Image){ wide, 2, 1 }, 4);
     Check(fit[0] == 0 && fit[4] == 0xFF00FF00u && fit[11] == 0xFF00FF00u && fit[12] == 0);
+
+    // System-language names, so only their presence is checked.
+    Check(P_FileTypeName(&arena, S("plain.txt"), P_FileKind_File).length);
+    Check(P_FileTypeName(&arena, S("Folder2"), P_FileKind_Directory).length);
+    Check(P_FileTypeName(&arena, S("LICENSE"), P_FileKind_File).length);
 
     P_Image image = {0};
     String file = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));

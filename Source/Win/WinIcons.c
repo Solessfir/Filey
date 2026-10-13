@@ -1,4 +1,4 @@
-// Shell file icons through the system image lists. Requires WinFiles.c.
+// Shell file icons through the system image lists, and shell type names. Requires WinFiles.c.
 
 #pragma push_macro("function")
 #undef function
@@ -11,7 +11,7 @@ global const String P__IconPerPathExtensions[] = {
     S("exe"), S("lnk"), S("ico"), S("cur"), S("ani"), S("url"), S("scr"), S("msc"), S("cpl"), S("appref-ms"),
 };
 
-function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
+function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)
 {
     if (kind == P_FileKind_Directory) {
         return S("/folder");
@@ -23,15 +23,33 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
     if (!dot.exists || dot.value + 1 == name.length) {
         return S("/file");
     }
-    String extension = StrCopy(arena, StrFrom(name, dot.value + 1));
-    for (u64 i = 0; i < extension.length; ++i) {
-        char c = extension.value[i];
-        if (c >= 'A' && c <= 'Z') ((char *)extension.value)[i] = (char)(c + ('a' - 'A'));
+    String result = StrFormat(arena, ".%S", StrFrom(name, dot.value + 1));
+    for (u64 i = 0; i < result.length; ++i) {
+        char c = result.value[i];
+        if (c >= 'A' && c <= 'Z') ((char *)result.value)[i] = (char)(c + ('a' - 'A'));
     }
-    for (u64 i = 0; i < CArrayCount(P__IconPerPathExtensions); ++i) {
-        if (StrIsEqual(extension, P__IconPerPathExtensions[i])) return StrCopy(arena, path);
+    return result;
+}
+
+function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
+{
+    String result = P_FileTypeKey(arena, path, kind);
+    for (u64 i = 0; result.value[0] == '.' && i < CArrayCount(P__IconPerPathExtensions); ++i) {
+        if (StrIsEqual(StrFrom(result, 1), P__IconPerPathExtensions[i])) return StrCopy(arena, path);
     }
-    return StrFormat(arena, ".%S", extension);
+    return result;
+}
+
+// Shell calls need COM. Creating and tearing down an apartment per call costs
+// about half a millisecond, so each thread enters one on first use and keeps it.
+global thread_local b32 P__comReady;
+
+function void P__EnsureCom(void)
+{
+    if (!P__comReady) {
+        HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        P__comReady = SUCCEEDED(com) || com == RPC_E_CHANGED_MODE;
+    }
 }
 
 // {46EB5926-582E-4017-9FDF-E8998DAA0950}
@@ -89,7 +107,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     wchar *wide = P__FilePathWide(scratch.arena, generic ? S("item") : path);
     b32 result = false;
     if (wide) {
-        HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        P__EnsureCom();
         DWORD attributes = kind == P_FileKind_Directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
         SHFILEINFOW info = {0};
         if (SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0))) {
@@ -112,8 +130,24 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
             }
             if (chosen) chosen->lpVtbl->Release(chosen);
         }
-        if (SUCCEEDED(com)) CoUninitialize();
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, name);
+    String result = {0};
+    if (wide) {
+        P__EnsureCom();
+        SHFILEINFOW info = {0};
+        DWORD attributes = kind == P_FileKind_Directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        if (SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_TYPENAME | SHGFI_USEFILEATTRIBUTES) && info.szTypeName[0]) {
+            result = P__FileStringWide(arena, info.szTypeName, (i32)wcslen(info.szTypeName));
+        }
+    }
+    ReleaseScratch(scratch);
+    return result.length ? result : kind == P_FileKind_Directory ? S("File folder") : S("File");
 }

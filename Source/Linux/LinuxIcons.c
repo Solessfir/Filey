@@ -1,5 +1,6 @@
 // File icons from the freedesktop icon theme: extension -> MIME type (shared-mime-info
 // globs) -> icon name -> file in the configured theme or the themes it inherits.
+// Type names come from the same MIME database.
 // Requires LinuxFiles.c.
 
 #include <pthread.h>
@@ -68,6 +69,7 @@ typedef struct P__StrMap { MapHeader header; struct { String key; String value; 
 // Loaded once on first use and read-only afterwards, so jobs share it without locks.
 typedef struct P__IconData {
     Arena arena;
+    ArrayStr dataDirs;
     P__StrMap mimeByExtension;  // "txt" -> "text/plain"
     P__StrMap genericIcons;     // "text/plain" -> "text-x-generic"
     P__IconTheme *themes;       // lookup order: configured theme, what it inherits, hicolor
@@ -289,6 +291,7 @@ function void P__LoadIconData(void)
 {
     Arena *arena = &P__icons.arena;
     ArrayStr dataDirs = P__DataDirs(arena);
+    P__icons.dataDirs = dataDirs;
     P__LoadMime(arena, dataDirs);
 
     ArrayStr bases = {0};
@@ -393,7 +396,7 @@ function b32 P__DecodeIcon(Arena *arena, String path, i32 size, P_Image *image)
     return result;
 }
 
-function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
+function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)
 {
     if (kind == P_FileKind_Directory) {
         return S("/folder");
@@ -409,6 +412,11 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
 }
 
 // ponytail: one access() per candidate file and no icon-theme.cache; add the cache if lookups show up in profiles.
+function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
+{
+    return P_FileTypeKey(arena, path, kind);
+}
+
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
 {
     pthread_once(&P__iconsOnce, P__LoadIconData);
@@ -437,6 +445,58 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     for (u64 i = 0; i < names.header.count && !result; ++i) {
         String file = P__FindIcon(scratch.arena, names.v[i], size);
         result = file.length && P__DecodeIcon(arena, file, size, image);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// ponytail: the untranslated <comment> only; pick the xml:lang one matching LANG when localization lands.
+function String P__MimeComment(Arena *arena, String mime)
+{
+    for (u64 d = 0; d < P__icons.dataDirs.header.count; ++d) {
+        Scratch scratch = GetScratchEx(arena);
+        String xml = P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/mime/%S.xml", P__icons.dataDirs.v[d], mime));
+        Index open = StrIndexStr(xml, S("<comment>"), SSF_None);
+        Index close = open.exists ? StrIndexStr(StrFrom(xml, open.value), S("</comment>"), SSF_None) : (Index){0};
+        String result = {0};
+        if (close.exists) {
+            String raw = StrFromTo(xml, open.value + 9, (i64)(open.value + close.value));
+            StrBuilder builder = {0};
+            for (u64 i = 0; i < raw.length; ++i) {
+                local_persist const struct { String entity; char c; } entities[] = {
+                    { S("&amp;"), '&' }, { S("&lt;"), '<' }, { S("&gt;"), '>' }, { S("&quot;"), '"' }, { S("&apos;"), '\'' },
+                };
+                char c = raw.value[i];
+                for (u32 e = 0; c == '&' && e < CArrayCount(entities); ++e) {
+                    String rest = StrFrom(raw, i);
+                    if (rest.length >= entities[e].entity.length && StrIsEqual(StrFromTo(rest, 0, (i64)entities[e].entity.length), entities[e].entity)) {
+                        c = entities[e].c;
+                        i += entities[e].entity.length - 1;
+                        break;
+                    }
+                }
+                StrBuildChar(arena, &builder, c);
+            }
+            result = builder.buffer;
+            if (result.length && result.value[0] >= 'a' && result.value[0] <= 'z') ((char *)result.value)[0] = (char)(result.value[0] - ('a' - 'A'));
+        }
+        ReleaseScratch(scratch);
+        if (result.length) return result;
+    }
+    return (String){0};
+}
+
+function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)
+{
+    pthread_once(&P__iconsOnce, P__LoadIconData);
+    if (kind == P_FileKind_Directory) return S("Folder");
+    Scratch scratch = GetScratchEx(arena);
+    String key = P_FileTypeKey(scratch.arena, name, kind);
+    String result = S("File");
+    if (key.length > 1 && key.value[0] == '.') {
+        String mime = MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1));
+        String comment = mime.length ? P__MimeComment(arena, mime) : (String){0};
+        result = comment.length ? comment : StrFormat(arena, "%S file", StrFrom(key, 1));
     }
     ReleaseScratch(scratch);
     return result;

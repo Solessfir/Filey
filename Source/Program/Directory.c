@@ -115,6 +115,8 @@ function void Prog__DirectoryJob(P_Job *job)
     result->cancelled = listing.cancelled;
     if (result->error.code || result->cancelled) return;
     result->entries = ArenaPushArray(&job->arena, listing.files.header.count, Prog_Entry);
+    // Type names repeat per type, so each is asked of the system once per listing.
+    struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
     for (u64 i = 0; i < listing.files.header.count; ++i) {
         if (P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
         P_File file = listing.files.v[i];
@@ -122,12 +124,13 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
         result->folderCount += file.kind == P_FileKind_Directory;
-        entry->type = file.kind == P_FileKind_Directory ? S("Folder") : S("File");
-        if (file.kind != P_FileKind_Directory) {
-            Index dot = StrIndexChar(file.name, '.', SSF_SearchBackwards);
-            if (dot.exists && dot.value && dot.value + 1 < file.name.length) {
-                entry->type = StrFormat(&job->arena, "%S file", StrFrom(file.name, dot.value + 1));
-            }
+        String typeKey = P_FileTypeKey(&job->arena, file.name, file.kind);
+        String *type = MapsGetPtrNull(types, typeKey);
+        if (type) {
+            entry->type = *type;
+        } else {
+            entry->type = P_FileTypeName(&job->arena, file.name, file.kind);
+            MapsPut(&job->arena, types, typeKey, entry->type);
         }
         if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
         if (file.metadataValid) {
