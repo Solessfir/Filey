@@ -185,6 +185,15 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
+// Icon button inside a bottom pill; `on` shows a toggle that is set.
+function void Prog__PillButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 on, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(floorf(m->line * 1.5f)), floorf(m->line * 1.5f), 0,
+                                                  on ? theme->text : theme->icon, theme->text, theme->iconDisabled, true, m);
+    if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
+}
+
 function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -527,6 +536,10 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_Block *field = UI_AddBlock(UI_Flag_Clip);
                 UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((m->pill - m->line) * 0.5f), state->filtering, m);
+                Prog__PillButton(state, S("FilterPin"), state->filterSticky ? Icon_Pin : Icon_PinOff, Prog_CommandKind_ToggleFilterPin, state->filterSticky, m);
+                Prog__PillButton(state, S("FilterApply"), Icon_Check, Prog_CommandKind_ApplyFilter, false, m);
+                Prog__PillButton(state, S("FilterOpen"), Icon_CornerDownLeft, Prog_CommandKind_OpenFocused, false, m);
+                Prog__PillButton(state, S("FilterRemove"), Icon_X, Prog_CommandKind_RemoveFilter, false, m);
             } else {
                 String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
@@ -540,28 +553,35 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             status = StrFormat(&state->frameArena, "Loading %S...", ((Prog_JobInput *)state->directoryJob->input)->path);
         }
         if (!status.length) {
-            u64 folders = state->directory.folderCount;
-            u64 files = state->directory.count - folders;
-            u64 selectedFolders = 0;
-            if (state->selectedCount) {
-                for (u64 i = 0; i < state->directory.count; ++i) {
-                    Prog_Entry *entry = &state->directory.entries[i];
-                    selectedFolders += entry->selected && entry->file.kind == P_FileKind_Directory;
-                }
-            }
-            u64 selectedFiles = state->selectedCount - selectedFolders;
-            String folderText = selectedFolders ? StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, selectedFolders, folders)
-                                                : StrFormat(&state->frameArena, "%" PRIu64, folders);
-            String fileText = selectedFiles ? StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, selectedFiles, files)
-                                            : StrFormat(&state->frameArena, "%" PRIu64, files);
+            // Shown out of everything the folder holds, as in the reference; one number when nothing is left out.
+            const Prog_Directory *directory = &state->directory;
+            u64 shown[2] = { state->viewFolders, state->viewCount - state->viewFolders };
+            u64 total[2] = { directory->totalFolders, directory->totalFiles };
+            b32 hidden[2] = { state->hideFolders, state->hideFiles };
+            String icons[2] = { Icon_Folder, Icon_File };
+            String keys[2] = { S("ToggleFolders"), S("ToggleFiles") };
+            Prog_CommandKind kinds[2] = { Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles };
             UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
             UI_SetNextCornerRadius(m->radius * 2);
             UI_Block *counts = Prog__Box(UI_Fill(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->panel, 0);
             UI_Parent(counts) {
-                Prog__Icon(Icon_Folder, 0, m->pill, theme->icon, 0.5f, m);
-                Prog__Label(folderText, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
-                Prog__Icon(Icon_File, 0, m->pill, theme->icon, 0.5f, m);
-                Prog__Label(fileText, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
+                for (u32 i = 0; i < 2; ++i) {
+                    String text = shown[i] == total[i] ? StrFormat(&state->frameArena, "%" PRIu64, total[i])
+                                                       : StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, shown[i], total[i]);
+                    // Each count toggles whether its kind is listed.
+                    UI_SetNextPrefWidth(UI_Fill());
+                    UI_SetNextPrefHeight(UI_Pixels(m->pill));
+                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_Block *toggle = UI_AddBlockFromKey(UI_KeyFromStr(0, keys[i]), UI_Flag_LeftMouseClickable);
+                    UI_Interaction interaction = UI_InteractionFromBlock(toggle);
+                    if (interaction.clicked) Prog_QueueCommand(state, kinds[i], 0, 0, interaction.clickOrder);
+                    b32 hot = UI->hotKey == toggle->key;
+                    UI_Parent(toggle) {
+                        Prog__Icon(icons[i], 0, m->pill, hidden[i] ? theme->iconDisabled : hot ? theme->text : theme->icon, 0.5f, m);
+                        Prog__Label(text, UI_TextContent(), m->pill, m->gap * 0.5f, hidden[i] ? theme->textDim : theme->text, 0);
+                    }
+                }
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->pill));
                 Prog__Icon(Icon_List, 0, m->pill, theme->icon, 0.5f, m);
                 Prog__Label(S("Details"), UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);

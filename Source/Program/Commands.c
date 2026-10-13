@@ -415,6 +415,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->filter.cursor = state->filter.length;
                 }
             } break;
+            case Prog_CommandKind_ApplyFilter: state->filtering = false; break;
+            case Prog_CommandKind_RemoveFilter: {
+                Prog_ClearFilter(state);
+                Prog_ApplyFilter(state, false);
+                state->revealFocus = true;
+            } break;
+            case Prog_CommandKind_ToggleFilterPin: state->filterSticky = !state->filterSticky; break;
+            case Prog_CommandKind_ToggleFolders:
+            case Prog_CommandKind_ToggleFiles: {
+                if (command->kind == Prog_CommandKind_ToggleFolders) state->hideFolders = !state->hideFolders;
+                else state->hideFiles = !state->hideFiles;
+                Prog_ApplyFilter(state, false);
+            } break;
             case Prog_CommandKind_DragSelection: if (!state->dragging && !state->loading) state->dragRequested = true; break;
             default: InvalidPath;
         }
@@ -471,18 +484,13 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         if (event->kind != PlatformEventKind_KeyDown) continue;
         KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
-        // Escape removes the filter and Enter applies it; the other keys the box does not use, such as Up and Down, still move through the list.
+        // Escape removes the filter.
+        // Keys the box does not use still reach the list: Up and Down move through it and Enter opens the focused item, as in the reference.
         if (!state->menuOpen && event->key == Key_Escape && (state->filtering || state->filter.length)) {
-            Prog_ClearFilter(state);
-            Prog_ApplyFilter(state, false);
-            state->revealFocus = true;
+            Prog_QueueCommand(state, Prog_CommandKind_RemoveFilter, 0, 0, order);
             continue;
         }
         if (!state->menuOpen && state->filtering) {
-            if (event->key == Key_Enter && !mods) {
-                state->filtering = false;
-                continue;
-            }
             u32 version = state->filter.version;
             if (Prog__EditKey(&state->filter, event)) {
                 if (state->filter.version != version) Prog_ApplyFilter(state, true);

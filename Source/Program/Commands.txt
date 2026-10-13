@@ -156,6 +156,31 @@ command StartFilter {
     repeat  = "false"
 }
 
+command ApplyFilter {
+    label   = "Apply Filter to Folder"
+    tooltip = "Keep the filter and give the keyboard back to the list."
+}
+
+command RemoveFilter {
+    label   = "Remove Filter"
+    tooltip = "Show every item again."
+}
+
+command ToggleFilterPin {
+    label   = "Pin Filter^sticky,retain,keep"
+    tooltip = "Retain the filter on folder change."
+}
+
+command ToggleFolders {
+    label   = "Show Folders^hide,directories"
+    tooltip = "List or hide the folder's subfolders."
+}
+
+command ToggleFiles {
+    label   = "Show Files^hide"
+    tooltip = "List or hide the folder's files."
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."

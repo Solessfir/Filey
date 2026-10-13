@@ -2,17 +2,23 @@
 #pragma once
 
 #define Icon_FirstRune 0xE000
-#define Icon_Count     9
+#define Icon_Count     15
 
-#define Icon_ArrowLeft    S("\uE000")
-#define Icon_ArrowRight   S("\uE001")
-#define Icon_ArrowUp      S("\uE002")
-#define Icon_ArrowDown    S("\uE003")
-#define Icon_ChevronRight S("\uE004")
-#define Icon_Search       S("\uE005")
-#define Icon_Folder       S("\uE006")
-#define Icon_File         S("\uE007")
-#define Icon_List         S("\uE008")
+#define Icon_ArrowLeft      S("\uE000")
+#define Icon_ArrowRight     S("\uE001")
+#define Icon_ArrowUp        S("\uE002")
+#define Icon_ArrowDown      S("\uE003")
+#define Icon_ChevronRight   S("\uE004")
+#define Icon_Search         S("\uE005")
+#define Icon_Folder         S("\uE006")
+#define Icon_File           S("\uE007")
+#define Icon_List           S("\uE008")
+#define Icon_FolderTree     S("\uE009")
+#define Icon_Pin            S("\uE00A")
+#define Icon_PinOff         S("\uE00B")
+#define Icon_Check          S("\uE00C")
+#define Icon_CornerDownLeft S("\uE00D")
+#define Icon_X              S("\uE00E")
 
 global const u8 Icon_FontData[] = {
 #embed "../Lib/Lucide/Lucide.ttf"

@@ -32,6 +32,11 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_RenameCommit,
     Prog_CommandKind_RenameCancel,
     Prog_CommandKind_StartFilter,
+    Prog_CommandKind_ApplyFilter,
+    Prog_CommandKind_RemoveFilter,
+    Prog_CommandKind_ToggleFilterPin,
+    Prog_CommandKind_ToggleFolders,
+    Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_ToggleTransparency,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
@@ -64,6 +69,11 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_RenameCommit] = { .name = { "RenameCommit", 12 } },
     [Prog_CommandKind_RenameCancel] = { .name = { "RenameCancel", 12 } },
     [Prog_CommandKind_StartFilter] = { .name = { "StartFilter", 11 }, .label = { "Filter", 6 }, .aliases = { "search", 6 }, .tooltip = { "Start filtering the current folder's contents.", 46 }, .noRepeat = true },
+    [Prog_CommandKind_ApplyFilter] = { .name = { "ApplyFilter", 11 }, .label = { "Apply Filter to Folder", 22 }, .tooltip = { "Keep the filter and give the keyboard back to the list.", 55 } },
+    [Prog_CommandKind_RemoveFilter] = { .name = { "RemoveFilter", 12 }, .label = { "Remove Filter", 13 }, .tooltip = { "Show every item again.", 22 } },
+    [Prog_CommandKind_ToggleFilterPin] = { .name = { "ToggleFilterPin", 15 }, .label = { "Pin Filter", 10 }, .aliases = { "sticky,retain,keep", 18 }, .tooltip = { "Retain the filter on folder change.", 35 } },
+    [Prog_CommandKind_ToggleFolders] = { .name = { "ToggleFolders", 13 }, .label = { "Show Folders", 12 }, .aliases = { "hide,directories", 16 }, .tooltip = { "List or hide the folder's subfolders.", 37 } },
+    [Prog_CommandKind_ToggleFiles] = { .name = { "ToggleFiles", 11 }, .label = { "Show Files", 10 }, .aliases = { "hide", 4 }, .tooltip = { "List or hide the folder's files.", 32 } },
     [Prog_CommandKind_ToggleTransparency] = { .name = { "ToggleTransparency", 18 }, .label = { "Transparency", 12 }, .aliases = { "blur,acrylic,glass,translucent", 30 }, .tooltip = { "Show the desktop blurred through the window.", 44 }, .noRepeat = true },
 };
 

@@ -648,12 +648,12 @@ function void TestFilter(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_SelectAll, 0);
     Check(TestSelectionCount(&state) == 2);
 
-    // Backspace edits the filter instead of going up, and Enter hands the keyboard back to the list.
+    // Backspace edits the filter instead of going up, and applying it hands the keyboard back to the list.
     TestRenameKey(&state, Key_Backspace, 0);
     Check(StrIsEqual(Prog_EditText(&state.filter), S("FOLDE")) && StrIsEqual(state.directory.path, fixture->path));
     TestRenameType(&state, S("r1"));
     Check(state.viewCount == 1 && TestFilterConsistent(&state));
-    TestRenameKey(&state, Key_Enter, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_ApplyFilter, 0);
     Check(!state.filtering && state.filter.length == 7 && state.viewCount == 1 && !state.loading);
 
     // A refresh keeps the filter; Escape removes it.
@@ -662,16 +662,30 @@ function void TestFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.filter.length && !state.filtering && state.viewCount == state.directory.count);
 
+    // The counts toggles leave out folders or files; totals include hidden items.
+    Check(state.directory.totalFolders == 3 && state.directory.totalFiles == state.directory.count - 3 + 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleFolders, 0);
+    Check(state.viewCount == state.directory.count - 3 && !state.viewFolders);
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleFolders, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleFiles, 0);
+    Check(state.viewCount == 3 && state.viewFolders == 3);
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleFiles, 0);
+    Check(state.viewCount == state.directory.count);
+
     TestRenameType(&state, S("nothing matches this"));
     Check(!state.viewCount && !state.hasFocus && !TestSelectionCount(&state));
     TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("folder2"));
     Check(state.viewCount == 1 && state.hasFocus);
 
-    // Another folder starts unfiltered.
-    TestBrowsingCommand(&state, Prog_CommandKind_OpenFocused, 0);
-    Check(StrIsEqual(state.directory.entries[0].file.name, S("inside.txt")));
-    Check(!state.filter.length && !state.filtering && state.viewCount == 1);
+    // Another folder starts unfiltered unless the filter is pinned; Enter opens the focused match.
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleFilterPin, 0);
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.entries[0].file.name, S("inside.txt")));
+    Check(state.filter.length == 7 && !state.viewCount);
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleFilterPin, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
+    Check(StrIsEqual(state.directory.path, fixture->path) && !state.filter.length && !state.filtering && state.viewCount == state.directory.count);
     Prog_Release(&state);
 }
 

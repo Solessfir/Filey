@@ -136,6 +136,9 @@ typedef struct Prog_Directory {
     Prog_Entry *entries;
     u64 count;
     u64 folderCount;
+    // Everything the folder holds, hidden items included.
+    u64 totalFolders;
+    u64 totalFiles;
     P_FileError error;
     b32 cancelled;
     enum8(Prog_Sort) sort;
@@ -212,6 +215,10 @@ typedef struct Prog_State {
     // The view holds the rows it lets through, in listing order; rows it hides are never selected, so commands cannot act on them.
     Prog_TextEdit filter;
     b32 filtering;            // the filter box has the keyboard
+    b32 filterSticky;         // keep the filter in other folders
+    b32 hideFolders;
+    b32 hideFiles;
+    u64 viewFolders;          // folders among the shown rows
     R_Rect filterRect;        // last layout of the filter box
     Arena viewArena;
     u64 *view;

@@ -10,3 +10,9 @@ search
 folder
 file
 list
+folder-tree
+pin
+pin-off
+check
+corner-down-left
+x

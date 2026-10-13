@@ -69,19 +69,24 @@ function b32 Prog_FilterMatch(String name, String filter, u8 *marks)
     return true;
 }
 
-// Rebuilds the view from the filter and drops hidden rows from the selection.
+// Rebuilds the view from the filter and the folder and file toggles, and drops hidden rows from the selection.
 // After an edit the focus moves to the first match, so that Enter opens it.
 function void Prog_ApplyFilter(Prog_State *state, b32 edited)
 {
     ArenaClear(&state->viewArena);
     String filter = Prog_EditText(&state->filter);
     state->view = ArenaPushArrayNoZero(&state->viewArena, Max(state->directory.count, (u64)1), u64);
-    state->viewCount = 0;
+    state->viewCount = state->viewFolders = 0;
     state->selectedCount = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
         Prog_Entry *entry = &state->directory.entries[i];
-        if (Prog_FilterMatch(entry->file.name, filter, NULL)) state->view[state->viewCount++] = i;
-        else entry->selected = false;
+        b32 folder = entry->file.kind == P_FileKind_Directory;
+        if (!(folder ? state->hideFolders : state->hideFiles) && Prog_FilterMatch(entry->file.name, filter, NULL)) {
+            state->view[state->viewCount++] = i;
+            state->viewFolders += folder != 0;
+        } else {
+            entry->selected = false;
+        }
         state->selectedCount += entry->selected != 0;
     }
     if (edited || (state->hasFocus && Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX)) {
@@ -246,6 +251,8 @@ function void Prog__DirectoryJob(P_Job *job)
     for (u64 i = 0; i < listing.files.header.count; ++i) {
         if (P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
         P_File file = listing.files.v[i];
+        if (file.kind == P_FileKind_Directory) ++result->totalFolders;
+        else ++result->totalFiles;
         if (file.hidden && !input->showHidden) continue;
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
@@ -469,8 +476,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         }
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
-                    // The filter resets in another folder, and gives way to an item that was just created or renamed.
-                    if (!samePath || (pickRow < result->count && !Prog_FilterMatch(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL))) {
+                    // The filter resets in another folder unless pinned, and gives way to an item that was just created or renamed.
+                    if ((!samePath && !state->filterSticky) || (pickRow < result->count && !Prog_FilterMatch(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL))) {
                         Prog_ClearFilter(state);
                     }
                     b32 renamePicked = renameCreated && created == 1 && !pick.length;
