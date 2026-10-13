@@ -308,6 +308,23 @@ function void Prog__DirectoryJob(P_Job *job)
         }
         return;
     }
+    if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash) {
+        P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        if (P_IsCancelled(&job->cancelToken)) {
+        } else if (input->kind == Prog_JobKind_Transfer) {
+            ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, &job->cancelToken);
+        } else {
+            ProfileScope("TrashItems") *error = P_TrashItems(&job->arena, input->paths, input->pathCount);
+        }
+        job->result = error;
+        return;
+    }
+    if (input->kind == Prog_JobKind_Create) {
+        Prog_Created *result = ArenaPushStruct(&job->arena, Prog_Created);
+        result->error = P_CreateItem(&job->arena, input->path, input->name, input->folder, &result->name);
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_WarmMenu) {
         ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
@@ -510,6 +527,25 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     Prog_Reload(state);
                 }
             }
+        } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Create) {
+            changed = true;
+            P_FileError error = input->kind == Prog_JobKind_Create ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
+                              : job->result ? *(P_FileError *)job->result : (P_FileError){0};
+            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Create ? S("Create") : input->move ? S("Move") : S("Copy");
+            if (error.code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "%S: %S", verb, error.message);
+            } else if (input->kind == Prog_JobKind_Create && StrIsEqual(state->directory.path, input->path)) {
+                // The new item is selected and renamed once the listing shows it.
+                String name = ((Prog_Created *)job->result)->name;
+                if (name.length <= sizeof(state->selectText)) {
+                    MemCopy(state->selectText, name.value, name.length);
+                    state->selectLength = (u32)name.length;
+                    state->selectRename = true;
+                }
+            }
+            // Reloading now shows the result without waiting for the watch.
+            if (!error.code) Prog_Reload(state);
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
             Prog_Measured *result = job->result;
@@ -601,7 +637,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if ((!samePath && !state->filterSticky) || (pickRow < result->count && !Prog_FilterMatch(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL))) {
                         Prog_ClearFilter(state);
                     }
-                    b32 renamePicked = renameCreated && created == 1 && !pick.length;
+                    b32 renamePicked = (renameCreated && created == 1 && !pick.length) || (state->selectRename && pick.length && pickRow < result->count);
+                    state->selectRename = false;
                     if (created) state->renameCreatedUntil = 0;
                     state->selectLength = 0;
                     if (!renameStillThere) state->renaming = false;

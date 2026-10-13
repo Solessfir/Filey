@@ -200,6 +200,62 @@ command ToggleFiles {
     tooltip = "List or hide the folder's files."
 }
 
+command CopySelection {
+    label   = "Copy"
+    tooltip = "Copy selected files in the folder, placing them in the system clipboard."
+    hotkey  = "Ctrl+C"
+    repeat  = "false"
+}
+
+command CutSelection {
+    label   = "Cut"
+    tooltip = "Cut selected files in the folder, placing them in the system clipboard."
+    hotkey  = "Ctrl+X"
+    repeat  = "false"
+}
+
+command Paste {
+    label   = "Paste"
+    tooltip = "Paste files from the system clipboard into the current folder."
+    hotkey  = "Ctrl+V"
+    repeat  = "false"
+}
+
+command Trash {
+    label   = "Trash^delete,remove"
+    tooltip = "Move selected files into the Trash or Recycle Bin."
+    hotkey  = "Delete"
+    repeat  = "false"
+}
+
+command Duplicate {
+    label   = "Duplicate"
+    tooltip = "Duplicate selected files into the same folder."
+    hotkey  = "Ctrl+D"
+    repeat  = "false"
+}
+
+command CopyAsPath {
+    label   = "Copy As Path"
+    tooltip = "Copy selected file paths to the clipboard."
+    hotkey  = "Ctrl+Shift+C"
+    repeat  = "false"
+}
+
+command CreateFolder {
+    label   = "Create Folder^new,directory"
+    tooltip = "Create an empty folder in the current folder and enter rename mode."
+    hotkey  = "Ctrl+Shift+N"
+    repeat  = "false"
+}
+
+command CreateFile {
+    label   = "Create File^new"
+    tooltip = "Create a file in the current folder and enter rename mode."
+    hotkey  = "Ctrl+Alt+N"
+    repeat  = "false"
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."

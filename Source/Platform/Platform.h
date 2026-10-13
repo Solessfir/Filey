@@ -162,6 +162,9 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void);
 // Reading may wait briefly for the application that owns the clipboard.
 function String PlatformClipboardGetText(Arena *arena);
 function void   PlatformClipboardSetText(String text);
+// Files on the clipboard as full paths, the way file managers exchange them, and whether they were cut rather than copied.
+function void   PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut);
+function b32    PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut);
 
 // Returns the events received since the previous call.
 // The list stays valid until the next call.

@@ -49,15 +49,37 @@ function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String
 global Arena TestClipboardArena;
 global String TestClipboard;
 
+global ArrayStr TestClipboardFiles;
+
 function void PlatformClipboardSetText(String text)
 {
     ArenaClear(&TestClipboardArena);
+    TestClipboardFiles = (ArrayStr){0};
     TestClipboard = StrCopy(&TestClipboardArena, text);
 }
 
 function String PlatformClipboardGetText(Arena *arena)
 {
     return StrCopy(arena, TestClipboard);
+}
+
+global b32 TestClipboardCut;
+
+function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
+{
+    ArenaClear(&TestClipboardArena);
+    TestClipboard = (String){0};
+    TestClipboardFiles = (ArrayStr){0};
+    for (u64 i = 0; i < count; ++i) ArrayPush(&TestClipboardArena, TestClipboardFiles, StrCopy(&TestClipboardArena, paths[i]));
+    TestClipboardCut = cut;
+}
+
+function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
+{
+    *paths = (ArrayStr){0};
+    for (u64 i = 0; i < TestClipboardFiles.header.count; ++i) ArrayPush(arena, *paths, StrCopy(arena, TestClipboardFiles.v[i]));
+    *cut = TestClipboardCut;
+    return paths->header.count != 0;
 }
 
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels)

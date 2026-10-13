@@ -33,12 +33,16 @@ typedef struct LinuxWindowState {
     struct wl_data_device *dataDevice;
     struct wl_data_offer *newOffer;
     const char *newOfferMime;
+    const char *newOfferFiles;
     struct wl_data_offer *selection;
     const char *selectionMime;
+    const char *selectionFiles;
     struct wl_data_offer *dragOffer;
     struct wl_data_source *source;
-    Arena clipboardArena;     // the text Filey offers while it owns the selection
-    String clipboardText;
+    Arena clipboardArena;     // what Filey offers while it owns the selection
+    const char *clipboardMimes[8];
+    String clipboardData[8];
+    u32 clipboardCount;
     u32 inputSerial;          // of the latest key or button press, which setting the selection needs
     struct xdg_wm_base   *wmBase;
     u32 compositorVersion;
@@ -422,9 +426,15 @@ global const struct wl_seat_listener SeatListener = {
 // Text types in the order they are preferred.
 global const char *const LinuxTextMimes[] = { "text/plain;charset=utf-8", "UTF8_STRING", "text/plain" };
 
+// File lists, preferred first: GNOME's says whether the files were cut.
+global const char *const LinuxFileMimes[] = { "x-special/gnome-copied-files", "text/uri-list" };
+
 function void DataOfferOffer(void *data, struct wl_data_offer *offer, const char *mime)
 {
     if (offer != Wl.newOffer) return;
+    for (u32 i = 0; i < CArrayCount(LinuxFileMimes); ++i) {
+        if (strcmp(mime, LinuxFileMimes[i]) == 0 && (!Wl.newOfferFiles || i == 0)) Wl.newOfferFiles = LinuxFileMimes[i];
+    }
     for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) {
         if (strcmp(mime, LinuxTextMimes[i]) != 0) continue;
         // Keeps the most preferred type offered.
@@ -449,6 +459,7 @@ function void DataDeviceDataOffer(void *data, struct wl_data_device *device, str
 {
     Wl.newOffer = offer;
     Wl.newOfferMime = NULL;
+    Wl.newOfferFiles = NULL;
     wl_data_offer_add_listener(offer, &DataOfferListener, NULL);
 }
 
@@ -473,6 +484,7 @@ function void DataDeviceSelection(void *data, struct wl_data_device *device, str
     if (Wl.selection) wl_data_offer_destroy(Wl.selection);
     Wl.selection = offer;
     Wl.selectionMime = offer && offer == Wl.newOffer ? Wl.newOfferMime : NULL;
+    Wl.selectionFiles = offer && offer == Wl.newOffer ? Wl.newOfferFiles : NULL;
 }
 
 global const struct wl_data_device_listener DataDeviceListener = {
@@ -488,8 +500,12 @@ function void DataSourceTarget(void *data, struct wl_data_source *source, const 
 
 function void DataSourceSend(void *data, struct wl_data_source *source, const char *mime, i32 fd)
 {
-    for (u64 at = 0; at < Wl.clipboardText.length;) {
-        ssize_t written = write(fd, Wl.clipboardText.value + at, Wl.clipboardText.length - at);
+    String text = {0};
+    for (u32 i = 0; i < Wl.clipboardCount; ++i) {
+        if (strcmp(mime, Wl.clipboardMimes[i]) == 0) text = Wl.clipboardData[i];
+    }
+    for (u64 at = 0; at < text.length;) {
+        ssize_t written = write(fd, text.value + at, text.length - at);
         if (written < 0 && errno == EINTR) continue;
         if (written <= 0) break;
         at += (u64)written;
@@ -503,7 +519,7 @@ function void DataSourceCancelled(void *data, struct wl_data_source *source)
     if (source == Wl.source) {
         Wl.source = NULL;
         ArenaClear(&Wl.clipboardArena);
-        Wl.clipboardText = (String){0};
+        Wl.clipboardCount = 0;
     }
 }
 
@@ -846,28 +862,55 @@ function void LinuxEnsureDataDevice(void)
     }
 }
 
-function void PlatformClipboardSetText(String text)
+// Starts offering the clipboard data added with LinuxClipboardAdd; LinuxClipboardBegin drops the previous offer.
+function void LinuxClipboardBegin(void)
+{
+    if (Wl.source) wl_data_source_destroy(Wl.source);
+    Wl.source = NULL;
+    ArenaClear(&Wl.clipboardArena);
+    Wl.clipboardCount = 0;
+}
+
+function void LinuxClipboardAdd(const char *mime, String data)
+{
+    if (Wl.clipboardCount >= CArrayCount(Wl.clipboardMimes)) return;
+    Wl.clipboardMimes[Wl.clipboardCount] = mime;
+    Wl.clipboardData[Wl.clipboardCount++] = StrCopy(&Wl.clipboardArena, data);
+}
+
+function void LinuxClipboardOffer(void)
 {
     LinuxEnsureDataDevice();
     if (!Wl.dataDevice) return;
-    if (Wl.source) wl_data_source_destroy(Wl.source);
-    ArenaClear(&Wl.clipboardArena);
-    Wl.clipboardText = StrCopy(&Wl.clipboardArena, text);
     Wl.source = wl_data_device_manager_create_data_source(Wl.dataManager);
     wl_data_source_add_listener(Wl.source, &DataSourceListener, NULL);
-    for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) wl_data_source_offer(Wl.source, LinuxTextMimes[i]);
+    for (u32 i = 0; i < Wl.clipboardCount; ++i) wl_data_source_offer(Wl.source, Wl.clipboardMimes[i]);
     wl_data_device_set_selection(Wl.dataDevice, Wl.source, Wl.inputSerial);
     wl_display_flush(Wl.display);
 }
 
-function String PlatformClipboardGetText(Arena *arena)
+// The data Filey offers for `mime` while it owns the selection.
+function String LinuxClipboardOwn(const char *mime)
 {
-    // Reading our own selection through the compositor would wait on a pipe this thread has to fill.
-    if (Wl.source) return StrCopy(arena, Wl.clipboardText);
-    if (!Wl.selection || !Wl.selectionMime) return (String){0};
+    for (u32 i = 0; i < Wl.clipboardCount; ++i) {
+        if (strcmp(Wl.clipboardMimes[i], mime) == 0) return Wl.clipboardData[i];
+    }
+    return (String){0};
+}
+
+function void PlatformClipboardSetText(String text)
+{
+    LinuxClipboardBegin();
+    for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) LinuxClipboardAdd(LinuxTextMimes[i], text);
+    LinuxClipboardOffer();
+}
+
+// Reads what the selection holds as `mime`.
+function String LinuxClipboardReceive(Arena *arena, const char *mime)
+{
     i32 fds[2];
-    if (pipe2(fds, O_CLOEXEC) != 0) return (String){0};
-    wl_data_offer_receive(Wl.selection, Wl.selectionMime, fds[1]);
+    if (!Wl.selection || !mime || pipe2(fds, O_CLOEXEC) != 0) return (String){0};
+    wl_data_offer_receive(Wl.selection, mime, fds[1]);
     close(fds[1]);
     wl_display_flush(Wl.display);
     // ponytail: a fixed 1 MiB cap and a one second wait per read; text fields never need more.
@@ -883,4 +926,60 @@ function String PlatformClipboardGetText(Arena *arena)
     }
     close(fds[0]);
     return StrMake(bytes, length);
+}
+
+function String PlatformClipboardGetText(Arena *arena)
+{
+    // Reading our own selection through the compositor would wait on a pipe this thread has to fill.
+    if (Wl.source) return StrCopy(arena, LinuxClipboardOwn(LinuxTextMimes[0]));
+    return LinuxClipboardReceive(arena, Wl.selectionMime);
+}
+
+function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
+{
+    Scratch scratch = GetScratch();
+    StrBuilder gnome = {0}, uris = {0}, text = {0};
+    StrBuildCStr(scratch.arena, &gnome, cut ? "cut" : "copy");
+    for (u64 i = 0; i < count; ++i) {
+        String uri = P__FileUri(scratch.arena, paths[i]);
+        StrBuildChar(scratch.arena, &gnome, '\n');
+        StrBuildStr(scratch.arena, &gnome, uri);
+        StrBuildStr(scratch.arena, &uris, uri);
+        StrBuildCStr(scratch.arena, &uris, "\r\n");
+        if (i) StrBuildChar(scratch.arena, &text, '\n');
+        StrBuildStr(scratch.arena, &text, paths[i]);
+    }
+    LinuxClipboardBegin();
+    LinuxClipboardAdd(LinuxFileMimes[0], gnome.buffer);
+    LinuxClipboardAdd(LinuxFileMimes[1], uris.buffer);
+    // KDE's own flag for cut files.
+    if (cut) LinuxClipboardAdd("application/x-kde-cutselection", S("1"));
+    for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) LinuxClipboardAdd(LinuxTextMimes[i], text.buffer);
+    LinuxClipboardOffer();
+    ReleaseScratch(scratch);
+}
+
+function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
+{
+    *paths = (ArrayStr){0};
+    *cut = false;
+    const char *mime = Wl.source ? (LinuxClipboardOwn(LinuxFileMimes[0]).length ? LinuxFileMimes[0] : NULL) : Wl.selectionFiles;
+    if (!mime) return false;
+    Scratch scratch = GetScratchEx(arena);
+    String list = Wl.source ? LinuxClipboardOwn(mime) : LinuxClipboardReceive(scratch.arena, mime);
+    b32 gnome = strcmp(mime, LinuxFileMimes[0]) == 0;
+    ArrayStr lines = StrSplit(scratch.arena, list, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        String line = lines.v[i];
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (gnome && i == 0) {
+            *cut = StrIsEqual(line, S("cut"));
+            continue;
+        }
+        if (!line.length || line.value[0] == '#') continue;
+        String path = P__FilePathFromUri(arena, line);
+        if (path.length) ArrayPush(arena, *paths, path);
+    }
+    ReleaseScratch(scratch);
+    return paths->header.count != 0;
 }

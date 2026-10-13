@@ -387,6 +387,83 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     Prog_CloseMenu(state);
 }
 
+// Full paths of the selected rows, or of the focused row when nothing is selected.
+function u64 Prog__SelectedPaths(Prog_State *state, Arena *arena, String **paths)
+{
+    u64 count = state->selectedCount ? state->selectedCount : state->hasFocus ? 1 : 0;
+    *paths = ArenaPushArray(arena, Max(count, (u64)1), String);
+    u64 at = 0;
+    for (u64 i = 0; i < state->directory.count && at < count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        if (state->selectedCount ? entry->selected : i == state->focusedRow) (*paths)[at++] = Prog_JoinPath(arena, state->directory.path, entry->file.name);
+    }
+    return at;
+}
+
+function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name)
+{
+    if (!directory.length || (kind != Prog_JobKind_Create && !count)) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = (u8)kind;
+    input->path = StrCopy(&job->arena, directory);
+    input->paths = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
+    for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);
+    input->pathCount = count;
+    input->move = kind == Prog_JobKind_Transfer && flag;
+    input->folder = kind == Prog_JobKind_Create && flag;
+    input->name = StrCopy(&job->arena, name);
+    job->input = input;
+    P_JobSubmit(job);
+}
+
+// Filey's own file commands; Windows context menus run the shell's versions instead.
+function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
+{
+    if (state->loading || state->renaming) return;
+    Arena *frame = &state->frameArena;
+    String *paths = NULL;
+    u64 count = Prog__SelectedPaths(state, frame, &paths);
+    switch (kind) {
+        case Prog_CommandKind_CopySelection:
+        case Prog_CommandKind_CutSelection: {
+            if (count) PlatformClipboardSetFiles(paths, count, kind == Prog_CommandKind_CutSelection);
+        } break;
+        case Prog_CommandKind_Paste: {
+            ArrayStr files = {0};
+            b32 cut = false;
+            if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
+        } break;
+        case Prog_CommandKind_Trash: Prog__FileJob(state, Prog_JobKind_Trash, paths, count, state->directory.path, false, (String){0}); break;
+        case Prog_CommandKind_Duplicate: {
+            // Each copy goes next to its original, so an expanded listing duplicates the items of one folder at a time.
+            u64 *rows = ArenaPushArray(frame, Max(count, (u64)1), u64);
+            u64 rowCount = 0;
+            for (u64 i = 0; i < state->directory.count && rowCount < count; ++i) {
+                if (state->selectedCount ? state->directory.entries[i].selected : i == state->focusedRow) rows[rowCount++] = i;
+            }
+            String *names = ArenaPushArray(frame, Max(count, (u64)1), String);
+            String folder = Prog__RowsFolder(state, frame, rows, &rowCount, names);
+            for (u64 i = 0; i < rowCount; ++i) paths[i] = Prog_JoinPath(frame, folder, names[i]);
+            Prog__FileJob(state, Prog_JobKind_Transfer, paths, rowCount, folder, false, (String){0});
+        } break;
+        case Prog_CommandKind_CopyAsPath: {
+            StrBuilder text = {0};
+            for (u64 i = 0; i < count; ++i) {
+                if (i) StrBuildChar(frame, &text, '\n');
+                StrBuildStr(frame, &text, P_NativePath(frame, paths[i]));
+            }
+            if (count) PlatformClipboardSetText(text.buffer);
+        } break;
+        case Prog_CommandKind_CreateFolder:
+        case Prog_CommandKind_CreateFile: {
+            b32 folder = kind == Prog_CommandKind_CreateFolder;
+            Prog__FileJob(state, Prog_JobKind_Create, NULL, 0, state->directory.path, folder, folder ? S("New folder") : S("New file"));
+        } break;
+        default: InvalidPath;
+    }
+}
+
 function void Prog_DragSelection(Prog_State *state)
 {
     state->dragRequested = false;
@@ -534,6 +611,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 else state->hideFiles = !state->hideFiles;
                 Prog_ApplyFilter(state, false);
             } break;
+            case Prog_CommandKind_CopySelection:
+            case Prog_CommandKind_CutSelection:
+            case Prog_CommandKind_Paste:
+            case Prog_CommandKind_Trash:
+            case Prog_CommandKind_Duplicate:
+            case Prog_CommandKind_CopyAsPath:
+            case Prog_CommandKind_CreateFolder:
+            case Prog_CommandKind_CreateFile: Prog__FileCommand(state, command->kind); break;
             case Prog_CommandKind_DragSelection: if (!state->dragging && !state->loading) state->dragRequested = true; break;
             default: InvalidPath;
         }

@@ -72,6 +72,9 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
     Prog_JobKind_Measure,
+    Prog_JobKind_Transfer,
+    Prog_JobKind_Trash,
+    Prog_JobKind_Create,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -115,11 +118,21 @@ typedef struct Prog_JobInput {
     u64 *rows;
     u64 rowCount;
     u64 listing;
+    // Transfer copies or moves `paths` into `path`, Trash trashes them, and Create makes `name` inside `path`, a folder when `folder` is set.
+    String *paths;
+    u64 pathCount;
+    b32 move;
+    b32 folder;
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
     i32 iconSize;
 } Prog_JobInput;
+
+typedef struct Prog_Created {
+    P_FileError error;
+    String name;
+} Prog_Created;
 
 typedef struct Prog_Measured {
     P_DirectoryTotals *totals;  // for the first `count` rows of the job
@@ -218,6 +231,7 @@ typedef struct Prog_State {
     u64 renameCreatedUntil;   // until then, rename the one item a listing of this folder adds
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
+    b32 selectRename;         // and rename it, for items Filey just created
     // Live filter of the listing.
     // The view holds the rows it lets through, in listing order; rows it hides are never selected, so commands cannot act on them.
     Prog_TextEdit filter;

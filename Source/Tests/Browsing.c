@@ -960,6 +960,88 @@ function void TestFileOperations(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// Runs `kind`, then waits for the job it starts and the reload that follows.
+function void TestFileCommand(Prog_State *state, Prog_CommandKind kind)
+{
+    ArenaClear(&state->frameArena);
+    Prog_QueueCommand(state, kind, 0, 1, 0);
+    Prog_ProcessCommands(state);
+    for (u64 start = PlatformNowMicroseconds(); !state->directoryJob && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(state);
+        if (!state->directoryJob) P__TestPause();
+    }
+    Check(TestWaitDirectory(state));
+}
+
+function void TestProgramFileCommands(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String created = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Commands"), true, &created).code);
+    String root = Prog_JoinPath(&arena, fixture->path, S("Commands"));
+    Check(!P_CreateItem(&arena, root, S("a.txt"), false, &created).code);
+    Prog_State state = {0};
+    Check(Prog_Init(&state, root, NULL, NULL));
+    if (!state.jobs.initialized) goto finish;
+    Check(TestWaitDirectory(&state) && state.directory.count == 1);
+
+    // A new folder is selected and renamed once it shows up.
+    TestFileCommand(&state, Prog_CommandKind_CreateFolder);
+    u64 folder = TestEntryIndex(&state, S("New folder"));
+    Check(folder != UINT64_MAX && state.renaming && state.focusedRow == folder && StrIsEqual(Prog_EditText(&state.rename), S("New folder")));
+    TestRenameKey(&state, Key_Escape, 0);
+
+    // Copy and Paste in the same folder makes a numbered or "- Copy" duplicate, as does Duplicate.
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
+    TestRenameKey(&state, Key_C, KeyMod_Control);
+    Check(TestClipboardFiles.header.count == 1 && !TestClipboardCut && StrIsEqual(TestClipboardFiles.v[0], Prog_JoinPath(&arena, root, S("a.txt"))));
+    TestFileCommand(&state, Prog_CommandKind_Paste);
+    Check(!state.error.length && state.directory.count == 3);
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
+    TestFileCommand(&state, Prog_CommandKind_Duplicate);
+    Check(!state.error.length && state.directory.count == 4);
+
+    // Cut and Paste in another folder moves.
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
+    TestRenameKey(&state, Key_X, KeyMod_Control);
+    Check(TestClipboardCut);
+    TestBrowsingCommand(&state, Prog_CommandKind_SelectRow, TestEntryIndex(&state, S("New folder")));
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, TestEntryIndex(&state, S("New folder")), 2, 0);
+    Prog_ProcessCommands(&state);
+    Check(TestWaitDirectory(&state) && !state.directory.count);
+    TestFileCommand(&state, Prog_CommandKind_Paste);
+    Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) != UINT64_MAX);
+    Check(!TestHasFile(&arena, fixture, S("Commands"), S("a.txt")));
+
+    // Copy As Path puts the system's form of the path on the clipboard.
+    Prog_SelectRow(&state, 0, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_CopyAsPath, 0);
+    Check(StrIsEqual(TestClipboard, P_NativePath(&arena, Prog_JoinPath(&arena, Prog_JoinPath(&arena, root, S("New folder")), S("a.txt")))));
+
+    // Pasting with nothing selected or on the clipboard does nothing.
+    PlatformClipboardSetText(S("not files"));
+    TestBrowsingCommand(&state, Prog_CommandKind_Paste, 0);
+    Check(!state.error.length);
+
+#if defined(__linux__)
+    // Trash goes to a trash inside the fixture, never the real one.
+    String data = Prog_JoinPath(&arena, root, S("data"));
+    const char *previous = getenv("XDG_DATA_HOME");
+    String saved = previous ? StrCopy(&arena, StrFromCStr(previous)) : (String){0};
+    setenv("XDG_DATA_HOME", P__FilePathCString(&arena, data), 1);
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
+    TestFileCommand(&state, Prog_CommandKind_Trash);
+    if (saved.length) setenv("XDG_DATA_HOME", P__FilePathCString(&arena, saved), 1);
+    else unsetenv("XDG_DATA_HOME");
+    Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
+#endif
+finish:
+    Prog_Release(&state);
+    TestRemoveTree(&arena, fixture, S("Commands"));
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -978,6 +1060,7 @@ function void TestBrowsing(void)
         TestWatch(&fixture);
         TestMeasure(&fixture);
         TestFileOperations(&fixture);
+        TestProgramFileCommands(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);

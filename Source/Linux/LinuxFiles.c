@@ -425,6 +425,59 @@ function String P_NativePath(Arena *arena, String path)
     return StrCopy(arena, path);
 }
 
+// `path` percent-encoded the way URI paths are.
+function String P__PercentEncode(Arena *arena, String path)
+{
+    StrBuilder encoded = {0};
+    for (u64 i = 0; i < path.length; ++i) {
+        u8 c = (u8)path.value[i];
+        b32 plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' || c == '_' || c == '.' || c == '~';
+        if (plain) StrBuildChar(arena, &encoded, (char)c);
+        else StrBuildStr(arena, &encoded, StrFormat(arena, "%%%02X", c));
+    }
+    return encoded.buffer;
+}
+
+function String P__FileUri(Arena *arena, String path)
+{
+    return StrFormat(arena, "file://%S", P__PercentEncode(arena, path));
+}
+
+function u8 P__HexDigit(u8 c)
+{
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 0xFF;
+}
+
+// The local path a file:// URI names, or empty for other URIs.
+// A host part is accepted only when it is empty or "localhost".
+function String P__FilePathFromUri(Arena *arena, String uri)
+{
+    if (uri.length < 7 || !StrIsEqual(StrFromTo(uri, 0, 7), S("file://"))) return (String){0};
+    String rest = StrFrom(uri, 7);
+    if (!rest.length || rest.value[0] != '/') {
+        if (rest.length < 9 || !StrIsEqual(StrFromTo(rest, 0, 9), S("localhost"))) return (String){0};
+        rest = StrFrom(rest, 9);
+    }
+    char *bytes = ArenaPushArrayNoZero(arena, Max(rest.length, (u64)1), char);
+    u64 length = 0;
+    for (u64 i = 0; i < rest.length; ++i) {
+        u8 c = (u8)rest.value[i];
+        if (c == '%' && i + 2 < rest.length) {
+            u8 high = P__HexDigit((u8)rest.value[i + 1]);
+            u8 low = P__HexDigit((u8)rest.value[i + 2]);
+            if (high != 0xFF && low != 0xFF) {
+                bytes[length++] = (char)(high << 4 | low);
+                i += 2;
+                continue;
+            }
+        }
+        bytes[length++] = (char)c;
+    }
+    // A null would cut the path short at the system boundary.
+    for (u64 i = 0; i < length; ++i) if (!bytes[i]) return (String){0};
+    return StrMake(bytes, length);
+}
+
 // `name` numbered for attempt `n`: the name itself, then "stem (2).ext" for files and "name (2)" for folders.
 function char *P__NumberedName(Arena *arena, String name, b32 folder, u32 n)
 {
@@ -642,19 +695,12 @@ function u32 P__TrashInto(Arena *arena, const char *trash, const char *source, S
     char *infos = P__FilePathCString(arena, StrFormat(arena, "%s/info", trash));
     if ((mkdir(trash, 0700) != 0 && errno != EEXIST) || (mkdir(files, 0700) != 0 && errno != EEXIST) || (mkdir(infos, 0700) != 0 && errno != EEXIST)) return (u32)errno;
     // The path in the info file is percent-encoded like a URI path.
-    StrBuilder encoded = {0};
-    String path = StrFromCStr(source);
-    for (u64 i = 0; i < path.length; ++i) {
-        u8 c = (u8)path.value[i];
-        b32 plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' || c == '_' || c == '.' || c == '~';
-        if (plain) StrBuildChar(arena, &encoded, (char)c);
-        else StrBuildStr(arena, &encoded, StrFormat(arena, "%%%02X", c));
-    }
+    String encoded = P__PercentEncode(arena, StrFromCStr(source));
     char date[32];
     time_t now = time(NULL);
     struct tm local;
     strftime(date, sizeof(date), "%Y-%m-%dT%H:%M:%S", localtime_r(&now, &local));
-    String info = StrFormat(arena, "[Trash Info]\nPath=%S\nDeletionDate=%s\n", encoded.buffer, date);
+    String info = StrFormat(arena, "[Trash Info]\nPath=%S\nDeletionDate=%s\n", encoded, date);
     u32 error = EEXIST;
     for (u32 n = 1; n < 10000 && error == EEXIST; ++n) {
         char *name = P__NumberedName(arena, leaf, folder, n);

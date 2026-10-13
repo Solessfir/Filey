@@ -518,3 +518,73 @@ function String PlatformClipboardGetText(Arena *arena)
     CloseClipboard();
     return result;
 }
+
+function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
+{
+    Scratch scratch = GetScratch();
+    // CF_HDROP is a DROPFILES header followed by the paths, each null-terminated, and one more null.
+    u64 length = 1;
+    wchar **wide = ArenaPushArray(scratch.arena, Max(count, (u64)1), wchar *);
+    for (u64 i = 0; i < count; ++i) {
+        wide[i] = P__FilePathWide(scratch.arena, paths[i]);
+        if (wide[i]) length += (u64)lstrlenW(wide[i]) + 1;
+    }
+    HGLOBAL drop = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(DROPFILES) + length * sizeof(wchar));
+    DROPFILES *header = drop ? GlobalLock(drop) : NULL;
+    HGLOBAL effect = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+    DWORD *effectValue = effect ? GlobalLock(effect) : NULL;
+    if (header && effectValue && OpenClipboard(Win.window)) {
+        header->pFiles = sizeof(DROPFILES);
+        header->fWide = TRUE;
+        wchar *at = (wchar *)(header + 1);
+        for (u64 i = 0; i < count; ++i) {
+            if (!wide[i]) continue;
+            u64 size = (u64)lstrlenW(wide[i]) + 1;
+            MemCopy(at, wide[i], size * sizeof(wchar));
+            at += size;
+        }
+        // Explorer reads whether to move or copy from the preferred drop effect.
+        *effectValue = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY | DROPEFFECT_LINK;
+        GlobalUnlock(drop);
+        GlobalUnlock(effect);
+        EmptyClipboard();
+        if (SetClipboardData(CF_HDROP, drop)) drop = NULL;
+        if (SetClipboardData(RegisterClipboardFormatW(L"Preferred DropEffect"), effect)) effect = NULL;
+        CloseClipboard();
+    } else {
+        if (header) GlobalUnlock(drop);
+        if (effectValue) GlobalUnlock(effect);
+    }
+    if (drop) GlobalFree(drop);
+    if (effect) GlobalFree(effect);
+    ReleaseScratch(scratch);
+}
+
+function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
+{
+    *paths = (ArrayStr){0};
+    *cut = false;
+    if (!OpenClipboard(Win.window)) return false;
+    HDROP drop = GetClipboardData(CF_HDROP);
+    u32 count = drop ? DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0) : 0;
+    for (u32 i = 0; i < count; ++i) {
+        u32 length = DragQueryFileW(drop, i, NULL, 0);
+        Scratch scratch = GetScratchEx(arena);
+        wchar *name = ArenaPushArray(scratch.arena, (u64)length + 1, wchar);
+        DragQueryFileW(drop, i, name, length + 1);
+        String path = P__FileStringWide(arena, name, (i32)length);
+        ReleaseScratch(scratch);
+        for (u64 j = 0; j < path.length; ++j) {
+            if (path.value[j] == '\\') ((char *)path.value)[j] = '/';
+        }
+        ArrayPush(arena, *paths, path);
+    }
+    HANDLE effect = count ? GetClipboardData(RegisterClipboardFormatW(L"Preferred DropEffect")) : NULL;
+    const DWORD *value = effect ? GlobalLock(effect) : NULL;
+    if (value) {
+        *cut = (*value & DROPEFFECT_MOVE) != 0 && !(*value & DROPEFFECT_COPY);
+        GlobalUnlock(effect);
+    }
+    CloseClipboard();
+    return count != 0;
+}
