@@ -370,3 +370,52 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     ArenaRelease(&watch->arena);
     *watch = (P_DirectoryWatch){0};
 }
+
+typedef struct P__MeasureStack { ArrayHeader header; DIR **v; } P__MeasureStack;
+
+function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel)
+{
+    P_DirectoryTotals result = {0};
+    Scratch scratch = GetScratch();
+    char *root = P__FilePathCString(scratch.arena, path.length ? path : S("."));
+    P__MeasureStack stack = {0};
+    // ponytail: one open folder per level, so trees deeper than the descriptor limit are cut short.
+    DIR *first = root ? opendir(root) : NULL;
+    if (first) ArrayPush(scratch.arena, stack, first);
+    result.complete = first != NULL;
+    while (stack.header.count) {
+        if (P_IsCancelled(cancel)) {
+            result.complete = false;
+            break;
+        }
+        DIR *stream = stack.v[stack.header.count - 1];
+        struct dirent *entry = readdir(stream);
+        if (!entry) {
+            closedir(stream);
+            --stack.header.count;
+            continue;
+        }
+        const char *name = entry->d_name;
+        if (name[0] == '.' && (!name[1] || (name[1] == '.' && !name[2]))) continue;
+        u8 type = entry->d_type;
+        struct stat metadata = {0};
+        b32 statted = false;
+        if (type == DT_UNKNOWN || type == DT_REG) {
+            statted = fstatat(dirfd(stream), name, &metadata, AT_SYMLINK_NOFOLLOW) == 0;
+            if (statted) type = S_ISDIR(metadata.st_mode) ? DT_DIR : S_ISLNK(metadata.st_mode) ? DT_LNK : DT_REG;
+        }
+        if (type == DT_DIR) {
+            ++result.folders;
+            i32 fd = openat(dirfd(stream), name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            DIR *child = fd >= 0 ? fdopendir(fd) : NULL;
+            if (child) ArrayPush(scratch.arena, stack, child);
+            else if (fd >= 0) close(fd);
+        } else {
+            ++result.files;
+            if (statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) result.bytes += (u64)metadata.st_size;
+        }
+    }
+    for (u64 i = 0; i < stack.header.count; ++i) closedir(stack.v[i]);
+    ReleaseScratch(scratch);
+    return result;
+}

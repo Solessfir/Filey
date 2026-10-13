@@ -646,6 +646,52 @@ function void TestWatch(TestFileFixture *fixture)
     P__TestRemovePath(fixture, S("watched.txt"), false);
 }
 
+function void TestMeasure(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Check(StrIsEqual(Prog_FormatSize(&arena, 0), S("0 B")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 1010), S("1010 B")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 1024), S("1 kB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 9420), S("9.2 kB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 1048575), S("1 MB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, UINT64_C(12268339)), S("11.7 MB")));
+
+    P_CancelToken token = {0};
+    P_DirectoryTotals totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("Folder2")), &token);
+    Check(totals.complete && totals.folders == 0 && totals.files == 1 && totals.bytes == 5);
+    // Hidden items count; the subfolder's file counts toward the root.
+    totals = P_MeasureDirectory(fixture->path, &token);
+    Check(totals.complete && totals.folders == 3 && totals.files >= 7 && totals.bytes >= 22);
+    totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("missing")), &token);
+    Check(!totals.complete && !totals.files);
+    P_RequestCancel(&token);
+    Check(!P_MeasureDirectory(fixture->path, &token).complete);
+
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (state.jobs.initialized) {
+        Check(TestWaitDirectory(&state));
+        for (u64 start = PlatformNowMicroseconds(); state.measureJob && PlatformNowMicroseconds() - start < Millions(5);) {
+            Prog_TakeCompletions(&state);
+            if (state.measureJob) P__TestPause();
+        }
+        u64 folder = TestEntryIndex(&state, S("Folder2")), empty = TestEntryIndex(&state, S("Empty"));
+        Check(folder != UINT64_MAX && empty != UINT64_MAX);
+        if (folder != UINT64_MAX && empty != UINT64_MAX) {
+            Prog_Entry *entry = &state.directory.entries[folder];
+            Check(entry->measured && entry->folders == 0 && entry->files == 1 && entry->bytes == 5);
+            entry = &state.directory.entries[empty];
+            Check(entry->measured && !entry->folders && !entry->files && !entry->bytes);
+            // A refresh keeps the totals of unchanged folders without walking them again.
+            TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+            folder = TestEntryIndex(&state, S("Folder2"));
+            Check(folder != UINT64_MAX && state.directory.entries[folder].measured && !state.measureJob);
+        }
+    }
+    Prog_Release(&state);
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -660,6 +706,7 @@ function void TestBrowsing(void)
         TestProgramBrowsing(&fixture);
         TestRename(&fixture);
         TestWatch(&fixture);
+        TestMeasure(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);

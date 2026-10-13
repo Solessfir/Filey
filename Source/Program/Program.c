@@ -212,13 +212,21 @@ typedef struct Prog_Column {
     f32 alignX;
 } Prog_Column;
 
+// The sort a column header selects; Prog_Sort_Count for columns that do not sort.
+// ponytail: Folders and Files do not sort, and folders sort by name under Size; sort on totals once they are wanted.
+global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
+    Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Size,
+};
+
 function void Prog__Columns(Prog_Column *columns, f32 scale)
 {
     // Logical widths measured from the reference; Name flexes.
-    columns[Prog_Sort_Name] = (Prog_Column){ S("Name"), 0, 0 };
-    columns[Prog_Sort_Type] = (Prog_Column){ S("Type"), floorf(192 * scale), 0 };
-    columns[Prog_Sort_Modified] = (Prog_Column){ S("Date Modified"), floorf(193 * scale), 0 };
-    columns[Prog_Sort_Size] = (Prog_Column){ S("Size"), floorf(105 * scale), 1 };
+    columns[Prog_ColumnId_Name] = (Prog_Column){ S("Name"), 0, 0 };
+    columns[Prog_ColumnId_Type] = (Prog_Column){ S("Type"), floorf(192 * scale), 0 };
+    columns[Prog_ColumnId_Modified] = (Prog_Column){ S("Date Modified"), floorf(193 * scale), 0 };
+    columns[Prog_ColumnId_Folders] = (Prog_Column){ S("Folders"), floorf(90 * scale), 0 };
+    columns[Prog_ColumnId_Files] = (Prog_Column){ S("Files"), floorf(105 * scale), 0 };
+    columns[Prog_ColumnId_Size] = (Prog_Column){ S("Size"), floorf(105 * scale), 1 };
 }
 
 function void Prog__Header(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
@@ -227,24 +235,26 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
     UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(header) {
-        for (u32 i = 0; i < Prog_Sort_Count; ++i) {
-            b32 sorted = state->sort == i;
+        for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
+            Prog_Sort sort = Prog_ColumnSort[i];
+            b32 sorted = sort < Prog_Sort_Count && state->sort == sort;
             UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", columns[i].title));
-            b32 hot = UI->hotKey == key && !state->loading;
+            b32 sortable = sort < Prog_Sort_Count && !state->loading;
+            b32 hot = UI->hotKey == key && sortable;
             UI_SetNextPrefWidth(columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_Block *cell = UI_AddBlockFromKey(key, !state->loading ? UI_Flag_LeftMouseClickable : 0);
+            UI_Block *cell = UI_AddBlockFromKey(key, sortable ? UI_Flag_LeftMouseClickable : 0);
             UI_Interaction interaction = UI_InteractionFromBlock(cell);
-            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_Sort, i, 0, interaction.clickOrder);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
             UI_Parent(cell) {
-                if (i == Prog_Sort_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+                if (i == Prog_ColumnId_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
                 if (columns[i].alignX > 0) Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
                 Prog__Label(columns[i].title, columns[i].alignX > 0 ? UI_TextContent() : UI_Flex(), m->row, m->gap, color, 0);
                 if (sorted) Prog__Icon(state->descending ? Icon_ArrowDown : Icon_ArrowUp, m->line + m->gap, m->row, theme->textDim, 0.5f, m);
-                if (i + 1 < Prog_Sort_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
+                if (i + 1 < Prog_ColumnId_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
             }
         }
     }
@@ -339,7 +349,22 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && entry->selected) {
         Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
     }
-    String values[Prog_Sort_Count] = { entry->file.name, entry->type, entry->modified, entry->size };
+    // Folders show their totals once measured; zero counts and files' counts read "--", as in the reference.
+    Arena *frame = &state->frameArena;
+    String none = S("--");
+    String folders = none, files = none, size = {0};
+    if (entry->file.kind == P_FileKind_Directory) {
+        if (entry->measured) {
+            if (entry->folders) folders = StrFormat(frame, "%" PRIu64, entry->folders);
+            if (entry->files) files = StrFormat(frame, "%" PRIu64, entry->files);
+            size = entry->files ? Prog_FormatSize(frame, entry->bytes) : none;
+        } else {
+            folders = files = (String){0};
+        }
+    } else if (entry->file.metadataValid) {
+        size = Prog_FormatSize(frame, entry->file.size);
+    }
+    String values[Prog_ColumnId_Count] = { entry->file.name, entry->type, entry->modified, folders, files, size };
     UI_Parent(row) {
         const Prog_Icon *icon = Prog_FileIcon(state, state->directory.path, entry);
         if (icon) {
@@ -353,12 +378,12 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
             Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, m->iconSlot - m->gap, m->row,
                        highlighted ? theme->text : faded ? theme->iconDisabled : theme->icon, 1, m);
         }
-        for (u32 i = 0; i < Prog_Sort_Count; ++i) {
-            if (i == Prog_Sort_Name && renaming) {
+        for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
+            if (i == Prog_ColumnId_Name && renaming) {
                 Prog__RenameBox(state, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m);
                 continue;
             }
-            R_Color color = (i == Prog_Sort_Name && !faded) || highlighted ? theme->text : theme->textDim;
+            R_Color color = (i == Prog_ColumnId_Name && !faded) || highlighted ? theme->text : theme->textDim;
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
         }
     }
@@ -608,7 +633,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
     const Prog_Metrics *m = &metrics;
-    Prog_Column columns[Prog_Sort_Count];
+    Prog_Column columns[Prog_ColumnId_Count];
     Prog__Columns(columns, scale);
 
     UI->root->props.childrenPadding = (UI_Padding){0};

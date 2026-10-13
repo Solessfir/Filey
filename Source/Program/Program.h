@@ -13,6 +13,16 @@ typedef enum Prog_Sort {
 
 static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Count == (i32)P_FileOrderKey_Count);
 
+typedef enum Prog_ColumnId {
+    Prog_ColumnId_Name,
+    Prog_ColumnId_Type,
+    Prog_ColumnId_Modified,
+    Prog_ColumnId_Folders,
+    Prog_ColumnId_Files,
+    Prog_ColumnId_Size,
+    Prog_ColumnId_Count,
+} Prog_ColumnId;
+
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
 
@@ -44,8 +54,12 @@ typedef struct Prog_Entry {
     P_File file;
     String type;
     String modified;
-    String size;
     b32 selected;
+    // Recursive totals of a folder, filled in by measure jobs.
+    b32 measured;
+    u64 folders;
+    u64 files;
+    u64 bytes;
 } Prog_Entry;
 
 typedef enum Prog_JobKind {
@@ -54,6 +68,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Icons,
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
+    Prog_JobKind_Measure,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -90,11 +105,21 @@ typedef struct Prog_JobInput {
     // Rename `name` to `newName` inside `path`; WarmMenu uses `path` and `name`.
     String name;
     String newName;
+    // Measure the folders `names` inside `path`: the entries `rows` of listing `listing`.
+    String *names;
+    u64 *rows;
+    u64 rowCount;
+    u64 listing;
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
     i32 iconSize;
 } Prog_JobInput;
+
+typedef struct Prog_Measured {
+    P_DirectoryTotals *totals;  // for the first `count` rows of the job
+    u64 count;
+} Prog_Measured;
 
 typedef struct Prog_Directory {
     String path;
@@ -177,6 +202,10 @@ typedef struct Prog_State {
     u64 renameCreatedUntil;   // until then, rename the one item a listing of this folder adds
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
+    // Folder totals. Each adopted listing gets a new id; results for an older
+    // listing of the same folder are matched by name.
+    u64 listing;
+    P_Job *measureJob;
     // The shown folder's watch. Changes reload it, at most every Prog_WatchInterval.
     P_DirectoryWatch watch;
     b32 watchDirty;
@@ -192,6 +221,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
 function b32 Prog_TakeCompletions(Prog_State *state);
 function String Prog_ParentPath(String path);
 function String Prog_JoinPath(Arena *arena, String path, String name);
+function String Prog_FormatSize(Arena *arena, u64 bytes);
 function i32 Prog_CompareNames(String a, String b);
 function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods);
 function void Prog_OpenRow(Prog_State *state, u64 row);

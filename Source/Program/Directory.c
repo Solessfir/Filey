@@ -1,8 +1,28 @@
 #include <inttypes.h>
+#include <math.h>
 
 function String Prog_JoinPath(Arena *arena, String path, String name)
 {
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
+}
+
+// 1024-based with one decimal that is dropped when zero, as in the reference: "1010 B", "1 kB", "11.7 MB".
+function String Prog_FormatSize(Arena *arena, u64 bytes)
+{
+    local_persist const char *units[] = { "kB", "MB", "GB", "TB", "PB" };
+    if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " B", bytes);
+    f64 value = (f64)bytes / 1024.0;
+    u32 unit = 0;
+    while (value >= 1024.0 && unit + 1 < CArrayCount(units)) {
+        value /= 1024.0;
+        ++unit;
+    }
+    f64 rounded = floor(value * 10.0 + 0.5) / 10.0;
+    if (rounded >= 1024.0 && unit + 1 < CArrayCount(units)) {
+        rounded = 1;
+        ++unit;
+    }
+    return rounded == floor(rounded) ? StrFormat(arena, "%.0f %s", rounded, units[unit]) : StrFormat(arena, "%.1f %s", rounded, units[unit]);
 }
 
 function u8 Prog__FoldAscii(u8 c)
@@ -106,6 +126,21 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    if (input->kind == Prog_JobKind_Measure) {
+        Prog_Measured *result = ArenaPushStruct(&job->arena, Prog_Measured);
+        result->totals = ArenaPushArray(&job->arena, Max(input->rowCount, (u64)1), P_DirectoryTotals);
+        job->result = result;
+        // Hands back what it has every few dozen milliseconds, so rows fill in while big trees are walked.
+        u64 start = PlatformNowMicroseconds();
+        while (result->count < input->rowCount && PlatformNowMicroseconds() - start < UINT64_C(50000)) {
+            String path = Prog_JoinPath(&job->arena, input->path, input->names[result->count]);
+            P_DirectoryTotals totals = {0};
+            ProfileScope("MeasureDirectory") totals = P_MeasureDirectory(path, &job->cancelToken);
+            if (P_IsCancelled(&job->cancelToken)) break;
+            result->totals[result->count++] = totals;
+        }
+        return;
+    }
     if (input->kind == Prog_JobKind_WarmMenu) {
         ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
@@ -142,12 +177,6 @@ function void Prog__DirectoryJob(P_Job *job)
         if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
         if (file.metadataValid) {
             entry->modified = P_FormatFileTime(&job->arena, file.modifiedTimeUnix);
-            if (file.kind != P_FileKind_Directory) {
-                entry->size = file.size < 1024 ? StrFormat(&job->arena, "%" PRIu64 " B", file.size)
-                    : file.size < UINT64_C(1048576) ? StrFormat(&job->arena, "%.1f KB", (f64)file.size / 1024.0)
-                    : file.size < UINT64_C(1073741824) ? StrFormat(&job->arena, "%.1f MB", (f64)file.size / 1048576.0)
-                    : StrFormat(&job->arena, "%.1f GB", (f64)file.size / 1073741824.0);
-            }
         }
     }
     Prog_Entry *buffer = ArenaPushArray(&job->arena, result->count, Prog_Entry);
@@ -166,6 +195,34 @@ function void Prog__DirectoryJob(P_Job *job)
         result->entries = buffer;
         buffer = swap;
     }
+}
+
+// Measures the shown folder's subfolders that have no totals yet, one job at a time.
+function void Prog__MeasureFolders(Prog_State *state)
+{
+    if (state->measureJob) return;
+    u64 count = 0;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        count += entry->file.kind == P_FileKind_Directory && !entry->measured;
+    }
+    if (!count) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Measure;
+    input->path = StrCopy(&job->arena, state->directory.path);
+    input->listing = state->listing;
+    input->names = ArenaPushArray(&job->arena, count, String);
+    input->rows = ArenaPushArray(&job->arena, count, u64);
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        if (entry->file.kind != P_FileKind_Directory || entry->measured) continue;
+        input->names[input->rowCount] = StrCopy(&job->arena, entry->file.name);
+        input->rows[input->rowCount++] = i;
+    }
+    job->input = input;
+    state->measureJob = job;
+    P_JobSubmit(job);
 }
 
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
@@ -243,6 +300,28 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_Reload(state);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
+        } else if (input->kind == Prog_JobKind_Measure) {
+            Prog_Measured *result = job->result;
+            if (state->measureJob == job) state->measureJob = NULL;
+            if (result && StrIsEqual(input->path, state->directory.path) && !P_IsCancelled(&job->cancelToken)) {
+                // A refresh may have replaced the listing while the job ran.
+                b32 sameListing = input->listing == state->listing;
+                struct { MapHeader header; struct { String key; u64 value; } *v; } rows = {0};
+                if (!sameListing) {
+                    for (u64 i = 0; i < state->directory.count; ++i) MapsPut(&state->frameArena, rows, state->directory.entries[i].file.name, i + 1);
+                }
+                for (u64 i = 0; i < result->count; ++i) {
+                    u64 row = sameListing ? input->rows[i] : MapsGet(rows, u64, input->names[i]) - 1;
+                    if (row >= state->directory.count || state->directory.entries[row].file.kind != P_FileKind_Directory) continue;
+                    Prog_Entry *entry = &state->directory.entries[row];
+                    entry->measured = true;
+                    entry->folders = result->totals[i].folders;
+                    entry->files = result->totals[i].files;
+                    entry->bytes = result->totals[i].bytes;
+                }
+                changed = true;
+            }
+            Prog__MeasureFolders(state);
         } else if (input->generation == state->generation) {
             state->directoryJob = NULL;
             state->loading = false;
@@ -274,6 +353,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if (renameCreated) {
                         for (u64 i = 0; i < state->directory.count; ++i) MapsPut(&state->frameArena, known, state->directory.entries[i].file.name, true);
                     }
+                    // Refreshes keep the totals of folders that were not modified, so a busy folder is not walked again and again.
+                    struct { MapHeader header; struct { String key; Prog_Entry *value; } *v; } totals = {0};
+                    if (samePath) {
+                        for (u64 i = 0; i < state->directory.count; ++i) {
+                            Prog_Entry *old = &state->directory.entries[i];
+                            if (old->measured) MapsPut(&state->frameArena, totals, old->file.name, old);
+                        }
+                    }
                     String pick = samePath ? StrMake((const char *)state->selectText, state->selectLength) : (String){0};
                     u64 created = 0, pickRow = UINT64_MAX;
                     b32 renameStillThere = false;
@@ -289,6 +376,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (renameCreated && !MapsGet(known, b32, entry->file.name) && ++created == 1) pickRow = i;
                         if (pick.length && StrIsEqual(pick, entry->file.name)) pickRow = i;
                         renameStillThere |= samePath && StrIsEqual(renameFrom, entry->file.name);
+                        Prog_Entry **old = samePath ? MapsGetPtrNull(totals, entry->file.name) : NULL;
+                        if (old && (*old)->file.kind == entry->file.kind && (*old)->file.modifiedTimeUnix == entry->file.modifiedTimeUnix) {
+                            entry->measured = true;
+                            entry->folders = (*old)->folders;
+                            entry->files = (*old)->files;
+                            entry->bytes = (*old)->bytes;
+                        }
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
                     b32 renamePicked = renameCreated && created == 1 && !pick.length;
@@ -316,6 +410,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->directoryArena = job->arena;
                     state->directory = *result;
                     job->arena = (Arena){0};
+                    ++state->listing;
+                    // A walk under way in this folder carries on; refreshes would otherwise restart it forever.
+                    if (!samePath && state->measureJob) {
+                        P_RequestCancel(&state->measureJob->cancelToken);
+                        state->measureJob = NULL;
+                    }
+                    Prog__MeasureFolders(state);
                     // ponytail: changes between enumerating and starting the watch are missed; start it before the listing if that shows.
                     if (!samePath || !state->watch.native) {
                         P_DirectoryWatchStart(&state->watch, state->directory.path, state->jobs.wake, state->jobs.wakeUser);

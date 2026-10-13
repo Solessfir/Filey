@@ -38,6 +38,18 @@ typedef struct P_FileError {
 
 // Results belong to arena. Cancellation and directory errors discard partial listings.
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel);
+
+typedef struct P_DirectoryTotals {
+    u64 folders;
+    u64 files;
+    u64 bytes;
+    b32 complete;  // false when cancelled or when `path` itself could not be read
+} P_DirectoryTotals;
+
+// Totals of everything below `path`, hidden items included. Links and
+// junctions count as items but are not followed; unreadable subfolders are
+// skipped. Big trees take a while, so run it in a job.
+function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel);
 // Lexically normalized absolute path with '/' separators; empty means failure.
 function String P_AbsolutePath(Arena *arena, String path);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);

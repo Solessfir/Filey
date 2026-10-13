@@ -241,3 +241,73 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     ArenaRelease(&watch->arena);
     *watch = (P_DirectoryWatch){0};
 }
+
+typedef struct P__MeasureFrame {
+    HANDLE find;
+    u32 length;    // where names inside this folder start in the path buffer
+    b32 fresh;     // `data` holds the first entry, not yet counted
+    WIN32_FIND_DATAW data;
+} P__MeasureFrame;
+
+typedef struct P__MeasureStack { ArrayHeader header; P__MeasureFrame *v; } P__MeasureStack;
+
+// Opens the folder named by buffer[0, length) as a new level of the walk.
+function b32 P__MeasurePush(Arena *arena, P__MeasureStack *stack, wchar *buffer, u32 length, u32 capacity)
+{
+    if (!length || length + 3 > capacity) return false;
+    if (buffer[length - 1] != L'\\') buffer[length++] = L'\\';
+    buffer[length] = L'*';
+    buffer[length + 1] = 0;
+    P__MeasureFrame frame = { .length = length, .fresh = true };
+    frame.find = FindFirstFileExW(buffer, FindExInfoBasic, &frame.data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
+    if (frame.find == INVALID_HANDLE_VALUE) return false;
+    ArrayPush(arena, *stack, frame);
+    return true;
+}
+
+function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel)
+{
+    P_DirectoryTotals result = {0};
+    Scratch scratch = GetScratch();
+    wchar *root = P__FileExtendedPath(scratch.arena, path);
+    // One path buffer for the whole walk, at the longest path Windows allows.
+    u32 capacity = 32768;
+    wchar *buffer = ArenaPushArray(scratch.arena, capacity, wchar);
+    u32 length = 0;
+    while (root && root[length] && length + 1 < capacity) {
+        buffer[length] = root[length];
+        ++length;
+    }
+    P__MeasureStack stack = {0};
+    result.complete = root && P__MeasurePush(scratch.arena, &stack, buffer, length, capacity);
+    while (stack.header.count) {
+        if (P_IsCancelled(cancel)) {
+            result.complete = false;
+            break;
+        }
+        P__MeasureFrame *frame = &stack.v[stack.header.count - 1];
+        if (!frame->fresh && !FindNextFileW(frame->find, &frame->data)) {
+            FindClose(frame->find);
+            --stack.header.count;
+            continue;
+        }
+        frame->fresh = false;
+        const wchar *name = frame->data.cFileName;
+        if (name[0] == L'.' && (!name[1] || (name[1] == L'.' && !name[2]))) continue;
+        if (frame->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            ++result.folders;
+            if (frame->data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;
+            u32 nameLength = (u32)lstrlenW(name);
+            u32 at = frame->length;
+            if (at + nameLength + 3 > capacity) continue;
+            MemCopy(buffer + at, name, nameLength * sizeof(wchar));
+            P__MeasurePush(scratch.arena, &stack, buffer, at + nameLength, capacity);
+        } else {
+            ++result.files;
+            result.bytes += ((u64)frame->data.nFileSizeHigh << 32) | frame->data.nFileSizeLow;
+        }
+    }
+    for (u64 i = 0; i < stack.header.count; ++i) FindClose(stack.v[i].find);
+    ReleaseScratch(scratch);
+    return result;
+}
