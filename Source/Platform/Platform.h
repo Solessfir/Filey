@@ -127,9 +127,9 @@ typedef struct PlatformEventList {
 // -----------------------------------------------------------------------------
 // Window
 //
-// One window per process. Opening it also creates an OpenGL 3.3 core context
-// and makes it current on the calling thread. The window may already be on
-// screen while the context is created, which is most of the startup time.
+// One window per process.
+// Opening it also creates an OpenGL 3.3 core context and makes it current on the calling thread.
+// The window may already be on screen while the context is created, which is most of the startup time.
 // -----------------------------------------------------------------------------
 
 typedef struct PlatformWindowDesc {
@@ -147,8 +147,8 @@ typedef struct PlatformWindowInfo {
 
 function b32                PlatformWindowOpen(PlatformWindowDesc desc);
 function PlatformWindowInfo PlatformWindowGetInfo(void);
-// Lets the window's alpha show the desktop through it. Windows adds its Acrylic
-// blur; Wayland compositors blur by their own settings (Hyprland's blur).
+// Lets the window's alpha show the desktop through it.
+// Windows adds its Acrylic blur; Wayland compositors blur by their own settings (Hyprland's blur).
 function void               PlatformWindowSetTransparent(b32 transparent);
 
 typedef struct PlatformDoubleClick {
@@ -158,8 +158,9 @@ typedef struct PlatformDoubleClick {
 
 function PlatformDoubleClick PlatformDoubleClickSettings(void);
 
-// Returns the events received since the previous call. The list stays valid
-// until the next call. With `wait`, blocks until an event or background wakeup arrives.
+// Returns the events received since the previous call.
+// The list stays valid until the next call.
+// With `wait`, blocks until an event or background wakeup arrives.
 function PlatformEventList PlatformPollEvents(b32 wait);
 
 typedef void PlatformFrameCallback(void *user, PlatformEventList events);
@@ -167,8 +168,7 @@ typedef void PlatformFrameCallback(void *user, PlatformEventList events);
 // The callback runs on the window thread and must not poll events recursively.
 function void PlatformSetModalFrameCallback(PlatformFrameCallback *callback, void *user);
 
-// ISO C does not allow converting object pointers to function pointers, so GL
-// entry points travel as a generic function pointer type.
+// ISO C does not allow converting object pointers to function pointers, so GL entry points travel as a generic function pointer type.
 typedef void PlatformProc(void);
 
 function void          PlatformSwapBuffers(void);
@@ -177,8 +177,7 @@ function PlatformProc *PlatformGLGetProc(const char *name);
 // -----------------------------------------------------------------------------
 // Fonts
 //
-// The OS rasterizer (DirectWrite, FreeType) renders glyphs with its native
-// hinting and antialiasing; packing them into an atlas is left to the caller.
+// The OS rasterizer (DirectWrite, FreeType) renders glyphs with its native hinting and antialiasing; packing them into an atlas is left to the caller.
 // -----------------------------------------------------------------------------
 
 typedef struct PlatformGlyph {
@@ -199,8 +198,8 @@ typedef struct PlatformFont {
     PlatformGlyph *glyphs;  // one per codepoint in [firstCodepoint, firstCodepoint + glyphCount)
 } PlatformFont;
 
-// An installed family, or font file bytes (TrueType/OpenType) when `data` is
-// set. Unknown families fall back to the system's default.
+// An installed family, or font file bytes (TrueType/OpenType) when `data` is set.
+// Unknown families fall back to the system's default.
 typedef struct PlatformFontSource {
     String family;
     const u8 *data;

@@ -1,11 +1,10 @@
-// File icon cache. Rows look icons up by key while building UI; unknown keys
-// are queued and loaded by one background job per frame, then packed into
-// RGBA atlas pages on the main thread.
+// File icon cache.
+// Rows look icons up by key while building UI; unknown keys are queued and loaded by one background job per frame, then packed into RGBA atlas pages on the main thread.
 
 #define Prog_IconPageSize 512
 
-// Scales `source` to fit a size x size square, centered. Downscaling averages
-// the covered source pixels, weighted by alpha so transparent edges do not darken.
+// Scales `source` to fit a size x size square, centered.
+// Downscaling averages the covered source pixels, weighted by alpha so transparent edges do not darken.
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size)
 {
     u32 *result = ArenaPushArray(arena, (u64)size * (u64)size, u32);

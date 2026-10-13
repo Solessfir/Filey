@@ -148,8 +148,7 @@ function void ArenaRelease(Arena *arena)
         return;
     }
 
-    // `arena` may live inside one of the blocks (bootstrapped structs), so walk
-    // the chain by value and only touch `arena` afterwards if it lives outside.
+    // `arena` may live inside one of the blocks (bootstrapped structs), so walk the chain by value and only touch `arena` afterwards if it lives outside.
     Arena current = *arena;
     b32 descriptorInside = false;
 
@@ -196,8 +195,7 @@ function void *ArenaBootstrapStructRaw(u64 structSize, u64 structAlignment, u64 
     return object;
 }
 
-// Two arenas per thread are enough as long as callers pass the arena their
-// results live in as the conflict.
+// Two arenas per thread are enough as long as callers pass the arena their results live in as the conflict.
 global thread_local Arena ScratchArenas[2];
 
 function Scratch GetScratchEx(Arena *conflict)

@@ -48,8 +48,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuHighlight = UINT32_MAX;
 }
 
-// Shown items of a menu level: unlabeled owner-drawn items are dropped, and so
-// are separators at the ends or next to another separator.
+// Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
 function u32 Prog_MenuVisible(const P_ContextMenu *menu, u32 first, u32 count, u32 *out)
 {
     u32 result = 0;

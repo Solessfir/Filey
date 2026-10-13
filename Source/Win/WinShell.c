@@ -1,7 +1,5 @@
-// Shell context menus: the IContextMenu of a selection or folder background is
-// read into P_MenuItems for Filey's own menu UI and invoked by command id.
-// Drag and drop uses the shell's data objects and folder drop targets, so other
-// programs see the same drags as Explorer's.
+// Shell context menus: the IContextMenu of a selection or folder background is read into P_MenuItems for Filey's own menu UI and invoked by command id.
+// Drag and drop uses the shell's data objects and folder drop targets, so other programs see the same drags as Explorer's.
 // Requires WinFiles.c and WinIcons.c (P__EnsureCom).
 
 #pragma push_macro("function")
@@ -182,8 +180,7 @@ function void P_ContextMenuClose(P_ContextMenu *menu)
     *menu = (P_ContextMenu){0};
 }
 
-// Drags over the window are forwarded to the shell drop target of the folder
-// Filey points at, which copies, moves, links and asks like Explorer does.
+// Drags over the window are forwarded to the shell drop target of the folder Filey points at, which copies, moves, links and asks like Explorer does.
 // WinWindow.c registers the window's IDropTarget that calls these.
 typedef struct P__Drop {
     IDataObject *data;    // the drag over the window

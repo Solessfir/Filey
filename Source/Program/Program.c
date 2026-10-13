@@ -1,6 +1,5 @@
-// Browser UI. Sizes derive from the font's line height so the layout keeps its
-// proportions at any font size and display scale; the ratios were measured
-// against the reference.
+// Browser UI.
+// Sizes derive from the font's line height so the layout keeps its proportions at any font size and display scale; the ratios were measured against the reference.
 
 #include <math.h>
 
@@ -46,9 +45,7 @@ global const Prog_Theme Prog_ThemeCustom = {
 
 #define Prog_White(a) { 1, 1, 1, (a) }
 
-// The custom scheme over a see-through window: the window is one translucent
-// layer and the surfaces on it are faint white tints, so they do not stack
-// into an opaque color.
+// The custom scheme over a see-through window: the window is one translucent layer and the surfaces on it are faint white tints, so they do not stack into an opaque color.
 global const Prog_Theme Prog_ThemeGlass = {
     .window       = { 25 / 255.0f, 25 / 255.0f, 25 / 255.0f, 0.55f },
     .background   = { 0, 0, 0, 0 },
@@ -550,8 +547,8 @@ typedef struct Prog_MenuPlace {
     f32 openerWidth;  // width of the panel that opened this one; 0 for the top level
 } Prog_MenuPlace;
 
-// One menu level as a floating panel, kept inside the window. Sets `child`
-// when one of its items has its submenu open.
+// One menu level as a floating panel, kept inside the window.
+// Sets `child` when one of its items has its submenu open.
 function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -605,8 +602,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             }
             b32 enabled = !item->disabled || item->childCount;
             UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Menu/%u/%u", level, index));
-            // Moving the mouse onto an item decides the highlight and which submenu is open,
-            // as in native menus; the keyboard takes over until the mouse moves to another item.
+            // Moving the mouse onto an item decides the highlight and which submenu is open, as in native menus; the keyboard takes over until the mouse moves to another item.
             if (enabled && UI->hotKey == key && state->menuHot != key) {
                 state->menuHighlight = index;
                 state->menuDepth = level;

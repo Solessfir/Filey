@@ -1,7 +1,5 @@
-# Subsets the Lucide icon font to the icons in Source/Lib/Lucide/Icons.txt,
-# remapped to consecutive codepoints from U+E000 so the app rasterizes them as
-# one range, and writes Source/Lib/Lucide/Lucide.ttf, its LICENSE and
-# Source/Meta/Icons.meta.h. Needs fontTools (pip install fonttools).
+# Subsets the Lucide icon font to the icons in Source/Lib/Lucide/Icons.txt, remapped to consecutive codepoints from U+E000 so the app rasterizes them as one range, and writes Source/Lib/Lucide/Lucide.ttf, its LICENSE and Source/Meta/Icons.meta.h.
+# Needs fontTools (pip install fonttools).
 #
 #   python Source/Tools/LucideSubset.py <extracted lucide-static npm package>
 

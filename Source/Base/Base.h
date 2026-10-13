@@ -143,8 +143,8 @@ function i32  MemCompare(const void *a, const void *b, u64 size);
 
 #define DefaultAlignment alignof(max_align_t)
 
-// Address space per block. A push that does not fit chains a new block, so this
-// only bounds how often chaining happens, not how much an arena can hold.
+// Address space per block.
+// A push that does not fit chains a new block, so this only bounds how often chaining happens, not how much an arena can hold.
 #ifndef DefaultReserveSize
 #define DefaultReserveSize Megabytes(64)
 #endif
@@ -196,15 +196,15 @@ function void *ArenaPushArrayChecked(Arena *arena, u64 count, u64 itemSize, u64 
 #define ArenaPushArrayNoZero(arena, count, type) \
     ((type *)_ArenaPush((arena), (u64)(count) * sizeof(type), alignof(type), 0))
 
-// Allocates a struct that owns the arena it lives in. ArenaRelease on that
-// member frees the struct itself.
+// Allocates a struct that owns the arena it lives in.
+// ArenaRelease on that member frees the struct itself.
 function void *ArenaBootstrapStructRaw(u64 structSize, u64 structAlignment, u64 arenaMemberOffset);
 
 #define ArenaBootstrapStruct(type, arenaMember) \
     ((type *)ArenaBootstrapStructRaw(sizeof(type), alignof(type), offsetof(type, arenaMember)))
 
-// Thread-local scratch. Pass the arena that results must survive in as
-// `conflict` so the scratch scope never rolls back caller-owned allocations.
+// Thread-local scratch.
+// Pass the arena that results must survive in as `conflict` so the scratch scope never rolls back caller-owned allocations.
 function Scratch GetScratchEx(Arena *conflict);
 function void    ReleaseScratch(Scratch scratch);
 
@@ -235,8 +235,8 @@ function void  _PoolFree(PoolNode **pool, void *ptr);
 // -----------------------------------------------------------------------------
 // Intrusive lists
 //
-// Arguments must be plain lvalues without side effects. The N/NP suffix names
-// the link member(s); the short forms assume `next` and `prev`.
+// Arguments must be plain lvalues without side effects.
+// The N/NP suffix names the link member(s); the short forms assume `next` and `prev`.
 // -----------------------------------------------------------------------------
 
 #define StackPushN(first, node, nextMember) \
@@ -454,8 +454,8 @@ function Index    StrIndexStr(String s, String needle, StrSearchFlags flags);
 // Empty tokens are skipped, so "\\a\\\\b\\" split on '\\' gives ["a", "b"].
 function ArrayStr StrSplit(Arena *arena, String s, char separator);
 
-// Decodes the codepoint at *pos and advances past it. Malformed, overlong or
-// truncated sequences give U+FFFD and advance one byte.
+// Decodes the codepoint at *pos and advances past it.
+// Malformed, overlong or truncated sequences give U+FFFD and advance one byte.
 function rune StrDecodeUtf8(String s, u64 *pos);
 
 // Format specifiers follow printf, plus %S for a String argument.
@@ -464,9 +464,9 @@ function String StrFormat(Arena *arena, const char *format, ...);
 // -----------------------------------------------------------------------------
 // String builder
 //
-// {0} is valid. `buffer` is the accumulated String; appends return just the
-// newly appended slice. The builder writes into `buffer` through a cast, so
-// nothing else may.
+// {0} is valid.
+// `buffer` is the accumulated String; appends return just the newly appended slice.
+// The builder writes into `buffer` through a cast, so nothing else may.
 // -----------------------------------------------------------------------------
 
 typedef struct StrBuilder {
@@ -487,8 +487,7 @@ function String StrBuildF64(Arena *arena, StrBuilder *builder, f64 value);
 function String StrBuildFormat(Arena *arena, StrBuilder *builder, const char *format, ...);
 function String StrBuildFormatV(Arena *arena, StrBuilder *builder, const char *format, va_list args);
 
-// Character constants such as '\n' have type int in C and select StrBuildI32;
-// use StrBuildChar for single characters.
+// Character constants such as '\n' have type int in C and select StrBuildI32; use StrBuildChar for single characters.
 #define StrBuild(arena, builder, x) \
     _Generic((x), \
         String:       StrBuildStr, \
@@ -509,14 +508,12 @@ function String StrBuildFormatV(Arena *arena, StrBuilder *builder, const char *f
 // -----------------------------------------------------------------------------
 // Maps
 //
-// A typed map is { MapHeader header; KV *v; } where KV is { K key; V value; }
-// with `key` as the first member. `v[0 .. header.count)` is a flat array of
-// live entries in no particular order; deletion moves the last entry into the
-// freed slot. The hash table stores indices into `v`.
+// A typed map is { MapHeader header; KV *v; } where KV is { K key; V value; } with `key` as the first member.
+// `v[0 .. header.count)` is a flat array of live entries in no particular order; deletion moves the last entry into the freed slot.
+// The hash table stores indices into `v`.
 //
 // Map* compares keys bytewise, so key types must not contain padding.
-// Maps* takes String keys and does not copy the key bytes; they must outlive
-// the entry.
+// Maps* takes String keys and does not copy the key bytes; they must outlive the entry.
 // -----------------------------------------------------------------------------
 
 typedef struct MapHashEntry {

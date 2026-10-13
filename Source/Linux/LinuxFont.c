@@ -17,8 +17,7 @@ function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 
         char name[128] = {0};
         MemCopy(name, source.family.value, Min(source.family.length, (u64)sizeof(name) - 1));
 
-        // fontconfig always returns its closest match, so unknown families fall
-        // back to the configured default.
+        // fontconfig always returns its closest match, so unknown families fall back to the configured default.
         FcPattern *pattern = FcNameParse((const FcChar8 *)name);
         FcConfigSubstitute(NULL, pattern, FcMatchPattern);
         FcDefaultSubstitute(pattern);
@@ -42,8 +41,7 @@ function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 
     u32 count = lastCodepoint - firstCodepoint + 1;
     PlatformGlyph *glyphs = ok ? ArenaPushArray(arena, count, PlatformGlyph) : NULL;
     for (u32 i = 0; ok && i < count; ++i) {
-        // Light hinting snaps only vertically, the closest match to DirectWrite's
-        // natural symmetric rendering.
+        // Light hinting snaps only vertically, the closest match to DirectWrite's natural symmetric rendering.
         if (FT_Load_Char(face, firstCodepoint + i, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT) != 0) {
             continue;
         }

@@ -1,6 +1,5 @@
-// DirectWrite glyph rasterizer. DirectWrite only ships C++ COM headers, so this
-// is the one C++ translation unit; it is built separately and linked into the
-// C application through WinFontRasterizer.h.
+// DirectWrite glyph rasterizer.
+// DirectWrite only ships C++ COM headers, so this is the one C++ translation unit; it is built separately and linked into the C application through WinFontRasterizer.h.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -81,8 +80,7 @@ extern "C" b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSiz
         metrics->descent = (f32)fontMetrics.descent * scale;
         metrics->lineGap = (f32)fontMetrics.lineGap * scale;
 
-        // Glyphs are drawn one at a time around the target's center and cropped
-        // to the black box DirectWrite reports.
+        // Glyphs are drawn one at a time around the target's center and cropped to the black box DirectWrite reports.
         i32 size = (i32)(pixelSize * 3.0f) + 8;
         f32 origin = (f32)(size / 2);
         if (FAILED(factory->GetGdiInterop(&interop)) ||

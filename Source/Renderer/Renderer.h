@@ -1,7 +1,7 @@
 #pragma once
 
-// Backend-neutral renderer contract. Coordinates are physical pixels with the
-// origin at the window's top-left.
+// Backend-neutral renderer contract.
+// Coordinates are physical pixels with the origin at the window's top-left.
 
 typedef struct R_Color {
     f32 r;
@@ -51,13 +51,12 @@ function void R_EndFrame(void);
 
 // Single-channel coverage texture, sampled as alpha.
 function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *pixels);
-// Color texture of straight-alpha RGBA8 pixels (red in the lowest byte), top row
-// first. NULL pixels leave it undefined for later updates.
+// Color texture of straight-alpha RGBA8 pixels (red in the lowest byte), top row first.
+// NULL pixels leave it undefined for later updates.
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels);
 function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u32 *pixels);
 
-// Draw calls are only valid between R_BeginFrame and R_EndFrame and are
-// submitted in order.
+// Draw calls are only valid between R_BeginFrame and R_EndFrame and are submitted in order.
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius);
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness);
 function void R_DrawTexturedRect(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color color);

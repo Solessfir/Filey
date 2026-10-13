@@ -1,13 +1,11 @@
-// File icons from the freedesktop icon theme: extension -> MIME type (shared-mime-info
-// globs) -> icon name -> file in the configured theme or the themes it inherits.
+// File icons from the freedesktop icon theme: extension -> MIME type (shared-mime-info globs) -> icon name -> file in the configured theme or the themes it inherits.
 // Type names come from the same MIME database.
 // Requires LinuxFiles.c.
 
 #include <pthread.h>
 
-// Third-party decoders (Lib/): stb_image v2.30 (nothings/stb 2c980bb) for PNG and
-// nanosvg (memononen/nanosvg 239e102) for SVG. Both allocate with libc internally;
-// everything they return is copied into the caller's arena and freed right away.
+// Third-party decoders (Lib/): stb_image v2.30 (nothings/stb 2c980bb) for PNG and nanosvg (memononen/nanosvg 239e102) for SVG.
+// Both allocate with libc internally; everything they return is copied into the caller's arena and freed right away.
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Weverything"
@@ -101,8 +99,7 @@ function String P__ReadFile(Arena *arena, String path)
     return result;
 }
 
-// ponytail: nanosvg ignores clip paths, masks and filters, so SVGs using them are
-// skipped and the lookup falls back to other sizes and inherited themes (usually PNG).
+// ponytail: nanosvg ignores clip paths, masks and filters, so SVGs using them are skipped and the lookup falls back to other sizes and inherited themes (usually PNG).
 // A fuller SVG renderer would remove the fallback.
 function b32 P__IconUsable(Arena *scratch, String path)
 {
@@ -325,9 +322,8 @@ function i32 P__IconDirDistance(const P__IconDir *dir, i32 size)
     return size < low ? low - size : size > high ? size - high : 0;
 }
 
-// An exact size in any theme first, then the closest size, in theme order. The
-// freedesktop spec settles each theme before its parents; looking for exact sizes
-// across themes first keeps icons sharp when an SVG had to be skipped.
+// An exact size in any theme first, then the closest size, in theme order.
+// The freedesktop spec settles each theme before its parents; looking for exact sizes across themes first keeps icons sharp when an SVG had to be skipped.
 function String P__FindIcon(Arena *arena, String name, i32 size)
 {
     local_persist const char *extensions[] = { "png", "svg" };

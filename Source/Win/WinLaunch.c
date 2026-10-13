@@ -1,9 +1,8 @@
-// Opening files. Packaged apps step through the rest of a folder only when the
-// launch carries a neighboring files query, as Explorer's does, and only the
-// WinRT launcher can attach one. The Windows 11 Photos app ignores that query
-// from desktop callers but builds the folder itself when opened through its
-// ms-photos: viewer link. Every other file keeps ShellExecute. Requires
-// WinFiles.c and WinShell.c (P__shellOwner).
+// Opening files.
+// Packaged apps step through the rest of a folder only when the launch carries a neighboring files query, as Explorer's does, and only the WinRT launcher can attach one.
+// The Windows 11 Photos app ignores that query from desktop callers but builds the folder itself when opened through its ms-photos: viewer link.
+// Every other file keeps ShellExecute.
+// Requires WinFiles.c and WinShell.c (P__shellOwner).
 
 #pragma push_macro("function")
 #pragma push_macro("global")
@@ -78,8 +77,7 @@ function void *P__WinRtCreate(const wchar *className, const IID *iid)
     return result;
 }
 
-// The app id of a packaged default handler, which names its app under the
-// ProgID; desktop handlers have none.
+// The app id of a packaged default handler, which names its app under the ProgID; desktop handlers have none.
 function b32 P__PackagedHandler(const wchar *path, wchar *appId, u32 capacity)
 {
     const wchar *extension = PathFindExtensionW(path);

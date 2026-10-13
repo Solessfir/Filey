@@ -70,8 +70,8 @@ function void P__TestPause(void)
     Sleep(1);
 }
 
-// Forwards a copy of the fixture's plain.txt into its Empty folder through the
-// shell drop target, as a drag from another program would. Only touches the fixture.
+// Forwards a copy of the fixture's plain.txt into its Empty folder through the shell drop target, as a drag from another program would.
+// Only touches the fixture.
 function void P__TestDropForwarding(TestFileFixture *fixture)
 {
     Scratch scratch = GetScratchEx(&fixture->arena);

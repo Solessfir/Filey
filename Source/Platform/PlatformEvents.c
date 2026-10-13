@@ -1,8 +1,7 @@
 // Event buffering shared by the OS window implementations.
 //
-// OS callbacks can fire both inside and between PlatformPollEvents calls, so
-// events always go to a pending list. Two arenas alternate: the list returned
-// by one poll stays valid until the next poll clears its arena.
+// OS callbacks can fire both inside and between PlatformPollEvents calls, so events always go to a pending list.
+// Two arenas alternate: the list returned by one poll stays valid until the next poll clears its arena.
 
 typedef struct PlatformEventQueue {
     Arena arenas[2];

@@ -1,8 +1,7 @@
 #pragma once
 
 // C boundary of the C++ DirectWrite rasterizer, included from both languages.
-// C gets the type aliases from Base.h; C++ cannot include it, so it gets the
-// same ones here.
+// C gets the type aliases from Base.h; C++ cannot include it, so it gets the same ones here.
 
 #if defined(__cplusplus)
 #include <stddef.h>

@@ -1,9 +1,8 @@
-// OpenGL 3.3 core backend. Entry points are loaded at runtime through the
-// platform, so no system GL headers are needed.
+// OpenGL 3.3 core backend.
+// Entry points are loaded at runtime through the platform, so no system GL headers are needed.
 //
-// Every primitive is one instanced quad; the fragment shader turns it into a
-// solid, rounded, outlined or texture-masked rectangle. Draw calls only split
-// when the clip or the texture changes.
+// Every primitive is one instanced quad; the fragment shader turns it into a solid, rounded, outlined or texture-masked rectangle.
+// Draw calls only split when the clip or the texture changes.
 
 #include <math.h>
 

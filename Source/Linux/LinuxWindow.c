@@ -6,8 +6,7 @@
 #include <sys/eventfd.h>
 #include <linux/input-event-codes.h>
 
-// wl_registry_listener has a member named `global`, which collides with the
-// base macro.
+// wl_registry_listener has a member named `global`, which collides with the base macro.
 #pragma push_macro("global")
 #undef global
 #include <EGL/egl.h>
@@ -77,8 +76,7 @@ global LinuxWindowState Wl;
 // Keyboard
 // -----------------------------------------------------------------------------
 
-// Physical positions for letters and digits, used when the active layout has
-// no Latin symbol on the key (e.g. Cyrillic) so shortcuts still work.
+// Physical positions for letters and digits, used when the active layout has no Latin symbol on the key (e.g. Cyrillic) so shortcuts still work.
 global const Key LinuxEvdevKeys[] = {
     [KEY_A] = Key_A, [KEY_B] = Key_B, [KEY_C] = Key_C, [KEY_D] = Key_D, [KEY_E] = Key_E,
     [KEY_F] = Key_F, [KEY_G] = Key_G, [KEY_H] = Key_H, [KEY_I] = Key_I, [KEY_J] = Key_J,
@@ -352,8 +350,7 @@ function void PointerButton(void *data, struct wl_pointer *pointer, u32 serial, 
 
 function void PointerAxis(void *data, struct wl_pointer *pointer, u32 time, u32 axis, wl_fixed_t value)
 {
-    // ponytail: 10 surface units per wheel notch is the common compositor
-    // default; switch to axis_value120 (wl_pointer v8) for exact notches.
+    // ponytail: 10 surface units per wheel notch is the common compositor default; switch to axis_value120 (wl_pointer v8) for exact notches.
     f32 notches = (f32)(wl_fixed_to_double(value) / 10.0);
 
     PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseWheel);

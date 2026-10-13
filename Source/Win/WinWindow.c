@@ -94,8 +94,7 @@ function void WinPushMouseEvent(PlatformEventKind kind, LPARAM lParam, MouseButt
 
 function void WinMouseButton(PlatformEventKind kind, WPARAM wParam, LPARAM lParam, MouseButton button)
 {
-    // Capture keeps drags alive when the cursor leaves the window. wParam holds
-    // the buttons still down after this message.
+    // Capture keeps drags alive when the cursor leaves the window. wParam holds the buttons still down after this message.
     if (kind == PlatformEventKind_MouseDown && !Win.mouseCaptured) {
         SetCapture(Win.window);
         Win.mouseCaptured = true;
@@ -107,9 +106,8 @@ function void WinMouseButton(PlatformEventKind kind, WPARAM wParam, LPARAM lPara
     WinPushMouseEvent(kind, lParam, button);
 }
 
-// The window's drop target. Drags hover the UI like the mouse does, so the program
-// can pick the folder under the pointer; WinShell.c forwards to that folder's
-// shell drop target.
+// The window's drop target.
+// Drags hover the UI like the mouse does, so the program can pick the folder under the pointer; WinShell.c forwards to that folder's shell drop target.
 function void WinDropPointer(DWORD keys, POINTL point)
 {
     POINT client = { point.x, point.y };
@@ -396,9 +394,8 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     SetWindowPos(Win.window, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-    // Loading the OpenGL driver takes over 100 ms, so the window is shown in the theme's
-    // colors first. DWM composes it while this thread waits on the driver; the program's
-    // first frame then replaces it.
+    // Loading the OpenGL driver takes over 100 ms, so the window is shown in the theme's colors first.
+    // DWM composes it while this thread waits on the driver; the program's first frame then replaces it.
     b32 dark = true;
     DwmSetWindowAttribute(Win.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     Win.background = CreateSolidBrush(RGB((desc.background >> 16) & 0xFF, (desc.background >> 8) & 0xFF, desc.background & 0xFF));
@@ -462,8 +459,7 @@ function void PlatformSwapBuffers(void)
 
 function PlatformProc *PlatformGLGetProc(const char *name)
 {
-    // wglGetProcAddress only knows extensions and post-1.1 entry points; it may
-    // also return small sentinel values instead of NULL on failure.
+    // wglGetProcAddress only knows extensions and post-1.1 entry points; it may also return small sentinel values instead of NULL on failure.
     PROC proc = wglGetProcAddress(name);
     if ((uintptr_t)proc <= 3 || (intptr_t)proc == -1) {
         proc = GetProcAddress(Win.openGL, name);

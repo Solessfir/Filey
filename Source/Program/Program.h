@@ -161,8 +161,8 @@ typedef struct Prog_State {
     b32 revealFocus;
     b32 resetScroll;
     u64 pageRows;  // rows visible in the last layout, for Page Up/Down
-    // File icons, keyed by P_FileIconKey. The map and keys live in iconArena;
-    // atlas pages survive resets and are reused.
+    // File icons, keyed by P_FileIconKey.
+    // The map and keys live in iconArena; atlas pages survive resets and are reused.
     Arena iconArena;
     struct { MapHeader header; struct { String key; Prog_Icon value; } *v; } icons;
     Prog_ArrayIconRequest iconRequests;  // queued while building UI, submitted by Prog_ProcessCommands
@@ -183,14 +183,14 @@ typedef struct Prog_State {
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     UI_Key menuHot;           // hot block when the menu was last built
     R_Rect focusedRowRect;    // last layout, to place a keyboard-opened menu
-    // Drag and drop. The system's drag loop is modal, so a drag is requested
-    // during a frame and run between frames by Prog_DragSelection.
+    // Drag and drop.
+    // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
     b32 dragRequested;
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
     b32 hasHoverRow;
-    // Inline rename of the entry named renameFrom. Offsets are bytes into
-    // renameText; names never reach the buffer sizes on any file system.
+    // Inline rename of the entry named renameFrom.
+    // Offsets are bytes into renameText; names never reach the buffer sizes on any file system.
     b32 renaming;
     u8 renameFrom[1024];
     u32 renameFromLength;
@@ -202,8 +202,8 @@ typedef struct Prog_State {
     u64 renameCreatedUntil;   // until then, rename the one item a listing of this folder adds
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
-    // Folder totals. Each adopted listing gets a new id; results for an older
-    // listing of the same folder are matched by name.
+    // Folder totals.
+    // Each adopted listing gets a new id; results for an older listing of the same folder are matched by name.
     u64 listing;
     P_Job *measureJob;
     // The shown folder's watch. Changes reload it, at most every Prog_WatchInterval.
@@ -212,8 +212,7 @@ typedef struct Prog_State {
     u64 watchReloadTime;
     // See-through window with the glass theme; the app applies it to the window.
     b32 transparent;
-    // Set by the app so that the first listing loads shell extensions in the
-    // background; the first context menu would otherwise stall on them.
+    // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
     b32 warmMenus;
 } Prog_State;
 

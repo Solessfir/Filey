@@ -402,9 +402,8 @@ function void UI_EndFrame(void)
     }
 }
 
-// The active renderer clip is always the nearest clipping ancestor's clipRect, so a
-// block's own rect needs no clip of its own. Clips are pushed only where they cut
-// something, because every clip change splits the renderer's batch.
+// The active renderer clip is always the nearest clipping ancestor's clipRect, so a block's own rect needs no clip of its own.
+// Clips are pushed only where they cut something, because every clip change splits the renderer's batch.
 function void UI__DrawBlock(UI_Block *block)
 {
     b32 visible = block->clipRect.x1 > block->clipRect.x0 && block->clipRect.y1 > block->clipRect.y0;

@@ -106,8 +106,10 @@ typedef struct UI_Context {
 
 global UI_Context *UI;
 
-// Pixels are physical. TextContent measures this block's text; Fill measures its children and padding.
-// Percent uses the parent's inner size. Flex shares remaining main-axis space and stretches across it.
+// Pixels are physical.
+// TextContent measures this block's text; Fill measures its children and padding.
+// Percent uses the parent's inner size.
+// Flex shares remaining main-axis space and stretches across it.
 // Percent/Flex children of Fill-sized parents use the inherited constraint during measurement.
 function UI_Size UI_Pixels(f32 value);
 function UI_Size UI_TextContent(void);

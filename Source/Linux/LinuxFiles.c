@@ -229,8 +229,7 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
-// ponytail: only "Open", which the program carries out itself; add Open With,
-// Copy Path and the like as Filey implements them.
+// ponytail: only "Open", which the program carries out itself; add Open With, Copy Path and the like as Filey implements them.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};

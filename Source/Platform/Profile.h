@@ -1,8 +1,7 @@
 #pragma once
 
-// Scope timings for any thread, recorded into a fixed lock-free buffer and
-// written as a Chrome trace (open it in https://ui.perfetto.dev). The macros
-// compile to nothing unless PROFILE is defined (the `profile` build flag).
+// Scope timings for any thread, recorded into a fixed lock-free buffer and written as a Chrome trace (open it in https://ui.perfetto.dev).
+// The macros compile to nothing unless PROFILE is defined (the `profile` build flag).
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -31,8 +30,8 @@ function void P_ProfileRecord(const char *name, u64 begin, u64 end);
 function u64  P_ProfileWriteTrace(FILE *file);
 
 #if defined(PROFILE)
-// `ProfileScope("Name") { ... }` times the block. Leaving it with return,
-// break or goto skips the record.
+// `ProfileScope("Name") { ... }` times the block.
+// Leaving it with return, break or goto skips the record.
 #define ProfileScope(name) \
     for (u64 P__profileBegin = PlatformNowMicroseconds(), P__profileOnce = 1; P__profileOnce; \
          P_ProfileRecord("" name, P__profileBegin, PlatformNowMicroseconds()), P__profileOnce = 0)

@@ -1,8 +1,8 @@
 // Build-time generator: Program/Commands.txt -> Meta/Commands.meta.h.
 //
-// The grammar is deliberately tiny: `command Name {`, `key = "value"` lines,
-// `}`, blank lines and `//` comment lines. Anything else fails the build with
-// file:line. The output is only rewritten when its content changes.
+// The grammar is deliberately tiny: `command Name {`, `key = "value"` lines, `}`, blank lines and `//` comment lines.
+// Anything else fails the build with file:line.
+// The output is only rewritten when its content changes.
 //
 // Usage: codegen <Source directory>
 
@@ -173,8 +173,7 @@ function b32 Codegen_ParseCommands(Arena *arena, String text, Codegen_ArrayComma
     return true;
 }
 
-// S("...") is a compound literal, which ISO C does not accept as a static
-// initializer, so tables get plain brace initializers with the length baked in.
+// S("...") is a compound literal, which ISO C does not accept as a static initializer, so tables get plain brace initializers with the length baked in.
 function void Codegen__EmitString(Arena *arena, StrBuilder *out, const char *field, String value)
 {
     StrBuildF(arena, out, ".%s = { \"%S\", ", field, value);

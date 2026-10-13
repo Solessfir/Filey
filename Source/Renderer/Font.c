@@ -1,5 +1,4 @@
-// Backend-neutral glyph atlas packing and text layout on top of the platform
-// rasterizer.
+// Backend-neutral glyph atlas packing and text layout on top of the platform rasterizer.
 
 #include <math.h>
 
@@ -8,8 +7,8 @@ typedef struct R_CodepointRange {
     u32 last;
 } R_CodepointRange;
 
-// ponytail: fixed ranges rasterized up front, the rest draws as '?'. Add
-// on-demand ranges when CJK or other large scripts are needed.
+// ponytail: fixed ranges rasterized up front, the rest draws as '?'.
+// Add on-demand ranges when CJK or other large scripts are needed.
 global const R_CodepointRange R_FontRanges[] = {
     { 0x0020, 0x017F },  // Basic Latin, Latin-1 Supplement, Latin Extended-A
     { 0x0400, 0x04FF },  // Cyrillic
@@ -40,8 +39,7 @@ function b32 R__FontCreate(Arena *arena, PlatformFontSource source, f32 pixelSiz
         }
     }
 
-    // Shelf packing in codepoint order: glyphs of one font have similar
-    // heights, so rows waste little space.
+    // Shelf packing in codepoint order: glyphs of one font have similar heights, so rows waste little space.
     typedef struct { i32 x; i32 y; } Placement;
     Placement **placements = ArenaPushArray(scratch.arena, rangeCount, Placement *);
     i32 penX = R_FontGlyphPadding;

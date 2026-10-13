@@ -40,8 +40,8 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
     return result;
 }
 
-// Shell calls need COM. Creating and tearing down an apartment per call costs
-// about half a millisecond, so each thread enters one on first use and keeps it.
+// Shell calls need COM.
+// Creating and tearing down an apartment per call costs about half a millisecond, so each thread enters one on first use and keeps it.
 global thread_local b32 P__comReady;
 
 function void P__EnsureCom(void)

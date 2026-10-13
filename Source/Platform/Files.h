@@ -46,15 +46,14 @@ typedef struct P_DirectoryTotals {
     b32 complete;  // false when cancelled or when `path` itself could not be read
 } P_DirectoryTotals;
 
-// Totals of everything below `path`, hidden items included. Links and
-// junctions count as items but are not followed; unreadable subfolders are
-// skipped. Big trees take a while, so run it in a job.
+// Totals of everything below `path`, hidden items included.
+// Links and junctions count as items but are not followed; unreadable subfolders are skipped.
+// Big trees take a while, so run it in a job.
 function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel);
 // Lexically normalized absolute path with '/' separators; empty means failure.
 function String P_AbsolutePath(Arena *arena, String path);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
-// The order a folder is shown in, so that an app opened on one of its files
-// can step through the rest in the same order, as from Explorer.
+// The order a folder is shown in, so that an app opened on one of its files can step through the rest in the same order, as from Explorer.
 typedef enum P_FileOrderKey {
     P_FileOrderKey_Name,
     P_FileOrderKey_Type,
@@ -68,13 +67,14 @@ typedef struct P_FileOrder {
     b8 descending;
 } P_FileOrder;
 
-// Opens `path` with its default application. Windows hands packaged apps such
-// as Photos the rest of the folder in `order`. May block while the application
-// starts. Run in a job.
+// Opens `path` with its default application.
+// Windows hands packaged apps such as Photos the rest of the folder in `order`.
+// May block while the application starts.
+// Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
-// Reports changes to the items of one folder, not of its subfolders, from a
-// thread of its own. {0} is a stopped watch. `wake` runs on that thread when
-// a change follows a call to P_DirectoryWatchTakeChanged.
+// Reports changes to the items of one folder, not of its subfolders, from a thread of its own.
+// {0} is a stopped watch.
+// `wake` runs on that thread when a change follows a call to P_DirectoryWatchTakeChanged.
 typedef struct P_DirectoryWatch {
     Arena arena;
     void *native;
@@ -85,8 +85,8 @@ function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWa
 function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch);
 function void P_DirectoryWatchStop(P_DirectoryWatch *watch);
 
-// Renames `from` to `to` inside `directory`. Never replaces an existing item,
-// and refuses names that are empty, "." or "..", or contain a path separator.
+// Renames `from` to `to` inside `directory`.
+// Never replaces an existing item, and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to);
 
@@ -97,23 +97,22 @@ typedef struct P_Image {
     i32 height;
 } P_Image;
 
-// Key shared by files of one type: lowercase ".ext", or the folder and
-// extensionless-file keys. Pure string work, safe while building UI.
+// Key shared by files of one type: lowercase ".ext", or the folder and extensionless-file keys.
+// Pure string work, safe while building UI.
 function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind);
-// The type key, except that files with their own icon (executables,
-// shortcuts) are keyed by path.
+// The type key, except that files with their own icon (executables, shortcuts) are keyed by path.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
-// The system icon for `path`, at least `size` pixels when available. The
-// image may be larger or smaller; scaling is left to the caller. May touch
-// the disk, so run it in a job.
+// The system icon for `path`, at least `size` pixels when available.
+// The image may be larger or smaller; scaling is left to the caller.
+// May touch the disk, so run it in a job.
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image);
-// Display name of a file's type ("Text Document", "File folder") from the shell
-// on Windows and shared-mime-info on Linux. Only the name is used, never the
-// file. Slow enough to run in a job and cache per P_FileTypeKey.
+// Display name of a file's type ("Text Document", "File folder") from the shell on Windows and shared-mime-info on Linux.
+// Only the name is used, never the file.
+// Slow enough to run in a job and cache per P_FileTypeKey.
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind);
 
-// Context menus. Windows reads the shell's own menu, extensions included;
-// Linux offers the actions Filey implements itself.
+// Context menus.
+// Windows reads the shell's own menu, extensions included; Linux offers the actions Filey implements itself.
 typedef struct P_MenuItem {
     String label;
     String verb;       // canonical verb such as "open" or "delete" when the system has one
@@ -132,25 +131,20 @@ typedef struct P_ContextMenu {
     void *native;       // platform state that keeps the menu alive until P_ContextMenuClose
 } P_ContextMenu;
 
-// Menu for `names` inside `directory`, or for the directory background when
-// `count` is 0. Main thread only: shell menus belong to the thread that built
-// them, and their verbs may need its message loop (clipboard, dialogs). Loading
-// shell extensions can take a moment.
+// Menu for `names` inside `directory`, or for the directory background when `count` is 0.
+// Main thread only: shell menus belong to the thread that built them, and their verbs may need its message loop (clipboard, dialogs).
+// Loading shell extensions can take a moment.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu);
-// Builds and drops the menus of `directory` and of `name` inside it, on any
-// thread, so that shell extensions are loaded before the first real menu.
+// Builds and drops the menus of `directory` and of `name` inside it, on any thread, so that shell extensions are loaded before the first real menu.
 function void P_ContextMenuWarm(String directory, String name);
 function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id);
 function void P_ContextMenuClose(P_ContextMenu *menu);
 
-// Drag and drop between Filey and other programs, through the system's own
-// drag protocol. Main thread only.
+// Drag and drop between Filey and other programs, through the system's own drag protocol.
+// Main thread only.
 //
-// Starts a drag of `names` inside `directory` and returns once they are dropped
-// (true) or the drag is cancelled. The system's drag loop runs inside this call
-// and renders frames through the modal frame callback while the pointer is over
-// the window, so call it outside a frame.
+// Starts a drag of `names` inside `directory` and returns once they are dropped (true) or the drag is cancelled.
+// The system's drag loop runs inside this call and renders frames through the modal frame callback while the pointer is over the window, so call it outside a frame.
 function b32 P_DragFiles(String directory, const String *names, u64 count);
-// The folder that files dropped on the window go into, updated as the pointer
-// moves; empty refuses drops.
+// The folder that files dropped on the window go into, updated as the pointer moves; empty refuses drops.
 function void P_SetDropDirectory(String path);

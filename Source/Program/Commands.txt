@@ -1,5 +1,5 @@
-// Canonical command list. Source/Tools/Codegen.c turns it into
-// Source/Meta/Commands.meta.h during every build.
+// Canonical command list.
+// Source/Tools/Codegen.c turns it into Source/Meta/Commands.meta.h during every build.
 //
 // command Name {
 //     label   = "Shown Label^search,aliases"   palette/menu label; omit for internal commands
