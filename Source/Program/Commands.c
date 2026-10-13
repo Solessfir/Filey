@@ -690,6 +690,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
             case Prog_CommandKind_ToggleTransparency: Prog_SetTransparent(state, !state->transparent); break;
+            case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
             case Prog_CommandKind_WindowMove: PlatformWindowStartMove(); break;
             case Prog_CommandKind_WindowMinimize: PlatformWindowMinimize(); break;
             case Prog_CommandKind_WindowToggleMaximize: PlatformWindowToggleMaximize(); break;

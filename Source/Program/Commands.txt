@@ -461,6 +461,11 @@ command WindowToggleMaximize {
 command WindowClose {
 }
 
+command ToggleDebugTheme {
+    label   = "Debug Colors^theme,debug"
+    tooltip = "Draw every UI surface in its own loud color."
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."

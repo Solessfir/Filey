@@ -324,6 +324,8 @@ typedef struct Prog_State {
     ArrayStr recents;
     // See-through window with the glass theme; the app applies it to the window.
     b32 transparent;
+    // Loud colors for telling UI surfaces apart; FILEY_DEBUG_THEME turns it on at startup.
+    b32 debugTheme;
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
     b32 warmMenus;
 } Prog_State;
@@ -350,6 +352,7 @@ function void Prog_DragSelection(Prog_State *state);
 function void Prog_Reload(Prog_State *state);
 function void Prog_BeginRename(Prog_State *state, u64 row);
 function void Prog_SetTransparent(Prog_State *state, b32 transparent);
+function void Prog_SetDebugTheme(Prog_State *state, b32 debug);
 function String Prog_EditText(const Prog_TextEdit *edit);
 function String Prog_EntryLeaf(String name);
 function String Prog_EntryParent(String name);

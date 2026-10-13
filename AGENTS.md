@@ -54,6 +54,7 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
 - The `profile` flag defines `PROFILE`, which turns `ProfileScope("Name") { ... }` (`Platform/Profile.h`) into timed scopes on any thread. On exit the app writes `Filey.trace.json` to the working directory; open it in https://ui.perfetto.dev. Without the flag the macros compile to nothing.
 - `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
 - Bookmarks and recents are saved as `Bookmarks.txt` and `Recents.txt` in `%LOCALAPPDATA%\Filey` or `~/.config/filey`. Manual test runs SHOULD set `FILEY_CONFIG_DIR` to a temp folder so that they leave the user's settings alone; the headless tests never load settings.
+- `FILEY_DEBUG_THEME=1` starts the app with the debug theme (the "Debug Colors" palette command toggles it), which gives every theme color its own loud hue so that screenshots show which surface draws where.
 - WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).
 - Both build scripts first compile and run `Source/Tools/Codegen.c`, which regenerates `Source/Meta/*.meta.h` (committed) and fails the build on malformed input.
 - Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.

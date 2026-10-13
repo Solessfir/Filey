@@ -75,15 +75,48 @@ global const Prog_Theme Prog_ThemeGlass = {
     .iconDisabled = Prog_Gray(90),
 };
 
+// A distinct loud color for every role, so that screenshots show which surface draws where.
+global const Prog_Theme Prog_ThemeDebug = {
+    .window       = Prog_Rgb(60, 0, 60),
+    .background   = Prog_Rgb(10, 25, 80),
+    .menu         = Prog_Rgb(0, 70, 70),
+    .panel        = Prog_Rgb(10, 70, 20),
+    .alternateRow = Prog_Rgb(90, 80, 0),
+    .separator    = Prog_Rgb(255, 128, 0),
+    .hover        = Prog_Rgb(200, 0, 200),
+    .selection    = Prog_Rgb(150, 20, 20),
+    .focus        = Prog_Rgb(255, 255, 0),
+    .tabBorder    = Prog_Rgb(0, 255, 255),
+    .closeHover   = Prog_Rgb(255, 0, 0),
+    .text         = Prog_Rgb(255, 255, 255),
+    .textDim      = Prog_Rgb(255, 170, 200),
+    .textHeading  = Prog_Rgb(150, 255, 150),
+    .textMatch    = Prog_Rgb(0, 170, 255),
+    .danger       = Prog_Rgb(255, 99, 88),
+    .icon         = Prog_Rgb(255, 230, 120),
+    .iconDisabled = Prog_Rgb(120, 100, 60),
+};
+
 global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
 function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
 
+function void Prog__ApplyTheme(Prog_State *state)
+{
+    Prog_Theme_ = state->debugTheme ? &Prog_ThemeDebug : state->transparent ? &Prog_ThemeGlass : &Prog_ThemeCustom;
+    state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
+}
+
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
 {
     state->transparent = transparent;
-    Prog_Theme_ = transparent ? &Prog_ThemeGlass : &Prog_ThemeCustom;
-    state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
+    Prog__ApplyTheme(state);
+}
+
+function void Prog_SetDebugTheme(Prog_State *state, b32 debug)
+{
+    state->debugTheme = debug;
+    Prog__ApplyTheme(state);
 }
 
 typedef struct Prog_Metrics {
