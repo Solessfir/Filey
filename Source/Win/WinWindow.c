@@ -1,5 +1,10 @@
 // Win32 window, input and WGL context. Requires WinPlatform.c (windows.h).
 
+#pragma push_macro("function")
+#undef function
+#include <dwmapi.h>
+#pragma pop_macro("function")
+
 #define WGL_CONTEXT_MAJOR_VERSION_ARB    0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB    0x2092
 #define WGL_CONTEXT_FLAGS_ARB            0x2094
@@ -23,6 +28,7 @@ typedef struct WinWindowState {
     wchar highSurrogate;
     b32 mouseCaptured;
     b32 sizing;
+    HBRUSH background;  // paints the window until OpenGL draws the first frame
 } WinWindowState;
 
 global WinWindowState Win;
@@ -284,7 +290,14 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         } return 1;
 
         case WM_PAINT: {
-            ValidateRect(window, NULL);
+            if (Win.background) {
+                PAINTSTRUCT paint;
+                HDC dc = BeginPaint(window, &paint);
+                FillRect(dc, &paint.rcPaint, Win.background);
+                EndPaint(window, &paint);
+            } else {
+                ValidateRect(window, NULL);
+            }
         } return 0;
     }
 
@@ -383,6 +396,15 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     SetWindowPos(Win.window, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
+    // Loading the OpenGL driver takes over 100 ms, so the window is shown in the theme's
+    // colors first. DWM composes it while this thread waits on the driver; the program's
+    // first frame then replaces it.
+    b32 dark = true;
+    DwmSetWindowAttribute(Win.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+    Win.background = CreateSolidBrush(RGB((desc.background >> 16) & 0xFF, (desc.background >> 8) & 0xFF, desc.background & 0xFF));
+    ShowWindow(Win.window, SW_SHOWDEFAULT);
+    UpdateWindow(Win.window);
+
     // Shell context menus, drag and drop and the clipboard need OLE on this thread.
     OleInitialize(NULL);
     P__shellOwner = Win.window;
@@ -393,7 +415,6 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
         return false;
     }
 
-    ShowWindow(Win.window, SW_SHOWDEFAULT);
     return true;
 }
 
@@ -433,6 +454,10 @@ function void P_ReleaseWindowWake(void)
 function void PlatformSwapBuffers(void)
 {
     SwapBuffers(Win.dc);
+    if (Win.background) {
+        DeleteObject(Win.background);
+        Win.background = NULL;
+    }
 }
 
 function PlatformProc *PlatformGLGetProc(const char *name)

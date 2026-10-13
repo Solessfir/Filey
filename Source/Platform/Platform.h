@@ -128,13 +128,15 @@ typedef struct PlatformEventList {
 // Window
 //
 // One window per process. Opening it also creates an OpenGL 3.3 core context
-// and makes it current on the calling thread.
+// and makes it current on the calling thread. The window may already be on
+// screen while the context is created, which is most of the startup time.
 // -----------------------------------------------------------------------------
 
 typedef struct PlatformWindowDesc {
     String title;
     i32 width;     // logical pixels; scaled by the display scale
     i32 height;
+    u32 background;  // 0xRRGGBB shown from the moment the window opens until the first frame
 } PlatformWindowDesc;
 
 typedef struct PlatformWindowInfo {

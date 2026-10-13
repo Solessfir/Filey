@@ -32,7 +32,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 set CFLAGS=-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I"%ROOT%Source" -D_CRT_SECURE_NO_WARNINGS -g
 rem The release build has no console window; debug keeps one for logs.
-set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject
+set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -ldwmapi
 rem The DirectWrite adapter is the only C++ and uses no C++ runtime features.
 set CXXFLAGS=-std=c++20 -Wall -Wextra -fno-exceptions -fno-rtti -I"%ROOT%Source" -g
 if "%MODE%"=="release" (

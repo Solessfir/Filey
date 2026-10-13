@@ -142,7 +142,9 @@ int main(void)
     }
 #endif
     b32 ok = false;
-    ProfileScope("OpenWindow") ok = PlatformWindowOpen((PlatformWindowDesc){ .title = S("Filey"), .width = 1280, .height = 800 });
+    R_Color background = Prog_ThemeCustom.background;
+    u32 backgroundRgb = (u32)(background.r * 255.0f + 0.5f) << 16 | (u32)(background.g * 255.0f + 0.5f) << 8 | (u32)(background.b * 255.0f + 0.5f);
+    ProfileScope("OpenWindow") ok = PlatformWindowOpen((PlatformWindowDesc){ .title = S("Filey"), .width = 1280, .height = 800, .background = backgroundRgb });
     if (!ok) {
         fprintf(stderr, "Failed to open the window\n");
         return 1;
