@@ -445,3 +445,43 @@ function ArrayStr P_StartupPaths(Arena *arena)
     if (arguments) LocalFree(arguments);
     return result;
 }
+
+function b32 P_ReadFile(Arena *arena, String path, String *contents)
+{
+    *contents = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    HANDLE file = wide ? CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL) : INVALID_HANDLE_VALUE;
+    ReleaseScratch(scratch);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size = {0};
+    // Settings files are small; anything past a few megabytes is not one.
+    b32 result = GetFileSizeEx(file, &size) && size.QuadPart < (1 << 24);
+    if (result) {
+        char *bytes = ArenaPushArrayNoZero(arena, (u64)size.QuadPart + 1, char);
+        DWORD read = 0;
+        result = ReadFile(file, bytes, (DWORD)size.QuadPart, &read, NULL) && read == (DWORD)size.QuadPart;
+        if (result) *contents = StrMake(bytes, read);
+    }
+    CloseHandle(file);
+    return result;
+}
+
+function P_FileError P_WriteFile(Arena *arena, String path, String contents)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    wchar *temporary = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S.tmp", path));
+    u32 code = ERROR_INVALID_NAME;
+    if (wide && temporary && contents.length <= UINT32_MAX) {
+        HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        DWORD written = 0;
+        b32 ok = file != INVALID_HANDLE_VALUE && WriteFile(file, contents.value, (DWORD)contents.length, &written, NULL) && written == contents.length && FlushFileBuffers(file);
+        code = ok ? 0 : GetLastError();
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+        if (ok && !MoveFileExW(temporary, wide, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) code = GetLastError();
+        if (code) DeleteFileW(temporary);
+    }
+    ReleaseScratch(scratch);
+    return code ? P__FileError(arena, code) : (P_FileError){0};
+}

@@ -76,6 +76,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Create,
+    Prog_JobKind_Places,
+    Prog_JobKind_Save,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -120,6 +122,7 @@ typedef struct Prog_JobInput {
     u64 rowCount;
     u64 listing;
     // Transfer copies or moves `paths` into `path`, Trash trashes them, and Create makes `name` inside `path`, a folder when `folder` is set.
+    // Save writes `name` to the file `path`.
     String *paths;
     u64 pathCount;
     b32 move;
@@ -134,6 +137,20 @@ typedef struct Prog_Created {
     P_FileError error;
     String name;
 } Prog_Created;
+
+typedef struct Prog_Places {
+    P_ArrayPlace places;
+    P_ArrayPlace drives;
+} Prog_Places;
+
+// Sidebar sections, in display order.
+typedef enum Prog_Group {
+    Prog_Group_Recents,
+    Prog_Group_Bookmarks,
+    Prog_Group_Storage,
+    Prog_Group_Places,
+    Prog_Group_Count,
+} Prog_Group;
 
 typedef struct Prog_Measured {
     P_DirectoryTotals *totals;  // for the first `count` rows of the job
@@ -283,6 +300,22 @@ typedef struct Prog_State {
     P_DirectoryWatch watch;
     b32 watchDirty;
     u64 watchReloadTime;
+    // Sidebar.
+    b32 sidebarHidden;
+    b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
+    b32 placesWanted;         // the sidebar was built, so its places are kept current
+    Arena placesArena;        // the latest places listing
+    P_ArrayPlace places;
+    P_ArrayPlace drives;
+    P_Job *placesJob;
+    u64 placesTime;
+    // Bookmarked and recently shown folders, saved in configDirectory when the app sets one.
+    Arena settingsArena;
+    String configDirectory;
+    Arena bookmarkArena;
+    ArrayStr bookmarks;
+    Arena recentArena;
+    ArrayStr recents;
     // See-through window with the glass theme; the app applies it to the window.
     b32 transparent;
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
@@ -318,6 +351,10 @@ function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
+function void Prog_LoadSettings(Prog_State *state, String configDirectory);
+function b32 Prog_IsBookmarked(const Prog_State *state, String path);
+function void Prog_ToggleBookmark(Prog_State *state, String path);
+function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
 function void Prog_SelectTab(Prog_State *state, u32 index);

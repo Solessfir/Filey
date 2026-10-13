@@ -74,6 +74,14 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_TabSelect7,
     Prog_CommandKind_TabSelect8,
     Prog_CommandKind_TabSelectLast,
+    Prog_CommandKind_ToggleQuickAccess,
+    Prog_CommandKind_BookmarksToggle,
+    Prog_CommandKind_BookmarksClear,
+    Prog_CommandKind_RecentsClear,
+    Prog_CommandKind_SidebarOpen,
+    Prog_CommandKind_SidebarOpenInTab,
+    Prog_CommandKind_ToggleGroup,
+    Prog_CommandKind_RemoveBookmark,
     Prog_CommandKind_ToggleTransparency,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
@@ -148,6 +156,14 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_TabSelect7] = { .name = { "TabSelect7", 10 }, .label = { "Select 7th Tab", 14 }, .tooltip = { "Select the 7th tab if it exists.", 32 } },
     [Prog_CommandKind_TabSelect8] = { .name = { "TabSelect8", 10 }, .label = { "Select 8th Tab", 14 }, .tooltip = { "Select the 8th tab if it exists.", 32 } },
     [Prog_CommandKind_TabSelectLast] = { .name = { "TabSelectLast", 13 }, .label = { "Select Last Tab", 15 }, .tooltip = { "Select the last tab.", 20 } },
+    [Prog_CommandKind_ToggleQuickAccess] = { .name = { "ToggleQuickAccess", 17 }, .label = { "Toggle Quick Access", 19 }, .aliases = { "sidebar,panel", 13 }, .tooltip = { "Toggle the Quick Access sidebar.", 32 } },
+    [Prog_CommandKind_BookmarksToggle] = { .name = { "BookmarksToggle", 15 }, .label = { "Toggle Folder Bookmark", 22 }, .aliases = { "save,directory", 14 }, .tooltip = { "Toggle storing the currently open file path in the bookmarked section.", 70 }, .noRepeat = true },
+    [Prog_CommandKind_BookmarksClear] = { .name = { "BookmarksClear", 14 }, .label = { "Clear Bookmarks", 15 }, .aliases = { "delete,remove", 13 }, .tooltip = { "Clear all bookmarked file paths.", 32 } },
+    [Prog_CommandKind_RecentsClear] = { .name = { "RecentsClear", 12 }, .label = { "Clear Recents", 13 }, .aliases = { "delete,remove", 13 }, .tooltip = { "Clear all recently visited or opened file paths.", 48 } },
+    [Prog_CommandKind_SidebarOpen] = { .name = { "SidebarOpen", 11 } },
+    [Prog_CommandKind_SidebarOpenInTab] = { .name = { "SidebarOpenInTab", 16 } },
+    [Prog_CommandKind_ToggleGroup] = { .name = { "ToggleGroup", 11 } },
+    [Prog_CommandKind_RemoveBookmark] = { .name = { "RemoveBookmark", 14 } },
     [Prog_CommandKind_ToggleTransparency] = { .name = { "ToggleTransparency", 18 }, .label = { "Transparency", 12 }, .aliases = { "blur,acrylic,glass,translucent", 30 }, .tooltip = { "Show the desktop blurred through the window.", 44 }, .noRepeat = true },
 };
 
@@ -212,6 +228,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_7, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelect7 },
     { .key = Key_8, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelect8 },
     { .key = Key_9, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelectLast },
+    { .key = Key_B, .mods = KeyMod_Control, .command = Prog_CommandKind_BookmarksToggle },
     { .key = Key_B, .mods = KeyMod_Control | KeyMod_Alt, .command = Prog_CommandKind_ToggleTransparency },
 };
 #endif

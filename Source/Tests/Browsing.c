@@ -1122,6 +1122,66 @@ function void TestTabs(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Sidebar locations, and bookmarks and recents kept in a config folder inside the fixture.
+function void TestSidebar(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    P_ArrayPlace places = P_UserPlaces(&arena);
+    Check(places.header.count >= 1 && StrIsEqual(places.v[0].name, S("Home")) && places.v[0].path.length);
+    P_ArrayPlace drives = P_Drives(&arena);
+    Check(drives.header.count >= 1);
+    b32 sized = false;
+    for (u64 i = 0; i < drives.header.count; ++i) sized |= drives.v[i].totalBytes > 0 && drives.v[i].freeBytes <= drives.v[i].totalBytes;
+    Check(sized);
+
+    String file = Prog_JoinPath(&arena, fixture->path, S("settings.txt"));
+    String text = {0};
+    Check(!P_ReadFile(&arena, file, &text));
+    Check(!P_WriteFile(&arena, file, S("first\nsecond\n")).code);
+    Check(!P_WriteFile(&arena, file, S("replaced\n")).code);
+    Check(P_ReadFile(&arena, file, &text) && StrIsEqual(text, S("replaced\n")));
+    Check(P__TestRemovePath(fixture, S("settings.txt"), false));
+
+    Check(P__TestMakeDirectory(fixture, S("Config")));
+    String config = Prog_JoinPath(&arena, fixture->path, S("Config"));
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (state.jobs.initialized) {
+        Prog_LoadSettings(&state, config);
+        Check(TestWaitDirectory(&state));
+        // A first run starts with the user's folders bookmarked.
+        u64 seeded = state.bookmarks.header.count;
+        Check(seeded <= 4 && state.recents.header.count == 1 && StrIsEqual(state.recents.v[0], fixture->path));
+        TestBrowsingCommand(&state, Prog_CommandKind_BookmarksToggle, 0);
+        Check(state.bookmarks.header.count == seeded + 1 && Prog_IsBookmarked(&state, fixture->path));
+        u64 empty = TestEntryIndex(&state, S("Empty"));
+        Check(empty != UINT64_MAX);
+        Prog_OpenRow(&state, empty);
+        Check(TestWaitDirectory(&state));
+        Check(state.recents.header.count == 2 && TestEndsWith(state.recents.v[0], S("/Empty")) && StrIsEqual(state.recents.v[1], fixture->path));
+        ArenaClear(&state.frameArena);
+        Prog_Command *open = Prog_QueueCommand(&state, Prog_CommandKind_SidebarOpen, Prog_Group_Bookmarks, 1, 0);
+        open->target = seeded;
+        Prog_ProcessCommands(&state);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
+        // Saves run in jobs; releasing the state waits for them.
+        Prog_Release(&state);
+        state = (Prog_State){0};
+        Check(Prog_Init(&state, fixture->path, NULL, NULL));
+        Prog_LoadSettings(&state, config);
+        Check(state.bookmarks.header.count == seeded + 1 && Prog_IsBookmarked(&state, fixture->path));
+        Check(state.recents.header.count >= 2);
+        TestBrowsingCommand(&state, Prog_CommandKind_RemoveBookmark, seeded);
+        Check(state.bookmarks.header.count == seeded && !Prog_IsBookmarked(&state, fixture->path));
+        Check(TestWaitDirectory(&state));
+        Prog_Release(&state);
+    }
+    Check(P__TestRemovePath(fixture, S("Config/Bookmarks.txt"), false));
+    Check(P__TestRemovePath(fixture, S("Config/Recents.txt"), false));
+    Check(P__TestRemovePath(fixture, S("Config"), true));
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -1135,6 +1195,7 @@ function void TestBrowsing(void)
 #endif
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);
+        TestSidebar(&fixture);
         TestRename(&fixture);
         TestFilter(&fixture);
         TestExpand(&fixture);

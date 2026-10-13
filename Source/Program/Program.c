@@ -218,8 +218,20 @@ function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
     // Children start at the top, so that tabs taller than the strip hang below it.
     strip->props.childrenAlignment.y = 0;
     UI_Parent(strip) {
-        f32 lead = m->sidebar + m->separator + m->inset * 0.5f;
-        Prog__Spacer(UI_Pixels(lead), UI_Pixels(m->bar - top));
+        // The sidebar button sits at the sidebar's right edge, or at the window's left edge while the sidebar is hidden.
+        f32 button = floorf(m->bar * 0.75f);
+        f32 lead = state->sidebarHidden ? button + m->inset : m->sidebar + m->separator + m->inset * 0.5f;
+        UI_SetNextPrefWidth(UI_Pixels(lead));
+        UI_SetNextPrefHeight(UI_Pixels(m->bar - top));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ state->sidebarHidden ? 0.5f : 1, 0.5f });
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, state->sidebarHidden ? 0 : m->inset, 0 });
+        UI_Block *leading = UI_AddBlock(0);
+        UI_Parent(leading) {
+            UI_Interaction toggle = Prog__TextButton(S("ToggleQuickAccess"), Icon_PanelLeft, m->icons, UI_Pixels(button), button, 0,
+                                                     theme->icon, theme->text, theme->iconDisabled, true, m);
+            if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder);
+        }
         f32 plus = m->bar * 0.9f;
         f32 room = MaxF32(0, UI->root->rect.x1 - UI->root->rect.x0 - lead - plus - m->inset);
         f32 width = floorf(MinF32(m->line * 12.0f, room / (f32)state->tabCount));
@@ -347,6 +359,15 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
         Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+        Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+        // Lit while the folder is bookmarked.
+        b32 bookmarked = Prog_IsBookmarked(state, state->directory.path);
+        UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
+                                                   bookmarked ? theme->textMatch : theme->icon, bookmarked ? theme->textMatch : theme->text, theme->iconDisabled,
+                                                   state->directory.path.length != 0, m);
+        if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
@@ -733,17 +754,162 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// A sidebar section title, which opens and closes the section.
+function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title, String icon, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Group/%S", title));
+    b32 hot = UI->hotKey == key;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->gap * 0.5f), 0, floorf(m->gap * 0.5f), 0 });
+    UI_SetNextCornerRadius(m->radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
+    UI_Interaction interaction = UI_InteractionFromBlock(row);
+    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
+    UI_Parent(row) {
+        R_Color color = hot ? theme->text : theme->textHeading;
+        Prog__Icon(icon, m->line * 1.5f, m->row, color, 0, m);
+        Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
+        Prog__Icon(Prog_GroupOpen(state, group) ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
+    }
+}
+
+// One location under a section title: its folder icon, or a drive glyph, and its name.
+// Drives show how full they are under the name, and bookmarks get a remove button while hovered.
+function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, String name, String path, const P_Place *drive, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
+    UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
+    b32 hot = UI->hotKey == key || UI->hotKey == removeKey;
+    b32 current = StrIsEqual(path, state->directory.path);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f), 0, floorf(m->gap * 0.5f), 0 });
+    UI_SetNextCornerRadius(m->radius);
+    UI_SetNextColors((UI_Colors){ .background = current ? theme->selection : theme->alternateRow });
+    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
+    UI_Interaction interaction = UI_InteractionFromBlock(row);
+    if (interaction.clicked && interaction.button == MouseButton_Left) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
+        command->target = index;
+    }
+    if (interaction.clicked && interaction.button == MouseButton_Middle) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpenInTab, (u64)group, 0, interaction.clickOrder);
+        command->target = index;
+    }
+    UI_Parent(row) {
+        f32 slot = (f32)state->iconSize + m->gap;
+        Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
+        const Prog_Icon *icon = drive ? NULL : Prog_FileIcon(state, Prog_ParentPath(path), &folder);
+        if (icon) {
+            UI_SetNextPrefWidth(UI_Pixels(slot));
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+            UI_AddBlock(UI_Flag_DrawImage);
+        } else {
+            Prog__Icon(drive ? Icon_HardDrive : Icon_Folder, slot, m->row, theme->icon, 0, m);
+        }
+        R_Color color = current || hot ? theme->text : theme->textHeading;
+        if (drive && drive->totalBytes) {
+            // The name sits a little high to leave room for the bar under it.
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_Block *stack = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(stack) {
+                f32 bar = MaxF32(2.0f, floorf(m->separator * 1.5f));
+                f32 width = floorf(MinF32(R_TextWidth(m->font, name), m->sidebar * 0.55f));
+                f32 used = floorf(width * (f32)(drive->totalBytes - Min(drive->freeBytes, drive->totalBytes)) / (f32)drive->totalBytes);
+                f32 top = floorf((m->row - m->line - bar * 2) * 0.5f);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
+                UI_SetNextPrefHeight(UI_Pixels(m->line));
+                UI_SetNextColors((UI_Colors){ .text = color });
+                UI_SetNextText(name);
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
+                UI_SetNextPrefWidth(UI_Pixels(width));
+                UI_SetNextPrefHeight(UI_Pixels(bar));
+                UI_SetNextColors((UI_Colors){ .background = theme->hover });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
+                UI_SetNextPrefWidth(UI_Pixels(used));
+                UI_SetNextPrefHeight(UI_Pixels(bar));
+                UI_SetNextColors((UI_Colors){ .background = theme->textMatch });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        } else {
+            Prog__Label(name, UI_Flex(), m->row, 0, color, 0);
+        }
+        if (group == Prog_Group_Bookmarks && hot) {
+            b32 removeHot = UI->hotKey == removeKey;
+            f32 size = floorf(m->line * 1.3f);
+            UI_SetNextPrefWidth(UI_Pixels(size));
+            UI_SetNextPrefHeight(UI_Pixels(size));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextCornerRadius(m->radius);
+            UI_SetNextFont(m->icons);
+            UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = removeHot ? theme->text : theme->icon });
+            UI_SetNextText(Icon_X);
+            UI_Block *remove = UI_AddBlockFromKey(removeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (removeHot ? UI_Flag_DrawBackground : 0));
+            UI_Interaction removing = UI_InteractionFromBlock(remove);
+            if (removing.clicked) Prog_QueueCommand(state, Prog_CommandKind_RemoveBookmark, index, 0, removing.clickOrder);
+        }
+    }
+}
+
+// Quick Access: recently shown folders, bookmarks, drives and the user's folders, each under a title that opens and closes it.
 function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->gap, 0 });
-    UI_Block *sidebar = Prog__Box(UI_Pixels(m->sidebar), UI_Flex(), UI_Layout_Vertical, theme->panel, UI_Flag_Clip);
+    state->placesWanted = true;
+    UI_SetNextPrefWidth(UI_Pixels(m->sidebar));
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->gap * 0.75f), 0, floorf(m->gap * 0.75f), m->gap });
+    UI_SetNextColors((UI_Colors){ .background = theme->panel });
+    UI_Block *sidebar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
     UI_Parent(sidebar) {
-        // ponytail: places, bookmarks and drives come with the sidebar step; only the filter placeholder for now.
+        // ponytail: the filter box is a placeholder until Filter Quick Access is implemented.
         UI_Block *filter = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
         UI_Parent(filter) {
+            Prog__Spacer(UI_Pixels(floorf(m->gap * 0.5f)), UI_Pixels(m->bar));
             Prog__Icon(Icon_Search, 0, m->bar, theme->textDim, 0, m);
             Prog__Label(S("Filter..."), UI_Flex(), m->bar, m->gap * 0.5f, theme->textDim, 0);
+        }
+        Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
+        if (Prog_GroupOpen(state, Prog_Group_Recents)) {
+            for (u64 i = 0; i < state->recents.header.count; ++i) {
+                String path = state->recents.v[i];
+                Prog__SidebarItem(state, Prog_Group_Recents, i, Prog__FolderName(path), path, NULL, m);
+            }
+        }
+        Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
+        if (Prog_GroupOpen(state, Prog_Group_Bookmarks)) {
+            for (u64 i = 0; i < state->bookmarks.header.count; ++i) {
+                String path = state->bookmarks.v[i];
+                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog__FolderName(path), path, NULL, m);
+            }
+        }
+        Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), Icon_HardDrive, m);
+        if (Prog_GroupOpen(state, Prog_Group_Storage)) {
+            for (u64 i = 0; i < state->drives.header.count; ++i) {
+                const P_Place *drive = &state->drives.v[i];
+                Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, m);
+            }
+        }
+        Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
+        if (Prog_GroupOpen(state, Prog_Group_Places)) {
+            for (u64 i = 0; i < state->places.header.count; ++i) {
+                const P_Place *place = &state->places.v[i];
+                Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, m);
+            }
         }
     }
 }
@@ -880,8 +1046,10 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__TabStrip(state, m);
     UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(body) {
-        Prog__Sidebar(state, m);
-        Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->separator, 0);
+        if (!state->sidebarHidden) {
+            Prog__Sidebar(state, m);
+            Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->separator, 0);
+        }
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
         UI_Parent(main) {
             Prog__Toolbar(state, m);

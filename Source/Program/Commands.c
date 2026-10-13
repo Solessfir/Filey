@@ -483,6 +483,18 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
     }
 }
 
+// The folder of sidebar item `index` in `group`; empty when there is no such item.
+function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64 index)
+{
+    switch (group) {
+        case Prog_Group_Recents: return index < state->recents.header.count ? state->recents.v[index] : (String){0};
+        case Prog_Group_Bookmarks: return index < state->bookmarks.header.count ? state->bookmarks.v[index] : (String){0};
+        case Prog_Group_Storage: return index < state->drives.header.count ? state->drives.v[index].path : (String){0};
+        case Prog_Group_Places: return index < state->places.header.count ? state->places.v[index].path : (String){0};
+        default: return (String){0};
+    }
+}
+
 // Opens `row`, or the selection or focused row when it is UINT64_MAX, in new tabs behind the shown one: folders themselves and files' containing folders.
 function void Prog__OpenInTabs(Prog_State *state, u64 row)
 {
@@ -575,6 +587,27 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelect7:
             case Prog_CommandKind_TabSelect8: Prog_SelectTab(state, (u32)(command->kind - Prog_CommandKind_TabSelect1)); break;
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
+            case Prog_CommandKind_ToggleQuickAccess: state->sidebarHidden = !state->sidebarHidden; break;
+            case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
+            case Prog_CommandKind_BookmarksClear: {
+                Prog__SetList(&state->bookmarkArena, &state->bookmarks, NULL, 0);
+                Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
+            } break;
+            case Prog_CommandKind_RecentsClear: {
+                Prog__SetList(&state->recentArena, &state->recents, NULL, 0);
+                Prog__SaveList(state, Prog_RecentsFile, state->recents);
+            } break;
+            case Prog_CommandKind_SidebarOpen:
+            case Prog_CommandKind_SidebarOpenInTab: {
+                String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
+                if (!path.length) break;
+                if (command->kind == Prog_CommandKind_SidebarOpenInTab) Prog_OpenTab(state, path, state->activeTab + 1, false);
+                else if (!StrIsEqual(path, state->directory.path)) Prog_RequestDirectory(state, path, true, 0);
+            } break;
+            case Prog_CommandKind_ToggleGroup: if (command->row < Prog_Group_Count) state->groupToggled[command->row] = !state->groupToggled[command->row]; break;
+            case Prog_CommandKind_RemoveBookmark: {
+                if (command->row < state->bookmarks.header.count) Prog_ToggleBookmark(state, state->bookmarks.v[command->row]);
+            } break;
             case Prog_CommandKind_OpenFocused: if (state->hasFocus) Prog_OpenRow(state, state->focusedRow); break;
             case Prog_CommandKind_Refresh: {
                 Prog_Reload(state);

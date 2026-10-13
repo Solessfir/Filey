@@ -396,6 +396,44 @@ command TabSelectLast {
     hotkey  = "Ctrl+9"
 }
 
+command ToggleQuickAccess {
+    label   = "Toggle Quick Access^sidebar,panel"
+    tooltip = "Toggle the Quick Access sidebar."
+}
+
+command BookmarksToggle {
+    label   = "Toggle Folder Bookmark^save,directory"
+    tooltip = "Toggle storing the currently open file path in the bookmarked section."
+    hotkey  = "Ctrl+B"
+    repeat  = "false"
+}
+
+command BookmarksClear {
+    label   = "Clear Bookmarks^delete,remove"
+    tooltip = "Clear all bookmarked file paths."
+}
+
+command RecentsClear {
+    label   = "Clear Recents^delete,remove"
+    tooltip = "Clear all recently visited or opened file paths."
+}
+
+// Sidebar item click; carries the Prog_Group and the item's index in it.
+command SidebarOpen {
+}
+
+// Sidebar item middle click; carries the Prog_Group and the item's index in it.
+command SidebarOpenInTab {
+}
+
+// Sidebar section title click; carries the Prog_Group.
+command ToggleGroup {
+}
+
+// The remove button of a bookmark; carries its index.
+command RemoveBookmark {
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."

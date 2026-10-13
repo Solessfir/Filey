@@ -107,6 +107,28 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);
 // `path` with the system's own separators, for showing or copying.
 function String P_NativePath(Arena *arena, String path);
 
+// Sidebar locations.
+typedef struct P_Place {
+    String name;
+    String path;
+    u64 totalBytes;  // drives only; 0 when the drive has no medium or does not say
+    u64 freeBytes;
+} P_Place;
+
+typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
+
+// The user's home and its desktop, documents, downloads, music, pictures and videos folders that exist.
+function P_ArrayPlace P_UserPlaces(Arena *arena);
+// Mounted drives with their sizes; network drives may be slow to answer, so run it in a job.
+function P_ArrayPlace P_Drives(Arena *arena);
+// The folder Filey keeps its settings in, created when missing; empty when there is none.
+// FILEY_CONFIG_DIR, when set, names the folder instead, for portable or test setups.
+function String P_ConfigDirectory(Arena *arena);
+// The whole file; false when it cannot be read.
+function b32 P_ReadFile(Arena *arena, String path, String *contents);
+// Replaces the file with `contents` in one step, so that a crash leaves the old or the new file and never half of one.
+function P_FileError P_WriteFile(Arena *arena, String path, String contents);
+
 // Straight-alpha RGBA8 pixels (red in the lowest byte), top row first.
 typedef struct P_Image {
     u32 *pixels;

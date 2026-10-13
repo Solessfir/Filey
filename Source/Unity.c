@@ -195,6 +195,7 @@ int main(void)
     ArrayStr startPaths = P_StartupPaths(startup.arena);
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
+    if (ok) Prog_LoadSettings(&loop.state, P_ConfigDirectory(startup.arena));
     ReleaseScratch(startup);
     if (!ok) {
         fprintf(stderr, "Failed to start workers\n");

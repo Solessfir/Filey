@@ -296,3 +296,91 @@ function void P_ContextMenuWarm(String directory, String name)
     if (name.length && P_ContextMenuOpen(&arena, directory, &name, 1, &menu)) P_ContextMenuClose(&menu);
     ArenaRelease(&arena);
 }
+
+// Known folder ids, spelled out so that no uuid library is linked for them.
+global const GUID P__FolderProfile   = { 0x5E6C858F, 0x0E22, 0x4760, { 0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73 } };
+global const GUID P__FolderDesktop   = { 0xB4BFCC3A, 0xDB2C, 0x424C, { 0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41 } };
+global const GUID P__FolderDocuments = { 0xFDD39AD0, 0x238F, 0x46AF, { 0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7 } };
+global const GUID P__FolderDownloads = { 0x374DE290, 0x123F, 0x4565, { 0x91, 0x64, 0x39, 0xC4, 0x92, 0x5E, 0x46, 0x7B } };
+global const GUID P__FolderMusic     = { 0x4BD8D571, 0x6D19, 0x48D3, { 0xBE, 0x97, 0x42, 0x22, 0x20, 0x08, 0x0E, 0x43 } };
+global const GUID P__FolderPictures  = { 0x33E28130, 0x4E1E, 0x4676, { 0x83, 0x5A, 0x98, 0x39, 0x5C, 0x3B, 0xC3, 0xBB } };
+global const GUID P__FolderVideos    = { 0x18989B1D, 0x99B5, 0x455B, { 0x84, 0x1C, 0xAB, 0x7C, 0x74, 0xE4, 0xDD, 0xFC } };
+global const GUID P__FolderLocalData = { 0xF1B32785, 0x6FBA, 0x4FCF, { 0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91 } };
+
+function String P__KnownFolder(Arena *arena, const GUID *id)
+{
+    wchar *wide = NULL;
+    String result = {0};
+    if (SUCCEEDED(SHGetKnownFolderPath(id, 0, NULL, &wide))) {
+        Scratch scratch = GetScratchEx(arena);
+        result = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, wide, lstrlenW(wide)));
+        ReleaseScratch(scratch);
+    }
+    CoTaskMemFree(wide);
+    return result;
+}
+
+function P_ArrayPlace P_UserPlaces(Arena *arena)
+{
+    local_persist const struct { const GUID *id; const char *name; } folders[] = {
+        { &P__FolderProfile, "Home" }, { &P__FolderDesktop, "Desktop" }, { &P__FolderDocuments, "Documents" }, { &P__FolderDownloads, "Downloads" },
+        { &P__FolderMusic, "Music" }, { &P__FolderPictures, "Pictures" }, { &P__FolderVideos, "Videos" },
+    };
+    P_ArrayPlace result = {0};
+    for (u32 i = 0; i < CArrayCount(folders); ++i) {
+        String path = P__KnownFolder(arena, folders[i].id);
+        if (path.length) ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
+    }
+    return result;
+}
+
+function P_ArrayPlace P_Drives(Arena *arena)
+{
+    P__EnsureCom();
+    P_ArrayPlace result = {0};
+    wchar drives[512];
+    u32 length = GetLogicalDriveStringsW((u32)CArrayCount(drives) - 1, drives);
+    if (!length || length >= CArrayCount(drives)) return result;
+    // Drives without a medium fail quietly instead of asking for one.
+    u32 errorMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+    Scratch scratch = GetScratchEx(arena);
+    for (wchar *drive = drives; *drive; drive += lstrlenW(drive) + 1) {
+        u32 type = GetDriveTypeW(drive);
+        if (type == DRIVE_NO_ROOT_DIR || type == DRIVE_UNKNOWN) continue;
+        P_Place place = { .path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, drive, lstrlenW(drive))) };
+        // "Local Disk (C:)", as Explorer names it.
+        SHFILEINFOW info = {0};
+        place.name = SHGetFileInfoW(drive, 0, &info, sizeof(info), SHGFI_DISPLAYNAME) && info.szDisplayName[0]
+                   ? P__FileStringWide(arena, info.szDisplayName, lstrlenW(info.szDisplayName)) : place.path;
+        ULARGE_INTEGER available = {0}, total = {0};
+        if (GetDiskFreeSpaceExW(drive, &available, &total, NULL)) {
+            place.totalBytes = total.QuadPart;
+            place.freeBytes = available.QuadPart;
+        }
+        ArrayPush(arena, result, place);
+    }
+    ReleaseScratch(scratch);
+    SetErrorMode(errorMode);
+    return result;
+}
+
+function String P_ConfigDirectory(Arena *arena)
+{
+    wchar override[1024];
+    u32 length = GetEnvironmentVariableW(L"FILEY_CONFIG_DIR", override, (u32)CArrayCount(override));
+    String result = {0};
+    if (length && length < CArrayCount(override)) {
+        Scratch scratch = GetScratchEx(arena);
+        result = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, override, (i32)length));
+        ReleaseScratch(scratch);
+    } else {
+        String local = P__KnownFolder(arena, &P__FolderLocalData);
+        if (!local.length) return local;
+        result = StrFormat(arena, "%S/Filey", local);
+    }
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, result);
+    b32 ok = wide && (CreateDirectoryW(wide, NULL) || GetLastError() == ERROR_ALREADY_EXISTS);
+    ReleaseScratch(scratch);
+    return ok ? result : (String){0};
+}

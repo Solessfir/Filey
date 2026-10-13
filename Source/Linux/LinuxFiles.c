@@ -10,6 +10,7 @@
 #include <sys/eventfd.h>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -870,4 +871,153 @@ function ArrayStr P_StartupPaths(Arena *arena)
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+function b32 P__IsDirectory(Arena *scratch, String path)
+{
+    struct stat info;
+    char *native = P__FilePathCString(scratch, path);
+    return native && stat(native, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+// The folders of user-dirs.dirs ("XDG_DOWNLOAD_DIR="$HOME/Downloads""), and the usual names when it does not set them.
+function P_ArrayPlace P_UserPlaces(Arena *arena)
+{
+    P_ArrayPlace result = {0};
+    const char *homeValue = getenv("HOME");
+    if (!homeValue || homeValue[0] != '/') return result;
+    String home = P_AbsolutePath(arena, StrFromCStr(homeValue));
+    ArrayPush(arena, result, ((P_Place){ .name = S("Home"), .path = home }));
+    local_persist const struct { const char *key; const char *name; } folders[] = {
+        { "DESKTOP", "Desktop" }, { "DOCUMENTS", "Documents" }, { "DOWNLOAD", "Downloads" },
+        { "MUSIC", "Music" }, { "PICTURES", "Pictures" }, { "VIDEOS", "Videos" },
+    };
+    Scratch scratch = GetScratchEx(arena);
+    const char *config = getenv("XDG_CONFIG_HOME");
+    String settings = {0};
+    P_ReadFile(scratch.arena, config && config[0] == '/' ? StrFormat(scratch.arena, "%s/user-dirs.dirs", config) : StrFormat(scratch.arena, "%S/.config/user-dirs.dirs", home), &settings);
+    ArrayStr lines = StrSplit(scratch.arena, settings, '\n');
+    for (u32 i = 0; i < CArrayCount(folders); ++i) {
+        String path = StrFormat(scratch.arena, "%S/%s", home, folders[i].name);
+        String key = StrFormat(scratch.arena, "XDG_%s_DIR=\"", folders[i].key);
+        for (u64 j = 0; j < lines.header.count; ++j) {
+            String line = lines.v[j];
+            if (line.length <= key.length || !StrIsEqual(StrFromTo(line, 0, (i64)key.length), key)) continue;
+            String value = StrFrom(line, key.length);
+            Index quote = StrIndexChar(value, '"', SSF_None);
+            if (quote.exists) value = StrFromTo(value, 0, (i64)quote.value);
+            if (value.length >= 5 && StrIsEqual(StrFromTo(value, 0, 5), S("$HOME"))) path = StrFormat(scratch.arena, "%S%S", home, StrFrom(value, 5));
+            else if (value.length && value.value[0] == '/') path = value;
+        }
+        path = P_AbsolutePath(arena, path);
+        // Folders the user turned off point at the home itself.
+        if (path.length && !StrIsEqual(path, home) && P__IsDirectory(scratch.arena, path)) {
+            ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The root and what is mounted under the usual places for disks: /run/media and /media for removable ones, /mnt for the rest.
+function P_ArrayPlace P_Drives(Arena *arena)
+{
+    P_ArrayPlace result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    String mounts = {0};
+    P_ReadFile(scratch.arena, S("/proc/self/mounts"), &mounts);
+    ArrayStr lines = StrSplit(scratch.arena, mounts, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        ArrayStr fields = StrSplit(scratch.arena, lines.v[i], ' ');
+        if (fields.header.count < 3) continue;
+        // Spaces and other bytes in mount points are octal escapes ("\040").
+        String raw = fields.v[1];
+        StrBuilder point = {0};
+        for (u64 at = 0; at < raw.length; ++at) {
+            if (raw.value[at] == '\\' && at + 3 < raw.length) {
+                u32 value = (u32)(raw.value[at + 1] - '0') * 64 + (u32)(raw.value[at + 2] - '0') * 8 + (u32)(raw.value[at + 3] - '0');
+                StrBuildChar(scratch.arena, &point, (char)value);
+                at += 3;
+            } else {
+                StrBuildChar(scratch.arena, &point, raw.value[at]);
+            }
+        }
+        String path = point.buffer;
+        b32 root = StrIsEqual(path, S("/"));
+        b32 wanted = root;
+        local_persist const char *prefixes[] = { "/run/media/", "/media/", "/mnt/" };
+        for (u32 j = 0; j < CArrayCount(prefixes); ++j) {
+            String prefix = StrFromCStr(prefixes[j]);
+            wanted |= path.length > prefix.length && StrIsEqual(StrFromTo(path, 0, (i64)prefix.length), prefix);
+        }
+        b32 seen = false;
+        for (u64 j = 0; j < result.header.count; ++j) seen |= StrIsEqual(result.v[j].path, path);
+        if (!wanted || seen) continue;
+        P_Place place = { .path = StrCopy(arena, path) };
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+        place.name = root ? S("File System") : StrCopy(arena, StrFrom(path, slash.value + 1));
+        struct statvfs info;
+        char *native = P__FilePathCString(scratch.arena, path);
+        if (native && statvfs(native, &info) == 0) {
+            place.totalBytes = (u64)info.f_blocks * info.f_frsize;
+            place.freeBytes = (u64)info.f_bavail * info.f_frsize;
+        }
+        ArrayPush(arena, result, place);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function String P_ConfigDirectory(Arena *arena)
+{
+    const char *override = getenv("FILEY_CONFIG_DIR"), *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    String base = config && config[0] == '/' ? StrFromCStr(config) : home && home[0] == '/' ? StrFormat(arena, "%s/.config", home) : (String){0};
+    String result = override && override[0] == '/' ? P_AbsolutePath(arena, StrFromCStr(override)) : base.length ? StrFormat(arena, "%S/filey", base) : (String){0};
+    if (!result.length) return result;
+    Scratch scratch = GetScratchEx(arena);
+    if (base.length && !(override && override[0] == '/')) mkdir(P__FilePathCString(scratch.arena, base), 0700);
+    b32 ok = mkdir(P__FilePathCString(scratch.arena, result), 0700) == 0 || errno == EEXIST;
+    ReleaseScratch(scratch);
+    return ok ? result : (String){0};
+}
+
+function b32 P_ReadFile(Arena *arena, String path, String *contents)
+{
+    *contents = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, path);
+    i32 fd = native ? open(native, O_RDONLY | O_CLOEXEC) : -1;
+    ReleaseScratch(scratch);
+    if (fd < 0) return false;
+    // /proc files report no size, so the file is read until its end.
+    StrBuilder text = {0};
+    char buffer[16384];
+    ssize_t length = 0;
+    while ((length = read(fd, buffer, sizeof(buffer))) > 0 && text.buffer.length < (1 << 24)) StrBuildBytes(arena, &text, buffer, (u64)length);
+    close(fd);
+    *contents = text.buffer;
+    return length == 0;
+}
+
+function P_FileError P_WriteFile(Arena *arena, String path, String contents)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, path);
+    char *temporary = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S.tmp", path));
+    u32 code = EINVAL;
+    if (native && temporary) {
+        i32 fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        code = fd < 0 ? (u32)errno : 0;
+        for (u64 at = 0; !code && at < contents.length;) {
+            ssize_t written = write(fd, contents.value + at, contents.length - at);
+            if (written < 0 && errno != EINTR) code = (u32)errno;
+            else if (written > 0) at += (u64)written;
+        }
+        if (!code && fsync(fd) != 0) code = (u32)errno;
+        if (fd >= 0) close(fd);
+        if (!code && rename(temporary, native) != 0) code = (u32)errno;
+        if (code) unlink(temporary);
+    }
+    ReleaseScratch(scratch);
+    return code ? P__FileError(arena, code) : (P_FileError){0};
 }

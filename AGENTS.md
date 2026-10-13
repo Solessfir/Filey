@@ -53,6 +53,7 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
   `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`, and likewise `staging/fractional-scale/fractional-scale-v1.xml` to `FractionalScale.generated.{h,c}` and `stable/viewporter/viewporter.xml` to `Viewporter.generated.{h,c}`.
 - The `profile` flag defines `PROFILE`, which turns `ProfileScope("Name") { ... }` (`Platform/Profile.h`) into timed scopes on any thread. On exit the app writes `Filey.trace.json` to the working directory; open it in https://ui.perfetto.dev. Without the flag the macros compile to nothing.
 - `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
+- Bookmarks and recents are saved as `Bookmarks.txt` and `Recents.txt` in `%LOCALAPPDATA%\Filey` or `~/.config/filey`. Manual test runs SHOULD set `FILEY_CONFIG_DIR` to a temp folder so that they leave the user's settings alone; the headless tests never load settings.
 - WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).
 - Both build scripts first compile and run `Source/Tools/Codegen.c`, which regenerates `Source/Meta/*.meta.h` (committed) and fails the build on malformed input.
 - Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.

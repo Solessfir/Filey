@@ -325,6 +325,21 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    if (input->kind == Prog_JobKind_Places) {
+        Prog_Places *result = ArenaPushStruct(&job->arena, Prog_Places);
+        ProfileScope("ListPlaces") {
+            result->places = P_UserPlaces(&job->arena);
+            result->drives = P_Drives(&job->arena);
+        }
+        job->result = result;
+        return;
+    }
+    if (input->kind == Prog_JobKind_Save) {
+        P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        *error = P_WriteFile(&job->arena, input->path, input->name);
+        job->result = error;
+        return;
+    }
     if (input->kind == Prog_JobKind_WarmMenu) {
         ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
@@ -471,6 +486,131 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
 }
 
 function void Prog__EnsureTab(Prog_State *state);
+
+// Bookmarks and recents, one path per line in the config folder.
+#define Prog_BookmarksFile S("Bookmarks.txt")
+#define Prog_RecentsFile   S("Recents.txt")
+#define Prog_MaxRecents    20
+
+// Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
+function void Prog__SetList(Arena *arena, ArrayStr *list, const String *items, u64 count)
+{
+    Arena fresh = {0};
+    ArrayStr result = {0};
+    for (u64 i = 0; i < count; ++i) ArrayPush(&fresh, result, StrCopy(&fresh, items[i]));
+    ArenaRelease(arena);
+    *arena = fresh;
+    *list = result;
+}
+
+function String Prog__ListText(Arena *arena, ArrayStr list)
+{
+    StrBuilder text = {0};
+    for (u64 i = 0; i < list.header.count; ++i) {
+        StrBuildStr(arena, &text, list.v[i]);
+        StrBuildChar(arena, &text, '\n');
+    }
+    return text.buffer;
+}
+
+function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
+{
+    if (!state->configDirectory.length) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Save;
+    input->path = Prog_JoinPath(&job->arena, state->configDirectory, file);
+    input->name = Prog__ListText(&job->arena, list);
+    job->input = input;
+    P_JobSubmit(job);
+}
+
+function void Prog__LoadList(Prog_State *state, String file, Arena *arena, ArrayStr *list, b32 *found)
+{
+    Scratch scratch = GetScratch();
+    String text = {0};
+    *found = P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, file), &text);
+    ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+    u64 kept = 0;
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        String line = lines.v[i];
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (line.length) lines.v[kept++] = line;
+    }
+    Prog__SetList(arena, list, lines.v, kept);
+    ReleaseScratch(scratch);
+}
+
+// Loads the bookmarks and recents saved in `configDirectory`, which keeps them from then on.
+// Without a bookmarks file, the user's desktop, documents, downloads and pictures start as bookmarks.
+function void Prog_LoadSettings(Prog_State *state, String configDirectory)
+{
+    ArenaClear(&state->settingsArena);
+    state->configDirectory = StrCopy(&state->settingsArena, configDirectory);
+    if (!configDirectory.length) return;
+    b32 found = false;
+    Prog__LoadList(state, Prog_BookmarksFile, &state->bookmarkArena, &state->bookmarks, &found);
+    if (!found) {
+        Scratch scratch = GetScratch();
+        P_ArrayPlace places = P_UserPlaces(scratch.arena);
+        String *paths = ArenaPushArray(scratch.arena, places.header.count + 1, String);
+        u64 count = 0;
+        for (u64 i = 0; i < places.header.count; ++i) {
+            String name = places.v[i].name;
+            if (StrIsEqual(name, S("Desktop")) || StrIsEqual(name, S("Documents")) || StrIsEqual(name, S("Downloads")) || StrIsEqual(name, S("Pictures"))) paths[count++] = places.v[i].path;
+        }
+        Prog__SetList(&state->bookmarkArena, &state->bookmarks, paths, count);
+        ReleaseScratch(scratch);
+    }
+    Prog__LoadList(state, Prog_RecentsFile, &state->recentArena, &state->recents, &found);
+}
+
+function b32 Prog_IsBookmarked(const Prog_State *state, String path)
+{
+    for (u64 i = 0; i < state->bookmarks.header.count; ++i) {
+        if (StrIsEqual(state->bookmarks.v[i], path)) return true;
+    }
+    return false;
+}
+
+// Adds `path` at the end of the bookmarks, or removes it when it is one.
+function void Prog_ToggleBookmark(Prog_State *state, String path)
+{
+    if (!path.length) return;
+    Scratch scratch = GetScratch();
+    u64 count = state->bookmarks.header.count;
+    String *paths = ArenaPushArray(scratch.arena, count + 1, String);
+    u64 kept = 0;
+    for (u64 i = 0; i < count; ++i) {
+        if (!StrIsEqual(state->bookmarks.v[i], path)) paths[kept++] = state->bookmarks.v[i];
+    }
+    if (kept == count) paths[kept++] = path;
+    Prog__SetList(&state->bookmarkArena, &state->bookmarks, paths, kept);
+    ReleaseScratch(scratch);
+    Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
+}
+
+// Puts `path` first among the recents.
+function void Prog__AddRecent(Prog_State *state, String path)
+{
+    if (state->recents.header.count && StrIsEqual(state->recents.v[0], path)) return;
+    Scratch scratch = GetScratch();
+    String *paths = ArenaPushArray(scratch.arena, Prog_MaxRecents, String);
+    u64 count = 0;
+    paths[count++] = path;
+    for (u64 i = 0; i < state->recents.header.count && count < Prog_MaxRecents; ++i) {
+        if (!StrIsEqual(state->recents.v[i], path)) paths[count++] = state->recents.v[i];
+    }
+    Prog__SetList(&state->recentArena, &state->recents, paths, count);
+    ReleaseScratch(scratch);
+    Prog__SaveList(state, Prog_RecentsFile, state->recents);
+}
+
+function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group)
+{
+    b32 open = group == Prog_Group_Bookmarks || group == Prog_Group_Storage;
+    return open != (state->groupToggled[group] != 0);
+}
 
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user)
 {
@@ -623,6 +763,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     }
     // A deferred reload needs frames until it runs.
     changed |= state->watchDirty;
+    // ponytail: drives that come and go show at the next refresh after some input; watch device changes if that feels slow.
+    if (state->placesWanted && !state->placesJob && (!state->placesTime || now - state->placesTime >= Millions(5))) {
+        state->placesTime = now;
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_Places;
+        job->input = input;
+        state->placesJob = job;
+        P_JobSubmit(job);
+    }
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         if (input->kind == Prog_JobKind_Icons) {
@@ -670,6 +820,24 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             // Reloading now shows the result without waiting for the watch.
             if (!error.code) Prog_Reload(state);
+        } else if (input->kind == Prog_JobKind_Places) {
+            if (state->placesJob == job) state->placesJob = NULL;
+            if (job->result) {
+                Prog_Places *result = job->result;
+                ArenaRelease(&state->placesArena);
+                state->placesArena = job->arena;
+                job->arena = (Arena){0};
+                state->places = result->places;
+                state->drives = result->drives;
+                changed = true;
+            }
+        } else if (input->kind == Prog_JobKind_Save) {
+            P_FileError *error = job->result;
+            if (error && error->code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "Save %S: %S", input->path, error->message);
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
             Prog_Measured *result = job->result;
@@ -773,7 +941,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->focusedRow = state->anchorRow = pickRow;
                         state->revealFocus = true;
                     }
-                    if (!samePath) state->resetScroll = true;
+                    if (!samePath) {
+                        state->resetScroll = true;
+                        Prog__AddRecent(state, result->path);
+                    }
                     if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {
                         if (state->history.header.count) state->history.header.count = state->historyAt + 1;
                         ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, input->path));
@@ -875,6 +1046,14 @@ function void Prog_Release(Prog_State *state)
     Prog_CloseMenu(state);
     ArenaRelease(&state->menuArena);
     P_JobsShutdown(&state->jobs);
+    // Shutting down drops saves still waiting in the queue, and the workers are done, so the lists are written once more here.
+    if (state->configDirectory.length) {
+        Scratch scratch = GetScratch();
+        ArrayStr lists[2] = { state->bookmarks, state->recents };
+        String files[2] = { Prog_BookmarksFile, Prog_RecentsFile };
+        for (u32 i = 0; i < 2; ++i) P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, files[i]), Prog__ListText(scratch.arena, lists[i]));
+        ReleaseScratch(scratch);
+    }
     UI_Release(&state->ui);
     ArenaRelease(&state->frameArena);
     ArenaRelease(&state->directoryArena);
@@ -884,6 +1063,10 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->iconArena);
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->closedArena);
+    ArenaRelease(&state->placesArena);
+    ArenaRelease(&state->settingsArena);
+    ArenaRelease(&state->bookmarkArena);
+    ArenaRelease(&state->recentArena);
     for (u32 i = 0; i < state->tabCount; ++i) Prog__ReleaseTab(&state->tabs[i]);
     *state = (Prog_State){0};
 }
