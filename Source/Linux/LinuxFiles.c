@@ -230,14 +230,42 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
-// ponytail: only "Open", which the program carries out itself; add Open With, Copy Path and the like as Filey implements them.
+// Every item is something the program carries out itself: Open and Rename by their verbs, the rest by their actions.
+// ponytail: no Open With or Open in Terminal yet; they need the desktop's application database.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
-    if (count == 0) return false;
-    menu->items = ArenaPushArray(arena, 1, P_MenuItem);
-    menu->items[0] = (P_MenuItem){ .label = S("Open"), .verb = S("open"), .id = 1, .isDefault = true };
-    menu->count = menu->rootCount = 1;
+    P_MenuItem items[16];
+    u32 itemCount = 0;
+    P_MenuItem separator = { .separator = true };
+    if (count) {
+        items[itemCount++] = (P_MenuItem){ .label = S("Open"), .verb = S("open"), .isDefault = true };
+        items[itemCount++] = separator;
+        items[itemCount++] = (P_MenuItem){ .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
+        items[itemCount++] = (P_MenuItem){ .label = S("Copy"), .verb = S("copy"), .action = P_MenuAction_Copy };
+        items[itemCount++] = (P_MenuItem){ .label = S("Duplicate"), .action = P_MenuAction_Duplicate };
+        items[itemCount++] = (P_MenuItem){ .label = S("Copy As Path"), .action = P_MenuAction_CopyAsPath };
+        items[itemCount++] = separator;
+        if (count == 1) items[itemCount++] = (P_MenuItem){ .label = S("Rename"), .verb = S("rename") };
+        items[itemCount++] = (P_MenuItem){ .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
+    } else {
+        items[itemCount++] = (P_MenuItem){ .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
+        items[itemCount++] = separator;
+        items[itemCount++] = (P_MenuItem){ .label = S("New"), .firstChild = 0, .childCount = 2 };
+    }
+    u32 rootCount = itemCount;
+    if (!count) {
+        items[rootCount - 1].firstChild = rootCount;
+        items[itemCount++] = (P_MenuItem){ .label = S("Folder"), .action = P_MenuAction_NewFolder };
+        items[itemCount++] = (P_MenuItem){ .label = S("File"), .action = P_MenuAction_NewFile };
+    }
+    menu->items = ArenaPushArray(arena, itemCount, P_MenuItem);
+    for (u32 i = 0; i < itemCount; ++i) {
+        menu->items[i] = items[i];
+        if (!items[i].separator) menu->items[i].id = i + 1;
+    }
+    menu->count = itemCount;
+    menu->rootCount = rootCount;
     return true;
 }
 

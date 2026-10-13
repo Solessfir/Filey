@@ -973,6 +973,16 @@ function void TestFileCommand(Prog_State *state, Prog_CommandKind kind)
     Check(TestWaitDirectory(state));
 }
 
+// A watch reload can land before the one a command starts, so checks on the result wait for it.
+function b32 TestWaitCount(Prog_State *state, u64 count)
+{
+    for (u64 start = PlatformNowMicroseconds(); (state->directory.count != count || state->directoryJob) && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(state);
+        P__TestPause();
+    }
+    return state->directory.count == count;
+}
+
 function void TestProgramFileCommands(TestFileFixture *fixture)
 {
     Arena arena = {0};
@@ -996,10 +1006,10 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestRenameKey(&state, Key_C, KeyMod_Control);
     Check(TestClipboardFiles.header.count == 1 && !TestClipboardCut && StrIsEqual(TestClipboardFiles.v[0], Prog_JoinPath(&arena, root, S("a.txt"))));
     TestFileCommand(&state, Prog_CommandKind_Paste);
-    Check(!state.error.length && state.directory.count == 3);
+    Check(TestWaitCount(&state, 3) && !state.error.length);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
     TestFileCommand(&state, Prog_CommandKind_Duplicate);
-    Check(!state.error.length && state.directory.count == 4);
+    Check(TestWaitCount(&state, 4) && !state.error.length);
 
     // Cut and Paste in another folder moves.
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
@@ -1035,6 +1045,25 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     if (saved.length) setenv("XDG_DATA_HOME", P__FilePathCString(&arena, saved), 1);
     else unsetenv("XDG_DATA_HOME");
     Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
+
+    // The context menu's items run the same commands.
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, 1, 0);
+    Prog_ProcessCommands(&state);
+    Check(state.menuOpen && state.menu.rootCount == 3 && state.menu.items[2].childCount == 2);
+    if (state.menuOpen) {
+        u32 newFolder = state.menu.items[2].firstChild;
+        Check(state.menu.items[newFolder].action == P_MenuAction_NewFolder);
+        ArenaClear(&state.frameArena);
+        Prog_QueueCommand(&state, Prog_CommandKind_ContextMenuInvoke, newFolder, 1, 0);
+        Prog_ProcessCommands(&state);
+        for (u64 start = PlatformNowMicroseconds(); !state.directoryJob && PlatformNowMicroseconds() - start < Millions(5);) {
+            Prog_TakeCompletions(&state);
+            if (!state.directoryJob) P__TestPause();
+        }
+        Check(TestWaitDirectory(&state) && !state.menuOpen && state.renaming && TestEntryIndex(&state, S("New folder")) != UINT64_MAX);
+        TestRenameKey(&state, Key_Escape, 0);
+    }
 #endif
 finish:
     Prog_Release(&state);

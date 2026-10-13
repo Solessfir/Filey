@@ -128,6 +128,20 @@ function String P_FileTypeName(Arena *arena, String name, P_FileKind kind);
 
 // Context menus.
 // Windows reads the shell's own menu, extensions included; Linux offers the actions Filey implements itself.
+// Those items carry an action, which the program carries out instead of P_ContextMenuInvoke.
+typedef enum P_MenuAction {
+    P_MenuAction_None,
+    P_MenuAction_Cut,
+    P_MenuAction_Copy,
+    P_MenuAction_Paste,
+    P_MenuAction_Duplicate,
+    P_MenuAction_CopyAsPath,
+    P_MenuAction_Trash,
+    P_MenuAction_NewFolder,
+    P_MenuAction_NewFile,
+    P_MenuAction_Count,
+} P_MenuAction;
+
 typedef struct P_MenuItem {
     String label;
     String verb;       // canonical verb such as "open" or "delete" when the system has one
@@ -137,6 +151,7 @@ typedef struct P_MenuItem {
     b8 separator;
     b8 disabled;
     b8 isDefault;
+    enum8(P_MenuAction) action;
 } P_MenuItem;
 
 typedef struct P_ContextMenu {

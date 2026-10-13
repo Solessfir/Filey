@@ -353,6 +353,8 @@ function void Prog__EndRename(Prog_State *state, b32 commit)
     P_JobSubmit(job);
 }
 
+function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind);
+
 function void Prog__InvokeMenu(Prog_State *state, u32 index)
 {
     if (!state->menuOpen || index >= state->menu.count) return;
@@ -364,6 +366,23 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         u64 row = state->menuRows[0];
         Prog_CloseMenu(state);
         Prog_BeginRename(state, row);
+        return;
+    }
+    // Items Filey implements itself, which are all of them on Linux.
+    if (item.action) {
+        static_assert(P_MenuAction_Count == 9);
+        local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
+            [P_MenuAction_Cut] = Prog_CommandKind_CutSelection,
+            [P_MenuAction_Copy] = Prog_CommandKind_CopySelection,
+            [P_MenuAction_Paste] = Prog_CommandKind_Paste,
+            [P_MenuAction_Duplicate] = Prog_CommandKind_Duplicate,
+            [P_MenuAction_CopyAsPath] = Prog_CommandKind_CopyAsPath,
+            [P_MenuAction_Trash] = Prog_CommandKind_Trash,
+            [P_MenuAction_NewFolder] = Prog_CommandKind_CreateFolder,
+            [P_MenuAction_NewFile] = Prog_CommandKind_CreateFile,
+        };
+        Prog_CloseMenu(state);
+        if (item.action < P_MenuAction_Count) Prog__FileCommand(state, actions[item.action]);
         return;
     }
     if (StrIsEqual(item.verb, S("open")) && state->menuRowCount) {
