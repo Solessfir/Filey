@@ -30,6 +30,20 @@ function u8 Prog__FoldAscii(u8 c)
     return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
 }
 
+// The last component of an entry's name, which in an expanded listing is a path.
+function String Prog_EntryLeaf(String name)
+{
+    Index slash = StrIndexChar(name, '/', SSF_SearchBackwards);
+    return slash.exists ? StrFromTo(name, slash.value + 1, (i64)name.length) : name;
+}
+
+// The folder an entry is in, relative to the shown folder; empty for its own items.
+function String Prog_EntryParent(String name)
+{
+    Index slash = StrIndexChar(name, '/', SSF_SearchBackwards);
+    return slash.exists ? StrFromTo(name, 0, (i64)slash.value) : (String){0};
+}
+
 // The lowercase form of `c` for matching.
 // Accents stay, so "e" does not match "é", as in the reference.
 // ponytail: Latin, Greek and Cyrillic only; add a generated case table if other scripts need it.
@@ -81,7 +95,7 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
     for (u64 i = 0; i < state->directory.count; ++i) {
         Prog_Entry *entry = &state->directory.entries[i];
         b32 folder = entry->file.kind == P_FileKind_Directory;
-        if (!(folder ? state->hideFolders : state->hideFiles) && Prog_FilterMatch(entry->file.name, filter, NULL)) {
+        if (!(folder ? state->hideFolders : state->hideFiles) && Prog_FilterMatch(Prog_EntryLeaf(entry->file.name), filter, NULL)) {
             state->view[state->viewCount++] = i;
             state->viewFolders += folder != 0;
         } else {
@@ -304,17 +318,39 @@ function void Prog__DirectoryJob(P_Job *job)
     result->sort = input->sort;
     result->descending = input->descending;
     result->showHidden = input->showHidden;
+    result->expanded = input->expanded;
     P_DirectoryResult listing = {0};
     ProfileScope("EnumerateDirectory") listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
     if (result->error.code || result->cancelled) return;
-    result->entries = ArenaPushArray(&job->arena, listing.files.header.count, Prog_Entry);
+    P_FileArray files = listing.files;
+    if (input->expanded) {
+        // Walks every subfolder breadth first; links are not followed and unreadable folders are skipped.
+        // ponytail: hands back one result at the end; stream chunks like the measure job if big trees feel slow.
+        ProfileScope("ExpandDirectory") {
+            P_FileArray all = {0};
+            for (u64 i = 0; i < files.header.count; ++i) ArrayPush(&job->arena, all, files.v[i]);
+            for (u64 i = 0; i < all.header.count; ++i) {
+                if (P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
+                P_File folder = all.v[i];
+                if (folder.kind != P_FileKind_Directory || folder.symbolicLink || (folder.hidden && !input->showHidden)) continue;
+                P_DirectoryResult inside = P_EnumerateDirectory(&job->arena, Prog_JoinPath(&job->arena, input->path, folder.name), &job->cancelToken);
+                for (u64 j = 0; j < inside.files.header.count; ++j) {
+                    P_File file = inside.files.v[j];
+                    file.name = StrFormat(&job->arena, "%S/%S", folder.name, file.name);
+                    ArrayPush(&job->arena, all, file);
+                }
+            }
+            files = all;
+        }
+    }
+    result->entries = ArenaPushArray(&job->arena, files.header.count, Prog_Entry);
     // Type names repeat per type, so each is asked of the system once per listing.
     struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
-    for (u64 i = 0; i < listing.files.header.count; ++i) {
+    for (u64 i = 0; i < files.header.count; ++i) {
         if (P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
-        P_File file = listing.files.v[i];
+        P_File file = files.v[i];
         if (file.kind == P_FileKind_Directory) ++result->totalFolders;
         else ++result->totalFiles;
         if (file.hidden && !input->showHidden) continue;
@@ -332,6 +368,31 @@ function void Prog__DirectoryJob(P_Job *job)
         if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
         if (file.metadataValid) {
             entry->modified = P_FormatFileTime(&job->arena, file.modifiedTimeUnix);
+        }
+    }
+    if (input->expanded) {
+        // The walk saw everything below each folder, so folder totals come from the listing instead of measure jobs.
+        // Hidden items count only when they are shown.
+        struct { MapHeader header; struct { String key; u64 value; } *v; } folders = {0};
+        for (u64 i = 0; i < result->count; ++i) {
+            Prog_Entry *entry = &result->entries[i];
+            if (entry->file.kind != P_FileKind_Directory) continue;
+            entry->measured = true;
+            MapsPut(&job->arena, folders, entry->file.name, i + 1);
+        }
+        for (u64 i = 0; i < result->count; ++i) {
+            const Prog_Entry *entry = &result->entries[i];
+            for (String parent = Prog_EntryParent(entry->file.name); parent.length; parent = Prog_EntryParent(parent)) {
+                u64 at = MapsGet(folders, u64, parent);
+                if (!at) break;
+                Prog_Entry *owner = &result->entries[at - 1];
+                if (entry->file.kind == P_FileKind_Directory) {
+                    ++owner->folders;
+                } else {
+                    ++owner->files;
+                    owner->bytes += entry->file.size;
+                }
+            }
         }
     }
     Prog_Entry *buffer = ArenaPushArray(&job->arena, result->count, Prog_Entry);
@@ -377,7 +438,10 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->generation = ++state->generation;
     input->sort = state->sort;
     input->descending = state->descending;
+    // Another folder starts flat unless the filter is pinned.
+    if (!StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
     input->showHidden = state->showHidden;
+    input->expanded = state->expanded;
     input->addHistory = addHistory;
     input->historyAt = historyAt;
     job->input = input;
@@ -436,11 +500,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (error && error->code) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "Rename %S: %S", input->name, error->message);
-            } else if (StrIsEqual(state->directory.path, input->path)) {
+            } else {
                 // Reloading now, rather than on the watch, selects the new name without waiting.
-                MemCopy(state->selectText, input->newName.value, input->newName.length);
-                state->selectLength = (u32)input->newName.length;
-                Prog_Reload(state);
+                String listed = input->prefix.length ? StrFormat(&state->frameArena, "%S/%S", input->prefix, input->newName) : input->newName;
+                String folder = input->prefix.length ? Prog_JoinPath(&state->frameArena, state->directory.path, input->prefix) : state->directory.path;
+                if (StrIsEqual(folder, input->path) && listed.length <= sizeof(state->selectText)) {
+                    MemCopy(state->selectText, listed.value, listed.length);
+                    state->selectLength = (u32)listed.length;
+                    Prog_Reload(state);
+                }
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {

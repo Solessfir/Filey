@@ -393,8 +393,8 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metri
     }
 }
 
-// A name with the bytes a filter matched, flagged in `marks`, in the match color.
-function void Prog__MatchLabel(String name, const u8 *marks, UI_Size width, R_Color color, const Prog_Metrics *m)
+// A name whose first `prefix` bytes, the folder in an expanded listing, are dimmed, with the bytes a filter matched after it, flagged in `marks` when not NULL, in the match color.
+function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size width, R_Color color, R_Color dim, const Prog_Metrics *m)
 {
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(m->row));
@@ -403,9 +403,11 @@ function void Prog__MatchLabel(String name, const u8 *marks, UI_Size width, R_Co
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(cell) {
-        for (u64 start = 0, end = 0; start < name.length; start = end) {
-            while (end < name.length && marks[end] == marks[start]) ++end;
-            Prog__Label(StrFromTo(name, start, (i64)end), UI_TextContent(), m->row, 0, marks[start] ? Prog_CurrentTheme()->textMatch : color, 0);
+        if (prefix) Prog__Label(StrFromTo(name, 0, (i64)prefix), UI_TextContent(), m->row, 0, dim, 0);
+        for (u64 start = prefix, end = prefix; start < name.length; start = end) {
+            b32 match = marks && marks[start - prefix];
+            while (end < name.length && (marks && marks[end - prefix]) == match) ++end;
+            Prog__Label(StrFromTo(name, start, (i64)end), UI_TextContent(), m->row, 0, match ? Prog_CurrentTheme()->textMatch : color, 0);
         }
     }
 }
@@ -486,9 +488,12 @@ function void Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, 
                 continue;
             }
             R_Color color = (i == Prog_ColumnId_Name && !faded) || highlighted ? theme->text : theme->textDim;
-            u8 *marks = i == Prog_ColumnId_Name && state->filter.length ? ArenaPushArrayNoZero(frame, Max(entry->file.name.length, (u64)1), u8) : NULL;
-            if (marks && Prog_FilterMatch(entry->file.name, Prog_EditText(&state->filter), marks)) {
-                Prog__MatchLabel(entry->file.name, marks, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), color, m);
+            if (i == Prog_ColumnId_Name && (state->filter.length || state->directory.expanded)) {
+                String leaf = Prog_EntryLeaf(entry->file.name);
+                u64 prefix = entry->file.name.length - leaf.length;
+                u8 *marks = state->filter.length ? ArenaPushArrayNoZero(frame, Max(leaf.length, (u64)1), u8) : NULL;
+                if (marks && !Prog_FilterMatch(leaf, Prog_EditText(&state->filter), marks)) marks = NULL;
+                Prog__NameLabel(entry->file.name, prefix, marks, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), color, theme->textDim, m);
                 continue;
             }
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
@@ -566,6 +571,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
                 Prog__EditMouse(state, field, &state->filter, floorf(m->gap * 0.5f), Prog_CommandKind_FilterCaret, m);
                 UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((m->pill - m->line) * 0.5f), state->filtering, m);
+                Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
                 Prog__PillButton(state, S("FilterPin"), state->filterSticky ? Icon_Pin : Icon_PinOff, Prog_CommandKind_ToggleFilterPin, state->filterSticky, m);
                 Prog__PillButton(state, S("FilterApply"), Icon_Check, Prog_CommandKind_ApplyFilter, false, m);
                 Prog__PillButton(state, S("FilterOpen"), Icon_CornerDownLeft, Prog_CommandKind_OpenFocused, false, m);
@@ -573,6 +579,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             } else {
                 String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
+                Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
             }
         }
 

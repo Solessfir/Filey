@@ -622,7 +622,7 @@ function b32 TestFilterConsistent(Prog_State *state)
     String filter = Prog_EditText(&state->filter);
     u64 shown = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
-        b32 match = Prog_FilterMatch(state->directory.entries[i].file.name, filter, NULL);
+        b32 match = Prog_FilterMatch(Prog_EntryLeaf(state->directory.entries[i].file.name), filter, NULL);
         b32 inView = Prog_ViewPosition(state, i) != UINT64_MAX;
         result &= match == inView && (inView || !state->directory.entries[i].selected);
         shown += inView != 0;
@@ -714,6 +714,56 @@ function void TestFilter(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_ToggleFilterPin, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
     Check(StrIsEqual(state.directory.path, fixture->path) && !state.filter.length && !state.filtering && state.viewCount == state.directory.count);
+    Prog_Release(&state);
+}
+
+function void TestExpand(TestFileFixture *fixture)
+{
+    Check(StrIsEqual(Prog_EntryLeaf(S("a/b/c.txt")), S("c.txt")) && StrIsEqual(Prog_EntryParent(S("a/b/c.txt")), S("a/b")));
+    Check(StrIsEqual(Prog_EntryLeaf(S("c.txt")), S("c.txt")) && !Prog_EntryParent(S("c.txt")).length);
+
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized) return;
+    Check(TestWaitDirectory(&state));
+    Check(TestEntryIndex(&state, S("Folder2/inside.txt")) == UINT64_MAX);
+
+    // Expanded Search lists subfolders' items and starts the filter; folders get totals from the walk.
+    TestBrowsingCommand(&state, Prog_CommandKind_StartExpandedSearch, 0);
+    Check(state.expanded && state.filtering && state.directory.expanded);
+    u64 inside = TestEntryIndex(&state, S("Folder2/inside.txt")), folder = TestEntryIndex(&state, S("Folder2"));
+    Check(inside != UINT64_MAX && folder != UINT64_MAX && !state.measureJob);
+    if (inside == UINT64_MAX || folder == UINT64_MAX) goto finish;
+    Check(state.directory.entries[folder].measured && state.directory.entries[folder].files == 1 && state.directory.entries[folder].bytes == 5);
+
+    // The filter matches names, not the folders they are in.
+    TestRenameType(&state, S("inside"));
+    Check(state.viewCount == 1 && state.view[0] == inside && state.focusedRow == inside);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
+    TestRenameType(&state, S("folder2"));
+    Check(state.viewCount == 1 && state.view[0] == folder);
+    TestRenameKey(&state, Key_A, KeyMod_Control);
+    TestRenameType(&state, S("inside"));
+
+    // Renaming a nested item edits its name and renames it in its own folder; the filter gives way to the new name.
+    Prog_BeginRename(&state, inside);
+    Check(state.renaming && StrIsEqual(Prog_EditText(&state.rename), S("inside.txt")));
+    TestRenameKey(&state, Key_A, KeyMod_Control);
+    TestRenameType(&state, S("moved.txt"));
+    TestRenameKey(&state, Key_Enter, 0);
+    for (u64 start = PlatformNowMicroseconds(); !state.directoryJob && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(&state);
+        if (!state.directoryJob) P__TestPause();
+    }
+    Check(TestWaitDirectory(&state) && !state.error.length);
+    u64 moved = TestEntryIndex(&state, S("Folder2/moved.txt"));
+    Check(moved != UINT64_MAX && state.directory.entries[moved].selected && state.focusedRow == moved && !state.filter.length);
+    Check(!P_RenamePath(&state.frameArena, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2")), S("moved.txt"), S("inside.txt")).code);
+
+    // Turning it off lists the folder flat again.
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleExpandFolder, 0);
+    Check(!state.expanded && TestEntryIndex(&state, S("Folder2/inside.txt")) == UINT64_MAX && TestEntryIndex(&state, S("Folder2")) != UINT64_MAX);
+finish:
     Prog_Release(&state);
 }
 
@@ -830,6 +880,7 @@ function void TestBrowsing(void)
         TestProgramBrowsing(&fixture);
         TestRename(&fixture);
         TestFilter(&fixture);
+        TestExpand(&fixture);
         TestWatch(&fixture);
         TestMeasure(&fixture);
 #if defined(_WIN32)

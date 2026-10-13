@@ -163,6 +163,18 @@ command RenameCaret {
 command FilterCaret {
 }
 
+command StartExpandedSearch {
+    label   = "Expanded Search^filter,subfolder,recursive,flatten"
+    tooltip = "Start searching through all subfiles and subfolders."
+    hotkey  = "Ctrl+E"
+    repeat  = "false"
+}
+
+command ToggleExpandFolder {
+    label   = "Toggle Expand Folder^unfold,reveal,deep,hierarchy,directory"
+    tooltip = "Recursively flatten all subfiles and subfolders into a single file listing."
+}
+
 command ApplyFilter {
     label   = "Apply Filter to Folder"
     tooltip = "Keep the filter and give the keyboard back to the list."

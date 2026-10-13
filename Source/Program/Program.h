@@ -103,11 +103,13 @@ typedef struct Prog_JobInput {
     enum8(Prog_Sort) sort;
     b32 descending;
     b32 showHidden;
+    b32 expanded;
     b32 addHistory;
     u64 historyAt;
-    // Rename `name` to `newName` inside `path`; WarmMenu uses `path` and `name`.
+    // Rename `name` to `newName` inside `path`, which is `prefix` below the shown folder; WarmMenu uses `path` and `name`.
     String name;
     String newName;
+    String prefix;
     // Measure the folders `names` inside `path`: the entries `rows` of listing `listing`.
     String *names;
     u64 *rows;
@@ -147,6 +149,8 @@ typedef struct Prog_Directory {
     enum8(Prog_Sort) sort;
     b32 descending;
     b32 showHidden;
+    // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
+    b32 expanded;
 } Prog_Directory;
 
 typedef struct Prog_State {
@@ -218,7 +222,8 @@ typedef struct Prog_State {
     // The view holds the rows it lets through, in listing order; rows it hides are never selected, so commands cannot act on them.
     Prog_TextEdit filter;
     b32 filtering;            // the filter box has the keyboard
-    b32 filterSticky;         // keep the filter in other folders
+    b32 filterSticky;         // keep the filter and the expanded listing in other folders
+    b32 expanded;             // list subfolders' items too
     b32 hideFolders;
     b32 hideFiles;
     u64 viewFolders;          // folders among the shown rows
@@ -264,6 +269,8 @@ function void Prog_Reload(Prog_State *state);
 function void Prog_BeginRename(Prog_State *state, u64 row);
 function void Prog_SetTransparent(Prog_State *state, b32 transparent);
 function String Prog_EditText(const Prog_TextEdit *edit);
+function String Prog_EntryLeaf(String name);
+function String Prog_EntryParent(String name);
 function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);

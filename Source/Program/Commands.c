@@ -104,6 +104,23 @@ function void Prog__MenuEnter(Prog_State *state)
     Prog__MenuMove(state, 1);
 }
 
+// Shell menus and drags take items of one folder.
+// In an expanded listing that is the folder of the first row; rows in other folders are dropped from `rows`.
+// Fills `names` with the rows' names inside that folder and returns its path.
+function String Prog__RowsFolder(Prog_State *state, Arena *arena, u64 *rows, u64 *count, String *names)
+{
+    String parent = *count ? Prog_EntryParent(state->directory.entries[rows[0]].file.name) : (String){0};
+    u64 kept = 0;
+    for (u64 i = 0; i < *count; ++i) {
+        String name = state->directory.entries[rows[i]].file.name;
+        if (!StrIsEqual(Prog_EntryParent(name), parent)) continue;
+        rows[kept] = rows[i];
+        names[kept++] = Prog_EntryLeaf(name);
+    }
+    *count = kept;
+    return parent.length ? Prog_JoinPath(arena, state->directory.path, parent) : state->directory.path;
+}
+
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
 {
     Prog_CloseMenu(state);
@@ -126,9 +143,9 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
             if (state->directory.entries[i].selected) state->menuRows[state->menuRowCount++] = i;
         }
     }
-    for (u64 i = 0; i < state->menuRowCount; ++i) names[i] = state->directory.entries[state->menuRows[i]].file.name;
+    String folder = Prog__RowsFolder(state, &state->menuArena, state->menuRows, &state->menuRowCount, names);
     ProfileScope("OpenContextMenu") {
-        state->menuOpen = P_ContextMenuOpen(&state->menuArena, state->directory.path, names, state->menuRowCount, &state->menu);
+        state->menuOpen = P_ContextMenuOpen(&state->menuArena, folder, names, state->menuRowCount, &state->menu);
     }
     if (!state->menuOpen) {
         Prog_CloseMenu(state);
@@ -293,14 +310,15 @@ function void Prog_BeginRename(Prog_State *state, u64 row)
 {
     if (state->loading || row >= state->directory.count) return;
     const Prog_Entry *entry = &state->directory.entries[row];
-    String name = entry->file.name;
-    if (name.length >= sizeof(state->rename.text)) return;
+    String name = Prog_EntryLeaf(entry->file.name);
+    if (entry->file.name.length >= sizeof(state->renameFrom)) return;
     Prog_CloseMenu(state);
     state->filtering = false;
     Prog_TextEdit *edit = &state->rename;
     MemCopy(edit->text, name.value, name.length);
-    MemCopy(state->renameFrom, name.value, name.length);
-    edit->length = state->renameFromLength = (u32)name.length;
+    MemCopy(state->renameFrom, entry->file.name.value, entry->file.name.length);
+    state->renameFromLength = (u32)entry->file.name.length;
+    edit->length = (u32)name.length;
     // Files start with the part before the extension selected, as in Explorer.
     u32 end = edit->length;
     if (entry->file.kind != P_FileKind_Directory) {
@@ -320,13 +338,15 @@ function void Prog__EndRename(Prog_State *state, b32 commit)
 {
     if (!state->renaming) return;
     state->renaming = false;
-    String from = StrMake((const char *)state->renameFrom, state->renameFromLength);
+    String listed = StrMake((const char *)state->renameFrom, state->renameFromLength);
+    String from = Prog_EntryLeaf(listed), prefix = Prog_EntryParent(listed);
     String to = Prog_EditText(&state->rename);
     if (!commit || !to.length || StrIsEqual(from, to) || state->loading) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Rename;
-    input->path = StrCopy(&job->arena, state->directory.path);
+    input->path = prefix.length ? Prog_JoinPath(&job->arena, state->directory.path, prefix) : StrCopy(&job->arena, state->directory.path);
+    input->prefix = StrCopy(&job->arena, prefix);
     input->name = StrCopy(&job->arena, from);
     input->newName = StrCopy(&job->arena, to);
     job->input = input;
@@ -373,12 +393,14 @@ function void Prog_DragSelection(Prog_State *state)
     if (state->loading || !state->selectedCount) return;
     Scratch scratch = GetScratch();
     String *names = ArenaPushArray(scratch.arena, state->selectedCount, String);
+    u64 *rows = ArenaPushArray(scratch.arena, state->selectedCount, u64);
     u64 count = 0;
     for (u64 i = 0; i < state->directory.count && count < state->selectedCount; ++i) {
-        if (state->directory.entries[i].selected) names[count++] = state->directory.entries[i].file.name;
+        if (state->directory.entries[i].selected) rows[count++] = i;
     }
+    String folder = Prog__RowsFolder(state, scratch.arena, rows, &count, names);
     state->dragging = true;
-    P_DragFiles(state->directory.path, names, count);
+    P_DragFiles(folder, names, count);
     state->dragging = false;
     // The system's drag loop took the button release.
     UI_CancelActive();
@@ -484,6 +506,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!state->renaming) {
                     state->filtering = true;
                     Prog__EditClick(&state->filter, (u32)command->row, command->mods, command->pressCount);
+                }
+            } break;
+            case Prog_CommandKind_ToggleExpandFolder:
+            case Prog_CommandKind_StartExpandedSearch: {
+                b32 expand = command->kind == Prog_CommandKind_StartExpandedSearch || !state->expanded;
+                if (expand != state->expanded) {
+                    state->expanded = expand;
+                    Prog_Reload(state);
+                }
+                if (command->kind == Prog_CommandKind_StartExpandedSearch && !state->renaming) {
+                    state->filtering = true;
+                    state->filter.anchor = 0;
+                    state->filter.cursor = state->filter.length;
                 }
             } break;
             case Prog_CommandKind_ApplyFilter: state->filtering = false; break;

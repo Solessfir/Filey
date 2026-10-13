@@ -34,6 +34,8 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_StartFilter,
     Prog_CommandKind_RenameCaret,
     Prog_CommandKind_FilterCaret,
+    Prog_CommandKind_StartExpandedSearch,
+    Prog_CommandKind_ToggleExpandFolder,
     Prog_CommandKind_ApplyFilter,
     Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin,
@@ -73,6 +75,8 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_StartFilter] = { .name = { "StartFilter", 11 }, .label = { "Filter", 6 }, .aliases = { "search", 6 }, .tooltip = { "Start filtering the current folder's contents.", 46 }, .noRepeat = true },
     [Prog_CommandKind_RenameCaret] = { .name = { "RenameCaret", 11 } },
     [Prog_CommandKind_FilterCaret] = { .name = { "FilterCaret", 11 } },
+    [Prog_CommandKind_StartExpandedSearch] = { .name = { "StartExpandedSearch", 19 }, .label = { "Expanded Search", 15 }, .aliases = { "filter,subfolder,recursive,flatten", 34 }, .tooltip = { "Start searching through all subfiles and subfolders.", 52 }, .noRepeat = true },
+    [Prog_CommandKind_ToggleExpandFolder] = { .name = { "ToggleExpandFolder", 18 }, .label = { "Toggle Expand Folder", 20 }, .aliases = { "unfold,reveal,deep,hierarchy,directory", 38 }, .tooltip = { "Recursively flatten all subfiles and subfolders into a single file listing.", 75 } },
     [Prog_CommandKind_ApplyFilter] = { .name = { "ApplyFilter", 11 }, .label = { "Apply Filter to Folder", 22 }, .tooltip = { "Keep the filter and give the keyboard back to the list.", 55 } },
     [Prog_CommandKind_RemoveFilter] = { .name = { "RemoveFilter", 12 }, .label = { "Remove Filter", 13 }, .tooltip = { "Show every item again.", 22 } },
     [Prog_CommandKind_ToggleFilterPin] = { .name = { "ToggleFilterPin", 15 }, .label = { "Pin Filter", 10 }, .aliases = { "sticky,retain,keep", 18 }, .tooltip = { "Retain the filter on folder change.", 35 } },
@@ -118,6 +122,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_ContextMenu, .mods = 0, .command = Prog_CommandKind_ContextMenu },
     { .key = Key_F2, .mods = 0, .command = Prog_CommandKind_Rename },
     { .key = Key_F, .mods = KeyMod_Control, .command = Prog_CommandKind_StartFilter },
+    { .key = Key_E, .mods = KeyMod_Control, .command = Prog_CommandKind_StartExpandedSearch },
     { .key = Key_B, .mods = KeyMod_Control | KeyMod_Alt, .command = Prog_CommandKind_ToggleTransparency },
 };
 #endif
