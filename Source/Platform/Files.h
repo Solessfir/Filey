@@ -65,3 +65,31 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
 // on Windows and shared-mime-info on Linux. Only the name is used, never the
 // file. Slow enough to run in a job and cache per P_FileTypeKey.
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind);
+
+// Context menus. Windows reads the shell's own menu, extensions included;
+// Linux offers the actions Filey implements itself.
+typedef struct P_MenuItem {
+    String label;
+    String verb;       // canonical verb such as "open" or "delete" when the system has one
+    u32 id;            // passed back to P_ContextMenuInvoke; 0 for separators
+    u32 firstChild;    // index into P_ContextMenu.items
+    u32 childCount;    // nonzero for submenus
+    b8 separator;
+    b8 disabled;
+    b8 isDefault;
+} P_MenuItem;
+
+typedef struct P_ContextMenu {
+    P_MenuItem *items;  // the top level is [0, rootCount); each submenu's children are contiguous
+    u32 count;
+    u32 rootCount;
+    void *native;       // platform state that keeps the menu alive until P_ContextMenuClose
+} P_ContextMenu;
+
+// Menu for `names` inside `directory`, or for the directory background when
+// `count` is 0. Main thread only: shell menus belong to the thread that built
+// them, and their verbs may need its message loop (clipboard, dialogs). Loading
+// shell extensions can take a moment.
+function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu);
+function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id);
+function void P_ContextMenuClose(P_ContextMenu *menu);

@@ -250,6 +250,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     } else if (!input->addHistory && state->history.header.count) {
                         state->historyAt = input->historyAt;
                     }
+                    // The menu's rows index the listing being replaced.
+                    Prog_CloseMenu(state);
                     ArenaRelease(&state->directoryArena);
                     state->directoryArena = job->arena;
                     state->directory = *result;
@@ -306,6 +308,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 
 function void Prog_Release(Prog_State *state)
 {
+    Prog_CloseMenu(state);
+    ArenaRelease(&state->menuArena);
     P_JobsShutdown(&state->jobs);
     UI_Release(&state->ui);
     ArenaRelease(&state->frameArena);

@@ -55,6 +55,7 @@ enum {
     Key_Control,
     Key_Alt,
     Key_Super,
+    Key_ContextMenu,  // the Menu/Application key
 
     Key_Count,
 };

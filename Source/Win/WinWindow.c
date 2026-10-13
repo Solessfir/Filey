@@ -62,6 +62,7 @@ function Key WinKeyFromVirtualKey(WPARAM vk)
         case VK_MENU:    return Key_Alt;
         case VK_LWIN:
         case VK_RWIN:    return Key_Super;
+        case VK_APPS:    return Key_ContextMenu;
         default:         return Key_None;
     }
 }
@@ -314,6 +315,10 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0, Win.dpi);
     SetWindowPos(Win.window, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    // Shell context menus and the clipboard need OLE on this thread.
+    OleInitialize(NULL);
+    P__shellOwner = Win.window;
 
     Win.dc = GetDC(Win.window);
     if (!WinCreateGLContext()) {

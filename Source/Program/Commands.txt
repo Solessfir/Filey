@@ -109,3 +109,23 @@ command FocusPageDown {
     hotkey = "Ctrl+PageDown"
     hotkey = "Ctrl+Shift+PageDown"
 }
+
+command ContextMenu {
+    label   = "Context Menu^right click,shell,properties"
+    tooltip = "Open the system context menu on the selection or the folder background."
+    hotkey  = "Shift+F10"
+    hotkey  = "ContextMenu"
+    repeat  = "false"
+}
+
+// Row or list background right-click; carries the row, or UINT64_MAX for the background.
+command ContextMenuAt {
+}
+
+// Menu item click or Enter; carries the P_MenuItem index.
+command ContextMenuInvoke {
+}
+
+// Escape or a click outside the menu.
+command ContextMenuClose {
+}

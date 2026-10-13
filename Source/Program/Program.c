@@ -51,6 +51,7 @@ typedef struct Prog_Metrics {
     f32 gap;         // text padding inside cells and buttons
     f32 iconSlot;    // reserved for file icons
     f32 radius;
+    const R_Font *font;
     const R_Font *icons;
 } Prog_Metrics;
 
@@ -58,6 +59,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
 {
     f32 line = font->lineHeight;
     return (Prog_Metrics){
+        .font = font,
         .icons = icons,
         .line = line,
         .row = floorf(line * 1.6f + 0.5f),
@@ -266,10 +268,13 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
     UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
-    UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
+    UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
     UI_Block *row = UI_AddBlockFromKey(key, flags);
+    if (focused) state->focusedRowRect = row->rect;
     UI_Interaction interaction = UI_InteractionFromBlock(row);
-    if (!state->loading && interaction.pressed) {
+    if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
+        Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
+    } else if (!state->loading && interaction.pressed) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount, interaction.pressOrder);
         command->mods = interaction.mods;
     }
@@ -302,7 +307,12 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     UI_SetNextPrefHeight(UI_Flex());
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
     UI_SetNextColors((UI_Colors){ .background = theme->background });
-    UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
+    UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
+                                        (!state->loading ? UI_Flag_RightMouseClickable : 0));
+    UI_Interaction listInteraction = UI_InteractionFromBlock(list);
+    if (listInteraction.pressed && listInteraction.button == MouseButton_Right) {
+        Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, listInteraction.pressCount, listInteraction.pressOrder);
+    }
     if (state->resetScroll) { list->scrollOffset = (UI_Vec2){0}; state->resetScroll = false; }
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / rowHeight);
     if (state->revealFocus && state->hasFocus) {
@@ -407,6 +417,124 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+typedef struct Prog_MenuPlace {
+    u32 first, count;
+    f32 x, y;
+    f32 openerWidth;  // width of the panel that opened this one; 0 for the top level
+} Prog_MenuPlace;
+
+// One menu level as a floating panel, kept inside the window. Sets `child`
+// when one of its items has its submenu open.
+function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
+    u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, visible);
+    if (!shown) return false;
+    f32 itemHeight = m->row, separatorHeight = m->gap + m->separator, pad = m->gap * 0.5f;
+    f32 labelWidth = 0, height = 2 * pad;
+    b32 anySubmenu = false;
+    for (u32 i = 0; i < shown; ++i) {
+        const P_MenuItem *item = &state->menu.items[visible[i]];
+        height += item->separator ? separatorHeight : itemHeight;
+        labelWidth = MaxF32(labelWidth, R_TextWidth(m->font, item->label));
+        anySubmenu |= item->childCount != 0;
+    }
+    f32 arrow = anySubmenu ? m->line * 1.5f : 0;
+    f32 width = floorf(MinF32(MaxF32(labelWidth + 2 * m->inset + arrow + 2 * pad, m->line * 12), m->line * 30));
+    R_Rect view = UI->root->rect;
+    f32 x = place.x, y = place.y;
+    // Submenus open to the right of their item, or to the left when there is no room.
+    if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width + 2 * pad : view.x1 - width;
+    if (y + height > view.y1) y = view.y1 - height;
+    x = floorf(MaxF32(view.x0, x));
+    y = floorf(MaxF32(view.y0, y));
+
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+    UI_SetNextCornerRadius(m->radius * 2);
+    UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->hover });
+    // Clickable so that clicks on the padding do not reach the catcher behind it.
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuPanel/%u", level)),
+                                         UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    b32 result = false;
+    f32 itemY = y + pad;
+    UI_Parent(panel) {
+        for (u32 i = 0; i < shown; ++i) {
+            u32 index = visible[i];
+            const P_MenuItem *item = &state->menu.items[index];
+            if (item->separator) {
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(separatorHeight));
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *line = UI_AddBlock(0);
+                UI_Parent(line) Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->hover, 0);
+                itemY += separatorHeight;
+                continue;
+            }
+            b32 enabled = !item->disabled || item->childCount;
+            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Menu/%u/%u", level, index));
+            // Moving the mouse onto an item decides the highlight and which submenu is open,
+            // as in native menus; the keyboard takes over until the mouse moves to another item.
+            if (enabled && UI->hotKey == key && state->menuHot != key) {
+                state->menuHighlight = index;
+                state->menuDepth = level;
+                if (item->childCount && level < CArrayCount(state->menuPath)) {
+                    state->menuPath[level] = index;
+                    state->menuDepth = level + 1;
+                }
+            }
+            b32 open = level < state->menuDepth && state->menuPath[level] == index;
+            b32 highlighted = enabled && (open || state->menuHighlight == index);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(itemHeight));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextCornerRadius(m->radius);
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_Block *row = UI_AddBlockFromKey(key, (highlighted ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+            UI_Interaction interaction = UI_InteractionFromBlock(row);
+            if (interaction.clicked && !item->childCount) {
+                Prog_QueueCommand(state, Prog_CommandKind_ContextMenuInvoke, index, 0, interaction.clickOrder);
+            }
+            UI_Parent(row) {
+                R_Color color = !enabled ? theme->iconDisabled : highlighted ? theme->text : theme->textHeading;
+                Prog__Label(item->label, UI_Flex(), itemHeight, m->inset - pad, color, 0);
+                if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, color, 0.5f, m);
+            }
+            if (open) {
+                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, itemY - pad, width };
+                result = true;
+            }
+            itemY += itemHeight;
+        }
+    }
+    return result;
+}
+
+function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->menuOpen) return;
+    // Clicks anywhere else close the menu and go no further.
+    UI_SetNextPrefWidth(UI_Pixels(UI->root->rect.x1 - UI->root->rect.x0));
+    UI_SetNextPrefHeight(UI_Pixels(UI->root->rect.y1 - UI->root->rect.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction interaction = UI_InteractionFromBlock(catcher);
+    if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, interaction.pressOrder);
+    // Each open level is its own top-level panel, so no panel clips the next.
+    Prog_MenuPlace place = { 0, state->menu.rootCount, state->menuAt.x, state->menuAt.y, 0 };
+    for (u32 level = 0; level <= CArrayCount(state->menuPath); ++level) {
+        Prog_MenuPlace child = {0};
+        if (!Prog__MenuPanel(state, level, place, m, &child)) break;
+        place = child;
+    }
+    state->menuHot = UI->hotKey;
+}
+
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     const Prog_Theme *theme = &Prog_ThemeCustom;
@@ -432,4 +560,5 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
             Prog__StatusBar(state, m);
         }
     }
+    Prog__ContextMenu(state, m);
 }

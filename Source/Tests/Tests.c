@@ -14,6 +14,7 @@
 #include "Win/WinThreads.c"
 #include "Win/WinFiles.c"
 #include "Win/WinIcons.c"
+#include "Win/WinShell.c"
 #elif defined(__linux__)
 #include "Linux/LinuxPlatform.c"
 #include "Linux/LinuxThreads.c"
@@ -411,6 +412,28 @@ function void TestMaps(void)
     ArenaRelease(&arena);
 }
 
+function void TestContextMenuModel(void)
+{
+    // sep, A, (unlabeled), sep, sep, B (disabled), C, sep
+    P_MenuItem items[] = {
+        { .separator = true }, { .label = S("A"), .id = 1 }, { .id = 2 }, { .separator = true }, { .separator = true },
+        { .label = S("B"), .id = 3, .disabled = true }, { .label = S("C"), .id = 4 }, { .separator = true },
+    };
+    Prog_State state = { .menuOpen = true, .menuHighlight = UINT32_MAX };
+    state.menu = (P_ContextMenu){ .items = items, .count = CArrayCount(items), .rootCount = CArrayCount(items) };
+    u32 visible[CArrayCount(items)];
+    u32 shown = Prog_MenuVisible(&state.menu, 0, state.menu.rootCount, visible);
+    Check(shown == 4 && visible[0] == 1 && visible[1] == 3 && visible[2] == 5 && visible[3] == 6);
+    Prog__MenuMove(&state, 1);
+    Check(state.menuHighlight == 1);
+    Prog__MenuMove(&state, 1);
+    Check(state.menuHighlight == 6);
+    Prog__MenuMove(&state, 1);
+    Check(state.menuHighlight == 1);
+    Prog__MenuMove(&state, -1);
+    Check(state.menuHighlight == 6);
+}
+
 function void TestProfiler(void)
 {
     Check(P_ProfileInit(1));
@@ -468,6 +491,7 @@ int main(void)
     TestJobs();
     TestBrowsing();
     TestProfiler();
+    TestContextMenuModel();
 
     if (CheckFailures != 0) {
         fprintf(stderr, "%d check(s) failed\n", CheckFailures);

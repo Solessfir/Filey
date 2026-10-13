@@ -221,3 +221,25 @@ function P_FileError P_OpenPath(Arena *arena, String path)
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
+
+// ponytail: only "Open", which the program carries out itself; add Open With,
+// Copy Path and the like as Filey implements them.
+function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
+{
+    *menu = (P_ContextMenu){0};
+    if (count == 0) return false;
+    menu->items = ArenaPushArray(arena, 1, P_MenuItem);
+    menu->items[0] = (P_MenuItem){ .label = S("Open"), .verb = S("open"), .id = 1, .isDefault = true };
+    menu->count = menu->rootCount = 1;
+    return true;
+}
+
+function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id)
+{
+    return P__FileError(arena, ENOTSUP);
+}
+
+function void P_ContextMenuClose(P_ContextMenu *menu)
+{
+    *menu = (P_ContextMenu){0};
+}

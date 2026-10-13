@@ -493,6 +493,26 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(!loaded || (image.width > 0 && image.height > 0 && image.pixels != NULL));
     loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, &image);
     Check(!loaded || (image.width > 0 && image.height > 0));
+
+    // Menus are only built and read here, never invoked.
+    String names[] = { S("plain.txt") };
+    P_ContextMenu menu = {0};
+    b32 opened = P_ContextMenuOpen(&arena, fixture->path, names, 1, &menu);
+    Check(opened && menu.rootCount && menu.rootCount <= menu.count);
+    b32 hasOpen = false;
+    for (u32 i = 0; opened && i < menu.count; ++i) {
+        const P_MenuItem *item = &menu.items[i];
+        Check(!item->childCount || item->firstChild + item->childCount <= menu.count);
+        hasOpen |= StrIsEqual(item->verb, S("open"));
+    }
+    Check(hasOpen);
+    P_ContextMenuClose(&menu);
+    Check(menu.items == NULL && menu.native == NULL);
+#if defined(_WIN32)
+    opened = P_ContextMenuOpen(&arena, fixture->path, NULL, 0, &menu);
+    Check(opened && menu.rootCount);
+    P_ContextMenuClose(&menu);
+#endif
     ArenaRelease(&arena);
 }
 

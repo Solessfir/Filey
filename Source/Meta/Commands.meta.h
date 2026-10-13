@@ -23,6 +23,10 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_FocusLast,
     Prog_CommandKind_FocusPageUp,
     Prog_CommandKind_FocusPageDown,
+    Prog_CommandKind_ContextMenu,
+    Prog_CommandKind_ContextMenuAt,
+    Prog_CommandKind_ContextMenuInvoke,
+    Prog_CommandKind_ContextMenuClose,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
 #endif
@@ -45,6 +49,10 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_FocusLast] = { .name = { "FocusLast", 9 } },
     [Prog_CommandKind_FocusPageUp] = { .name = { "FocusPageUp", 11 } },
     [Prog_CommandKind_FocusPageDown] = { .name = { "FocusPageDown", 13 } },
+    [Prog_CommandKind_ContextMenu] = { .name = { "ContextMenu", 11 }, .label = { "Context Menu", 12 }, .aliases = { "right click,shell,properties", 28 }, .tooltip = { "Open the system context menu on the selection or the folder background.", 71 }, .noRepeat = true },
+    [Prog_CommandKind_ContextMenuAt] = { .name = { "ContextMenuAt", 13 } },
+    [Prog_CommandKind_ContextMenuInvoke] = { .name = { "ContextMenuInvoke", 17 } },
+    [Prog_CommandKind_ContextMenuClose] = { .name = { "ContextMenuClose", 16 } },
 };
 
 global const Prog_Hotkey Prog_DefaultHotkeys[] = {
@@ -80,5 +88,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_PageDown, .mods = KeyMod_Shift, .command = Prog_CommandKind_FocusPageDown },
     { .key = Key_PageDown, .mods = KeyMod_Control, .command = Prog_CommandKind_FocusPageDown },
     { .key = Key_PageDown, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_FocusPageDown },
+    { .key = Key_F10, .mods = KeyMod_Shift, .command = Prog_CommandKind_ContextMenu },
+    { .key = Key_ContextMenu, .mods = 0, .command = Prog_CommandKind_ContextMenu },
 };
 #endif

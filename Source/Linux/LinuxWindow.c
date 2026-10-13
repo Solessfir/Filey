@@ -123,6 +123,7 @@ function Key LinuxKeyFromKeysym(xkb_keysym_t sym)
         case XKB_KEY_Alt_R:     return Key_Alt;
         case XKB_KEY_Super_L:
         case XKB_KEY_Super_R:   return Key_Super;
+        case XKB_KEY_Menu:      return Key_ContextMenu;
         default:                return Key_None;
     }
 }

@@ -66,7 +66,7 @@ Build.bat [release] [analyze] [profile] [test]          Windows
 Source/
 ├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
 ├─ Platform/   Platform.h + PlatformEvents.c: window/input contract; Jobs.h + PlatformJobs.c: worker queue; Files.h: filesystem contract; Profile.h + PlatformProfile.c: scope profiler
-├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs), WinThreads.c + WinFiles.c, WinIcons.c (shell image-list file icons)
+├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs), WinThreads.c + WinFiles.c, WinIcons.c (shell image-list file icons, type names), WinShell.c (shell context menus)
 ├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c, LinuxIcons.c (freedesktop icon theme file icons)
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
 ├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering

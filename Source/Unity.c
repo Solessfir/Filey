@@ -17,6 +17,7 @@
 #include "Win/WinThreads.c"
 #include "Win/WinFiles.c"
 #include "Win/WinIcons.c"
+#include "Win/WinShell.c"
 #include "Win/WinWindow.c"
 #include "Win/WinFont.c"
 #elif defined(__linux__)
