@@ -94,7 +94,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         SHFILEINFOW info = {0};
         if (SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0))) {
             // The lists are sized by system DPI: take the smallest one that covers the request.
-            static const i32 lists[] = { SHIL_SMALL, SHIL_LARGE, SHIL_EXTRALARGE, SHIL_JUMBO };
+            local_persist const i32 lists[] = { SHIL_SMALL, SHIL_LARGE, SHIL_EXTRALARGE, SHIL_JUMBO };
             IImageList *chosen = NULL;
             for (u32 i = 0; i < CArrayCount(lists); ++i) {
                 IImageList *list = NULL;

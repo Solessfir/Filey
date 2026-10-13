@@ -51,9 +51,9 @@ if [ "$analyze" = 1 ]; then
     $cc $cflags $app_cflags --analyze -Xclang -analyzer-output=text "$root/Source/Unity.c" -o /dev/null
 fi
 
-$cc $cflags $app_cflags "$root/Source/Unity.c" $app_libs -o "$out/filey"
+$cc $cflags $app_cflags "$root/Source/Unity.c" $app_libs -lm -o "$out/filey"
 
 if [ "$test" = 1 ]; then
-    $cc $cflags "$root/Source/Tests/Tests.c" -o "$out/filey-tests"
+    $cc $cflags "$root/Source/Tests/Tests.c" -lm -o "$out/filey-tests"
     "$out/filey-tests"
 fi

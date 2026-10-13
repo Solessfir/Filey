@@ -66,13 +66,13 @@ Build.bat [release] [analyze] [profile] [test]          Windows
 Source/
 ├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
 ├─ Platform/   Platform.h + PlatformEvents.c: window/input contract; Jobs.h + PlatformJobs.c: worker queue; Files.h: filesystem contract; Profile.h + PlatformProfile.c: scope profiler
-├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs), WinThreads.c + WinFiles.c
-├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c
+├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs), WinThreads.c + WinFiles.c, WinIcons.c (shell image-list file icons)
+├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c, LinuxIcons.c (freedesktop icon theme file icons)
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
 ├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering
-├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Program.c: UI
+├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Icons.c: file icon cache and atlas; Program.c: UI
 ├─ Meta/       generated tables (Commands.meta.h) and icon codepoints (Icons.meta.h)
-├─ Lib/        third-party code and assets (Lucide icon font subset)
+├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG), nanosvg (SVG, Linux icons)
 ├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter
 ├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)
 └─ Unity.c     application unity root
