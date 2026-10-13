@@ -29,13 +29,12 @@ function u32 R_NextPow2(u32 value)
     return result;
 }
 
-function b32 R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font)
+function b32 R__FontCreate(Arena *arena, PlatformFontSource source, f32 pixelSize, const R_CodepointRange *sourceRanges, u32 rangeCount, R_Font *font)
 {
     Scratch scratch = GetScratchEx(arena);
-    u32 rangeCount = (u32)CArrayCount(R_FontRanges);
     PlatformFont *rasters = ArenaPushArray(scratch.arena, rangeCount, PlatformFont);
     for (u32 r = 0; r < rangeCount; ++r) {
-        if (!PlatformFontRasterize(scratch.arena, family, pixelSize, R_FontRanges[r].first, R_FontRanges[r].last, &rasters[r])) {
+        if (!PlatformFontRasterize(scratch.arena, source, pixelSize, sourceRanges[r].first, sourceRanges[r].last, &rasters[r])) {
             ReleaseScratch(scratch);
             return false;
         }
@@ -106,6 +105,17 @@ function b32 R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *fo
     };
     ReleaseScratch(scratch);
     return true;
+}
+
+function b32 R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font)
+{
+    return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, R_FontRanges, (u32)CArrayCount(R_FontRanges), font);
+}
+
+function b32 R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font)
+{
+    R_CodepointRange range = { firstCodepoint, lastCodepoint };
+    return R__FontCreate(arena, (PlatformFontSource){ .data = data, .size = size }, pixelSize, &range, 1, font);
 }
 
 function const R_Glyph *R__FontFindGlyph(const R_Font *font, rune codepoint)

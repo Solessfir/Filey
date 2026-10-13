@@ -63,5 +63,7 @@ function void R_PopClip(void);
 
 // Text (Renderer/Font.c). `y` is the top of the line box.
 function b32  R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font);
+// One codepoint range of a font file in memory, such as the embedded icon font.
+function b32  R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font);
 function f32  R_TextWidth(const R_Font *font, String text);
 function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String text);

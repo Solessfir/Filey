@@ -15,17 +15,17 @@ function void *WinRasterAlloc(void *user, u64 size)
     return ArenaPushArrayNoZero((Arena *)user, size, u8);
 }
 
-function b32 PlatformFontRasterize(Arena *arena, String family, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font)
+function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font)
 {
     Assert(firstCodepoint <= lastCodepoint);
 
     wchar name[128] = {0};
-    MultiByteToWideChar(CP_UTF8, 0, family.value, (int)Min(family.length, (u64)100), name, (int)CArrayCount(name) - 1);
+    MultiByteToWideChar(CP_UTF8, 0, source.family.value, (int)Min(source.family.length, (u64)100), name, (int)CArrayCount(name) - 1);
 
     u32 count = lastCodepoint - firstCodepoint + 1;
     PlatformGlyph *glyphs = ArenaPushArray(arena, count, PlatformGlyph);
     WinRasterMetrics metrics = {0};
-    if (!WinRasterizeFont(name, pixelSize, firstCodepoint, count, WinRasterAlloc, arena, (WinRasterGlyph *)glyphs, &metrics)) {
+    if (!WinRasterizeFont(name, source.data, source.size, pixelSize, firstCodepoint, count, WinRasterAlloc, arena, (WinRasterGlyph *)glyphs, &metrics)) {
         return false;
     }
 

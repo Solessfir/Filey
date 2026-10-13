@@ -1,0 +1,12 @@
+# Lucide icons embedded in the app, one name per line (https://lucide.dev/icons).
+# After editing, regenerate Lucide.ttf and Meta/Icons.meta.h:
+#   python Source/Tools/LucideSubset.py <extracted lucide-static package>
+arrow-left
+arrow-right
+arrow-up
+arrow-down
+chevron-right
+search
+folder
+file
+list

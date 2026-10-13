@@ -5,7 +5,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#include <dwrite.h>
+#include <dwrite_3.h>
 #include <string.h>
 
 #include "Win/WinFontRasterizer.h"
@@ -22,10 +22,13 @@ static void SafeRelease(T *&object)
 static i32 MinI32(i32 a, i32 b) { return a < b ? a : b; }
 static i32 MaxI32(i32 a, i32 b) { return a > b ? a : b; }
 
-extern "C" b32 WinRasterizeFont(const wchar *family, f32 pixelSize, u32 firstCodepoint, u32 glyphCount,
+extern "C" b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSize, f32 pixelSize, u32 firstCodepoint, u32 glyphCount,
                                 WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyphs, WinRasterMetrics *metrics)
 {
-    IDWriteFactory *factory = nullptr;
+    IDWriteFactory5 *factory = nullptr;
+    IDWriteInMemoryFontFileLoader *loader = nullptr;
+    b32 loaderRegistered = 0;
+    IDWriteFontFile *file = nullptr;
     IDWriteFontCollection *collection = nullptr;
     IDWriteFontFamily *fontFamily = nullptr;
     IDWriteFont *font = nullptr;
@@ -37,24 +40,38 @@ extern "C" b32 WinRasterizeFont(const wchar *family, f32 pixelSize, u32 firstCod
     b32 ok = 0;
 
     do {
-        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown **>(&factory))) ||
-            FAILED(factory->GetSystemFontCollection(&collection, FALSE))) {
+        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory5), reinterpret_cast<IUnknown **>(&factory)))) {
             break;
         }
-
-        UINT32 familyIndex = 0;
-        BOOL exists = FALSE;
-        collection->FindFamilyName(family, &familyIndex, &exists);
-        if (!exists) {
-            collection->FindFamilyName(L"Segoe UI", &familyIndex, &exists);
-            if (!exists) {
-                familyIndex = 0;
+        if (data != nullptr) {
+            // The loader lives only for this call; the face is released before it is unregistered.
+            if (FAILED(factory->CreateInMemoryFontFileLoader(&loader)) ||
+                FAILED(factory->RegisterFontFileLoader(loader))) {
+                break;
             }
-        }
-        if (FAILED(collection->GetFontFamily(familyIndex, &fontFamily)) ||
-            FAILED(fontFamily->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, &font)) ||
-            FAILED(font->CreateFontFace(&face))) {
-            break;
+            loaderRegistered = 1;
+            if (FAILED(loader->CreateInMemoryFontFileReference(factory, data, (UINT32)dataSize, nullptr, &file)) ||
+                FAILED(factory->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &face))) {
+                break;
+            }
+        } else {
+            UINT32 familyIndex = 0;
+            BOOL exists = FALSE;
+            if (FAILED(factory->GetSystemFontCollection(&collection, FALSE))) {
+                break;
+            }
+            collection->FindFamilyName(family, &familyIndex, &exists);
+            if (!exists) {
+                collection->FindFamilyName(L"Segoe UI", &familyIndex, &exists);
+                if (!exists) {
+                    familyIndex = 0;
+                }
+            }
+            if (FAILED(collection->GetFontFamily(familyIndex, &fontFamily)) ||
+                FAILED(fontFamily->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, &font)) ||
+                FAILED(font->CreateFontFace(&face))) {
+                break;
+            }
         }
 
         DWRITE_FONT_METRICS fontMetrics = {};
@@ -155,6 +172,11 @@ extern "C" b32 WinRasterizeFont(const wchar *family, f32 pixelSize, u32 firstCod
     SafeRelease(font);
     SafeRelease(fontFamily);
     SafeRelease(collection);
+    SafeRelease(file);
+    if (loaderRegistered) {
+        factory->UnregisterFontFileLoader(loader);
+    }
+    SafeRelease(loader);
     SafeRelease(factory);
     return ok;
 }

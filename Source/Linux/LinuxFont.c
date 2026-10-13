@@ -4,38 +4,40 @@
 #include FT_FREETYPE_H
 #include <fontconfig/fontconfig.h>
 
-function b32 PlatformFontRasterize(Arena *arena, String family, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font)
+function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font)
 {
     Assert(firstCodepoint <= lastCodepoint);
 
-    char name[128] = {0};
-    MemCopy(name, family.value, Min(family.length, (u64)sizeof(name) - 1));
+    FT_Library library = NULL;
+    FT_Face face = NULL;
+    b32 ok = FT_Init_FreeType(&library) == 0;
+    if (ok && source.data != NULL) {
+        ok = FT_New_Memory_Face(library, source.data, (FT_Long)source.size, 0, &face) == 0;
+    } else if (ok) {
+        char name[128] = {0};
+        MemCopy(name, source.family.value, Min(source.family.length, (u64)sizeof(name) - 1));
 
-    // fontconfig always returns its closest match, so unknown families fall
-    // back to the configured default.
-    FcPattern *pattern = FcNameParse((const FcChar8 *)name);
-    FcConfigSubstitute(NULL, pattern, FcMatchPattern);
-    FcDefaultSubstitute(pattern);
-    FcResult result = FcResultNoMatch;
-    FcPattern *match = FcFontMatch(NULL, pattern, &result);
-    FcPatternDestroy(pattern);
+        // fontconfig always returns its closest match, so unknown families fall
+        // back to the configured default.
+        FcPattern *pattern = FcNameParse((const FcChar8 *)name);
+        FcConfigSubstitute(NULL, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+        FcResult result = FcResultNoMatch;
+        FcPattern *match = FcFontMatch(NULL, pattern, &result);
+        FcPatternDestroy(pattern);
 
-    FcChar8 *file = NULL;
-    i32 faceIndex = 0;
-    if (match == NULL || FcPatternGetString(match, FC_FILE, 0, &file) != FcResultMatch) {
+        FcChar8 *file = NULL;
+        i32 faceIndex = 0;
+        ok = match != NULL && FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch;
+        if (ok) {
+            FcPatternGetInteger(match, FC_INDEX, 0, &faceIndex);
+            ok = FT_New_Face(library, (const char *)file, faceIndex, &face) == 0;
+        }
         if (match != NULL) {
             FcPatternDestroy(match);
         }
-        return false;
     }
-    FcPatternGetInteger(match, FC_INDEX, 0, &faceIndex);
-
-    FT_Library library = NULL;
-    FT_Face face = NULL;
-    b32 ok = FT_Init_FreeType(&library) == 0 &&
-             FT_New_Face(library, (const char *)file, faceIndex, &face) == 0 &&
-             FT_Set_Char_Size(face, 0, (FT_F26Dot6)(pixelSize * 64.0f), 72, 72) == 0;
-    FcPatternDestroy(match);
+    ok = ok && FT_Set_Char_Size(face, 0, (FT_F26Dot6)(pixelSize * 64.0f), 72, 72) == 0;
 
     u32 count = lastCodepoint - firstCodepoint + 1;
     PlatformGlyph *glyphs = ok ? ArenaPushArray(arena, count, PlatformGlyph) : NULL;

@@ -54,6 +54,7 @@ function void LogEvent(const PlatformEvent *event)
 typedef struct Prog_Loop {
     Prog_State state;
     R_Font font;
+    R_Font icons;
     b32 running;
     b32 needsFrame;
 } Prog_Loop;
@@ -87,7 +88,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
     PlatformWindowInfo window = PlatformWindowGetInfo();
     UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
     Prog_HandleInput(state, events);
-    Prog_BuildUI(state, &loop->font, window.scale);
+    Prog_BuildUI(state, &loop->font, &loop->icons, window.scale);
     UI_EndFrame();
     loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
     R_BeginFrame(window.width, window.height, Prog_ThemeCustom.background);
@@ -121,7 +122,10 @@ int main(void)
 #else
     const f32 fontPixelSize = 15.0f;
 #endif
-    if (!R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font)) {
+    // Icons are drawn a little larger than the text's line height, as in the reference.
+    if (!R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font) ||
+        !R_FontCreateFromMemory(&permanent, Icon_FontData, sizeof(Icon_FontData), floorf(loop.font.lineHeight * 1.1f + 0.5f),
+                                Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &loop.icons)) {
         fprintf(stderr, "Failed to load fonts\n");
         Prog_Release(&loop.state);
         P_ReleaseWindowWake();

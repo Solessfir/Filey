@@ -534,7 +534,7 @@ function void TestProgramVirtualRows(void)
             state.revealFocus = true;
         }
         TestUIBegin(&state.ui, &state.frameArena, (PlatformEventList){0}, frame);
-        Prog_BuildUI(&state, &TestUIFont, 1);
+        Prog_BuildUI(&state, &TestUIFont, &TestUIFont, 1);
         UI_EndFrame();
         UI_Block *list = UI__Find(listKey);
         Check(list && list->contentSize.y == (f32)state.directory.count * Prog_RowHeight(&TestUIFont));

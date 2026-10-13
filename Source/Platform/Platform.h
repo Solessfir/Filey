@@ -193,7 +193,14 @@ typedef struct PlatformFont {
     PlatformGlyph *glyphs;  // one per codepoint in [firstCodepoint, firstCodepoint + glyphCount)
 } PlatformFont;
 
-// Rasterizes a contiguous codepoint range of an installed font family at a
-// pixel size. Unknown families fall back to the system's default. Everything
-// is allocated from `arena`.
-function b32 PlatformFontRasterize(Arena *arena, String family, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font);
+// An installed family, or font file bytes (TrueType/OpenType) when `data` is
+// set. Unknown families fall back to the system's default.
+typedef struct PlatformFontSource {
+    String family;
+    const u8 *data;
+    u64 size;
+} PlatformFontSource;
+
+// Rasterizes a contiguous codepoint range of a font at a pixel size.
+// Everything is allocated from `arena`.
+function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font);

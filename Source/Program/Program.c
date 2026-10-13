@@ -4,6 +4,8 @@
 
 #include <math.h>
 
+#include "Meta/Icons.meta.h"
+
 #define Prog_Gray(v)     { (v) / 255.0f, (v) / 255.0f, (v) / 255.0f, 1 }
 #define Prog_Rgb(r, g, b) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, 1 }
 
@@ -49,12 +51,14 @@ typedef struct Prog_Metrics {
     f32 gap;         // text padding inside cells and buttons
     f32 iconSlot;    // reserved for file icons
     f32 radius;
+    const R_Font *icons;
 } Prog_Metrics;
 
-function Prog_Metrics Prog__Metrics(const R_Font *font, f32 scale)
+function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32 scale)
 {
     f32 line = font->lineHeight;
     return (Prog_Metrics){
+        .icons = icons,
         .line = line,
         .row = floorf(line * 1.6f + 0.5f),
         .bar = floorf(line * 2.1f + 0.5f),
@@ -102,8 +106,15 @@ function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R
     UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
 }
 
+function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 alignX, const Prog_Metrics *m)
+{
+    UI_SetNextFont(m->icons);
+    Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
+}
+
 // Text button that tints its text when hot and greys out when disabled.
-function UI_Interaction Prog__TextButton(String identity, String text, UI_Size width, f32 height, f32 padding,
+// A NULL font uses the default one.
+function UI_Interaction Prog__TextButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
                                          R_Color color, R_Color hotColor, R_Color disabledColor, b32 enabled, const Prog_Metrics *m)
 {
     UI_Key key = UI_KeyFromStr(0, identity);
@@ -115,16 +126,17 @@ function UI_Interaction Prog__TextButton(String identity, String text, UI_Size w
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = Prog_ThemeCustom.panel, .text = !enabled ? disabledColor : hot ? hotColor : color });
     UI_SetNextText(text);
+    if (font) UI_SetNextFont(font);
     UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
     UI_Interaction result = UI_InteractionFromBlock(block);
     if (!enabled) result.clicked = false;
     return result;
 }
 
-function void Prog__ToolbarButton(Prog_State *state, String identity, String glyph, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
+function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = &Prog_ThemeCustom;
-    UI_Interaction interaction = Prog__TextButton(identity, glyph, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
+    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
                                                   theme->icon, theme->text, theme->iconDisabled, enabled, m);
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
@@ -165,9 +177,9 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         String segment = StrFromTo(path, at, (i64)end);
         b32 current = end >= path.length;
         if (segment.length) {
-            if (at > start) Prog__Label(S("\u203A"), UI_TextContent(), m->bar, m->gap * 0.5f, theme->textDim, 0.5f);
+            if (at > start) Prog__Icon(Icon_ChevronRight, floorf(m->line * 1.6f), m->bar, theme->textDim, 0.5f, m);
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
-            UI_Interaction interaction = Prog__TextButton(identity, segment, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
+            UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
                                                           current ? theme->text : theme->textDim, theme->text, theme->textDim, !current, m);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, end, 0, interaction.clickOrder);
         }
@@ -182,9 +194,9 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
     UI_Parent(toolbar) {
         Prog__Spacer(UI_Pixels(m->inset * 0.6f), UI_Pixels(m->bar));
         String parent = Prog_ParentPath(state->directory.path);
-        Prog__ToolbarButton(state, S("Back"), S("\u2190"), Prog_CommandKind_Back, state->historyAt > 0, m);
-        Prog__ToolbarButton(state, S("Forward"), S("\u2192"), Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
-        Prog__ToolbarButton(state, S("Up"), S("\u2191"), Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
+        Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
+        Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
+        Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
@@ -229,7 +241,7 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
                 if (columns[i].alignX > 0) Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
                 Prog__Label(columns[i].title, columns[i].alignX > 0 ? UI_TextContent() : UI_Flex(), m->row, m->gap, color, 0);
-                if (sorted) Prog__Label(state->descending ? S("\u2193") : S("\u2191"), UI_TextContent(), m->row, m->gap, theme->textDim, 0.5f);
+                if (sorted) Prog__Icon(state->descending ? Icon_ArrowDown : Icon_ArrowUp, m->line + m->gap, m->row, theme->textDim, 0.5f, m);
                 if (i + 1 < Prog_Sort_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
             }
         }
@@ -261,7 +273,9 @@ function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Col
     }
     String values[Prog_Sort_Count] = { entry->file.name, entry->type, entry->modified, entry->size };
     UI_Parent(row) {
-        Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+        // ponytail: generic glyphs until shell (Windows) and theme (Linux) file icons exist.
+        Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, m->iconSlot - m->gap, m->row,
+                   highlighted ? theme->text : theme->icon, 1, m);
         for (u32 i = 0; i < Prog_Sort_Count; ++i) {
             R_Color color = i == Prog_Sort_Name || highlighted ? theme->text : theme->textDim;
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
@@ -313,14 +327,13 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     UI_Parent(bar) {
         // ponytail: the filter pill is a placeholder until text editing exists.
         String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
-        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f)));
-        UI_SetNextPrefHeight(UI_Pixels(m->pill));
-        UI_SetNextChildrenPadding((UI_Padding){ m->iconSlot, 0, m->gap, 0 });
-        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
         UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextColors((UI_Colors){ .background = theme->panel, .text = theme->textDim });
-        UI_SetNextText(placeholder);
-        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_Clip);
+        UI_Block *filter = Prog__Box(UI_Pixels(floorf(m->line * 15.3f)), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->panel, UI_Flag_Clip);
+        UI_Parent(filter) {
+            Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
+            Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
+        }
 
         Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
 
@@ -343,16 +356,28 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                                                 : StrFormat(&state->frameArena, "%" PRIu64, folders);
             String fileText = selectedFiles ? StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, selectedFiles, files)
                                             : StrFormat(&state->frameArena, "%" PRIu64, files);
-            status = StrFormat(&state->frameArena, "%S folders   %S files   Details", folderText, fileText);
+            UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
+            UI_SetNextCornerRadius(m->radius * 2);
+            UI_Block *counts = Prog__Box(UI_Fill(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->panel, 0);
+            UI_Parent(counts) {
+                Prog__Icon(Icon_Folder, 0, m->pill, theme->icon, 0.5f, m);
+                Prog__Label(folderText, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
+                Prog__Icon(Icon_File, 0, m->pill, theme->icon, 0.5f, m);
+                Prog__Label(fileText, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->pill));
+                Prog__Icon(Icon_List, 0, m->pill, theme->icon, 0.5f, m);
+                Prog__Label(S("Details"), UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
+            }
+        } else {
+            UI_SetNextPrefWidth(UI_TextContent());
+            UI_SetNextPrefHeight(UI_Pixels(m->pill));
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+            UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextCornerRadius(m->radius * 2);
+            UI_SetNextColors((UI_Colors){ .background = theme->panel, .text = state->error.length ? theme->textHeading : theme->text });
+            UI_SetNextText(status);
+            UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText);
         }
-        UI_SetNextPrefWidth(UI_TextContent());
-        UI_SetNextPrefHeight(UI_Pixels(m->pill));
-        UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
-        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-        UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextColors((UI_Colors){ .background = theme->panel, .text = state->error.length ? theme->textHeading : theme->text });
-        UI_SetNextText(status);
-        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText);
     }
 }
 
@@ -363,14 +388,18 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_Block *sidebar = Prog__Box(UI_Pixels(m->sidebar), UI_Flex(), UI_Layout_Vertical, theme->panel, UI_Flag_Clip);
     UI_Parent(sidebar) {
         // ponytail: places, bookmarks and drives come with the sidebar step; only the filter placeholder for now.
-        Prog__Label(S("Filter..."), UI_Flex(), m->bar, 0, theme->textDim, 0);
+        UI_Block *filter = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
+        UI_Parent(filter) {
+            Prog__Icon(Icon_Search, 0, m->bar, theme->textDim, 0, m);
+            Prog__Label(S("Filter..."), UI_Flex(), m->bar, m->gap * 0.5f, theme->textDim, 0);
+        }
     }
 }
 
-function void Prog_BuildUI(Prog_State *state, const R_Font *font, f32 scale)
+function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     const Prog_Theme *theme = &Prog_ThemeCustom;
-    Prog_Metrics metrics = Prog__Metrics(font, scale);
+    Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     const Prog_Metrics *m = &metrics;
     Prog_Column columns[Prog_Sort_Count];
     Prog__Columns(columns, scale);

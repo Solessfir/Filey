@@ -37,5 +37,6 @@ typedef void *WinRasterAllocFn(void *user, u64 size);
 #if defined(__cplusplus)
 extern "C"
 #endif
-b32 WinRasterizeFont(const wchar *family, f32 pixelSize, u32 firstCodepoint, u32 glyphCount,
+// `data` (a font file in memory) takes precedence over `family`.
+b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSize, f32 pixelSize, u32 firstCodepoint, u32 glyphCount,
                      WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyphs, WinRasterMetrics *metrics);

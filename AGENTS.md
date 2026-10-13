@@ -39,6 +39,7 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
 - Screenshots of the original source in `%USERPROFILE%\Pictures\Screenshots\Reference\` show its style (`result` return variables, `Prefix__Name` internals, `enum8(...)` fields, `_Count` sentinels). Use them as a loose reference, not a formatting rule.
 - Do not edit generated files (`*.generated.h`, `Meta/*.meta.h`). Change the generator or its input instead.
 - Commands and their default hotkeys are declared once in `Source/Program/Commands.txt`. Add a command there, then handle its `Prog_CommandKind_` case in `Prog_ProcessCommands`.
+- UI icons are a Lucide subset (ISC) embedded with `#embed`. To add one, append its Lucide name to `Source/Lib/Lucide/Icons.txt` and run `python Source/Tools/LucideSubset.py <extracted lucide-static npm package>` (needs `fonttools`). It rewrites `Lucide.ttf`, its `LICENSE` and `Meta/Icons.meta.h` (`Icon_<Name>` strings drawn with the icon font); commit all of them.
 
 ## Toolchain
 
@@ -69,8 +70,9 @@ Source/
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
 ├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering
 ├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Program.c: UI
-├─ Meta/       generated tables (Commands.meta.h)
-├─ Tools/      Codegen.c: build-time table generator
+├─ Meta/       generated tables (Commands.meta.h) and icon codepoints (Icons.meta.h)
+├─ Lib/        third-party code and assets (Lucide icon font subset)
+├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter
 ├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)
 └─ Unity.c     application unity root
 ```
