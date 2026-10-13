@@ -853,19 +853,20 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
-function String P_StartupPath(Arena *arena)
+function ArrayStr P_StartupPaths(Arena *arena)
 {
     // The arguments are null-separated in /proc, which spares the program's entry point from passing them down.
     Scratch scratch = GetScratchEx(arena);
-    char buffer[PATH_MAX + 4096];
+    StrBuilder text = {0};
     i32 fd = open("/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
-    ssize_t length = fd >= 0 ? read(fd, buffer, sizeof(buffer) - 1) : -1;
+    char buffer[4096];
+    for (ssize_t length; fd >= 0 && (length = read(fd, buffer, sizeof(buffer))) > 0;) StrBuildStr(scratch.arena, &text, StrMake(buffer, (u64)length));
     if (fd >= 0) close(fd);
-    String result = {0};
-    if (length > 0) {
-        buffer[length] = 0;
-        u64 first = strlen(buffer) + 1;
-        if ((ssize_t)first < length) result = P_AbsolutePath(arena, StrCopy(scratch.arena, StrFromCStr(buffer + first)));
+    ArrayStr result = {0};
+    ArrayStr arguments = StrSplit(scratch.arena, text.buffer, 0);
+    for (u64 i = 1; i < arguments.header.count; ++i) {
+        String path = arguments.v[i].length ? P_AbsolutePath(arena, arguments.v[i]) : (String){0};
+        if (path.length) ArrayPush(arena, result, path);
     }
     ReleaseScratch(scratch);
     return result;

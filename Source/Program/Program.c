@@ -18,6 +18,7 @@ typedef struct Prog_Theme {
     R_Color hover;
     R_Color selection;
     R_Color focus;         // outline of the focused row
+    R_Color tabBorder;     // outline of the shown tab
     R_Color text;
     R_Color textDim;
     R_Color textHeading;   // sidebar section titles
@@ -37,6 +38,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .hover        = Prog_Gray(80),
     .selection    = Prog_Gray(44),
     .focus        = Prog_Gray(80),
+    .tabBorder    = Prog_Gray(52),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
@@ -58,6 +60,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     .hover        = Prog_White(0.2f),
     .selection    = Prog_White(0.09f),
     .focus        = Prog_White(0.22f),
+    .tabBorder    = Prog_White(0.12f),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
@@ -194,24 +197,118 @@ function void Prog__PillButton(Prog_State *state, String identity, String icon, 
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
+// The last component of a folder path, or the whole path for a root such as "C:/" or "/".
+function String Prog__FolderName(String path)
+{
+    String trimmed = path;
+    while (trimmed.length > 1 && trimmed.value[trimmed.length - 1] == '/' && trimmed.value[trimmed.length - 2] != ':') --trimmed.length;
+    Index slash = StrIndexChar(trimmed, '/', SSF_SearchBackwards);
+    return slash.exists && slash.value + 1 < trimmed.length ? StrFrom(trimmed, slash.value + 1) : trimmed;
+}
+
+// One tab per slot, as in the reference: the shown one is an outlined tab joined to the toolbar below, the others are separated by short lines.
+// Tabs share the strip's width up to a fixed size; dragging one moves it between the others.
 function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    UI_Block *strip = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->background, 0);
+    Prog__EnsureTab(state);
+    f32 top = floorf(m->bar * 0.17f);
+    UI_SetNextChildrenPadding((UI_Padding){ 0, top, 0, 0 });
+    UI_Block *strip = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
+    // Children start at the top, so that tabs taller than the strip hang below it.
+    strip->props.childrenAlignment.y = 0;
     UI_Parent(strip) {
-        Prog__Spacer(UI_Pixels(m->sidebar + m->separator + m->inset), UI_Pixels(m->bar));
-        // ponytail: a single tab for the current folder; real tabs arrive with multiple panels.
-        String path = state->directory.path;
-        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards | SSF_IndexPlusOne | SSF_CountOnFail);
-        String name = path.length && slash.value < path.length ? StrFrom(path, slash.value) : path;
-        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 9.5f)));
-        UI_SetNextPrefHeight(UI_Pixels(m->bar - 2 * floorf(m->bar * 0.17f)));
-        UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
-        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-        UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextColors((UI_Colors){ .border = theme->separator, .text = theme->text });
-        UI_SetNextText(name);
-        UI_AddBlock(UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_Clip);
+        f32 lead = m->sidebar + m->separator + m->inset * 0.5f;
+        Prog__Spacer(UI_Pixels(lead), UI_Pixels(m->bar - top));
+        f32 plus = m->bar * 0.9f;
+        f32 room = MaxF32(0, UI->root->rect.x1 - UI->root->rect.x0 - lead - plus - m->inset);
+        f32 width = floorf(MinF32(m->line * 12.0f, room / (f32)state->tabCount));
+        f32 height = m->bar - top;
+        // The shown tab hangs past the strip by its corner radius, so the toolbar drawn after it covers its lower corners and border.
+        f32 hang = ceilf(m->radius * 2) + 1;
+        u32 dragFrom = UINT32_MAX;
+        f32 dragX = 0;
+        for (u32 i = 0; i < state->tabCount; ++i) {
+            b32 shown = i == state->activeTab;
+            String path = Prog_TabPath(state, i);
+            String name = Prog__FolderName(path);
+            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Tab/%" PRIu64, state->tabs[i].id));
+            b32 hot = UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, floorf(m->gap * 0.5f), 0 });
+            UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
+            UI_Interaction interaction = UI_InteractionFromBlock(tab);
+            if (interaction.pressed && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
+            if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, interaction.clickOrder);
+            if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
+                dragFrom = i;
+                dragX = UI->mouse.x;
+            }
+            UI_Parent(tab) {
+                if (shown) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                    UI_SetNextPrefWidth(UI_Pixels(width));
+                    UI_SetNextPrefHeight(UI_Pixels(height + hang));
+                    UI_SetNextCornerRadius(m->radius * 2);
+                    UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->tabBorder });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                } else if (hot) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf(height * 0.1f) });
+                    UI_SetNextPrefWidth(UI_Pixels(width));
+                    UI_SetNextPrefHeight(UI_Pixels(floorf(height * 0.8f)));
+                    UI_SetNextCornerRadius(m->radius * 2);
+                    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
+                Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
+                const Prog_Icon *icon = path.length ? Prog_FileIcon(state, Prog_ParentPath(path), &folder) : NULL;
+                if (icon) {
+                    UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + m->gap));
+                    UI_SetNextPrefHeight(UI_Pixels(height));
+                    UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                    UI_AddBlock(UI_Flag_DrawImage);
+                } else {
+                    Prog__Icon(Icon_Folder, (f32)state->iconSize + m->gap, height, theme->icon, 0, m);
+                }
+                Prog__Label(name, UI_Flex(), height, 0, shown || hot ? theme->text : theme->textHeading, 0);
+                // The close button shows on the shown and the hovered tab.
+                UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
+                if (shown || hot || UI->hotKey == closeKey) {
+                    b32 closeHot = UI->hotKey == closeKey;
+                    f32 size = floorf(m->line * 1.3f);
+                    UI_SetNextPrefWidth(UI_Pixels(size));
+                    UI_SetNextPrefHeight(UI_Pixels(size));
+                    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                    UI_SetNextCornerRadius(m->radius);
+                    UI_SetNextFont(m->icons);
+                    UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = closeHot ? theme->text : theme->icon });
+                    UI_SetNextText(Icon_X);
+                    UI_Block *close = UI_AddBlockFromKey(closeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (closeHot ? UI_Flag_DrawBackground : 0));
+                    UI_Interaction closing = UI_InteractionFromBlock(close);
+                    if (closing.clicked) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, closing.clickOrder);
+                }
+            }
+            // Lines part the tabs that are not shown.
+            b32 nextShown = i + 1 == state->activeTab;
+            if (!shown && !nextShown) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->selection, 0);
+            else Prog__Spacer(UI_Pixels(m->separator), UI_Pixels(height));
+        }
+        UI_Interaction add = Prog__TextButton(S("TabNew"), Icon_Plus, m->icons, UI_Pixels(plus * 0.85f), plus * 0.75f, 0, theme->icon, theme->text, theme->iconDisabled,
+                                              state->tabCount < Prog_MaxTabs, m);
+        if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
+        // A dragged tab takes the slot under the pointer.
+        if (dragFrom != UINT32_MAX && width > 0) {
+            f32 x = dragX - (UI->root->rect.x0 + lead);
+            u32 to = (u32)MinF32(MaxF32(0, x / (width + m->separator)), (f32)(state->tabCount - 1));
+            if (to != dragFrom) {
+                Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MoveTab, dragFrom, 0, 0);
+                command->target = to;
+            }
+        }
     }
 }
 
@@ -781,7 +878,6 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
 
     UI->root->props.childrenPadding = (UI_Padding){0};
     Prog__TabStrip(state, m);
-    Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->separator, 0);
     UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(body) {
         Prog__Sidebar(state, m);

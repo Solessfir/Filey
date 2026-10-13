@@ -470,18 +470,142 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     P_JobSubmit(job);
 }
 
+function void Prog__EnsureTab(Prog_State *state);
+
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user)
 {
     if (!P_JobsInit(&state->jobs, &state->jobsArena, 0, wake, user)) {
         ArenaRelease(&state->jobsArena);
         return false;
     }
+    Prog__EnsureTab(state);
     Arena temporary = {0};
     String absolute = P_AbsolutePath(&temporary, path);
     if (absolute.length) Prog_RequestDirectory(state, absolute, true, 0);
     else state->error = S("Cannot resolve the initial directory");
     ArenaRelease(&temporary);
     return true;
+}
+
+// `{0}` state has one tab: the shown one.
+function void Prog__EnsureTab(Prog_State *state)
+{
+    if (state->tabCount) return;
+    state->tabCount = 1;
+    state->tabs[0].id = ++state->nextTabId;
+}
+
+function void Prog__SwapTab(Prog_State *state, Prog_Tab *tab)
+{
+#define Prog__SwapField(type, name) { type swap = state->name; state->name = tab->name; tab->name = swap; }
+    Prog_TabFields(Prog__SwapField)
+#undef Prog__SwapField
+}
+
+function void Prog__ReleaseTab(Prog_Tab *tab)
+{
+    ArenaRelease(&tab->directoryArena);
+    ArenaRelease(&tab->historyArena);
+    ArenaRelease(&tab->viewArena);
+    *tab = (Prog_Tab){0};
+}
+
+// The folder tab `index` shows, or is about to show when it has not listed one yet.
+function String Prog_TabPath(const Prog_State *state, u32 index)
+{
+    b32 shown = index == state->activeTab;
+    const Prog_Directory *directory = shown ? &state->directory : &state->tabs[index].directory;
+    const ArrayStr *history = shown ? &state->history : &state->tabs[index].history;
+    u64 at = shown ? state->historyAt : state->tabs[index].historyAt;
+    if (directory->path.length) return directory->path;
+    if (shown && state->directoryJob) return ((Prog_JobInput *)state->directoryJob->input)->path;
+    return at < history->header.count ? history->v[at] : (String){0};
+}
+
+// Opens `path` in a new tab at slot `at`.
+function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
+{
+    Prog__EnsureTab(state);
+    if (state->tabCount >= Prog_MaxTabs || !path.length) return;
+    at = Min(at, state->tabCount);
+    MemMove(&state->tabs[at + 1], &state->tabs[at], (state->tabCount - at) * sizeof(Prog_Tab));
+    ++state->tabCount;
+    if (at <= state->activeTab) ++state->activeTab;
+    Prog_Tab *tab = &state->tabs[at];
+    *tab = (Prog_Tab){ .id = ++state->nextTabId, .sort = state->sort, .descending = state->descending, .showHidden = state->showHidden };
+    // The tab lists its folder when it is first shown.
+    ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
+    if (activate) Prog_SelectTab(state, at);
+}
+
+function void Prog_SelectTab(Prog_State *state, u32 index)
+{
+    Prog__EnsureTab(state);
+    if (index >= state->tabCount || index == state->activeTab) return;
+    // Work tied to the rows of the tab being left stops; a listing on its way is dropped, so that tab keeps the folder it showed.
+    Prog_CloseMenu(state);
+    state->renaming = state->filtering = false;
+    state->hasHoverRow = false;
+    if (state->directoryJob) {
+        P_RequestCancel(&state->directoryJob->cancelToken);
+        state->directoryJob = NULL;
+        ++state->generation;
+    }
+    state->loading = false;
+    if (state->measureJob) {
+        P_RequestCancel(&state->measureJob->cancelToken);
+        state->measureJob = NULL;
+    }
+    P_DirectoryWatchStop(&state->watch);
+    state->watchDirty = false;
+    ArenaClear(&state->errorArena);
+    state->error = (String){0};
+
+    Prog__SwapTab(state, &state->tabs[state->activeTab]);
+    state->activeTab = index;
+    Prog__SwapTab(state, &state->tabs[index]);
+
+    // Totals of the old listing are matched by name, as after a refresh.
+    ++state->listing;
+    state->restoreScroll = true;
+    if (state->directory.path.length) {
+        // The tab's folder may have changed while it was hidden.
+        P_DirectoryWatchStart(&state->watch, state->directory.path, state->jobs.wake, state->jobs.wakeUser);
+        Prog_Reload(state);
+    } else if (state->historyAt < state->history.header.count) {
+        Prog_RequestDirectory(state, state->history.v[state->historyAt], false, state->historyAt);
+    }
+}
+
+function void Prog_CloseTab(Prog_State *state, u32 index)
+{
+    Prog__EnsureTab(state);
+    // ponytail: the last tab stays; closing it would close the window.
+    if (index >= state->tabCount || state->tabCount == 1) return;
+    String path = Prog_TabPath(state, index);
+    if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
+    // The neighbor to the right takes over a closed shown tab, else the one to the left.
+    if (index == state->activeTab) Prog_SelectTab(state, index + 1 < state->tabCount ? index + 1 : index - 1);
+    Prog__ReleaseTab(&state->tabs[index]);
+    MemMove(&state->tabs[index], &state->tabs[index + 1], (state->tabCount - index - 1) * sizeof(Prog_Tab));
+    --state->tabCount;
+    state->tabs[state->tabCount] = (Prog_Tab){0};
+    if (state->activeTab > index) --state->activeTab;
+}
+
+function void Prog_MoveTab(Prog_State *state, u32 from, u32 to)
+{
+    Prog__EnsureTab(state);
+    if (from >= state->tabCount || to >= state->tabCount || from == to) return;
+    Prog_Tab moved = state->tabs[from];
+    if (from < to) MemMove(&state->tabs[from], &state->tabs[from + 1], (to - from) * sizeof(Prog_Tab));
+    else MemMove(&state->tabs[to + 1], &state->tabs[to], (from - to) * sizeof(Prog_Tab));
+    state->tabs[to] = moved;
+    u32 active = state->activeTab;
+    if (active == from) active = to;
+    else if (from < active && active <= to) --active;
+    else if (to <= active && active < from) ++active;
+    state->activeTab = active;
 }
 
 // Coalesces bursts such as a copy or a build into a few reloads.
@@ -759,5 +883,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->iconArena);
     ArenaRelease(&state->jobsArena);
+    ArenaRelease(&state->closedArena);
+    for (u32 i = 0; i < state->tabCount; ++i) Prog__ReleaseTab(&state->tabs[i]);
     *state = (Prog_State){0};
 }

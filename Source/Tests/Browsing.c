@@ -1083,6 +1083,45 @@ finish:
     ArenaRelease(&arena);
 }
 
+function b32 TestEndsWith(String text, String suffix)
+{
+    return text.length >= suffix.length && StrIsEqual(StrFrom(text, text.length - suffix.length), suffix);
+}
+
+// Tabs keep their own listing and selection, and closing, reopening and moving them keeps the shown one in place.
+function void TestTabs(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized) return;
+    Check(TestWaitDirectory(&state));
+    u64 plain = TestEntryIndex(&state, S("plain.txt")), empty = TestEntryIndex(&state, S("Empty"));
+    Check(plain != UINT64_MAX && empty != UINT64_MAX && state.tabCount == 1);
+    Prog_SelectRow(&state, plain, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_OpenRowInTab, empty);
+    Check(state.tabCount == 2 && state.activeTab == 0 && TestEndsWith(Prog_TabPath(&state, 1), S("/Empty")));
+    TestBrowsingCommand(&state, Prog_CommandKind_SelectTab, 1);
+    Check(state.activeTab == 1 && TestEndsWith(state.directory.path, S("/Empty")) && state.directory.count == 0 && state.historyAt == 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_TabSelectNext, 0);
+    Check(state.activeTab == 0 && StrIsEqual(state.directory.path, fixture->path));
+    plain = TestEntryIndex(&state, S("plain.txt"));
+    Check(plain != UINT64_MAX && state.directory.entries[plain].selected && TestSelectionCount(&state) == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_CloseTabAt, 1);
+    Check(state.tabCount == 1 && state.closedTabs.header.count == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_TabReopen, 0);
+    Check(state.tabCount == 2 && state.activeTab == 1 && TestEndsWith(state.directory.path, S("/Empty")) && !state.closedTabs.header.count);
+    TestBrowsingCommand(&state, Prog_CommandKind_TabShiftLeft, 0);
+    Check(state.activeTab == 0 && TestEndsWith(state.directory.path, S("/Empty")) && StrIsEqual(Prog_TabPath(&state, 1), fixture->path));
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    Check(state.tabCount == 1 && state.activeTab == 0 && StrIsEqual(state.directory.path, fixture->path));
+    // The last tab stays.
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    Check(state.tabCount == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+    Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
+    Prog_Release(&state);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -1095,6 +1134,7 @@ function void TestBrowsing(void)
         P__TestOpenPath(&fixture);
 #endif
         TestProgramBrowsing(&fixture);
+        TestTabs(&fixture);
         TestRename(&fixture);
         TestFilter(&fixture);
         TestExpand(&fixture);

@@ -16,3 +16,9 @@ pin-off
 check
 corner-down-left
 x
+plus
+chevron-down
+clock
+bookmark
+hard-drive
+panel-left

@@ -256,6 +256,146 @@ command CreateFile {
     repeat  = "false"
 }
 
+command OpenInTab {
+    label   = "Open In Tab^new"
+    tooltip = "Open selected folders in new tabs. For files, opens containing folders."
+    hotkey  = "Ctrl+Enter"
+    repeat  = "false"
+}
+
+// Middle click on a row; carries the row.
+command OpenRowInTab {
+}
+
+// Tab click; carries the slot.
+command SelectTab {
+}
+
+// Middle click or the close button on a tab; carries the slot.
+command CloseTabAt {
+}
+
+// Tab drag; carries the slot and the slot it moves to.
+command MoveTab {
+}
+
+command TabNew {
+    label   = "Open New Tab"
+    tooltip = "Open a new tab in the current folder."
+    hotkey  = "Ctrl+T"
+    repeat  = "false"
+}
+
+command TabDuplicate {
+    label   = "Duplicate Tab"
+    tooltip = "Duplicate the current tab in the same folder."
+}
+
+command TabShiftLeft {
+    label   = "Shift Tab Left"
+    tooltip = "Shift the current tab to the left."
+}
+
+command TabShiftRight {
+    label   = "Shift Tab Right"
+    tooltip = "Shift the current tab to the right."
+}
+
+command TabClose {
+    label   = "Close Tab^exit"
+    tooltip = "Close the current tab."
+    hotkey  = "Ctrl+W"
+    repeat  = "false"
+}
+
+command TabCloseOthers {
+    label   = "Close Other Tabs^exit"
+    tooltip = "Close all tabs except the currently selected one."
+}
+
+command TabCloseLeftTabs {
+    label   = "Close Left Tabs^exit"
+    tooltip = "Close all tabs to the left of the currently selected tab."
+}
+
+command TabCloseRightTabs {
+    label   = "Close Right Tabs^exit"
+    tooltip = "Close all tabs to the right of the currently selected tab."
+}
+
+command TabReopen {
+    label   = "Reopen Closed Tab"
+    tooltip = "Reopen the last closed tab from the list of previously closed tabs."
+    hotkey  = "Ctrl+Shift+T"
+    repeat  = "false"
+}
+
+command TabSelectNext {
+    label   = "Select Next Tab"
+    tooltip = "Select the next tab if it exists."
+    hotkey  = "Ctrl+Tab"
+}
+
+command TabSelectPrev {
+    label   = "Select Previous Tab"
+    tooltip = "Select the previous tab if it exists."
+    hotkey  = "Ctrl+Shift+Tab"
+}
+
+command TabSelect1 {
+    label   = "Select 1st Tab"
+    tooltip = "Select the 1st tab."
+    hotkey  = "Ctrl+1"
+}
+
+command TabSelect2 {
+    label   = "Select 2nd Tab"
+    tooltip = "Select the 2nd tab if it exists."
+    hotkey  = "Ctrl+2"
+}
+
+command TabSelect3 {
+    label   = "Select 3rd Tab"
+    tooltip = "Select the 3rd tab if it exists."
+    hotkey  = "Ctrl+3"
+}
+
+command TabSelect4 {
+    label   = "Select 4th Tab"
+    tooltip = "Select the 4th tab if it exists."
+    hotkey  = "Ctrl+4"
+}
+
+command TabSelect5 {
+    label   = "Select 5th Tab"
+    tooltip = "Select the 5th tab if it exists."
+    hotkey  = "Ctrl+5"
+}
+
+command TabSelect6 {
+    label   = "Select 6th Tab"
+    tooltip = "Select the 6th tab if it exists."
+    hotkey  = "Ctrl+6"
+}
+
+command TabSelect7 {
+    label   = "Select 7th Tab"
+    tooltip = "Select the 7th tab if it exists."
+    hotkey  = "Ctrl+7"
+}
+
+command TabSelect8 {
+    label   = "Select 8th Tab"
+    tooltip = "Select the 8th tab if it exists."
+    hotkey  = "Ctrl+8"
+}
+
+command TabSelectLast {
+    label   = "Select Last Tab"
+    tooltip = "Select the last tab."
+    hotkey  = "Ctrl+9"
+}
+
 command ToggleTransparency {
     label   = "Transparency^blur,acrylic,glass,translucent"
     tooltip = "Show the desktop blurred through the window."

@@ -190,10 +190,11 @@ int main(void)
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
-    // A folder given on the command line, as the desktop entry and "Open with" pass it, opens instead of the working directory.
+    // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
     Scratch startup = GetScratch();
-    String startPath = P_StartupPath(startup.arena);
-    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPath, Prog__Wake, NULL);
+    ArrayStr startPaths = P_StartupPaths(startup.arena);
+    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
+    for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     ReleaseScratch(startup);
     if (!ok) {
         fprintf(stderr, "Failed to start workers\n");

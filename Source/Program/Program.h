@@ -48,6 +48,7 @@ struct Prog_Command {
     Prog_Command *next;
     enum8(Prog_CommandKind) kind;
     u64 row;
+    u64 target;  // MoveTab: the slot the tab moves to
     u32 pressCount;
     u64 inputOrder;
     KeyMods mods;
@@ -166,6 +167,25 @@ typedef struct Prog_Directory {
     b32 expanded;
 } Prog_Directory;
 
+// The Prog_State fields each tab has its own of.
+// The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter and scroll.
+#define Prog_TabFields(X) \
+    X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
+    X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
+    X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) \
+    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) \
+    X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll)
+
+#define Prog__TabField(type, name) type name;
+typedef struct Prog_Tab {
+    u64 id;  // keys the tab's blocks, so a drag follows it across slots
+    Prog_TabFields(Prog__TabField)
+} Prog_Tab;
+#undef Prog__TabField
+
+// ponytail: fixed tab count; grow the array if 32 tabs per window falls short.
+#define Prog_MaxTabs 32
+
 typedef struct Prog_State {
     Arena frameArena;
     Arena jobsArena;
@@ -193,7 +213,16 @@ typedef struct Prog_State {
     Prog_Command *commandLast;
     b32 revealFocus;
     b32 resetScroll;
+    b32 restoreScroll;        // put the list back at `scroll`, after a tab switch
+    UI_Vec2 scroll;           // the list's offset in the last build
     u64 pageRows;  // rows visible in the last layout, for Page Up/Down
+    // Tabs. The shown one's slot holds nothing while it is shown; see Prog_TabFields.
+    Prog_Tab tabs[Prog_MaxTabs];
+    u32 tabCount;
+    u32 activeTab;
+    u64 nextTabId;
+    Arena closedArena;        // paths of closed tabs, for Reopen Closed Tab
+    ArrayStr closedTabs;
     // File icons, keyed by P_FileIconKey.
     // The map and keys live in iconArena; atlas pages survive resets and are reused.
     Arena iconArena;
@@ -289,4 +318,9 @@ function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
+function String Prog_TabPath(const Prog_State *state, u32 index);
+function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
+function void Prog_SelectTab(Prog_State *state, u32 index);
+function void Prog_CloseTab(Prog_State *state, u32 index);
+function void Prog_MoveTab(Prog_State *state, u32 from, u32 to);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

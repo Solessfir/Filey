@@ -483,6 +483,23 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
     }
 }
 
+// Opens `row`, or the selection or focused row when it is UINT64_MAX, in new tabs behind the shown one: folders themselves and files' containing folders.
+function void Prog__OpenInTabs(Prog_State *state, u64 row)
+{
+    if (state->loading) return;
+    Arena *frame = &state->frameArena;
+    // Each opens after the previous one, keeping the selection's order.
+    u32 at = state->activeTab + 1;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        b32 wanted = row != UINT64_MAX ? i == row : state->selectedCount ? entry->selected : state->hasFocus && i == state->focusedRow;
+        if (!wanted) continue;
+        String name = entry->file.kind == P_FileKind_Directory ? entry->file.name : Prog_EntryParent(entry->file.name);
+        String path = name.length ? Prog_JoinPath(frame, state->directory.path, name) : state->directory.path;
+        Prog_OpenTab(state, path, at++, false);
+    }
+}
+
 function void Prog_DragSelection(Prog_State *state)
 {
     state->dragRequested = false;
@@ -511,9 +528,53 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_SelectRow: {
                 if (!state->loading) {
                     Prog_SelectRow(state, command->row, command->mods);
-                    if (command->pressCount == 2) Prog_OpenRow(state, command->row);
+                    // Ctrl+double-click opens the item in a new tab instead.
+                    if (command->pressCount == 2 && (command->mods & KeyMod_Control)) Prog__OpenInTabs(state, command->row);
+                    else if (command->pressCount == 2) Prog_OpenRow(state, command->row);
                 }
             } break;
+            case Prog_CommandKind_OpenInTab: Prog__OpenInTabs(state, UINT64_MAX); break;
+            case Prog_CommandKind_OpenRowInTab: if (command->row < state->directory.count) Prog__OpenInTabs(state, command->row); break;
+            case Prog_CommandKind_SelectTab: Prog_SelectTab(state, (u32)command->row); break;
+            case Prog_CommandKind_CloseTabAt: Prog_CloseTab(state, (u32)command->row); break;
+            case Prog_CommandKind_MoveTab: Prog_MoveTab(state, (u32)command->row, (u32)command->target); break;
+            case Prog_CommandKind_TabNew:
+            case Prog_CommandKind_TabDuplicate: {
+                // ponytail: new tabs show the current folder; the reference's New Tab Show setting chooses other places.
+                String path = Prog_TabPath(state, state->activeTab);
+                Prog_OpenTab(state, path, state->activeTab + 1, true);
+            } break;
+            case Prog_CommandKind_TabShiftLeft: if (state->activeTab) Prog_MoveTab(state, state->activeTab, state->activeTab - 1); break;
+            case Prog_CommandKind_TabShiftRight: Prog_MoveTab(state, state->activeTab, state->activeTab + 1); break;
+            case Prog_CommandKind_TabClose: Prog_CloseTab(state, state->activeTab); break;
+            case Prog_CommandKind_TabCloseOthers:
+            case Prog_CommandKind_TabCloseLeftTabs:
+            case Prog_CommandKind_TabCloseRightTabs: {
+                b32 left = command->kind != Prog_CommandKind_TabCloseRightTabs, right = command->kind != Prog_CommandKind_TabCloseLeftTabs;
+                while (right && state->activeTab + 1 < state->tabCount) Prog_CloseTab(state, state->tabCount - 1);
+                while (left && state->activeTab > 0) Prog_CloseTab(state, 0);
+            } break;
+            case Prog_CommandKind_TabReopen: {
+                if (state->closedTabs.header.count) {
+                    String path = state->closedTabs.v[--state->closedTabs.header.count];
+                    Prog_OpenTab(state, path, state->activeTab + 1, true);
+                }
+            } break;
+            case Prog_CommandKind_TabSelectNext:
+            case Prog_CommandKind_TabSelectPrev: {
+                // Wraps around at either end.
+                u32 count = Max(state->tabCount, 1u);
+                Prog_SelectTab(state, (state->activeTab + (command->kind == Prog_CommandKind_TabSelectNext ? 1 : count - 1)) % count);
+            } break;
+            case Prog_CommandKind_TabSelect1:
+            case Prog_CommandKind_TabSelect2:
+            case Prog_CommandKind_TabSelect3:
+            case Prog_CommandKind_TabSelect4:
+            case Prog_CommandKind_TabSelect5:
+            case Prog_CommandKind_TabSelect6:
+            case Prog_CommandKind_TabSelect7:
+            case Prog_CommandKind_TabSelect8: Prog_SelectTab(state, (u32)(command->kind - Prog_CommandKind_TabSelect1)); break;
+            case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
             case Prog_CommandKind_OpenFocused: if (state->hasFocus) Prog_OpenRow(state, state->focusedRow); break;
             case Prog_CommandKind_Refresh: {
                 Prog_Reload(state);
