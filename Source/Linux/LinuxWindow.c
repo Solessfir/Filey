@@ -103,6 +103,9 @@ typedef struct LinuxWindowState {
     f32 scale;           // physical / logical, fractional when the compositor supports it
     b32 configured;
     b32 closed;
+    // Frame pacing: the next frame waits for the compositor's callback for the last one, or for the deadline when it never comes.
+    struct wl_callback *frameCallback;
+    u64 frameDeadline;
     i32 wakeFd;
 } LinuxWindowState;
 
@@ -813,8 +816,7 @@ function b32 LinuxCreateGLContext(void)
         return false;
     }
 
-    // A blocking swap would stall the event loop while the window is hidden.
-    // Wayland compositors never tear, so presenting immediately is safe.
+    // A blocking swap would stall the event loop while the window is hidden, so frames are paced by frame callbacks instead.
     eglSwapInterval(Wl.eglDisplay, 0);
     return true;
 }
@@ -906,14 +908,17 @@ function PlatformEventList PlatformPollEvents(b32 wait)
 
     // A wait ends only for something the program sees: an event, a wake from a job, or a key repeat that is due.
     // Compositor traffic alone, such as the buffer release that follows every swap, would otherwise wake the loop to draw again, forever.
+    // While the last frame is still waiting for its callback, everything that arrives is held for the next frame, so bursts of input draw once per refresh and a hidden window does not draw at all.
     b32 woken = false;
     for (;;) {
+        u64 now = PlatformNowMicroseconds();
+        b32 pacing = Wl.frameCallback && !Wl.closed && now < Wl.frameDeadline;
         i32 timeout = 0;
-        if (wait && EventQueue.pending.count == 0) {
-            timeout = -1;
+        if (pacing || (wait && EventQueue.pending.count == 0)) {
+            timeout = pacing ? (i32)((Wl.frameDeadline - now + 999) / 1000) : -1;
             if (Wl.repeating) {
-                u64 now = PlatformNowMicroseconds();
-                timeout = Wl.repeatNextUs > now ? (i32)((Wl.repeatNextUs - now + 999) / 1000) : 0;
+                i32 repeat = Wl.repeatNextUs > now ? (i32)((Wl.repeatNextUs - now + 999) / 1000) : 0;
+                timeout = timeout < 0 ? repeat : Min(timeout, repeat);
             }
         }
 
@@ -946,7 +951,8 @@ function PlatformEventList PlatformPollEvents(b32 wait)
             PlatformPushEvent(PlatformEventKind_CloseRequested);
         }
 
-        if (timeout == 0 || woken || Wl.closed || EventQueue.pending.count) break;
+        if (Wl.frameCallback && !Wl.closed && PlatformNowMicroseconds() < Wl.frameDeadline) continue;
+        if (!wait || timeout == 0 || woken || Wl.closed || EventQueue.pending.count) break;
     }
 
     return PlatformTakeEvents();
@@ -964,8 +970,24 @@ function void P_ReleaseWindowWake(void)
     Wl.wakeFd = -1;
 }
 
+function void FrameDone(void *data, struct wl_callback *callback, u32 time)
+{
+    wl_callback_destroy(callback);
+    if (callback == Wl.frameCallback) Wl.frameCallback = NULL;
+}
+
+global const struct wl_callback_listener FrameListener = {
+    .done = FrameDone,
+};
+
 function void PlatformSwapBuffers(void)
 {
+    // The request rides on the commit the swap makes.
+    // A hidden window may never get its callback; the deadline keeps such a frame from holding up the next one for longer than a second.
+    if (Wl.frameCallback) wl_callback_destroy(Wl.frameCallback);
+    Wl.frameCallback = wl_surface_frame(Wl.surface);
+    wl_callback_add_listener(Wl.frameCallback, &FrameListener, NULL);
+    Wl.frameDeadline = PlatformNowMicroseconds() + Millions(1);
     eglSwapBuffers(Wl.eglDisplay, Wl.eglSurface);
 }
 
