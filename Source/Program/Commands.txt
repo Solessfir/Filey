@@ -18,6 +18,10 @@ command SelectRow {
 command Sort {
 }
 
+// Breadcrumb click; carries the byte length of the current path prefix to open.
+command NavigatePrefix {
+}
+
 command OpenFocused {
     label   = "Open^enter,launch,run"
     tooltip = "Open the focused file or folder."

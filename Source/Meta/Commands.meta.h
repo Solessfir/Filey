@@ -9,6 +9,7 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_None,
     Prog_CommandKind_SelectRow,
     Prog_CommandKind_Sort,
+    Prog_CommandKind_NavigatePrefix,
     Prog_CommandKind_OpenFocused,
     Prog_CommandKind_Refresh,
     Prog_CommandKind_Back,
@@ -30,6 +31,7 @@ typedef enum Prog_CommandKind {
 global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_SelectRow] = { .name = { "SelectRow", 9 } },
     [Prog_CommandKind_Sort] = { .name = { "Sort", 4 } },
+    [Prog_CommandKind_NavigatePrefix] = { .name = { "NavigatePrefix", 14 } },
     [Prog_CommandKind_OpenFocused] = { .name = { "OpenFocused", 11 }, .label = { "Open", 4 }, .aliases = { "enter,launch,run", 16 }, .tooltip = { "Open the focused file or folder.", 32 }, .noRepeat = true },
     [Prog_CommandKind_Refresh] = { .name = { "Refresh", 7 }, .label = { "Refresh", 7 }, .aliases = { "reload", 6 }, .tooltip = { "Reload the current folder.", 26 } },
     [Prog_CommandKind_Back] = { .name = { "Back", 4 }, .label = { "Go Back", 7 }, .aliases = { "previous,history", 16 }, .tooltip = { "Go to the previous folder in the history.", 41 } },

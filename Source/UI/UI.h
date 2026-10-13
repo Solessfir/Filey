@@ -47,6 +47,7 @@ typedef struct UI_Properties {
     const R_Font *font;
     String text;
     UI_Vec2 floatingOffset;
+    f32 cornerRadius;  // background and border
 } UI_Properties;
 
 typedef struct UI_Interaction {
@@ -132,4 +133,5 @@ function void UI_SetNextColors(UI_Colors colors);
 function void UI_SetNextFont(const R_Font *font);
 function void UI_SetNextText(String text);
 function void UI_SetNextFloatingOffset(UI_Vec2 offset);
+function void UI_SetNextCornerRadius(f32 radius);
 function void UI_SetNextScrollOffset(UI_Vec2 offset);

@@ -68,6 +68,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog__Reload(state);
                 }
             } break;
+            case Prog_CommandKind_NavigatePrefix: {
+                String path = state->directory.path;
+                if (command->row > 0 && command->row < path.length) {
+                    // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
+                    u64 length = path.value[command->row - 1] == ':' ? command->row + 1 : command->row;
+                    Prog_RequestDirectory(state, StrFromTo(path, 0, (i64)length), true, 0);
+                }
+            } break;
             case Prog_CommandKind_ToggleHidden: {
                 state->showHidden = !state->showHidden;
                 Prog__Reload(state);

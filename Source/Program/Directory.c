@@ -120,6 +120,7 @@ function void Prog__DirectoryJob(P_Job *job)
         if (file.hidden && !input->showHidden) continue;
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
+        result->folderCount += file.kind == P_FileKind_Directory;
         entry->type = file.kind == P_FileKind_Directory ? S("Folder") : S("File");
         if (file.kind != P_FileKind_Directory) {
             Index dot = StrIndexChar(file.name, '.', SSF_SearchBackwards);

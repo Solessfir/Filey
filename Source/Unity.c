@@ -90,7 +90,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
     Prog_BuildUI(state, &loop->font, window.scale);
     UI_EndFrame();
     loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
-    R_BeginFrame(window.width, window.height, (R_Color){ 0.11f, 0.12f, 0.14f, 1.0f });
+    R_BeginFrame(window.width, window.height, Prog_ThemeCustom.background);
     UI_Draw();
     R_EndFrame();
     PlatformSwapBuffers();
@@ -131,9 +131,9 @@ int main(void)
 
     loop.state.ui.defaultFont = &loop.font;
     loop.state.ui.defaultColors = (UI_Colors){
-        .background = { 0.11f, 0.12f, 0.14f, 1 },
-        .border = { 0.25f, 0.27f, 0.31f, 1 },
-        .text = { 0.90f, 0.91f, 0.93f, 1 },
+        .background = Prog_ThemeCustom.background,
+        .border = Prog_ThemeCustom.separator,
+        .text = Prog_ThemeCustom.text,
     };
     PlatformDoubleClick doubleClick = PlatformDoubleClickSettings();
     loop.state.ui.doubleClickMicroseconds = doubleClick.intervalMicroseconds;

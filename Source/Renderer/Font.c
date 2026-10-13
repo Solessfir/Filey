@@ -13,6 +13,8 @@ typedef struct R_CodepointRange {
 global const R_CodepointRange R_FontRanges[] = {
     { 0x0020, 0x017F },  // Basic Latin, Latin-1 Supplement, Latin Extended-A
     { 0x0400, 0x04FF },  // Cyrillic
+    { 0x2010, 0x203A },  // dashes, quotes, ellipsis, angle quotes (breadcrumb separator)
+    { 0x2190, 0x2193 },  // arrows (toolbar)
 };
 
 #define R_FontAtlasWidth   512

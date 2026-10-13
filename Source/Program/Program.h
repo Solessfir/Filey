@@ -66,6 +66,7 @@ typedef struct Prog_Directory {
     String path;
     Prog_Entry *entries;
     u64 count;
+    u64 folderCount;
     P_FileError error;
     b32 cancelled;
     enum8(Prog_Sort) sort;
@@ -116,3 +117,4 @@ function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kin
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events);
 function b32 Prog_ProcessCommands(Prog_State *state);
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, f32 scale);
+function f32 Prog_RowHeight(const R_Font *font);

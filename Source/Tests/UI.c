@@ -537,7 +537,7 @@ function void TestProgramVirtualRows(void)
         Prog_BuildUI(&state, &TestUIFont, 1);
         UI_EndFrame();
         UI_Block *list = UI__Find(listKey);
-        Check(list && list->contentSize.y == (f32)state.directory.count * (TestUIFont.lineHeight + 6));
+        Check(list && list->contentSize.y == (f32)state.directory.count * Prog_RowHeight(&TestUIFont));
         if (!list) break;
         u64 rows = 0, retained = 0;
         for (UI_Block *child = list->first; child; child = child->next) {

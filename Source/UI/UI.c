@@ -241,6 +241,7 @@ function void UI_SetNextColors(UI_Colors colors) { UI->next.colors = colors; UI-
 function void UI_SetNextFont(const R_Font *font) { UI->next.font = font; UI->nextFontSet = true; }
 function void UI_SetNextText(String text) { UI->next.text = text; }
 function void UI_SetNextFloatingOffset(UI_Vec2 offset) { UI->next.floatingOffset = offset; }
+function void UI_SetNextCornerRadius(f32 radius) { UI->next.cornerRadius = radius; }
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
@@ -400,8 +401,8 @@ function void UI__DrawBlock(UI_Block *block)
     b32 visible = block->clipRect.x1 > block->clipRect.x0 && block->clipRect.y1 > block->clipRect.y0;
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     if (visible) {
-        if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, block->props.colors.background, 0);
-        if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, block->props.colors.border, 0, 1);
+        if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, block->props.colors.background, block->props.cornerRadius);
+        if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, block->props.colors.border, block->props.cornerRadius, 1);
         if (FlagExists(block->flags, UI_Flag_DrawText) && block->props.font) {
             UI_Padding pad = block->props.childrenPadding;
             UI_Vec2 text = UI__TextSize(block);

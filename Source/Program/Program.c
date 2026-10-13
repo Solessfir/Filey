@@ -1,74 +1,282 @@
-function void Prog__Label(String text, UI_Size width, f32 height, f32 scale)
+// Browser UI. Sizes derive from the font's line height so the layout keeps its
+// proportions at any font size and display scale; the ratios were measured
+// against the reference.
+
+#include <math.h>
+
+#define Prog_Gray(v)     { (v) / 255.0f, (v) / 255.0f, (v) / 255.0f, 1 }
+#define Prog_Rgb(r, g, b) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, 1 }
+
+typedef struct Prog_Theme {
+    R_Color background;    // window, toolbar and list base
+    R_Color panel;         // sidebar and bottom pills
+    R_Color alternateRow;
+    R_Color separator;
+    R_Color hover;
+    R_Color selection;
+    R_Color focus;         // outline of the focused row
+    R_Color text;
+    R_Color textDim;
+    R_Color textHeading;   // sidebar section titles
+    R_Color icon;
+    R_Color iconDisabled;
+} Prog_Theme;
+
+// The neutral "custom" scheme from the reference screenshots.
+global const Prog_Theme Prog_ThemeCustom = {
+    .background   = Prog_Gray(25),
+    .panel        = Prog_Gray(31),
+    .alternateRow = Prog_Gray(28),
+    .separator    = Prog_Gray(28),
+    .hover        = Prog_Gray(80),
+    .selection    = Prog_Gray(44),
+    .focus        = Prog_Gray(80),
+    .text         = Prog_Rgb(221, 222, 224),
+    .textDim      = Prog_Rgb(107, 112, 120),
+    .textHeading  = Prog_Gray(162),
+    .icon         = Prog_Gray(154),
+    .iconDisabled = Prog_Gray(70),
+};
+
+typedef struct Prog_Metrics {
+    f32 line;        // font line height
+    f32 row;         // list rows and the column header
+    f32 bar;         // tab strip and toolbar
+    f32 pill;        // bottom filter and status pills
+    f32 separator;
+    f32 sidebar;
+    f32 inset;       // list rows to the list edges
+    f32 gap;         // text padding inside cells and buttons
+    f32 iconSlot;    // reserved for file icons
+    f32 radius;
+} Prog_Metrics;
+
+function Prog_Metrics Prog__Metrics(const R_Font *font, f32 scale)
+{
+    f32 line = font->lineHeight;
+    return (Prog_Metrics){
+        .line = line,
+        .row = floorf(line * 1.6f + 0.5f),
+        .bar = floorf(line * 2.1f + 0.5f),
+        .pill = floorf(line * 2.0f + 0.5f),
+        .separator = MaxF32(1.0f, floorf(1.6f * scale + 0.5f)),
+        .sidebar = floorf(180.0f * scale + 0.5f),
+        .inset = floorf(15.0f * scale + 0.5f),
+        .gap = floorf(8.0f * scale + 0.5f),
+        .iconSlot = floorf(30.0f * scale + 0.5f),
+        .radius = 3.0f * scale,
+    };
+}
+
+function f32 Prog_RowHeight(const R_Font *font)
+{
+    return floorf(font->lineHeight * 1.6f + 0.5f);
+}
+
+function UI_Block *Prog__Box(UI_Size width, UI_Size height, UI_Layout layout, R_Color background, UI_Flags flags)
+{
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(height);
+    UI_SetNextChildrenLayout(layout);
+    // Horizontal strips center their items vertically; vertical stacks start at the top.
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, layout == UI_Layout_Horizontal ? 0.5f : 0 });
+    UI_SetNextColors((UI_Colors){ .background = background });
+    return UI_AddBlock(UI_Flag_DrawBackground | flags);
+}
+
+function void Prog__Spacer(UI_Size width, UI_Size height)
+{
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(height);
+    UI_AddBlock(0);
+}
+
+function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R_Color color, f32 alignX)
 {
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_SetNextChildrenPadding((UI_Padding){ 8 * scale, 0, 8 * scale, 0 });
-    UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ padding, 0, padding, 0 });
+    UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
+    UI_SetNextColors((UI_Colors){ .text = color });
     UI_SetNextText(text);
     UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
 }
 
-function void Prog__Button(Prog_State *state, String identity, String text, UI_Size width, f32 height, f32 scale, Prog_CommandKind kind, u64 value, b32 enabled)
+// Text button that tints its text when hot and greys out when disabled.
+function UI_Interaction Prog__TextButton(String identity, String text, UI_Size width, f32 height, f32 padding,
+                                         R_Color color, R_Color hotColor, R_Color disabledColor, b32 enabled, const Prog_Metrics *m)
 {
     UI_Key key = UI_KeyFromStr(0, identity);
-    UI_Colors colors = UI->defaultColors;
+    b32 hot = enabled && UI->hotKey == key;
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_SetNextChildrenPadding((UI_Padding){ 8 * scale, 0, 8 * scale, 0 });
-    UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ padding, 0, padding, 0 });
+    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextCornerRadius(m->radius);
+    UI_SetNextColors((UI_Colors){ .background = Prog_ThemeCustom.panel, .text = !enabled ? disabledColor : hot ? hotColor : color });
     UI_SetNextText(text);
-    colors.background = UI->hotKey == key && enabled ? (R_Color){ 0.22f, 0.23f, 0.25f, 1 } : (R_Color){ 0.15f, 0.16f, 0.18f, 1 };
-    if (!enabled) colors.text = (R_Color){ 0.43f, 0.44f, 0.46f, 1 };
-    UI_SetNextColors(colors);
-    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_Clip | (enabled ? UI_Flag_LeftMouseClickable : 0));
-    UI_Interaction interaction = UI_InteractionFromBlock(block);
-    if (enabled && interaction.clicked) Prog_QueueCommand(state, kind, value, 0, interaction.clickOrder);
+    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    UI_Interaction result = UI_InteractionFromBlock(block);
+    if (!enabled) result.clicked = false;
+    return result;
 }
 
-function void Prog__Columns(Prog_Entry *entry, f32 height, f32 scale)
+function void Prog__ToolbarButton(Prog_State *state, String identity, String glyph, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
-    Prog__Label(entry->file.name, UI_Flex(), height, scale);
-    Prog__Label(entry->type, UI_Pixels(150 * scale), height, scale);
-    Prog__Label(entry->modified, UI_Pixels(150 * scale), height, scale);
-    Prog__Label(entry->size, UI_Pixels(100 * scale), height, scale);
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    UI_Interaction interaction = Prog__TextButton(identity, glyph, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
+                                                  theme->icon, theme->text, theme->iconDisabled, enabled, m);
+    if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
-function void Prog_BuildUI(Prog_State *state, const R_Font *font, f32 scale)
+function void Prog__TabStrip(Prog_State *state, const Prog_Metrics *m)
 {
-    UI_Colors colors = UI->defaultColors;
-    UI->root->props.childrenPadding = (UI_Padding){ 8 * scale, 8 * scale, 8 * scale, 4 * scale };
-    f32 rowHeight = font->lineHeight + 6 * scale;
-
-    UI_SetNextPrefWidth(UI_Flex());
-    UI_SetNextPrefHeight(UI_Pixels(30 * scale));
-    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_Block *navigation = UI_AddBlock(0);
-    UI_Parent(navigation) {
-        Prog__Button(state, S("Back"), S("<"), UI_Pixels(30 * scale), 30 * scale, scale, Prog_CommandKind_Back, 0, state->historyAt > 0);
-        Prog__Button(state, S("Forward"), S(">"), UI_Pixels(30 * scale), 30 * scale, scale, Prog_CommandKind_Forward, 0, state->historyAt + 1 < state->history.header.count);
-        String parent = Prog_ParentPath(state->directory.path);
-        Prog__Button(state, S("Up"), S("Up"), UI_Pixels(40 * scale), 30 * scale, scale, Prog_CommandKind_Up, 0, parent.length && !StrIsEqual(parent, state->directory.path));
-        Prog__Label(state->directory.path, UI_Flex(), 30 * scale, scale);
-        Prog__Button(state, S("Hidden"), state->showHidden ? S("Hide hidden") : S("Show hidden"), UI_TextContent(), 30 * scale, scale, Prog_CommandKind_ToggleHidden, 0, !state->loading && state->directory.path.length);
-        Prog__Button(state, S("Refresh"), S("Refresh"), UI_TextContent(), 30 * scale, scale, Prog_CommandKind_Refresh, 0, state->directory.path.length || state->loading);
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    UI_Block *strip = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->background, 0);
+    UI_Parent(strip) {
+        Prog__Spacer(UI_Pixels(m->sidebar + m->separator + m->inset), UI_Pixels(m->bar));
+        // ponytail: a single tab for the current folder; real tabs arrive with multiple panels.
+        String path = state->directory.path;
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards | SSF_IndexPlusOne | SSF_CountOnFail);
+        String name = path.length && slash.value < path.length ? StrFrom(path, slash.value) : path;
+        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 9.5f)));
+        UI_SetNextPrefHeight(UI_Pixels(m->bar - 2 * floorf(m->bar * 0.17f)));
+        UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_SetNextColors((UI_Colors){ .border = theme->separator, .text = theme->text });
+        UI_SetNextText(name);
+        UI_AddBlock(UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_Clip);
     }
+}
 
-    UI_SetNextPrefWidth(UI_Flex());
-    UI_SetNextPrefHeight(UI_Pixels(rowHeight + 6 * scale));
-    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_Block *header = UI_AddBlock(0);
+// "C:/Git/Filey" -> "C:" › "Git" › "Filey"; every segment but the current one opens its folder.
+function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    String path = state->directory.path;
+    u64 start = path.length && path.value[0] == '/' ? 1 : 0;
+    if (start) {
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+    }
+    for (u64 at = start; at < path.length;) {
+        Index slash = StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail);
+        u64 end = at + slash.value;
+        String segment = StrFromTo(path, at, (i64)end);
+        b32 current = end >= path.length;
+        if (segment.length) {
+            if (at > start) Prog__Label(S("\u203A"), UI_TextContent(), m->bar, m->gap * 0.5f, theme->textDim, 0.5f);
+            String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
+            UI_Interaction interaction = Prog__TextButton(identity, segment, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
+                                                          current ? theme->text : theme->textDim, theme->text, theme->textDim, !current, m);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, end, 0, interaction.clickOrder);
+        }
+        at = end + 1;
+    }
+}
+
+function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->background, 0);
+    UI_Parent(toolbar) {
+        Prog__Spacer(UI_Pixels(m->inset * 0.6f), UI_Pixels(m->bar));
+        String parent = Prog_ParentPath(state->directory.path);
+        Prog__ToolbarButton(state, S("Back"), S("\u2190"), Prog_CommandKind_Back, state->historyAt > 0, m);
+        Prog__ToolbarButton(state, S("Forward"), S("\u2192"), Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
+        Prog__ToolbarButton(state, S("Up"), S("\u2191"), Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+        Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+        Prog__Breadcrumbs(state, m);
+    }
+}
+
+typedef struct Prog_Column {
+    String title;
+    f32 width;   // 0 takes the remaining width
+    f32 alignX;
+} Prog_Column;
+
+function void Prog__Columns(Prog_Column *columns, f32 scale)
+{
+    // Logical widths measured from the reference; Name flexes.
+    columns[Prog_Sort_Name] = (Prog_Column){ S("Name"), 0, 0 };
+    columns[Prog_Sort_Type] = (Prog_Column){ S("Type"), floorf(192 * scale), 0 };
+    columns[Prog_Sort_Modified] = (Prog_Column){ S("Date Modified"), floorf(193 * scale), 0 };
+    columns[Prog_Sort_Size] = (Prog_Column){ S("Size"), floorf(105 * scale), 1 };
+}
+
+function void Prog__Header(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+    UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(header) {
-        String names[] = { S("Name"), S("Type"), S("Date modified"), S("Size") };
-        UI_Size widths[] = { UI_Flex(), UI_Pixels(150 * scale), UI_Pixels(150 * scale), UI_Pixels(100 * scale) };
         for (u32 i = 0; i < Prog_Sort_Count; ++i) {
-            String label = state->sort == i ? StrFormat(&state->frameArena, "%S %s", names[i], state->descending ? "v" : "^") : names[i];
-            Prog__Button(state, names[i], label, widths[i], rowHeight + 6 * scale, scale, Prog_CommandKind_Sort, i, !state->loading);
+            b32 sorted = state->sort == i;
+            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", columns[i].title));
+            b32 hot = UI->hotKey == key && !state->loading;
+            UI_SetNextPrefWidth(columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_Block *cell = UI_AddBlockFromKey(key, !state->loading ? UI_Flag_LeftMouseClickable : 0);
+            UI_Interaction interaction = UI_InteractionFromBlock(cell);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_Sort, i, 0, interaction.clickOrder);
+            UI_Parent(cell) {
+                if (i == Prog_Sort_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+                R_Color color = sorted || hot ? theme->text : theme->textDim;
+                if (columns[i].alignX > 0) Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
+                Prog__Label(columns[i].title, columns[i].alignX > 0 ? UI_TextContent() : UI_Flex(), m->row, m->gap, color, 0);
+                if (sorted) Prog__Label(state->descending ? S("\u2193") : S("\u2191"), UI_TextContent(), m->row, m->gap, theme->textDim, 0.5f);
+                if (i + 1 < Prog_Sort_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
+            }
         }
     }
+}
 
+function void Prog__Row(Prog_State *state, u64 index, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    Prog_Entry *entry = &state->directory.entries[index];
+    b32 focused = state->hasFocus && state->focusedRow == index;
+    b32 hot = UI->hotKey == key && !state->loading;
+    // Hover wins over selection, matching the reference.
+    R_Color background = index & 1 ? theme->alternateRow : theme->background;
+    if (entry->selected) background = theme->selection;
+    if (hot) background = theme->hover;
+    b32 highlighted = entry->selected || hot;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
+    UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
+    UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
+    UI_Block *row = UI_AddBlockFromKey(key, flags);
+    UI_Interaction interaction = UI_InteractionFromBlock(row);
+    if (!state->loading && interaction.pressed) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount, interaction.pressOrder);
+        command->mods = interaction.mods;
+    }
+    String values[Prog_Sort_Count] = { entry->file.name, entry->type, entry->modified, entry->size };
+    UI_Parent(row) {
+        Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+        for (u32 i = 0; i < Prog_Sort_Count; ++i) {
+            R_Color color = i == Prog_Sort_Name || highlighted ? theme->text : theme->textDim;
+            Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
+        }
+    }
+}
+
+function void Prog__List(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    f32 rowHeight = m->row;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
-    UI_SetNextColors((UI_Colors){ .background = { 0.10f, 0.11f, 0.12f, 1 }, .text = colors.text });
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
     if (state->resetScroll) { list->scrollOffset = (UI_Vec2){0}; state->resetScroll = false; }
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / rowHeight);
@@ -79,48 +287,107 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, f32 scale)
         else if (top + rowHeight > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + rowHeight - height);
         state->revealFocus = false;
     }
+    // Only rows near the viewport get blocks; spacers stand in for the rest.
     u64 first = (u64)(Max(0.0f, list->scrollOffset.y) / rowHeight);
     if (first > 2) first -= 2; else first = 0;
     first = Min(first, state->directory.count);
     f32 visibleHeight = Max(rowHeight, UI->root->rect.y1 - UI->root->rect.y0);
     u64 end = Min(state->directory.count, first + (u64)(visibleHeight / rowHeight) + 6);
     UI_Parent(list) {
-        if (first) {
-            UI_SetNextPrefWidth(UI_Flex());
-            UI_SetNextPrefHeight(UI_Pixels((f32)first * rowHeight));
-            UI_AddBlock(0);
-        }
+        if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * rowHeight));
         UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path);
         for (u64 i = first; i < end; ++i) {
-            Prog_Entry *entry = &state->directory.entries[i];
-            UI_Key key = UI_KeyFromStr(directoryKey, entry->file.name);
-            R_Color background = { 0.10f, 0.11f, 0.12f, 1 };
-            if (UI->hotKey == key && !state->loading) background = (R_Color){ 0.18f, 0.19f, 0.21f, 1 };
-            if (entry->selected) background = (R_Color){ 0.24f, 0.25f, 0.27f, 1 };
-            UI_SetNextPrefWidth(UI_Flex());
-            UI_SetNextPrefHeight(UI_Pixels(rowHeight));
-            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_SetNextColors((UI_Colors){ .background = background, .border = { 0.40f, 0.41f, 0.43f, 1 }, .text = colors.text });
-            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable : 0) | (state->hasFocus && state->focusedRow == i ? UI_Flag_DrawBorder : 0));
-            UI_Interaction interaction = UI_InteractionFromBlock(row);
-            if (!state->loading && interaction.pressed) {
-                Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, i, interaction.pressCount, interaction.pressOrder);
-                command->mods = interaction.mods;
-            }
-            UI_Parent(row) { Prog__Columns(entry, rowHeight, scale); }
+            Prog__Row(state, i, UI_KeyFromStr(directoryKey, state->directory.entries[i].file.name), columns, m);
         }
-        if (end < state->directory.count) {
-            UI_SetNextPrefWidth(UI_Flex());
-            UI_SetNextPrefHeight(UI_Pixels((f32)(state->directory.count - end) * rowHeight));
-            UI_AddBlock(0);
+        if (end < state->directory.count) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(state->directory.count - end) * rowHeight));
+        if (!state->directory.count && !state->loading) {
+            Prog__Label(S("This folder is empty"), UI_Flex(), rowHeight, m->iconSlot, theme->textDim, 0);
         }
-        if (!state->directory.count && !state->loading) Prog__Label(S("This folder is empty"), UI_Flex(), rowHeight, scale);
     }
+}
 
-    String status = state->error;
-    if (!status.length) {
-        status = state->loading ? StrFormat(&state->frameArena, "Loading %S...", ((Prog_JobInput *)state->directoryJob->input)->path)
-            : StrFormat(&state->frameArena, "%" PRIu64 " items | %" PRIu64 " selected", state->directory.count, state->selectedCount);
+function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
+    UI_Parent(bar) {
+        // ponytail: the filter pill is a placeholder until text editing exists.
+        String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
+        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f)));
+        UI_SetNextPrefHeight(UI_Pixels(m->pill));
+        UI_SetNextChildrenPadding((UI_Padding){ m->iconSlot, 0, m->gap, 0 });
+        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_SetNextColors((UI_Colors){ .background = theme->panel, .text = theme->textDim });
+        UI_SetNextText(placeholder);
+        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_Clip);
+
+        Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+
+        String status = state->error;
+        if (!status.length && state->loading) {
+            status = StrFormat(&state->frameArena, "Loading %S...", ((Prog_JobInput *)state->directoryJob->input)->path);
+        }
+        if (!status.length) {
+            u64 folders = state->directory.folderCount;
+            u64 files = state->directory.count - folders;
+            u64 selectedFolders = 0;
+            if (state->selectedCount) {
+                for (u64 i = 0; i < state->directory.count; ++i) {
+                    Prog_Entry *entry = &state->directory.entries[i];
+                    selectedFolders += entry->selected && entry->file.kind == P_FileKind_Directory;
+                }
+            }
+            u64 selectedFiles = state->selectedCount - selectedFolders;
+            String folderText = selectedFolders ? StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, selectedFolders, folders)
+                                                : StrFormat(&state->frameArena, "%" PRIu64, folders);
+            String fileText = selectedFiles ? StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, selectedFiles, files)
+                                            : StrFormat(&state->frameArena, "%" PRIu64, files);
+            status = StrFormat(&state->frameArena, "%S folders   %S files   Details", folderText, fileText);
+        }
+        UI_SetNextPrefWidth(UI_TextContent());
+        UI_SetNextPrefHeight(UI_Pixels(m->pill));
+        UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_SetNextColors((UI_Colors){ .background = theme->panel, .text = state->error.length ? theme->textHeading : theme->text });
+        UI_SetNextText(status);
+        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText);
     }
-    Prog__Label(status, UI_Flex(), 26 * scale, scale);
+}
+
+function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->gap, 0 });
+    UI_Block *sidebar = Prog__Box(UI_Pixels(m->sidebar), UI_Flex(), UI_Layout_Vertical, theme->panel, UI_Flag_Clip);
+    UI_Parent(sidebar) {
+        // ponytail: places, bookmarks and drives come with the sidebar step; only the filter placeholder for now.
+        Prog__Label(S("Filter..."), UI_Flex(), m->bar, 0, theme->textDim, 0);
+    }
+}
+
+function void Prog_BuildUI(Prog_State *state, const R_Font *font, f32 scale)
+{
+    const Prog_Theme *theme = &Prog_ThemeCustom;
+    Prog_Metrics metrics = Prog__Metrics(font, scale);
+    const Prog_Metrics *m = &metrics;
+    Prog_Column columns[Prog_Sort_Count];
+    Prog__Columns(columns, scale);
+
+    UI->root->props.childrenPadding = (UI_Padding){0};
+    Prog__TabStrip(state, m);
+    Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->separator, 0);
+    UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
+    UI_Parent(body) {
+        Prog__Sidebar(state, m);
+        Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->separator, 0);
+        UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+        UI_Parent(main) {
+            Prog__Toolbar(state, m);
+            Prog__Header(state, columns, m);
+            Prog__List(state, columns, m);
+            Prog__StatusBar(state, m);
+        }
+    }
 }
