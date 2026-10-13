@@ -228,6 +228,20 @@ command Trash {
     repeat  = "false"
 }
 
+command SelectionDelete {
+    label   = "Delete^remove"
+    tooltip = "Permanently delete selected files!"
+    hotkey  = "Shift+Delete"
+    repeat  = "false"
+}
+
+// The delete confirmation's buttons, Enter and Escape.
+command DeleteConfirm {
+}
+
+command DeleteCancel {
+}
+
 command Duplicate {
     label   = "Duplicate"
     tooltip = "Duplicate selected files into the same folder."

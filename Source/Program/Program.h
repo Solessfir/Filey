@@ -75,6 +75,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Measure,
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
+    Prog_JobKind_Delete,
     Prog_JobKind_Create,
     Prog_JobKind_Places,
     Prog_JobKind_Save,
@@ -121,7 +122,7 @@ typedef struct Prog_JobInput {
     u64 *rows;
     u64 rowCount;
     u64 listing;
-    // Transfer copies or moves `paths` into `path`, Trash trashes them, and Create makes `name` inside `path`, a folder when `folder` is set.
+    // Transfer copies or moves `paths` into `path`, Trash trashes them, Delete deletes them for good, and Create makes `name` inside `path`, a folder when `folder` is set.
     // Save writes `name` to the file `path`.
     String *paths;
     u64 pathCount;
@@ -300,6 +301,11 @@ typedef struct Prog_State {
     P_DirectoryWatch watch;
     b32 watchDirty;
     u64 watchReloadTime;
+    // Permanent delete waits for this confirmation; the paths live in confirmArena.
+    b32 confirmingDelete;
+    Arena confirmArena;
+    String *confirmPaths;
+    u64 confirmCount;
     // Sidebar.
     b32 sidebarHidden;
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage

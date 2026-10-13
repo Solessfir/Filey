@@ -23,6 +23,7 @@ typedef struct Prog_Theme {
     R_Color textDim;
     R_Color textHeading;   // sidebar section titles
     R_Color textMatch;     // letters a filter matched
+    R_Color danger;        // actions that cannot be undone
     R_Color icon;
     R_Color iconDisabled;
 } Prog_Theme;
@@ -43,6 +44,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
     .textMatch    = Prog_Rgb(0, 170, 255),
+    .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(154),
     .iconDisabled = Prog_Gray(70),
 };
@@ -65,6 +67,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
     .textMatch    = Prog_Rgb(0, 170, 255),
+    .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(160),
     .iconDisabled = Prog_Gray(90),
 };
@@ -1012,6 +1015,45 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     return result;
 }
 
+// Asks before a permanent delete, over a dimmed window that takes every click.
+function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->confirmingDelete) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.35f } });
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeleteCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, outside.pressOrder);
+    String title = state->confirmCount == 1 ? StrFormat(&state->frameArena, "Permanently delete \"%S\"?", Prog__FolderName(state->confirmPaths[0]))
+                                            : StrFormat(&state->frameArena, "Permanently delete %" PRIu64 " items?", state->confirmCount);
+    f32 width = floorf(MinF32(MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, m->line * 20), view.x1 - view.x0 - 2 * m->inset));
+    f32 height = floorf(m->row * 2 + m->bar + m->inset * 2);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf((view.x1 - view.x0 - width) * 0.5f), floorf((view.y1 - view.y0 - height) * 0.4f) });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, m->inset });
+    UI_SetNextCornerRadius(m->radius * 2);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeletePanel")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
+        Prog__Label(S("This cannot be undone."), UI_Flex(), m->row, 0, theme->textDim, 0);
+        UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
+        UI_Parent(buttons) {
+            Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
+            UI_Interaction cancel = Prog__TextButton(S("DeleteCancel"), S("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
+            if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, cancel.clickOrder);
+            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+            UI_Interaction confirm = Prog__TextButton(S("DeleteConfirm"), S("Delete"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->danger, theme->danger, theme->textDim, true, m);
+            if (confirm.clicked) Prog_QueueCommand(state, Prog_CommandKind_DeleteConfirm, 0, 0, confirm.clickOrder);
+        }
+    }
+}
+
 function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->menuOpen) return;
@@ -1059,4 +1101,5 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         }
     }
     Prog__ContextMenu(state, m);
+    Prog__DeleteConfirmation(state, m);
 }

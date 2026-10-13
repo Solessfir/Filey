@@ -247,6 +247,11 @@ finish:
     ArenaRelease(&permanent);
 }
 
+function b32 TestEndsWith(String text, String suffix)
+{
+    return text.length >= suffix.length && StrIsEqual(StrFrom(text, text.length - suffix.length), suffix);
+}
+
 function u64 TestEntryIndex(Prog_State *state, String name)
 {
     for (u64 i = 0; i < state->directory.count; ++i) {
@@ -1046,6 +1051,21 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_Paste, 0);
     Check(!state.error.length);
 
+    // Shift+Delete deletes for good, only once Enter confirms; Escape keeps everything.
+    String inside = Prog_JoinPath(&arena, root, S("New folder"));
+    Check(!P_CreateItem(&arena, inside, S("Doomed"), true, &created).code);
+    Check(!P_CreateItem(&arena, Prog_JoinPath(&arena, inside, S("Doomed")), S("content.txt"), false, &created).code);
+    Check(TestWaitCount(&state, 2));
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("Doomed")), 0);
+    TestRenameKey(&state, Key_Delete, KeyMod_Shift);
+    Check(state.confirmingDelete && state.confirmCount == 1 && TestEndsWith(state.confirmPaths[0], S("/Doomed")));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.confirmingDelete && TestHasFile(&arena, fixture, S("Commands/New folder"), S("Doomed")));
+    TestRenameKey(&state, Key_Delete, KeyMod_Shift);
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(!state.confirmingDelete && TestWaitCount(&state, 1) && !state.error.length);
+    Check(!TestHasFile(&arena, fixture, S("Commands/New folder"), S("Doomed")) && TestHasFile(&arena, fixture, S("Commands/New folder"), S("a.txt")));
+
 #if defined(__linux__)
     // Trash goes to a trash inside the fixture, never the real one.
     String data = Prog_JoinPath(&arena, root, S("data"));
@@ -1083,11 +1103,6 @@ finish:
     Prog_Release(&state);
     TestRemoveTree(&arena, fixture, S("Commands"));
     ArenaRelease(&arena);
-}
-
-function b32 TestEndsWith(String text, String suffix)
-{
-    return text.length >= suffix.length && StrIsEqual(StrFrom(text, text.length - suffix.length), suffix);
 }
 
 // Tabs keep their own listing and selection, and closing, reopening and moving them keeps the shown one in place.

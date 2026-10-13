@@ -977,3 +977,22 @@ function P_FileError P_WriteFile(Arena *arena, String path, String contents)
     ReleaseScratch(scratch);
     return code ? P__FileError(arena, code) : (P_FileError){0};
 }
+
+// ponytail: cancellation is checked between items, not inside one big folder.
+function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel)
+{
+    Scratch scratch = GetScratchEx(arena);
+    u32 error = 0;
+    for (u64 i = 0; i < count && !error; ++i) {
+        if (P_IsCancelled(cancel)) { error = ECANCELED; break; }
+        String parent = {0}, leaf = {0};
+        P__SplitPath(paths[i], &parent, &leaf);
+        if (!leaf.length || StrIsEqual(leaf, S(".")) || StrIsEqual(leaf, S(".."))) { error = EINVAL; break; }
+        char *folder = P__FilePathCString(scratch.arena, parent), *name = P__FilePathCString(scratch.arena, leaf);
+        i32 fd = folder && name ? open(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC) : -1;
+        error = fd < 0 ? (u32)errno : P__RemoveAt(fd, name);
+        if (fd >= 0) close(fd);
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}

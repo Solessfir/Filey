@@ -104,6 +104,9 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
 function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, const P_CancelToken *cancel);
 // Moves the items at `paths` to the Trash, or the Recycle Bin on Windows, which asks before deleting anything it cannot keep.
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);
+// Deletes the items at `paths` for good, folders with everything in them, without asking; the program confirms first.
+// Links are removed, never followed.
+function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel);
 // `path` with the system's own separators, for showing or copying.
 function String P_NativePath(Arena *arena, String path);
 
@@ -161,6 +164,7 @@ typedef enum P_MenuAction {
     P_MenuAction_Duplicate,
     P_MenuAction_CopyAsPath,
     P_MenuAction_Trash,
+    P_MenuAction_Delete,
     P_MenuAction_NewFolder,
     P_MenuAction_NewFile,
     P_MenuAction_Count,

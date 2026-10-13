@@ -431,6 +431,13 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
     return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING);
 }
 
+// Without FOF_ALLOWUNDO the shell deletes instead of recycling; it still shows progress for long deletes.
+function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel)
+{
+    if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
+    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_NOCONFIRMATION);
+}
+
 function ArrayStr P_StartupPaths(Arena *arena)
 {
     i32 count = 0;

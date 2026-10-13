@@ -370,7 +370,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 9);
+        static_assert(P_MenuAction_Count == 10);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_Cut] = Prog_CommandKind_CutSelection,
             [P_MenuAction_Copy] = Prog_CommandKind_CopySelection,
@@ -378,6 +378,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
             [P_MenuAction_Duplicate] = Prog_CommandKind_Duplicate,
             [P_MenuAction_CopyAsPath] = Prog_CommandKind_CopyAsPath,
             [P_MenuAction_Trash] = Prog_CommandKind_Trash,
+            [P_MenuAction_Delete] = Prog_CommandKind_SelectionDelete,
             [P_MenuAction_NewFolder] = Prog_CommandKind_CreateFolder,
             [P_MenuAction_NewFile] = Prog_CommandKind_CreateFile,
         };
@@ -454,6 +455,16 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
         } break;
         case Prog_CommandKind_Trash: Prog__FileJob(state, Prog_JobKind_Trash, paths, count, state->directory.path, false, (String){0}); break;
+        case Prog_CommandKind_SelectionDelete: {
+            // Nothing is deleted until the confirmation is accepted.
+            if (!count) break;
+            ArenaClear(&state->confirmArena);
+            state->confirmPaths = ArenaPushArray(&state->confirmArena, count, String);
+            for (u64 i = 0; i < count; ++i) state->confirmPaths[i] = StrCopy(&state->confirmArena, paths[i]);
+            state->confirmCount = count;
+            state->confirmingDelete = true;
+            state->filtering = false;
+        } break;
         case Prog_CommandKind_Duplicate: {
             // Each copy goes next to its original, so an expanded listing duplicates the items of one folder at a time.
             u64 *rows = ArenaPushArray(frame, Max(count, (u64)1), u64);
@@ -728,10 +739,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CutSelection:
             case Prog_CommandKind_Paste:
             case Prog_CommandKind_Trash:
+            case Prog_CommandKind_SelectionDelete:
             case Prog_CommandKind_Duplicate:
             case Prog_CommandKind_CopyAsPath:
             case Prog_CommandKind_CreateFolder:
             case Prog_CommandKind_CreateFile: Prog__FileCommand(state, command->kind); break;
+            case Prog_CommandKind_DeleteConfirm:
+            case Prog_CommandKind_DeleteCancel: {
+                if (state->confirmingDelete && command->kind == Prog_CommandKind_DeleteConfirm) {
+                    Prog__FileJob(state, Prog_JobKind_Delete, state->confirmPaths, state->confirmCount, state->directory.path, false, (String){0});
+                }
+                state->confirmingDelete = false;
+                state->confirmCount = 0;
+                ArenaClear(&state->confirmArena);
+            } break;
             case Prog_CommandKind_DragSelection: if (!state->dragging && !state->loading) state->dragRequested = true; break;
             default: InvalidPath;
         }
@@ -758,6 +779,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
+        // The delete confirmation takes the keyboard: Enter deletes, Escape cancels, and nothing else gets through.
+        if (state->confirmingDelete) {
+            if (event->kind == PlatformEventKind_KeyDown && !event->isRepeat && event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_DeleteConfirm, 0, 0, order);
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, order);
+            continue;
+        }
         // The rename box takes the keyboard; a click anywhere else commits it.
         if (state->renaming) {
             if (event->kind == PlatformEventKind_MouseDown) {

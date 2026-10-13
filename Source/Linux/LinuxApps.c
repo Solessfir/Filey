@@ -353,6 +353,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         items[itemCount++] = separator;
         if (count == 1) items[itemCount++] = (P_MenuItem){ .label = S("Rename"), .verb = S("rename") };
         items[itemCount++] = (P_MenuItem){ .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
+        items[itemCount++] = (P_MenuItem){ .label = S("Delete"), .action = P_MenuAction_Delete };
     } else {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
