@@ -49,14 +49,15 @@ App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the v
 - Linux debug runs SHOULD use the `asan` flag (ASan + UBSan).
 - Linux app dependencies: `wayland` (client, cursor, egl), `libxkbcommon`, EGL (`mesa`/`libglvnd`), `freetype2`, and `fontconfig`, found through `pkg-config`. The xdg-shell protocol code is generated and committed under `Source/Linux/Protocols/`, so `wayland-protocols` is needed only to regenerate it:
   `wayland-scanner client-header|private-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml Source/Linux/Protocols/XdgShell.generated.{h,c}`
+- The `profile` flag defines `PROFILE`, which turns `ProfileScope("Name") { ... }` (`Platform/Profile.h`) into timed scopes on any thread. On exit the app writes `Filey.trace.json` to the working directory; open it in https://ui.perfetto.dev. Without the flag the macros compile to nothing.
 - `EXTRA_CFLAGS` adds ad-hoc defines to either build script. `-DLOG_EVENTS` prints every platform event to stderr.
 - WSLg provides a Wayland compositor, so the Linux window path can be run from WSL (software GL there).
 - Both build scripts first compile and run `Source/Tools/Codegen.c`, which regenerates `Source/Meta/*.meta.h` (committed) and fails the build on malformed input.
 - Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.
 
 ```text
-Build.bat [release] [analyze] [test]          Windows
-./Build.sh [release] [analyze] [asan] [test]  Linux / WSL
+Build.bat [release] [analyze] [profile] [test]          Windows
+./Build.sh [release] [analyze] [asan] [profile] [test]  Linux / WSL
 ```
 
 ## Source layout
@@ -64,7 +65,7 @@ Build.bat [release] [analyze] [test]          Windows
 ```text
 Source/
 ├─ Base/       Base.h + Base.c: types, asserts, arenas, pools, lists, strings, arrays, maps
-├─ Platform/   Platform.h + PlatformEvents.c: window/input contract; Jobs.h + PlatformJobs.c: worker queue; Files.h: filesystem contract
+├─ Platform/   Platform.h + PlatformEvents.c: window/input contract; Jobs.h + PlatformJobs.c: worker queue; Files.h: filesystem contract; Profile.h + PlatformProfile.c: scope profiler
 ├─ Win/        WinPlatform.c (memory, time), WinWindow.c (Win32 window, input, WGL), WinFont.c + WinFontRasterizer.cpp (DirectWrite glyphs), WinThreads.c + WinFiles.c
 ├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text

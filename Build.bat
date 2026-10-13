@@ -1,15 +1,17 @@
 @echo off
 setlocal
 
-rem Usage: Build.bat [release] [analyze] [test]
+rem Usage: Build.bat [release] [analyze] [profile] [test]
 
 set MODE=debug
 set ANALYZE=0
 set TEST=0
+set PROFILE=0
 for %%A in (%*) do (
     if /i "%%A"=="release" set MODE=release
     if /i "%%A"=="analyze" set ANALYZE=1
     if /i "%%A"=="test" set TEST=1
+    if /i "%%A"=="profile" set PROFILE=1
 )
 
 rem Load the MSVC/Windows SDK environment once per shell.
@@ -41,6 +43,7 @@ if "%MODE%"=="release" (
     set CFLAGS=%CFLAGS% -O0 -DDEBUG
     set CXXFLAGS=%CXXFLAGS% -O0 -DDEBUG
 )
+if "%PROFILE%"=="1" set CFLAGS=%CFLAGS% -DPROFILE
 rem EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 set CFLAGS=%CFLAGS% %EXTRA_CFLAGS%
 

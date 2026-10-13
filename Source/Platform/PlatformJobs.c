@@ -14,8 +14,10 @@ function void P__JobsRunWorker(P_JobQueue *queue)
 {
     for (;;) {
         P__MutexLock(&queue->mutex);
-        while (!queue->pendingFirst && !queue->stopping) {
-            P__ConditionWait(&queue->condition, &queue->mutex);
+        ProfileScope("WorkerIdle") {
+            while (!queue->pendingFirst && !queue->stopping) {
+                P__ConditionWait(&queue->condition, &queue->mutex);
+            }
         }
         if (queue->stopping) {
             P__MutexUnlock(&queue->mutex);
@@ -28,7 +30,7 @@ function void P__JobsRunWorker(P_JobQueue *queue)
         P__MutexUnlock(&queue->mutex);
 
         if (!P_IsCancelled(&job->cancelToken)) {
-            job->callback(job);
+            ProfileScope("Job") job->callback(job);
         }
 
         P__MutexLock(&queue->mutex);

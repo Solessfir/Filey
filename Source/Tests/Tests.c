@@ -4,6 +4,7 @@
 #include "Platform/Platform.h"
 #include "Platform/Jobs.h"
 #include "Platform/Files.h"
+#include "Platform/Profile.h"
 #include "Renderer/Renderer.h"
 #include "UI/UI.h"
 #include "Program/Program.h"
@@ -21,6 +22,7 @@
 #include "Base/Base.c"
 #include "Platform/PlatformEvents.c"
 #include "Platform/PlatformJobs.c"
+#include "Platform/PlatformProfile.c"
 #include "UI/UI.c"
 #include "Program/Directory.c"
 #include "Program/Commands.c"
@@ -406,6 +408,37 @@ function void TestMaps(void)
     ArenaRelease(&arena);
 }
 
+function void TestProfiler(void)
+{
+    Check(P_ProfileInit(1));
+    u64 capacity = P_Profile.capacity;
+    Check(capacity >= 1);
+    for (u64 i = 0; i < capacity; ++i) {
+        P_ProfileRecord("Scope", 10, 25);
+    }
+    P_ProfileRecord("Dropped", 30, 40);
+    Check(atomic_load(&P_Profile.count) == capacity + 1);
+    Check(P_Profile.events[0].duration == 15 && P_Profile.events[0].thread == 1);
+
+    FILE *file = tmpfile();
+    Check(file != NULL);
+    if (file != NULL) {
+        Check(P_ProfileWriteTrace(file) == capacity);
+        rewind(file);
+        char text[512] = {0};
+        u64 read = fread(text, 1, sizeof(text) - 1, file);
+        fclose(file);
+        String trace = { text, read };
+        Index start = StrIndexStr(trace, S("{\"traceEvents\":["), 0);
+        Check(start.exists && start.value == 0);
+        Check(StrIndexStr(trace, S("\"name\":\"Scope\",\"ph\":\"X\",\"pid\":1,\"tid\":1,\"ts\":10,\"dur\":15"), 0).exists);
+        Check(!StrIndexStr(trace, S("Dropped"), 0).exists);
+    }
+    P_ProfileRelease();
+    P_ProfileRecord("AfterRelease", 0, 1);
+    Check(P_Profile.events == NULL && atomic_load(&P_Profile.count) == 0);
+}
+
 int main(void)
 {
     TestArena();
@@ -431,6 +464,7 @@ int main(void)
     TestProgramVirtualRows();
     TestJobs();
     TestBrowsing();
+    TestProfiler();
 
     if (CheckFailures != 0) {
         fprintf(stderr, "%d check(s) failed\n", CheckFailures);

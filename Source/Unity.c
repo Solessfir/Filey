@@ -4,6 +4,7 @@
 #include "Platform/Platform.h"
 #include "Platform/Jobs.h"
 #include "Platform/Files.h"
+#include "Platform/Profile.h"
 #include "Renderer/Renderer.h"
 #include "UI/UI.h"
 #include "Program/Program.h"
@@ -31,6 +32,7 @@
 #include "Renderer/Font.c"
 #include "UI/UI.c"
 #include "Platform/PlatformJobs.c"
+#include "Platform/PlatformProfile.c"
 #include "Program/Directory.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
@@ -57,6 +59,7 @@ typedef struct Prog_Loop {
     R_Font icons;
     b32 running;
     b32 needsFrame;
+    u64 startTime;  // cleared once the first frame is presented
 } Prog_Loop;
 
 function void Prog__Wake(void *user)
@@ -83,32 +86,69 @@ function void Prog__Frame(void *user, PlatformEventList events)
     if (!loop->running) {
         return;
     }
-    ArenaClear(&state->frameArena);
-    b32 completed = Prog_TakeCompletions(state);
-    PlatformWindowInfo window = PlatformWindowGetInfo();
-    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
-    Prog_HandleInput(state, events);
-    Prog_BuildUI(state, &loop->font, &loop->icons, window.scale);
-    UI_EndFrame();
-    loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
-    R_BeginFrame(window.width, window.height, Prog_ThemeCustom.background);
-    UI_Draw();
-    R_EndFrame();
-    PlatformSwapBuffers();
+    ProfileScope("Frame") {
+        ArenaClear(&state->frameArena);
+        b32 completed = false;
+        ProfileScope("TakeCompletions") completed = Prog_TakeCompletions(state);
+        PlatformWindowInfo window = PlatformWindowGetInfo();
+        ProfileScope("BuildUI") {
+            UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
+            Prog_HandleInput(state, events);
+            Prog_BuildUI(state, &loop->font, &loop->icons, window.scale);
+        }
+        ProfileScope("Layout") UI_EndFrame();
+        ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
+        ProfileScope("Render") {
+            R_BeginFrame(window.width, window.height, Prog_ThemeCustom.background);
+            UI_Draw();
+            R_EndFrame();
+        }
+        // Includes the wait for vsync.
+        ProfileScope("SwapBuffers") PlatformSwapBuffers();
+    }
+    if (loop->startTime) {
+        ProfileRecordSince("StartupToFirstFrame", loop->startTime);
+        loop->startTime = 0;
+    }
 }
+
+#if defined(PROFILE)
+function void Prog__WriteProfile(void)
+{
+    const char *path = "Filey.trace.json";
+    FILE *file = fopen(path, "wb");
+    if (file != NULL) {
+        u64 written = P_ProfileWriteTrace(file);
+        u64 recorded = (u64)atomic_load(&P_Profile.count);
+        fclose(file);
+        fprintf(stderr, "Wrote %" PRIu64 " profile events to %s (%" PRIu64 " dropped)\n", written, path, recorded - written);
+    }
+    P_ProfileRelease();
+}
+#endif
 
 int main(void)
 {
-    if (!PlatformWindowOpen((PlatformWindowDesc){ .title = S("Filey"), .width = 1280, .height = 800 })) {
+    Prog_Loop loop = { .running = true, .needsFrame = true, .startTime = PlatformNowMicroseconds() };
+#if defined(PROFILE)
+    // 32 MB of events, about an hour of frames.
+    if (!P_ProfileInit(UINT64_C(1) << 20)) {
+        fprintf(stderr, "Failed to start the profiler\n");
+    }
+#endif
+    b32 ok = false;
+    ProfileScope("OpenWindow") ok = PlatformWindowOpen((PlatformWindowDesc){ .title = S("Filey"), .width = 1280, .height = 800 });
+    if (!ok) {
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
-    Prog_Loop loop = { .running = true, .needsFrame = true };
-    if (!Prog_Init(&loop.state, S(""), Prog__Wake, NULL)) {
+    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, S(""), Prog__Wake, NULL);
+    if (!ok) {
         fprintf(stderr, "Failed to start workers\n");
         return 1;
     }
-    if (!R_Init()) {
+    ProfileScope("InitRenderer") ok = R_Init();
+    if (!ok) {
         fprintf(stderr, "Failed to initialize the renderer\n");
         Prog_Release(&loop.state);
         P_ReleaseWindowWake();
@@ -123,9 +163,12 @@ int main(void)
     const f32 fontPixelSize = 15.0f;
 #endif
     // Icons are drawn a little larger than the text's line height, as in the reference.
-    if (!R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font) ||
-        !R_FontCreateFromMemory(&permanent, Icon_FontData, sizeof(Icon_FontData), floorf(loop.font.lineHeight * 1.1f + 0.5f),
-                                Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &loop.icons)) {
+    ProfileScope("LoadFonts") {
+        ok = R_FontCreate(&permanent, S("Segoe UI"), fontPixelSize * startWindow.scale, &loop.font) &&
+             R_FontCreateFromMemory(&permanent, Icon_FontData, sizeof(Icon_FontData), floorf(loop.font.lineHeight * 1.1f + 0.5f),
+                                    Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &loop.icons);
+    }
+    if (!ok) {
         fprintf(stderr, "Failed to load fonts\n");
         Prog_Release(&loop.state);
         P_ReleaseWindowWake();
@@ -144,7 +187,8 @@ int main(void)
     loop.state.ui.doubleClickDistance = doubleClick.distance;
     PlatformSetModalFrameCallback(Prog__Frame, &loop);
     while (loop.running) {
-        PlatformEventList events = PlatformPollEvents(!loop.needsFrame);
+        PlatformEventList events = {0};
+        ProfileScope("PollEvents") events = PlatformPollEvents(!loop.needsFrame);
         Prog__Frame(&loop, events);
     }
 
@@ -152,5 +196,8 @@ int main(void)
     Prog_Release(&loop.state);
     P_ReleaseWindowWake();
     ArenaRelease(&permanent);
+#if defined(PROFILE)
+    Prog__WriteProfile();
+#endif
     return 0;
 }

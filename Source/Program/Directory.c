@@ -109,7 +109,8 @@ function void Prog__DirectoryJob(P_Job *job)
     result->sort = input->sort;
     result->descending = input->descending;
     result->showHidden = input->showHidden;
-    P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+    P_DirectoryResult listing = {0};
+    ProfileScope("EnumerateDirectory") listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
     if (result->error.code || result->cancelled) return;

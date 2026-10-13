@@ -1,17 +1,19 @@
 #!/bin/sh
-# Usage: ./Build.sh [release] [analyze] [asan] [test]
+# Usage: ./Build.sh [release] [analyze] [asan] [profile] [test]
 set -e
 
 mode=debug
 analyze=0
 asan=0
 test=0
+profile=0
 for arg in "$@"; do
     case "$arg" in
         release) mode=release ;;
         analyze) analyze=1 ;;
         asan)    asan=1 ;;
         test)    test=1 ;;
+        profile) profile=1 ;;
     esac
 done
 
@@ -28,6 +30,10 @@ else
 fi
 if [ "$asan" = 1 ]; then
     cflags="$cflags -fsanitize=address,undefined -fno-omit-frame-pointer"
+fi
+
+if [ "$profile" = 1 ]; then
+    cflags="$cflags -DPROFILE"
 fi
 
 # EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
