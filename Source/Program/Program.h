@@ -2,6 +2,7 @@
 
 #include "../Platform/Files.h"
 
+// Matches P_FileOrderKey, which carries it to the platform.
 typedef enum Prog_Sort {
     Prog_Sort_Name,
     Prog_Sort_Type,
@@ -9,6 +10,8 @@ typedef enum Prog_Sort {
     Prog_Sort_Size,
     Prog_Sort_Count,
 } Prog_Sort;
+
+static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Count == (i32)P_FileOrderKey_Count);
 
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"

@@ -170,8 +170,10 @@ function char *P__FileLauncher(Arena *arena, u32 *error)
     return NULL;
 }
 
-function P_FileError P_OpenPath(Arena *arena, String path)
+// ponytail: `order` is unused until a Linux launcher protocol carries neighboring files.
+function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
 {
+    (void)order;
     Scratch scratch = GetScratchEx(arena);
     String absolute = P_AbsolutePath(scratch.arena, path);
     char *file = absolute.length ? P__FilePathCString(scratch.arena, absolute) : NULL;

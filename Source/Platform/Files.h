@@ -41,8 +41,25 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
 // Lexically normalized absolute path with '/' separators; empty means failure.
 function String P_AbsolutePath(Arena *arena, String path);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
-// May block while the system launches its default application. Run in a job.
-function P_FileError P_OpenPath(Arena *arena, String path);
+// The order a folder is shown in, so that an app opened on one of its files
+// can step through the rest in the same order, as from Explorer.
+typedef enum P_FileOrderKey {
+    P_FileOrderKey_Name,
+    P_FileOrderKey_Type,
+    P_FileOrderKey_Modified,
+    P_FileOrderKey_Size,
+    P_FileOrderKey_Count,
+} P_FileOrderKey;
+
+typedef struct P_FileOrder {
+    enum8(P_FileOrderKey) key;
+    b8 descending;
+} P_FileOrder;
+
+// Opens `path` with its default application. Windows hands packaged apps such
+// as Photos the rest of the folder in `order`. May block while the application
+// starts. Run in a job.
+function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
 // Renames `from` to `to` inside `directory`. Never replaces an existing item,
 // and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.

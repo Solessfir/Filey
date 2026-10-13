@@ -115,7 +115,7 @@ function void P__TestOpenPath(TestFileFixture *fixture)
     Check(isolated);
     if (!isolated) goto restore;
     String target = StrFormat(scratch.arena, "%S/Zażółć 🙂 ';$(printf unsafe).txt", fixture->path);
-    P_FileError error = P_OpenPath(&fixture->arena, target);
+    P_FileError error = P_OpenPath(&fixture->arena, target, (P_FileOrder){0});
     Check(!error.code);
     u64 start = PlatformNowMicroseconds();
     while (!P__TestFileExists(fixture, S("launch-running")) && PlatformNowMicroseconds() - start < Millions(5)) P__TestPause();
@@ -130,18 +130,18 @@ function void P__TestOpenPath(TestFileFixture *fixture)
     }
     while (!P__TestFileExists(fixture, S("launch-finished")) && PlatformNowMicroseconds() - start < Millions(5)) P__TestPause();
     Check(P__TestFileExists(fixture, S("launch-finished")));
-    error = P_OpenPath(&fixture->arena, S("bad\0path"));
+    error = P_OpenPath(&fixture->arena, S("bad\0path"), (P_FileOrder){0});
     Check(error.code == EINVAL);
     char *emptyPath = P__TestNativePath(scratch.arena, fixture, S("Empty"));
     isolated = setenv("PATH", emptyPath, 1) == 0;
     Check(isolated);
     if (!isolated) goto restore;
-    error = P_OpenPath(&fixture->arena, target);
+    error = P_OpenPath(&fixture->arena, target, (P_FileOrder){0});
     Check(error.code == ENOENT && error.message.length);
     isolated = setenv("PATH", fixturePath, 1) == 0 && chmod(launcher, 0600) == 0;
     Check(isolated);
     if (!isolated) goto restore;
-    error = P_OpenPath(&fixture->arena, target);
+    error = P_OpenPath(&fixture->arena, target, (P_FileOrder){0});
     Check(error.code == EACCES);
 restore:
     if (hadPath) {

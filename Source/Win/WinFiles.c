@@ -160,22 +160,6 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
     return result;
 }
 
-function P_FileError P_OpenPath(Arena *arena, String path)
-{
-    Scratch scratch = GetScratchEx(arena);
-    String absolute = P_AbsolutePath(scratch.arena, path);
-    wchar *wide = absolute.length ? P__FilePathWide(scratch.arena, absolute) : NULL;
-    u32 error = wide ? 0 : GetLastError();
-    if (wide) {
-        HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-        SHELLEXECUTEINFOW info = {.cbSize = sizeof(info), .fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI, .lpVerb = L"open", .lpFile = wide, .nShow = SW_SHOWNORMAL};
-        if (!ShellExecuteExW(&info)) error = GetLastError();
-        if (SUCCEEDED(com)) CoUninitialize();
-    }
-    ReleaseScratch(scratch);
-    return error ? P__FileError(arena, error) : (P_FileError){0};
-}
-
 // Separators would turn a rename into a move.
 function b32 P__ValidFileName(String name)
 {

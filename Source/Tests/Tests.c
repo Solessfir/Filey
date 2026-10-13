@@ -15,6 +15,7 @@
 #include "Win/WinFiles.c"
 #include "Win/WinIcons.c"
 #include "Win/WinShell.c"
+#include "Win/WinLaunch.c"
 #elif defined(__linux__)
 #include "Linux/LinuxPlatform.c"
 #include "Linux/LinuxThreads.c"

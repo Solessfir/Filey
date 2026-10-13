@@ -100,7 +100,7 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_Open || input->kind == Prog_JobKind_Rename) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         if (!P_IsCancelled(&job->cancelToken)) {
-            *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, input->path)
+            *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, input->path, (P_FileOrder){ input->sort, (b8)input->descending })
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
         }
         job->result = error;
@@ -358,6 +358,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->kind = Prog_JobKind_Open;
         input->generation = state->generation;
+        input->sort = state->directory.sort;
+        input->descending = state->directory.descending;
         input->path = StrCopy(&job->arena, path);
         job->input = input;
         P_JobSubmit(job);

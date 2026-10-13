@@ -622,6 +622,7 @@ function void TestBrowsing(void)
         TestRename(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
+        P__TestNeighborQuery(&fixture);
 #endif
     }
     P__TestRemoveFixture(&fixture);

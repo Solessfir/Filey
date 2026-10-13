@@ -116,3 +116,45 @@ function void P__TestDropForwarding(TestFileFixture *fixture)
     if (folder) folder->lpVtbl->Release(folder);
     ReleaseScratch(scratch);
 }
+
+// The query handed to packaged apps lists the fixture's files in Filey's order. Nothing is launched.
+function void P__TestNeighborQuery(TestFileFixture *fixture)
+{
+    local_persist const IID storageItem = { 0x4207A996, 0xCA2F, 0x42F7, { 0xBD, 0xE8, 0x8B, 0x10, 0x45, 0x7A, 0x7F, 0x30 } };
+    Scratch scratch = GetScratchEx(&fixture->arena);
+    HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    for (u32 descending = 0; descending < 2; ++descending) {
+        P__FileQuery *query = P__NeighborQuery(P__FilePathWide(scratch.arena, fixture->path), (P_FileOrder){ P_FileOrderKey_Name, (b8)descending });
+        __FIAsyncOperation_1___FIVectorView_1_Windows__CStorage__CStorageFile *listing = NULL;
+        __FIVectorView_1_Windows__CStorage__CStorageFile *files = NULL;
+        Check(query && SUCCEEDED(query->lpVtbl->GetFilesAsyncDefaultStartAndCount(query, &listing)) && P__WinRtWait(listing) == P__Wait_Completed &&
+              SUCCEEDED(listing->lpVtbl->GetResults(listing, &files)) && files);
+        u32 count = 0;
+        if (files) files->lpVtbl->get_Size(files, &count);
+        Check(count >= 4);
+        String previous = {0};
+        for (u32 i = 0; i < count; ++i) {
+            __x_ABI_CWindows_CStorage_CIStorageFile *file = NULL;
+            __x_ABI_CWindows_CStorage_CIStorageItem *item = NULL;
+            HSTRING name = NULL;
+            String current = {0};
+            if (SUCCEEDED(files->lpVtbl->GetAt(files, i, &file)) && SUCCEEDED(file->lpVtbl->QueryInterface(file, &storageItem, (void **)&item)) &&
+                SUCCEEDED(item->lpVtbl->get_Name(item, &name))) {
+                u32 length = 0;
+                const wchar *raw = WindowsGetStringRawBuffer(name, &length);
+                current = P__FileStringWide(scratch.arena, raw, (i32)length);
+            }
+            Check(current.length);
+            if (previous.length) Check(descending ? Prog_CompareNames(previous, current) > 0 : Prog_CompareNames(previous, current) < 0);
+            previous = current;
+            WindowsDeleteString(name);
+            if (item) item->lpVtbl->Release(item);
+            if (file) file->lpVtbl->Release(file);
+        }
+        if (files) files->lpVtbl->Release(files);
+        if (listing) listing->lpVtbl->Release(listing);
+        if (query) query->lpVtbl->Release(query);
+    }
+    if (SUCCEEDED(com)) CoUninitialize();
+    ReleaseScratch(scratch);
+}
