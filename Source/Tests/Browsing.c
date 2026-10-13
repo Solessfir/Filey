@@ -866,6 +866,100 @@ function void TestMeasure(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// Names inside `relative` below the fixture, for checks and for cleanup.
+function P_FileArray TestListing(Arena *arena, TestFileFixture *fixture, String relative)
+{
+    P_CancelToken token = {0};
+    return P_EnumerateDirectory(arena, Prog_JoinPath(arena, fixture->path, relative), &token).files;
+}
+
+function b32 TestHasFile(Arena *arena, TestFileFixture *fixture, String relative, String name)
+{
+    P_FileArray files = TestListing(arena, fixture, relative);
+    for (u64 i = 0; i < files.header.count; ++i) {
+        if (StrIsEqual(files.v[i].name, name)) return true;
+    }
+    return false;
+}
+
+// Removes what a test made under `relative`, one item at a time, staying inside the fixture.
+function void TestRemoveTree(Arena *arena, TestFileFixture *fixture, String relative)
+{
+    Assert(relative.length);
+    P_FileArray files = TestListing(arena, fixture, relative);
+    for (u64 i = 0; i < files.header.count; ++i) {
+        String child = StrFormat(arena, "%S/%S", relative, files.v[i].name);
+        if (files.v[i].kind == P_FileKind_Directory && !files.v[i].symbolicLink) TestRemoveTree(arena, fixture, child);
+        else Check(P__TestRemovePath(fixture, child, false));
+    }
+    Check(P__TestRemovePath(fixture, relative, true));
+}
+
+function void TestFileOperations(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    P_CancelToken token = {0};
+    String created = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Ops"), true, &created).code && StrIsEqual(created, S("Ops")));
+    String ops = Prog_JoinPath(&arena, fixture->path, S("Ops"));
+
+    // New items take a number when their name is taken.
+    Check(!P_CreateItem(&arena, ops, S("New folder"), true, &created).code && StrIsEqual(created, S("New folder")));
+    Check(!P_CreateItem(&arena, ops, S("New folder"), true, &created).code && StrIsEqual(created, S("New folder (2)")));
+    Check(!P_CreateItem(&arena, ops, S("New file.txt"), false, &created).code && StrIsEqual(created, S("New file.txt")));
+    Check(!P_CreateItem(&arena, ops, S("New file.txt"), false, &created).code && StrIsEqual(created, S("New file (2).txt")));
+    Check(P_CreateItem(&arena, ops, S("a/b"), true, &created).code && !created.length);
+
+    // Copies never replace what is there, and folders copy with their contents.
+    String plain = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));
+    String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));
+    Check(!P_TransferItems(&arena, &plain, 1, ops, false, &token).code);
+    Check(!P_TransferItems(&arena, &plain, 1, ops, false, &token).code);
+    Check(TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")) && TestHasFile(&arena, fixture, S(""), S("plain.txt")));
+    Check(TestListing(&arena, fixture, S("Ops")).header.count == 6);
+    Check(!P_TransferItems(&arena, &folder, 1, ops, false, &token).code);
+    Check(TestHasFile(&arena, fixture, S("Ops/Folder2"), S("inside.txt")) && TestHasFile(&arena, fixture, S("Folder2"), S("inside.txt")));
+
+    // A folder never goes inside itself.
+    String copy = Prog_JoinPath(&arena, ops, S("Folder2"));
+    Check(P_TransferItems(&arena, &copy, 1, copy, false, &token).code);
+    Check(P_TransferItems(&arena, &copy, 1, Prog_JoinPath(&arena, copy, S("deeper")), true, &token).code);
+    Check(TestListing(&arena, fixture, S("Ops/Folder2")).header.count == 1);
+
+    // Moves take the item out of its folder; a move into its own folder does nothing.
+    String moving = Prog_JoinPath(&arena, ops, S("plain.txt"));
+    String target = Prog_JoinPath(&arena, ops, S("New folder"));
+    Check(!P_TransferItems(&arena, &moving, 1, ops, true, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")));
+    Check(!P_TransferItems(&arena, &moving, 1, target, true, &token).code);
+    Check(TestHasFile(&arena, fixture, S("Ops/New folder"), S("plain.txt")) && !TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")));
+    String cancelled = Prog_JoinPath(&arena, ops, S("New file.txt"));
+    P_RequestCancel(&token);
+    Check(P_TransferItems(&arena, &cancelled, 1, target, false, &token).code && !TestHasFile(&arena, fixture, S("Ops/New folder"), S("New file.txt")));
+    token = (P_CancelToken){0};
+
+#if defined(__linux__)
+    // The trash test uses a trash inside the fixture, never the real one.
+    const char *previous = getenv("XDG_DATA_HOME");
+    String saved = previous ? StrCopy(&arena, StrFromCStr(previous)) : (String){0};
+    String data = Prog_JoinPath(&arena, ops, S("data"));
+    setenv("XDG_DATA_HOME", P__FilePathCString(&arena, data), 1);
+    String trashed = Prog_JoinPath(&arena, ops, S("New file (2).txt"));
+    Check(!P_TrashItems(&arena, &trashed, 1).code);
+    if (saved.length) setenv("XDG_DATA_HOME", P__FilePathCString(&arena, saved), 1);
+    else unsetenv("XDG_DATA_HOME");
+    Check(!TestHasFile(&arena, fixture, S("Ops"), S("New file (2).txt")) && TestHasFile(&arena, fixture, S("Ops/data/Trash/files"), S("New file (2).txt")));
+    Check(TestHasFile(&arena, fixture, S("Ops/data/Trash/info"), S("New file (2).txt.trashinfo")));
+
+    // Links copy as links.
+    String link = Prog_JoinPath(&arena, fixture->path, S("broken-link"));
+    Check(!P_TransferItems(&arena, &link, 1, ops, false, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("broken-link")));
+#endif
+
+    TestRemoveTree(&arena, fixture, S("Ops"));
+    Check(!TestHasFile(&arena, fixture, S(""), S("Ops")));
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -883,6 +977,7 @@ function void TestBrowsing(void)
         TestExpand(&fixture);
         TestWatch(&fixture);
         TestMeasure(&fixture);
+        TestFileOperations(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);

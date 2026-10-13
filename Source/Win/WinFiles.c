@@ -311,3 +311,122 @@ function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *
     ReleaseScratch(scratch);
     return result;
 }
+
+function String P_NativePath(Arena *arena, String path)
+{
+    String result = StrCopy(arena, path);
+    for (u64 i = 0; i < result.length; ++i) {
+        if (result.value[i] == '/') ((char *)result.value)[i] = '\\';
+    }
+    return result;
+}
+
+// Whether `path` is `folder` or inside it, ignoring case and separator style as Windows does.
+function b32 P__PathWithin(String path, String folder)
+{
+    while (folder.length && (folder.value[folder.length - 1] == '/' || folder.value[folder.length - 1] == '\\')) --folder.length;
+    if (path.length < folder.length) return false;
+    for (u64 i = 0; i < folder.length; ++i) {
+        u8 a = (u8)path.value[i], b = (u8)folder.value[i];
+        if (a == '\\') a = '/';
+        if (b == '\\') b = '/';
+        if (a >= 'A' && a <= 'Z') a += 32;
+        if (b >= 'A' && b <= 'Z') b += 32;
+        if (a != b) return false;
+    }
+    return path.length == folder.length || path.value[folder.length] == '/' || path.value[folder.length] == '\\';
+}
+
+function P_FileError P_CreateItem(Arena *arena, String directory, String name, b32 folder, String *created)
+{
+    *created = (String){0};
+    if (!P__ValidFileName(name)) return P__FileError(arena, ERROR_INVALID_NAME);
+    Scratch scratch = GetScratchEx(arena);
+    // Files number before their extension, folders after the whole name.
+    Index dot = folder ? (Index){0} : StrIndexChar(name, '.', SSF_SearchBackwards);
+    String stem = dot.exists && dot.value ? StrFromTo(name, 0, (i64)dot.value) : name;
+    String extension = dot.exists && dot.value ? StrFrom(name, dot.value) : (String){0};
+    u32 error = ERROR_ALREADY_EXISTS;
+    for (u32 n = 1; n < 10000 && error == ERROR_ALREADY_EXISTS; ++n) {
+        String candidate = n == 1 ? name : StrFormat(scratch.arena, "%S (%u)%S", stem, n, extension);
+        wchar *path = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, candidate));
+        if (!path) {
+            error = GetLastError();
+        } else if (folder) {
+            error = CreateDirectoryW(path, NULL) ? 0 : GetLastError();
+        } else {
+            HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+            error = file != INVALID_HANDLE_VALUE ? 0 : GetLastError();
+            if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+            if (error == ERROR_FILE_EXISTS) error = ERROR_ALREADY_EXISTS;
+        }
+        if (!error) *created = StrCopy(arena, candidate);
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+// The shell's file operation, which brings the Recycle Bin, renaming on collision and a progress window for long copies.
+// Errors come back as codes instead of dialogs.
+function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags)
+{
+    Scratch scratch = GetScratchEx(arena);
+    // Both lists end with an extra null.
+    u64 length = 1;
+    wchar **wide = ArenaPushArray(scratch.arena, Max(count, (u64)1), wchar *);
+    u32 error = 0;
+    for (u64 i = 0; i < count && !error; ++i) {
+        wide[i] = P__FilePathWide(scratch.arena, paths[i]);
+        if (!wide[i]) error = GetLastError();
+        else length += (u64)lstrlenW(wide[i]) + 1;
+    }
+    wchar *from = ArenaPushArray(scratch.arena, length, wchar);
+    for (u64 i = 0, at = 0; i < count && !error; ++i) {
+        u64 size = (u64)lstrlenW(wide[i]) + 1;
+        MemCopy(from + at, wide[i], size * sizeof(wchar));
+        at += size;
+    }
+    wchar *to = NULL;
+    if (!error && directory.length) {
+        wchar *target = P__FilePathWide(scratch.arena, directory);
+        if (!target) error = GetLastError();
+        u64 size = target ? (u64)lstrlenW(target) : 0;
+        to = ArenaPushArray(scratch.arena, size + 2, wchar);
+        if (target) MemCopy(to, target, size * sizeof(wchar));
+    }
+    if (!error && count) {
+        SHFILEOPSTRUCTW op = { .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR) };
+        i32 result = SHFileOperationW(&op);
+        error = result ? (u32)result : op.fAnyOperationsAborted ? ERROR_CANCELLED : 0;
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, const P_CancelToken *cancel)
+{
+    if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
+    Scratch scratch = GetScratchEx(arena);
+    String *kept = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+    u64 keptCount = 0;
+    u32 error = 0;
+    for (u64 i = 0; i < count && !error; ++i) {
+        String path = paths[i];
+        while (path.length > 3 && (path.value[path.length - 1] == '/' || path.value[path.length - 1] == '\\')) --path.length;
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+        Index backslash = StrIndexChar(path, '\\', SSF_SearchBackwards);
+        u64 cut = Max(slash.exists ? slash.value : 0, backslash.exists ? backslash.value : 0);
+        String parent = StrFromTo(path, 0, (i64)cut);
+        if (P__PathWithin(directory, path)) error = ERROR_INVALID_PARAMETER;
+        else if (!(move && P__PathWithin(parent, directory) && P__PathWithin(directory, parent))) kept[keptCount++] = path;
+    }
+    P_FileError result = error ? P__FileError(arena, error)
+                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
+{
+    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING);
+}

@@ -90,6 +90,21 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch);
 // May touch a slow disk, so run it in a job.
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to);
 
+// File operations Filey carries out itself.
+// Each may touch slow disks or many files, so run them in jobs.
+//
+// Creates an empty folder or file called `name` inside `directory`, numbering the name when it is taken ("New folder (2)"), and returns the name used in `created`.
+function P_FileError P_CreateItem(Arena *arena, String directory, String name, b32 folder, String *created);
+// Copies or moves the items at `paths` into `directory`.
+// Existing items are never replaced: a taken name gets a number on Linux and the shell's "- Copy" name on Windows.
+// A folder is never put inside itself, and moving an item into the folder it is in does nothing.
+// Linux moves across file systems by copying and removes the source only once its copy is complete; Windows shows its own progress window for long operations.
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, const P_CancelToken *cancel);
+// Moves the items at `paths` to the Trash, or the Recycle Bin on Windows, which asks before deleting anything it cannot keep.
+function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);
+// `path` with the system's own separators, for showing or copying.
+function String P_NativePath(Arena *arena, String path);
+
 // Straight-alpha RGBA8 pixels (red in the lowest byte), top row first.
 typedef struct P_Image {
     u32 *pixels;
