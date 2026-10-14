@@ -56,6 +56,7 @@ typedef struct UI_Properties {
     f32 cornerRadius;  // background and border
     f32 borderThickness;  // 0 draws one pixel
     f32 fade;  // 0 is opaque and 1 invisible, for this block and everything inside it
+    f32 scale; // 0 draws it at its size; otherwise it and everything inside it are drawn that much larger around its center
 } UI_Properties;
 
 typedef struct UI_Interaction {
@@ -163,6 +164,7 @@ function void UI_SetNextCornerRadius(f32 radius);
 function void UI_SetNextBorderThickness(f32 thickness);
 function void UI_SetNextScrollOffset(UI_Vec2 offset);
 function void UI_SetNextOpacity(f32 opacity);
+function void UI_SetNextScale(f32 scale);
 
 // Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.
 function f32 UI_Approach(f32 value, f32 target, f32 epsilon);

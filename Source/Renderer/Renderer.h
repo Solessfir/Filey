@@ -69,6 +69,9 @@ function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Col
 // Clips intersect with the enclosing clip.
 function void R_PushClip(R_Rect rect);
 function void R_PopClip(void);
+// Everything drawn until the matching pop is scaled by `scale` around (x, y), clips included, as for a block that zooms in.
+function void R_PushScale(f32 x, f32 y, f32 scale);
+function void R_PopScale(void);
 
 // Text (Renderer/Font.c). `y` is the top of the line box.
 function b32  R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font);

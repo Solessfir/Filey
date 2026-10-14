@@ -135,6 +135,10 @@ typedef struct GL_State {
     GL_ArrayBatch    batches;
     R_Rect           clips[GL_MaxClipDepth];
     u32              clipDepth;
+    // The scale in effect, p * scale + offset, and the ones it was pushed over.
+    struct { f32 scale, x, y; } scales[GL_MaxClipDepth];
+    u32              scaleDepth;
+    f32              scale, offsetX, offsetY;
     i32              width;
     i32              height;
 } GL_State;
@@ -332,6 +336,9 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.instances = (GL_ArrayInstance){0};
     GL.batches = (GL_ArrayBatch){0};
     GL.clipDepth = 0;
+    GL.scaleDepth = 0;
+    GL.scale = 1;
+    GL.offsetX = GL.offsetY = 0;
     GL.width = width;
     GL.height = height;
 
@@ -341,8 +348,18 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.Clear(GL_COLOR_BUFFER_BIT);
 }
 
+function R_Rect GL__Scaled(R_Rect rect)
+{
+    return (R_Rect){ rect.x0 * GL.scale + GL.offsetX, rect.y0 * GL.scale + GL.offsetY, rect.x1 * GL.scale + GL.offsetX, rect.y1 * GL.scale + GL.offsetY };
+}
+
 function void GL__PushInstance(GL_Instance instance, GLuint texture)
 {
+    if (GL.scale != 1) {
+        instance.rect = GL__Scaled(instance.rect);
+        instance.radius *= GL.scale;
+        instance.thickness *= GL.scale;
+    }
     R_Rect clip = GL__CurrentClip();
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
     b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
@@ -383,6 +400,7 @@ function void R_PushClip(R_Rect rect)
 {
     Assert(GL.clipDepth < GL_MaxClipDepth);
     R_Rect outer = GL__CurrentClip();
+    rect = GL__Scaled(rect);
     R_Rect clip = {
         MaxF32(rect.x0, outer.x0),
         MaxF32(rect.y0, outer.y0),
@@ -398,6 +416,25 @@ function void R_PopClip(void)
 {
     Assert(GL.clipDepth > 0);
     GL.clipDepth -= 1;
+}
+
+function void R_PushScale(f32 x, f32 y, f32 scale)
+{
+    Assert(GL.scaleDepth < GL_MaxClipDepth);
+    GL.scales[GL.scaleDepth++] = (typeof(GL.scales[0])){ GL.scale, GL.offsetX, GL.offsetY };
+    // The new scale applies first, around (x, y), then the one already in effect.
+    GL.offsetX += GL.scale * x * (1 - scale);
+    GL.offsetY += GL.scale * y * (1 - scale);
+    GL.scale *= scale;
+}
+
+function void R_PopScale(void)
+{
+    Assert(GL.scaleDepth > 0);
+    --GL.scaleDepth;
+    GL.scale = GL.scales[GL.scaleDepth].scale;
+    GL.offsetX = GL.scales[GL.scaleDepth].x;
+    GL.offsetY = GL.scales[GL.scaleDepth].y;
 }
 
 function void R_ReadPixels(u32 width, u32 height, void *bgra)

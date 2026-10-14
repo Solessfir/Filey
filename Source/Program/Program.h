@@ -386,6 +386,7 @@ typedef struct Prog_Tab {
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
     u64 id;  // 0 for a free slot; keys the panel's blocks and tags its commands and jobs
+    u64 splitMicroseconds;  // when a split made it, which it zooms in from; 0 for the panels the window starts with
     Prog_TabFields(Prog__PanelField)
     Prog_PanelFields(Prog__PanelField)
 } Prog_Panel;

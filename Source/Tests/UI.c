@@ -133,6 +133,14 @@ function void R_PopClip(void)
     if (TestUIClipDepth) --TestUIClipDepth;
 }
 
+global u32 TestUIScaleDepth;
+function void R_PushScale(f32 x, f32 y, f32 scale) { ++TestUIScaleDepth; }
+function void R_PopScale(void)
+{
+    Check(TestUIScaleDepth != 0);
+    if (TestUIScaleDepth) --TestUIScaleDepth;
+}
+
 function void TestUIBegin(UI_Context *context, Arena *frame, PlatformEventList events, u64 now)
 {
     ArenaClear(frame);

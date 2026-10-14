@@ -301,6 +301,7 @@ function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_
 }
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
 function void UI_SetNextOpacity(f32 opacity) { UI->next.fade = 1.0f - UI__Clamp(opacity, 0, 1); }
+function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
 {
@@ -462,7 +463,21 @@ function void UI_EndFrame(void)
 // Clips are pushed only where they cut something, because every clip change splits the renderer's batch.
 function R_Color UI__Faded(R_Color color, f32 opacity) { color.a *= opacity; return color; }
 
+function void UI__DrawBlockScaled(UI_Block *block, f32 opacity);
+
 function void UI__DrawBlock(UI_Block *block, f32 opacity)
+{
+    f32 scale = block->props.scale;
+    if (scale <= 0 || scale == 1) {
+        UI__DrawBlockScaled(block, opacity);
+        return;
+    }
+    R_PushScale((block->rect.x0 + block->rect.x1) * 0.5f, (block->rect.y0 + block->rect.y1) * 0.5f, scale);
+    UI__DrawBlockScaled(block, opacity);
+    R_PopScale();
+}
+
+function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
 {
     opacity *= 1.0f - UI__Clamp(block->props.fade, 0, 1);
     if (opacity <= 0) return;

@@ -952,6 +952,7 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
     b32 current = index == state->currentPanel;
     state->panels[at] = (Prog_Panel){
         .id = ++state->nextPanelId,
+        .splitMicroseconds = PlatformNowMicroseconds(),
         .sort = current ? state->sort : state->panels[index].sort,
         .descending = current ? state->descending : state->panels[index].descending,
         .showHidden = current ? state->showHidden : state->panels[index].showHidden,
