@@ -11,6 +11,7 @@
 typedef struct Prog_Theme {
     R_Color window;        // cleared behind everything
     R_Color background;    // toolbar and list base
+    R_Color inner;         // fields inside panels, such as the palette's
     R_Color caption;       // the tab strip and the bar above the sidebar
     R_Color menu;          // context menus, which cover other content
     R_Color panel;         // sidebar and bottom pills
@@ -38,6 +39,7 @@ typedef struct Prog_Theme {
 global const Prog_Theme Prog_ThemeCustom = {
     .window       = Prog_Gray(25),
     .background   = Prog_Gray(25),
+    .inner        = Prog_Gray(25),
     .caption      = Prog_Gray(31),
     .menu         = Prog_Gray(31),
     .panel        = Prog_Gray(31),
@@ -67,6 +69,7 @@ global const Prog_Theme Prog_ThemeCustom = {
 global const Prog_Theme Prog_ThemeGlass = {
     .window       = { 25 / 255.0f, 25 / 255.0f, 25 / 255.0f, 0.55f },
     .background   = { 0, 0, 0, 0 },
+    .inner        = Prog_White(0.02f),
     .caption      = Prog_White(0.025f),
     .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.97f },
     .panel        = Prog_White(0.025f),
@@ -94,6 +97,7 @@ global const Prog_Theme Prog_ThemeGlass = {
 global const Prog_Theme Prog_ThemeDebug = {
     .window       = Prog_Rgb(60, 0, 60),
     .background   = Prog_Rgb(10, 25, 80),
+    .inner        = Prog_Rgb(40, 0, 80),
     .caption      = Prog_Rgb(80, 40, 0),
     .menu         = Prog_Rgb(0, 70, 70),
     .panel        = Prog_Rgb(10, 70, 20),
@@ -123,6 +127,7 @@ global const Prog_Theme Prog_ThemeDebug = {
 global const Prog_Theme Prog_ThemeFullmoon = {
     .window       = Prog_Hex(0x151515),
     .background   = Prog_Hex(0x191B1C),
+    .inner        = Prog_Hex(0x1B1B1C),
     .caption      = Prog_Hex(0x272A2B),
     .menu         = Prog_Hex(0x1F2223),
     .panel        = Prog_Hex(0x1F2223),
@@ -156,7 +161,7 @@ global Prog_Theme Prog_ThemeUser = Prog_ThemeCustom;
 // The theme's colors by the names the settings give them.
 global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
 #define Prog__ThemeColor(field) { #field, offsetof(Prog_Theme, field) }
-    Prog__ThemeColor(window), Prog__ThemeColor(background), Prog__ThemeColor(caption), Prog__ThemeColor(menu), Prog__ThemeColor(panel), Prog__ThemeColor(alternateRow),
+    Prog__ThemeColor(window), Prog__ThemeColor(background), Prog__ThemeColor(inner), Prog__ThemeColor(caption), Prog__ThemeColor(menu), Prog__ThemeColor(panel), Prog__ThemeColor(alternateRow),
     Prog__ThemeColor(separator), Prog__ThemeColor(hover), Prog__ThemeColor(selection), Prog__ThemeColor(focus), Prog__ThemeColor(tabBorder),
     Prog__ThemeColor(closeHover), Prog__ThemeColor(text), Prog__ThemeColor(textDim), Prog__ThemeColor(textHeading), Prog__ThemeColor(textMatch),
     Prog__ThemeColor(marquee), Prog__ThemeColor(accent), Prog__ThemeColor(track), Prog__ThemeColor(outline), Prog__ThemeColor(danger), Prog__ThemeColor(icon), Prog__ThemeColor(iconDisabled),
@@ -1938,6 +1943,29 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// A key chip as the menus and the palette show hotkeys, centered in a slot `slotHeight` tall; `lit` draws it for a highlighted row.
+function void Prog__Chip(String text, f32 slotHeight, b32 lit, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 pad = floorf(4.8f * m->scale + 0.5f), height = floorf(m->line * 1.35f + 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->detail, text) + 2 * pad));
+    UI_SetNextPrefHeight(UI_Pixels(slotHeight));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Block *slot = UI_AddBlock(0);
+    UI_Parent(slot) {
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+        UI_SetNextBorderThickness(0.8f * m->scale);
+        UI_SetNextFont(m->detail);
+        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = lit ? theme->text : theme->outline, .text = lit ? theme->text : theme->icon });
+        UI_SetNextText(text);
+        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
+    }
+}
+
 typedef struct Prog_MenuPlace {
     u32 first, count;
     f32 x, y;
@@ -1955,7 +1983,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
     f32 itemHeight = m->row, line = m->separator, separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
-    f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f), chipHeight = floorf(m->line * 1.35f + 0.5f);
+    f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f);
     f32 box = floorf(14.4f * m->scale + 0.5f);
     String *chips = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String) : NULL;
     u32 *chipCounts = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u), u32) : NULL;
@@ -2071,22 +2099,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 UI_AddBlock(icon ? UI_Flag_DrawImage : glyph.length ? UI_Flag_DrawText : 0);
                 Prog__Label(item->label, UI_Flex(), itemHeight, 0, color, 0);
                 for (u32 c = 0; command && c < chipCounts[i]; ++c) {
-                    UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->detail, chips[i * 3 + c]) + 2 * chipPad));
-                    UI_SetNextPrefHeight(UI_Pixels(itemHeight));
-                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                    UI_Block *slot = UI_AddBlock(0);
-                    UI_Parent(slot) {
-                        UI_SetNextPrefWidth(UI_Flex());
-                        UI_SetNextPrefHeight(UI_Pixels(chipHeight));
-                        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                        UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-                        UI_SetNextBorderThickness(0.8f * m->scale);
-                        UI_SetNextFont(m->detail);
-                        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = highlighted ? theme->text : theme->outline, .text = highlighted ? theme->text : theme->icon });
-                        UI_SetNextText(chips[i * 3 + c]);
-                        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
-                    }
+                    Prog__Chip(chips[i * 3 + c], itemHeight, highlighted, m);
                     Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(itemHeight));
                 }
                 if (command && command->toggle) {
@@ -2122,6 +2135,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
 }
 
 // The command palette near the top of the window: the text typed over the commands it finds, with their hotkeys.
+// The command palette under the toolbar, as the reference draws it: the text typed in a field at the top, the commands it finds in two-line rows with what
+// each does and its hotkeys, and the keys that work it at the bottom.
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->paletteOpen) return;
@@ -2135,28 +2150,38 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     Prog_CommandKind matches[Prog_CommandKind_Count];
     u32 count = Prog_PaletteMatches(state, matches);
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
-    const u32 shownMax = 12;
+    f32 s = m->scale, line = m->separator;
+    f32 field = floorf(36.8f * s + 0.5f), rowHeight = floorf(40.8f * s + 0.5f), footer = floorf(31.2f * s + 0.5f);
+    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f);
+    // As many rows as fit above the window's bottom, at most ten.
+    f32 room = view.y1 - view.y0 - top - field - 2 * line - footer - m->bar;
+    u32 shownMax = (u32)MinF32(MaxF32(floorf(room / (rowHeight + line)), 1.0f), 10.0f);
     u32 first = state->paletteHighlight >= shownMax ? state->paletteHighlight - shownMax + 1 : 0;
     u32 shown = Min(count - first, shownMax);
-    f32 pad = floorf(6.0f * m->scale + 0.5f), field = m->bar;
-    f32 width = floorf(MinF32(m->line * 40, view.x1 - view.x0 - 2 * m->inset));
-    f32 height = 2 * pad + field + (count ? pad + (f32)shown * m->row : 0);
+    f32 width = floorf(MinF32((view.x1 - view.x0) * 0.761f, m->line * 60));
+    f32 height = field + line + (f32)shown * (rowHeight + line) + footer;
+    f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
+    for (u32 i = 1; i <= 3; ++i) {
+        f32 grow = (f32)i * floorf(s + 0.5f);
+        UI_SetNextPrefWidth(UI_Pixels(width + 2 * grow));
+        UI_SetNextPrefHeight(UI_Pixels(height + 2 * grow));
+        UI_SetNextFloatingOffset((UI_Vec2){ x - grow, top });
+        UI_SetNextCornerRadius(radius + grow);
+        UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.09f } });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_SetNextFloatingOffset((UI_Vec2){ floorf((view.x1 - view.x0 - width) * 0.5f), floorf(m->bar * 1.6f) });
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
-    UI_SetNextCornerRadius(floorf(10.0f * m->scale + 0.5f));
-    UI_SetNextBorderThickness(m->separator);
-    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->separator });
-    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
-        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-        UI_SetNextCornerRadius(m->radius * 2);
-        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->panel, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(14.4f * s + 0.5f), 0, floorf(14.4f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, 0);
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, m->iconSlot, field, theme->textDim, 0.5f, m);
+            Prog__Icon(Icon_Search, floorf(20.8f * s + 0.5f), field, theme->textDim, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -2166,33 +2191,85 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(S("Type a command"));
+                    UI_SetNextText(S("Select a command..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
             }
+            UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
-        if (count) Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         for (u32 i = first; i < first + shown; ++i) {
             UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Palette/%u", (u32)matches[i]));
             b32 highlighted = i == state->paletteHighlight || UI->hotKey == key;
+            const Prog_CommandDesc *desc = &Prog_Commands[matches[i]];
             UI_SetNextPrefWidth(UI_Flex());
-            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextPrefHeight(UI_Pixels(rowHeight + line));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
-            UI_SetNextCornerRadius(m->radius * 2);
-            UI_SetNextColors((UI_Colors){ .background = theme->hover });
-            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (highlighted ? UI_Flag_DrawBackground : 0));
+            UI_SetNextChildrenPadding((UI_Padding){ floorf(6.4f * s + 0.5f), 0, floorf(20.0f * s + 0.5f), line });
+            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable);
             UI_Interaction interaction = UI_InteractionFromBlock(row);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
             UI_Parent(row) {
-                Prog__Label(Prog_Commands[matches[i]].label, UI_Flex(), m->row, 0, theme->text, 0);
-                String hotkey = Prog_HotkeyText(&state->frameArena, state, matches[i]);
-                if (hotkey.length) Prog__Label(hotkey, UI_TextContent(), m->row, 0, theme->textDim, 1);
+                // The highlight, and the line under the row across the panel.
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                UI_SetNextPrefWidth(UI_Percent(1));
+                UI_SetNextPrefHeight(UI_Pixels(rowHeight));
+                UI_SetNextCornerRadius(m->radius);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_AddBlock(UI_Flag_Floating | (highlighted ? UI_Flag_DrawBackground : 0));
+                UI_SetNextFloatingOffset((UI_Vec2){ -floorf(6.4f * s + 0.5f), rowHeight });
+                UI_SetNextPrefWidth(UI_Pixels(width));
+                UI_SetNextPrefHeight(UI_Pixels(line));
+                UI_SetNextColors((UI_Colors){ .background = theme->separator });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(rowHeight));
+                UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(31.2f * s + 0.5f), floorf(7.2f * s + 0.5f), 0, 0 });
+                UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(texts) {
+                    Prog__Label(desc->label, UI_Flex(), m->line, 0, theme->text, 0);
+                    Prog__Spacer(UI_Flex(), UI_Pixels(floorf(1.6f * s + 0.5f)));
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(desc->tooltip, UI_Flex(), m->detail->lineHeight, 0, highlighted ? theme->text : theme->textDim, 0);
+                }
+                String hotkeys[3];
+                u32 hotkeyCount = Prog_HotkeyTexts(&state->frameArena, state, matches[i], hotkeys, 3);
+                for (u32 c = 0; c < hotkeyCount; ++c) {
+                    Prog__Spacer(UI_Pixels(floorf(3.2f * s + 0.5f)), UI_Pixels(rowHeight));
+                    Prog__Chip(hotkeys[c], rowHeight, highlighted, m);
+                }
+            }
+        }
+        // The keys that work the palette.
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_Block *hints = Prog__Box(UI_Flex(), UI_Pixels(footer - line), UI_Layout_Horizontal, theme->menu, 0);
+        hints->props.childrenAlignment = (UI_Vec2){ 0.5f, 0.5f };
+        UI_Parent(hints) {
+            local_persist const char *keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
+            local_persist const char *words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
+            for (u32 i = 0; i < CArrayCount(keys); ++i) {
+                if (keys[i]) {
+                    Prog__Chip(StrFromCStr(keys[i]), footer - line, false, m);
+                    Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(footer - line));
+                } else {
+                    UI_SetNextFont(m->detail);
+                    Prog__LabelPadded(StrFromCStr(words[i]), UI_TextContent(), footer - line, 0, floorf(12.0f * s + 0.5f), theme->textDim, 0);
+                }
             }
         }
     }
+    // The outline over everything inside, so that rows do not cover it.
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
 // Copies and moves that take a while, in cards at the bottom right: what goes where, how far it is, and a question when a name is taken.
