@@ -183,12 +183,14 @@ function b32 Prog__ParseColor(String text, R_Color *color)
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
 //   theme = fullmoon              the reference's scheme under the colors below, for side-by-side checks
+//   animations = off              menus, scrolling and the caret change at once
 //   color.<theme field> = #rrggbb[aa]
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
     Prog_ThemeUser = Prog_ThemeCustom;
     state->uiScale = 1;
+    state->animationsOff = false;
     state->userHotkeyCount = 0;
     MemZero(state->hotkeyOverridden, sizeof(state->hotkeyOverridden));
     Scratch scratch = GetScratch();
@@ -215,6 +217,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
             if (Prog__EqualFolded(value, S("fullmoon"))) Prog_ThemeUser = Prog_ThemeFullmoon;
+        } else if (StrIsEqual(name, S("animations"))) {
+            state->animationsOff = Prog__EqualFolded(value, S("off")) || Prog__EqualFolded(value, S("false")) || StrIsEqual(value, S("0"));
         } else if (name.length > 6 && StrIsEqual(StrFromTo(name, 0, 6), S("color."))) {
             String field = StrFrom(name, 6);
             R_Color color;
@@ -251,6 +255,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Lines are \"name = value\"; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
                                 "# \"fullmoon\" starts from the reference's scheme; colors set before this line are replaced.\n# theme = default\n\n"
+                                "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
     for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
         R_Color c = *(const R_Color *)((const u8 *)&Prog_ThemeCustom + Prog_ThemeColors[i].offset);
@@ -865,6 +870,17 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
     }
 }
 
+// The caret stays lit for a moment after every change, then fades out and back in, about once a second.
+function f32 Prog__CaretOpacity(const Prog_TextEdit *edit)
+{
+    UI_Key key = UI_KeyFromStr(0, StrFormat(UI->frameArena, "Caret/%p/%u/%u/%llu", (const void *)edit, edit->cursor, edit->anchor, (unsigned long long)Prog_EditText(edit).length));
+    u64 since = UI_TimeSince(key) % 1050000;
+    UI_KeepAnimating();
+    if (!UI->animate || since < 300000) return 1;
+    f32 t = (f32)(since - 300000) / 375000.0f;
+    return 0.85f * (t < 1 ? 1 - t : t - 1);
+}
+
 // The text of `edit` with its selection and, when `caret` is set, its caret, floating at `x`, `y` in the current parent.
 function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, const Prog_Metrics *m)
 {
@@ -890,6 +906,7 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
         UI_SetNextPrefWidth(UI_Pixels(Prog__CaretWidth(m)));
         UI_SetNextPrefHeight(UI_Pixels(m->line));
         UI_SetNextColors((UI_Colors){ .background = theme->text });
+        UI_SetNextOpacity(Prog__CaretOpacity(edit));
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
 }
@@ -1258,7 +1275,9 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
         Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, 0, listInteraction.clickOrder);
     }
     if (state->marquee && UI->activeKey != state->marqueeKey) state->marquee = false;
-    if (state->resetScroll) { list->scrollOffset = (UI_Vec2){0}; state->resetScroll = false; }
+    // A new folder starts where it is shown, without easing there from the last one.
+    b32 snapScroll = state->resetScroll;
+    if (state->resetScroll) { list->scrollOffset = list->scrollShown = (UI_Vec2){0}; state->resetScroll = false; }
 
     // The grid: one item per line in Details and List, and as many cells as fit across in Columns and the icon views, stretched to fill the line.
     Prog_View view = Prog_ZoomView(state->zoom);
@@ -1292,11 +1311,13 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
         else if (top + pitch.y > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + pitch.y - height);
         state->revealFocus = false;
     }
-    // Only lines near the viewport get blocks; spacers stand in for the rest.
-    u64 first = (u64)(Max(0.0f, list->scrollOffset.y) / pitch.y);
+    if (snapScroll || !UI->animate) list->scrollShown = list->scrollOffset;
+    // Only lines near the viewport get blocks; spacers stand in for the rest. While scrolling eases, both ends of the way are covered.
+    f32 scrollFrom = MinF32(list->scrollOffset.y, list->scrollShown.y), scrollTo = MaxF32(list->scrollOffset.y, list->scrollShown.y);
+    u64 first = (u64)(Max(0.0f, scrollFrom) / pitch.y);
     if (first > 2) first -= 2; else first = 0;
     first = Min(first, lines);
-    f32 visibleHeight = Max(pitch.y, UI->root->rect.y1 - UI->root->rect.y0);
+    f32 visibleHeight = Max(pitch.y, UI->root->rect.y1 - UI->root->rect.y0) + (scrollTo - scrollFrom);
     u64 end = Min(lines, first + (u64)(visibleHeight / pitch.y) + 6);
     UI_Parent(list) {
         if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch.y));
@@ -1334,7 +1355,7 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
         if (marqueeFrom) {
             state->marquee = true;
             state->marqueeKey = marqueeFrom;
-            state->marqueeAnchor = (UI_Vec2){ UI->pressOrigin.x - list->rect.x0, UI->pressOrigin.y - list->rect.y0 + list->scrollOffset.y };
+            state->marqueeAnchor = (UI_Vec2){ UI->pressOrigin.x - list->rect.x0, UI->pressOrigin.y - list->rect.y0 + list->scrollShown.y };
             Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, 0);
             command->mods = UI->activeMods;
         }
@@ -1343,12 +1364,12 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
             f32 over = UI->mouse.y < list->rect.y0 ? UI->mouse.y - list->rect.y0 : UI->mouse.y > list->rect.y1 ? UI->mouse.y - list->rect.y1 : 0;
             list->scrollOffset.y = MaxF32(0, list->scrollOffset.y + over * 0.25f);
             UI_Vec2 anchor = state->marqueeAnchor;
-            UI_Vec2 point = { UI__Clamp(UI->mouse.x - list->rect.x0, 0, width), UI->mouse.y - list->rect.y0 + list->scrollOffset.y };
-            point.y = UI__Clamp(point.y, 0, MaxF32(list->contentSize.y, list->rect.y1 - list->rect.y0 + list->scrollOffset.y));
+            UI_Vec2 point = { UI__Clamp(UI->mouse.x - list->rect.x0, 0, width), UI->mouse.y - list->rect.y0 + list->scrollShown.y };
+            point.y = UI__Clamp(point.y, 0, MaxF32(list->contentSize.y, list->rect.y1 - list->rect.y0 + list->scrollShown.y));
             R_Rect box = { MinF32(anchor.x, point.x), MinF32(anchor.y, point.y), MaxF32(anchor.x, point.x), MaxF32(anchor.y, point.y) };
             state->marqueeBox = box;
             Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, point.y >= anchor.y, 0);
-            Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollOffset.y, box.x1 - m->inset, box.y1 - list->scrollOffset.y }, m);
+            Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollShown.y, box.x1 - m->inset, box.y1 - list->scrollShown.y }, m);
         }
         if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
         if (!state->viewCount && !state->loading) {
@@ -1641,6 +1662,21 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
 }
 
+// The box for a group's items, which eases open and shut to the height its items took last frame (none on the first frame it opens); null while it is shut, when the items need no blocks.
+function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group)
+{
+    b32 open = Prog_GroupOpen(state, group);
+    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupBody/%u", (u32)group));
+    f32 shown = UI_Animate(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
+    if (!open && shown <= 0) return NULL;
+    UI_Block *last = UI__Find(key);
+    f32 full = last ? last->contentSize.y : 0;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(shown >= 1 ? UI_Fill() : UI_Pixels(floorf(full * shown + 0.5f)));
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    return UI_AddBlockFromKey(key, UI_Flag_Clip);
+}
+
 // Quick Access: recently shown folders, bookmarks, drives and the user's folders, each under a title that opens and closes it.
 function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
 {
@@ -1661,7 +1697,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             Prog__Label(S("Filter..."), UI_Flex(), m->bar, m->gap * 0.5f, theme->textDim, 0);
         }
         Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
-        if (Prog_GroupOpen(state, Prog_Group_Recents)) {
+        UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents);
+        if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->recents.header.count; ++i) {
                 String path = state->recents.v[i];
                 Prog__SidebarItem(state, Prog_Group_Recents, i, Prog__FolderName(path), path, NULL, m);
@@ -1672,11 +1709,12 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         R_Rect title = sidebar->last->rect, zone = title;
         u64 count = state->bookmarks.header.count, before = count;
         f32 lineY = title.y1;
-        if (Prog_GroupOpen(state, Prog_Group_Bookmarks)) {
+        body = Prog__GroupBody(state, Prog_Group_Bookmarks);
+        if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
                 Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog__FolderName(path), path, NULL, m);
-                R_Rect row = sidebar->last->rect;
+                R_Rect row = body->last->rect;
                 zone.y1 = row.y1;
                 if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
                     before = i;
@@ -1709,14 +1747,16 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
         }
         Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
-        if (Prog_GroupOpen(state, Prog_Group_Storage)) {
+        body = Prog__GroupBody(state, Prog_Group_Storage);
+        if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
                 const P_Place *drive = &state->drives.v[i];
                 Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, m);
             }
         }
         Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
-        if (Prog_GroupOpen(state, Prog_Group_Places)) {
+        body = Prog__GroupBody(state, Prog_Group_Places);
+        if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->places.header.count; ++i) {
                 const P_Place *place = &state->places.v[i];
                 Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, m);
@@ -1762,6 +1802,12 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     if (y + height > view.y1) y = view.y1 - height;
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
+    // A new panel fades in while its rows spread from a little closer together to their place.
+    f32 reveal = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first)), 1, 0);
+    itemHeight *= 0.9f + 0.1f * reveal;
+    height = 2 * pad;
+    for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
+    f32 opacity = 0.3f + 0.7f * reveal;
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
     // A shadow of a few faint layers, each a little larger and lower, since the renderer has no blur.
@@ -1772,10 +1818,12 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0 - grow, y - view.y0 });
         UI_SetNextCornerRadius(radius + grow);
         UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.09f } });
+        UI_SetNextOpacity(opacity);
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextOpacity(opacity);
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });

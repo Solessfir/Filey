@@ -136,13 +136,14 @@ function void Prog__Frame(void *user, PlatformEventList events)
             ProfileScope("LoadFonts") Prog__LoadFonts(loop, scale);
             state->ui.doubleClickDistance = PlatformDoubleClickSettings().distance;
         }
+        state->ui.animate = !state->animationsOff;
         ProfileScope("BuildUI") {
             UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
             Prog_HandleInput(state, events);
             Prog_BuildUI(state, &loop->font, &loop->icons, scale);
         }
         ProfileScope("Layout") UI_EndFrame();
-        ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;
+        ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0 || state->ui.animating;
         ProfileScope("Render") {
             if (loop->transparent != state->transparent) {
                 loop->transparent = state->transparent;

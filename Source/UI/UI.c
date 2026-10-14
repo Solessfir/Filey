@@ -43,6 +43,46 @@ function f32 UI__DistanceSquared(UI_Vec2 a, UI_Vec2 b)
     return x * x + y * y;
 }
 
+// The reference eases everything at about this rate, closing a quarter of the distance every 10 ms.
+#define UI_AnimationRate 30.0f
+
+function f32 UI_Approach(f32 value, f32 target, f32 epsilon)
+{
+    if (!UI->animate || fabsf(target - value) <= epsilon) return target;
+    UI->animating = true;
+    return value + (target - value) * (1.0f - expf(-UI_AnimationRate * UI->dt));
+}
+
+function UI_Animation *UI__Animation(UI_Key key, f32 initial)
+{
+    for (u32 i = 0; i < UI->animationCount; ++i) {
+        if (UI->animations[i].key == key) {
+            UI->animations[i].lastFrameTouched = UI->frameIndex;
+            return &UI->animations[i];
+        }
+    }
+    if (UI->animationCount == UI_MaxAnimations) return NULL;
+    UI_Animation *result = &UI->animations[UI->animationCount++];
+    *result = (UI_Animation){ .key = key, .value = initial, .startMicroseconds = UI->nowMicroseconds, .lastFrameTouched = UI->frameIndex };
+    return result;
+}
+
+function f32 UI_Animate(UI_Key key, f32 target, f32 initial)
+{
+    UI_Animation *animation = UI__Animation(key, initial);
+    if (!animation) return target;
+    animation->value = UI_Approach(animation->value, target, 0.001f);
+    return animation->value;
+}
+
+function u64 UI_TimeSince(UI_Key key)
+{
+    UI_Animation *animation = UI__Animation(key, 0);
+    return animation ? UI->nowMicroseconds - animation->startMicroseconds : 0;
+}
+
+function void UI_KeepAnimating(void) { if (UI->animate) UI->animating = true; }
+
 function UI_Block *UI__Find(UI_Key key)
 {
     if (!key) return NULL;
@@ -161,6 +201,9 @@ function void UI_BeginFrame(UI_Context *context, Arena *frameArena, R_Rect viewp
     Assert(context && frameArena);
     UI = context;
     UI->frameArena = frameArena;
+    // After an idle wait, the first step is one frame's worth rather than the whole wait.
+    UI->dt = UI->wasAnimating && nowMicroseconds > UI->nowMicroseconds ? MinF32((f32)(nowMicroseconds - UI->nowMicroseconds) / 1e6f, 0.05f) : 1.0f / 60.0f;
+    UI->animating = false;
     UI->nowMicroseconds = nowMicroseconds;
     ++UI->frameIndex;
     UI->wheel = (UI_Vec2){0};
@@ -203,7 +246,7 @@ function UI_Block *UI_AddBlockFromKey(UI_Key key, UI_Flags flags)
     if (!UI->nextFontSet) block->props.font = UI->defaultFont;
     if (!UI->nextColorsSet) block->props.colors = UI->defaultColors;
     block->props.text = StrCopy(UI->frameArena, block->props.text);
-    if (UI->nextScrollSet) block->scrollOffset = UI->nextScroll;
+    if (UI->nextScrollSet) block->scrollOffset = block->scrollShown = UI->nextScroll;
     QueuePush(UI->parent->first, UI->parent->last, block);
     UI__ResetNext();
     if (UI->activeKey == key && key && !FlagExists(flags, UI__ButtonFlags[UI->activeButton])) UI_CancelActive();
@@ -257,6 +300,7 @@ function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_
     UI->next.imageTint = tint;
 }
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
+function void UI_SetNextOpacity(f32 opacity) { UI->next.fade = 1.0f - UI__Clamp(opacity, 0, 1); }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
 {
@@ -355,6 +399,8 @@ function void UI__Arrange(UI_Block *block, R_Rect rect, R_Rect clip)
     block->contentSize = content;
     block->scrollOffset.x = UI__Clamp(block->scrollOffset.x, 0, MaxF32(0, content.x - inner.x));
     block->scrollOffset.y = UI__Clamp(block->scrollOffset.y, 0, MaxF32(0, content.y - inner.y));
+    block->scrollShown.x = UI__Clamp(UI_Approach(block->scrollShown.x, block->scrollOffset.x, 0.5f), 0, MaxF32(0, content.x - inner.x));
+    block->scrollShown.y = UI__Clamp(UI_Approach(block->scrollShown.y, block->scrollOffset.y, 0.5f), 0, MaxF32(0, content.y - inner.y));
     f32 alignment = horizontal ? block->props.childrenAlignment.x : block->props.childrenAlignment.y;
     f32 cursor = MaxF32(0, mainSize - (horizontal ? content.x : content.y)) * UI__Clamp(alignment, 0, 1);
     if (FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable)) clip = block->clipRect;
@@ -376,8 +422,8 @@ function void UI__Arrange(UI_Block *block, R_Rect rect, R_Rect clip)
                 position.y += cursor;
                 cursor += size.y;
             }
-            position.x -= block->scrollOffset.x;
-            position.y -= block->scrollOffset.y;
+            position.x -= block->scrollShown.x;
+            position.y -= block->scrollShown.y;
         }
         UI__Arrange(child, (R_Rect){position.x, position.y, position.x + size.x, position.y + size.y}, clip);
     }
@@ -405,17 +451,26 @@ function void UI_EndFrame(void)
             }
         }
     }
+    for (u32 i = 0; i < UI->animationCount;) {
+        if (UI->animations[i].lastFrameTouched != UI->frameIndex) UI->animations[i] = UI->animations[--UI->animationCount];
+        else ++i;
+    }
+    UI->wasAnimating = UI->animating;
 }
 
 // The active renderer clip is always the nearest clipping ancestor's clipRect, so a block's own rect needs no clip of its own.
 // Clips are pushed only where they cut something, because every clip change splits the renderer's batch.
-function void UI__DrawBlock(UI_Block *block)
+function R_Color UI__Faded(R_Color color, f32 opacity) { color.a *= opacity; return color; }
+
+function void UI__DrawBlock(UI_Block *block, f32 opacity)
 {
+    opacity *= 1.0f - UI__Clamp(block->props.fade, 0, 1);
+    if (opacity <= 0) return;
     b32 visible = block->clipRect.x1 > block->clipRect.x0 && block->clipRect.y1 > block->clipRect.y0;
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     if (visible) {
-        if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, block->props.colors.background, block->props.cornerRadius);
-        if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, block->props.colors.border, block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
+        if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, UI__Faded(block->props.colors.background, opacity), block->props.cornerRadius);
+        if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, UI__Faded(block->props.colors.border, opacity), block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
         if (FlagExists(block->flags, UI_Flag_DrawImage)) {
             UI_Padding pad = block->props.childrenPadding;
             UI_Vec2 size = block->props.imageSize;
@@ -424,7 +479,7 @@ function void UI__DrawBlock(UI_Block *block)
             // Whole pixels, since images are uploaded at their drawn size.
             f32 x = floorf(block->rect.x0 + pad.left + (innerWidth - size.x) * UI__Clamp(block->props.textAlignment.x, 0, 1) + 0.5f);
             f32 y = floorf(block->rect.y0 + pad.top + (innerHeight - size.y) * UI__Clamp(block->props.textAlignment.y, 0, 1) + 0.5f);
-            R_DrawImage((R_Rect){ x, y, x + size.x, y + size.y }, block->props.imageUV, block->props.image, block->props.imageTint);
+            R_DrawImage((R_Rect){ x, y, x + size.x, y + size.y }, block->props.imageUV, block->props.image, UI__Faded(block->props.imageTint, opacity));
         }
         if (FlagExists(block->flags, UI_Flag_DrawText) && block->props.font) {
             UI_Padding pad = block->props.childrenPadding;
@@ -435,17 +490,17 @@ function void UI__DrawBlock(UI_Block *block)
             f32 y = block->rect.y0 + pad.top + MaxF32(0, innerHeight - text.y) * UI__Clamp(block->props.textAlignment.y, 0, 1);
             b32 clipText = clipsChildren && (text.x > innerWidth || text.y > innerHeight);
             if (clipText) R_PushClip(block->clipRect);
-            R_DrawText(block->props.font, x, y, block->props.colors.text, block->props.text);
+            R_DrawText(block->props.font, x, y, UI__Faded(block->props.colors.text, opacity), block->props.text);
             if (clipText) R_PopClip();
         }
     }
     if (clipsChildren && !visible) return;
     if (clipsChildren && block->first) R_PushClip(block->clipRect);
-    for (UI_Block *child = block->first; child; child = child->next) UI__DrawBlock(child);
+    for (UI_Block *child = block->first; child; child = child->next) UI__DrawBlock(child, opacity);
     if (clipsChildren && block->first) R_PopClip();
 }
 
-function void UI_Draw(void) { Assert(UI && UI->root); UI__DrawBlock(UI->root); }
+function void UI_Draw(void) { Assert(UI && UI->root); UI__DrawBlock(UI->root, 1); }
 
 function void UI_Release(UI_Context *context)
 {

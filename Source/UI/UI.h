@@ -55,6 +55,7 @@ typedef struct UI_Properties {
     UI_Vec2 floatingOffset;
     f32 cornerRadius;  // background and border
     f32 borderThickness;  // 0 draws one pixel
+    f32 fade;  // 0 is opaque and 1 invisible, for this block and everything inside it
 } UI_Properties;
 
 typedef struct UI_Interaction {
@@ -75,10 +76,15 @@ struct UI_Block {
     u64 lastFrameTouched, drawOrder;
     UI_Properties props;
     R_Rect rect, clipRect;
-    UI_Vec2 measuredSize, contentSize, scrollOffset;
+    // scrollOffset is where scrolling is headed; scrollShown follows it and places the children.
+    UI_Vec2 measuredSize, contentSize, scrollOffset, scrollShown;
     f32 scrollStep;
     UI_Interaction interaction;
 };
+
+// A value that eases toward a target, kept while its key is used every frame.
+typedef struct UI_Animation { UI_Key key; f32 value; u64 startMicroseconds, lastFrameTouched; } UI_Animation;
+#define UI_MaxAnimations 64
 
 #define UI_HashSlotCount 1024
 typedef struct UI_Context {
@@ -106,6 +112,11 @@ typedef struct UI_Context {
     b32 mouseKnown;
     // Keys made without a parent start from this, so that copies of one UI, such as one per panel, keep apart.
     UI_Key keySeed;
+    // Off by default, so that a layout depends only on its input; animating says the last frame left something moving.
+    b32 animate, animating, wasAnimating;
+    f32 dt;  // seconds the animations advance this frame
+    UI_Animation animations[UI_MaxAnimations];
+    u32 animationCount;
 } UI_Context;
 
 global UI_Context *UI;
@@ -151,3 +162,13 @@ function void UI_SetNextFloatingOffset(UI_Vec2 offset);
 function void UI_SetNextCornerRadius(f32 radius);
 function void UI_SetNextBorderThickness(f32 thickness);
 function void UI_SetNextScrollOffset(UI_Vec2 offset);
+function void UI_SetNextOpacity(f32 opacity);
+
+// Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.
+function f32 UI_Approach(f32 value, f32 target, f32 epsilon);
+// The value kept under `key`, starting at `initial` the first frame it is asked for, eased toward `target`.
+function f32 UI_Animate(UI_Key key, f32 target, f32 initial);
+// Microseconds since `key` was first asked for in an unbroken run of frames.
+function u64 UI_TimeSince(UI_Key key);
+// Asks for another frame, for animations that are not eased values.
+function void UI_KeepAnimating(void);

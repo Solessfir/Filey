@@ -511,6 +511,8 @@ typedef struct Prog_State {
     P_DirectoryWatch configWatch;
     // Loud colors for telling UI surfaces apart; FILEY_DEBUG_THEME turns it on at startup.
     b32 debugTheme;
+    // "animations = off" in the settings: menus, scrolling and the caret change at once.
+    b32 animationsOff;
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
     b32 warmMenus;
 } Prog_State;
