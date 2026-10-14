@@ -341,56 +341,92 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     *folder = (String){0};
     // Something typed searches every folder known, those of the drive index included, by name and then the few close at hand by path, as one list.
     if (cut < 0 && text.length) {
+        // The walk's index once it is done, and before then the last run's, unless there is none.
+        const Prog_Index *index = state->indexDone || !state->savedIndex.names.header.count ? &state->index : &state->savedIndex;
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
-        u64 nearby = recents + bookmarks + known, total = nearby + state->indexFolders.header.count;
-        // The search is kept while nothing it depends on changes, since it runs over every folder on the drives.
-        String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
-        if (state->gotoFound && StrIsEqual(last, text) && state->gotoFoundSize == total) {
-            *count = state->gotoFoundCount;
-            return state->gotoFound;
-        }
-        ArenaClear(&state->gotoFoundArena);
-        Arena *arena = &state->gotoFoundArena;
+        u64 nearby = recents + bookmarks + known;
         // Ranked by how the name holds the text, starting with it before holding it whole before holding its letters, the few close at hand
-        // also by their path, and then shorter names first; within a rank the walk's order keeps shallower folders first.
+        // also by their path, and then shorter names first; within a rank the walk's order keeps shallower entries first.
         enum { Lengths = 64, Ranks = 4 * Lengths, Pool = 20000 };
-        Prog_GoToItem *pool = ArenaPushArray(arena, Pool, Prog_GoToItem);
-        u16 *ranks = ArenaPushArray(arena, Pool, u16);
-        u32 *starts = ArenaPushArray(arena, Ranks + 1, u32);
-        u32 pooled = 0;
-        Prog_PathSet seen = {0};
-        for (u64 i = 0; i < total && pooled < Pool; ++i) {
-            String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents]
-                        : i < nearby ? state->knownFolders.v[i - recents - bookmarks] : state->indexFolders.v[i - nearby];
-            String name = Prog__FolderName(path);
-            b32 starting = name.length >= text.length && Prog__ContainsFolded(StrFromTo(name, 0, (i64)text.length), text);
-            u32 tier = starting ? 0 : Prog__ContainsFolded(name, text) ? 1 : Prog_FilterMatch(name, text, NULL) ? 2 : i < nearby && Prog_FilterMatch(path, text, NULL) ? 3 : 4;
-            if (tier == 4 || MapsGetPtrNull(seen, path)) continue;
-            MapsPut(arena, seen, path, true);
-            ranks[pooled] = (u16)(tier * Lengths + Min(name.length, (u64)Lengths - 1));
-            b32 hidden = (i >= nearby && state->indexHidden.v[i - nearby]) || (name.length && name.value[0] == '.');
-            pool[pooled++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, false, (b8)hidden };
+        Arena *arena = &state->gotoFoundArena;
+        String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
+        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby || state->gotoIndex != index) {
+            ArenaClear(arena);
+            state->gotoPool = ArenaPushArray(arena, Pool, Prog_GoToItem);
+            state->gotoPoolEntries = ArenaPushArray(arena, Pool, u32);
+            state->gotoRanks = ArenaPushArray(arena, Pool, u16);
+            state->gotoPooled = 0;
+            state->gotoScanAt = 0;
+            state->gotoScanFrame = UINT64_MAX;
+            state->gotoNearby = nearby;
+            state->gotoIndex = index;
+            state->gotoSeen = (Prog_PathSet){0};
+            state->gotoNearbyNames = (Prog_PathSet){0};
+            state->gotoFoundTextLength = (u32)Min(text.length, (u64)sizeof(state->gotoFoundText));
+            MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
         }
-        // A counting sort, which keeps the order within a rank.
-        for (u32 i = 0; i < pooled; ++i) ++starts[ranks[i] + 1];
+        // Once a frame, so that every look in a frame sees the same rows; the walk's new entries are reached in turn.
+        u64 entries = nearby + index->names.header.count;
+        if (state->gotoScanFrame != state->ui.frameIndex) ProfileScope("GoToSearch") {
+            state->gotoScanFrame = state->ui.frameIndex;
+            u64 start = PlatformNowMicroseconds();
+            u64 first = state->gotoScanAt;
+            for (u64 i = first; i < entries && state->gotoPooled < Pool; ++i) {
+                if (((i - first) & 1023) == 1023 && PlatformNowMicroseconds() - start > UINT64_C(4000)) break;
+                state->gotoScanAt = i + 1;
+                b32 indexed = i >= nearby;
+                u32 entry = indexed ? (u32)(i - nearby) : UINT32_MAX;
+                String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents]
+                            : !indexed ? state->knownFolders.v[i - recents - bookmarks] : (String){0};
+                String name = indexed ? index->names.v[entry] : Prog__FolderName(path);
+                // A root's name is its whole path.
+                if (indexed && index->parents.v[entry] == UINT32_MAX) name = Prog__FolderName(name);
+                if (!indexed) MapsPut(arena, state->gotoNearbyNames, name, true);
+                b32 starting = name.length >= text.length && Prog__ContainsFolded(StrFromTo(name, 0, (i64)text.length), text);
+                u32 tier = starting ? 0 : Prog__ContainsFolded(name, text) ? 1 : Prog_FilterMatch(name, text, NULL) ? 2 : !indexed && Prog_FilterMatch(path, text, NULL) ? 3 : 4;
+                if (tier == 4) continue;
+                // The index finds the folders close at hand again, which only a name of theirs can be.
+                if (indexed && MapsGetPtrNull(state->gotoNearbyNames, name)) path = Prog_IndexPath(arena, index, entry);
+                if (path.length && MapsGetPtrNull(state->gotoSeen, path)) continue;
+                if (path.length) MapsPut(arena, state->gotoSeen, path, true);
+                u8 flags = indexed ? (u8)index->flags.v[entry] : 0;
+                b32 hidden = (flags & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.');
+                state->gotoRanks[state->gotoPooled] = (u16)(tier * Lengths + Min(name.length, (u64)Lengths - 1));
+                state->gotoPoolEntries[state->gotoPooled] = entry;
+                state->gotoPool[state->gotoPooled++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, (b8)((flags & Prog_IndexFlag_File) != 0), (b8)hidden, {0}, NULL };
+            }
+        }
+        state->gotoSearching = state->gotoScanAt < entries && state->gotoPooled < Pool;
+        // A counting sort, which keeps the order within a rank; the paths of the index's entries are made for the rows offered.
+        u32 pooled = state->gotoPooled;
+        u32 *starts = ArenaPushArray(frame, Ranks + 1, u32);
+        for (u32 i = 0; i < pooled; ++i) ++starts[state->gotoRanks[i] + 1];
         for (u32 r = 0; r < Ranks; ++r) starts[r + 1] += starts[r];
-        Prog_GoToItem *sorted = ArenaPushArray(arena, Max(pooled, 1u), Prog_GoToItem);
-        for (u32 i = 0; i < pooled; ++i) sorted[starts[ranks[i]]++] = pool[i];
-        Prog_GoToItem *result = sorted;
+        u32 *order = ArenaPushArray(frame, Max(pooled, 1u), u32);
+        for (u32 i = 0; i < pooled; ++i) order[starts[state->gotoRanks[i]]++] = i;
         *count = Min(pooled, (u32)Prog_MaxGoToFound);
-        state->gotoFound = result;
-        state->gotoFoundCount = *count;
-        state->gotoFoundSize = total;
-        state->gotoFoundTextLength = (u32)Min(text.length, (u64)sizeof(state->gotoFoundText));
-        MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
+        Prog_GoToItem *result = ArenaPushArray(frame, Max(*count, 1u), Prog_GoToItem);
+        for (u32 i = 0; i < *count; ++i) {
+            u32 at = order[i];
+            result[i] = state->gotoPool[at];
+            if (!result[i].path.length) result[i].path = Prog_IndexPath(frame, index, state->gotoPoolEntries[at]);
+        }
         return result;
     }
     if (cut < 0) {
         // The reference keeps the ten most recent.
         u64 recents = Min(state->recents.header.count, (u64)10);
-        Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + 1, Prog_GoToItem);
+        Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + state->drives.header.count + state->places.header.count + 1, Prog_GoToItem);
         for (u32 section = 0; section < Prog_GoToSection_Folder; ++section) {
             if (state->gotoFolded[section]) continue;
+            if (section == Prog_GoToSection_Storage || section == Prog_GoToSection_Places) {
+                const P_ArrayPlace *places = section == Prog_GoToSection_Storage ? &state->drives : &state->places;
+                for (u64 i = 0; i < places->header.count; ++i) {
+                    const P_Place *place = &places->v[i];
+                    result[(*count)++] = (Prog_GoToItem){ place->path, (u8)section, false, false, place->name, section == Prog_GoToSection_Storage ? place : NULL };
+                }
+                continue;
+            }
             const ArrayStr *list = section == Prog_GoToSection_Recents ? &state->recents : &state->bookmarks;
             u64 limit = section == Prog_GoToSection_Recents ? recents : list->header.count;
             for (u32 tier = 0; tier < 2; ++tier) {
@@ -399,7 +435,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                     b32 named = Prog__ContainsFolded(Prog__FolderName(path), text);
                     if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) {
                         String name = Prog__FolderName(path);
-                        result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false, (b8)(name.length && name.value[0] == '.') };
+                        result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false, (b8)(name.length && name.value[0] == '.'), {0}, NULL };
                     }
                 }
             }
@@ -434,7 +470,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             b32 starts = file->name.length >= leaf.length && Prog__ContainsFolded(StrFromTo(file->name, 0, (i64)leaf.length), leaf);
             if ((tier == 0 && starts) || (tier == 1 && !starts && Prog__ContainsFolded(file->name, leaf))) {
                 b32 hidden = file->hidden || (file->name.length && file->name.value[0] == '.');
-                result[(*count)++] = (Prog_GoToItem){ Prog_JoinPath(frame, path, file->name), Prog_GoToSection_Folder, file->kind != P_FileKind_Directory, (b8)hidden };
+                result[(*count)++] = (Prog_GoToItem){ Prog_JoinPath(frame, path, file->name), Prog_GoToSection_Folder, file->kind != P_FileKind_Directory, (b8)hidden, {0}, NULL };
             }
         }
     }
@@ -1378,7 +1414,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     // With nothing found, the text itself is the place to go.
-                    Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false, false };
+                    Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false, false, {0}, NULL };
                     state->paletteOpen = false;
                     // Ctrl shows it in the panel instead: its folder, with it selected.
                     String name = Prog__FolderName(item.path), parent = Prog_ParentPath(item.path);
@@ -1576,8 +1612,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 }
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = event->mods;
-                else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
-                else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : 0;
+                // The command list wraps around; Go To stops at its ends, as the reference's does.
+                else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count && !goTo ? count - 1 : 0);
+                else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(&state->palette, event);
                 if (state->palette.version != version) state->paletteHighlight = 0;

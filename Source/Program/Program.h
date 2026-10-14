@@ -91,6 +91,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Inspect,
     Prog_JobKind_GoTo,
     Prog_JobKind_Index,
+    Prog_JobKind_IndexLoad,
+    Prog_JobKind_IndexFinish,
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
@@ -201,6 +203,11 @@ typedef struct Prog_JobInput {
     b32 folder;
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
+    // Index lists `paths`, the index entries `entries`, keeps at most `room` of what it finds and adds that to the file `name` when there is one,
+    // emptied first with `paths` as its roots when `restart` is set. IndexLoad reads the index file `name`; IndexFinish moves `path` over `name`.
+    u32 *entries;
+    u64 room;
+    b32 restart;
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
@@ -257,6 +264,8 @@ typedef enum Prog_PaletteMode {
 typedef enum Prog_GoToSection {
     Prog_GoToSection_Recents,
     Prog_GoToSection_Bookmarks,
+    Prog_GoToSection_Storage,
+    Prog_GoToSection_Places,
     Prog_GoToSection_Folder,
     Prog_GoToSection_Found,
     Prog_GoToSection_Count,
@@ -267,14 +276,30 @@ typedef struct Prog_GoToItem {
     enum8(Prog_GoToSection) section;
     b8 file;
     b8 hidden;  // hidden by the system or named with a leading dot, which dims it as the list does
+    String name;           // shown instead of the folder's own name when set, as a drive's or a place's
+    const P_Place *drive;  // the drive whose fill shows under the name, valid for the frame
 } Prog_GoToItem;
 
 typedef struct Prog_ArrayFlag { ArrayHeader header; b8 *v; } Prog_ArrayFlag;
 
-// The folders found inside the first `listed` of an index job's folders, in order.
+typedef struct Prog_ArrayU32 { ArrayHeader header; u32 *v; } Prog_ArrayU32;
+
+enum { Prog_IndexFlag_Hidden = 1, Prog_IndexFlag_File = 2 };
+
+// Every folder and file on the drives, each as its name inside the entry of its parent, so that a few million fit; a root's name is its whole path.
+typedef struct Prog_Index {
+    Arena arena;
+    ArrayStr names;
+    Prog_ArrayU32 parents;  // UINT32_MAX for a root
+    Prog_ArrayFlag flags;   // Prog_IndexFlag_
+} Prog_Index;
+
+// What was found inside the first `listed` of an index job's folders, in order, each with the entry of the folder it is in.
+// IndexLoad hands back a whole index the same way, `count` entries in its own arena.
 typedef struct Prog_Indexed {
-    String *found;
-    b8 *hidden;      // per folder found, hidden by the system
+    String *names;
+    u32 *parents;
+    b8 *flags;
     u64 count;
     u64 listed;
 } Prog_Indexed;
@@ -556,20 +581,31 @@ typedef struct Prog_State {
     Arena knownArena;
     ArrayStr knownFolders;
     Prog_PathSet knownSet;
-    // Every folder on the drives, which indexJob walks breadth first a slice at a time; the ones from indexAt on are still to be listed.
-    Arena indexArena;
-    ArrayStr indexFolders;
-    Prog_ArrayFlag indexHidden;  // per folder, hidden by the system
+    // The drives, which indexJob walks breadth first a slice at a time, the folders from indexAt on still to be listed. Until it is done Go To
+    // searches savedIndex, the last run's, when there is one.
+    Prog_Index index;
+    Prog_Index savedIndex;
     u64 indexAt;
     P_Job *indexJob;
+    P_Job *indexLoadJob;
     b32 indexStarted;
-    // Go To's last search, kept while the text and the folders searched stay the same.
+    b32 indexDone;
+    // Go To's search, which goes through the folders close at hand and then the index a few milliseconds at every look, so that typing never waits
+    // for it; what it found is kept while the text, the folders close at hand and the index searched stay the same.
     Arena gotoFoundArena;
-    Prog_GoToItem *gotoFound;
-    u32 gotoFoundCount;
+    Prog_GoToItem *gotoPool;  // what matched so far; an entry of the index has its path made only when it is shown
+    u32 *gotoPoolEntries;     // per match, its entry in the index, or UINT32_MAX for a folder close at hand
+    u16 *gotoRanks;
+    u32 gotoPooled;
+    u64 gotoScanAt;           // the next to look at: the folders close at hand first, then the index's entries
+    u64 gotoScanFrame;        // the UI frame that looked last
+    u64 gotoNearby;
+    const Prog_Index *gotoIndex;
+    Prog_PathSet gotoNearbyNames;  // the names of the folders close at hand, which the index finds again only under them
+    Prog_PathSet gotoSeen;
     u8 gotoFoundText[1024];
     u32 gotoFoundTextLength;
-    u64 gotoFoundSize;        // folders searched then
+    b32 gotoSearching;        // the look has not reached the end yet
     Prog_Transfer transfers[Prog_MaxTransfers];
     Arena sizeArena;
     Prog_SizeMap sizes;
@@ -698,8 +734,14 @@ function void Prog_ReloadSettingsFile(Prog_State *state);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 #define Prog_MaxGoToFound 500
-// ponytail: the index stops growing here, about 150 MB of paths; a smaller form or one kept on disk would let it cover more.
-#define Prog_MaxIndexedFolders 2000000
+// ponytail: the index stops growing here, at about 300 MB, mostly names and their String headers; packing the names into one buffer would let it cover more.
+#define Prog_MaxIndexed 4000000
+// The index is kept between runs in the settings folder: the magic, then for every entry its parent's entry (u32), its flags (u8), its name's
+// length (u16) and the name.
+#define Prog_IndexFile      S("Index.bin")
+#define Prog_IndexFileMagic S("Filey index 1\n")
+// The searched index's entry `entry` as a whole path, in `arena`.
+function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry);
 function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder);
 function String Prog_SessionText(Arena *arena, Prog_State *state);
 function b32 Prog_RestoreSession(Prog_State *state, String text);

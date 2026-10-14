@@ -1153,6 +1153,35 @@ function P_FileError P_WriteFile(Arena *arena, String path, String contents)
     return code ? P__FileError(arena, code) : (P_FileError){0};
 }
 
+function P_FileError P_AppendFile(Arena *arena, String path, String contents, b32 restart)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, path);
+    u32 code = EINVAL;
+    if (native) {
+        i32 fd = open(native, O_WRONLY | O_CREAT | O_CLOEXEC | (restart ? O_TRUNC : O_APPEND), 0600);
+        code = fd < 0 ? (u32)errno : 0;
+        for (u64 at = 0; !code && at < contents.length;) {
+            ssize_t written = write(fd, contents.value + at, contents.length - at);
+            if (written < 0 && errno != EINTR) code = (u32)errno;
+            else if (written > 0) at += (u64)written;
+        }
+        if (fd >= 0) close(fd);
+    }
+    ReleaseScratch(scratch);
+    return code ? P__FileError(arena, code) : (P_FileError){0};
+}
+
+function P_FileError P_ReplaceFile(Arena *arena, String from, String to)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *source = P__FilePathCString(scratch.arena, from), *target = P__FilePathCString(scratch.arena, to);
+    u32 code = EINVAL;
+    if (source && target) code = rename(source, target) == 0 ? 0 : (u32)errno;
+    ReleaseScratch(scratch);
+    return code ? P__FileError(arena, code) : (P_FileError){0};
+}
+
 // ponytail: cancellation is checked between items, not inside one big folder.
 function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel)
 {

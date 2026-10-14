@@ -920,7 +920,8 @@ function String Prog__GoToWhere(Prog_State *state, String path)
     b32 drive;
     Prog__CrumbStart(state, path, &drive);
     if (!drive) return Prog__CrumbPath(state, path);
-    while (path.length > 3 && path.value[path.length - 1] == '/') --path.length;
+    // A drive's own root is just its letter, "C:".
+    while (path.length > 2 && path.value[path.length - 1] == '/') --path.length;
     return P_NativePath(&state->frameArena, path);
 }
 
@@ -2644,6 +2645,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     u32 count;
     String folder;
     Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
+    if (state->gotoSearching) UI_KeepAnimating();
     if (state->paletteHighlight != UINT32_MAX) state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, row = m->row;
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
@@ -2777,9 +2779,11 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     UI_Interaction interaction = UI_InteractionFromBlock(title);
                     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GoToFold, (u64)at.section, 0, interaction.clickOrder);
                     UI_Parent(title) {
-                        b32 recents = at.section == Prog_GoToSection_Recents;
-                        Prog__Icon(recents ? Icon_Clock : Icon_Bookmark, (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
-                        Prog__Label(recents ? S("Recents") : S("Bookmarks"), UI_Flex(), face, 0, theme->text, 0);
+                        local_persist const String titles[] = { S("Recents"), S("Bookmarks"), S("Storage"), S("Places") };
+                        local_persist const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_Folder };
+                        static_assert(CArrayCount(titles) == Prog_GoToSection_Folder, "a title for every section");
+                        Prog__Icon(icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
+                        Prog__Label(titles[at.section], UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(folded ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
                     }
                     Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
@@ -2801,7 +2805,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
                 if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, (u64)at.item, 0, interaction.clickOrder);
                 UI_Parent(entry) {
-                    const Prog_Icon *icon = item.file ? Prog_PathIcon(state, item.path, P_FileKind_File) : Prog_FolderIcon(state, item.path);
+                    const Prog_Icon *icon = item.file ? Prog_PathIcon(state, item.path, P_FileKind_File) : item.drive ? Prog_PathIcon(state, item.path, P_FileKind_Drive) : Prog_FolderIcon(state, item.path);
                     b32 faded = item.hidden && !highlighted;
                     f32 slot = (f32)state->iconSize + floorf(7.2f * s + 0.5f);
                     if (icon) {
@@ -2811,12 +2815,39 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
                         UI_AddBlock(UI_Flag_DrawImage);
                     } else {
-                        Prog__Icon(item.file ? Icon_File : Icon_Folder, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
+                        Prog__Icon(item.file ? Icon_File : item.drive ? Icon_HardDrive : Icon_Folder, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
                     }
                     // What was searched for shows in the match color, in the name and in the path.
-                    String name = Prog__FolderName(item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
+                    String name = item.name.length ? item.name : Prog__FolderName(item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
                     R_Color dim = highlighted ? theme->text : theme->textDim;
-                    Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, faded ? theme->textDim : theme->text, faded, m);
+                    if (item.drive && item.drive->totalBytes) {
+                        // A drive's fill shows under its name, as in the sidebar.
+                        f32 nameWidth = R_TextWidth(m->font, name), bar = MaxF32(2.0f, floorf(4.0f * s + 0.5f));
+                        f32 used = floorf(nameWidth * (f32)(item.drive->totalBytes - Min(item.drive->freeBytes, item.drive->totalBytes)) / (f32)item.drive->totalBytes);
+                        f32 textTop = floorf((face - m->line - bar * 2) * 0.5f);
+                        UI_SetNextPrefWidth(UI_Pixels(nameWidth));
+                        UI_SetNextPrefHeight(UI_Pixels(face));
+                        UI_Block *stack = UI_AddBlock(0);
+                        UI_Parent(stack) {
+                            UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
+                            UI_SetNextPrefHeight(UI_Pixels(m->line));
+                            UI_SetNextColors((UI_Colors){ .text = theme->text });
+                            UI_SetNextText(name);
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                            UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop + m->line + bar });
+                            UI_SetNextPrefWidth(UI_Pixels(nameWidth));
+                            UI_SetNextPrefHeight(UI_Pixels(bar));
+                            UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->text : theme->track });
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                            UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop + m->line + bar });
+                            UI_SetNextPrefWidth(UI_Pixels(used));
+                            UI_SetNextPrefHeight(UI_Pixels(bar));
+                            UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                        }
+                    } else {
+                        Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, faded ? theme->textDim : theme->text, faded, m);
+                    }
                     if (sections || searching) {
                         Prog__Spacer(UI_Pixels(floorf(5.6f * s + 0.5f)), UI_Pixels(face));
                         Prog__Icon(Icon_ChevronRight, R_TextWidth(m->icons, Icon_ChevronRight) + floorf(4.0f * s + 0.5f), face, dim, 0, m);

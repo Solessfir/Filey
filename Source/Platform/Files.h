@@ -164,6 +164,10 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents);
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents);
 // Replaces the file with `contents` in one step, so that a crash leaves the old or the new file and never half of one.
 function P_FileError P_WriteFile(Arena *arena, String path, String contents);
+// Adds `contents` to the end of the file at `path`, which `restart` empties first; the file is made when missing.
+function P_FileError P_AppendFile(Arena *arena, String path, String contents, b32 restart);
+// Moves the file at `from` over the one at `to` in one step.
+function P_FileError P_ReplaceFile(Arena *arena, String from, String to);
 
 // Straight-alpha RGBA8 pixels (red in the lowest byte), top row first.
 typedef struct P_Image {

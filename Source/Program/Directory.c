@@ -6,6 +6,24 @@ function String Prog_JoinPath(Arena *arena, String path, String name)
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
+function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
+{
+    // The names from the entry up to its root, then joined from the root down.
+    String chain[256];
+    u32 depth = 0;
+    for (u32 at = entry; at < index->names.header.count && depth < CArrayCount(chain); at = index->parents.v[at]) chain[depth++] = index->names.v[at];
+    u64 length = 0;
+    for (u32 i = 0; i < depth; ++i) length += chain[i].length + 1;
+    char *text = ArenaPushArray(arena, Max(length, (u64)1), char);
+    u64 used = 0;
+    for (u32 i = depth; i-- > 0;) {
+        if (used && text[used - 1] != '/') text[used++] = '/';
+        MemCopy(text + used, chain[i].value, chain[i].length);
+        used += chain[i].length;
+    }
+    return StrMake(text, used);
+}
+
 // 1024-based with one decimal, cut rather than rounded as the reference does, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".
 function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
@@ -314,29 +332,95 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_Index) {
-        // Lists folders for a few dozen milliseconds and hands back the folders inside them, so that it never holds a worker for long.
+        // Lists folders for a few dozen milliseconds and hands back what is inside them, so that it never holds a worker for long.
         Prog_Indexed *result = ArenaPushStruct(&job->arena, Prog_Indexed);
-        ArrayStr found = {0};
-        Prog_ArrayFlag hidden = {0};
+        ArrayStr names = {0};
+        Prog_ArrayU32 parents = {0};
+        Prog_ArrayFlag flags = {0};
         u64 start = PlatformNowMicroseconds();
         while (result->listed < input->pathCount && PlatformNowMicroseconds() - start < UINT64_C(30000) && !P_IsCancelled(&job->cancelToken)) {
-            String folder = input->paths[result->listed++];
+            String folder = input->paths[result->listed];
+            u32 parent = input->entries[result->listed++];
             Scratch scratch = GetScratchEx(&job->arena);
             P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, folder, &job->cancelToken);
-            for (u64 i = 0; i < listing.files.header.count; ++i) {
+            for (u64 i = 0; i < listing.files.header.count && names.header.count < input->room; ++i) {
                 const P_File *file = &listing.files.v[i];
-                if (file->kind != P_FileKind_Directory || file->symbolicLink) continue;
-                String path = Prog_JoinPath(&job->arena, folder, file->name);
-                if (P_IsVirtualFolder(path)) continue;
-                ArrayPush(&job->arena, found, path);
-                ArrayPush(&job->arena, hidden, file->hidden);
+                b32 directory = file->kind == P_FileKind_Directory;
+                // Links are not followed, so that the walk ends; a link to a folder is still found by its name.
+                if (directory && !file->symbolicLink && P_IsVirtualFolder(Prog_JoinPath(scratch.arena, folder, file->name))) continue;
+                ArrayPush(&job->arena, names, StrCopy(&job->arena, file->name));
+                ArrayPush(&job->arena, parents, parent);
+                ArrayPush(&job->arena, flags, (b8)((file->hidden ? Prog_IndexFlag_Hidden : 0) | (directory && !file->symbolicLink ? 0 : Prog_IndexFlag_File)));
             }
             ReleaseScratch(scratch);
         }
-        result->found = found.v;
-        result->hidden = hidden.v;
-        result->count = found.header.count;
+        result->names = names.v;
+        result->parents = parents.v;
+        result->flags = flags.v;
+        result->count = names.header.count;
         job->result = result;
+        if (input->name.length && !P_IsCancelled(&job->cancelToken)) {
+            // The file grows with every slice, in the order the entries join the index: the roots first, then what each slice found.
+            Scratch scratch = GetScratchEx(&job->arena);
+            u64 size = input->restart ? Prog_IndexFileMagic.length : 0;
+            for (u32 pass = input->restart ? 0 : 1; pass < 2; ++pass) {
+                for (u64 i = 0; i < (pass == 0 ? input->pathCount : result->count); ++i) size += 7 + Min((pass == 0 ? input->paths[i] : result->names[i]).length, (u64)UINT16_MAX);
+            }
+            u8 *text = ArenaPushArray(scratch.arena, Max(size, (u64)1), u8), *at = text;
+            if (input->restart) {
+                MemCopy(at, Prog_IndexFileMagic.value, Prog_IndexFileMagic.length);
+                at += Prog_IndexFileMagic.length;
+            }
+            for (u32 pass = input->restart ? 0 : 1; pass < 2; ++pass) {
+                for (u64 i = 0; i < (pass == 0 ? input->pathCount : result->count); ++i) {
+                    String name = pass == 0 ? input->paths[i] : result->names[i];
+                    u32 parent = pass == 0 ? UINT32_MAX : result->parents[i];
+                    u16 length = (u16)Min(name.length, (u64)UINT16_MAX);
+                    MemCopy(at, &parent, sizeof(parent));
+                    at[4] = pass == 0 ? 0 : (u8)result->flags[i];
+                    MemCopy(at + 5, &length, sizeof(length));
+                    MemCopy(at + 7, name.value, length);
+                    at += 7 + length;
+                }
+            }
+            P_AppendFile(scratch.arena, input->name, StrMake((const char *)text, size), input->restart);
+            ReleaseScratch(scratch);
+        }
+        return;
+    }
+    if (input->kind == Prog_JobKind_IndexLoad) {
+        Prog_Indexed *result = ArenaPushStruct(&job->arena, Prog_Indexed);
+        job->result = result;
+        String text = {0};
+        if (!P_ReadFile(&job->arena, input->name, &text) || text.length < Prog_IndexFileMagic.length || !StrIsEqual(StrFromTo(text, 0, (i64)Prog_IndexFileMagic.length), Prog_IndexFileMagic)) return;
+        // Counted first, so that the entries fill arrays of their size.
+        u64 count = 0;
+        for (u64 at = Prog_IndexFileMagic.length; at + 7 <= text.length;) {
+            u16 length;
+            MemCopy(&length, text.value + at + 5, sizeof(length));
+            at += 7 + length;
+            if (at <= text.length) ++count;
+        }
+        count = Min(count, (u64)Prog_MaxIndexed);
+        result->names = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
+        result->parents = ArenaPushArray(&job->arena, Max(count, (u64)1), u32);
+        result->flags = ArenaPushArray(&job->arena, Max(count, (u64)1), b8);
+        for (u64 at = Prog_IndexFileMagic.length; result->count < count;) {
+            u32 parent;
+            u16 length;
+            MemCopy(&parent, text.value + at, sizeof(parent));
+            MemCopy(&length, text.value + at + 5, sizeof(length));
+            // A parent always comes before what is inside it, so anything else means the file is damaged.
+            if (parent != UINT32_MAX && parent >= result->count) break;
+            result->parents[result->count] = parent;
+            result->flags[result->count] = (b8)text.value[at + 4];
+            result->names[result->count++] = StrMake(text.value + at + 7, length);
+            at += 7 + length;
+        }
+        return;
+    }
+    if (input->kind == Prog_JobKind_IndexFinish) {
+        P_ReplaceFile(&job->arena, input->path, input->name);
         return;
     }
     if (input->kind == Prog_JobKind_GoTo) {
@@ -1451,26 +1535,67 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         state->placesJob = job;
         P_JobSubmit(job);
     }
-    // The folder index starts from the drives once they are known and walks on a slice at a time.
+    // The index starts from the drives once they are known and walks on a slice at a time, while the last run's is read to search meanwhile.
+    Prog_Index *index = &state->index;
     if (!state->indexStarted && state->drives.header.count) {
         state->indexStarted = true;
         for (u64 i = 0; i < state->drives.header.count; ++i) {
             String root = state->drives.v[i].path;
             if (!root.length) continue;
-            ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, root));
-            ArrayPush(&state->indexArena, state->indexHidden, (b8)false);
+            ArrayPush(&index->arena, index->names, StrCopy(&index->arena, root));
+            ArrayPush(&index->arena, index->parents, UINT32_MAX);
+            ArrayPush(&index->arena, index->flags, (b8)0);
+        }
+        if (state->configDirectory.length) {
+            P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+            Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+            input->kind = Prog_JobKind_IndexLoad;
+            input->name = Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile);
+            job->input = input;
+            state->indexLoadJob = job;
+            P_JobSubmit(job);
         }
     }
-    if (state->indexStarted && !state->indexJob && state->indexAt < state->indexFolders.header.count) {
-        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
-        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
-        input->kind = Prog_JobKind_Index;
-        input->pathCount = Min(state->indexFolders.header.count - state->indexAt, (u64)256);
-        input->paths = ArenaPushArray(&job->arena, input->pathCount, String);
-        for (u64 i = 0; i < input->pathCount; ++i) input->paths[i] = StrCopy(&job->arena, state->indexFolders.v[state->indexAt + i]);
-        job->input = input;
-        state->indexJob = job;
-        P_JobSubmit(job);
+    if (state->indexStarted && !state->indexDone && !state->indexJob) {
+        // The next folders to list, past the files among them.
+        u32 batch[4096];
+        u64 batchCount = 0, at = state->indexAt;
+        for (; at < index->names.header.count && batchCount < CArrayCount(batch); ++at) {
+            if (!(index->flags.v[at] & Prog_IndexFlag_File)) batch[batchCount++] = (u32)at;
+        }
+        state->indexAt = batchCount ? batch[0] : at;
+        if (!batchCount || index->names.header.count >= Prog_MaxIndexed) {
+            state->indexDone = true;
+            // The walk replaces the last run's, on disk too.
+            ArenaRelease(&state->savedIndex.arena);
+            state->savedIndex = (Prog_Index){0};
+            if (state->configDirectory.length) {
+                P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                input->kind = Prog_JobKind_IndexFinish;
+                input->name = Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile);
+                input->path = StrFormat(&job->arena, "%S.walk", input->name);
+                job->input = input;
+                P_JobSubmit(job);
+            }
+        } else {
+            P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+            Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+            input->kind = Prog_JobKind_Index;
+            input->pathCount = batchCount;
+            input->paths = ArenaPushArray(&job->arena, batchCount, String);
+            input->entries = ArenaPushArray(&job->arena, batchCount, u32);
+            for (u64 i = 0; i < batchCount; ++i) {
+                input->entries[i] = batch[i];
+                input->paths[i] = Prog_IndexPath(&job->arena, index, batch[i]);
+            }
+            input->room = Prog_MaxIndexed - index->names.header.count;
+            input->restart = batch[0] == 0;
+            if (state->configDirectory.length) input->name = StrFormat(&job->arena, "%S.walk", Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile));
+            job->input = input;
+            state->indexJob = job;
+            P_JobSubmit(job);
+        }
     }
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
@@ -1568,11 +1693,30 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (state->indexJob == job) state->indexJob = NULL;
             const Prog_Indexed *result = job->result;
             if (result && !P_IsCancelled(&job->cancelToken)) {
-                state->indexAt += result->listed;
-                for (u64 i = 0; i < result->count && state->indexFolders.header.count < Prog_MaxIndexedFolders; ++i) {
-                    ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, result->found[i]));
-                    ArrayPush(&state->indexArena, state->indexHidden, result->hidden[i]);
+                Prog_Index *index = &state->index;
+                // Past the folders listed, and the files between them.
+                state->indexAt = result->listed < input->pathCount ? input->entries[result->listed] : input->entries[input->pathCount - 1] + (u64)1;
+                for (u64 i = 0; i < result->count; ++i) {
+                    ArrayPush(&index->arena, index->names, StrCopy(&index->arena, result->names[i]));
+                    ArrayPush(&index->arena, index->parents, result->parents[i]);
+                    ArrayPush(&index->arena, index->flags, result->flags[i]);
                 }
+                // Another frame hands out the next slice.
+                changed = true;
+            }
+        } else if (input->kind == Prog_JobKind_IndexLoad) {
+            if (state->indexLoadJob == job) state->indexLoadJob = NULL;
+            const Prog_Indexed *result = job->result;
+            // Kept in the job's arena, where its names point into the file read.
+            if (result && result->count && !state->indexDone && !P_IsCancelled(&job->cancelToken)) {
+                Prog_Index *saved = &state->savedIndex;
+                ArenaRelease(&saved->arena);
+                *saved = (Prog_Index){ .arena = job->arena };
+                job->arena = (Arena){0};
+                saved->names = (ArrayStr){ .header = { result->count, result->count }, .v = result->names };
+                saved->parents = (Prog_ArrayU32){ .header = { result->count, result->count }, .v = result->parents };
+                saved->flags = (Prog_ArrayFlag){ .header = { result->count, result->count }, .v = result->flags };
+                changed = true;
             }
         } else if (input->kind == Prog_JobKind_GoTo) {
             if (state->gotoJob == job) state->gotoJob = NULL;
@@ -1883,7 +2027,8 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->gotoArena);
     ArenaRelease(&state->gotoHistoryArena);
     ArenaRelease(&state->knownArena);
-    ArenaRelease(&state->indexArena);
+    ArenaRelease(&state->index.arena);
+    ArenaRelease(&state->savedIndex.arena);
     ArenaRelease(&state->gotoFoundArena);
     ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};

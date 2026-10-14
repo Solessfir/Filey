@@ -1243,22 +1243,52 @@ function void TestTabs(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state));
     u64 shownEmpty = TestEntryIndex(&state, S("Empty"));
     Check(StrIsEqual(state.directory.path, fixture->path) && shownEmpty != UINT64_MAX && state.directory.entries[shownEmpty].selected);
-    // The drive index walks every folder below the drives, and Go To finds them by name.
+    // The drive index walks everything below the drives, writing itself to the settings folder as it goes, and Go To finds folders and files by name.
     Arena driveArena = {0};
     ArrayPush(&driveArena, state.drives, ((P_Place){ .path = fixture->path }));
+    String created = {0};
+    Check(!P_CreateItem(&driveArena, fixture->path, S("Cache"), true, &created).code);
+    String cache = Prog_JoinPath(&driveArena, fixture->path, created);
+    state.configDirectory = cache;
     start = PlatformNowMicroseconds();
     do {
         Prog_TakeCompletions(&state);
         P__TestPause();
-    } while ((state.indexJob || state.indexAt < state.indexFolders.header.count) && PlatformNowMicroseconds() - start < Millions(5));
-    Check(state.indexStarted && !state.indexJob && state.indexFolders.header.count >= 2);
+    } while ((!state.indexDone || state.indexJob || state.indexLoadJob) && PlatformNowMicroseconds() - start < Millions(5));
+    Check(state.indexStarted && state.indexDone && !state.indexJob && state.index.names.header.count >= 2);
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Prog__EditReplace(&state.palette, (const u8 *)"mpt", 3);
     found = Prog_GoToMatches(&state, &offered, &folder);
-    Check(offered >= 1 && TestEndsWith(found[0].path, S("/Empty")));
+    Check(offered >= 1 && TestEndsWith(found[0].path, S("/Empty")) && !found[0].file);
+    // A file is found as well, by its name.
+    String fileName = {0};
+    for (u64 i = 0; i < state.index.names.header.count && !fileName.length; ++i) {
+        if (state.index.flags.v[i] & Prog_IndexFlag_File) fileName = state.index.names.v[i];
+    }
+    Check(fileName.length);
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    Prog__EditReplace(&state.palette, (const u8 *)fileName.value, (u32)fileName.length);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 1 && found[0].file && TestEndsWith(found[0].path, fileName));
+    // What the walk wrote reads back as the same entries, once its last step has put it in place.
+    String saved = Prog_JoinPath(&driveArena, cache, Prog_IndexFile), contents = {0};
+    start = PlatformNowMicroseconds();
+    while (!P_ReadFile(&driveArena, saved, &contents) && PlatformNowMicroseconds() - start < Millions(5)) P__TestPause();
+    P_Job load = {0};
+    Prog_JobInput loadInput = { .kind = Prog_JobKind_IndexLoad, .name = saved };
+    load.input = &loadInput;
+    Prog__DirectoryJob(&load);
+    const Prog_Indexed *loaded = load.result;
+    Check(loaded && loaded->count == state.index.names.header.count);
+    for (u64 i = 0; loaded && i < loaded->count; ++i) {
+        Check(StrIsEqual(loaded->names[i], state.index.names.v[i]) && loaded->parents[i] == state.index.parents.v[i] && loaded->flags[i] == state.index.flags.v[i]);
+    }
+    ArenaRelease(&load.arena);
+    state.configDirectory = (String){0};
     state.drives = (P_ArrayPlace){0};
-    ArenaRelease(&driveArena);
     Prog_Release(&state);
+    Check(!P_DeleteItems(&driveArena, &cache, 1, NULL).code);
+    ArenaRelease(&driveArena);
 }
 
 // Splitting makes a second panel with its own listing; a command from a panel's UI makes it active, and closing a panel's only tab closes the panel.

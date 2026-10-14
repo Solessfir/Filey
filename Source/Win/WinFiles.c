@@ -584,3 +584,29 @@ function P_FileError P_WriteFile(Arena *arena, String path, String contents)
     ReleaseScratch(scratch);
     return code ? P__FileError(arena, code) : (P_FileError){0};
 }
+
+function P_FileError P_AppendFile(Arena *arena, String path, String contents, b32 restart)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    u32 code = ERROR_INVALID_NAME;
+    if (wide && contents.length <= UINT32_MAX) {
+        HANDLE file = CreateFileW(wide, restart ? GENERIC_WRITE : FILE_APPEND_DATA, 0, NULL, restart ? CREATE_ALWAYS : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        DWORD written = 0;
+        b32 ok = file != INVALID_HANDLE_VALUE && WriteFile(file, contents.value, (DWORD)contents.length, &written, NULL) && written == contents.length;
+        code = ok ? 0 : GetLastError();
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+    }
+    ReleaseScratch(scratch);
+    return code ? P__FileError(arena, code) : (P_FileError){0};
+}
+
+function P_FileError P_ReplaceFile(Arena *arena, String from, String to)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *source = P__FilePathWide(scratch.arena, from), *target = P__FilePathWide(scratch.arena, to);
+    u32 code = ERROR_INVALID_NAME;
+    if (source && target) code = MoveFileExW(source, target, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : GetLastError();
+    ReleaseScratch(scratch);
+    return code ? P__FileError(arena, code) : (P_FileError){0};
+}
