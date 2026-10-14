@@ -1715,7 +1715,7 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->gap * 0.5f), 0, floorf(m->gap * 0.5f), 0 });
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * m->scale + 0.5f), 0, floorf(10.4f * m->scale + 0.5f), 0 });
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
@@ -1723,8 +1723,9 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
     UI_Parent(row) {
         R_Color color = hot ? theme->text : theme->textHeading;
-        if (icon.length) Prog__Icon(icon, m->line * 1.5f, m->row, color, 0, m);
-        else Prog__DriveGlyph(m->line * 1.5f, m->row, color, m);
+        f32 slot = floorf(m->line * 1.5f) - floorf(2.4f * m->scale + 0.5f);
+        if (icon.length) Prog__Icon(icon, slot, m->row, color, 0, m);
+        else Prog__DriveGlyph(slot, m->row, color, m);
         Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
         Prog__Icon(Prog_GroupOpen(state, group) ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
     }
@@ -1743,7 +1744,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f), 0, floorf(m->gap * 0.5f), 0 });
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f), 0, floorf(m->gap * 0.5f), 0 });
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = current ? theme->selection : theme->alternateRow });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
@@ -1757,7 +1758,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         command->target = index;
     }
     UI_Parent(row) {
-        f32 slot = (f32)state->iconSize + m->gap;
+        f32 slot = (f32)state->iconSize + floorf(7.2f * m->scale + 0.5f);
         const Prog_Icon *icon = drive ? Prog_PathIcon(state, path, P_FileKind_Drive) : Prog_FolderIcon(state, path);
         if (icon) {
             UI_SetNextPrefWidth(UI_Pixels(slot));
@@ -1768,14 +1769,14 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         } else {
             Prog__Icon(drive ? Icon_HardDrive : Icon_Folder, slot, m->row, theme->icon, 0, m);
         }
-        R_Color color = current || hot ? theme->text : theme->textHeading;
+        R_Color color = theme->text;
         if (drive && drive->totalBytes) {
             // The name sits a little high to leave room for the bar under it.
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_Block *stack = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(stack) {
-                f32 bar = MaxF32(2.0f, floorf(m->separator * 1.5f));
+                f32 bar = MaxF32(2.0f, floorf(4.0f * m->scale + 0.5f));
                 f32 width = floorf(MinF32(R_TextWidth(m->font, name), m->sidebar * 0.55f));
                 f32 used = floorf(width * (f32)(drive->totalBytes - Min(drive->freeBytes, drive->totalBytes)) / (f32)drive->totalBytes);
                 f32 top = floorf((m->row - m->line - bar * 2) * 0.5f);
@@ -1787,12 +1788,12 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
                 UI_SetNextPrefWidth(UI_Pixels(width));
                 UI_SetNextPrefHeight(UI_Pixels(bar));
-                UI_SetNextColors((UI_Colors){ .background = theme->hover });
+                UI_SetNextColors((UI_Colors){ .background = theme->track });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
                 UI_SetNextPrefWidth(UI_Pixels(used));
                 UI_SetNextPrefHeight(UI_Pixels(bar));
-                UI_SetNextColors((UI_Colors){ .background = theme->textMatch });
+                UI_SetNextColors((UI_Colors){ .background = theme->accent });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         } else {
@@ -1856,7 +1857,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
-        Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.0f * m->scale + 0.5f)));
+        Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
         Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
         UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents);
         if (body) UI_Parent(body) {
