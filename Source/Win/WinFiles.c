@@ -368,7 +368,18 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
 
 // The shell's file operation, which brings the Recycle Bin, renaming on collision and a progress window for long copies.
 // Errors come back as codes instead of dialogs.
-function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags)
+// `path`'s place in `directory` under its own name.
+function String P__PlacedPath(Arena *arena, String directory, String path)
+{
+    Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+    Index backslash = StrIndexChar(path, '\\', SSF_SearchBackwards);
+    u64 cut = Max(slash.exists ? slash.value + 1 : 0, backslash.exists ? backslash.value + 1 : 0);
+    b32 separated = directory.length && (directory.value[directory.length - 1] == '/' || directory.value[directory.length - 1] == '\\');
+    return StrFormat(arena, separated ? "%S%S" : "%S/%S", directory, StrFrom(path, cut));
+}
+
+// `placed`, for copies and moves, gets each item's new path: in `directory` under its own name, or under the one the shell gave it when that was taken.
+function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, String *placed)
 {
     Scratch scratch = GetScratchEx(arena);
     // Both lists end with an extra null.
@@ -395,22 +406,42 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
         if (target) MemCopy(to, target, size * sizeof(wchar));
     }
     if (!error && count) {
-        SHFILEOPSTRUCTW op = { .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR) };
+        SHFILEOPSTRUCTW op = { .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | (placed ? FOF_WANTMAPPINGHANDLE : 0)) };
         i32 result = SHFileOperationW(&op);
         error = result ? (u32)result : op.fAnyOperationsAborted ? ERROR_CANCELLED : 0;
+        for (u64 i = 0; placed && i < count; ++i) placed[i] = P__PlacedPath(arena, directory, paths[i]);
+        if (placed && op.hNameMappings) {
+            // The handle is a count followed by the mappings, each from the item's old path to its new one.
+            struct { UINT count; SHNAMEMAPPINGW *mappings; } *names = op.hNameMappings;
+            for (UINT n = 0; n < names->count; ++n) {
+                const SHNAMEMAPPINGW *mapping = &names->mappings[n];
+                String old = P__FileStringWide(scratch.arena, mapping->pszOldPath, mapping->cchOldPath);
+                for (u64 i = 0; i < count; ++i) {
+                    if (!P__PathWithin(old, paths[i]) || !P__PathWithin(paths[i], old)) {
+                        if (!P__PathWithin(old, placed[i]) || !P__PathWithin(placed[i], old)) continue;
+                    }
+                    String fresh = P__FileStringWide(arena, mapping->pszNewPath, mapping->cchNewPath);
+                    for (u64 c = 0; c < fresh.length; ++c) if (fresh.value[c] == '\\') ((char *)fresh.value)[c] = '/';
+                    placed[i] = fresh;
+                }
+            }
+            SHFreeNameMappings(op.hNameMappings);
+        }
     }
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
-function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, const P_CancelToken *cancel)
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, ArrayStr *placed, const P_CancelToken *cancel)
 {
     // The shell's own windows show the progress and ask about taken names.
     (void)progress;
     if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
     Scratch scratch = GetScratchEx(arena);
     String *kept = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+    u64 *keptFrom = ArenaPushArray(scratch.arena, Max(count, (u64)1), u64);
     u64 keptCount = 0;
+    if (placed) *placed = (ArrayStr){0};
     u32 error = 0;
     for (u64 i = 0; i < count && !error; ++i) {
         String path = paths[i];
@@ -420,24 +451,33 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         u64 cut = Max(slash.exists ? slash.value : 0, backslash.exists ? backslash.value : 0);
         String parent = StrFromTo(path, 0, (i64)cut);
         if (P__PathWithin(directory, path)) error = ERROR_INVALID_PARAMETER;
-        else if (!(move && P__PathWithin(parent, directory) && P__PathWithin(directory, parent))) kept[keptCount++] = path;
+        else if (!(move && P__PathWithin(parent, directory) && P__PathWithin(directory, parent))) {
+            keptFrom[keptCount] = i;
+            kept[keptCount++] = path;
+        }
     }
+    String *keptPlaced = placed ? ArenaPushArray(arena, Max(keptCount, (u64)1), String) : NULL;
     P_FileError result = error ? P__FileError(arena, error)
-                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION);
+                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION, keptPlaced);
+    // Items moved into the folder they are in stay where they were.
+    if (placed && !error) {
+        for (u64 i = 0; i < count; ++i) ArrayPush(arena, *placed, StrCopy(arena, paths[i]));
+        for (u64 k = 0; k < keptCount; ++k) placed->v[keptFrom[k]] = keptPlaced[k];
+    }
     ReleaseScratch(scratch);
     return result;
 }
 
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
 {
-    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING);
+    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING, NULL);
 }
 
 // Without FOF_ALLOWUNDO the shell deletes instead of recycling; it still shows progress for long deletes.
 function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel)
 {
     if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
-    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_NOCONFIRMATION);
+    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_NOCONFIRMATION, NULL);
 }
 
 function ArrayStr P_StartupPaths(Arena *arena)

@@ -323,14 +323,39 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete) {
-        P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        Prog_Transferred *result = ArenaPushStruct(&job->arena, Prog_Transferred);
+        P_FileError *error = &result->error;
         if (P_IsCancelled(&job->cancelToken)) {
         } else if (input->kind == Prog_JobKind_Transfer) {
-            ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, input->progress, &job->cancelToken);
+            ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, input->progress, &result->placed, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_Delete) {
             ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, &job->cancelToken);
         } else {
             ProfileScope("TrashItems") *error = P_TrashItems(&job->arena, input->paths, input->pathCount);
+        }
+        job->result = error;
+        return;
+    }
+    if (input->kind == Prog_JobKind_Undo) {
+        // Each step is reversed with the operations that made it; a moved item that went under another name gets its old one back.
+        P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        const Prog_Undo *undo = &input->undo;
+        if (undo->kind == Prog_UndoKind_Rename && undo->count == 1) {
+            *error = P_RenamePath(&job->arena, Prog_ParentPath(undo->to[0]), Prog_EntryLeaf(undo->to[0]), Prog_EntryLeaf(undo->from[0]));
+        } else if (undo->kind == Prog_UndoKind_Create || undo->kind == Prog_UndoKind_Copy) {
+            String *paths = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
+            u64 count = 0;
+            for (u64 i = 0; i < undo->count; ++i) if (undo->to[i].length) paths[count++] = undo->to[i];
+            if (count) *error = P_TrashItems(&job->arena, paths, count);
+        } else if (undo->kind == Prog_UndoKind_Move) {
+            for (u64 i = 0; i < undo->count && !error->code; ++i) {
+                if (!undo->to[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
+                String folder = Prog_ParentPath(undo->from[i]);
+                ArrayStr placed = {0};
+                *error = P_TransferItems(&job->arena, &undo->to[i], 1, folder, true, NULL, &placed, &job->cancelToken);
+                String back = placed.header.count ? Prog_EntryLeaf(placed.v[0]) : (String){0}, name = Prog_EntryLeaf(undo->from[i]);
+                if (!error->code && back.length && !StrIsEqual(back, name)) *error = P_RenamePath(&job->arena, folder, back, name);
+            }
         }
         job->result = error;
         return;
@@ -964,6 +989,51 @@ function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy)
     if (best != UINT32_MAX) Prog__ActivatePanel(state, best);
 }
 
+// Records a file operation for Undo; strings are copied.
+function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String *from, const String *to, u64 count)
+{
+    if (!count) return;
+    if (state->undo.header.count >= Prog_MaxUndo) {
+        MemMove(&state->undo.v[0], &state->undo.v[1], (state->undo.header.count - 1) * sizeof(Prog_Undo));
+        --state->undo.header.count;
+    }
+    Prog_Undo undo = { .kind = (u8)kind, .count = count, .to = ArenaPushArray(&state->undoArena, count, String) };
+    if (from) undo.from = ArenaPushArray(&state->undoArena, count, String);
+    for (u64 i = 0; i < count; ++i) {
+        undo.to[i] = StrCopy(&state->undoArena, to[i]);
+        if (from) undo.from[i] = StrCopy(&state->undoArena, from[i]);
+    }
+    ArrayPush(&state->undoArena, state->undo, undo);
+}
+
+// Reverses the newest recorded file operation in a job.
+function void Prog_UndoLast(Prog_State *state)
+{
+    ArenaClear(&state->errorArena);
+    state->error = (String){0};
+    if (!state->undo.header.count) {
+        state->error = S("Nothing to undo");
+        return;
+    }
+    Prog_Undo undo = state->undo.v[--state->undo.header.count];
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Undo;
+    input->panel = Prog__PanelId(state);
+    input->undo = (Prog_Undo){ .kind = undo.kind, .count = undo.count, .to = ArenaPushArray(&job->arena, undo.count, String) };
+    if (undo.from) input->undo.from = ArenaPushArray(&job->arena, undo.count, String);
+    for (u64 i = 0; i < undo.count; ++i) {
+        input->undo.to[i] = StrCopy(&job->arena, undo.to[i]);
+        if (undo.from) input->undo.from[i] = StrCopy(&job->arena, undo.from[i]);
+    }
+    if (!state->undo.header.count) {
+        ArenaClear(&state->undoArena);
+        state->undo = (Prog_ArrayUndo){0};
+    }
+    job->input = input;
+    P_JobSubmit(job);
+}
+
 function b32 Prog__AnyMeasuring(const Prog_State *state)
 {
     b32 result = state->measureJob != NULL;
@@ -1163,6 +1233,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "Rename %S: %S", input->name, error->message);
             } else {
+                String from = Prog_JoinPath(&state->frameArena, input->path, input->name), to = Prog_JoinPath(&state->frameArena, input->path, input->newName);
+                Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
                 // Reloading now, rather than on the watch, selects the new name without waiting.
                 String listed = input->prefix.length ? StrFormat(&state->frameArena, "%S/%S", input->prefix, input->newName) : input->newName;
                 String folder = input->prefix.length ? Prog_JoinPath(&state->frameArena, state->directory.path, input->prefix) : state->directory.path;
@@ -1192,8 +1264,27 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->selectRename = true;
                 }
             }
+            // Copies, moves and new items that went through can be undone.
+            if (!error.code && input->kind == Prog_JobKind_Transfer && job->result) {
+                const Prog_Transferred *result = job->result;
+                if (result->placed.header.count == input->pathCount) {
+                    Prog_PushUndo(state, input->move ? Prog_UndoKind_Move : Prog_UndoKind_Copy, input->move ? input->paths : NULL, result->placed.v, input->pathCount);
+                }
+            }
+            if (!error.code && input->kind == Prog_JobKind_Create && job->result) {
+                String created = Prog_JoinPath(&state->frameArena, input->path, ((Prog_Created *)job->result)->name);
+                Prog_PushUndo(state, Prog_UndoKind_Create, NULL, &created, 1);
+            }
             // Reloading now shows the result without waiting for the watch.
             if (!error.code) Prog_Reload(state);
+        } else if (input->kind == Prog_JobKind_Undo) {
+            P_FileError *error = job->result;
+            changed = true;
+            if (error && error->code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "Undo: %S", error->message);
+            }
+            Prog_Reload(state);
         } else if (input->kind == Prog_JobKind_Places) {
             if (state->placesJob == job) state->placesJob = NULL;
             if (job->result) {
@@ -1450,5 +1541,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->settingsArena);
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);
+    ArenaRelease(&state->undoArena);
+    ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};
 }

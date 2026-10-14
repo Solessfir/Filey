@@ -338,7 +338,7 @@ function void *P__DropThread(void *user)
 {
     P__DropTransfer *transfer = user;
     P_CancelToken token = {0};
-    P_FileError error = P_TransferItems(&transfer->arena, transfer->paths, transfer->count, transfer->directory, transfer->move, NULL, &token);
+    P_FileError error = P_TransferItems(&transfer->arena, transfer->paths, transfer->count, transfer->directory, transfer->move, NULL, NULL, &token);
     // ponytail: drop errors only reach stderr; report them in the status bar through the program if drops fail in practice.
     if (error.code) fprintf(stderr, "Filey: dropping into %.*s failed: %.*s\n", (i32)transfer->directory.length, transfer->directory.value, (i32)error.message.length, error.message.value);
     Arena arena = transfer->arena;
@@ -758,10 +758,14 @@ function void P__SplitPath(String path, String *parent, String *leaf)
     *leaf = slash.exists ? StrFrom(path, slash.value + 1) : path;
 }
 
-function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, const P_CancelToken *cancel)
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, ArrayStr *placed, const P_CancelToken *cancel)
 {
     P_Progress numbered = { .policy = P_Conflict_KeepBoth };
     if (!progress) progress = &numbered;
+    if (placed) {
+        *placed = (ArrayStr){0};
+        for (u64 i = 0; i < count; ++i) ArrayPush(arena, *placed, (String){0});
+    }
     Scratch scratch = GetScratchEx(arena);
     char *targetPath = P__FilePathCString(scratch.arena, directory);
     char realTarget[PATH_MAX];
@@ -808,6 +812,7 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         if (move && sameFolder) {
             close(sourceDir);
             atomic_fetch_add(&progress->doneItems, 1);
+            if (placed) placed->v[i] = StrCopy(arena, paths[i]);
             continue;
         }
         // A taken name asks what to do, except where the item is copied next to itself, which keeps both.
@@ -827,12 +832,15 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         if (conflict == P_Conflict_Replace && move && renameat(sourceDir, leafName, targetDir, leafName) == 0) {
             close(sourceDir);
             atomic_fetch_add(&progress->doneItems, 1);
+            if (placed) placed->v[i] = StrFormat(arena, "%S/%S", directory, leaf);
             continue;
         }
         // Otherwise the item arrives under a free name, which a replacing copy then moves over the old file once it is complete.
         error = EEXIST;
+        char *used = leafName;
         for (u32 n = conflict == P_Conflict_Replace ? 2 : 1; n < 10000 && error == EEXIST; ++n) {
             char *name = P__NumberedName(scratch.arena, leaf, S_ISDIR(info.st_mode), n);
+            used = name;
             if (move) {
                 error = renameat2(sourceDir, leafName, targetDir, name, RENAME_NOREPLACE) == 0 ? 0 : (u32)errno;
                 // ponytail: file systems without RENAME_NOREPLACE get a check-then-rename race.
@@ -849,6 +857,7 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
             if (!error && conflict == P_Conflict_Replace && renameat(targetDir, name, targetDir, leafName) != 0) error = (u32)errno;
             if (!error && move) error = P__RemoveAt(sourceDir, leafName);
         }
+        if (!error && placed) placed->v[i] = StrFormat(arena, "%S/%s", directory, conflict == P_Conflict_Replace ? leafName : used);
         close(sourceDir);
         atomic_fetch_add(&progress->doneItems, 1);
     }

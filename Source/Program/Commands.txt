@@ -502,6 +502,12 @@ command TogglePreview {
     repeat  = "false"
 }
 
+command Undo {
+    label   = "Undo^revert,back,restore"
+    tooltip = "Reverse the last rename, new item, copy or move."
+    hotkey  = "Ctrl+Z"
+}
+
 command CommandPalette {
     label   = "Command Palette^commands,actions,search,run"
     tooltip = "Find and run any command by name."

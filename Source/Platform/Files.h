@@ -122,10 +122,11 @@ typedef struct P_Progress {
 
 // Copies or moves the items at `paths` into `directory`.
 // `progress`, when not NULL, is kept current and says what taken names do; without it a taken name gets a number.
+// `placed`, when not NULL, receives in `arena` the path each item ended up at, in the order of `paths`, empty for one that was skipped.
 // Windows asks with its own conflict and progress windows instead, and the shell's "- Copy" names replace numbers.
 // A folder is never put inside itself, and moving an item into the folder it is in does nothing.
 // Linux moves across file systems by copying and removes the source only once its copy is complete.
-function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, const P_CancelToken *cancel);
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, ArrayStr *placed, const P_CancelToken *cancel);
 // Moves the items at `paths` to the Trash, or the Recycle Bin on Windows, which asks before deleting anything it cannot keep.
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);
 // Deletes the items at `paths` for good, folders with everything in them, without asking; the program confirms first.

@@ -91,8 +91,31 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Places,
     Prog_JobKind_Save,
     Prog_JobKind_Preview,
+    Prog_JobKind_Undo,
     Prog_JobKind_Count,
 } Prog_JobKind;
+
+// File operations that Undo reverses: a rename goes back, new items and copies go to the trash, and moved items return.
+typedef enum Prog_UndoKind {
+    Prog_UndoKind_Rename,
+    Prog_UndoKind_Create,
+    Prog_UndoKind_Copy,
+    Prog_UndoKind_Move,
+    Prog_UndoKind_Count,
+} Prog_UndoKind;
+
+// Items that were at `from` and are now at `to`; new items and copies have no `from`, and an empty `to` was skipped.
+typedef struct Prog_Undo {
+    enum8(Prog_UndoKind) kind;
+    String *from;
+    String *to;
+    u64 count;
+} Prog_Undo;
+
+typedef struct Prog_ArrayUndo { ArrayHeader header; Prog_Undo *v; } Prog_ArrayUndo;
+
+// ponytail: older steps are dropped past this, and their strings stay in undoArena until the stack empties.
+#define Prog_MaxUndo 32
 
 typedef struct Prog_IconRequest {
     String path;
@@ -169,6 +192,7 @@ typedef struct Prog_JobInput {
     b32 move;
     b32 folder;
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
+    Prog_Undo undo;        // Undo: the step it reverses
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
@@ -196,6 +220,12 @@ typedef struct Prog_Preview {
     u32 *pixels;
     String text;
 } Prog_Preview;
+
+// A copy or move's result: where each item went, for undoing it.
+typedef struct Prog_Transferred {
+    P_FileError error;  // first, as for the other file operations' results
+    ArrayStr placed;
+} Prog_Transferred;
 
 typedef struct Prog_Created {
     P_FileError error;
@@ -423,6 +453,9 @@ typedef struct Prog_State {
     Prog_TextEdit palette;
     u32 paletteHighlight;
     Prog_Transfer transfers[Prog_MaxTransfers];
+    // File operations Undo can reverse, newest last.
+    Arena undoArena;
+    Prog_ArrayUndo undo;
     // The preview pane beside the active panel's list: the focused item's picture or text, loaded by previewJob into previewArena.
     b32 previewShown;
     Arena previewArena;
@@ -524,3 +557,5 @@ function Prog_View Prog_ZoomView(u32 zoom);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
 function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
+function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String *from, const String *to, u64 count);
+function void Prog_UndoLast(Prog_State *state);
