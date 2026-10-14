@@ -15,6 +15,8 @@ Spec Section 1.2 describes how to run headless Ghidra MCP against `reference.exe
 
 App screenshots in `%USERPROFILE%\Pictures\Screenshots\Reference\App\` are the visual reference for UI appearance and layout. Inspect the relevant screenshots before implementing or changing UI.
 
+`Source/Tools/Compare/Compare.py` runs the reference and Filey side by side on a fixture folder with their windows off-screen, posts the same input to both, and saves matching screenshots and animation frames, so UI work can be measured against the original without screenshots from the user. the reference gets `FakeInput.dll` (pointer, focus and held keys from shared memory), so the real pointer and keyboard are never used. Set `COMPARE_REFERENCE` to `reference.exe` and `COMPARE_REFERENCE_STATE` to its session and settings files (`%LOCALAPPDATA%\Reference\Reference-Session.json`, `%APPDATA%\Reference\Reference-Config.json` and `Reference-UserData.json`), which it backs up and restores around every run. the reference set to its built-in Fullmoon scheme matches Filey's `theme = fullmoon`. The display here is at 125%, so sizes measured in screenshots are divided by 1.25 before they go into the code as logical units.
+
 ## Architecture rules
 
 - Layers are Base, Platform, Renderer, UI, and Program. Dependencies only point downward.
@@ -79,7 +81,7 @@ Source/
 ├─ Meta/       generated tables (Commands.meta.h) and icon codepoints (Icons.meta.h)
 ├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG), nanosvg (SVG, Linux icons)
 ├─ Resources/  app icon (Filey.svg master, generated Filey.ico and Icons/ sizes), Filey.rc for the Windows executable, filey.desktop
-├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter; IconBake.py: app icon sizes
+├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter; IconBake.py: app icon sizes; Compare/: side-by-side screenshots against the reference
 ├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)
 └─ Unity.c     application unity root
 ```
