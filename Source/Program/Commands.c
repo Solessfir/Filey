@@ -52,15 +52,20 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuHighlight = UINT32_MAX;
     state->menuOpener = Prog_CommandKind_None;
     state->menuRight = 0;
+    state->menuSearch = (Prog_TextEdit){0};
 }
 
 // Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
-function u32 Prog_MenuVisible(const P_ContextMenu *menu, u32 first, u32 count, u32 *out)
+function b32 Prog__ContainsFolded(String text, String needle);
+
+function u32 Prog_MenuVisible(const P_ContextMenu *menu, u32 first, u32 count, String filter, u32 *out)
 {
     u32 result = 0;
     for (u32 i = first; i < first + count && i < menu->count; ++i) {
         const P_MenuItem *item = &menu->items[i];
-        if (item->separator) {
+        if (filter.length) {
+            if (!item->separator && Prog__ContainsFolded(item->label, filter)) out[result++] = i;
+        } else if (item->separator) {
             if (result && !menu->items[out[result - 1]].separator) out[result++] = i;
         } else if (item->label.length) {
             out[result++] = i;
@@ -68,6 +73,12 @@ function u32 Prog_MenuVisible(const P_ContextMenu *menu, u32 first, u32 count, u
     }
     while (result && menu->items[out[result - 1]].separator) --result;
     return result;
+}
+
+// What the system menu's search narrows `level` to; only its top level is searched, and Filey's own menus are not.
+function String Prog_MenuFilter(const Prog_State *state, u32 level)
+{
+    return level == 0 && !state->menuCommands ? Prog_EditText(&state->menuSearch) : (String){0};
 }
 
 // The level the keyboard moves in: the deepest open one.
@@ -88,7 +99,7 @@ function void Prog__MenuMove(Prog_State *state, i32 step)
     Prog__MenuLevel(state, &first, &count);
     Scratch scratch = GetScratch();
     u32 *visible = ArenaPushArray(scratch.arena, Max(count, 1u), u32);
-    u32 shown = Prog_MenuVisible(&state->menu, first, count, visible);
+    u32 shown = Prog_MenuVisible(&state->menu, first, count, Prog_MenuFilter(state, state->menuDepth), visible);
     i64 at = -1;
     for (u32 i = 0; i < shown; ++i) if (visible[i] == state->menuHighlight) at = i;
     for (u32 tries = 0; tries < shown; ++tries) {
@@ -1295,6 +1306,16 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             R_Rect box = state->filterRect;
             if (!(event->x >= box.x0 && event->x < box.x1 && event->y >= box.y0 && event->y < box.y1)) state->filtering = false;
         }
+        // Typing in a system menu searches it, from its first match on.
+        if (event->kind == PlatformEventKind_Text && state->menuOpen) {
+            if (!state->menuCommands) {
+                Prog__EditInsert(&state->menuSearch, event->codepoint);
+                state->menuDepth = 0;
+                state->menuHighlight = UINT32_MAX;
+                Prog__MenuMove(state, 1);
+            }
+            continue;
+        }
         // Typing anywhere in the browser filters it.
         if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
             u32 version = state->filter.version;
@@ -1345,7 +1366,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     if (state->menu.items[state->menuHighlight].childCount) Prog__MenuEnter(state);
                     else Prog_QueueCommand(state, Prog_CommandKind_ContextMenuInvoke, state->menuHighlight, 0, order);
                 } break;
-                default: break;
+                default: {
+                    u32 version = state->menuSearch.version;
+                    if (!state->menuCommands && Prog__EditKey(&state->menuSearch, event) && state->menuSearch.version != version) {
+                        state->menuDepth = 0;
+                        state->menuHighlight = UINT32_MAX;
+                        Prog__MenuMove(state, 1);
+                    }
+                } break;
             }
             continue;
         }

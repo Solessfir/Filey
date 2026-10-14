@@ -2055,8 +2055,11 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
-    u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, visible);
-    if (!shown) return false;
+    String filter = Prog_MenuFilter(state, level);
+    u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, filter, visible);
+    // The system menu's top level has its search field over the items, and stays open with nothing found.
+    b32 search = level == 0 && !state->menuCommands;
+    if (!shown && !search) return false;
     // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
     f32 itemHeight = m->row, line = m->separator, separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
@@ -2092,7 +2095,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // A new panel fades in while its rows spread from a little closer together to their place.
     f32 reveal = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first)), 1, 0);
     itemHeight *= 0.9f + 0.1f * reveal;
-    height = 2 * pad;
+    height = 2 * pad + (search ? itemHeight + separatorHeight : 0);
     for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
     f32 opacity = 0.3f + 0.7f * reveal;
 
@@ -2123,6 +2126,28 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 result = false;
     f32 itemY = y + pad;
     UI_Parent(panel) {
+        if (search) {
+            UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(itemHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(field) {
+                Prog__Spacer(UI_Pixels(iconLeft), UI_Pixels(itemHeight));
+                Prog__Icon(Icon_Search, iconColumn, itemHeight, theme->textDim, 0, m);
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(itemHeight));
+                UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(text) {
+                    if (!state->menuSearch.length) {
+                        UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((itemHeight - m->line) * 0.5f) });
+                        UI_SetNextPrefHeight(UI_Pixels(m->line));
+                        UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                        UI_SetNextText(S("Select..."));
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                    }
+                    Prog__EditContents(&state->menuSearch, 0, floorf((itemHeight - m->line) * 0.5f), true, m);
+                }
+            }
+            Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+            itemY += itemHeight + separatorHeight;
+        }
         for (u32 i = 0; i < shown; ++i) {
             u32 index = visible[i];
             const P_MenuItem *item = &state->menu.items[index];

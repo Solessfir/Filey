@@ -444,6 +444,7 @@ typedef struct Prog_State {
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
     Prog_MenuCommand *menuCommands;  // per item of Filey's own menus; NULL for the system's
     UI_Key menuHot;           // hot block when the menu was last built
+    Prog_TextEdit menuSearch; // typed into a system menu, which then shows only its top items holding it
     enum8(Prog_CommandKind) menuOpener;  // the button whose menu is open, which stays lit; None for other menus
     // The button under the pointer this frame, whose tip shows once the pointer rests on it.
     UI_Key tooltipKey;

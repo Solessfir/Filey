@@ -424,8 +424,10 @@ function void TestContextMenuModel(void)
     Prog_State state = { .menuOpen = true, .menuHighlight = UINT32_MAX };
     state.menu = (P_ContextMenu){ .items = items, .count = CArrayCount(items), .rootCount = CArrayCount(items) };
     u32 visible[CArrayCount(items)];
-    u32 shown = Prog_MenuVisible(&state.menu, 0, state.menu.rootCount, visible);
+    u32 shown = Prog_MenuVisible(&state.menu, 0, state.menu.rootCount, (String){0}, visible);
     Check(shown == 4 && visible[0] == 1 && visible[1] == 3 && visible[2] == 5 && visible[3] == 6);
+    // A search keeps the items holding it and drops the separators.
+    Check(Prog_MenuVisible(&state.menu, 0, state.menu.rootCount, S("c"), visible) == 1 && visible[0] == 6);
     Prog__MenuMove(&state, 1);
     Check(state.menuHighlight == 1);
     Prog__MenuMove(&state, 1);
