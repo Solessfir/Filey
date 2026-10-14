@@ -498,7 +498,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     u64 count = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
         const Prog_Entry *entry = &state->directory.entries[i];
-        count += entry->file.kind == P_FileKind_Directory && !entry->measured;
+        count += entry->file.kind == P_FileKind_Directory && (!entry->measured || entry->remeasure);
     }
     if (!count) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
@@ -511,7 +511,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     input->rows = ArenaPushArray(&job->arena, count, u64);
     for (u64 i = 0; i < state->directory.count; ++i) {
         const Prog_Entry *entry = &state->directory.entries[i];
-        if (entry->file.kind != P_FileKind_Directory || entry->measured) continue;
+        if (entry->file.kind != P_FileKind_Directory || (entry->measured && !entry->remeasure)) continue;
         input->names[input->rowCount] = StrCopy(&job->arena, entry->file.name);
         input->rows[input->rowCount++] = i;
     }
@@ -1474,9 +1474,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if (row >= state->directory.count || state->directory.entries[row].file.kind != P_FileKind_Directory) continue;
                     Prog_Entry *entry = &state->directory.entries[row];
                     entry->measured = true;
+                    entry->remeasure = false;
                     entry->folders = result->totals[i].folders;
                     entry->files = result->totals[i].files;
                     entry->bytes = result->totals[i].bytes;
+                    // Kept for the next time the folder is shown.
+                    if (state->sizes.header.count >= Prog_MaxCachedSizes) {
+                        ArenaClear(&state->sizeArena);
+                        state->sizes = (Prog_SizeMap){0};
+                    }
+                    String path = Prog_JoinPath(&state->frameArena, input->path, input->names[i]);
+                    P_DirectoryTotals *known = MapsGetPtrNull(state->sizes, path);
+                    if (known) *known = result->totals[i];
+                    else MapsPut(&state->sizeArena, state->sizes, StrCopy(&state->sizeArena, path), result->totals[i]);
                 }
                 changed = true;
                 Prog__SortByTotals(state);
@@ -1542,6 +1552,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             entry->folders = (*old)->folders;
                             entry->files = (*old)->files;
                             entry->bytes = (*old)->bytes;
+                        } else if (!samePath && entry->file.kind == P_FileKind_Directory && !entry->measured && state->sizes.header.count) {
+                            P_DirectoryTotals *known = MapsGetPtrNull(state->sizes, Prog_JoinPath(&state->frameArena, result->path, entry->file.name));
+                            if (known) {
+                                entry->measured = entry->remeasure = true;
+                                entry->folders = known->folders;
+                                entry->files = known->files;
+                                entry->bytes = known->bytes;
+                            }
                         }
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
@@ -1699,6 +1717,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);
     ArenaRelease(&state->undoArena);
+    ArenaRelease(&state->sizeArena);
     ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};
 }

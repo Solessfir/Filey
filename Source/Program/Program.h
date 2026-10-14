@@ -72,6 +72,7 @@ typedef struct Prog_Entry {
     b32 marqueeBase;  // selected when the current box selection began
     // Recursive totals of a folder, filled in by measure jobs.
     b32 measured;
+    b32 remeasure;    // the totals are a past visit's, shown until a measure job brings fresh ones
     u64 folders;
     u64 files;
     u64 bytes;
@@ -245,6 +246,12 @@ typedef enum Prog_Group {
     Prog_Group_Places,
     Prog_Group_Count,
 } Prog_Group;
+
+// Folder totals measured before, by path, so that a folder shown again has its sizes at once.
+typedef struct Prog_SizeMap { MapHeader header; struct { String key; P_DirectoryTotals value; } *v; } Prog_SizeMap;
+
+// ponytail: the cache starts over past this many folders; evict the oldest if big trees make that common.
+#define Prog_MaxCachedSizes 50000
 
 typedef struct Prog_Measured {
     P_DirectoryTotals *totals;  // for the first `count` rows of the job
@@ -453,6 +460,8 @@ typedef struct Prog_State {
     Prog_TextEdit palette;
     u32 paletteHighlight;
     Prog_Transfer transfers[Prog_MaxTransfers];
+    Arena sizeArena;
+    Prog_SizeMap sizes;
     // File operations Undo can reverse, newest last.
     Arena undoArena;
     Prog_ArrayUndo undo;

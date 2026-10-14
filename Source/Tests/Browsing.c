@@ -1234,6 +1234,27 @@ function void TestPanels(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
         Check(state.panelCount == panels && state.activePanel == 0);
     }
+    // Folders measured once have their totals at once when shown again, while they are measured anew.
+    {
+        u64 start = PlatformNowMicroseconds();
+        while ((state.measureJob || !state.sizes.header.count) && PlatformNowMicroseconds() - start < Millions(5)) {
+            Prog_TakeCompletions(&state);
+            P__TestPause();
+        }
+        Check(state.sizes.header.count > 0);
+        u64 empty = TestEntryIndex(&state, S("Empty"));
+        Prog_OpenRow(&state, empty);
+        Check(TestWaitDirectory(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        u64 folder = TestEntryIndex(&state, S("Folder2"));
+        Check(folder != UINT64_MAX && state.directory.entries[folder].measured);
+        start = PlatformNowMicroseconds();
+        while (state.measureJob && PlatformNowMicroseconds() - start < Millions(5)) {
+            Prog_TakeCompletions(&state);
+            P__TestPause();
+        }
+        Check(!state.directory.entries[TestEntryIndex(&state, S("Folder2"))].remeasure);
+    }
     // The keyboard moves to the panel beside the active one in the last layout.
     state.panelRect = (R_Rect){ 0, 0, 500, 800 };
     state.panels[1].panelRect = (R_Rect){ 501, 0, 1000, 800 };
