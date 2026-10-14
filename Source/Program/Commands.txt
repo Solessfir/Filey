@@ -134,6 +134,14 @@ command ContextMenuClose {
 command DragSelection {
 }
 
+// A box selection begins; carries the modifiers, and keeps the selection as it was for Ctrl and Shift.
+command MarqueeStart {
+}
+
+// The rows the selection box covers: view positions [row, target); pressCount is 1 when the pointer is below where the box began.
+command MarqueeSelect {
+}
+
 command Rename {
     label   = "Rename^rename,name"
     tooltip = "Rename the focused item in place."

@@ -59,6 +59,7 @@ typedef struct Prog_Entry {
     String type;
     String modified;
     b32 selected;
+    b32 marqueeBase;  // selected when the current box selection began
     // Recursive totals of a folder, filled in by measure jobs.
     b32 measured;
     u64 folders;
@@ -269,6 +270,11 @@ typedef struct Prog_State {
     b32 dragRequested;
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
+    // Box selection: dragging across rows from anywhere but a name, or from the empty space below them.
+    b32 marquee;
+    UI_Key marqueeKey;        // the block the drag began on; kept after the drag so that its release does not count as a click
+    UI_Vec2 marqueeAnchor;    // where it began, in the list's content coordinates
+    KeyMods marqueeAdds;      // Ctrl toggles rows against the earlier selection and Shift adds them to it
     b32 hasHoverRow;
     // Inline rename of the entry named renameFrom.
     b32 renaming;

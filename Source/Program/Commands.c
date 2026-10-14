@@ -655,6 +655,32 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->showHidden = !state->showHidden;
                 Prog_Reload(state);
             } break;
+            case Prog_CommandKind_MarqueeStart: {
+                state->marqueeAdds = command->mods & (KeyMod_Control | KeyMod_Shift);
+                for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].marqueeBase = state->directory.entries[i].selected;
+            } break;
+            case Prog_CommandKind_MarqueeSelect: {
+                if (state->loading) break;
+                b32 toggles = (state->marqueeAdds & KeyMod_Control) != 0;
+                state->selectedCount = 0;
+                for (u64 i = 0; i < state->directory.count; ++i) {
+                    Prog_Entry *entry = &state->directory.entries[i];
+                    entry->selected = state->marqueeAdds && entry->marqueeBase;
+                }
+                u64 end = Min(command->target, state->viewCount);
+                for (u64 i = command->row; i < end; ++i) {
+                    Prog_Entry *entry = &state->directory.entries[state->view[i]];
+                    entry->selected = toggles ? !entry->marqueeBase : true;
+                }
+                for (u64 i = 0; i < state->directory.count; ++i) state->selectedCount += state->directory.entries[i].selected != 0;
+                // Focus follows the moving corner; the corner the box began at becomes the anchor for Shift.
+                if (command->row < end) {
+                    b32 down = command->pressCount != 0;
+                    state->focusedRow = state->view[down ? end - 1 : command->row];
+                    state->anchorRow = state->view[down ? command->row : end - 1];
+                    state->hasFocus = state->hasAnchor = true;
+                }
+            } break;
             case Prog_CommandKind_SelectAll: {
                 if (!state->loading) {
                     for (u64 i = 0; i < state->viewCount; ++i) state->directory.entries[state->view[i]].selected = true;

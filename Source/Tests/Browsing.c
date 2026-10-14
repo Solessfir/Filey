@@ -286,6 +286,15 @@ function void TestBrowsingCommand(Prog_State *state, Prog_CommandKind kind, u64 
     Check(TestWaitDirectory(state));
 }
 
+// One box selection over view positions [from, to).
+function void TestMarquee(Prog_State *state, KeyMods mods, u64 from, u64 to, u32 down)
+{
+    ArenaClear(&state->frameArena);
+    Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, 0)->mods = mods;
+    Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, from, down, 0)->target = to;
+    Prog_ProcessCommands(state);
+}
+
 typedef struct TestStaleJobInput {
     Prog_JobInput program;
     _Atomic u32 *started;
@@ -378,6 +387,17 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Prog_SelectRow(&state, 0, KeyMod_Control);
     Prog_SelectRow(&state, UINT64_MAX, 0);
     Check(TestSelectionCount(&state) == 3 && state.focusedRow == 0);
+    // A box replaces the selection with the rows it covers; with Ctrl it toggles them against the earlier selection, with Shift it adds them.
+    TestMarquee(&state, 0, 1, 3, true);
+    Check(TestSelectionCount(&state) == 2 && state.directory.entries[state.view[1]].selected && state.directory.entries[state.view[2]].selected);
+    Check(state.focusedRow == state.view[2] && state.anchorRow == state.view[1]);
+    TestMarquee(&state, KeyMod_Control, 0, 2, false);
+    Check(TestSelectionCount(&state) == 2 && state.directory.entries[state.view[0]].selected && state.directory.entries[state.view[2]].selected);
+    Check(state.focusedRow == state.view[0] && state.anchorRow == state.view[1]);
+    TestMarquee(&state, KeyMod_Shift, 3, 4, true);
+    Check(TestSelectionCount(&state) == 3 && state.directory.entries[state.view[3]].selected);
+    TestMarquee(&state, 0, 0, 0, true);
+    Check(TestSelectionCount(&state) == 0);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("file2.txt")), 0);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), KeyMod_Control);
     for (u64 sort = 0; sort < Prog_Sort_Count; ++sort) {

@@ -24,6 +24,7 @@ typedef struct Prog_Theme {
     R_Color textDim;
     R_Color textHeading;   // sidebar section titles
     R_Color textMatch;     // letters a filter matched
+    R_Color marquee;       // the box drawn by dragging across rows
     R_Color danger;        // actions that cannot be undone
     R_Color icon;
     R_Color iconDisabled;
@@ -46,6 +47,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
     .textMatch    = Prog_Rgb(0, 170, 255),
+    .marquee      = Prog_Rgb(0, 173, 238),
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(154),
     .iconDisabled = Prog_Gray(70),
@@ -70,6 +72,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
     .textMatch    = Prog_Rgb(0, 170, 255),
+    .marquee      = Prog_Rgb(0, 173, 238),
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(160),
     .iconDisabled = Prog_Gray(90),
@@ -92,6 +95,7 @@ global const Prog_Theme Prog_ThemeDebug = {
     .textDim      = Prog_Rgb(255, 170, 200),
     .textHeading  = Prog_Rgb(150, 255, 150),
     .textMatch    = Prog_Rgb(0, 170, 255),
+    .marquee      = Prog_Rgb(255, 0, 128),
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Rgb(255, 230, 120),
     .iconDisabled = Prog_Rgb(120, 100, 60),
@@ -718,7 +722,8 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
     }
 }
 
-function void Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
+// True when a drag that began away from the row's icon and name should start a box selection.
+function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
@@ -744,20 +749,26 @@ function void Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, 
         state->hasHoverRow = true;
     }
     UI_Interaction interaction = UI_InteractionFromBlock(row);
-    // A plain press inside a multi-selection keeps it so that it can be dragged; the click narrows it.
+    // A plain press inside a multi-selection keeps it so that it can be dragged; the click narrows it, unless the press became a box selection.
+    if (interaction.pressed && state->marqueeKey == key) state->marqueeKey = 0;
     b32 keepSelection = entry->selected && state->selectedCount > 1 && !interaction.mods && interaction.pressCount == 1;
     b32 renaming = state->renaming && StrIsEqual(entry->file.name, StrMake((const char *)state->renameFrom, state->renameFromLength));
+    // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
+    b32 onName = UI->pressOrigin.x < row->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
+    b32 result = false;
     // Clicks inside the name being edited stay in the box instead of reopening or dragging the row.
     if (renaming && UI__Contains(state->renameRect, UI->mouse)) {
     } else if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
-    } else if (!state->loading && ((interaction.pressed && !keepSelection) || (interaction.clicked && keepSelection && interaction.button == MouseButton_Left))) {
+    } else if (!state->loading && ((interaction.pressed && !keepSelection) ||
+                                   (interaction.clicked && keepSelection && interaction.button == MouseButton_Left && state->marqueeKey != key))) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount,
                                                   interaction.pressed ? interaction.pressOrder : interaction.clickOrder);
         command->mods = interaction.mods;
     }
-    if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && entry->selected) {
-        Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
+    if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
+        if (!onName) result = !state->marquee;
+        else if (entry->selected) Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
     }
     // Folders show their totals once measured; zero counts and files' counts read "--", as in the reference.
     Arena *frame = &state->frameArena;
@@ -805,6 +816,38 @@ function void Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, 
             Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
         }
     }
+    return result;
+}
+
+// The selection box: a faint fill with a dashed outline, in the list's padded coordinates.
+function void Prog__Marquee(R_Rect box, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Color line = theme->marquee, fill = theme->marquee;
+    fill.a *= 0.16f;
+    f32 width = box.x1 - box.x0, height = box.y1 - box.y0;
+    UI_SetNextFloatingOffset((UI_Vec2){ box.x0, box.y0 });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextColors((UI_Colors){ .background = fill });
+    UI_Block *area = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    f32 thickness = MaxF32(1, floorf(m->scale));
+    f32 dash = floorf(5.0f * m->scale + 0.5f), gap = floorf(2.5f * m->scale + 0.5f);
+    UI_Parent(area) {
+        for (u32 edge = 0; edge < 4; ++edge) {
+            b32 horizontal = edge < 2;
+            f32 length = horizontal ? width : height;
+            for (f32 at = 0; at < length; at += dash + gap) {
+                f32 piece = MinF32(dash, length - at);
+                UI_Vec2 offset = horizontal ? (UI_Vec2){ at, edge == 0 ? 0 : height - thickness } : (UI_Vec2){ edge == 2 ? 0 : width - thickness, at };
+                UI_SetNextFloatingOffset(offset);
+                UI_SetNextPrefWidth(UI_Pixels(horizontal ? piece : thickness));
+                UI_SetNextPrefHeight(UI_Pixels(horizontal ? thickness : piece));
+                UI_SetNextColors((UI_Colors){ .background = line });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        }
+    }
 }
 
 function void Prog__List(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
@@ -816,11 +859,17 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
-                                        (!state->loading ? UI_Flag_RightMouseClickable : 0));
+                                        (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     UI_Interaction listInteraction = UI_InteractionFromBlock(list);
     if (listInteraction.pressed && listInteraction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, listInteraction.pressCount, listInteraction.pressOrder);
     }
+    // A plain click on the empty space below the rows clears the selection.
+    if (listInteraction.clicked && listInteraction.button == MouseButton_Left && !listInteraction.mods && state->marqueeKey != list->key) {
+        Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, listInteraction.clickOrder);
+        Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, 0, listInteraction.clickOrder);
+    }
+    if (state->marquee && UI->activeKey != state->marqueeKey) state->marquee = false;
     if (state->resetScroll) { list->scrollOffset = (UI_Vec2){0}; state->resetScroll = false; }
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / rowHeight);
     if (state->revealFocus && state->hasFocus) {
@@ -840,9 +889,33 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     UI_Parent(list) {
         if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * rowHeight));
         UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path);
+        UI_Key marqueeFrom = 0;
         for (u64 i = first; i < end; ++i) {
             u64 row = state->view[i];
-            Prog__Row(state, row, i, UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name), columns, m);
+            UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
+            if (Prog__Row(state, row, i, key, columns, m)) marqueeFrom = key;
+        }
+        if (!state->loading && !state->marquee && listInteraction.active && listInteraction.isDragging && listInteraction.button == MouseButton_Left) marqueeFrom = list->key;
+        // The anchor is kept in content coordinates, so that the box stays on its rows while the list scrolls.
+        if (marqueeFrom) {
+            state->marquee = true;
+            state->marqueeKey = marqueeFrom;
+            state->marqueeAnchor = (UI_Vec2){ UI->pressOrigin.x - list->rect.x0, UI->pressOrigin.y - list->rect.y0 + list->scrollOffset.y };
+            Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, 0);
+            command->mods = UI->activeMods;
+        }
+        if (state->marquee) {
+            // Holding the pointer past the top or bottom edge scrolls, faster the further out it is.
+            f32 over = UI->mouse.y < list->rect.y0 ? UI->mouse.y - list->rect.y0 : UI->mouse.y > list->rect.y1 ? UI->mouse.y - list->rect.y1 : 0;
+            list->scrollOffset.y = MaxF32(0, list->scrollOffset.y + over * 0.25f);
+            UI_Vec2 anchor = state->marqueeAnchor;
+            UI_Vec2 point = { UI__Clamp(UI->mouse.x - list->rect.x0, 0, list->rect.x1 - list->rect.x0), UI->mouse.y - list->rect.y0 + list->scrollOffset.y };
+            point.y = UI__Clamp(point.y, 0, MaxF32(list->contentSize.y, list->rect.y1 - list->rect.y0 + list->scrollOffset.y));
+            f32 top = MinF32(anchor.y, point.y), bottom = MaxF32(anchor.y, point.y);
+            u64 from = (u64)(top / rowHeight), to = Min(state->viewCount, (u64)ceilf(bottom / rowHeight));
+            Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, from < to ? from : 0, point.y >= anchor.y, 0);
+            command->target = from < to ? to : 0;
+            Prog__Marquee((R_Rect){ MinF32(anchor.x, point.x) - m->inset, top - list->scrollOffset.y, MaxF32(anchor.x, point.x) - m->inset, bottom - list->scrollOffset.y }, m);
         }
         if (end < state->viewCount) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(state->viewCount - end) * rowHeight));
         if (!state->viewCount && !state->loading) {
