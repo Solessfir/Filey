@@ -405,8 +405,11 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenPadding((UI_Padding){ padding, 0, padding, 0 });
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextCornerRadius(m->radius);
-    UI_SetNextColors((UI_Colors){ .background = Prog_CurrentTheme()->panel, .text = !enabled ? disabledColor : hot ? hotColor : color });
+    // Under the pointer, the same wash of the selection color as a hovered row.
+    R_Color wash = Prog_CurrentTheme()->selection;
+    wash.a *= 0.35f;
+    UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+    UI_SetNextColors((UI_Colors){ .background = wash, .text = !enabled ? disabledColor : hot ? hotColor : color });
     UI_SetNextText(text);
     if (font) UI_SetNextFont(font);
     UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
@@ -415,10 +418,14 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
     return result;
 }
 
+// The reference's toolbar buttons are a little wider than tall.
+function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
+function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
+
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
+    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                   theme->icon, theme->text, theme->iconDisabled, enabled, m);
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
@@ -428,15 +435,16 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
 function void Prog__MenuButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 size = m->bar * 0.75f;
     b32 lit = state->menuOpen && state->menuOpener == kind;
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key;
-    UI_SetNextPrefWidth(UI_Pixels(size));
-    UI_SetNextPrefHeight(UI_Pixels(size));
+    R_Color wash = theme->selection;
+    wash.a *= 0.35f;
+    UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
+    UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextCornerRadius(m->radius * 2);
-    UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : theme->panel, .text = !enabled ? theme->iconDisabled : hot || lit ? theme->text : theme->icon });
+    UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+    UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit ? theme->text : theme->icon });
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
     UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot || lit ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
@@ -836,23 +844,23 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(toolbar) {
-        Prog__Spacer(UI_Pixels(m->inset * 0.6f), UI_Pixels(m->bar));
+        Prog__Spacer(UI_Pixels(floorf(4.8f * m->scale + 0.5f)), UI_Pixels(m->bar));
         String parent = Prog_ParentPath(state->directory.path);
         Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
         Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
         Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-        Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
+        Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         // Lit while the folder is bookmarked.
         b32 bookmarked = Prog_IsBookmarked(state, state->directory.path);
-        UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(m->bar * 0.75f), m->bar * 0.75f, 0,
+        UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                    bookmarked ? theme->textMatch : theme->icon, bookmarked ? theme->textMatch : theme->text, theme->iconDisabled,
                                                    state->directory.path.length != 0, m);
         if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-        Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
+        Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         // A path wider than the room shows its end, cut off at the left.
         UI_SetNextPrefWidth(UI_Flex());
