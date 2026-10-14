@@ -50,8 +50,10 @@ function void Prog__IconJob(P_Job *job)
         Prog_IconRequest *request = &input->icons[i];
         Scratch scratch = GetScratchEx(&job->arena);
         P_Image image = {0};
-        if (P_LoadFileIcon(scratch.arena, request->path, request->kind, input->iconSize, &image)) {
-            pixels[i] = Prog_ResizeIcon(&job->arena, image, input->iconSize);
+        b32 thumbnail = request->size != input->iconSize;
+        if (thumbnail ? P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, &image)
+                      : P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, &image)) {
+            pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
         }
         ReleaseScratch(scratch);
     }
@@ -63,32 +65,67 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
     return Prog_PathIcon(state, Prog_JoinPath(&state->frameArena, directory, entry->file.name), entry->file.kind);
 }
 
-function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind)
+// The cached icon for `key` in `map`, or NULL after queueing a load of `path` at `size` when it is new.
+function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog_IconMap *map, String key, String path, P_FileKind kind, i32 size)
 {
-    if (state->iconSize <= 0) return NULL;
-    String key = P_FileIconKey(&state->frameArena, path, kind);
-    Prog_Icon *icon = MapsGetPtrNull(state->icons, key);
+    Prog_Icon *icon = MapsGetPtrNull(*map, key);
     if (icon == NULL) {
-        key = StrCopy(&state->iconArena, key);
-        MapsPut(&state->iconArena, state->icons, key, (Prog_Icon){ .state = Prog_IconState_Pending });
+        MapsPut(arena, *map, StrCopy(arena, key), (Prog_Icon){ .state = Prog_IconState_Pending });
         // Requests outlive the frame when nothing submits them before the next one.
-        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = key, .kind = (u8)kind };
+        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size };
         ArrayPush(&state->iconArena, state->iconRequests, request);
         return NULL;
     }
     return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 
+function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind)
+{
+    if (state->iconSize <= 0) return NULL;
+    String key = P_FileIconKey(&state->frameArena, path, kind);
+    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, kind, state->iconSize);
+}
+
+function void Prog__ResetAtlas(Prog_IconAtlas *atlas, i32 size, i32 pageSize, u32 pageLimit)
+{
+    atlas->size = size;
+    atlas->pageSize = pageSize;
+    atlas->pageLimit = Min(pageLimit, (u32)CArrayCount(atlas->pages));
+    atlas->cell = 0;
+    atlas->pageCount = 0;  // pages are kept and reused
+}
+
+// Drops every thumbnail, for a new size or when the atlas is full; the items still shown ask for theirs again.
+// ponytail: whole-cache reset; evict the least recently drawn instead if large folders at XL size thrash it.
+function void Prog__ResetThumbnails(Prog_State *state, i32 size)
+{
+    state->thumbnails = (Prog_IconMap){0};
+    ArenaClear(&state->thumbnailArena);
+    // At most 64 MB of pages.
+    i32 pageSize = 2048;
+    Prog__ResetAtlas(&state->thumbnailAtlas, size, pageSize, (u32)Max((i64)1, (i64)(UINT64_C(64) << 20) / ((i64)pageSize * pageSize * 4)));
+}
+
 // Drops every cached icon, e.g. when the display scale changes the icon size.
 function void Prog__ResetIcons(Prog_State *state, i32 size)
 {
-    state->icons = (typeof(state->icons)){0};
+    state->icons = (Prog_IconMap){0};
     state->iconRequests = (Prog_ArrayIconRequest){0};
     state->iconSize = size;
-    state->iconCell = 0;
-    state->iconPageCount = 0;  // pages are kept in iconPages and reused
+    Prog__ResetAtlas(&state->iconAtlas, size, Prog_IconPageSize, 8);
     state->spinnerSize = 0;
     ArenaClear(&state->iconArena);
+    Prog__ResetThumbnails(state, 0);
+}
+
+// The icon views' picture of `entry` at `size`.
+function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size)
+{
+    if (state->iconSize <= 0 || size <= 0) return NULL;
+    if (size != state->thumbnailAtlas.size) Prog__ResetThumbnails(state, size);
+    String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
+    String key = P_FileThumbnailKey(&state->frameArena, path, entry->file.kind);
+    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size);
 }
 
 function void Prog_SubmitIconRequests(Prog_State *state)
@@ -102,30 +139,31 @@ function void Prog_SubmitIconRequests(Prog_State *state)
     input->icons = ArenaPushArray(&job->arena, input->iconCount, Prog_IconRequest);
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_IconRequest *source = &state->iconRequests.v[i];
-        input->icons[i] = (Prog_IconRequest){ StrCopy(&job->arena, source->path), StrCopy(&job->arena, source->key), source->kind };
+        input->icons[i] = (Prog_IconRequest){ StrCopy(&job->arena, source->path), StrCopy(&job->arena, source->key), source->kind, source->size };
     }
     job->input = input;
     state->iconRequests = (Prog_ArrayIconRequest){0};
     P_JobSubmit(job);
 }
 
-// Copies `pixels` (iconSize square) into the next atlas cell; false when the atlas is full.
-function b32 Prog__PlaceIcon(Prog_State *state, Prog_Icon *icon, const u32 *pixels)
+// Copies `pixels` (the atlas's size square) into its next cell; false when it is full.
+function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *pixels)
 {
-    i32 size = state->iconSize;
-    i32 perRow = Prog_IconPageSize / size;
-    u32 page = state->iconCell / (u32)(perRow * perRow);
-    u32 cell = state->iconCell % (u32)(perRow * perRow);
-    if (page >= CArrayCount(state->iconPages)) return false;
-    if (page >= state->iconPageCount) {
-        if (!state->iconPages[page].u64[0]) state->iconPages[page] = R_TextureCreateRGBA(Prog_IconPageSize, Prog_IconPageSize, NULL);
-        state->iconPageCount = page + 1;
+    i32 size = atlas->size;
+    if (size <= 0 || size > atlas->pageSize) return false;
+    i32 perRow = atlas->pageSize / size;
+    u32 page = atlas->cell / (u32)(perRow * perRow);
+    u32 cell = atlas->cell % (u32)(perRow * perRow);
+    if (page >= atlas->pageLimit) return false;
+    if (page >= atlas->pageCount) {
+        if (!atlas->pages[page].u64[0]) atlas->pages[page] = R_TextureCreateRGBA(atlas->pageSize, atlas->pageSize, NULL);
+        atlas->pageCount = page + 1;
     }
-    ++state->iconCell;
+    ++atlas->cell;
     i32 x = (i32)(cell % (u32)perRow) * size, y = (i32)(cell / (u32)perRow) * size;
-    R_TextureUpdateRGBA(state->iconPages[page], x, y, size, size, pixels);
-    f32 scale = 1.0f / Prog_IconPageSize;
-    icon->texture = state->iconPages[page];
+    R_TextureUpdateRGBA(atlas->pages[page], x, y, size, size, pixels);
+    f32 scale = 1.0f / (f32)atlas->pageSize;
+    icon->texture = atlas->pages[page];
     icon->uv = (R_Rect){ (f32)x * scale, (f32)y * scale, (f32)(x + size) * scale, (f32)(y + size) * scale };
     icon->state = Prog_IconState_Loaded;
     return true;
@@ -142,7 +180,7 @@ function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
         Scratch scratch = GetScratch();
         Prog_Icon placed = {0};
         u32 *pixels = Prog_ResizeIcon(scratch.arena, image, state->iconSize);
-        if (!pixels || !Prog__PlaceIcon(state, &placed, pixels)) placed.state = Prog_IconState_Failed;
+        if (!pixels || !Prog__PlaceIcon(&state->iconAtlas, &placed, pixels)) placed.state = Prog_IconState_Failed;
         ReleaseScratch(scratch);
         MapsPut(&state->iconArena, state->icons, StrCopy(&state->iconArena, key), placed);
         icon = MapsGetPtrNull(state->icons, key);
@@ -176,7 +214,7 @@ function void Prog__DrawSpinners(Prog_State *state)
                 pixels[y * size + x] = ((u32)(coverage * 255.0f + 0.5f) << 24) | 0xFFFFFFu;
             }
         }
-        if (!Prog__PlaceIcon(state, &state->spinner[frame], pixels)) state->spinner[frame].state = Prog_IconState_Failed;
+        if (!Prog__PlaceIcon(&state->iconAtlas, &state->spinner[frame], pixels)) state->spinner[frame].state = Prog_IconState_Failed;
     }
     ReleaseScratch(scratch);
     state->spinnerSize = size;
@@ -199,8 +237,18 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
     // Results for an old icon size are stale; their keys were dropped with the reset.
     if (input->iconSize != state->iconSize || pixels == NULL) return;
     for (u64 i = 0; i < input->iconCount; ++i) {
-        Prog_Icon *icon = MapsGetPtrNull(state->icons, input->icons[i].key);
+        Prog_IconRequest *request = &input->icons[i];
+        b32 thumbnail = request->size != state->iconSize;
+        // Thumbnails of a size the zoom has left are dropped; the items ask again at the new size.
+        if (thumbnail && request->size != state->thumbnailAtlas.size) continue;
+        Prog_IconMap *map = thumbnail ? &state->thumbnails : &state->icons;
+        Prog_Icon *icon = MapsGetPtrNull(*map, request->key);
         if (icon == NULL) continue;
-        if (pixels[i] == NULL || !Prog__PlaceIcon(state, icon, pixels[i])) icon->state = Prog_IconState_Failed;
+        if (pixels[i] == NULL) {
+            icon->state = Prog_IconState_Failed;
+        } else if (!Prog__PlaceIcon(thumbnail ? &state->thumbnailAtlas : &state->iconAtlas, icon, pixels[i])) {
+            if (thumbnail) Prog__ResetThumbnails(state, request->size);
+            else icon->state = Prog_IconState_Failed;
+        }
     }
 }

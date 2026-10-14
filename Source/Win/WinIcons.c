@@ -4,6 +4,7 @@
 #undef function
 #include <commctrl.h>
 #include <commoncontrols.h>
+#include <shobjidl.h>
 #pragma pop_macro("function")
 
 // Extensions whose files carry their own icon, so they cannot share one per type.
@@ -40,6 +41,41 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
         if (StrIsEqual(StrFrom(result, 1), P__IconPerPathExtensions[i])) return StrCopy(arena, path);
     }
     return result;
+}
+
+// 32-bit shell bitmaps as straight RGBA. Some are premultiplied (menu pictures) and some are not; a channel brighter than its alpha shows which. Bitmaps without alpha are opaque.
+function b32 P__BitmapPixels(Arena *arena, HBITMAP bitmap, P_Image *image)
+{
+    BITMAP info = {0};
+    if (GetObjectW(bitmap, sizeof(info), &info) != sizeof(info) || info.bmWidth <= 0 || info.bmHeight <= 0) return false;
+    i32 width = info.bmWidth, height = info.bmHeight;
+    BITMAPINFO format = { .bmiHeader = {
+        .biSize = sizeof(BITMAPINFOHEADER), .biWidth = width, .biHeight = -height, .biPlanes = 1, .biBitCount = 32, .biCompression = BI_RGB,
+    } };
+    u32 *pixels = ArenaPushArray(arena, (u64)width * (u64)height, u32);
+    HDC dc = GetDC(NULL);
+    b32 result = GetDIBits(dc, bitmap, 0, (UINT)height, pixels, &format, DIB_RGB_COLORS) == height;
+    ReleaseDC(NULL, dc);
+    if (!result) return false;
+    i64 count = (i64)width * height;
+    b32 hasAlpha = false, straight = false;
+    for (i64 i = 0; i < count; ++i) {
+        u32 p = pixels[i], a = p >> 24;
+        hasAlpha |= a != 0;
+        straight |= ((p >> 16) & 0xFF) > a || ((p >> 8) & 0xFF) > a || (p & 0xFF) > a;
+    }
+    for (i64 i = 0; i < count; ++i) {
+        u32 p = pixels[i];
+        u32 a = hasAlpha ? p >> 24 : 255, r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+        if (hasAlpha && !straight && a && a < 255) {
+            r = Min(255u, r * 255 / a);
+            g = Min(255u, g * 255 / a);
+            b = Min(255u, b * 255 / a);
+        }
+        pixels[i] = (a << 24) | (b << 16) | (g << 8) | r;
+    }
+    *image = (P_Image){ pixels, width, height };
+    return true;
 }
 
 // Shell calls need COM.
@@ -140,6 +176,37 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+// {BCC18B79-BA16-442F-80C4-8A59C30C463B}
+global const IID P__IID_IShellItemImageFactory = { 0xBCC18B79, 0xBA16, 0x442F, { 0x80, 0xC4, 0x8A, 0x59, 0xC3, 0x0C, 0x46, 0x3B } };
+
+function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
+{
+    (void)kind;
+    return StrCopy(arena, path);
+}
+
+// The shell's image factory gives a thumbnail where the file has one and its icon otherwise, at any size.
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    b32 result = false;
+    if (wide) {
+        P__EnsureCom();
+        IShellItemImageFactory *factory = NULL;
+        if (SUCCEEDED(SHCreateItemFromParsingName(wide, NULL, &P__IID_IShellItemImageFactory, (void **)&factory))) {
+            HBITMAP bitmap = NULL;
+            if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT, &bitmap)) && bitmap) {
+                result = P__BitmapPixels(arena, bitmap, image);
+                DeleteObject(bitmap);
+            }
+            factory->lpVtbl->Release(factory);
+        }
+    }
+    ReleaseScratch(scratch);
+    return result || P_LoadFileIcon(arena, path, kind, size, image);
 }
 
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)

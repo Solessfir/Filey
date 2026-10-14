@@ -22,3 +22,6 @@ clock
 bookmark
 hard-drive
 panel-left
+menu
+columns-3
+image

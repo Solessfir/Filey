@@ -87,6 +87,7 @@ typedef struct Prog_IconRequest {
     String path;
     String key;
     enum8(P_FileKind) kind;
+    i32 size;          // square size to load at; above the list icon size it is a thumbnail for the icon views
 } Prog_IconRequest;
 
 typedef struct Prog_ArrayIconRequest { ArrayHeader header; Prog_IconRequest *v; } Prog_ArrayIconRequest;
@@ -100,11 +101,35 @@ typedef enum Prog_IconState {
 
 #define Prog_SpinnerFrames 9
 
+// Square icons of one size packed into RGBA pages; pages survive resets and are reused.
+typedef struct Prog_IconAtlas {
+    R_TextureHandle pages[8];
+    u32 pageLimit;
+    u32 pageCount;
+    u32 cell;
+    i32 size;
+    i32 pageSize;
+} Prog_IconAtlas;
+
+// Zoom levels, smallest first: Details, List, Columns, then icon grids that grow a step at a time.
+#define Prog_ZoomLevels    17
+#define Prog_ZoomFirstIcon 3
+
+typedef enum Prog_View {
+    Prog_View_Details,
+    Prog_View_List,
+    Prog_View_Columns,
+    Prog_View_Icons,
+    Prog_View_Count,
+} Prog_View;
+
 typedef struct Prog_Icon {
     enum8(Prog_IconState) state;
     R_TextureHandle texture;
     R_Rect uv;
 } Prog_Icon;
+
+typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon value; } *v; } Prog_IconMap;
 
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
@@ -247,13 +272,16 @@ typedef struct Prog_State {
     // File icons, keyed by P_FileIconKey.
     // The map and keys live in iconArena; atlas pages survive resets and are reused.
     Arena iconArena;
-    struct { MapHeader header; struct { String key; Prog_Icon value; } *v; } icons;
+    Prog_IconMap icons;
     Prog_ArrayIconRequest iconRequests;  // queued while building UI, submitted by Prog_ProcessCommands
     i32 iconSize;
-    u32 iconCell;
-    u32 iconPageCount;
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
-    R_TextureHandle iconPages[8];
+    Prog_IconAtlas iconAtlas;
+    // Thumbnails for the icon views, keyed by P_FileThumbnailKey, at the one size the zoom draws them.
+    // A new size, or a full atlas, drops them all; the items still shown ask again.
+    Arena thumbnailArena;
+    Prog_IconMap thumbnails;
+    Prog_IconAtlas thumbnailAtlas;
     // The busy spinner's frames in the icon atlas; its eight rays repeat every eighth of a turn, so the frames cover that much.
     Prog_Icon spinner[Prog_SpinnerFrames];
     i32 spinnerSize;          // iconSize the frames were drawn at; 0 before they are
@@ -275,6 +303,15 @@ typedef struct Prog_State {
     b32 dragRequested;
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
+    // The view's zoom level, below Prog_ZoomLevels; Ctrl+wheel steps it.
+    u32 zoom;
+    f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
+    // The list's layout in its last build, for keyboard movement, revealing the focus and the selection box.
+    // Coordinates are the list's: x from its left edge, y from the top of its content.
+    u64 gridColumns;          // items per line; 1 in Details and List
+    UI_Vec2 gridPitch;        // from one cell to the next across and down
+    R_Rect gridItem;          // the first cell's item box; the others are offset by the pitch
+    R_Rect marqueeBox;        // the selection box in the same coordinates
     // Box selection: dragging across rows from anywhere but a name, or from the empty space below them.
     b32 marquee;
     UI_Key marqueeKey;        // the block the drag began on; kept after the drag so that its release does not count as a click
@@ -359,6 +396,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
 function f32 Prog_RowHeight(const R_Font *font);
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);
 function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind);
+function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function void Prog_SubmitIconRequests(Prog_State *state);
 function void Prog_CloseMenu(Prog_State *state);
 function void Prog_DragSelection(Prog_State *state);
@@ -385,3 +423,4 @@ function void Prog_MoveTab(Prog_State *state, u32 from, u32 to);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);
 function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds);
+function Prog_View Prog_ZoomView(u32 zoom);

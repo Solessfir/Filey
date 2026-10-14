@@ -662,25 +662,48 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_MarqueeSelect: {
                 if (state->loading) break;
                 b32 toggles = (state->marqueeAdds & KeyMod_Control) != 0;
-                state->selectedCount = 0;
                 for (u64 i = 0; i < state->directory.count; ++i) {
                     Prog_Entry *entry = &state->directory.entries[i];
                     entry->selected = state->marqueeAdds && entry->marqueeBase;
                 }
-                u64 end = Min(command->target, state->viewCount);
-                for (u64 i = command->row; i < end; ++i) {
-                    Prog_Entry *entry = &state->directory.entries[state->view[i]];
-                    entry->selected = toggles ? !entry->marqueeBase : true;
+                // Items whose box the selection box touches, found from the grid of the last layout.
+                R_Rect box = state->marqueeBox, item = state->gridItem;
+                UI_Vec2 pitch = state->gridPitch;
+                u64 columns = Max(state->gridColumns, (u64)1), first = UINT64_MAX, last = 0;
+                if (pitch.x > 0 && pitch.y > 0 && state->viewCount) {
+                    u64 lines = (state->viewCount + columns - 1) / columns;
+                    u64 line0 = (u64)MaxF32(0, floorf((box.y0 - item.y1) / pitch.y)), line1 = Min(lines - 1, (u64)MaxF32(0, floorf((box.y1 - item.y0) / pitch.y)) + 1);
+                    for (u64 line = line0; line <= line1 && line < lines; ++line) {
+                        for (u64 column = 0; column < columns; ++column) {
+                            u64 at = line * columns + column;
+                            if (at >= state->viewCount) break;
+                            f32 x = (f32)column * pitch.x, y = (f32)line * pitch.y;
+                            if (!(item.x0 + x < box.x1 && box.x0 < item.x1 + x && item.y0 + y < box.y1 && box.y0 < item.y1 + y)) continue;
+                            Prog_Entry *entry = &state->directory.entries[state->view[at]];
+                            entry->selected = toggles ? !entry->marqueeBase : true;
+                            first = Min(first, at);
+                            last = Max(last, at);
+                        }
+                    }
                 }
+                state->selectedCount = 0;
                 for (u64 i = 0; i < state->directory.count; ++i) state->selectedCount += state->directory.entries[i].selected != 0;
                 // Focus follows the moving corner; the corner the box began at becomes the anchor for Shift.
-                if (command->row < end) {
+                if (first != UINT64_MAX) {
                     b32 down = command->pressCount != 0;
-                    state->focusedRow = state->view[down ? end - 1 : command->row];
-                    state->anchorRow = state->view[down ? command->row : end - 1];
+                    state->focusedRow = state->view[down ? last : first];
+                    state->anchorRow = state->view[down ? first : last];
                     state->hasFocus = state->hasAnchor = true;
                 }
             } break;
+            case Prog_CommandKind_ZoomIn: if (state->zoom + 1 < Prog_ZoomLevels) { ++state->zoom; state->revealFocus = true; } break;
+            case Prog_CommandKind_ZoomOut: if (state->zoom) { --state->zoom; state->revealFocus = true; } break;
+            case Prog_CommandKind_ViewDetails: state->zoom = 0; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewList: state->zoom = 1; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewColumns: state->zoom = 2; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomFirstIcon; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomFirstIcon + 7; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomLevels - 1; state->revealFocus = true; break;
             case Prog_CommandKind_SelectAll: {
                 if (!state->loading) {
                     for (u64 i = 0; i < state->viewCount; ++i) state->directory.entries[state->view[i]].selected = true;
@@ -689,6 +712,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_FocusUp:
             case Prog_CommandKind_FocusDown:
+            case Prog_CommandKind_FocusLeft:
+            case Prog_CommandKind_FocusRight:
             case Prog_CommandKind_FocusFirst:
             case Prog_CommandKind_FocusLast:
             case Prog_CommandKind_FocusPageUp:
@@ -697,11 +722,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     // Moves through the rows the filter shows.
                     u64 row = state->hasFocus ? Prog_ViewPosition(state, state->focusedRow) : 0;
                     if (row == UINT64_MAX) row = 0;
-                    u64 page = state->pageRows > 1 ? state->pageRows - 1 : 1;
+                    // In a grid, up and down move a whole line and left and right one item; a line's worth of a page is a line of items.
+                    u64 step = Max(state->gridColumns, (u64)1);
+                    if ((command->kind == Prog_CommandKind_FocusLeft || command->kind == Prog_CommandKind_FocusRight) && step == 1) break;
+                    u64 page = (state->pageRows > 1 ? state->pageRows - 1 : 1) * step;
                     u64 last = state->viewCount - 1;
                     switch (command->kind) {
-                        case Prog_CommandKind_FocusUp: if (row) --row; break;
-                        case Prog_CommandKind_FocusDown: if (state->hasFocus && row < last) ++row; break;
+                        case Prog_CommandKind_FocusUp: if (row >= step) row -= step; break;
+                        // Down from a line with nothing under it goes to the last item, as in Explorer.
+                        case Prog_CommandKind_FocusDown: if (state->hasFocus) row = row + step <= last ? row + step : row / step < last / step ? last : row; break;
+                        case Prog_CommandKind_FocusLeft: if (row) --row; break;
+                        case Prog_CommandKind_FocusRight: if (state->hasFocus && row < last) ++row; break;
                         case Prog_CommandKind_FocusFirst: row = 0; break;
                         case Prog_CommandKind_FocusLast: row = last; break;
                         case Prog_CommandKind_FocusPageUp: row = row > page ? row - page : 0; break;
@@ -847,6 +878,13 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             state->filtering = true;
             Prog__EditInsert(&state->filter, event->codepoint);
             if (state->filter.version != version) Prog_ApplyFilter(state, true);
+            continue;
+        }
+        // Ctrl+wheel zooms instead of scrolling; fine-grained wheels add up to whole steps.
+        if (event->kind == PlatformEventKind_MouseWheel && (event->mods & KeyMod_Control) && !state->menuOpen) {
+            state->zoomWheel += event->wheelY;
+            for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, Prog_CommandKind_ZoomIn, 0, 0, order);
+            for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, Prog_CommandKind_ZoomOut, 0, 0, order);
             continue;
         }
         if (event->kind != PlatformEventKind_KeyDown) continue;

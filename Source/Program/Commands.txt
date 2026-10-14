@@ -82,6 +82,21 @@ command FocusDown {
     hotkey = "Ctrl+Shift+Down"
 }
 
+// Across the items of a grid view.
+command FocusLeft {
+    hotkey = "Left"
+    hotkey = "Shift+Left"
+    hotkey = "Ctrl+Left"
+    hotkey = "Ctrl+Shift+Left"
+}
+
+command FocusRight {
+    hotkey = "Right"
+    hotkey = "Shift+Right"
+    hotkey = "Ctrl+Right"
+    hotkey = "Ctrl+Shift+Right"
+}
+
 command FocusFirst {
     hotkey = "Home"
     hotkey = "Shift+Home"
@@ -138,7 +153,7 @@ command DragSelection {
 command MarqueeStart {
 }
 
-// The rows the selection box covers: view positions [row, target); pressCount is 1 when the pointer is below where the box began.
+// Selects what Prog_State.marqueeBox covers; pressCount is 1 when the pointer is below where the box began.
 command MarqueeSelect {
 }
 
@@ -467,6 +482,46 @@ command WindowToggleMaximize {
 }
 
 command WindowClose {
+}
+
+command ZoomIn {
+    label   = "Zoom In^bigger,larger,icons,view"
+    tooltip = "Show the files larger, one view step at a time."
+}
+
+command ZoomOut {
+    label   = "Zoom Out^smaller,icons,view"
+    tooltip = "Show the files smaller, one view step at a time."
+}
+
+command ViewDetails {
+    label   = "View Details^layout"
+    tooltip = "Display files with detailed information and metadata."
+}
+
+command ViewList {
+    label   = "View List^layout"
+    tooltip = "Display files as a simple list with just icons and names."
+}
+
+command ViewColumns {
+    label   = "View Columns^layout"
+    tooltip = "Arrange files in multiple columns for easy scanning."
+}
+
+command ViewMediumIcons {
+    label   = "View Medium Icons^layout,grid"
+    tooltip = "Display files as medium-sized icons for balanced detail."
+}
+
+command ViewLargeIcons {
+    label   = "View Large Icons^layout,grid"
+    tooltip = "Show files as large icons for easier recognition."
+}
+
+command ViewXLIcons {
+    label   = "View XL Icons^layout,grid,extra"
+    tooltip = "Show files with extra large icons for high visibility."
 }
 
 command ToggleDebugTheme {

@@ -141,7 +141,8 @@ function void UI__Input(PlatformEventList events)
         } else if (event->kind == PlatformEventKind_MouseWheel) {
             UI->wheel.x += event->wheelX;
             UI->wheel.y += event->wheelY;
-            UI_Block *block = UI__Hit(UI_Flag_Scrollable);
+            // Ctrl+wheel is left to the program, which zooms with it.
+            UI_Block *block = (event->mods & KeyMod_Control) ? NULL : UI__Hit(UI_Flag_Scrollable);
             if (block) {
                 block->scrollOffset.x += event->wheelX * block->scrollStep;
                 block->scrollOffset.y -= event->wheelY * block->scrollStep;

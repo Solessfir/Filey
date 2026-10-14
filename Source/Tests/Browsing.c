@@ -286,12 +286,16 @@ function void TestBrowsingCommand(Prog_State *state, Prog_CommandKind kind, u64 
     Check(TestWaitDirectory(state));
 }
 
-// One box selection over view positions [from, to).
+// One box selection over view positions [from, to) of a one-item-per-line list with 10-pixel rows; an empty range draws no box.
 function void TestMarquee(Prog_State *state, KeyMods mods, u64 from, u64 to, u32 down)
 {
     ArenaClear(&state->frameArena);
+    state->gridColumns = 1;
+    state->gridPitch = (UI_Vec2){ 100, 10 };
+    state->gridItem = (R_Rect){ 0, 0, 100, 10 };
+    state->marqueeBox = from < to ? (R_Rect){ 40, (f32)from * 10 + 1, 60, (f32)to * 10 - 1 } : (R_Rect){0};
     Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, 0)->mods = mods;
-    Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, from, down, 0)->target = to;
+    Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, down, 0);
     Prog_ProcessCommands(state);
 }
 
@@ -398,6 +402,18 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(TestSelectionCount(&state) == 3 && state.directory.entries[state.view[3]].selected);
     TestMarquee(&state, 0, 0, 0, true);
     Check(TestSelectionCount(&state) == 0);
+    // In a grid only the items whose box the selection box touches: here the second and third of the first two lines of three.
+    state.gridColumns = 3;
+    state.gridPitch = (UI_Vec2){ 10, 10 };
+    state.gridItem = (R_Rect){ 2, 0, 8, 8 };
+    state.marqueeBox = (R_Rect){ 15, 5, 25, 12 };
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_MarqueeStart, 0, 0, 0);
+    Prog_QueueCommand(&state, Prog_CommandKind_MarqueeSelect, 0, 1, 0);
+    Prog_ProcessCommands(&state);
+    Check(TestSelectionCount(&state) == 4 && state.directory.entries[state.view[1]].selected && state.directory.entries[state.view[2]].selected);
+    Check(state.directory.entries[state.view[4]].selected && state.directory.entries[state.view[5]].selected && !state.directory.entries[state.view[3]].selected);
+    state.gridColumns = 1;
     Prog_SelectRow(&state, TestEntryIndex(&state, S("file2.txt")), 0);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), KeyMod_Control);
     for (u64 sort = 0; sort < Prog_Sort_Count; ++sort) {

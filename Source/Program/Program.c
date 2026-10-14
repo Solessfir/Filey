@@ -25,6 +25,8 @@ typedef struct Prog_Theme {
     R_Color textHeading;   // sidebar section titles
     R_Color textMatch;     // letters a filter matched
     R_Color marquee;       // the box drawn by dragging across rows
+    R_Color accent;        // the filled part of the zoom bar
+    R_Color track;         // the zoom bar behind its fill
     R_Color danger;        // actions that cannot be undone
     R_Color icon;
     R_Color iconDisabled;
@@ -48,6 +50,8 @@ global const Prog_Theme Prog_ThemeCustom = {
     .textHeading  = Prog_Gray(162),
     .textMatch    = Prog_Rgb(0, 170, 255),
     .marquee      = Prog_Rgb(0, 173, 238),
+    .accent       = Prog_Rgb(0, 121, 166),
+    .track        = Prog_Rgb(56, 60, 61),
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(154),
     .iconDisabled = Prog_Gray(70),
@@ -73,6 +77,8 @@ global const Prog_Theme Prog_ThemeGlass = {
     .textHeading  = Prog_Gray(170),
     .textMatch    = Prog_Rgb(0, 170, 255),
     .marquee      = Prog_Rgb(0, 173, 238),
+    .accent       = Prog_Rgb(0, 121, 166),
+    .track        = Prog_Rgb(56, 60, 61),
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(160),
     .iconDisabled = Prog_Gray(90),
@@ -96,6 +102,8 @@ global const Prog_Theme Prog_ThemeDebug = {
     .textHeading  = Prog_Rgb(150, 255, 150),
     .textMatch    = Prog_Rgb(0, 170, 255),
     .marquee      = Prog_Rgb(255, 0, 128),
+    .accent       = Prog_Rgb(0, 200, 0),
+    .track        = Prog_Rgb(90, 0, 90),
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Rgb(255, 230, 120),
     .iconDisabled = Prog_Rgb(120, 100, 60),
@@ -733,55 +741,9 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
     }
 }
 
-// True when a drag that began away from the row's icon and name should start a box selection.
-function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Column *columns, const Prog_Metrics *m)
+// What a row or cell shows in each column: folders show their totals once measured; zero counts and files' counts read "--".
+function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, String *values)
 {
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    Prog_Entry *entry = &state->directory.entries[index];
-    b32 focused = state->hasFocus && state->focusedRow == index;
-    b32 hot = UI->hotKey == key && !state->loading;
-    // Hover wins over selection.
-    R_Color background = position & 1 ? theme->alternateRow : theme->background;
-    if (entry->selected) background = theme->selection;
-    if (hot) background = theme->hover;
-    b32 highlighted = entry->selected || hot;
-    // Hidden and dot-named items are faded whether or not the OS marks them hidden.
-    b32 faded = entry->file.hidden || (entry->file.name.length && entry->file.name.value[0] == '.');
-    UI_SetNextPrefWidth(UI_Flex());
-    UI_SetNextPrefHeight(UI_Pixels(m->row));
-    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
-    UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
-    UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
-    UI_Block *row = UI_AddBlockFromKey(key, flags);
-    if (focused) state->focusedRowRect = row->rect;
-    if (hot) {
-        state->hoverRow = index;
-        state->hasHoverRow = true;
-    }
-    UI_Interaction interaction = UI_InteractionFromBlock(row);
-    // A plain press inside a multi-selection keeps it so that it can be dragged; the click narrows it, unless the press became a box selection.
-    if (interaction.pressed && state->marqueeKey == key) state->marqueeKey = 0;
-    b32 keepSelection = entry->selected && state->selectedCount > 1 && !interaction.mods && interaction.pressCount == 1;
-    b32 renaming = state->renaming && StrIsEqual(entry->file.name, StrMake((const char *)state->renameFrom, state->renameFromLength));
-    // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
-    b32 onName = UI->pressOrigin.x < row->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
-    b32 result = false;
-    // Clicks inside the name being edited stay in the box instead of reopening or dragging the row.
-    if (renaming && UI__Contains(state->renameRect, UI->mouse)) {
-    } else if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
-        Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
-    } else if (!state->loading && ((interaction.pressed && !keepSelection) ||
-                                   (interaction.clicked && keepSelection && interaction.button == MouseButton_Left && state->marqueeKey != key))) {
-        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount,
-                                                  interaction.pressed ? interaction.pressOrder : interaction.clickOrder);
-        command->mods = interaction.mods;
-    }
-    if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
-        if (!onName) result = !state->marquee;
-        else if (entry->selected) Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
-    }
-    // Folders show their totals once measured; zero counts and files' counts read "--".
     Arena *frame = &state->frameArena;
     String none = S("--");
     String folders = none, files = none, size = {0};
@@ -796,38 +758,202 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     } else if (entry->file.metadataValid) {
         size = Prog_FormatSize(frame, entry->file.size);
     }
-    String values[Prog_ColumnId_Count] = { entry->file.name, entry->type, entry->modified, folders, files, size };
+    String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, entry->modified, folders, files, size };
+    for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = result[i];
+}
+
+// `text` cut at a codepoint boundary to fit `width`, with an ellipsis when anything was cut.
+function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f32 width)
+{
+    if (R_TextWidth(font, text) <= width) return text;
+    String dots = S("…");
+    f32 room = width - R_TextWidth(font, dots);
+    u64 fit = 0;
+    // ponytail: measures every prefix; names are short, so this stays cheap.
+    for (u64 at = 0; at < text.length;) {
+        u64 next = at + 1;
+        while (next < text.length && (text.value[next] & 0xC0) == 0x80) ++next;
+        if (R_TextWidth(font, StrMake(text.value, next)) > room) break;
+        fit = at = next;
+    }
+    return StrFormat(arena, "%S%S", StrMake(text.value, fit), dots);
+}
+
+// Hidden and dot-named items are faded whether or not the OS marks them hidden.
+function b32 Prog__EntryFaded(const Prog_Entry *entry)
+{
+    return entry->file.hidden || (entry->file.name.length && entry->file.name.value[0] == '.');
+}
+
+// The item's system icon drawn at `size` in a `width` x `height` slot, or a glyph while it loads or when it has none.
+// Above the list icon size it is the item's thumbnail, and nothing shows while that loads, since a stretched list icon would only blur.
+function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 size, f32 width, f32 height, f32 alignX, b32 highlighted, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    b32 faded = Prog__EntryFaded(entry);
+    b32 thumbnail = size > (f32)state->iconSize;
+    const Prog_Icon *icon = thumbnail ? Prog_ThumbnailIcon(state, state->directory.path, entry, (i32)size) : Prog_FileIcon(state, state->directory.path, entry);
+    if (thumbnail && !icon) {
+        Prog__Spacer(UI_Pixels(width), UI_Pixels(height));
+    } else if (icon) {
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
+        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+        UI_AddBlock(UI_Flag_DrawImage);
+    } else {
+        Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, width, height,
+                   highlighted ? theme->text : faded ? theme->iconDisabled : theme->icon, alignX, m);
+    }
+}
+
+// What every view does with an item under the pointer: a right press opens the menu, presses select, and drags move the files.
+// A drag that began away from the item's icon and name (`onName` false) instead asks, through the result, for a box selection.
+function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_Key key, b32 onName, b32 renaming)
+{
+    Prog_Entry *entry = &state->directory.entries[index];
+    if (state->hasFocus && state->focusedRow == index) state->focusedRowRect = block->rect;
+    if (UI->hotKey == key && !state->loading) {
+        state->hoverRow = index;
+        state->hasHoverRow = true;
+    }
+    UI_Interaction interaction = UI_InteractionFromBlock(block);
+    // A plain press inside a multi-selection keeps it so that it can be dragged; the click narrows it, unless the press became a box selection.
+    if (interaction.pressed && state->marqueeKey == key) state->marqueeKey = 0;
+    b32 keepSelection = entry->selected && state->selectedCount > 1 && !interaction.mods && interaction.pressCount == 1;
+    b32 result = false;
+    // Clicks inside the name being edited stay in the box instead of reopening or dragging the item.
+    if (renaming && UI__Contains(state->renameRect, UI->mouse)) {
+    } else if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
+        Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
+    } else if (!state->loading && ((interaction.pressed && !keepSelection) ||
+                                   (interaction.clicked && keepSelection && interaction.button == MouseButton_Left && state->marqueeKey != key))) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount,
+                                                  interaction.pressed ? interaction.pressOrder : interaction.clickOrder);
+        command->mods = interaction.mods;
+    }
+    if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
+        if (!onName) result = !state->marquee;
+        else if (entry->selected) Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
+    }
+    return result;
+}
+
+function b32 Prog__ItemRenaming(const Prog_State *state, const Prog_Entry *entry)
+{
+    return state->renaming && StrIsEqual(entry->file.name, StrMake((const char *)state->renameFrom, state->renameFromLength));
+}
+
+// A Details or List row; List shows only the icon and the name.
+function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Column *columns, b32 nameOnly, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog_Entry *entry = &state->directory.entries[index];
+    b32 focused = state->hasFocus && state->focusedRow == index;
+    b32 hot = UI->hotKey == key && !state->loading;
+    // Hover wins over selection.
+    R_Color background = position & 1 ? theme->alternateRow : theme->background;
+    if (entry->selected) background = theme->selection;
+    if (hot) background = theme->hover;
+    b32 highlighted = entry->selected || hot;
+    b32 faded = Prog__EntryFaded(entry);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
+    UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
+    UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
+    UI_Block *row = UI_AddBlockFromKey(key, flags);
+    b32 renaming = Prog__ItemRenaming(state, entry);
+    // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
+    b32 onName = UI->pressOrigin.x < row->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
+    b32 result = Prog__ItemInput(state, index, row, key, onName, renaming);
+    String values[Prog_ColumnId_Count];
+    Prog__EntryValues(state, entry, values);
     UI_Parent(row) {
-        const Prog_Icon *icon = Prog_FileIcon(state, state->directory.path, entry);
-        if (icon) {
-            UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));
-            UI_SetNextPrefHeight(UI_Pixels(m->row));
-            UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
-            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
-            UI_AddBlock(UI_Flag_DrawImage);
-        } else {
-            // Glyphs stand in while the system icon loads or when it has none.
-            Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, m->iconSlot - m->gap, m->row,
-                       highlighted ? theme->text : faded ? theme->iconDisabled : theme->icon, 1, m);
-        }
-        for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
+        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, m->row, 1, highlighted, m);
+        for (u32 i = 0; i < (nameOnly ? 1u : (u32)Prog_ColumnId_Count); ++i) {
+            UI_Size width = columns[i].width > 0 && !nameOnly ? UI_Pixels(columns[i].width) : UI_Flex();
             if (i == Prog_ColumnId_Name && renaming) {
-                Prog__RenameBox(state, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m);
+                Prog__RenameBox(state, width, m);
                 continue;
             }
             R_Color color = (i == Prog_ColumnId_Name && !faded) || highlighted ? theme->text : theme->textDim;
             if (i == Prog_ColumnId_Name && (state->filter.length || state->directory.expanded)) {
                 String leaf = Prog_EntryLeaf(entry->file.name);
                 u64 prefix = entry->file.name.length - leaf.length;
-                u8 *marks = state->filter.length ? ArenaPushArrayNoZero(frame, Max(leaf.length, (u64)1), u8) : NULL;
+                u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(leaf.length, (u64)1), u8) : NULL;
                 if (marks && !Prog_FilterMatch(leaf, Prog_EditText(&state->filter), marks)) marks = NULL;
-                Prog__NameLabel(entry->file.name, prefix, marks, columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), color, theme->textDim, m);
+                Prog__NameLabel(entry->file.name, prefix, marks, width, color, theme->textDim, m);
                 continue;
             }
-            Prog__Label(values[i], columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex(), m->row, m->gap, color, columns[i].alignX);
+            Prog__Label(values[i], width, m->row, m->gap, color, columns[i].alignX);
         }
     }
     return result;
+}
+
+// A Columns cell: a row-height item, its icon and name, on a background that alternates by line.
+function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key, f32 width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog_Entry *entry = &state->directory.entries[index];
+    b32 focused = state->hasFocus && state->focusedRow == index;
+    b32 hot = UI->hotKey == key && !state->loading;
+    R_Color background = line & 1 ? theme->alternateRow : theme->background;
+    if (entry->selected) background = theme->selection;
+    if (hot) background = theme->hover;
+    b32 highlighted = entry->selected || hot;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
+    UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
+    UI_Block *cell = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0));
+    b32 renaming = Prog__ItemRenaming(state, entry);
+    b32 onName = UI->pressOrigin.x < cell->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
+    b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
+    UI_Parent(cell) {
+        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, m->row, 1, highlighted, m);
+        if (renaming) Prog__RenameBox(state, UI_Flex(), m);
+        else Prog__Label(entry->file.name, UI_Flex(), m->row, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
+    }
+    return result;
+}
+
+// An icon view cell: the icon over the name and the size, centered, on a rounded box that shows only when selected, hovered or focused.
+function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width, f32 height, f32 iconSize, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog_Entry *entry = &state->directory.entries[index];
+    b32 focused = state->hasFocus && state->focusedRow == index;
+    b32 hot = UI->hotKey == key && !state->loading;
+    b32 highlighted = entry->selected || hot;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
+    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(9.0f * m->scale), 0, 0 });
+    UI_SetNextCornerRadius(m->radius * 2);
+    UI_SetNextColors((UI_Colors){ .background = hot ? theme->hover : theme->selection, .border = theme->focus });
+    UI_Block *cell = UI_AddBlockFromKey(key, (highlighted ? UI_Flag_DrawBackground : 0) | (focused ? UI_Flag_DrawBorder : 0) |
+                                        (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
+    b32 renaming = Prog__ItemRenaming(state, entry);
+    // The whole cell is the item, so presses on it drag the files; the box selection starts from the space between cells.
+    Prog__ItemInput(state, index, cell, key, true, renaming);
+    String values[Prog_ColumnId_Count];
+    Prog__EntryValues(state, entry, values);
+    f32 text = width - m->gap;
+    UI_Parent(cell) {
+        Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, highlighted, m);
+        if (renaming) {
+            Prog__RenameBox(state, UI_Pixels(width), m);
+        } else {
+            String name = Prog__Ellipsize(&state->frameArena, m->font, entry->file.name, text);
+            Prog__Label(name, UI_Pixels(width), m->line, 0, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0.5f);
+            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
+        }
+    }
 }
 
 // The selection box: a faint fill with a dashed outline, in the list's padded coordinates.
@@ -861,10 +987,27 @@ function void Prog__Marquee(R_Rect box, const Prog_Metrics *m)
     }
 }
 
+function Prog_View Prog_ZoomView(u32 zoom)
+{
+    return zoom < Prog_ZoomFirstIcon ? (Prog_View)zoom : Prog_View_Icons;
+}
+
+// Zoom as a fraction: 0 for Details, a tenth a step to Columns, then icons from 0.3 in steps of 0.055 up to 1.
+function f32 Prog__ZoomFraction(u32 zoom)
+{
+    return zoom < Prog_ZoomFirstIcon ? (f32)zoom * 0.1f : MinF32(1, 0.3f + (f32)(zoom - Prog_ZoomFirstIcon) * 0.055f);
+}
+
+// Icon views draw their icons from 48 logical pixels at 30% to 205 at 100%, in physical pixels.
+function f32 Prog__ZoomIconSize(u32 zoom, f32 scale)
+{
+    f32 t = (Prog__ZoomFraction(zoom) - 0.3f) / 0.7f;
+    return floorf((48.0f + t * (204.8f - 48.0f)) * scale + 0.5f);
+}
+
 function void Prog__List(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 rowHeight = m->row;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
@@ -875,39 +1018,86 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     if (listInteraction.pressed && listInteraction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, listInteraction.pressCount, listInteraction.pressOrder);
     }
-    // A plain click on the empty space below the rows clears the selection.
+    // A plain click on the empty space around the items clears the selection.
     if (listInteraction.clicked && listInteraction.button == MouseButton_Left && !listInteraction.mods && state->marqueeKey != list->key) {
+        state->marqueeBox = (R_Rect){0};
         Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, listInteraction.clickOrder);
         Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, 0, listInteraction.clickOrder);
     }
     if (state->marquee && UI->activeKey != state->marqueeKey) state->marquee = false;
     if (state->resetScroll) { list->scrollOffset = (UI_Vec2){0}; state->resetScroll = false; }
-    state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / rowHeight);
+
+    // The grid: one item per line in Details and List, and as many cells as fit across in Columns and the icon views, stretched to fill the line.
+    Prog_View view = Prog_ZoomView(state->zoom);
+    f32 width = MaxF32(1, list->rect.x1 - list->rect.x0), inner = MaxF32(1, width - 2 * m->inset);
+    u64 perLine = 1;
+    UI_Vec2 pitch = { width, m->row };
+    R_Rect item = { 0, 0, width, m->row };
+    f32 iconSize = 0;
+    if (view == Prog_View_Columns) {
+        perLine = Max((u64)1, (u64)(inner / floorf(m->line * 25.0f)));
+        pitch.x = floorf(inner / (f32)perLine);
+        item = (R_Rect){ m->inset, 0, m->inset + pitch.x - floorf(27.0f * m->scale), m->row };
+    } else if (view == Prog_View_Icons) {
+        iconSize = Prog__ZoomIconSize(state->zoom, m->scale);
+        perLine = Max((u64)1, (u64)(inner / (iconSize + floorf(30.0f * m->scale))));
+        pitch = (UI_Vec2){ floorf(inner / (f32)perLine), iconSize + floorf(77.0f * m->scale) };
+        f32 gap = floorf(7.0f * m->scale), top = floorf(8.0f * m->scale);
+        item = (R_Rect){ m->inset + gap, top, m->inset + pitch.x - gap, top + iconSize + floorf(53.0f * m->scale) };
+    }
+    state->gridColumns = perLine;
+    state->gridPitch = pitch;
+    state->gridItem = item;
+    u64 lines = (state->viewCount + perLine - 1) / perLine;
+
+    state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / pitch.y);
     if (state->revealFocus && state->hasFocus) {
         u64 position = Prog_ViewPosition(state, state->focusedRow);
-        f32 top = (f32)(position == UINT64_MAX ? 0 : position) * rowHeight;
+        f32 top = (f32)((position == UINT64_MAX ? 0 : position) / perLine) * pitch.y;
         f32 height = Max(0.0f, list->rect.y1 - list->rect.y0);
         if (top < list->scrollOffset.y) list->scrollOffset.y = top;
-        else if (top + rowHeight > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + rowHeight - height);
+        else if (top + pitch.y > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + pitch.y - height);
         state->revealFocus = false;
     }
-    // Only rows near the viewport get blocks; spacers stand in for the rest.
-    u64 first = (u64)(Max(0.0f, list->scrollOffset.y) / rowHeight);
+    // Only lines near the viewport get blocks; spacers stand in for the rest.
+    u64 first = (u64)(Max(0.0f, list->scrollOffset.y) / pitch.y);
     if (first > 2) first -= 2; else first = 0;
-    first = Min(first, state->viewCount);
-    f32 visibleHeight = Max(rowHeight, UI->root->rect.y1 - UI->root->rect.y0);
-    u64 end = Min(state->viewCount, first + (u64)(visibleHeight / rowHeight) + 6);
+    first = Min(first, lines);
+    f32 visibleHeight = Max(pitch.y, UI->root->rect.y1 - UI->root->rect.y0);
+    u64 end = Min(lines, first + (u64)(visibleHeight / pitch.y) + 6);
     UI_Parent(list) {
-        if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * rowHeight));
+        if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch.y));
         UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path);
         UI_Key marqueeFrom = 0;
-        for (u64 i = first; i < end; ++i) {
-            u64 row = state->view[i];
-            UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
-            if (Prog__Row(state, row, i, key, columns, m)) marqueeFrom = key;
+        for (u64 line = first; line < end; ++line) {
+            if (perLine == 1) {
+                u64 row = state->view[line];
+                UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
+                if (Prog__Row(state, row, line, key, columns, view == Prog_View_List, m)) marqueeFrom = key;
+                continue;
+            }
+            UI_Block *cells = Prog__Box(UI_Flex(), UI_Pixels(pitch.y), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(cells) {
+                for (u64 at = line * perLine; at < Min(state->viewCount, (line + 1) * perLine); ++at) {
+                    u64 row = state->view[at];
+                    UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
+                    // Each cell is a slot of the pitch, with the item inside it where the grid puts it.
+                    UI_SetNextPrefWidth(UI_Pixels(pitch.x));
+                    UI_SetNextPrefHeight(UI_Pixels(pitch.y));
+                    UI_SetNextChildrenPadding((UI_Padding){ item.x0 - m->inset, item.y0, 0, 0 });
+                    UI_Block *slot = UI_AddBlock(0);
+                    UI_Parent(slot) {
+                        if (view == Prog_View_Columns) {
+                            if (Prog__ColumnCell(state, row, line, key, item.x1 - item.x0, m)) marqueeFrom = key;
+                        } else {
+                            Prog__IconCell(state, row, key, item.x1 - item.x0, item.y1 - item.y0, iconSize, m);
+                        }
+                    }
+                }
+            }
         }
         if (!state->loading && !state->marquee && listInteraction.active && listInteraction.isDragging && listInteraction.button == MouseButton_Left) marqueeFrom = list->key;
-        // The anchor is kept in content coordinates, so that the box stays on its rows while the list scrolls.
+        // The anchor is kept in content coordinates, so that the box stays on its items while the list scrolls.
         if (marqueeFrom) {
             state->marquee = true;
             state->marqueeKey = marqueeFrom;
@@ -920,18 +1110,17 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
             f32 over = UI->mouse.y < list->rect.y0 ? UI->mouse.y - list->rect.y0 : UI->mouse.y > list->rect.y1 ? UI->mouse.y - list->rect.y1 : 0;
             list->scrollOffset.y = MaxF32(0, list->scrollOffset.y + over * 0.25f);
             UI_Vec2 anchor = state->marqueeAnchor;
-            UI_Vec2 point = { UI__Clamp(UI->mouse.x - list->rect.x0, 0, list->rect.x1 - list->rect.x0), UI->mouse.y - list->rect.y0 + list->scrollOffset.y };
+            UI_Vec2 point = { UI__Clamp(UI->mouse.x - list->rect.x0, 0, width), UI->mouse.y - list->rect.y0 + list->scrollOffset.y };
             point.y = UI__Clamp(point.y, 0, MaxF32(list->contentSize.y, list->rect.y1 - list->rect.y0 + list->scrollOffset.y));
-            f32 top = MinF32(anchor.y, point.y), bottom = MaxF32(anchor.y, point.y);
-            u64 from = (u64)(top / rowHeight), to = Min(state->viewCount, (u64)ceilf(bottom / rowHeight));
-            Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, from < to ? from : 0, point.y >= anchor.y, 0);
-            command->target = from < to ? to : 0;
-            Prog__Marquee((R_Rect){ MinF32(anchor.x, point.x) - m->inset, top - list->scrollOffset.y, MaxF32(anchor.x, point.x) - m->inset, bottom - list->scrollOffset.y }, m);
+            R_Rect box = { MinF32(anchor.x, point.x), MinF32(anchor.y, point.y), MaxF32(anchor.x, point.x), MaxF32(anchor.y, point.y) };
+            state->marqueeBox = box;
+            Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, point.y >= anchor.y, 0);
+            Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollOffset.y, box.x1 - m->inset, box.y1 - list->scrollOffset.y }, m);
         }
-        if (end < state->viewCount) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(state->viewCount - end) * rowHeight));
+        if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
         if (!state->viewCount && !state->loading) {
             String empty = state->directory.count ? S("No items match the filter") : S("This folder is empty");
-            Prog__Label(empty, UI_Flex(), rowHeight, m->iconSlot, theme->textDim, 0);
+            Prog__Label(empty, UI_Flex(), m->row, m->iconSlot, theme->textDim, 0);
         }
     }
 }
@@ -1010,8 +1199,33 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     }
                 }
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->pill));
-                Prog__Icon(Icon_List, 0, m->pill, theme->icon, 0.5f, m);
-                Prog__Label(S("Details"), UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
+                // The view and how far it is zoomed, as a bar filled to the zoom's percentage.
+                Prog_View view = Prog_ZoomView(state->zoom);
+                local_persist const String viewIcons[Prog_View_Count] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image };
+                local_persist const String viewNames[Prog_View_Count] = { S("Details"), S("List"), S("Columns"), {0} };
+                u32 step = state->zoom - Prog_ZoomFirstIcon;
+                String name = view != Prog_View_Icons ? viewNames[view] : step < 7 ? S("M Icons") : state->zoom + 1 < Prog_ZoomLevels ? S("L Icons") : S("XL Icons");
+                Prog__Icon(viewIcons[view], 0, m->pill, theme->icon, 0.5f, m);
+                Prog__Label(name, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
+                f32 zoom = Prog__ZoomFraction(state->zoom);
+                f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
+                Prog__Spacer(UI_Pixels(m->gap * 0.5f), UI_Pixels(m->pill));
+                UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                UI_SetNextCornerRadius(m->radius * 0.5f);
+                UI_SetNextColors((UI_Colors){ .background = theme->track });
+                UI_Block *bar = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
+                UI_Parent(bar) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                    UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * zoom)));
+                    UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                    UI_SetNextCornerRadius(m->radius * 0.5f);
+                    UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    // A block's text draws before its children, so the percentage is a child after the fill.
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                    Prog__Label(StrFormat(&state->frameArena, "%u%%", (u32)(zoom * 100.0f + 0.001f)), UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
+                }
             }
         } else {
             UI_SetNextPrefWidth(UI_TextContent());
@@ -1425,7 +1639,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
         UI_Parent(main) {
             Prog__Toolbar(state, m);
-            Prog__Header(state, columns, m);
+            if (Prog_ZoomView(state->zoom) == Prog_View_Details) Prog__Header(state, columns, m);
             Prog__List(state, columns, m);
             Prog__StatusBar(state, m);
         }

@@ -414,6 +414,17 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
     return P_FileTypeKey(arena, path, kind);
 }
 
+// ponytail: theme icons only; read the freedesktop thumbnail cache (~/.cache/thumbnails) for image previews when icon views want them.
+function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
+{
+    return P_FileIconKey(arena, path, kind);
+}
+
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+{
+    return P_LoadFileIcon(arena, path, kind, size, image);
+}
+
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
 {
     pthread_once(&P__iconsOnce, P__LoadIconData);
