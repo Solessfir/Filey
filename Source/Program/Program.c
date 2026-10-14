@@ -18,7 +18,7 @@ typedef struct Prog_Theme {
     R_Color hover;
     R_Color selection;
     R_Color focus;         // outline of the focused row
-    R_Color tabBorder;     // outline of the shown tab
+    R_Color tabBorder;     // outline of the shown tab, which the strip's bottom line and the sidebar's edge continue
     R_Color closeHover;    // the window's close button under the pointer
     R_Color text;
     R_Color textDim;
@@ -43,7 +43,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .hover        = Prog_Gray(80),
     .selection    = Prog_Gray(44),
     .focus        = Prog_Gray(80),
-    .tabBorder    = Prog_Gray(29),
+    .tabBorder    = Prog_Gray(56),
     .closeHover   = Prog_Rgb(196, 43, 28),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(107, 112, 120),
@@ -1656,7 +1656,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     UI_Parent(body) {
         if (!state->sidebarHidden) {
             Prog__Sidebar(state, m);
-            Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->separator, 0);
+            Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
         }
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
         UI_Parent(main) {
