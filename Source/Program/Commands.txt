@@ -508,6 +508,12 @@ command Undo {
     hotkey  = "Ctrl+Z"
 }
 
+command OpenSettings {
+    label   = "Settings^preferences,options,config,theme,colors,hotkeys,keys,scale"
+    tooltip = "Open the settings file, whose saved changes apply at once."
+    repeat  = "false"
+}
+
 command CommandPalette {
     label   = "Command Palette^commands,actions,search,run"
     tooltip = "Find and run any command by name."

@@ -113,10 +113,123 @@ global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
 function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
 
+// The custom theme with the settings' colors.
+global Prog_Theme Prog_ThemeUser = Prog_ThemeCustom;
+
+// The theme's colors by the names the settings give them.
+global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
+#define Prog__ThemeColor(field) { #field, offsetof(Prog_Theme, field) }
+    Prog__ThemeColor(window), Prog__ThemeColor(background), Prog__ThemeColor(menu), Prog__ThemeColor(panel), Prog__ThemeColor(alternateRow),
+    Prog__ThemeColor(separator), Prog__ThemeColor(hover), Prog__ThemeColor(selection), Prog__ThemeColor(focus), Prog__ThemeColor(tabBorder),
+    Prog__ThemeColor(closeHover), Prog__ThemeColor(text), Prog__ThemeColor(textDim), Prog__ThemeColor(textHeading), Prog__ThemeColor(textMatch),
+    Prog__ThemeColor(marquee), Prog__ThemeColor(accent), Prog__ThemeColor(track), Prog__ThemeColor(danger), Prog__ThemeColor(icon), Prog__ThemeColor(iconDisabled),
+#undef Prog__ThemeColor
+};
+static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_Color) == sizeof(Prog_Theme));
+
 function void Prog__ApplyTheme(Prog_State *state)
 {
-    Prog_Theme_ = state->debugTheme ? &Prog_ThemeDebug : state->transparent ? &Prog_ThemeGlass : &Prog_ThemeCustom;
+    Prog_Theme_ = state->debugTheme ? &Prog_ThemeDebug : state->transparent ? &Prog_ThemeGlass : &Prog_ThemeUser;
     state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
+}
+
+// The hex digits of `text`, "#rrggbb" or "#rrggbbaa".
+function b32 Prog__ParseColor(String text, R_Color *color)
+{
+    if (!text.length || text.value[0] != '#' || (text.length != 7 && text.length != 9)) return false;
+    u32 channels[4] = { 0, 0, 0, 255 };
+    for (u64 i = 1; i < text.length; ++i) {
+        u8 c = Prog__FoldAscii((u8)text.value[i]);
+        u32 digit = c >= '0' && c <= '9' ? (u32)(c - '0') : c >= 'a' && c <= 'f' ? (u32)(c - 'a' + 10) : 16;
+        if (digit > 15) return false;
+        channels[(i - 1) / 2] = (i - 1) % 2 ? channels[(i - 1) / 2] + digit : digit * 16;
+    }
+    *color = (R_Color){ (f32)channels[0] / 255.0f, (f32)channels[1] / 255.0f, (f32)channels[2] / 255.0f, (f32)channels[3] / 255.0f };
+    return true;
+}
+
+// Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
+//   scale = 1.25                  the UI's size beyond the display's own scale
+//   color.<theme field> = #rrggbb[aa]
+//   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
+function void Prog_ApplySettings(Prog_State *state, String text)
+{
+    Prog_ThemeUser = Prog_ThemeCustom;
+    state->uiScale = 1;
+    state->userHotkeyCount = 0;
+    MemZero(state->hotkeyOverridden, sizeof(state->hotkeyOverridden));
+    Scratch scratch = GetScratch();
+    ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+    for (u64 l = 0; l < lines.header.count; ++l) {
+        String line = lines.v[l];
+        while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+        while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
+        Index equals = StrIndexChar(line, '=', SSF_None);
+        if (!line.length || line.value[0] == '#' || !equals.exists) continue;
+        String name = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+        while (name.length && name.value[name.length - 1] == ' ') --name.length;
+        while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+        if (StrIsEqual(name, S("scale"))) {
+            f32 scale = 0, fraction = 0;
+            for (u64 i = 0; i < value.length; ++i) {
+                char c = value.value[i];
+                if (c == '.' && fraction == 0) fraction = 0.1f;
+                else if (c >= '0' && c <= '9' && fraction == 0) scale = scale * 10 + (f32)(c - '0');
+                else if (c >= '0' && c <= '9') { scale += (f32)(c - '0') * fraction; fraction *= 0.1f; }
+                else { scale = 0; break; }
+            }
+            if (scale >= 0.5f && scale <= 3) state->uiScale = scale;
+        } else if (name.length > 6 && StrIsEqual(StrFromTo(name, 0, 6), S("color."))) {
+            String field = StrFrom(name, 6);
+            R_Color color;
+            for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
+                if (StrIsEqual(field, StrFromCStr(Prog_ThemeColors[i].name)) && Prog__ParseColor(value, &color)) *(R_Color *)((u8 *)&Prog_ThemeUser + Prog_ThemeColors[i].offset) = color;
+            }
+        } else if (name.length > 7 && StrIsEqual(StrFromTo(name, 0, 7), S("hotkey."))) {
+            String command = StrFrom(name, 7);
+            for (u32 k = Prog_CommandKind_None + 1; k < Prog_CommandKind_Count; ++k) {
+                if (!StrIsEqual(command, Prog_Commands[k].name)) continue;
+                state->hotkeyOverridden[k] = true;
+                if (Prog__EqualFolded(value, S("none"))) break;
+                for (u64 at = 0; at < value.length;) {
+                    Index comma = StrIndexChar(StrFrom(value, at), ',', SSF_CountOnFail);
+                    Prog_Hotkey hotkey = { .command = (u8)k };
+                    if (Prog_ParseHotkey(StrFromTo(value, at, (i64)(at + comma.value)), &hotkey.key, &hotkey.mods) && state->userHotkeyCount < CArrayCount(state->userHotkeys)) {
+                        state->userHotkeys[state->userHotkeyCount++] = hotkey;
+                    }
+                    at += comma.value + 1;
+                }
+                break;
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+    Prog__ApplyTheme(state);
+}
+
+// Every setting, commented out at its default, for a first edit.
+function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
+{
+    StrBuilder text = {0};
+    StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
+                                "# Lines are \"name = value\"; remove the # in front of a setting to change it.\n\n"
+                                "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
+                                "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
+    for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
+        R_Color c = *(const R_Color *)((const u8 *)&Prog_ThemeCustom + Prog_ThemeColors[i].offset);
+        u32 r = (u32)(c.r * 255 + 0.5f), g = (u32)(c.g * 255 + 0.5f), b = (u32)(c.b * 255 + 0.5f), a = (u32)(c.a * 255 + 0.5f);
+        StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
+                                           : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
+    }
+    StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas; \"none\" removes a command's.\n"));
+    Prog_State defaults = {0};
+    (void)state;
+    for (u32 k = Prog_CommandKind_None + 1; k < Prog_CommandKind_Count; ++k) {
+        if (!Prog_Commands[k].label.length) continue;
+        String hotkey = Prog_HotkeyText(arena, &defaults, (Prog_CommandKind)k);
+        StrBuildStr(arena, &text, StrFormat(arena, "# hotkey.%S = %S\n", Prog_Commands[k].name, hotkey.length ? hotkey : S("none")));
+    }
+    return text.buffer;
 }
 
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
@@ -1600,7 +1713,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         height += item->separator ? separatorHeight : itemHeight;
         labelWidth = MaxF32(labelWidth, R_TextWidth(m->font, item->label));
         anySubmenu |= item->childCount != 0;
-        if (state->menuCommands && !item->separator) hotkeys[i] = Prog_HotkeyText(&state->frameArena, state->menuCommands[visible[i]].kind);
+        if (state->menuCommands && !item->separator) hotkeys[i] = Prog_HotkeyText(&state->frameArena, state, state->menuCommands[visible[i]].kind);
         if (hotkeys[i].length) hotkeyWidth = MaxF32(hotkeyWidth, R_TextWidth(m->font, hotkeys[i]) + 2 * m->inset);
     }
     f32 arrow = anySubmenu ? m->line * 1.5f : 0;
@@ -1766,7 +1879,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
             UI_Parent(row) {
                 Prog__Label(Prog_Commands[matches[i]].label, UI_Flex(), m->row, 0, theme->text, 0);
-                String hotkey = Prog_HotkeyText(&state->frameArena, matches[i]);
+                String hotkey = Prog_HotkeyText(&state->frameArena, state, matches[i]);
                 if (hotkey.length) Prog__Label(hotkey, UI_TextContent(), m->row, 0, theme->textDim, 1);
             }
         }

@@ -1284,6 +1284,29 @@ function void TestPanels(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Settings override colors, the scale and hotkeys; a rebound command loses its defaults and bad lines are skipped.
+function void TestSettings(void)
+{
+    Prog_State state = {0};
+    Prog_ApplySettings(&state, S("# comment\nscale = 1.25\ncolor.accent = #ff8000\ncolor.nothing = #000000\ncolor.text = blue\n"
+                                 "hotkey.SplitRight = Ctrl+Alt+R, F6\nhotkey.Refresh = none\nhotkey.Nonsense = Ctrl+Q\n"));
+    Check(state.uiScale > 1.24f && state.uiScale < 1.26f);
+    Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
+    const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);
+    Check(hotkey && hotkey->command == Prog_CommandKind_SplitRight);
+    hotkey = Prog_FindHotkey(&state, Key_F6, 0);
+    Check(hotkey && hotkey->command == Prog_CommandKind_SplitRight);
+    Check(!Prog_FindHotkey(&state, Key_S, KeyMod_Control | KeyMod_Shift) && !Prog_FindHotkey(&state, Key_F5, 0));
+    hotkey = Prog_FindHotkey(&state, Key_S, KeyMod_Control);
+    Check(hotkey && hotkey->command == Prog_CommandKind_SplitBottom);
+    Arena arena = {0};
+    Check(StrIsEqual(Prog_HotkeyText(&arena, &state, Prog_CommandKind_SplitRight), S("Ctrl+Alt+R")));
+    Check(Prog_SettingsTemplate(&arena, &state).length > 0);
+    Prog_ApplySettings(&state, (String){0});
+    Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == Prog_ThemeCustom.accent.r && Prog_FindHotkey(&state, Key_F5, 0));
+    ArenaRelease(&arena);
+}
+
 // A move is recorded, and undoing it brings the item back under its own name.
 function void TestUndo(TestFileFixture *fixture)
 {
@@ -1498,6 +1521,7 @@ function void TestBrowsing(void)
         TestTabs(&fixture);
         TestPanels(&fixture);
         TestUndo(&fixture);
+        TestSettings();
         TestSidebar(&fixture);
         TestRename(&fixture);
         TestFilter(&fixture);

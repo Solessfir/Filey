@@ -130,14 +130,16 @@ function void Prog__Frame(void *user, PlatformEventList events)
         b32 completed = false;
         ProfileScope("TakeCompletions") completed = Prog_TakeCompletions(state);
         PlatformWindowInfo window = PlatformWindowGetInfo();
-        if (window.scale != loop->fontScale) {
-            ProfileScope("LoadFonts") Prog__LoadFonts(loop, window.scale);
+        // The settings' scale multiplies the display's.
+        f32 scale = window.scale * (state->uiScale > 0 ? state->uiScale : 1);
+        if (scale != loop->fontScale) {
+            ProfileScope("LoadFonts") Prog__LoadFonts(loop, scale);
             state->ui.doubleClickDistance = PlatformDoubleClickSettings().distance;
         }
         ProfileScope("BuildUI") {
             UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
             Prog_HandleInput(state, events);
-            Prog_BuildUI(state, &loop->font, &loop->icons, window.scale);
+            Prog_BuildUI(state, &loop->font, &loop->icons, scale);
         }
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0;

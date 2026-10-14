@@ -494,6 +494,12 @@ typedef struct Prog_State {
     b32 saveAgain[2];
     // See-through window with the glass theme; the app applies it to the window.
     b32 transparent;
+    // Settings.txt in the config folder: the UI scale and hotkeys here, colors in the custom theme; its folder's watch applies edits as they are saved.
+    f32 uiScale;              // 0 is 1
+    Prog_Hotkey userHotkeys[64];
+    u32 userHotkeyCount;
+    b8 hotkeyOverridden[Prog_CommandKind_Count];  // the command's default hotkeys give way to the settings' ones
+    P_DirectoryWatch configWatch;
     // Loud colors for telling UI surfaces apart; FILEY_DEBUG_THEME turns it on at startup.
     b32 debugTheme;
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
@@ -555,7 +561,12 @@ function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);
 function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds);
 function Prog_View Prog_ZoomView(u32 zoom);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
-function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind);
+function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind);
+function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Key key, KeyMods mods);
+function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods);
+function void Prog_ApplySettings(Prog_State *state, String text);
+function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state);
+function void Prog_ReloadSettingsFile(Prog_State *state);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
 function String Prog_SessionText(Arena *arena, Prog_State *state);
 function b32 Prog_RestoreSession(Prog_State *state, String text);

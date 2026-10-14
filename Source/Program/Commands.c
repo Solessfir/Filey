@@ -144,19 +144,86 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     state->menuHighlight = UINT32_MAX;
 }
 
-// "Ctrl+Shift+S" for the first default hotkey of `kind`; empty when it has none.
-function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind)
+// Key names as Commands.txt and the settings spell them, and shorter ones for showing.
+global const char *Prog_KeyNames[Key_Count] = {
+    [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
+    [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
+    [Key_PageUp] = "PageUp", [Key_PageDown] = "PageDown", [Key_ContextMenu] = "ContextMenu",
+};
+global const char *Prog_KeyShortNames[Key_Count] = {
+    [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Del", [Key_Insert] = "Ins",
+    [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
+    [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu",
+};
+
+function b32 Prog__EqualFolded(String a, String b)
 {
-    local_persist const char *named[Key_Count] = {
-        [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Del", [Key_Insert] = "Ins",
-        [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
-        [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu",
-    };
+    if (a.length != b.length) return false;
+    for (u64 i = 0; i < a.length; ++i) {
+        if (Prog__FoldAscii((u8)a.value[i]) != Prog__FoldAscii((u8)b.value[i])) return false;
+    }
+    return true;
+}
+
+// The hotkey `key` with `mods` runs: the settings' own first, then the defaults of the commands they leave alone.
+function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Key key, KeyMods mods)
+{
+    for (u32 i = 0; i < state->userHotkeyCount; ++i) {
+        if (state->userHotkeys[i].key == key && state->userHotkeys[i].mods == mods) return &state->userHotkeys[i];
+    }
     for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
         const Prog_Hotkey *hotkey = &Prog_DefaultHotkeys[i];
-        if (hotkey->command != kind) continue;
+        if (hotkey->key == key && hotkey->mods == mods && !state->hotkeyOverridden[hotkey->command]) return hotkey;
+    }
+    return NULL;
+}
+
+// "Ctrl+Shift+S", modifiers in any order and case; false when it names no key.
+function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods)
+{
+    *key = Key_None;
+    *mods = 0;
+    for (u64 at = 0; at <= text.length;) {
+        Index plus = StrIndexChar(StrFrom(text, at), '+', SSF_CountOnFail);
+        String part = StrFromTo(text, at, (i64)(at + plus.value));
+        while (part.length && part.value[0] == ' ') part = StrFrom(part, 1);
+        while (part.length && part.value[part.length - 1] == ' ') --part.length;
+        at += plus.value + 1;
+        b32 last = at > text.length;
+        if (!part.length) return false;
+        if (!last) {
+            if (Prog__EqualFolded(part, S("Ctrl")) || Prog__EqualFolded(part, S("Control"))) *mods |= KeyMod_Control;
+            else if (Prog__EqualFolded(part, S("Shift"))) *mods |= KeyMod_Shift;
+            else if (Prog__EqualFolded(part, S("Alt"))) *mods |= KeyMod_Alt;
+            else if (Prog__EqualFolded(part, S("Super")) || Prog__EqualFolded(part, S("Win")) || Prog__EqualFolded(part, S("Meta"))) *mods |= KeyMod_Super;
+            else return false;
+            continue;
+        }
+        u8 c = Prog__FoldAscii((u8)part.value[0]);
+        if (part.length == 1 && c >= 'a' && c <= 'z') *key = (Key)(Key_A + (c - 'a'));
+        else if (part.length == 1 && c >= '0' && c <= '9') *key = (Key)(Key_0 + (c - '0'));
+        else if (part.length >= 2 && c == 'f' && part.value[1] >= '1' && part.value[1] <= '9') {
+            u32 number = (u32)(part.value[1] - '0');
+            if (part.length == 3 && part.value[2] >= '0' && part.value[2] <= '9') number = number * 10 + (u32)(part.value[2] - '0');
+            if (part.length <= 3 && number >= 1 && number <= 12) *key = (Key)(Key_F1 + number - 1);
+        } else {
+            for (u32 k = 0; k < Key_Count && *key == Key_None; ++k) {
+                if ((Prog_KeyNames[k] && Prog__EqualFolded(part, StrFromCStr(Prog_KeyNames[k]))) || (Prog_KeyShortNames[k] && Prog__EqualFolded(part, StrFromCStr(Prog_KeyShortNames[k])))) *key = (Key)k;
+            }
+        }
+    }
+    return *key != Key_None;
+}
+
+// "Ctrl+Shift+S" for the first hotkey of `kind`, the settings' own before the defaults; empty when it has none.
+function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
+{
+    for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys); ++i) {
+        b32 user = i < state->userHotkeyCount;
+        const Prog_Hotkey *hotkey = user ? &state->userHotkeys[i] : &Prog_DefaultHotkeys[i - state->userHotkeyCount];
+        if (hotkey->command != kind || (!user && state->hotkeyOverridden[kind])) continue;
         char key[4] = {0};
-        const char *name = hotkey->key < Key_Count ? named[hotkey->key] : NULL;
+        const char *name = hotkey->key < Key_Count ? Prog_KeyShortNames[hotkey->key] : NULL;
         if (hotkey->key >= Key_A && hotkey->key <= Key_Z) key[0] = (char)('A' + (hotkey->key - Key_A));
         else if (hotkey->key >= Key_0 && hotkey->key <= Key_9) key[0] = (char)('0' + (hotkey->key - Key_0));
         else if (hotkey->key >= Key_F1 && hotkey->key <= Key_F12) {
@@ -244,6 +311,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .checked = Prog_IsBookmarked(state, state->directory.path));
             Prog__Item(.kind = Prog_CommandKind_CopyAsPath);
             Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_OpenSettings);
             Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .checked = state->transparent);
             Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .checked = state->debugTheme);
         } break;
@@ -786,6 +854,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
             case Prog_CommandKind_ToggleQuickAccess: state->sidebarHidden = !state->sidebarHidden; break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
+            case Prog_CommandKind_OpenSettings: {
+                // A first open writes every setting there is, commented out at its default.
+                if (!state->configDirectory.length) break;
+                String path = Prog_JoinPath(&state->frameArena, state->configDirectory, S("Settings.txt"));
+                String existing = {0};
+                if (!P_ReadFile(&state->frameArena, path, &existing)) P_WriteFile(&state->frameArena, path, Prog_SettingsTemplate(&state->frameArena, state));
+                P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                input->kind = Prog_JobKind_Open;
+                input->generation = state->generation;
+                input->path = StrCopy(&job->arena, path);
+                job->input = input;
+                P_JobSubmit(job);
+            } break;
             case Prog_CommandKind_Undo: if (!state->renaming) Prog_UndoLast(state); break;
             case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
             case Prog_CommandKind_BookmarksClear: {
@@ -1204,14 +1286,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             }
             continue;
         }
-        for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
-            const Prog_Hotkey *hotkey = &Prog_DefaultHotkeys[i];
-            if (hotkey->key != event->key || hotkey->mods != mods) continue;
-            if (!event->isRepeat || !Prog_Commands[hotkey->command].noRepeat) {
-                Prog_Command *command = Prog_QueueCommand(state, hotkey->command, 0, 0, order);
-                command->mods = event->mods;
-            }
-            break;
+        const Prog_Hotkey *hotkey = Prog_FindHotkey(state, event->key, mods);
+        if (hotkey && (!event->isRepeat || !Prog_Commands[hotkey->command].noRepeat)) {
+            Prog_Command *command = Prog_QueueCommand(state, hotkey->command, 0, 0, order);
+            command->mods = event->mods;
         }
     }
 }

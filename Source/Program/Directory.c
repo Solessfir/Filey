@@ -632,6 +632,19 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
         ReleaseScratch(scratch);
     }
     Prog__LoadList(state, Prog_RecentsFile, &state->recentArena, &state->recents, &found);
+    Prog_ReloadSettingsFile(state);
+    P_DirectoryWatchStop(&state->configWatch);
+    P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
+}
+
+// Settings.txt, or the defaults without it.
+function void Prog_ReloadSettingsFile(Prog_State *state)
+{
+    Scratch scratch = GetScratch();
+    String text = {0};
+    if (state->configDirectory.length) P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.txt")), &text);
+    Prog_ApplySettings(state, text);
+    ReleaseScratch(scratch);
 }
 
 function b32 Prog_IsBookmarked(const Prog_State *state, String path)
@@ -1300,6 +1313,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     u64 now = PlatformNowMicroseconds();
     Prog__EnsurePanel(state);
     u32 active = state->activePanel;
+    // Saved settings apply at once.
+    if (P_DirectoryWatchTakeChanged(&state->configWatch)) {
+        Prog_ReloadSettingsFile(state);
+        changed = true;
+    }
     // Every panel watches its folder.
     for (u32 panel = 0; panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);
@@ -1658,6 +1676,8 @@ function void Prog_Release(Prog_State *state)
         Prog__ReleaseCurrentPanel(state);
     }
     ArenaRelease(&state->menuArena);
+    P_DirectoryWatchStop(&state->configWatch);
+    ArenaRelease(&state->configWatch.arena);
     P_JobsShutdown(&state->jobs);
     // Shutting down drops saves still waiting in the queue, and the workers are done, so the lists are written once more here.
     if (state->configDirectory.length) {
