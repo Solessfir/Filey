@@ -484,6 +484,20 @@ command WindowToggleMaximize {
 command WindowClose {
 }
 
+command CommandPalette {
+    label   = "Command Palette^commands,actions,search,run"
+    tooltip = "Find and run any command by name."
+    hotkey  = "Ctrl+Shift+P"
+    repeat  = "false"
+}
+
+// The palette's command at row is run, or the highlighted one when row is UINT64_MAX.
+command PaletteRun {
+}
+
+command PaletteClose {
+}
+
 // Filey's own menus, opened from their buttons at Prog_Command.at.
 command ViewMenu {
 }

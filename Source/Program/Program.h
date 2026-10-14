@@ -394,6 +394,10 @@ typedef struct Prog_State {
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
     b32 selectRename;         // and rename it, for items Filey just created
+    // The command palette, which takes the keyboard while open; the highlight indexes Prog_PaletteMatches.
+    b32 paletteOpen;
+    Prog_TextEdit palette;
+    u32 paletteHighlight;
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
     Arena confirmArena;
@@ -486,3 +490,4 @@ function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicrosecond
 function Prog_View Prog_ZoomView(u32 zoom);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
 function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind);
+function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);

@@ -1206,6 +1206,23 @@ function void TestPanels(TestFileFixture *fixture)
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
+    // The palette finds commands by what their labels hold, then by their letters in order, and runs the highlighted one.
+    {
+        Prog_CommandKind matches[Prog_CommandKind_Count];
+        TestBrowsingCommand(&state, Prog_CommandKind_CommandPalette, 0);
+        Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > 20);
+        for (const char *c = "split b"; *c; ++c) Prog__EditInsert(&state.palette, (rune)*c);
+        Check(Prog_PaletteMatches(&state, matches) >= 1 && matches[0] == Prog_CommandKind_SplitBottom);
+        state.palette = (Prog_TextEdit){0};
+        for (const char *c = "split r"; *c; ++c) Prog__EditInsert(&state.palette, (rune)*c);
+        u32 found = Prog_PaletteMatches(&state, matches);
+        Check(found >= 1 && matches[0] == Prog_CommandKind_SplitRight);
+        u32 panels = state.panelCount;
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
+        Check(!state.paletteOpen && state.panelCount == panels + 1);
+        TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+        Check(state.panelCount == panels && state.activePanel == 0);
+    }
     // The keyboard moves to the panel beside the active one in the last layout.
     state.panelRect = (R_Rect){ 0, 0, 500, 800 };
     state.panels[1].panelRect = (R_Rect){ 501, 0, 1000, 800 };

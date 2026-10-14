@@ -173,6 +173,36 @@ function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind)
     return (String){0};
 }
 
+// Whether `needle` appears in `text` as one run, ignoring ASCII case.
+function b32 Prog__ContainsFolded(String text, String needle)
+{
+    for (u64 start = 0; start + needle.length <= text.length; ++start) {
+        u64 i = 0;
+        while (i < needle.length && Prog__FoldAscii((u8)text.value[start + i]) == Prog__FoldAscii((u8)needle.value[i])) ++i;
+        if (i == needle.length) return true;
+    }
+    return false;
+}
+
+// The commands the palette's text finds, best first: labels holding it as typed, then labels holding its letters in order, then search words that do.
+// `out` has room for Prog_CommandKind_Count; returns how many it holds.
+function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out)
+{
+    String text = Prog_EditText(&state->palette);
+    u32 count = 0;
+    for (u32 tier = 0; tier < 3; ++tier) {
+        for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) {
+            const Prog_CommandDesc *desc = &Prog_Commands[kind];
+            if (!desc->label.length || kind == Prog_CommandKind_CommandPalette) continue;
+            b32 contains = Prog__ContainsFolded(desc->label, text);
+            b32 letters = !contains && Prog_FilterMatch(desc->label, text, NULL);
+            b32 aliases = !contains && !letters && Prog_FilterMatch(desc->aliases, text, NULL);
+            if ((tier == 0 && contains) || (tier == 1 && letters) || (tier == 2 && aliases)) out[count++] = (Prog_CommandKind)kind;
+        }
+    }
+    return count;
+}
+
 // Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
 function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 {
@@ -201,6 +231,8 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             for (u32 i = 0; i < state->tabCount; ++i) Prog__Item(.kind = Prog_CommandKind_SelectTab, .row = i, .label = Prog_TabPath(state, i), .checked = i == state->activeTab);
         } break;
         case Prog_CommandKind_MainMenu: {
+            Prog__Item(.kind = Prog_CommandKind_CommandPalette);
+            Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabNew);
             Prog__Item(.kind = Prog_CommandKind_NewWindow);
             Prog__Item(.kind = Prog_CommandKind_SplitRight);
@@ -872,6 +904,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_CommandPalette: {
+                Prog_CloseMenu(state);
+                state->paletteOpen = !state->paletteOpen;
+                state->palette = (Prog_TextEdit){0};
+                state->paletteHighlight = 0;
+            } break;
+            case Prog_CommandKind_PaletteClose: state->paletteOpen = false; break;
+            case Prog_CommandKind_PaletteRun: {
+                if (!state->paletteOpen) break;
+                Prog_CommandKind matches[Prog_CommandKind_Count];
+                u32 count = Prog_PaletteMatches(state, matches);
+                u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                state->paletteOpen = false;
+                if (chosen < count) Prog_QueueCommand(state, matches[chosen], 0, 0, UINT64_MAX);
+            } break;
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
             case Prog_CommandKind_TabList:
@@ -996,6 +1043,25 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         if (state->tabDrag && event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) {
             state->tabDrag = false;
             state->tabDragCancelled = true;
+            continue;
+        }
+        // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
+        if (state->paletteOpen) {
+            if (event->kind == PlatformEventKind_Text) {
+                Prog__EditInsert(&state->palette, event->codepoint);
+                state->paletteHighlight = 0;
+            } else if (event->kind == PlatformEventKind_KeyDown) {
+                Prog_CommandKind matches[Prog_CommandKind_Count];
+                u32 count = Prog_PaletteMatches(state, matches);
+                u32 version = state->palette.version;
+                if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order);
+                else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
+                else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : 0;
+                else if (event->key == Key_P && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                else Prog__EditKey(&state->palette, event);
+                if (state->palette.version != version) state->paletteHighlight = 0;
+            }
             continue;
         }
         // The delete confirmation takes the keyboard: Enter deletes, Escape cancels, and nothing else gets through.

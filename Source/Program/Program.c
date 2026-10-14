@@ -1699,6 +1699,80 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     return result;
 }
 
+// The command palette near the top of the window: the text typed over the commands it finds, with their hotkeys.
+function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->paletteOpen) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
+    Prog_CommandKind matches[Prog_CommandKind_Count];
+    u32 count = Prog_PaletteMatches(state, matches);
+    state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
+    const u32 shownMax = 12;
+    u32 first = state->paletteHighlight >= shownMax ? state->paletteHighlight - shownMax + 1 : 0;
+    u32 shown = Min(count - first, shownMax);
+    f32 pad = floorf(6.0f * m->scale + 0.5f), field = m->bar;
+    f32 width = floorf(MinF32(m->line * 40, view.x1 - view.x0 - 2 * m->inset));
+    f32 height = 2 * pad + field + (count ? pad + (f32)shown * m->row : 0);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf((view.x1 - view.x0 - width) * 0.5f), floorf(m->bar * 1.6f) });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+    UI_SetNextCornerRadius(floorf(10.0f * m->scale + 0.5f));
+    UI_SetNextBorderThickness(m->separator);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->separator });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->panel, 0);
+        UI_Parent(box) {
+            Prog__Icon(Icon_Search, m->iconSlot, field, theme->textDim, 0.5f, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(field));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                if (!state->palette.length) {
+                    // Placed as the edit's own text is.
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f) });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(S("Type a command"));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
+            }
+        }
+        if (count) Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        for (u32 i = first; i < first + shown; ++i) {
+            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Palette/%u", (u32)matches[i]));
+            b32 highlighted = i == state->paletteHighlight || UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+            UI_SetNextCornerRadius(m->radius * 2);
+            UI_SetNextColors((UI_Colors){ .background = theme->hover });
+            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (highlighted ? UI_Flag_DrawBackground : 0));
+            UI_Interaction interaction = UI_InteractionFromBlock(row);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
+            UI_Parent(row) {
+                Prog__Label(Prog_Commands[matches[i]].label, UI_Flex(), m->row, 0, theme->text, 0);
+                String hotkey = Prog_HotkeyText(&state->frameArena, matches[i]);
+                if (hotkey.length) Prog__Label(hotkey, UI_TextContent(), m->row, 0, theme->textDim, 1);
+            }
+        }
+    }
+}
+
 // Asks before a permanent delete, over a dimmed window that takes every click.
 function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
 {
@@ -2016,5 +2090,6 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         Prog__TabGhost(state, scale, m);
     }
     Prog__ContextMenu(state, m);
+    Prog__Palette(state, m);
     Prog__DeleteConfirmation(state, m);
 }
