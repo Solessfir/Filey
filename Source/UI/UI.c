@@ -398,10 +398,12 @@ function void UI__Arrange(UI_Block *block, R_Rect rect, R_Rect clip)
         }
     }
     block->contentSize = content;
-    block->scrollOffset.x = UI__Clamp(block->scrollOffset.x, 0, MaxF32(0, content.x - inner.x));
-    block->scrollOffset.y = UI__Clamp(block->scrollOffset.y, 0, MaxF32(0, content.y - inner.y));
-    block->scrollShown.x = UI__Clamp(UI_Approach(block->scrollShown.x, block->scrollOffset.x, 0.5f), 0, MaxF32(0, content.x - inner.x));
-    block->scrollShown.y = UI__Clamp(UI_Approach(block->scrollShown.y, block->scrollOffset.y, 0.5f), 0, MaxF32(0, content.y - inner.y));
+    // Both are clamped before easing, so that an offset past the end, as the breadcrumbs ask for every frame, settles instead of animating forever.
+    f32 maxX = MaxF32(0, content.x - inner.x), maxY = MaxF32(0, content.y - inner.y);
+    block->scrollOffset.x = UI__Clamp(block->scrollOffset.x, 0, maxX);
+    block->scrollOffset.y = UI__Clamp(block->scrollOffset.y, 0, maxY);
+    block->scrollShown.x = UI_Approach(UI__Clamp(block->scrollShown.x, 0, maxX), block->scrollOffset.x, 0.5f);
+    block->scrollShown.y = UI_Approach(UI__Clamp(block->scrollShown.y, 0, maxY), block->scrollOffset.y, 0.5f);
     f32 alignment = horizontal ? block->props.childrenAlignment.x : block->props.childrenAlignment.y;
     f32 cursor = MaxF32(0, mainSize - (horizontal ? content.x : content.y)) * UI__Clamp(alignment, 0, 1);
     if (FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable)) clip = block->clipRect;

@@ -167,7 +167,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
     loop->inFrame = true;
     ProfileScope("Frame") {
         ArenaClear(&state->frameArena);
-        b32 completed = false;
+        b32 completed = false, handled = false;
         ProfileScope("TakeCompletions") completed = Prog_TakeCompletions(state);
         PlatformWindowInfo window = PlatformWindowGetInfo();
         // The settings' scale multiplies the display's.
@@ -180,10 +180,12 @@ function void Prog__Frame(void *user, PlatformEventList events)
         ProfileScope("BuildUI") {
             UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
             Prog_HandleInput(state, events);
+            // Hotkey commands apply before the UI is built, so this frame already shows them.
+            handled = Prog_ProcessCommands(state);
             Prog_BuildUI(state, &loop->font, &loop->icons, scale);
         }
         ProfileScope("Layout") UI_EndFrame();
-        ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || completed || events.count != 0 || state->ui.animating;
+        ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;
         ProfileScope("Render") {
             if (loop->transparent != state->transparent) {
                 loop->transparent = state->transparent;

@@ -83,7 +83,8 @@ class App:
     def __init__(self, exe, args, env, w, h, x, y):
         e = dict(os.environ); e.update(env)
         self.frames = None
-        if exe == FILEY:
+        # COMPARE_GRAB takes Filey's frames off the screen too, so that both apps' timings are measured from the key press the same way.
+        if exe == FILEY and not os.environ.get('COMPARE_GRAB'):
             self.frames = os.path.join(OUT, 'frames'); shutil.rmtree(self.frames, ignore_errors=True); os.makedirs(self.frames)
             e['FILEY_CAPTURE_DIR'] = self.frames; e['FILEY_CAPTURE_SEQUENCE'] = '1'
         # Shown without being activated; the runs also lock the foreground, so the window being worked in keeps the keyboard.
@@ -222,12 +223,14 @@ def steps(app, text, side, name, tags):
             times = []
             before = {p for _, p in app.captured()} if app.frames else set()
             # Held while the frames are taken, for apps that ask whether it is down.
+            pressed = time.perf_counter()
             if op == 'keyframes': app.fake.keys[vk] = 1; app.post(0x100, vk, 1)
             if app.frames:
                 time.sleep(count * max(interval, 0.012))
                 fresh = [(t, p) for t, p in app.captured() if p not in before][:count]
                 images = [Image.open(p).convert('RGB') for _, p in fresh]
-                times = [(t - fresh[0][0]) // 1000 for t, _ in fresh]
+                # Filey's frame times and perf_counter read the same clock, so they count from the press.
+                times = [(t - int(pressed * 1e6)) // 1000 for t, _ in fresh]
             else:
                 start = time.perf_counter(); images = []
                 for _ in range(count):

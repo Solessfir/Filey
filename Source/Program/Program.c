@@ -3372,18 +3372,19 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 if (previewWidth > 0) Prog__PreviewPane(state, previewWidth, m);
             }
             // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more
-            // slowly, as the reference's; the dimming of inactive panels fades with it.
+            // slowly, as the reference's; the one that stops being it fades to dim, while the new one brightens at once.
             Prog_Panel *own = &state->panels[index];
-            if (own->wasActive != active) {
+            if (!own->drawn || own->wasActive != active) {
+                // A panel's first frame shows it settled, so the window does not open with a slide.
+                if (own->drawn) own->focusMicroseconds = UI->nowMicroseconds;
                 own->wasActive = (b8)active;
-                own->focusMicroseconds = UI->nowMicroseconds;
+                own->drawn = true;
             }
             f32 shown = active ? 1 : 0, dimmed = active ? 0 : 1;
             if (own->focusMicroseconds && UI->animate) {
                 f32 since = (f32)(UI->nowMicroseconds - Min(own->focusMicroseconds, UI->nowMicroseconds));
                 shown = active ? 1 - expf(-since / 60000.0f) : expf(-since / 28000.0f);
-                f32 faded = 1 - expf(-since / 25000.0f);
-                dimmed = active ? 1 - faded : faded;
+                if (!active) dimmed = 1 - expf(-since / 25000.0f);
                 if (since < 400000) UI_KeepAnimating();
                 else own->focusMicroseconds = 0;
             }
