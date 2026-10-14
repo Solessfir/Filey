@@ -403,8 +403,10 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
-function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, const P_CancelToken *cancel)
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, const P_CancelToken *cancel)
 {
+    // The shell's own windows show the progress and ask about taken names.
+    (void)progress;
     if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
     Scratch scratch = GetScratchEx(arena);
     String *kept = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);

@@ -338,7 +338,7 @@ function void *P__DropThread(void *user)
 {
     P__DropTransfer *transfer = user;
     P_CancelToken token = {0};
-    P_FileError error = P_TransferItems(&transfer->arena, transfer->paths, transfer->count, transfer->directory, transfer->move, &token);
+    P_FileError error = P_TransferItems(&transfer->arena, transfer->paths, transfer->count, transfer->directory, transfer->move, NULL, &token);
     // ponytail: drop errors only reach stderr; report them in the status bar through the program if drops fail in practice.
     if (error.code) fprintf(stderr, "Filey: dropping into %.*s failed: %.*s\n", (i32)transfer->directory.length, transfer->directory.value, (i32)error.message.length, error.message.value);
     Arena arena = transfer->arena;
@@ -609,7 +609,7 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
 // Copies `name` in `sourceDir` to `targetName` in `targetDir`.
 // Folders are copied with everything in them and links as links; sockets, pipes and devices are skipped.
 // Returns EEXIST without touching anything when `targetName` is taken; `created` tells whether the target was made, so that a failed copy can be removed without touching anything else.
-function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const char *targetName, b32 *created, const P_CancelToken *cancel)
+function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const char *targetName, b32 *created, P_Progress *progress, const P_CancelToken *cancel)
 {
     *created = false;
     if (P_IsCancelled(cancel)) return ECANCELED;
@@ -640,7 +640,7 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
             const char *child = entry->d_name;
             if (child[0] == '.' && (!child[1] || (child[1] == '.' && !child[2]))) continue;
             b32 childCreated = false;
-            error = P__CopyAt(dirfd(stream), child, to, child, &childCreated, cancel);
+            error = P__CopyAt(dirfd(stream), child, to, child, &childCreated, progress, cancel);
         }
         if (to >= 0) {
             fchmod(to, info.st_mode & 07777);
@@ -671,6 +671,7 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
         if (count < 0 && kernelCopy && (errno == EXDEV || errno == ENOSYS || errno == EINVAL || errno == EOPNOTSUPP)) { kernelCopy = false; continue; }
         if (count < 0) { error = (u32)errno; break; }
         if (count == 0) break;
+        atomic_fetch_add(&progress->doneBytes, (u64)count);
         for (ssize_t at = 0; !kernelCopy && at < count;) {
             ssize_t written = write(out, buffer + at, (size_t)(count - at));
             if (written < 0 && errno == EINTR) continue;
@@ -684,6 +685,45 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
     if (close(out) != 0 && !error) error = (u32)errno;
     close(in);
     return error;
+}
+
+// The bytes of the regular files at `name` in `directory`, everything in it included; links are not followed.
+function u64 P__SizeAt(i32 directory, const char *name, const P_CancelToken *cancel)
+{
+    struct stat info;
+    if (P_IsCancelled(cancel) || fstatat(directory, name, &info, AT_SYMLINK_NOFOLLOW) != 0) return 0;
+    if (S_ISREG(info.st_mode)) return (u64)info.st_size;
+    if (!S_ISDIR(info.st_mode)) return 0;
+    i32 fd = openat(directory, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    DIR *stream = fd >= 0 ? fdopendir(fd) : NULL;
+    if (!stream) {
+        if (fd >= 0) close(fd);
+        return 0;
+    }
+    u64 result = 0;
+    for (struct dirent *entry; (entry = readdir(stream));) {
+        const char *child = entry->d_name;
+        if (child[0] == '.' && (!child[1] || (child[1] == '.' && !child[2]))) continue;
+        result += P__SizeAt(dirfd(stream), child, cancel);
+    }
+    closedir(stream);
+    return result;
+}
+
+// What to do with `name`, already taken in the target folder: the policy, or else the program's answer, which the job waits for.
+function P_Conflict P__AskConflict(P_Progress *progress, String name, b32 folder, const P_CancelToken *cancel)
+{
+    P_Conflict policy = (P_Conflict)atomic_load(&progress->policy);
+    if (policy != P_Conflict_Ask) return policy;
+    u64 length = Min(name.length, (u64)sizeof(progress->conflictName) - 1);
+    MemCopy(progress->conflictName, name.value, length);
+    progress->conflictName[length] = 0;
+    progress->conflictFolder = folder;
+    atomic_store(&progress->asking, true);
+    struct timespec pause = { 0, 10 * 1000 * 1000 };
+    while (atomic_load(&progress->asking) && !P_IsCancelled(cancel)) nanosleep(&pause, NULL);
+    atomic_store(&progress->asking, false);
+    return P_IsCancelled(cancel) ? P_Conflict_Skip : (P_Conflict)atomic_load(&progress->answer);
 }
 
 // Removes `name` in `directory` with everything in it; links are removed, never followed.
@@ -718,13 +758,26 @@ function void P__SplitPath(String path, String *parent, String *leaf)
     *leaf = slash.exists ? StrFrom(path, slash.value + 1) : path;
 }
 
-function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, const P_CancelToken *cancel)
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, const P_CancelToken *cancel)
 {
+    P_Progress numbered = { .policy = P_Conflict_KeepBoth };
+    if (!progress) progress = &numbered;
     Scratch scratch = GetScratchEx(arena);
     char *targetPath = P__FilePathCString(scratch.arena, directory);
     char realTarget[PATH_MAX];
     i32 targetDir = targetPath ? open(targetPath, O_RDONLY | O_DIRECTORY | O_CLOEXEC) : -1;
     u32 error = targetDir < 0 || !realpath(targetPath, realTarget) ? (u32)errno : 0;
+    struct stat targetInfo;
+    if (!error && fstat(targetDir, &targetInfo) != 0) error = (u32)errno;
+    // Bytes count for what is copied: everything for a copy, and what a move takes to another file system.
+    atomic_store(&progress->totalItems, count);
+    for (u64 i = 0; i < count && !error; ++i) {
+        struct stat info;
+        char *sourcePath = P__FilePathCString(scratch.arena, paths[i]);
+        if (sourcePath && lstat(sourcePath, &info) == 0 && (!move || info.st_dev != targetInfo.st_dev)) {
+            atomic_fetch_add(&progress->totalBytes, P__SizeAt(AT_FDCWD, sourcePath, cancel));
+        }
+    }
     for (u64 i = 0; i < count && !error; ++i) {
         if (P_IsCancelled(cancel)) { error = ECANCELED; break; }
         String parent, leaf;
@@ -754,10 +807,31 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         b32 sameFolder = strcmp(realParent, realTarget) == 0;
         if (move && sameFolder) {
             close(sourceDir);
+            atomic_fetch_add(&progress->doneItems, 1);
             continue;
         }
+        // A taken name asks what to do, except where the item is copied next to itself, which keeps both.
+        P_Conflict conflict = P_Conflict_KeepBoth;
+        struct stat existing;
+        if (!sameFolder && fstatat(targetDir, leafName, &existing, AT_SYMLINK_NOFOLLOW) == 0) {
+            conflict = P__AskConflict(progress, leaf, S_ISDIR(existing.st_mode), cancel);
+            if (P_IsCancelled(cancel)) { error = ECANCELED; close(sourceDir); break; }
+            if (conflict == P_Conflict_Replace && (S_ISDIR(existing.st_mode) || S_ISDIR(info.st_mode))) conflict = P_Conflict_KeepBoth;
+        }
+        if (conflict == P_Conflict_Skip) {
+            close(sourceDir);
+            atomic_fetch_add(&progress->doneItems, 1);
+            continue;
+        }
+        // A replacing move on one file system swaps the file in at once.
+        if (conflict == P_Conflict_Replace && move && renameat(sourceDir, leafName, targetDir, leafName) == 0) {
+            close(sourceDir);
+            atomic_fetch_add(&progress->doneItems, 1);
+            continue;
+        }
+        // Otherwise the item arrives under a free name, which a replacing copy then moves over the old file once it is complete.
         error = EEXIST;
-        for (u32 n = 1; n < 10000 && error == EEXIST; ++n) {
+        for (u32 n = conflict == P_Conflict_Replace ? 2 : 1; n < 10000 && error == EEXIST; ++n) {
             char *name = P__NumberedName(scratch.arena, leaf, S_ISDIR(info.st_mode), n);
             if (move) {
                 error = renameat2(sourceDir, leafName, targetDir, name, RENAME_NOREPLACE) == 0 ? 0 : (u32)errno;
@@ -770,11 +844,13 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
             }
             // Copies, and moves across file systems: the source goes only once its copy is complete.
             b32 created = false;
-            error = P__CopyAt(sourceDir, leafName, targetDir, name, &created, cancel);
+            error = P__CopyAt(sourceDir, leafName, targetDir, name, &created, progress, cancel);
             if (error && created) P__RemoveAt(targetDir, name);
+            if (!error && conflict == P_Conflict_Replace && renameat(targetDir, name, targetDir, leafName) != 0) error = (u32)errno;
             if (!error && move) error = P__RemoveAt(sourceDir, leafName);
         }
         close(sourceDir);
+        atomic_fetch_add(&progress->doneItems, 1);
     }
     if (targetDir >= 0) close(targetDir);
     ReleaseScratch(scratch);

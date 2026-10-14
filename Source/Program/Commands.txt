@@ -484,6 +484,17 @@ command WindowToggleMaximize {
 command WindowClose {
 }
 
+// Answers transfer row's question about a taken name with the P_Conflict in target.
+command TransferAnswer {
+}
+
+// Toggles whether transfer row's next answer is for the rest of its taken names too.
+command TransferAnswerAll {
+}
+
+command TransferCancel {
+}
+
 command CommandPalette {
     label   = "Command Palette^commands,actions,search,run"
     tooltip = "Find and run any command by name."

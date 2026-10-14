@@ -167,11 +167,25 @@ typedef struct Prog_JobInput {
     u64 pathCount;
     b32 move;
     b32 folder;
+    P_Progress *progress;  // Transfer: its slot's, or NULL without one
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
     i32 iconSize;
 } Prog_JobInput;
+
+// A copy or move on its way, shown with its progress; the job writes `progress` in place, so the slot stays put until the job is taken back.
+typedef struct Prog_Transfer {
+    P_Job *job;          // NULL for a free slot
+    P_Progress progress;
+    b32 move;
+    b32 answerAll;       // the next answer about a taken name answers the rest too
+    u64 started;         // quick ones finish before they would show
+    u8 target[256];      // the target folder's name
+    u32 targetLength;
+} Prog_Transfer;
+
+#define Prog_MaxTransfers 4
 
 typedef struct Prog_Created {
     P_FileError error;
@@ -398,6 +412,7 @@ typedef struct Prog_State {
     b32 paletteOpen;
     Prog_TextEdit palette;
     u32 paletteHighlight;
+    Prog_Transfer transfers[Prog_MaxTransfers];
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
     Arena confirmArena;

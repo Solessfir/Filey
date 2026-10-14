@@ -100,11 +100,32 @@ function P_FileError P_RenamePath(Arena *arena, String directory, String from, S
 //
 // Creates an empty folder or file called `name` inside `directory`, numbering the name when it is taken ("New folder (2)"), and returns the name used in `created`.
 function P_FileError P_CreateItem(Arena *arena, String directory, String name, b32 folder, String *created);
+// What a copy or move does with a name already taken in the target folder.
+typedef enum P_Conflict {
+    P_Conflict_Ask,       // waits for the program's answer through P_Progress
+    P_Conflict_KeepBoth,  // numbers the new item's name
+    P_Conflict_Replace,   // the new file takes the name once it is complete; a folder is never replaced, so both are kept
+    P_Conflict_Skip,
+    P_Conflict_Count,
+} P_Conflict;
+
+// A long file operation's progress, which its job writes and the main thread reads, and the questions the main thread answers.
+// While `asking` is set the job waits on the main thread, which stores a P_Conflict in `answer` (and in `policy` too to answer for the rest) and then clears `asking`.
+typedef struct P_Progress {
+    atomic_uint_fast64_t totalBytes, doneBytes, totalItems, doneItems;
+    atomic_bool asking;
+    atomic_uint answer;
+    atomic_uint policy;       // a P_Conflict, set before the operation starts
+    b32 conflictFolder;       // what is asked about: the existing item `conflictName` in the target folder
+    char conflictName[256];
+} P_Progress;
+
 // Copies or moves the items at `paths` into `directory`.
-// Existing items are never replaced: a taken name gets a number on Linux and the shell's "- Copy" name on Windows.
+// `progress`, when not NULL, is kept current and says what taken names do; without it a taken name gets a number.
+// Windows asks with its own conflict and progress windows instead, and the shell's "- Copy" names replace numbers.
 // A folder is never put inside itself, and moving an item into the folder it is in does nothing.
-// Linux moves across file systems by copying and removes the source only once its copy is complete; Windows shows its own progress window for long operations.
-function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, const P_CancelToken *cancel);
+// Linux moves across file systems by copying and removes the source only once its copy is complete.
+function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, const P_CancelToken *cancel);
 // Moves the items at `paths` to the Trash, or the Recycle Bin on Windows, which asks before deleting anything it cannot keep.
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);
 // Deletes the items at `paths` for good, folders with everything in them, without asking; the program confirms first.

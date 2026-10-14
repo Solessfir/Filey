@@ -1773,6 +1773,100 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// Copies and moves that take a while, in cards at the bottom right: what goes where, how far it is, and a question when a name is taken.
+function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    u64 now = PlatformNowMicroseconds();
+    f32 width = floorf(MinF32(m->line * 26, view.x1 - view.x0 - 2 * m->inset)), pad = m->inset * 0.75f;
+    f32 bottom = view.y1 - view.y0 - m->pill - m->inset;
+    for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
+        Prog_Transfer *transfer = &state->transfers[i];
+        P_Progress *progress = &transfer->progress;
+        b32 asking = transfer->job && atomic_load(&progress->asking);
+        u64 items = atomic_load(&progress->totalItems), doneItems = atomic_load(&progress->doneItems);
+        u64 bytes = atomic_load(&progress->totalBytes), doneBytes = atomic_load(&progress->doneBytes);
+        // Windows shows its own progress, so its transfers leave the counts at zero and never show here.
+        if (!transfer->job || !items || (!asking && now - transfer->started < UINT64_C(400000))) continue;
+        String target = StrMake((const char *)transfer->target, transfer->targetLength);
+        f32 height = 2 * pad + m->row * (asking ? 3 : 2) + (asking ? m->bar : 0);
+        bottom -= height + m->gap;
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - width - m->inset, floorf(bottom) });
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = asking ? theme->accent : theme->separator });
+        UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Transfer/%u", i)),
+                                            UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+        UI_Parent(card) {
+            UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+            UI_Parent(head) {
+                String title = StrFormat(&state->frameArena, "%s %" PRIu64 " item%s to %S", transfer->move ? "Moving" : "Copying", items, items == 1 ? "" : "s", target);
+                Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
+                UI_Interaction cancel = Prog__TextButton(StrFormat(&state->frameArena, "TransferCancel/%u", i), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                                         theme->icon, theme->text, theme->iconDisabled, true, m);
+                if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, i, 0, cancel.clickOrder);
+            }
+            if (asking) {
+                String name = StrFromCStr(progress->conflictName);
+                Prog__Label(StrFormat(&state->frameArena, "\"%S\" is already in %S", name, target), UI_Flex(), m->row, 0, theme->textHeading, 0);
+                UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Parent(buttons) {
+                    struct { String label; P_Conflict answer; b32 shown; } choices[] = {
+                        { S("Replace"), P_Conflict_Replace, !progress->conflictFolder },
+                        { S("Keep Both"), P_Conflict_KeepBoth, true },
+                        { S("Skip"), P_Conflict_Skip, true },
+                    };
+                    for (u32 c = 0; c < CArrayCount(choices); ++c) {
+                        if (!choices[c].shown) continue;
+                        UI_Interaction choice = Prog__TextButton(StrFormat(&state->frameArena, "TransferAnswer/%u/%u", i, c), choices[c].label, NULL, UI_TextContent(), m->bar * 0.8f, m->inset * 0.75f,
+                                                                 c == 0 ? theme->danger : theme->text, theme->textHeading, theme->textDim, true, m);
+                        if (choice.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferAnswer, i, 0, choice.clickOrder)->target = (u64)choices[c].answer;
+                        Prog__Spacer(UI_Pixels(m->gap * 0.5f), UI_Pixels(m->bar));
+                    }
+                    Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
+                    UI_Interaction all = Prog__TextButton(StrFormat(&state->frameArena, "TransferAll/%u", i), transfer->answerAll ? S("For all: on") : S("For all: off"), NULL, UI_TextContent(),
+                                                          m->bar * 0.8f, m->inset * 0.75f, transfer->answerAll ? theme->textMatch : theme->textDim, theme->text, theme->textDim, true, m);
+                    if (all.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferAnswerAll, i, 0, all.clickOrder);
+                }
+            }
+            // Bytes where there are any to copy; a move within one file system only counts its items.
+            f32 done = bytes ? (f32)((f64)doneBytes / (f64)bytes) : (f32)((f64)doneItems / (f64)items);
+            String amount = bytes ? StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
+                                  : StrFormat(&state->frameArena, "%" PRIu64 " of %" PRIu64, Min(doneItems, items), items);
+            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+            UI_Parent(line) {
+                f32 barWidth = floorf(width * 0.55f), barHeight = MaxF32(3, floorf(4 * m->scale));
+                UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                UI_SetNextPrefHeight(UI_Pixels(m->row));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *slot = UI_AddBlock(0);
+                UI_Parent(slot) {
+                    UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                    UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                    UI_SetNextCornerRadius(barHeight * 0.5f);
+                    UI_SetNextColors((UI_Colors){ .background = theme->track });
+                    UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
+                    UI_Parent(track) {
+                        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                        UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * UI__Clamp(done, 0, 1))));
+                        UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                        UI_SetNextCornerRadius(barHeight * 0.5f);
+                        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                }
+                Prog__Label(amount, UI_Flex(), m->row, m->gap, theme->textDim, 1);
+            }
+        }
+    }
+}
+
 // Asks before a permanent delete, over a dimmed window that takes every click.
 function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
 {
@@ -2089,6 +2183,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         if (!UI__Contains(view, UI->mouse)) state->tabDrop.kind = Prog_TabDrop_Window;
         Prog__TabGhost(state, scale, m);
     }
+    Prog__Transfers(state, m);
     Prog__ContextMenu(state, m);
     Prog__Palette(state, m);
     Prog__DeleteConfirmation(state, m);

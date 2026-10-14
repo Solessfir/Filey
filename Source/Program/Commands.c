@@ -575,6 +575,17 @@ function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *
     input->move = kind == Prog_JobKind_Transfer && flag;
     input->folder = kind == Prog_JobKind_Create && flag;
     input->name = StrCopy(&job->arena, name);
+    // A copy or move takes a free slot for its progress and questions; without one, taken names get numbers.
+    for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers; ++i) {
+        Prog_Transfer *transfer = &state->transfers[i];
+        if (transfer->job) continue;
+        String target = Prog_EntryLeaf(directory);
+        *transfer = (Prog_Transfer){ .job = job, .move = input->move, .started = PlatformNowMicroseconds(), .targetLength = (u32)Min(target.length, sizeof(transfer->target)) };
+        MemCopy(transfer->target, target.value, transfer->targetLength);
+        atomic_store(&transfer->progress.policy, P_Conflict_Ask);
+        input->progress = &transfer->progress;
+        break;
+    }
     job->input = input;
     P_JobSubmit(job);
 }
@@ -904,6 +915,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_TransferAnswer: {
+                Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
+                if (!transfer || !transfer->job || !atomic_load(&transfer->progress.asking) || command->target >= P_Conflict_Count) break;
+                atomic_store(&transfer->progress.answer, (u32)command->target);
+                if (transfer->answerAll) atomic_store(&transfer->progress.policy, (u32)command->target);
+                atomic_store(&transfer->progress.asking, false);
+            } break;
+            case Prog_CommandKind_TransferAnswerAll: {
+                if (command->row < Prog_MaxTransfers) state->transfers[command->row].answerAll = !state->transfers[command->row].answerAll;
+            } break;
+            case Prog_CommandKind_TransferCancel: {
+                Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
+                if (transfer && transfer->job) P_RequestCancel(&transfer->job->cancelToken);
+            } break;
             case Prog_CommandKind_CommandPalette: {
                 Prog_CloseMenu(state);
                 state->paletteOpen = !state->paletteOpen;
@@ -1032,7 +1057,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     P_SetDropTakesFolders(state->bookmarkDrop != 0);
     Prog_SubmitIconRequests(state);
     // The header spinner turns while folders are being measured.
-    return changed || Prog__AnyMeasuring(state);
+    // Transfers redraw while they run, for their progress and questions.
+    b32 transferring = false;
+    for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;
+    return changed || transferring || Prog__AnyMeasuring(state);
 }
 
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)

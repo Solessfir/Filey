@@ -964,28 +964,39 @@ function void TestFileOperations(TestFileFixture *fixture)
     // Copies never replace what is there, and folders copy with their contents.
     String plain = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));
     String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));
-    Check(!P_TransferItems(&arena, &plain, 1, ops, false, &token).code);
-    Check(!P_TransferItems(&arena, &plain, 1, ops, false, &token).code);
+    Check(!P_TransferItems(&arena, &plain, 1, ops, false, NULL, &token).code);
+    Check(!P_TransferItems(&arena, &plain, 1, ops, false, NULL, &token).code);
     Check(TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")) && TestHasFile(&arena, fixture, S(""), S("plain.txt")));
     Check(TestListing(&arena, fixture, S("Ops")).header.count == 6);
-    Check(!P_TransferItems(&arena, &folder, 1, ops, false, &token).code);
+#if defined(__linux__)
+    // A taken name can also be skipped, or replaced by the new file once it is complete; the progress counts the work.
+    {
+        P_Progress progress = { .policy = P_Conflict_Skip };
+        Check(!P_TransferItems(&arena, &plain, 1, ops, false, &progress, &token).code && TestListing(&arena, fixture, S("Ops")).header.count == 6);
+        Check(atomic_load(&progress.doneItems) == 1 && atomic_load(&progress.totalItems) == 1 && atomic_load(&progress.doneBytes) == 0);
+        progress = (P_Progress){ .policy = P_Conflict_Replace };
+        Check(!P_TransferItems(&arena, &plain, 1, ops, false, &progress, &token).code && TestListing(&arena, fixture, S("Ops")).header.count == 6);
+        Check(atomic_load(&progress.doneItems) == 1 && atomic_load(&progress.doneBytes) == atomic_load(&progress.totalBytes));
+    }
+#endif
+    Check(!P_TransferItems(&arena, &folder, 1, ops, false, NULL, &token).code);
     Check(TestHasFile(&arena, fixture, S("Ops/Folder2"), S("inside.txt")) && TestHasFile(&arena, fixture, S("Folder2"), S("inside.txt")));
 
     // A folder never goes inside itself.
     String copy = Prog_JoinPath(&arena, ops, S("Folder2"));
-    Check(P_TransferItems(&arena, &copy, 1, copy, false, &token).code);
-    Check(P_TransferItems(&arena, &copy, 1, Prog_JoinPath(&arena, copy, S("deeper")), true, &token).code);
+    Check(P_TransferItems(&arena, &copy, 1, copy, false, NULL, &token).code);
+    Check(P_TransferItems(&arena, &copy, 1, Prog_JoinPath(&arena, copy, S("deeper")), true, NULL, &token).code);
     Check(TestListing(&arena, fixture, S("Ops/Folder2")).header.count == 1);
 
     // Moves take the item out of its folder; a move into its own folder does nothing.
     String moving = Prog_JoinPath(&arena, ops, S("plain.txt"));
     String target = Prog_JoinPath(&arena, ops, S("New folder"));
-    Check(!P_TransferItems(&arena, &moving, 1, ops, true, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")));
-    Check(!P_TransferItems(&arena, &moving, 1, target, true, &token).code);
+    Check(!P_TransferItems(&arena, &moving, 1, ops, true, NULL, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")));
+    Check(!P_TransferItems(&arena, &moving, 1, target, true, NULL, &token).code);
     Check(TestHasFile(&arena, fixture, S("Ops/New folder"), S("plain.txt")) && !TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")));
     String cancelled = Prog_JoinPath(&arena, ops, S("New file.txt"));
     P_RequestCancel(&token);
-    Check(P_TransferItems(&arena, &cancelled, 1, target, false, &token).code && !TestHasFile(&arena, fixture, S("Ops/New folder"), S("New file.txt")));
+    Check(P_TransferItems(&arena, &cancelled, 1, target, false, NULL, &token).code && !TestHasFile(&arena, fixture, S("Ops/New folder"), S("New file.txt")));
     token = (P_CancelToken){0};
 
 #if defined(__linux__)
@@ -1015,7 +1026,7 @@ function void TestFileOperations(TestFileFixture *fixture)
 
     // Links copy as links.
     String link = Prog_JoinPath(&arena, fixture->path, S("broken-link"));
-    Check(!P_TransferItems(&arena, &link, 1, ops, false, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("broken-link")));
+    Check(!P_TransferItems(&arena, &link, 1, ops, false, NULL, &token).code && TestHasFile(&arena, fixture, S("Ops"), S("broken-link")));
 #endif
 
     TestRemoveTree(&arena, fixture, S("Ops"));

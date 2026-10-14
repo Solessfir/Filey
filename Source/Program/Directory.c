@@ -312,7 +312,7 @@ function void Prog__DirectoryJob(P_Job *job)
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         if (P_IsCancelled(&job->cancelToken)) {
         } else if (input->kind == Prog_JobKind_Transfer) {
-            ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, &job->cancelToken);
+            ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, input->progress, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_Delete) {
             ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, &job->cancelToken);
         } else {
@@ -1130,6 +1130,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
         } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_Create) {
             changed = true;
+            for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
+                if (state->transfers[i].job == job) state->transfers[i].job = NULL;
+            }
             P_FileError error = input->kind == Prog_JobKind_Create ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
             String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->move ? S("Move") : S("Copy");
