@@ -208,6 +208,9 @@ typedef struct P__Drop {
     String bound;         // the folder `shell` belongs to
     b32 entered;          // `bound` was chosen during this drag
     b32 dragging;         // a drag started by P_DragFiles is running
+    b32 takesFolders;     // drops are kept for the program instead of going to `wanted`
+    Arena droppedArena;
+    ArrayStr dropped;     // folders dropped while `takesFolders` was on, until the program takes them
 } P__Drop;
 
 global P__Drop P__drop;
@@ -217,6 +220,48 @@ function void P_SetDropDirectory(String path)
     if (StrIsEqual(path, P__drop.wanted)) return;
     ArenaClear(&P__drop.wantedArena);
     P__drop.wanted = StrCopy(&P__drop.wantedArena, path);
+}
+
+function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
+
+function b32 P_DropPending(void) { return P__drop.data != NULL; }
+
+function ArrayStr P_TakeDroppedFolders(Arena *arena)
+{
+    ArrayStr result = {0};
+    for (u64 i = 0; i < P__drop.dropped.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.dropped.v[i]));
+    P__drop.dropped = (ArrayStr){0};
+    ArenaClear(&P__drop.droppedArena);
+    return result;
+}
+
+// The folders among the files `data` carries, with forward slashes.
+function void P__DropKeepFolders(IDataObject *data)
+{
+    FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM medium = {0};
+    if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) return;
+    HDROP drop = (HDROP)medium.hGlobal;
+    u32 count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
+    for (u32 i = 0; i < count; ++i) {
+        wchar path[1024];
+        u32 length = DragQueryFileW(drop, i, path, (u32)CArrayCount(path));
+        if (!length || length >= CArrayCount(path)) continue;
+        DWORD attributes = GetFileAttributesW(path);
+        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        String folder = P__FileStringWide(&P__drop.droppedArena, path, (i32)length);
+        for (u64 at = 0; at < folder.length; ++at) {
+            if (folder.value[at] == '\\') ((char *)folder.value)[at] = '/';
+        }
+        ArrayPush(&P__drop.droppedArena, P__drop.dropped, folder);
+    }
+    ReleaseStgMedium(&medium);
+}
+
+function b32 P__DropHasFiles(IDataObject *data)
+{
+    FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    return SUCCEEDED(data->lpVtbl->QueryGetData(data, &format));
 }
 
 function void P__DropLeaveShell(void)
@@ -249,6 +294,13 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
     DWORD allowed = *effect;
     *effect = DROPEFFECT_NONE;
     if (!P__drop.data) return;
+    // Pinning only links to the folders, so the cursor says link where the source allows it.
+    if (P__drop.takesFolders) {
+        P__DropLeaveShell();
+        P__drop.entered = false;
+        if (P__DropHasFiles(P__drop.data)) *effect = (allowed & DROPEFFECT_LINK) ? DROPEFFECT_LINK : allowed & DROPEFFECT_COPY;
+        return;
+    }
     if (!P__drop.entered || !StrIsEqual(P__drop.bound, P__drop.wanted)) {
         P__DropLeaveShell();
         ArenaClear(&P__drop.boundArena);
@@ -275,7 +327,10 @@ function b32 P__DropDrop(DWORD keys, POINTL point, DWORD *effect)
 {
     P__DropOver(keys, point, effect);
     b32 result = false;
-    if (P__drop.shell && *effect != DROPEFFECT_NONE) {
+    if (P__drop.takesFolders && *effect != DROPEFFECT_NONE) {
+        P__DropKeepFolders(P__drop.data);
+        result = true;
+    } else if (P__drop.shell && *effect != DROPEFFECT_NONE) {
         result = SUCCEEDED(P__drop.shell->lpVtbl->Drop(P__drop.shell, P__drop.data, keys, point, effect));
         // Drop ends the shell target's drag; it must not also get DragLeave.
         P__drop.shell->lpVtbl->Release(P__drop.shell);

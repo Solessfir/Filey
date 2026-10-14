@@ -513,10 +513,12 @@ function void LinuxDragPointer(wl_fixed_t x, wl_fixed_t y)
 function void LinuxAcceptDrag(void)
 {
     if (!Wl.dragOffer) return;
-    wl_data_offer_accept(Wl.dragOffer, Wl.dragSerial, Wl.dragFiles && P__drop.length ? Wl.dragFiles : NULL);
+    // Pinning folders takes their paths only, so it asks for a copy, which leaves the source alone.
+    b32 welcome = Wl.dragFiles && (P__drop.length || P__drop.takesFolders);
+    wl_data_offer_accept(Wl.dragOffer, Wl.dragSerial, welcome ? Wl.dragFiles : NULL);
     if (wl_data_offer_get_version(Wl.dragOffer) >= 3) {
-        u32 actions = Wl.dragFiles && P__drop.length ? WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : 0;
-        u32 preferred = !actions ? 0 : Wl.dragSource ? WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
+        u32 actions = !welcome ? 0 : P__drop.takesFolders ? WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
+        u32 preferred = !actions ? 0 : Wl.dragSource && !P__drop.takesFolders ? WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE : WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY;
         wl_data_offer_set_actions(Wl.dragOffer, actions, preferred);
     }
 }
@@ -525,6 +527,7 @@ function void DataDeviceEnter(void *data, struct wl_data_device *device, u32 ser
 {
     if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
     Wl.dragOffer = offer;
+    P__drop.pending = offer != NULL;
     Wl.dragSerial = serial;
     Wl.dragAction = 0;
     Wl.dragFiles = offer && offer == Wl.newOffer ? (Wl.newOfferUris ? "text/uri-list" : Wl.newOfferFiles) : NULL;
@@ -536,6 +539,7 @@ function void DataDeviceLeave(void *data, struct wl_data_device *device)
 {
     if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
     Wl.dragOffer = NULL;
+    P__drop.pending = false;
     Wl.dragFiles = NULL;
 }
 
@@ -551,7 +555,16 @@ function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const ch
 
 function void DataDeviceDrop(void *data, struct wl_data_device *device)
 {
-    if (Wl.dragOffer && Wl.dragFiles && P__drop.length) {
+    if (Wl.dragOffer && Wl.dragFiles && P__drop.takesFolders) {
+        Scratch scratch = GetScratch();
+        String list = Wl.dragSource ? Wl.dragList : LinuxReceive(scratch.arena, Wl.dragOffer, Wl.dragFiles);
+        ArrayStr paths = {0};
+        b32 cut = false;
+        P__ParseFileList(scratch.arena, list, strcmp(Wl.dragFiles, LinuxFileMimes[0]) == 0, &paths, &cut);
+        P__KeepDroppedFolders(&paths);
+        if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
+        ReleaseScratch(scratch);
+    } else if (Wl.dragOffer && Wl.dragFiles && P__drop.length) {
         Scratch scratch = GetScratch();
         String folder = StrMake(P__drop.path, P__drop.length);
         b32 own = Wl.dragSource != NULL;

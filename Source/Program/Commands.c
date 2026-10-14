@@ -835,6 +835,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         }
     }
     P_SetDropDirectory(drop);
+    // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
+    ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
+    if (pinned.header.count) {
+        Prog_PinBookmarks(state, &pinned, state->bookmarkDrop ? state->bookmarkDrop - 1 : state->bookmarks.header.count);
+        changed = true;
+    }
+    state->bookmarkDrop = state->bookmarkDropShown;
+    P_SetDropTakesFolders(state->bookmarkDrop != 0);
     Prog_SubmitIconRequests(state);
     // The header spinner turns while folders are being measured.
     return changed || state->measureJob != NULL;

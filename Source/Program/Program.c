@@ -1421,11 +1421,32 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             }
         }
         Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
+        // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
+        R_Rect title = sidebar->last->rect, zone = title;
+        u64 count = state->bookmarks.header.count, before = count;
+        f32 lineY = title.y1;
         if (Prog_GroupOpen(state, Prog_Group_Bookmarks)) {
-            for (u64 i = 0; i < state->bookmarks.header.count; ++i) {
+            for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
                 Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog__FolderName(path), path, NULL, m);
+                R_Rect row = sidebar->last->rect;
+                zone.y1 = row.y1;
+                if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
+                    before = i;
+                    lineY = row.y0;
+                } else if (before == count) {
+                    lineY = row.y1;
+                }
             }
+        }
+        if (P_DropPending() && UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1) {
+            state->bookmarkDropShown = before + 1;
+            f32 thickness = MaxF32(2, floorf(2 * m->scale));
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf(lineY - thickness * 0.5f) - sidebar->rect.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - 2 * floorf(m->gap * 0.75f)));
+            UI_SetNextPrefHeight(UI_Pixels(thickness));
+            UI_SetNextColors((UI_Colors){ .background = theme->accent });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
         Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
         if (Prog_GroupOpen(state, Prog_Group_Storage)) {
@@ -1620,6 +1641,7 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->hasHoverRow = false;
+    state->bookmarkDropShown = 0;
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);

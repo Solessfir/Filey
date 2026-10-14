@@ -369,6 +369,10 @@ typedef struct Prog_State {
     String configDirectory;
     Arena bookmarkArena;
     ArrayStr bookmarks;
+    // Where a drag over the bookmarks would pin its folders: one more than the position, or 0 when it is elsewhere.
+    // The build shows it; the drop, which arrives before the next build, uses the one committed after the last.
+    u64 bookmarkDropShown;
+    u64 bookmarkDrop;
     Arena recentArena;
     ArrayStr recents;
     // See-through window with the glass theme; the app applies it to the window.
@@ -414,6 +418,7 @@ function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
 function void Prog_LoadSettings(Prog_State *state, String configDirectory);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
+function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);

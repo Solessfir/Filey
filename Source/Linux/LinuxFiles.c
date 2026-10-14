@@ -251,7 +251,35 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
 }
 
 // Where dropped files go; the window's drop handler reads it.
-global struct { char path[PATH_MAX]; u64 length; } P__drop;
+// While `takesFolders` is on, drops are kept in `dropped` for the program instead. The window sets `pending` while a drag is over it.
+global struct { char path[PATH_MAX]; u64 length; b32 takesFolders; b32 pending; Arena droppedArena; ArrayStr dropped; } P__drop;
+
+function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
+
+function b32 P_DropPending(void) { return P__drop.pending; }
+
+function ArrayStr P_TakeDroppedFolders(Arena *arena)
+{
+    ArrayStr result = {0};
+    for (u64 i = 0; i < P__drop.dropped.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.dropped.v[i]));
+    P__drop.dropped = (ArrayStr){0};
+    ArenaClear(&P__drop.droppedArena);
+    return result;
+}
+
+// Keeps the folders among `paths` for P_TakeDroppedFolders.
+function void P__KeepDroppedFolders(const ArrayStr *paths)
+{
+    Scratch scratch = GetScratch();
+    for (u64 i = 0; i < paths->header.count; ++i) {
+        char *native = P__FilePathCString(scratch.arena, paths->v[i]);
+        struct stat metadata;
+        if (native && stat(native, &metadata) == 0 && S_ISDIR(metadata.st_mode)) {
+            ArrayPush(&P__drop.droppedArena, P__drop.dropped, StrCopy(&P__drop.droppedArena, paths->v[i]));
+        }
+    }
+    ReleaseScratch(scratch);
+}
 
 function void P_SetDropDirectory(String path)
 {

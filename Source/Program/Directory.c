@@ -592,6 +592,29 @@ function void Prog_ToggleBookmark(Prog_State *state, String path)
     Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
 }
 
+// Puts `paths` into the bookmarks before position `at`; ones already there move.
+function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at)
+{
+    if (!paths->header.count) return;
+    Scratch scratch = GetScratch();
+    u64 count = state->bookmarks.header.count;
+    String *result = ArenaPushArray(scratch.arena, count + paths->header.count, String);
+    u64 kept = 0;
+    at = Min(at, count);
+    for (u64 i = 0; i <= count; ++i) {
+        if (i == at) {
+            for (u64 j = 0; j < paths->header.count; ++j) result[kept++] = paths->v[j];
+        }
+        if (i == count) break;
+        b32 moving = false;
+        for (u64 j = 0; j < paths->header.count && !moving; ++j) moving = StrIsEqual(state->bookmarks.v[i], paths->v[j]);
+        if (!moving) result[kept++] = state->bookmarks.v[i];
+    }
+    Prog__SetList(&state->bookmarkArena, &state->bookmarks, result, kept);
+    ReleaseScratch(scratch);
+    Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
+}
+
 // Puts `path` first among the recents.
 function void Prog__AddRecent(Prog_State *state, String path)
 {

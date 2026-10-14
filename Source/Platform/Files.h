@@ -212,3 +212,9 @@ function void P_ContextMenuClose(P_ContextMenu *menu);
 function b32 P_DragFiles(String directory, const String *names, u64 count);
 // The folder that files dropped on the window go into, updated as the pointer moves; empty refuses drops.
 function void P_SetDropDirectory(String path);
+// While on, drops are not transferred: the folders among the dropped items are kept for P_TakeDroppedFolders, as a place to pin them is under the pointer.
+function void P_SetDropTakesFolders(b32 takes);
+// The folders dropped since the last call while P_SetDropTakesFolders was on, copied into `arena`.
+function ArrayStr P_TakeDroppedFolders(Arena *arena);
+// A drag, Filey's own or another program's, is over the window.
+function b32 P_DropPending(void);

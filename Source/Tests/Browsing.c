@@ -1226,6 +1226,14 @@ function void TestSidebar(TestFileFixture *fixture)
         Check(state.recents.header.count >= 2);
         TestBrowsingCommand(&state, Prog_CommandKind_RemoveBookmark, seeded);
         Check(state.bookmarks.header.count == seeded && !Prog_IsBookmarked(&state, fixture->path));
+        // Dropped folders are pinned where the drop points; one already pinned moves there.
+        String pins[2] = { S("/pinned/first"), fixture->path };
+        ArrayStr dropped = { .header = { .count = 2 }, .v = pins };
+        Prog_PinBookmarks(&state, &dropped, 0);
+        Check(state.bookmarks.header.count == seeded + 2 && StrIsEqual(state.bookmarks.v[0], pins[0]) && StrIsEqual(state.bookmarks.v[1], pins[1]));
+        dropped.header.count = 1;
+        Prog_PinBookmarks(&state, &dropped, state.bookmarks.header.count);
+        Check(state.bookmarks.header.count == seeded + 2 && StrIsEqual(state.bookmarks.v[seeded + 1], pins[0]) && StrIsEqual(state.bookmarks.v[0], pins[1]));
         Check(TestWaitDirectory(&state));
         Prog_Release(&state);
     }
