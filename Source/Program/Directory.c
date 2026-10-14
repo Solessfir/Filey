@@ -1034,6 +1034,137 @@ function void Prog_UndoLast(Prog_State *state)
     P_JobSubmit(job);
 }
 
+// The window's panels and their tabs, kept in the config folder between runs.
+#define Prog_SessionFile S("Session.txt")
+
+// The digits at the start of `*text`, which moves past them and one space.
+function b32 Prog__TakeNumber(String *text, u64 *value)
+{
+    u64 at = 0, result = 0;
+    while (at < text->length && text->value[at] >= '0' && text->value[at] <= '9' && at < 19) result = result * 10 + (u64)(text->value[at++] - '0');
+    if (!at) return false;
+    *value = result;
+    *text = StrFrom(*text, Min(at + 1, text->length));
+    return true;
+}
+
+// One record per line: the layout's split nodes, then each panel and its tabs; a tab's path ends its line, so it may hold spaces.
+function String Prog_SessionText(Arena *arena, Prog_State *state)
+{
+    Prog__EnsureTab(state);
+    StrBuilder text = {0};
+    u32 active = state->activePanel;
+    StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\npreview %u\n", active, state->sidebarHidden ? 1u : 0u, state->previewShown ? 1u : 0u));
+    for (u32 i = 0; i < Prog_MaxSplits; ++i) {
+        const Prog_Split *split = &state->splits[i];
+        if (split->kind == Prog_SplitKind_None) continue;
+        u32 panel = split->kind == Prog_SplitKind_Panel ? Prog_PanelIndex(state, split->panel) : 0;
+        StrBuildStr(arena, &text, StrFormat(arena, "split %u %u %u %u %u %u\n", i, (u32)split->kind, (u32)split->first, (u32)split->second, panel, (u32)(split->ratio * 1e6f)));
+    }
+    for (u32 p = 0; p < state->panelCount; ++p) {
+        Prog__UsePanel(state, p);
+        StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", p, state->zoom, state->activeTab));
+        for (u32 t = 0; t < state->tabCount; ++t) StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", p, Prog_TabPath(state, t)));
+    }
+    Prog__UsePanel(state, active);
+    return text.buffer;
+}
+
+// Rebuilds the panels and tabs of `text` in a state that has just started with one panel and one tab; returns false, changing nothing, when `text` does not describe a whole layout.
+function b32 Prog_RestoreSession(Prog_State *state, String text)
+{
+    Prog__EnsureTab(state);
+    if (state->panelCount != 1 || state->tabCount != 1) return false;
+    Scratch scratch = GetScratch();
+    Prog_Split splits[Prog_MaxSplits] = {0};
+    u32 splitPanel[Prog_MaxSplits] = {0};
+    struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
+    u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0;
+    b32 valid = false;
+    ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+    for (u64 l = 0; l < lines.header.count; ++l) {
+        String line = lines.v[l];
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        Index space = StrIndexChar(line, ' ', SSF_CountOnFail);
+        String word = StrFromTo(line, 0, (i64)space.value), rest = StrFrom(line, Min(space.value + 1, line.length));
+        u64 a = 0, b = 0, c = 0, d = 0, e = 0, f = 0;
+        if (StrIsEqual(word, S("session"))) valid = Prog__TakeNumber(&rest, &a) && a == 1;
+        else if (StrIsEqual(word, S("active"))) Prog__TakeNumber(&rest, &active);
+        else if (StrIsEqual(word, S("sidebar"))) Prog__TakeNumber(&rest, &sidebarHidden);
+        else if (StrIsEqual(word, S("preview"))) Prog__TakeNumber(&rest, &previewShown);
+        else if (StrIsEqual(word, S("split"))) {
+            if (!(Prog__TakeNumber(&rest, &a) && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) && Prog__TakeNumber(&rest, &e) && Prog__TakeNumber(&rest, &f))
+                || a >= Prog_MaxSplits || b >= Prog_SplitKind_Count || c >= Prog_MaxSplits || d >= Prog_MaxSplits || e >= Prog_MaxPanels) valid = false;
+            else {
+                splits[a] = (Prog_Split){ .kind = (u8)b, .first = (u8)c, .second = (u8)d, .ratio = (f32)f / 1e6f };
+                splitPanel[a] = (u32)e;
+            }
+        } else if (StrIsEqual(word, S("panel"))) {
+            if (!(Prog__TakeNumber(&rest, &a) && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c)) || a != panelCount || a >= Prog_MaxPanels) valid = false;
+            else panels[panelCount++] = (typeof(*panels)){ .zoom = (u32)Min(b, (u64)Prog_ZoomLevels - 1), .activeTab = (u32)c };
+        } else if (StrIsEqual(word, S("tab"))) {
+            if (!Prog__TakeNumber(&rest, &a) || a + 1 != panelCount) valid = false;
+            else if (rest.length && panels[a].tabCount < Prog_MaxTabs) panels[a].tabs[panels[a].tabCount++] = rest;
+        }
+    }
+    // The tree from the root must reach every panel once, each with a tab.
+    u32 reached[Prog_MaxPanels] = {0};
+    u32 stack[Prog_MaxSplits * 2], depth = 0, visits = 0;
+    if (valid && splits[0].kind != Prog_SplitKind_None) stack[depth++] = 0;
+    else valid = false;
+    while (valid && depth) {
+        u32 node = stack[--depth];
+        const Prog_Split *split = &splits[node];
+        if (++visits > Prog_MaxSplits) valid = false;
+        else if (split->kind == Prog_SplitKind_Panel) valid = splitPanel[node] < panelCount && !reached[splitPanel[node]]++;
+        else if (split->kind == Prog_SplitKind_None || split->first == node || split->second == node) valid = false;
+        else {
+            stack[depth++] = split->first;
+            stack[depth++] = split->second;
+        }
+    }
+    for (u32 p = 0; valid && p < panelCount; ++p) valid = reached[p] == 1 && panels[p].tabCount;
+    if (valid) {
+        state->sidebarHidden = sidebarHidden != 0;
+        state->previewShown = previewShown != 0;
+        for (u32 p = 0; p < panelCount; ++p) {
+            if (p) {
+                state->panels[p] = (Prog_Panel){ .id = ++state->nextPanelId };
+                state->panelCount = p + 1;
+            }
+            Prog__ActivatePanel(state, p);
+            Prog__EnsureTab(state);
+            state->zoom = panels[p].zoom;
+            // The first tab drops whatever it was about to list and starts over in its folder.
+            ArenaClear(&state->directoryArena);
+            state->directory = (Prog_Directory){0};
+            ArenaClear(&state->historyArena);
+            state->history = (ArrayStr){0};
+            ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, panels[p].tabs[0]));
+            state->historyAt = 0;
+            Prog_RequestDirectory(state, panels[p].tabs[0], false, 0);
+            for (u32 t = 1; t < panels[p].tabCount; ++t) Prog_OpenTab(state, panels[p].tabs[t], t, false);
+            if (panels[p].activeTab < state->tabCount) Prog_SelectTab(state, panels[p].activeTab);
+        }
+        for (u32 i = 0; i < Prog_MaxSplits; ++i) {
+            state->splits[i] = splits[i];
+            if (splits[i].kind == Prog_SplitKind_Panel) state->splits[i].panel = state->panels[splitPanel[i]].id;
+        }
+        Prog__ActivatePanel(state, active < panelCount ? (u32)active : 0);
+    }
+    ReleaseScratch(scratch);
+    return valid;
+}
+
+function void Prog_LoadSession(Prog_State *state)
+{
+    if (!state->configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    String text = {0};
+    if (P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SessionFile), &text)) Prog_RestoreSession(state, text);
+    ReleaseScratch(scratch);
+}
+
 function b32 Prog__AnyMeasuring(const Prog_State *state)
 {
     b32 result = state->measureJob != NULL;
@@ -1515,6 +1646,12 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 function void Prog_Release(Prog_State *state)
 {
     Prog_CloseMenu(state);
+    // The session is written while the panels still hold it.
+    if (state->configDirectory.length && state->panelCount) {
+        Scratch scratch = GetScratch();
+        P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SessionFile), Prog_SessionText(scratch.arena, state));
+        ReleaseScratch(scratch);
+    }
     // Watch threads wake the window, like the workers, so they stop first.
     for (u32 panel = 0; panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);

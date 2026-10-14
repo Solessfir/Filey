@@ -557,5 +557,8 @@ function Prog_View Prog_ZoomView(u32 zoom);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
 function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
+function String Prog_SessionText(Arena *arena, Prog_State *state);
+function b32 Prog_RestoreSession(Prog_State *state, String text);
+function void Prog_LoadSession(Prog_State *state);
 function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String *from, const String *to, u64 count);
 function void Prog_UndoLast(Prog_State *state);

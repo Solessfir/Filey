@@ -197,6 +197,8 @@ int main(void)
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     if (ok) Prog_LoadSettings(&loop.state, P_ConfigDirectory(startup.arena));
+    // Without folders to open, the last run's panels and tabs come back.
+    if (ok && !startPaths.header.count) Prog_LoadSession(&loop.state);
     if (ok && getenv("FILEY_DEBUG_THEME")) Prog_SetDebugTheme(&loop.state, true);
     ReleaseScratch(startup);
     if (!ok) {
