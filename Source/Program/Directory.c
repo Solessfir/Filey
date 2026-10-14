@@ -313,6 +313,19 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    if (input->kind == Prog_JobKind_GoTo) {
+        Prog_GoToListed *result = ArenaPushStruct(&job->arena, Prog_GoToListed);
+        P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+        result->files = ArenaPushArray(&job->arena, Max(listing.files.header.count, (u64)1), P_File);
+        for (u32 pass = 0; pass < 2; ++pass) {
+            for (u64 i = 0; i < listing.files.header.count; ++i) {
+                const P_File *file = &listing.files.v[i];
+                if ((file->kind == P_FileKind_Directory) == (pass == 0) && (input->showHidden || !file->hidden)) result->files[result->count++] = *file;
+            }
+        }
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_Inspect) {
         Prog_Inspected *result = ArenaPushStruct(&job->arena, Prog_Inspected);
         result->created = P_FileCreatedTime(input->path);
@@ -727,6 +740,26 @@ function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at
 }
 
 // Puts `path` first among the recents.
+// Adds `path` and the folders listed in it to the folders Go To searches.
+#define Prog_MaxKnownFolders 50000
+function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry *entries, u64 count)
+{
+    // ponytail: starts over when full; an index that ages out old folders could keep the busy ones.
+    if (state->knownFolders.header.count + count + 1 > Prog_MaxKnownFolders) {
+        ArenaClear(&state->knownArena);
+        state->knownFolders = (ArrayStr){0};
+        state->knownSet = (Prog_PathSet){0};
+    }
+    for (u64 i = 0; i <= count; ++i) {
+        if (i < count && entries[i].file.kind != P_FileKind_Directory) continue;
+        String folder = i < count ? Prog_JoinPath(&state->frameArena, path, entries[i].file.name) : path;
+        if (MapsGetPtrNull(state->knownSet, folder)) continue;
+        folder = StrCopy(&state->knownArena, folder);
+        MapsPut(&state->knownArena, state->knownSet, folder, true);
+        ArrayPush(&state->knownArena, state->knownFolders, folder);
+    }
+}
+
 function void Prog__AddRecent(Prog_State *state, String path)
 {
     if (state->recents.header.count && StrIsEqual(state->recents.v[0], path)) return;
@@ -1380,7 +1413,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             P_JobRelease(job);
@@ -1469,6 +1502,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Undo: %S", error->message);
             }
             Prog_Reload(state);
+        } else if (input->kind == Prog_JobKind_GoTo) {
+            if (state->gotoJob == job) state->gotoJob = NULL;
+            String wanted = StrMake((const char *)state->gotoFolder, state->gotoFolderLength);
+            if (job->result && StrIsEqual(input->path, wanted) && !P_IsCancelled(&job->cancelToken)) {
+                ArenaRelease(&state->gotoArena);
+                state->gotoArena = job->arena;
+                job->arena = (Arena){0};
+                state->gotoListing = *(Prog_GoToListed *)job->result;
+                state->gotoListed = true;
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_Inspect) {
             if (state->tipJob == job) state->tipJob = NULL;
             if (job->result && StrIsEqual(input->path, state->tipPath) && !P_IsCancelled(&job->cancelToken)) {
@@ -1626,6 +1670,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->resetScroll = true;
                         Prog__AddRecent(state, result->path);
                     }
+                    Prog__NoteFolders(state, result->path, result->entries, result->count);
                     if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {
                         if (state->history.header.count) state->history.header.count = state->historyAt + 1;
                         ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, input->path));
@@ -1762,6 +1807,9 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->undoArena);
     ArenaRelease(&state->sizeArena);
     ArenaRelease(&state->tipArena);
+    ArenaRelease(&state->gotoArena);
+    ArenaRelease(&state->gotoHistoryArena);
+    ArenaRelease(&state->knownArena);
     ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};
 }

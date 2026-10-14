@@ -1194,7 +1194,7 @@ function void TestTabs(TestFileFixture *fixture)
     // Search Tabs finds tabs by their folder's name first and shows the one picked.
     TestBrowsingCommand(&state, Prog_CommandKind_TabList, 0);
     u32 tabMatches[Prog_MaxTabs];
-    Check(state.paletteOpen && state.paletteTabs && Prog_TabMatches(&state, tabMatches) == 2);
+    Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_Tabs && Prog_TabMatches(&state, tabMatches) == 2);
     Prog__EditInsert(&state.palette, 'm');
     Prog__EditInsert(&state.palette, 'p');
     Check(Prog_TabMatches(&state, tabMatches) >= 1 && tabMatches[0] == 0);
@@ -1209,6 +1209,24 @@ function void TestTabs(TestFileFixture *fixture)
     Check(state.tabCount == 1 && TestWindowCalls[2] == closes + 1);
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
+    // Go To lists the folder typed, offers its subfolders starting with what follows it, and opens the one picked.
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_GoTo);
+    String typed = StrFormat(&state.frameArena, "%S/em", fixture->path);
+    Prog__EditReplace(&state.palette, (const u8 *)typed.value, (u32)typed.length);
+    u32 offered;
+    String folder;
+    Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered == 0 && StrIsEqual(folder, fixture->path));
+    u64 start = PlatformNowMicroseconds();
+    while (!state.gotoListed && PlatformNowMicroseconds() - start < Millions(5)) {
+        Prog_TakeCompletions(&state);
+        P__TestPause();
+    }
+    Prog_GoToItem *found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(state.gotoListed && offered >= 1 && TestEndsWith(found[0].path, S("/Empty")) && !found[0].file);
+    TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
+    Check(!state.paletteOpen && TestEndsWith(state.directory.path, S("/Empty")));
     Prog_Release(&state);
 }
 

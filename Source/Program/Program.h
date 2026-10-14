@@ -89,6 +89,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_WarmMenu,
     Prog_JobKind_Measure,
     Prog_JobKind_Inspect,
+    Prog_JobKind_GoTo,
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
@@ -244,6 +245,34 @@ typedef struct Prog_Places {
     ArrayStr roots;
 } Prog_Places;
 
+typedef enum Prog_PaletteMode {
+    Prog_PaletteMode_Commands,
+    Prog_PaletteMode_Tabs,
+    Prog_PaletteMode_GoTo,
+    Prog_PaletteMode_Count,
+} Prog_PaletteMode;
+
+// Go To's rows come from the recent folders and the bookmarks, each section under a title that folds it, or from the folder typed.
+typedef enum Prog_GoToSection {
+    Prog_GoToSection_Recents,
+    Prog_GoToSection_Bookmarks,
+    Prog_GoToSection_Folder,
+    Prog_GoToSection_Found,
+    Prog_GoToSection_Count,
+} Prog_GoToSection;
+
+typedef struct Prog_GoToItem {
+    String path;
+    enum8(Prog_GoToSection) section;
+    b8 file;
+} Prog_GoToItem;
+
+// A folder's folders, then its files.
+typedef struct Prog_GoToListed {
+    P_File *files;
+    u64 count;
+} Prog_GoToListed;
+
 // Sidebar sections, in display order.
 typedef enum Prog_Group {
     Prog_Group_Recents,
@@ -254,6 +283,7 @@ typedef enum Prog_Group {
 } Prog_Group;
 
 // Folder totals measured before, by path, so that a folder shown again has its sizes at once.
+typedef struct Prog_PathSet { MapHeader header; struct { String key; b32 value; } *v; } Prog_PathSet;
 typedef struct Prog_SizeMap { MapHeader header; struct { String key; P_DirectoryTotals value; } *v; } Prog_SizeMap;
 
 // ponytail: the cache starts over past this many folders; evict the oldest if big trees make that common.
@@ -491,8 +521,26 @@ typedef struct Prog_State {
     Prog_TextEdit palette;
     u32 paletteHighlight;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
-    b32 paletteTabs;
+    // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
+    enum8(Prog_PaletteMode) paletteMode;
     R_Rect tabListRect;       // that button in the last layout
+    // Go To lists the folder typed so far, gotoFolder, whose subfolders gotoJob puts in gotoArena; gotoListed once they are there.
+    u8 gotoFolder[1024];
+    u32 gotoFolderLength;
+    P_Job *gotoJob;
+    Arena gotoArena;
+    Prog_GoToListed gotoListing;
+    b32 gotoListed;
+    b32 gotoFolded[Prog_GoToSection_Folder];  // sections shown by their title alone
+    u32 gotoScroll;           // the first row shown
+    // The texts the back and forward buttons go through, which every expansion adds to.
+    Arena gotoHistoryArena;
+    ArrayStr gotoHistory;
+    u32 gotoHistoryAt;
+    // Every folder listed since the start, and the folders in it, which Go To searches with the recent folders and the bookmarks.
+    Arena knownArena;
+    ArrayStr knownFolders;
+    Prog_PathSet knownSet;
     Prog_Transfer transfers[Prog_MaxTransfers];
     Arena sizeArena;
     Prog_SizeMap sizes;
@@ -620,6 +668,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state);
 function void Prog_ReloadSettingsFile(Prog_State *state);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
+#define Prog_MaxGoToFound 500
+function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder);
 function String Prog_SessionText(Arena *arena, Prog_State *state);
 function b32 Prog_RestoreSession(Prog_State *state, String text);
 function void Prog_LoadSession(Prog_State *state);

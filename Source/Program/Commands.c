@@ -58,6 +58,7 @@ function void Prog_CloseMenu(Prog_State *state)
 
 // Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
 function b32 Prog__ContainsFolded(String text, String needle);
+function void Prog__EditReplace(Prog_TextEdit *edit, const u8 *bytes, u32 count);
 
 function u32 Prog_MenuVisible(const P_ContextMenu *menu, u32 first, u32 count, String filter, u32 *out)
 {
@@ -312,6 +313,142 @@ function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
         }
     }
     return count;
+}
+
+// `typed` as an absolute path, taken from the shown folder unless it starts at a root; empty when it cannot be one.
+function String Prog__GoToPath(Prog_State *state, String typed)
+{
+    if (!typed.length) return typed;
+    u8 separator = (u8)P_NativePath(&state->frameArena, S("/")).value[0];
+    b32 absolute = typed.value[0] == '/' || typed.value[0] == separator || (typed.length >= 2 && typed.value[1] == ':');
+    String path = P_AbsolutePath(&state->frameArena, absolute ? typed : StrFormat(&state->frameArena, "%S/%S", state->directory.path, typed));
+    // Without the separator typed last, except at a root such as "C:/" or "/".
+    while (path.length > 1 && path.value[path.length - 1] == '/' && path.value[path.length - 2] != ':') --path.length;
+    return path;
+}
+
+// The rows Go To offers for the text typed, best first, in the frame arena: without a separator typed, the recent folders and the bookmarks
+// holding it, those of folded sections left out; with one, what is inside the folder typed so far, `folder`, that starts with or holds what
+// follows it. A folder not listed yet starts its listing and offers nothing until it arrives.
+function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder)
+{
+    Arena *frame = &state->frameArena;
+    String text = Prog_EditText(&state->palette);
+    u8 separator = (u8)P_NativePath(frame, S("/")).value[0];
+    i64 cut = -1;
+    for (u64 i = 0; i < text.length; ++i) if (text.value[i] == '/' || text.value[i] == separator) cut = (i64)i;
+    *count = 0;
+    *folder = (String){0};
+    // Something typed searches every folder known by name, then by path, as one list.
+    if (cut < 0 && text.length) {
+        u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
+        u64 total = recents + bookmarks + known;
+        Prog_GoToItem *result = ArenaPushArray(frame, Min(total, (u64)Prog_MaxGoToFound) + 1, Prog_GoToItem);
+        Prog_PathSet seen = {0};
+        for (u32 tier = 0; tier < 3 && *count < Prog_MaxGoToFound; ++tier) {
+            for (u64 i = 0; i < total && *count < Prog_MaxGoToFound; ++i) {
+                String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks];
+                String name = Prog__FolderName(path);
+                b32 contains = Prog__ContainsFolded(name, text);
+                b32 letters = !contains && Prog_FilterMatch(name, text, NULL);
+                b32 within = !contains && !letters && Prog_FilterMatch(path, text, NULL);
+                if (!((tier == 0 && contains) || (tier == 1 && letters) || (tier == 2 && within)) || MapsGetPtrNull(seen, path)) continue;
+                MapsPut(frame, seen, path, true);
+                result[(*count)++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, false };
+            }
+        }
+        return result;
+    }
+    if (cut < 0) {
+        // The reference keeps the ten most recent.
+        u64 recents = Min(state->recents.header.count, (u64)10);
+        Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + 1, Prog_GoToItem);
+        for (u32 section = 0; section < Prog_GoToSection_Folder; ++section) {
+            if (state->gotoFolded[section]) continue;
+            const ArrayStr *list = section == Prog_GoToSection_Recents ? &state->recents : &state->bookmarks;
+            u64 limit = section == Prog_GoToSection_Recents ? recents : list->header.count;
+            for (u32 tier = 0; tier < 2; ++tier) {
+                for (u64 i = 0; i < limit; ++i) {
+                    String path = list->v[i];
+                    b32 named = Prog__ContainsFolded(Prog__FolderName(path), text);
+                    if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false };
+                }
+            }
+        }
+        return result;
+    }
+    String leaf = StrFrom(text, (u64)cut + 1);
+    String path = Prog__GoToPath(state, StrFromTo(text, 0, cut + 1));
+    if (!path.length) return NULL;
+    *folder = path;
+    String listed = StrMake((const char *)state->gotoFolder, state->gotoFolderLength);
+    if (!StrIsEqual(path, listed) && path.length <= sizeof(state->gotoFolder)) {
+        if (state->gotoJob) P_RequestCancel(&state->gotoJob->cancelToken);
+        MemCopy(state->gotoFolder, path.value, path.length);
+        state->gotoFolderLength = (u32)path.length;
+        state->gotoListed = false;
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_GoTo;
+        input->path = StrCopy(&job->arena, path);
+        input->showHidden = state->showHidden;
+        job->input = input;
+        state->gotoJob = job;
+        P_JobSubmit(job);
+    }
+    if (!state->gotoListed) return NULL;
+    Prog_GoToItem *result = ArenaPushArray(frame, Max(state->gotoListing.count, (u64)1), Prog_GoToItem);
+    // Names that start with what is typed after the folder come before those that only hold it.
+    for (u32 tier = 0; tier < 2; ++tier) {
+        for (u64 i = 0; i < state->gotoListing.count; ++i) {
+            const P_File *file = &state->gotoListing.files[i];
+            b32 starts = file->name.length >= leaf.length && Prog__ContainsFolded(StrFromTo(file->name, 0, (i64)leaf.length), leaf);
+            if ((tier == 0 && starts) || (tier == 1 && !starts && Prog__ContainsFolded(file->name, leaf))) {
+                result[(*count)++] = (Prog_GoToItem){ Prog_JoinPath(frame, path, file->name), Prog_GoToSection_Folder, file->kind != P_FileKind_Directory };
+            }
+        }
+    }
+    return result;
+}
+
+// Puts `text` in Go To's box, remembered for its back button when `remember` is set.
+function void Prog__GoToSetText(Prog_State *state, String text, b32 remember)
+{
+    if (remember) {
+        // Going on from an earlier text forgets the ones after it.
+        if (!state->gotoHistory.header.count) ArrayPush(&state->gotoHistoryArena, state->gotoHistory, StrCopy(&state->gotoHistoryArena, Prog_EditText(&state->palette)));
+        state->gotoHistory.header.count = state->gotoHistoryAt + 1;
+        ArrayPush(&state->gotoHistoryArena, state->gotoHistory, StrCopy(&state->gotoHistoryArena, text));
+        state->gotoHistoryAt = (u32)state->gotoHistory.header.count - 1;
+    }
+    state->palette.cursor = 0;
+    state->palette.anchor = state->palette.length;
+    Prog__EditReplace(&state->palette, (const u8 *)text.value, (u32)Min(text.length, (u64)sizeof(state->palette.text) - 1));
+    state->paletteHighlight = 0;
+    state->gotoScroll = 0;
+}
+
+// Go To's box with `path` in it to go on into, in the system's separators.
+function void Prog__GoToExpand(Prog_State *state, String path)
+{
+    Prog__GoToSetText(state, P_NativePath(&state->frameArena, Prog_JoinPath(&state->frameArena, path, S(""))), true);
+}
+
+// Opens Go To's row: a folder in the panel, a file in its app.
+function void Prog__GoToOpen(Prog_State *state, Prog_GoToItem item)
+{
+    if (!item.file) {
+        if (item.path.length && !StrIsEqual(item.path, state->directory.path)) Prog_RequestDirectory(state, item.path, true, 0);
+        return;
+    }
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_Open;
+    input->generation = state->generation;
+    input->path = StrCopy(&job->arena, item.path);
+    job->input = input;
+    P_JobSubmit(job);
 }
 
 // Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
@@ -1126,22 +1263,65 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_CommandPalette: {
                 Prog_CloseMenu(state);
-                state->paletteOpen = !state->paletteOpen || state->paletteTabs;
-                state->paletteTabs = false;
+                state->paletteOpen = !state->paletteOpen || state->paletteMode != Prog_PaletteMode_Commands;
+                state->paletteMode = Prog_PaletteMode_Commands;
                 state->palette = (Prog_TextEdit){0};
+                state->paletteHighlight = 0;
+            } break;
+            case Prog_CommandKind_GoTo: {
+                Prog_CloseMenu(state);
+                state->paletteOpen = !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_GoTo);
+                state->paletteMode = Prog_PaletteMode_GoTo;
+                state->palette = (Prog_TextEdit){0};
+                state->paletteHighlight = 0;
+                state->gotoScroll = 0;
+                ArenaClear(&state->gotoHistoryArena);
+                state->gotoHistory = (ArrayStr){0};
+                state->gotoHistoryAt = 0;
+            } break;
+            case Prog_CommandKind_GoToBack:
+            case Prog_CommandKind_GoToForward: {
+                b32 back = command->kind == Prog_CommandKind_GoToBack;
+                if (back ? state->gotoHistoryAt == 0 : state->gotoHistoryAt + 1 >= state->gotoHistory.header.count) break;
+                state->gotoHistoryAt = back ? state->gotoHistoryAt - 1 : state->gotoHistoryAt + 1;
+                Prog__GoToSetText(state, state->gotoHistory.v[state->gotoHistoryAt], false);
+            } break;
+            case Prog_CommandKind_GoToUp: {
+                u32 count;
+                String folder;
+                Prog_GoToMatches(state, &count, &folder);
+                String parent = Prog_ParentPath(folder);
+                // Above a root there are only the recent folders and the bookmarks again.
+                if (!folder.length) break;
+                if (!parent.length || StrIsEqual(parent, folder)) Prog__GoToSetText(state, S(""), true);
+                else Prog__GoToExpand(state, parent);
+            } break;
+            case Prog_CommandKind_GoToFold: {
+                if (command->row < Prog_GoToSection_Folder) state->gotoFolded[command->row] = !state->gotoFolded[command->row];
                 state->paletteHighlight = 0;
             } break;
             case Prog_CommandKind_TabList: {
                 Prog_CloseMenu(state);
-                state->paletteOpen = !(state->paletteOpen && state->paletteTabs);
-                state->paletteTabs = true;
+                state->paletteOpen = !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_Tabs);
+                state->paletteMode = Prog_PaletteMode_Tabs;
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
             } break;
             case Prog_CommandKind_PaletteClose: state->paletteOpen = false; break;
             case Prog_CommandKind_PaletteRun: {
                 if (!state->paletteOpen) break;
-                if (state->paletteTabs) {
+                if (state->paletteMode == Prog_PaletteMode_GoTo) {
+                    u32 count;
+                    String folder;
+                    Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
+                    u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                    // With nothing found, the text itself is the place to go.
+                    Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false };
+                    state->paletteOpen = false;
+                    Prog__GoToOpen(state, item);
+                    break;
+                }
+                if (state->paletteMode == Prog_PaletteMode_Tabs) {
                     u32 tabs[Prog_MaxTabs];
                     u32 count = Prog_TabMatches(state, tabs);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
@@ -1287,19 +1467,42 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
         if (state->paletteOpen) {
+            // The wheel moves Go To's highlight three rows a notch.
+            if (event->kind == PlatformEventKind_MouseWheel && state->paletteMode == Prog_PaletteMode_GoTo) {
+                u32 count;
+                String folder;
+                Prog_GoToMatches(state, &count, &folder);
+                i64 at = (i64)state->paletteHighlight - (i64)(event->wheelY * 3);
+                state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
+                continue;
+            }
             if (event->kind == PlatformEventKind_Text) {
                 Prog__EditInsert(&state->palette, event->codepoint);
                 state->paletteHighlight = 0;
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 Prog_CommandKind matches[Prog_CommandKind_Count];
                 u32 tabs[Prog_MaxTabs];
-                u32 count = state->paletteTabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
+                b32 goTo = state->paletteMode == Prog_PaletteMode_GoTo;
+                u32 count = 0;
+                String folder = {0};
+                Prog_GoToItem *found = goTo ? Prog_GoToMatches(state, &count, &folder) : NULL;
+                if (!goTo) count = state->paletteMode == Prog_PaletteMode_Tabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
                 u32 version = state->palette.version;
+                // Tab in Go To puts the highlighted folder in the box, to go on into it.
+                if (goTo && event->key == Key_Tab) {
+                    if (state->paletteHighlight < count && !found[state->paletteHighlight].file) Prog__GoToExpand(state, found[state->paletteHighlight].path);
+                    continue;
+                }
+                // Its own hotkeys close it again.
+                if (goTo && (event->key == Key_F4 || (event->key == Key_P && (event->mods & KeyMod_Control) && !(event->mods & KeyMod_Shift)))) {
+                    Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                    continue;
+                }
                 if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order);
                 else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : 0;
-                else if ((event->key == (state->paletteTabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(&state->palette, event);
                 if (state->palette.version != version) state->paletteHighlight = 0;
             }

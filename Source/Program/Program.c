@@ -454,7 +454,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 tabs = kind == Prog_CommandKind_TabList;
-    b32 lit = tabs ? state->paletteOpen && state->paletteTabs : state->menuOpen && state->menuOpener == kind;
+    b32 lit = tabs ? state->paletteOpen && state->paletteMode == Prog_PaletteMode_Tabs : state->menuOpen && state->menuOpener == kind;
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key;
     R_Color wash = theme->selection;
@@ -2528,10 +2528,259 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// The keys that work a palette, in its footer: each key's chip, then what it does.
+function void Prog__PaletteHints(const char *const *keys, const char *const *words, u32 count, f32 height, R_Color background, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale;
+    UI_Block *hints = Prog__Box(UI_Flex(), UI_Pixels(height), UI_Layout_Horizontal, background, 0);
+    hints->props.childrenAlignment = (UI_Vec2){ 0.5f, 0.5f };
+    UI_Parent(hints) for (u32 i = 0; i < count; ++i) {
+        if (keys[i]) {
+            Prog__Chip(StrFromCStr(keys[i]), height, false, m);
+            Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(height));
+        } else {
+            UI_SetNextFont(m->detail);
+            Prog__LabelPadded(StrFromCStr(words[i]), UI_TextContent(), height, 0, floorf(12.0f * s + 0.5f), theme->textDim, 0);
+        }
+    }
+}
+
+// `text` in `color` with what `search` finds in it in the match color: the first place it appears whole, else its letters in order.
+function void Prog__MarkedLabel(Prog_State *state, String text, String search, const R_Font *font, f32 height, R_Color color, const Prog_Metrics *m)
+{
+    u8 *marks = search.length ? ArenaPushArray(&state->frameArena, Max(text.length, (u64)1), u8) : NULL;
+    b32 whole = false;
+    for (u64 start = 0; marks && !whole && start + search.length <= text.length; ++start) {
+        if (!Prog__ContainsFolded(StrFromTo(text, start, (i64)(start + search.length)), search)) continue;
+        for (u64 i = 0; i < search.length; ++i) marks[start + i] = 1;
+        whole = true;
+    }
+    if (marks && !whole && !Prog_FilterMatch(text, search, marks)) marks = NULL;
+    for (u64 start = 0, end = 0; start < text.length; start = end) {
+        b32 match = marks && marks[start];
+        while (end < text.length && (marks && marks[end]) == match) ++end;
+        UI_SetNextFont(font);
+        Prog__Label(StrFromTo(text, start, (i64)end), UI_TextContent(), height, 0, match ? Prog_CurrentTheme()->textMatch : color, 0);
+    }
+}
+
+// The palette's Go To mode, as the reference's: the path typed in a field with buttons that step back, forward and up through what was typed,
+// then the recent folders and the bookmarks under titles that fold them, or what is inside the folder typed, and the keys that work it.
+function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
+    u32 count;
+    String folder;
+    Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
+    state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
+    f32 s = m->scale, line = m->separator, row = m->row;
+    f32 field = floorf(40.0f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.8f * s + 0.5f);
+    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(33.6f * s + 0.5f), bottom = floorf(60.8f * s + 0.5f);
+    // The rows in order: each section's title, then its items unless it is folded; a folder typed shows its items alone.
+    typedef struct { i32 item; i32 section; } Row;
+    // Typing without a separator searches, and the rows found are one list too.
+    b32 searching = !folder.length && state->palette.length;
+    b32 sections = !folder.length && !searching;
+    Row *rows = ArenaPushArray(&state->frameArena, count + Prog_GoToSection_Folder + 1, Row);
+    u32 rowCount = 0, highlightRow = 0;
+    for (u32 section = 0; section < (sections ? (u32)Prog_GoToSection_Folder : 1u); ++section) {
+        if (sections) rows[rowCount++] = (Row){ -1, (i32)section };
+        for (u32 i = 0; i < count; ++i) {
+            if (sections && found[i].section != section) continue;
+            if (i == state->paletteHighlight) highlightRow = rowCount;
+            rows[rowCount++] = (Row){ (i32)i, (i32)found[i].section };
+        }
+    }
+    f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
+    u32 visible = (u32)MaxF32(floorf(room / row), 1.0f);
+    // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top.
+    if (highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
+    if (highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
+    state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
+    u32 first = state->gotoScroll, shown = Min(rowCount - first, visible);
+    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 718.4f * s));
+    f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
+    f32 listHeight = (f32)shown * row + 2 * pad;
+    f32 height = field + line + listHeight + line + footer;
+    f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("GoToReveal")), 1, 0);
+    f32 radius = floorf(8.0f * s + 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("GoTo")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(field));
+        UI_Block *fieldClip = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+        UI_Parent(fieldClip) {
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(field + radius));
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextColors((UI_Colors){ .background = theme->inner });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.0f * s + 0.5f), 0, floorf(9.6f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(box) {
+            // The folder typed shows its own icon where the search glass is.
+            const Prog_Icon *folderIcon = folder.length ? Prog_FolderIcon(state, folder) : NULL;
+            f32 lead = floorf(23.2f * s + 0.5f);
+            if (folderIcon) {
+                UI_SetNextPrefWidth(UI_Pixels(lead));
+                UI_SetNextPrefHeight(UI_Pixels(field));
+                UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextImage(folderIcon->texture, folderIcon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                UI_AddBlock(UI_Flag_DrawImage);
+            } else {
+                Prog__Icon(Icon_Search, lead, field, theme->textDim, 0, m);
+            }
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(field));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                if (!state->palette.length) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f) });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(S("Open or expand a folder..."));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
+            }
+            struct { String identity; String icon; Prog_CommandKind kind; b32 enabled; } buttons[] = {
+                { S("GoToBack"), Icon_ArrowLeft, Prog_CommandKind_GoToBack, state->gotoHistoryAt > 0 },
+                { S("GoToForward"), Icon_ArrowRight, Prog_CommandKind_GoToForward, state->gotoHistoryAt + 1 < state->gotoHistory.header.count },
+                { S("GoToUp"), Icon_ArrowUp, Prog_CommandKind_GoToUp, folder.length != 0 },
+            };
+            for (u32 i = 0; i < CArrayCount(buttons); ++i) {
+                UI_Interaction button = Prog__TextButton(buttons[i].identity, buttons[i].icon, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                         theme->icon, theme->text, theme->iconDisabled, buttons[i].enabled, m);
+                if (button.clicked) Prog_QueueCommand(state, buttons[i].kind, 0, 0, button.clickOrder);
+                Prog__Spacer(UI_Pixels(floorf(1.6f * s + 0.5f)), UI_Pixels(field));
+            }
+            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(field));
+            Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(field));
+            UI_Interaction close = Prog__TextButton(S("GoToClose"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        // Room on the right for the scroll bar.
+        f32 bar = floorf(6.4f * s + 0.5f), gutter = floorf(19.2f * s + 0.5f);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, pad, gutter, pad });
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, 0);
+        UI_Parent(list) {
+            for (u32 r = first; r < first + shown; ++r) {
+                Row at = rows[r];
+                f32 face = row - line;
+                if (at.item < 0) {
+                    // A section's title, which folds it.
+                    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GoToSection/%d", at.section));
+                    b32 folded = state->gotoFolded[at.section];
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(face));
+                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_SetNextChildrenPadding((UI_Padding){ floorf(6.4f * s + 0.5f), 0, floorf(12.0f * s + 0.5f), 0 });
+                    UI_Block *title = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable);
+                    UI_Interaction interaction = UI_InteractionFromBlock(title);
+                    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GoToFold, (u64)at.section, 0, interaction.clickOrder);
+                    UI_Parent(title) {
+                        b32 recents = at.section == Prog_GoToSection_Recents;
+                        Prog__Icon(recents ? Icon_Clock : Icon_Bookmark, (f32)state->iconSize + floorf(8.0f * s + 0.5f), face, theme->icon, 0, m);
+                        Prog__Label(recents ? S("Recents") : S("Bookmarks"), UI_Flex(), face, 0, theme->text, 0);
+                        Prog__Icon(folded ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
+                    }
+                    Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+                    continue;
+                }
+                Prog_GoToItem item = found[at.item];
+                UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GoTo/%d/%S", at.section, item.path));
+                b32 highlighted = (u32)at.item == state->paletteHighlight, hot = UI->hotKey == key;
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(face));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                // Section items sit in from their title; a folder's items do not.
+                UI_SetNextChildrenPadding((UI_Padding){ floorf((sections ? 30.4f : 6.4f) * s + 0.5f), 0, pad, 0 });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = theme->selection });
+                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted ? UI_Flag_DrawBackground : 0) | (hot && !highlighted ? UI_Flag_DrawBorder : 0));
+                UI_Interaction interaction = UI_InteractionFromBlock(entry);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, (u64)at.item, 0, interaction.clickOrder);
+                UI_Parent(entry) {
+                    const Prog_Icon *icon = item.file ? Prog_PathIcon(state, item.path, P_FileKind_File) : Prog_FolderIcon(state, item.path);
+                    f32 slot = (f32)state->iconSize + floorf(8.0f * s + 0.5f);
+                    if (icon) {
+                        UI_SetNextPrefWidth(UI_Pixels(slot));
+                        UI_SetNextPrefHeight(UI_Pixels(face));
+                        UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+                        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                        UI_AddBlock(UI_Flag_DrawImage);
+                    } else {
+                        Prog__Icon(item.file ? Icon_File : Icon_Folder, slot, face, theme->icon, 0, m);
+                    }
+                    // What was searched for shows in the match color, in the name and in the path.
+                    String name = Prog__FolderName(item.path), where = Prog__CrumbPath(state, item.path), typed = Prog_EditText(&state->palette);
+                    R_Color dim = highlighted ? theme->text : theme->textDim;
+                    Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, theme->text, m);
+                    if (sections || searching) {
+                        Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.2f), face, dim, 0.5f, m);
+                        Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, m);
+                    }
+                }
+                Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+            }
+            if (rowCount > shown) {
+                // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
+                f32 track = (f32)shown * row, thumb = MaxF32(floorf(track * (f32)shown / (f32)rowCount), row);
+                f32 offset = floorf((track - thumb) * (f32)first / (f32)(rowCount - shown));
+                UI_SetNextFloatingOffset((UI_Vec2){ width - pad - gutter + floorf((gutter - bar) * 0.5f), offset });
+                UI_SetNextPrefWidth(UI_Pixels(bar));
+                UI_SetNextPrefHeight(UI_Pixels(thumb));
+                UI_SetNextCornerRadius(floorf(bar * 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = theme->track });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Tab", 0, "Escape", 0 };
+        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to expand", 0, "to dismiss" };
+        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background, m);
+    }
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+}
+
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->paletteOpen) return;
-    if (state->paletteTabs) {
+    if (state->paletteMode == Prog_PaletteMode_GoTo) {
+        Prog__GoTo(state, m);
+        return;
+    }
+    if (state->paletteMode == Prog_PaletteMode_Tabs) {
         Prog__TabSearch(state, m);
         return;
     }
@@ -2645,21 +2894,9 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
         }
         // The keys that work the palette.
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        UI_Block *hints = Prog__Box(UI_Flex(), UI_Pixels(footer - line), UI_Layout_Horizontal, theme->menu, 0);
-        hints->props.childrenAlignment = (UI_Vec2){ 0.5f, 0.5f };
-        UI_Parent(hints) {
-            local_persist const char *keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
-            local_persist const char *words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
-            for (u32 i = 0; i < CArrayCount(keys); ++i) {
-                if (keys[i]) {
-                    Prog__Chip(StrFromCStr(keys[i]), footer - line, false, m);
-                    Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(footer - line));
-                } else {
-                    UI_SetNextFont(m->detail);
-                    Prog__LabelPadded(StrFromCStr(words[i]), UI_TextContent(), footer - line, 0, floorf(12.0f * s + 0.5f), theme->textDim, 0);
-                }
-            }
-        }
+        local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
+        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
+        Prog__PaletteHints(keys, words, CArrayCount(keys), footer - line, theme->menu, m);
     }
     // The outline over everything inside, so that rows do not cover it.
     UI_SetNextPrefWidth(UI_Pixels(width));

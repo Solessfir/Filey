@@ -525,6 +525,28 @@ command OpenSettings {
     repeat  = "false"
 }
 
+command GoTo {
+    label   = "Go To^open,folder,path,jump,recent,navigate"
+    tooltip = "Open a recent folder, or type a path and expand its folders."
+    hotkey  = "Ctrl+P"
+    hotkey  = "F4"
+    repeat  = "false"
+}
+
+// Go To's buttons: the text before the last expansion, the one after it, and the folder above the one typed.
+command GoToBack {
+}
+
+command GoToForward {
+}
+
+command GoToUp {
+}
+
+// A Go To section title click; carries the Prog_GoToSection.
+command GoToFold {
+}
+
 command CommandPalette {
     label   = "Command Palette^commands,actions,search,run"
     tooltip = "Find and run any command by name."
