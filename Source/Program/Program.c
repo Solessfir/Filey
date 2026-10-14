@@ -458,7 +458,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             UI_Interaction interaction = UI_InteractionFromBlock(tab);
             if (interaction.pressed && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
             if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, interaction.clickOrder);
-            if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->tabDrag) {
+            if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->tabDrag && !state->tabDragCancelled) {
                 state->tabDrag = true;
                 state->tabDragKey = key;
                 state->tabDrop = (Prog_TabDropTarget){ .fromPanel = panelId, .fromSlot = i };
@@ -1931,6 +1931,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         state->tabDropped.copy = (UI->mods & KeyMod_Control) != 0;
         if (state->tabDropped.kind != Prog_TabDrop_None) Prog_QueueCommand(state, Prog_CommandKind_TabDrop, 0, 0, 0)->panel = 0;
     }
+    if (state->tabDragCancelled && UI->activeKey != state->tabDragKey) state->tabDragCancelled = false;
     state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);

@@ -333,6 +333,7 @@ typedef struct Prog_State {
     u64 pointerPanel;
     // A dragged tab, whose block is `tabDragKey`; the build finds `tabDrop`, where it would go, and the release drops it there.
     b32 tabDrag;
+    b32 tabDragCancelled;  // Escape ended the drag; the held tab does not start another until it is let go
     UI_Key tabDragKey;
     Prog_TabDropTarget tabDrop;
     Prog_TabDropTarget tabDropped;  // the drop that TabDrop carries out

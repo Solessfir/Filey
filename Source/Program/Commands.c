@@ -871,6 +871,11 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
+        if (state->tabDrag && event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) {
+            state->tabDrag = false;
+            state->tabDragCancelled = true;
+            continue;
+        }
         // The delete confirmation takes the keyboard: Enter deletes, Escape cancels, and nothing else gets through.
         if (state->confirmingDelete) {
             if (event->kind == PlatformEventKind_KeyDown && !event->isRepeat && event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_DeleteConfirm, 0, 0, order);
