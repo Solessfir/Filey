@@ -1233,6 +1233,16 @@ function void TestTabs(TestFileFixture *fixture)
     Check(state.gotoListed && offered >= 1 && TestEndsWith(found[0].path, S("/Empty")) && !found[0].file);
     TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
     Check(!state.paletteOpen && TestEndsWith(state.directory.path, S("/Empty")));
+    // Ctrl+Enter shows the folder picked in its parent, selected there.
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    typed = StrFormat(&state.frameArena, "%S/em", fixture->path);
+    Prog__EditReplace(&state.palette, (const u8 *)typed.value, (u32)typed.length);
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX, 1, 0)->mods = KeyMod_Control;
+    Check(Prog_ProcessCommands(&state));
+    Check(TestWaitDirectory(&state));
+    u64 shownEmpty = TestEntryIndex(&state, S("Empty"));
+    Check(StrIsEqual(state.directory.path, fixture->path) && shownEmpty != UINT64_MAX && state.directory.entries[shownEmpty].selected);
     Prog_Release(&state);
 }
 

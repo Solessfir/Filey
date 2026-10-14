@@ -97,6 +97,8 @@ class App:
             time.sleep(0.1)
         assert self.window, 'the app opened no window'
         u32.ShowWindow(self.window, 4)
+        # Over every other window without the focus, so that it can be watched and its frames read off the screen.
+        u32.SetWindowPos(self.window, wt.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
         # The reference draws at the size it opened with and only stretches to a size set from outside, so it opens at its size from the session
         # file instead; Filey takes a new size at once.
         if exe == FILEY: u32.MoveWindow(self.window, x, y, w, h, True)

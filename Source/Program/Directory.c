@@ -1618,7 +1618,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             if (old->measured) MapsPut(&state->frameArena, totals, old->file.name, old);
                         }
                     }
-                    String pick = samePath ? StrMake((const char *)state->selectText, state->selectLength) : (String){0};
+                    // A name to select applies in another folder too, as Go To's Ctrl+Enter shows an item in its own.
+                    String pick = StrMake((const char *)state->selectText, state->selectLength);
                     u64 created = 0, pickRow = UINT64_MAX;
                     b32 renameStillThere = false;
                     String renameFrom = StrMake((const char *)state->renameFrom, state->renameFromLength);

@@ -1325,7 +1325,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     // With nothing found, the text itself is the place to go.
                     Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false };
                     state->paletteOpen = false;
-                    Prog__GoToOpen(state, item);
+                    // Ctrl shows it in the panel instead: its folder, with it selected.
+                    String name = Prog__FolderName(item.path), parent = Prog_ParentPath(item.path);
+                    if ((command->mods & KeyMod_Control) && parent.length && !StrIsEqual(parent, item.path) && name.length <= sizeof(state->selectText)) {
+                        MemCopy(state->selectText, name.value, name.length);
+                        state->selectLength = (u32)name.length;
+                        Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
+                    } else {
+                        Prog__GoToOpen(state, item);
+                    }
                     break;
                 }
                 if (state->paletteMode == Prog_PaletteMode_Tabs) {
@@ -1512,7 +1520,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     Prog__EditReplace(&state->palette, (const u8 *)"", 0);
                 }
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
-                else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order);
+                else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = event->mods;
                 else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : 0;
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
