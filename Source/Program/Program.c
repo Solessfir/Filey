@@ -610,7 +610,7 @@ function void Prog__SidebarToggle(Prog_State *state, f32 button, const Prog_Metr
     if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder)->panel = 0;
 }
 
-// Where a dragged tab would go in a strip: a tab-shaped slot in the accent color.
+// Where a dragged tab would go in a strip: a tab-shaped slot washed in the selection color and outlined with it.
 function void Prog__TabPlaceholder(f32 width, f32 height, f32 radius, f32 stroke, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -619,14 +619,14 @@ function void Prog__TabPlaceholder(f32 width, f32 height, f32 radius, f32 stroke
     UI_SetNextChildrenPadding((UI_Padding){0});
     UI_Block *slot = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(slot) {
-        R_Color fill = theme->accent;
-        fill.a = 0.35f;
+        R_Color fill = theme->selection;
+        fill.a *= 0.35f;
         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height + radius));
         UI_SetNextCornerRadius(radius);
         UI_SetNextBorderThickness(stroke);
-        UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->accent });
+        UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->selection });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
     }
 }
@@ -2505,32 +2505,33 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
     state->menuHot = UI->hotKey;
 }
 
-// One drop zone at `box` (in the panel's coordinates): a dashed frame around the panel it would make, one of `parts` across or down, the `target`th filled.
+// One drop zone at `box` (in the panel's coordinates): a faint frame around a sketch of the panel it would make, one of `parts` across or down,
+// the `target`th washed in the selection color and outlined with it, more strongly while the pointer is over the zone.
 // Returns whether the pointer is over it.
 function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32 target, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 width = box.x1 - box.x0, height = box.y1 - box.y0, pad = floorf(8.0f * m->scale + 0.5f), radius = floorf(6.0f * m->scale + 0.5f);
+    f32 width = box.x1 - box.x0, height = box.y1 - box.y0, pad = floorf(7.2f * m->scale + 0.5f), radius = floorf(6.0f * m->scale + 0.5f);
     b32 hot = UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse);
     UI_SetNextFloatingOffset((UI_Vec2){ box.x0, box.y0 });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextCornerRadius(radius * 1.5f);
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
-    UI_Block *frame = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->tabBorder });
+    UI_Block *frame = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
     UI_Parent(frame) {
-        Prog__DashedOutline(width, height, radius, theme->tabBorder, m);
         f32 innerWidth = width - 2 * pad, innerHeight = height - 2 * pad;
         f32 part = floorf(((across ? innerWidth : innerHeight) - (f32)(parts - 1) * pad) / (f32)parts);
         for (u32 i = 0; i < parts; ++i) {
-            R_Color fill = theme->accent;
-            fill.a = i == target ? (hot ? 0.7f : 0.35f) : 0;
+            R_Color fill = theme->selection;
+            fill.a *= i == target ? (hot ? 0.7f : 0.35f) : 0;
             UI_SetNextFloatingOffset(across ? (UI_Vec2){ pad + (f32)i * (part + pad), pad } : (UI_Vec2){ pad, pad + (f32)i * (part + pad) });
             UI_SetNextPrefWidth(UI_Pixels(across ? part : innerWidth));
             UI_SetNextPrefHeight(UI_Pixels(across ? innerHeight : part));
             UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(MaxF32(1, floorf(1.5f * m->scale)));
-            UI_SetNextColors((UI_Colors){ .background = fill, .border = i == target ? theme->accent : theme->tabBorder });
+            UI_SetNextBorderThickness(1.2f * m->scale);
+            UI_SetNextColors((UI_Colors){ .background = fill, .border = i == target ? theme->selection : theme->tabBorder });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
         }
     }
