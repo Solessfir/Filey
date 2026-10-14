@@ -1205,6 +1205,21 @@ function void TestPanels(TestFileFixture *fixture)
     // The last panel stays.
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
     Check(state.panelCount == 1 && state.tabCount == 1);
+    // Dragged tabs: within their strip they change place, into another panel they move there, and beside a panel they make a new one; Ctrl copies.
+    u64 alone = state.panels[0].id;
+    Prog_OpenTab(&state, fixture->path, 1, false);
+    Check(state.tabCount == 2);
+    Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Strip, .panel = alone, .slot = 2, .fromPanel = alone, .fromSlot = 0 });
+    Check(state.tabCount == 2 && StrIsEqual(Prog_TabPath(&state, 0), fixture->path) && TestEndsWith(Prog_TabPath(&state, 1), S("/Empty")));
+    Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Right, .panel = alone, .fromPanel = alone, .fromSlot = 1 });
+    Check(TestWaitDirectory(&state) && state.panelCount == 2 && state.activePanel == 1 && TestEndsWith(state.directory.path, S("/Empty")));
+    Check(state.panels[0].tabCount == 1);
+    u64 right = state.panels[1].id;
+    Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Into, .panel = right, .fromPanel = alone, .fromSlot = 0, .copy = true });
+    Check(TestWaitDirectory(&state) && state.panelCount == 2 && state.activePanel == 1 && state.tabCount == 2 && state.panels[0].tabCount == 1);
+    // Moving a panel's only tab away closes that panel.
+    Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Strip, .panel = right, .slot = 0, .fromPanel = alone, .fromSlot = 0 });
+    Check(TestWaitDirectory(&state) && state.panelCount == 1 && state.tabCount == 3 && StrIsEqual(Prog_TabPath(&state, 0), fixture->path));
     Prog_Release(&state);
 }
 

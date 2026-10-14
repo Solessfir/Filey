@@ -75,6 +75,8 @@ typedef struct P_FileOrder {
 // May block while the application starts.
 // Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
+// Starts another Filey window, a process of its own, showing the folder `path`.
+function P_FileError P_OpenWindow(Arena *arena, String path);
 // Reports changes to the items of one folder, not of its subfolders, from a thread of its own.
 // {0} is a stopped watch.
 // `wake` runs on that thread when a change follows a call to P_DirectoryWatchTakeChanged.

@@ -96,6 +96,7 @@ typedef struct UI_Context {
     UI_Key activeKey, hotKey, lastPressKey;
     MouseButton activeButton, lastPressButton;
     KeyMods activeMods;
+    KeyMods mods;  // held by the last mouse or key event
     UI_Vec2 mouse, pressOrigin, lastPressPosition, wheel;
     u64 lastPressTime;
     u32 pressCount;

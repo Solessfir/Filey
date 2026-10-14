@@ -707,6 +707,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String path = Prog_TabPath(state, state->activeTab);
                 Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_SplitRight ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, path);
             } break;
+            case Prog_CommandKind_TabDrop: Prog_DropTab(state, state->tabDropped); break;
             case Prog_CommandKind_ResizeSplit: {
                 if (command->row < Prog_MaxSplits) state->splits[command->row].ratio = UI__Clamp((f32)command->target / 1e6f, 0.1f, 0.9f);
             } break;

@@ -242,6 +242,22 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function P_FileError P_OpenWindow(Arena *arena, String path)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char executable[PATH_MAX];
+    i64 length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    char *folder = P__FilePathCString(scratch.arena, path);
+    u32 error = length > 0 && folder ? 0 : (u32)errno;
+    if (!error) {
+        executable[length] = 0;
+        char *args[] = {executable, folder, NULL};
+        error = P__Spawn(executable, args, NULL);
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
 // Wayland drags are asynchronous: this starts one and returns, and the window code handles the rest.
 function b32 LinuxStartDrag(String directory, const String *names, u64 count);
 

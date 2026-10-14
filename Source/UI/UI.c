@@ -103,7 +103,9 @@ function void UI__Input(PlatformEventList events)
             event->kind == PlatformEventKind_MouseUp || event->kind == PlatformEventKind_MouseWheel) {
             UI->mouse = (UI_Vec2){event->x, event->y};
             UI->mouseKnown = true;
+            UI->mods = event->mods;
         }
+        if (event->kind == PlatformEventKind_KeyDown || event->kind == PlatformEventKind_KeyUp) UI->mods = event->mods;
         if (event->kind == PlatformEventKind_MouseDown && event->button < MouseButton_Count && !UI->activeKey) {
             UI_Block *block = UI__Hit(UI__ButtonFlags[event->button]);
             if (block) {

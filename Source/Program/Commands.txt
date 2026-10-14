@@ -498,6 +498,10 @@ command SplitBottom {
     repeat  = "false"
 }
 
+// A dragged tab let go; Prog_State.tabDropped says where.
+command TabDrop {
+}
+
 // A divider between panels dragged; row is the split node and target its first child's share in millionths.
 command ResizeSplit {
 }

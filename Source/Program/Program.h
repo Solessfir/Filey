@@ -287,6 +287,28 @@ typedef struct Prog_Split {
 
 #define Prog_MaxSplits (2 * Prog_MaxPanels)
 
+// Where a dragged tab goes: a slot of a panel's strip, into a panel, a new panel on one of a panel's sides, or a new window.
+typedef enum Prog_TabDrop {
+    Prog_TabDrop_None,
+    Prog_TabDrop_Strip,
+    Prog_TabDrop_Into,
+    Prog_TabDrop_Left,
+    Prog_TabDrop_Right,
+    Prog_TabDrop_Top,
+    Prog_TabDrop_Bottom,
+    Prog_TabDrop_Window,
+    Prog_TabDrop_Count,
+} Prog_TabDrop;
+
+typedef struct Prog_TabDropTarget {
+    enum8(Prog_TabDrop) kind;
+    u64 panel;        // the panel it goes into or beside
+    u32 slot;         // the strip slot it goes before
+    u64 fromPanel;    // where the tab is
+    u32 fromSlot;
+    b32 copy;         // Ctrl leaves the tab where it was
+} Prog_TabDropTarget;
+
 typedef struct Prog_State {
     Arena frameArena;
     Arena jobsArena;
@@ -309,6 +331,11 @@ typedef struct Prog_State {
     Prog_Split splits[Prog_MaxSplits];
     u64 hoverPanel;           // the panel of the row under the pointer, and the panel under the pointer, in the last build
     u64 pointerPanel;
+    // A dragged tab, whose block is `tabDragKey`; the build finds `tabDrop`, where it would go, and the release drops it there.
+    b32 tabDrag;
+    UI_Key tabDragKey;
+    Prog_TabDropTarget tabDrop;
+    Prog_TabDropTarget tabDropped;  // the drop that TabDrop carries out
     Arena closedArena;        // paths of closed tabs, for Reopen Closed Tab
     ArrayStr closedTabs;
     // File icons, keyed by P_FileIconKey.
@@ -433,6 +460,7 @@ function UI_Key Prog_PanelKeySeed(u64 id);
 function void Prog__ReleaseTab(Prog_Tab *tab);
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
 function void Prog_ClosePanel(Prog_State *state, u32 index);
+function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop);
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);

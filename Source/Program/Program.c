@@ -365,6 +365,27 @@ function void Prog__SidebarToggle(Prog_State *state, f32 button, const Prog_Metr
     if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder)->panel = 0;
 }
 
+// Where a dragged tab would go in a strip: a tab-shaped slot in the accent color.
+function void Prog__TabPlaceholder(f32 width, f32 height, f32 radius, f32 stroke, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_SetNextPrefWidth(UI_Pixels(width + m->separator));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenPadding((UI_Padding){0});
+    UI_Block *slot = UI_AddBlock(UI_Flag_Clip);
+    UI_Parent(slot) {
+        R_Color fill = theme->accent;
+        fill.a = 0.35f;
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height + radius));
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness(stroke);
+        UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->accent });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+    }
+}
+
 // A panel's tab strip `width` wide: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
 // Tabs share the strip's width up to a fixed size, and dragging one moves it between the others.
 // In the title bar (`caption`) the strip's empty space moves the window; `lead` puts the sidebar button first while the sidebar is hidden, and `controls` the window buttons last.
@@ -374,9 +395,14 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     Prog__EnsureTab(state);
     f32 top = floorf(m->bar * 0.15f);
     UI_SetNextChildrenPadding((UI_Padding){ 0, top, 0, 0 });
-    UI_Block *strip = Prog__Box(UI_Pixels(width), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(m->bar));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     // Children start at the top, so that tabs taller than the strip hang below it.
-    strip->props.childrenAlignment.y = 0;
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
+    UI_SetNextColors((UI_Colors){ .background = theme->panel });
+    // Keyed, so that its last layout tells whether a dragged tab is over it.
+    UI_Block *strip = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TabStrip")), UI_Flag_DrawBackground);
     UI_Parent(strip) {
         if (caption) Prog__Caption(state, S("Caption"), width, m->bar, -top);
         f32 stroke = m->separator;
@@ -395,15 +421,27 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         f32 controlWidth = floorf(40.0f * scale);
         f32 plus = floorf(m->bar * 0.9f);
         f32 room = MaxF32(0, width - leadWidth - plus - m->inset - (controls ? controlWidth * 3 : 0));
-        f32 slot = floorf(MinF32(m->line * 12.0f, room / (f32)state->tabCount));
+        // A tab dragged over the strip goes into the slot nearest the pointer, which a placeholder marks unless it would stay where it is.
+        u64 panelId = Prog__PanelId(state);
+        b32 dropHere = state->tabDrag && UI__Contains(strip->rect, UI->mouse);
+        f32 slotGuess = floorf(MinF32(m->line * 12.0f, room / (f32)(state->tabCount + 1)));
+        u32 dropSlot = dropHere && slotGuess > 0 ? (u32)UI__Clamp(floorf((UI->mouse.x - strip->rect.x0 - leadWidth) / slotGuess + 0.5f), 0, (f32)state->tabCount) : 0;
+        b32 stays = state->tabDrop.fromPanel == panelId && (dropSlot == state->tabDrop.fromSlot || dropSlot == state->tabDrop.fromSlot + 1);
+        b32 placeholder = dropHere && !stays;
+        if (dropHere) {
+            state->tabDrop.kind = Prog_TabDrop_Strip;
+            state->tabDrop.panel = panelId;
+            state->tabDrop.slot = dropSlot;
+        }
+        f32 slot = floorf(MinF32(m->line * 12.0f, room / (f32)(state->tabCount + (placeholder ? 1 : 0))));
         f32 tabWidth = MaxF32(0, slot - m->separator);
         f32 height = m->bar - top;
         // The shown tab hangs past the strip by its corner radius, so the toolbar drawn after it covers its lower corners and border.
         f32 tabRadius = floorf(8.0f * scale + 0.5f);
         f32 hang = tabRadius + stroke + 1;
-        u32 dragFrom = UINT32_MAX;
-        f32 dragX = 0;
-        for (u32 i = 0; i < state->tabCount; ++i) {
+        for (u32 i = 0; i <= state->tabCount; ++i) {
+            if (placeholder && i == dropSlot) Prog__TabPlaceholder(tabWidth, height, tabRadius, stroke, m);
+            if (i == state->tabCount) break;
             b32 shown = i == state->activeTab;
             String path = Prog_TabPath(state, i);
             String name = Prog__FolderName(path);
@@ -420,9 +458,10 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             UI_Interaction interaction = UI_InteractionFromBlock(tab);
             if (interaction.pressed && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
             if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, interaction.clickOrder);
-            if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
-                dragFrom = i;
-                dragX = UI->mouse.x;
+            if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->tabDrag) {
+                state->tabDrag = true;
+                state->tabDragKey = key;
+                state->tabDrop = (Prog_TabDropTarget){ .fromPanel = panelId, .fromSlot = i };
             }
             UI_Parent(tab) {
                 if (shown || hot) {
@@ -522,15 +561,6 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                 Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, m->bar, scale, m);
                 Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, m->bar, scale, m);
                 Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, m->bar, scale, m);
-            }
-        }
-        // A dragged tab takes the slot under the pointer.
-        if (dragFrom != UINT32_MAX && slot > 0) {
-            f32 x = dragX - (strip->rect.x0 + leadWidth);
-            u32 to = (u32)MinF32(MaxF32(0, x / slot), (f32)(state->tabCount - 1));
-            if (to != dragFrom) {
-                Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MoveTab, dragFrom, 0, 0);
-                command->target = to;
             }
         }
     }
@@ -980,11 +1010,31 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     }
 }
 
+// A dashed outline around the current parent, `width` x `height`, its dashes starting `inset` from the corners.
+function void Prog__DashedOutline(f32 width, f32 height, f32 inset, R_Color color, const Prog_Metrics *m)
+{
+    f32 thickness = MaxF32(1, floorf(m->scale));
+    f32 dash = floorf(5.0f * m->scale + 0.5f), gap = floorf(2.5f * m->scale + 0.5f);
+    for (u32 edge = 0; edge < 4; ++edge) {
+        b32 horizontal = edge < 2;
+        f32 length = (horizontal ? width : height) - inset;
+        for (f32 at = inset; at < length; at += dash + gap) {
+            f32 piece = MinF32(dash, length - at);
+            UI_Vec2 offset = horizontal ? (UI_Vec2){ at, edge == 0 ? 0 : height - thickness } : (UI_Vec2){ edge == 2 ? 0 : width - thickness, at };
+            UI_SetNextFloatingOffset(offset);
+            UI_SetNextPrefWidth(UI_Pixels(horizontal ? piece : thickness));
+            UI_SetNextPrefHeight(UI_Pixels(horizontal ? thickness : piece));
+            UI_SetNextColors((UI_Colors){ .background = color });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+    }
+}
+
 // The selection box: a faint fill with a dashed outline, in the list's padded coordinates.
 function void Prog__Marquee(R_Rect box, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    R_Color line = theme->marquee, fill = theme->marquee;
+    R_Color fill = theme->marquee;
     fill.a *= 0.16f;
     f32 width = box.x1 - box.x0, height = box.y1 - box.y0;
     UI_SetNextFloatingOffset((UI_Vec2){ box.x0, box.y0 });
@@ -992,23 +1042,7 @@ function void Prog__Marquee(R_Rect box, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextColors((UI_Colors){ .background = fill });
     UI_Block *area = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-    f32 thickness = MaxF32(1, floorf(m->scale));
-    f32 dash = floorf(5.0f * m->scale + 0.5f), gap = floorf(2.5f * m->scale + 0.5f);
-    UI_Parent(area) {
-        for (u32 edge = 0; edge < 4; ++edge) {
-            b32 horizontal = edge < 2;
-            f32 length = horizontal ? width : height;
-            for (f32 at = 0; at < length; at += dash + gap) {
-                f32 piece = MinF32(dash, length - at);
-                UI_Vec2 offset = horizontal ? (UI_Vec2){ at, edge == 0 ? 0 : height - thickness } : (UI_Vec2){ edge == 2 ? 0 : width - thickness, at };
-                UI_SetNextFloatingOffset(offset);
-                UI_SetNextPrefWidth(UI_Pixels(horizontal ? piece : thickness));
-                UI_SetNextPrefHeight(UI_Pixels(horizontal ? thickness : piece));
-                UI_SetNextColors((UI_Colors){ .background = line });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-            }
-        }
-    }
+    UI_Parent(area) Prog__DashedOutline(width, height, 0, theme->marquee, m);
 }
 
 function Prog_View Prog_ZoomView(u32 zoom)
@@ -1662,6 +1696,112 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
     state->menuHot = UI->hotKey;
 }
 
+// One drop zone at `box` (in the panel's coordinates): a dashed frame around the panel it would make, one of `parts` across or down, the `target`th filled.
+// Returns whether the pointer is over it.
+function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32 target, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 width = box.x1 - box.x0, height = box.y1 - box.y0, pad = floorf(8.0f * m->scale + 0.5f), radius = floorf(6.0f * m->scale + 0.5f);
+    b32 hot = UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse);
+    UI_SetNextFloatingOffset((UI_Vec2){ box.x0, box.y0 });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextCornerRadius(radius * 1.5f);
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *frame = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    UI_Parent(frame) {
+        Prog__DashedOutline(width, height, radius, theme->tabBorder, m);
+        f32 innerWidth = width - 2 * pad, innerHeight = height - 2 * pad;
+        f32 part = floorf(((across ? innerWidth : innerHeight) - (f32)(parts - 1) * pad) / (f32)parts);
+        for (u32 i = 0; i < parts; ++i) {
+            R_Color fill = theme->accent;
+            fill.a = i == target ? (hot ? 0.7f : 0.35f) : 0;
+            UI_SetNextFloatingOffset(across ? (UI_Vec2){ pad + (f32)i * (part + pad), pad } : (UI_Vec2){ pad, pad + (f32)i * (part + pad) });
+            UI_SetNextPrefWidth(UI_Pixels(across ? part : innerWidth));
+            UI_SetNextPrefHeight(UI_Pixels(across ? innerHeight : part));
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(MaxF32(1, floorf(1.5f * m->scale)));
+            UI_SetNextColors((UI_Colors){ .background = fill, .border = i == target ? theme->accent : theme->tabBorder });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        }
+    }
+    return hot;
+}
+
+// While a tab is dragged over a panel, its drop zones: beside it on the left and right with into it between them in the middle, above it at the top and below it at the bottom.
+function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Prog_Metrics *m)
+{
+    f32 s = m->scale, width = panel.x1 - panel.x0, height = panel.y1 - panel.y0;
+    f32 side = floorf(70 * s), middle = floorf(96 * s), tall = floorf(94 * s), gap = floorf(12 * s), wide = floorf(118 * s), low = floorf(66 * s);
+    f32 cx = floorf(width * 0.5f), cy = floorf(top + (height - top) * 0.5f);
+    struct { R_Rect box; u32 parts; b32 across; u32 target; Prog_TabDrop drop; } zones[] = {
+        { { cx - middle * 0.5f - gap - side, cy - tall * 0.5f, cx - middle * 0.5f - gap, cy + tall * 0.5f }, 2, true, 0, Prog_TabDrop_Left },
+        { { cx - middle * 0.5f, cy - tall * 0.5f, cx + middle * 0.5f, cy + tall * 0.5f }, 1, true, 0, Prog_TabDrop_Into },
+        { { cx + middle * 0.5f + gap, cy - tall * 0.5f, cx + middle * 0.5f + gap + side, cy + tall * 0.5f }, 2, true, 1, Prog_TabDrop_Right },
+        { { cx - wide * 0.5f, top, cx + wide * 0.5f, top + low }, 2, false, 0, Prog_TabDrop_Top },
+        { { cx - wide * 0.5f, height - low - gap, cx + wide * 0.5f, height - gap }, 2, false, 1, Prog_TabDrop_Bottom },
+    };
+    for (u32 i = 0; i < CArrayCount(zones); ++i) {
+        if (Prog__DropZone(zones[i].box, panel, zones[i].parts, zones[i].across, zones[i].target, m)) {
+            state->tabDrop.kind = (u8)zones[i].drop;
+            state->tabDrop.panel = Prog__PanelId(state);
+        }
+    }
+}
+
+// The dragged tab under the pointer, over what letting go does there.
+function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    u32 from = Prog_PanelIndex(state, state->tabDrop.fromPanel);
+    if (from == UINT32_MAX) return;
+    Prog__UsePanel(state, from);
+    String path = state->tabDrop.fromSlot < state->tabCount ? Prog_TabPath(state, state->tabDrop.fromSlot) : (String){0};
+    Prog__UsePanel(state, state->activePanel);
+    b32 copy = (UI->mods & KeyMod_Control) != 0;
+    String action = state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? S("Copy to a new window") : S("Move to a new window (Ctrl to copy)"))
+                  : copy ? S("Copy") : S("Move (Ctrl to copy)");
+    f32 width = floorf(m->line * 12.0f), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
+    R_Rect view = UI->root->rect;
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf(UI->mouse.x - view.x0 - width * 0.3f), floorf(UI->mouse.y - view.y0 + m->gap) });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height + m->row));
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_Block *ghost = UI_AddBlock(UI_Flag_Floating);
+    UI_Parent(ghost) {
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(14.0f * scale), 0, m->gap, 0 });
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
+        UI_Block *tab = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        UI_Parent(tab) {
+            Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
+            const Prog_Icon *icon = path.length ? Prog_FileIcon(state, Prog_ParentPath(path), &folder) : NULL;
+            if (icon) {
+                UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + m->gap));
+                UI_SetNextPrefHeight(UI_Pixels(height));
+                UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                UI_AddBlock(UI_Flag_DrawImage);
+            } else {
+                Prog__Icon(Icon_Folder, (f32)state->iconSize + m->gap, height, theme->icon, 0, m);
+            }
+            Prog__Label(Prog__FolderName(path), UI_Flex(), height, 0, theme->text, 0);
+        }
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(m->row));
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->tabBorder, .text = theme->text });
+        UI_SetNextText(action);
+        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
+    }
+}
+
 // The key seed of panel `id`'s blocks; a nonzero parent keeps it from depending on the seed in use.
 function UI_Key Prog_PanelKeySeed(u64 id)
 {
@@ -1701,6 +1841,10 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 dim.a = 0.4f;
                 UI_SetNextColors((UI_Colors){ .background = dim });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            // Over the dimming, so that an inactive panel's zones show as clearly.
+            if (state->tabDrag && UI__Contains((R_Rect){ rect.x0, rect.y0 + m->bar, rect.x1, rect.y1 }, UI->mouse)) {
+                Prog__DropZones(state, (R_Rect){ rect.x0, rect.y0 + m->bar, rect.x1, rect.y1 }, 0, m);
             }
         }
     }
@@ -1780,6 +1924,14 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->bookmarkDropShown = 0;
     state->pointerPanel = 0;
     Prog__EnsureTab(state);
+    // A dragged tab is let go where the last build found it would go; Ctrl, held now, copies it.
+    if (state->tabDrag && UI->activeKey != state->tabDragKey) {
+        state->tabDrag = false;
+        state->tabDropped = state->tabDrop;
+        state->tabDropped.copy = (UI->mods & KeyMod_Control) != 0;
+        if (state->tabDropped.kind != Prog_TabDrop_None) Prog_QueueCommand(state, Prog_CommandKind_TabDrop, 0, 0, 0)->panel = 0;
+    }
+    state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
@@ -1796,6 +1948,10 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__Layout(state, 0, area, area, columns, scale, m);
     UI->keySeed = 0;
     Prog__UsePanel(state, state->activePanel);
+    if (state->tabDrag) {
+        if (!UI__Contains(view, UI->mouse)) state->tabDrop.kind = Prog_TabDrop_Window;
+        Prog__TabGhost(state, scale, m);
+    }
     Prog__ContextMenu(state, m);
     Prog__DeleteConfirmation(state, m);
 }

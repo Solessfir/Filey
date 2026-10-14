@@ -228,3 +228,30 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
+
+function P_FileError P_OpenWindow(Arena *arena, String path)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar executable[1024];
+    u32 length = GetModuleFileNameW(NULL, executable, (u32)CArrayCount(executable));
+    wchar *folder = P__FilePathWide(scratch.arena, path);
+    P_FileError result = {0};
+    if (!length || length >= CArrayCount(executable) || !folder) {
+        result = P__FileError(arena, GetLastError());
+    } else {
+        // The command line is the quoted program, then the quoted folder, as the program's own startup parses it.
+        u64 folderLength = wcslen(folder);
+        wchar *line = ArenaPushArray(scratch.arena, length + folderLength + 8, wchar);
+        swprintf(line, length + folderLength + 8, L"\"%ls\" \"%ls\"", executable, folder);
+        STARTUPINFOW startup = { .cb = sizeof(startup) };
+        PROCESS_INFORMATION process = {0};
+        if (CreateProcessW(executable, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+        } else {
+            result = P__FileError(arena, GetLastError());
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}

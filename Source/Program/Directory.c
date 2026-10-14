@@ -836,6 +836,60 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
     state->activePanel = state->currentPanel;
 }
 
+// Moves, or with `copy` copies, a tab to where it was dropped; the tab takes its folder there, and the place it lands becomes active.
+// ponytail: the moved tab starts over in its folder, without its history or selection; carry the Prog_Tab across when that matters.
+function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
+{
+    u32 from = Prog_PanelIndex(state, drop.fromPanel), into = Prog_PanelIndex(state, drop.panel);
+    if (from == UINT32_MAX) return;
+    Prog__ActivatePanel(state, from);
+    if (drop.fromSlot >= state->tabCount) return;
+    String path = StrCopy(&state->frameArena, Prog_TabPath(state, drop.fromSlot));
+    if (!path.length) return;
+    b32 alone = state->tabCount == 1;
+    switch (drop.kind) {
+        case Prog_TabDrop_Strip:
+        case Prog_TabDrop_Into: {
+            if (into == UINT32_MAX) return;
+            if (into == from && !drop.copy) {
+                // Within its strip a tab only changes place.
+                if (drop.kind == Prog_TabDrop_Strip) Prog_MoveTab(state, drop.fromSlot, drop.slot > drop.fromSlot ? drop.slot - 1 : drop.slot);
+                return;
+            }
+            Prog__ActivatePanel(state, into);
+            Prog_OpenTab(state, path, drop.kind == Prog_TabDrop_Into ? state->tabCount : drop.slot, true);
+        } break;
+        case Prog_TabDrop_Left:
+        case Prog_TabDrop_Right:
+        case Prog_TabDrop_Top:
+        case Prog_TabDrop_Bottom: {
+            // A panel's only tab moving beside the panel would only leave it where it is.
+            if (into == UINT32_MAX || (into == from && alone && !drop.copy)) return;
+            b32 across = drop.kind == Prog_TabDrop_Left || drop.kind == Prog_TabDrop_Right;
+            b32 before = drop.kind == Prog_TabDrop_Left || drop.kind == Prog_TabDrop_Top;
+            if (Prog_SplitPanel(state, into, across ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, before, path) == UINT32_MAX) return;
+        } break;
+        case Prog_TabDrop_Window: {
+            P_FileError error = P_OpenWindow(&state->frameArena, path);
+            if (error.code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
+                return;
+            }
+        } break;
+        default: return;
+    }
+    if (drop.copy) return;
+    // The tab leaves where it was; its panel closes when it was the only one there.
+    u64 landed = Prog__PanelId(state);
+    from = Prog_PanelIndex(state, drop.fromPanel);
+    if (from == UINT32_MAX) return;
+    Prog__ActivatePanel(state, from);
+    Prog_CloseTab(state, drop.fromSlot);
+    u32 back = Prog_PanelIndex(state, landed);
+    if (back != UINT32_MAX) Prog__ActivatePanel(state, back);
+}
+
 function b32 Prog__AnyMeasuring(const Prog_State *state)
 {
     b32 result = state->measureJob != NULL;
