@@ -861,6 +861,8 @@ function void TestWatch(TestFileFixture *fixture)
 function void TestMeasure(TestFileFixture *fixture)
 {
     Arena arena = {0};
+    Check(StrIsEqual(Prog__FormatCount(&arena, 999), S("999")) && StrIsEqual(Prog__FormatCount(&arena, 1599), S("1.5K")));
+    Check(StrIsEqual(Prog__FormatCount(&arena, 250000), S("250K")) && StrIsEqual(Prog__FormatCount(&arena, 3210000), S("3.2M")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 0), S("0 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1010), S("1010 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1024), S("1 kB")));

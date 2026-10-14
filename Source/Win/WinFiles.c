@@ -277,6 +277,18 @@ function b32 P__MeasurePush(Arena *arena, P__MeasureStack *stack, wchar *buffer,
     return true;
 }
 
+function i64 P_FileCreatedTime(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
+    WIN32_FILE_ATTRIBUTE_DATA data = {0};
+    b32 found = wide && GetFileAttributesExW(wide, GetFileExInfoStandard, &data);
+    ReleaseScratch(scratch);
+    if (!found) return 0;
+    u64 time = ((u64)data.ftCreationTime.dwHighDateTime << 32) | data.ftCreationTime.dwLowDateTime;
+    return (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600);
+}
+
 function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel)
 {
     P_DirectoryTotals result = {0};

@@ -313,6 +313,13 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    if (input->kind == Prog_JobKind_Inspect) {
+        Prog_Inspected *result = ArenaPushStruct(&job->arena, Prog_Inspected);
+        result->created = P_FileCreatedTime(input->path);
+        result->totals = P_MeasureDirectory(input->path, &job->cancelToken);
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_Measure) {
         Prog_Measured *result = ArenaPushStruct(&job->arena, Prog_Measured);
         result->totals = ArenaPushArray(&job->arena, Max(input->rowCount, (u64)1), P_DirectoryTotals);
@@ -524,6 +531,23 @@ function void Prog__MeasureFolders(Prog_State *state)
     }
     job->input = input;
     state->measureJob = job;
+    P_JobSubmit(job);
+}
+
+// Starts finding out what a sidebar tip shows of `path`, unless that is already under way or known.
+function void Prog_InspectFolder(Prog_State *state, String path)
+{
+    if (StrIsEqual(path, state->tipPath)) return;
+    if (state->tipJob) P_RequestCancel(&state->tipJob->cancelToken);
+    ArenaClear(&state->tipArena);
+    state->tipPath = StrCopy(&state->tipArena, path);
+    state->tipKnown = false;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Inspect;
+    input->path = StrCopy(&job->arena, path);
+    job->input = input;
+    state->tipJob = job;
     P_JobSubmit(job);
 }
 
@@ -1356,7 +1380,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             P_JobRelease(job);
@@ -1445,6 +1469,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Undo: %S", error->message);
             }
             Prog_Reload(state);
+        } else if (input->kind == Prog_JobKind_Inspect) {
+            if (state->tipJob == job) state->tipJob = NULL;
+            if (job->result && StrIsEqual(input->path, state->tipPath) && !P_IsCancelled(&job->cancelToken)) {
+                state->tip = *(Prog_Inspected *)job->result;
+                state->tipKnown = true;
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_Places) {
             if (state->placesJob == job) state->placesJob = NULL;
             if (job->result) {
@@ -1730,6 +1761,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->recentArena);
     ArenaRelease(&state->undoArena);
     ArenaRelease(&state->sizeArena);
+    ArenaRelease(&state->tipArena);
     ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};
 }

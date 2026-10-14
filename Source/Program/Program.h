@@ -88,6 +88,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
     Prog_JobKind_Measure,
+    Prog_JobKind_Inspect,
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
@@ -257,6 +258,12 @@ typedef struct Prog_SizeMap { MapHeader header; struct { String key; P_Directory
 
 // ponytail: the cache starts over past this many folders; evict the oldest if big trees make that common.
 #define Prog_MaxCachedSizes 50000
+
+// What a sidebar item's tip shows of its folder.
+typedef struct Prog_Inspected {
+    P_DirectoryTotals totals;
+    i64 created;
+} Prog_Inspected;
 
 typedef struct Prog_Measured {
     P_DirectoryTotals *totals;  // for the first `count` rows of the job
@@ -452,7 +459,14 @@ typedef struct Prog_State {
     R_Rect tooltipRect;
     enum8(Prog_CommandKind) tooltipKind;
     String tooltipLabel;      // the command's label when empty
+    // A sidebar item's tip: its folder, inspected by tipJob into tipArena.
+    String tipPath;
+    Arena tipArena;
+    P_Job *tipJob;
+    b32 tipKnown;
+    Prog_Inspected tip;
     String tooltipDetail;     // a line over the command, such as the folder a history button goes to
+    String tooltipPath;       // a sidebar folder, whose tip shows what it holds instead
     f32 menuRight;            // when nonzero, the right edge the top level lines up with
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
@@ -548,6 +562,7 @@ function b32 Prog_TakeCompletions(Prog_State *state);
 function String Prog_ParentPath(String path);
 function String Prog_JoinPath(Arena *arena, String path, String name);
 function String Prog_FormatSize(Arena *arena, u64 bytes);
+function void Prog_InspectFolder(Prog_State *state, String path);
 function i32 Prog_CompareNames(String a, String b);
 function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods);
 function void Prog_OpenRow(Prog_State *state, u64 row);

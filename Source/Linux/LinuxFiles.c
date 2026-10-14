@@ -467,6 +467,16 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
 
 typedef struct P__MeasureStack { ArrayHeader header; DIR **v; } P__MeasureStack;
 
+function i64 P_FileCreatedTime(String path)
+{
+    Scratch scratch = GetScratch();
+    char *name = P__FilePathCString(scratch.arena, path);
+    struct statx info = {0};
+    b32 found = name && statx(AT_FDCWD, name, 0, STATX_BTIME, &info) == 0 && (info.stx_mask & STATX_BTIME);
+    ReleaseScratch(scratch);
+    return found ? (i64)info.stx_btime.tv_sec : 0;
+}
+
 function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel)
 {
     P_DirectoryTotals result = {0};

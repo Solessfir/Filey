@@ -873,6 +873,18 @@ function String Prog__DriveName(const Prog_State *state, String path)
     return StrFromTo(path, 0, 2);
 }
 
+// A folder as its crumbs read, "Local\Temp\Fixture", in the system's separators.
+function String Prog__CrumbPath(Prog_State *state, String path)
+{
+    if (!path.length) return path;
+    b32 drive;
+    u64 start = Prog__CrumbStart(state, path, &drive);
+    String rest = StrFrom(path, drive ? 2 : start);
+    while (rest.length && rest.value[rest.length - 1] == '/') --rest.length;
+    String text = drive ? StrFormat(&state->frameArena, "%S%S", Prog__DriveName(state, path), rest) : rest;
+    return P_NativePath(&state->frameArena, text);
+}
+
 // "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
 // Every segment but the current one opens its folder.
 function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
@@ -1847,11 +1859,18 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarMenu, (u64)group, 0, interaction.pressOrder);
         command->target = index;
     }
-    if (interaction.clicked && interaction.button == MouseButton_Left) {
+    // Ctrl opens it in a new tab, as the middle button does.
+    b32 inTab = interaction.button == MouseButton_Middle || (interaction.button == MouseButton_Left && (UI->mods & KeyMod_Control));
+    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
-    if (interaction.clicked && interaction.button == MouseButton_Middle) {
+    if (UI->hotKey == key && !UI->activeKey && path.length) {
+        state->tooltipKey = key;
+        state->tooltipRect = row->rect;
+        state->tooltipPath = path;
+    }
+    if (interaction.clicked && inTab) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpenInTab, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
@@ -2241,8 +2260,73 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     return result;
 }
 
-// The command palette near the top of the window: the text typed over the commands it finds, with their hotkeys.
 // After the pointer rests on a button for a moment, a tip under it with the command the button runs and its hotkeys, fading in.
+// "1.5K" for 1599, cut off rather than rounded as sizes are.
+function String Prog__FormatCount(Arena *arena, u64 count)
+{
+    if (count < 1000) return StrFormat(arena, "%" PRIu64, count);
+    u64 unit = count < 1000000 ? 1000 : 1000000, tenths = count * 10 / unit;
+    String suffix = unit == 1000 ? S("K") : S("M");
+    return tenths < 1000 ? StrFormat(arena, "%" PRIu64 ".%" PRIu64 "%S", tenths / 10, tenths % 10, suffix) : StrFormat(arena, "%" PRIu64 "%S", tenths / 10, suffix);
+}
+
+// The tip of a sidebar folder, beside its row: its name over its path, when it was made, what it holds once that is counted, and the click that opens it in a tab.
+function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    String path = state->tooltipPath;
+    Prog_InspectFolder(state, path);
+    f32 s = m->scale, pad = floorf(12.0f * s + 0.5f), side = floorf(8.8f * s + 0.5f), row = floorf(21.6f * s + 0.5f), margin = floorf(6.4f * s + 0.5f);
+    Arena *frame = &state->frameArena;
+    b32 known = state->tipKnown;
+    String waiting = S("...");
+    String labels[] = { Prog__FolderName(path), S("Created:"), S("Subfolders:"), S("Subfiles:"), S("Size:"), S("Cmd:") };
+    String values[] = {
+        Prog__CrumbPath(state, path),
+        known && state->tip.created ? P_FormatFileTime(frame, state->tip.created) : known ? S("--") : waiting,
+        known ? Prog__FormatCount(frame, state->tip.totals.folders) : waiting,
+        known ? Prog__FormatCount(frame, state->tip.totals.files) : waiting,
+        known ? Prog_FormatSize(frame, state->tip.totals.bytes) : waiting,
+        S("Open In New Tab"),
+    };
+    String chips[] = { S("Ctrl+MouseLeft"), S("MouseMiddle") };
+    f32 column = 0, valueWidth = 0, chipGap = floorf(4.8f * s + 0.5f), chipPad = floorf(4.8f * s + 0.5f);
+    for (u32 i = 0; i < CArrayCount(labels); ++i) column = MaxF32(column, R_TextWidth(m->font, labels[i]));
+    column += floorf(13.6f * s + 0.5f);
+    for (u32 i = 0; i < CArrayCount(values); ++i) valueWidth = MaxF32(valueWidth, R_TextWidth(m->detail, values[i]));
+    f32 commandWidth = R_TextWidth(m->detail, values[CArrayCount(values) - 1]);
+    for (u32 i = 0; i < CArrayCount(chips); ++i) commandWidth += chipGap + R_TextWidth(m->detail, chips[i]) + 2 * chipPad;
+    f32 width = 2 * side + column + MaxF32(valueWidth, commandWidth);
+    f32 height = 2 * pad + (f32)CArrayCount(labels) * row;
+    R_Rect view = UI->root->rect, item = state->tooltipRect;
+    // Right of the row and level with it.
+    f32 x = item.x1, y = floorf((item.y0 + item.y1 - height) * 0.5f);
+    x = floorf(MaxF32(view.x0 + margin, MinF32(x, view.x1 - margin - width)));
+    y = floorf(MaxF32(view.y0 + margin, MinF32(y, view.y1 - margin - height)));
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ side, pad, side, pad });
+    UI_SetNextCornerRadius(floorf(8.0f * s + 0.5f));
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *tip = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+    UI_Parent(tip) for (u32 i = 0; i < CArrayCount(labels); ++i) {
+        UI_Block *line = Prog__Box(UI_Fill(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(line) {
+            Prog__Label(labels[i], UI_Pixels(column), row, 0, theme->text, 0);
+            UI_SetNextFont(m->detail);
+            Prog__Label(values[i], UI_TextContent(), row, 0, theme->textDim, 0);
+            for (u32 c = 0; i + 1 == CArrayCount(labels) && c < CArrayCount(chips); ++c) {
+                Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(row));
+                Prog__Chip(chips[c], row, false, m);
+            }
+        }
+    }
+}
+
 function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->tooltipKey || state->menuOpen || state->paletteOpen) return;
@@ -2252,6 +2336,10 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     }
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale, opacity = UI_Animate(UI_KeyFromStr(state->tooltipKey, S("TooltipShown")), 1, 0);
+    if (state->tooltipPath.length) {
+        Prog__FolderTip(state, opacity, m);
+        return;
+    }
     String label = state->tooltipLabel.length ? state->tooltipLabel : Prog_Commands[state->tooltipKind].label;
     // A tip with a place to go shows it over the command and leaves the hotkeys out.
     String detail = state->tooltipDetail;
@@ -2302,18 +2390,6 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 
 // The command palette under the toolbar, as the reference draws it: the text typed in a field at the top, the commands it finds in two-line rows with what
 // each does and its hotkeys, and the keys that work it at the bottom.
-// A tab's folder as its crumbs read, "Local\Temp\Fixture", in the system's separators.
-function String Prog__TabSearchPath(Prog_State *state, String path)
-{
-    if (!path.length) return path;
-    b32 drive;
-    u64 start = Prog__CrumbStart(state, path, &drive);
-    String rest = StrFrom(path, drive ? 2 : start);
-    while (rest.length && rest.value[rest.length - 1] == '/') --rest.length;
-    String text = drive ? StrFormat(&state->frameArena, "%S%S", Prog__DriveName(state, path), rest) : rest;
-    return P_NativePath(&state->frameArena, text);
-}
-
 // The palette's tab mode, as the reference's Search Tabs: a box hanging from the tab list button with the text typed at the top and under it the
 // panel's tabs it finds, each with its folder's icon, name and path.
 function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
@@ -2342,7 +2418,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     f32 textWidth = R_TextWidth(m->font, hint) + floorf(16.0f * s + 0.5f);
     for (u32 i = 0; i < count; ++i) {
         String path = Prog_TabPath(state, matches[i]);
-        textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog__FolderName(path)), R_TextWidth(m->detail, Prog__TabSearchPath(state, path))));
+        textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog__FolderName(path)), R_TextWidth(m->detail, Prog__CrumbPath(state, path))));
     }
     f32 width = floorf(MinF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, view.x1 - view.x0 - 2 * m->gap));
     f32 height = field + line + 2 * pad + (f32)shown * rowHeight;
@@ -2399,7 +2475,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             u32 tab = matches[i];
             UI_Key key = UI_KeyFromStr(Prog__TabKey(state, tab), S("Search"));
             b32 highlighted = i == state->paletteHighlight || UI->hotKey == key;
-            String path = Prog_TabPath(state, tab), where = Prog__TabSearchPath(state, path);
+            String path = Prog_TabPath(state, tab), where = Prog__CrumbPath(state, path);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(rowHeight));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -3057,6 +3133,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
 {
     state->hasHoverRow = false;
     state->tooltipKey = 0;
+    state->tooltipPath = (String){0};
     state->bookmarkDropShown = 0;
     state->pointerPanel = 0;
     Prog__EnsureTab(state);
