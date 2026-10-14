@@ -1230,6 +1230,16 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_SplitRight ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, path);
             } break;
             case Prog_CommandKind_TabDrop: Prog_DropTab(state, state->tabDropped); break;
+            case Prog_CommandKind_PanelSelectNext:
+            case Prog_CommandKind_PanelSelectPrev: {
+                u64 order[Prog_MaxPanels];
+                u32 count = Prog__PanelsInOrder(state, 0, order, 0), at = 0;
+                if (count < 2) break;
+                for (u32 i = 0; i < count; ++i) if (order[i] == state->panels[state->activePanel].id) at = i;
+                at = command->kind == Prog_CommandKind_PanelSelectNext ? (at + 1) % count : (at + count - 1) % count;
+                u32 index = Prog_PanelIndex(state, order[at]);
+                if (index != UINT32_MAX) Prog__ActivatePanel(state, index);
+            } break;
             case Prog_CommandKind_PanelLeft: Prog_FocusPanelToward(state, -1, 0); break;
             case Prog_CommandKind_PanelRight: Prog_FocusPanelToward(state, 1, 0); break;
             case Prog_CommandKind_PanelUp: Prog_FocusPanelToward(state, 0, -1); break;

@@ -3371,13 +3371,35 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 }
                 if (previewWidth > 0) Prog__PreviewPane(state, previewWidth, m);
             }
-            if (active) Prog__StatusBar(state, m);
-            if (!active) {
+            // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more
+            // slowly, as the reference's; the dimming of inactive panels fades with it.
+            Prog_Panel *own = &state->panels[index];
+            if (own->wasActive != active) {
+                own->wasActive = (b8)active;
+                own->focusMicroseconds = UI->nowMicroseconds;
+            }
+            f32 shown = active ? 1 : 0, dimmed = active ? 0 : 1;
+            if (own->focusMicroseconds && UI->animate) {
+                f32 since = (f32)(UI->nowMicroseconds - Min(own->focusMicroseconds, UI->nowMicroseconds));
+                shown = active ? 1 - expf(-since / 60000.0f) : expf(-since / 28000.0f);
+                f32 faded = 1 - expf(-since / 25000.0f);
+                dimmed = active ? 1 - faded : faded;
+                if (since < 400000) UI_KeepAnimating();
+                else own->focusMicroseconds = 0;
+            }
+            if (shown > 0.01f) {
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(floorf(m->pill * shown + 0.5f)));
+                UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                UI_Block *slide = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(slide) Prog__StatusBar(state, m);
+            }
+            if (dimmed > 0.01f) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                 UI_SetNextPrefWidth(UI_Pixels(width));
                 UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - m->bar)));
                 R_Color dim = theme->background;
-                dim.a = 0.4f;
+                dim.a = 0.4f * dimmed;
                 UI_SetNextColors((UI_Colors){ .background = dim });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }

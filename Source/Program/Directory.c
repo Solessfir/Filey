@@ -932,6 +932,20 @@ function u64 Prog__FirstPanelOf(const Prog_State *state, u32 node)
     return node < Prog_MaxSplits ? state->splits[node].panel : 0;
 }
 
+// The panels below layout node `node` in reading order, left to right and top to bottom, into `out`; returns how many there are.
+function u32 Prog__PanelsInOrder(const Prog_State *state, u32 node, u64 *out, u32 count)
+{
+    if (node >= Prog_MaxSplits || count >= Prog_MaxPanels) return count;
+    const Prog_Split *split = &state->splits[node];
+    if (split->kind == Prog_SplitKind_Panel) {
+        out[count++] = split->panel;
+        return count;
+    }
+    if (split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) return count;
+    count = Prog__PanelsInOrder(state, split->first, out, count);
+    return Prog__PanelsInOrder(state, split->second, out, count);
+}
+
 // Splits panel `index` in two along `kind`, the new panel `before` it or after it, and makes the new one, which shows `path`, active.
 // Returns the new panel's index, or UINT32_MAX when there is no room.
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path)

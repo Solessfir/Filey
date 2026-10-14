@@ -617,6 +617,18 @@ command SplitBottom {
     repeat  = "false"
 }
 
+command PanelSelectNext {
+    label   = "Next Panel^focus,switch,cycle"
+    tooltip = "Move to the next panel."
+    hotkey  = "Tab"
+}
+
+command PanelSelectPrev {
+    label   = "Previous Panel^focus,switch,cycle"
+    tooltip = "Move to the previous panel."
+    hotkey  = "Shift+Tab"
+}
+
 command PanelLeft {
     label   = "Focus Left Panel^split,pane,switch"
     tooltip = "Move the keyboard to the panel on the left."
