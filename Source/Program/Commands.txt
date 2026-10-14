@@ -539,7 +539,12 @@ command ViewMenu {
 command HistoryMenu {
 }
 
+// The palette in its tab mode, under the strip's tab list button: typing finds tabs by name or folder, and Enter shows the one picked.
 command TabList {
+    label   = "Search Tabs^tabs,switch,find,list"
+    tooltip = "Find an open tab by its folder's name or path."
+    hotkey  = "Ctrl+Shift+A"
+    repeat  = "false"
 }
 
 command MainMenu {

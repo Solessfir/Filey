@@ -474,6 +474,9 @@ typedef struct Prog_State {
     b32 paletteOpen;
     Prog_TextEdit palette;
     u32 paletteHighlight;
+    // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
+    b32 paletteTabs;
+    R_Rect tabListRect;       // that button in the last layout
     Prog_Transfer transfers[Prog_MaxTransfers];
     Arena sizeArena;
     Prog_SizeMap sizes;
@@ -599,6 +602,7 @@ function void Prog_ApplySettings(Prog_State *state, String text);
 function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state);
 function void Prog_ReloadSettingsFile(Prog_State *state);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
+function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 function String Prog_SessionText(Arena *arena, Prog_State *state);
 function b32 Prog_RestoreSession(Prog_State *state, String text);
 function void Prog_LoadSession(Prog_State *state);

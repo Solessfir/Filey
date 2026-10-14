@@ -130,6 +130,15 @@ function u64 Prog_ViewPosition(const Prog_State *state, u64 row)
     return low < state->viewCount && state->view[low] == row ? low : UINT64_MAX;
 }
 
+// The last component of a folder path, or the whole path for a root such as "C:/" or "/".
+function String Prog__FolderName(String path)
+{
+    String trimmed = path;
+    while (trimmed.length > 1 && trimmed.value[trimmed.length - 1] == '/' && trimmed.value[trimmed.length - 2] != ':') --trimmed.length;
+    Index slash = StrIndexChar(trimmed, '/', SSF_SearchBackwards);
+    return slash.exists && slash.value + 1 < trimmed.length ? StrFrom(trimmed, slash.value + 1) : trimmed;
+}
+
 function String Prog_ParentPath(String path)
 {
     u64 root = 1;

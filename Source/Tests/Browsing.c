@@ -1189,6 +1189,16 @@ function void TestTabs(TestFileFixture *fixture)
     Check(state.tabCount == 2 && state.activeTab == 1 && TestEndsWith(state.directory.path, S("/Empty")) && !state.closedTabs.header.count);
     TestBrowsingCommand(&state, Prog_CommandKind_TabShiftLeft, 0);
     Check(state.activeTab == 0 && TestEndsWith(state.directory.path, S("/Empty")) && StrIsEqual(Prog_TabPath(&state, 1), fixture->path));
+    // Search Tabs finds tabs by their folder's name first and shows the one picked.
+    TestBrowsingCommand(&state, Prog_CommandKind_TabList, 0);
+    u32 tabMatches[Prog_MaxTabs];
+    Check(state.paletteOpen && state.paletteTabs && Prog_TabMatches(&state, tabMatches) == 2);
+    Prog__EditInsert(&state.palette, 'm');
+    Prog__EditInsert(&state.palette, 'p');
+    Check(Prog_TabMatches(&state, tabMatches) >= 1 && tabMatches[0] == 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_TabSelectNext, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
+    Check(!state.paletteOpen && state.activeTab == 0 && TestEndsWith(state.directory.path, S("/Empty")));
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
     Check(state.tabCount == 1 && state.activeTab == 0 && StrIsEqual(state.directory.path, fixture->path));
     // The last tab closes the window.

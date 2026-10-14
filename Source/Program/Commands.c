@@ -284,6 +284,24 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out)
     return count;
 }
 
+// The tabs the palette's text finds in its tab mode, best first: folder names holding it as typed, then paths that do, then names holding its letters in order.
+// `out` has room for Prog_MaxTabs; returns how many it holds.
+function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
+{
+    String text = Prog_EditText(&state->palette);
+    u32 count = 0;
+    for (u32 tier = 0; tier < 3; ++tier) {
+        for (u32 i = 0; i < state->tabCount && i < Prog_MaxTabs; ++i) {
+            String path = Prog_TabPath(state, i), name = Prog__FolderName(path);
+            b32 named = Prog__ContainsFolded(name, text);
+            b32 within = !named && Prog__ContainsFolded(path, text);
+            b32 letters = !named && !within && Prog_FilterMatch(name, text, NULL);
+            if ((tier == 0 && named) || (tier == 1 && within) || (tier == 2 && letters)) out[count++] = i;
+        }
+    }
+    return count;
+}
+
 // Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
 function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 {
@@ -307,9 +325,6 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         case Prog_CommandKind_HistoryMenu: {
             // Newest first, as browsers list it.
             for (u64 i = state->history.header.count; i-- > 0;) Prog__Item(.kind = Prog_CommandKind_HistoryGo, .row = i, .label = state->history.v[i], .checked = i == state->historyAt);
-        } break;
-        case Prog_CommandKind_TabList: {
-            for (u32 i = 0; i < state->tabCount; ++i) Prog__Item(.kind = Prog_CommandKind_SelectTab, .row = i, .label = Prog_TabPath(state, i), .checked = i == state->activeTab);
         } break;
         case Prog_CommandKind_MainMenu: {
             Prog__Item(.kind = Prog_CommandKind_CommandPalette, .icon = Icon_Terminal);
@@ -1074,13 +1089,29 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_CommandPalette: {
                 Prog_CloseMenu(state);
-                state->paletteOpen = !state->paletteOpen;
+                state->paletteOpen = !state->paletteOpen || state->paletteTabs;
+                state->paletteTabs = false;
+                state->palette = (Prog_TextEdit){0};
+                state->paletteHighlight = 0;
+            } break;
+            case Prog_CommandKind_TabList: {
+                Prog_CloseMenu(state);
+                state->paletteOpen = !(state->paletteOpen && state->paletteTabs);
+                state->paletteTabs = true;
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
             } break;
             case Prog_CommandKind_PaletteClose: state->paletteOpen = false; break;
             case Prog_CommandKind_PaletteRun: {
                 if (!state->paletteOpen) break;
+                if (state->paletteTabs) {
+                    u32 tabs[Prog_MaxTabs];
+                    u32 count = Prog_TabMatches(state, tabs);
+                    u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                    state->paletteOpen = false;
+                    if (chosen < count) Prog_SelectTab(state, tabs[chosen]);
+                    break;
+                }
                 Prog_CommandKind matches[Prog_CommandKind_Count];
                 u32 count = Prog_PaletteMatches(state, matches);
                 u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
@@ -1089,7 +1120,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
-            case Prog_CommandKind_TabList:
             case Prog_CommandKind_MainMenu:
             case Prog_CommandKind_PanelMenu: Prog__OpenProgramMenu(state, command); break;
             case Prog_CommandKind_HistoryGo: {
@@ -1225,13 +1255,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->paletteHighlight = 0;
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 Prog_CommandKind matches[Prog_CommandKind_Count];
-                u32 count = Prog_PaletteMatches(state, matches);
+                u32 tabs[Prog_MaxTabs];
+                u32 count = state->paletteTabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
                 u32 version = state->palette.version;
                 if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order);
                 else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : 0;
-                else if (event->key == Key_P && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                else if ((event->key == (state->paletteTabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(&state->palette, event);
                 if (state->palette.version != version) state->paletteHighlight = 0;
             }

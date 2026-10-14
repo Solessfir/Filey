@@ -458,22 +458,24 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
 function void Prog__MenuButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    b32 lit = state->menuOpen && state->menuOpener == kind;
+    b32 tabs = kind == Prog_CommandKind_TabList;
+    b32 lit = tabs ? state->paletteOpen && state->paletteTabs : state->menuOpen && state->menuOpener == kind;
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key;
     R_Color wash = theme->selection;
     wash.a *= 0.35f;
+    // The tab list's, in the title bar, is taller and rounder than the toolbar's.
     UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
-    UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
+    UI_SetNextPrefHeight(UI_Pixels(tabs ? floorf(26.4f * m->scale + 0.5f) : Prog__ToolbarButtonHeight(m)));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+    UI_SetNextCornerRadius(floorf((tabs ? 5.6f : 4.0f) * m->scale + 0.5f));
     UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit ? theme->text : theme->icon });
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
     UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot || lit ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
-    // These open menus rather than run commands, so they name themselves.
+    // These open menus rather than run commands, so they name themselves; the tab list runs Search Tabs.
     String tip = kind == Prog_CommandKind_PanelMenu ? S("Panel Menu") : kind == Prog_CommandKind_MainMenu ? S("Main Menu")
-               : kind == Prog_CommandKind_HistoryMenu ? S("History") : kind == Prog_CommandKind_TabList ? S("Tabs") : S("View");
+               : kind == Prog_CommandKind_HistoryMenu ? S("History") : tabs ? (String){0} : S("View");
     if (enabled && !lit) Prog__NoteTooltip(state, kind, tip);
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     if (enabled && interaction.clicked) {
@@ -493,15 +495,6 @@ function void Prog__PillButton(Prog_State *state, String identity, String icon, 
                                                   on ? theme->text : theme->icon, theme->text, theme->iconDisabled, true, m);
     Prog__NoteTooltip(state, kind, (String){0});
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
-}
-
-// The last component of a folder path, or the whole path for a root such as "C:/" or "/".
-function String Prog__FolderName(String path)
-{
-    String trimmed = path;
-    while (trimmed.length > 1 && trimmed.value[trimmed.length - 1] == '/' && trimmed.value[trimmed.length - 2] != ':') --trimmed.length;
-    Index slash = StrIndexChar(trimmed, '/', SSF_SearchBackwards);
-    return slash.exists && slash.value + 1 < trimmed.length ? StrFrom(trimmed, slash.value + 1) : trimmed;
 }
 
 typedef enum Prog_WindowButton {
@@ -829,13 +822,16 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
         }
         // The tab list, left of the window buttons.
-        UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap, 0 });
+        UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap - floorf(4.8f * scale + 0.5f), -floorf(0.8f * scale + 0.5f) });
         UI_SetNextPrefWidth(UI_Pixels(button));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
         UI_Block *listBox = UI_AddBlock(UI_Flag_Floating);
-        UI_Parent(listBox) Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, m);
+        UI_Parent(listBox) {
+            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, m);
+            if (state->currentPanel == state->activePanel) state->tabListRect = listBox->last->rect;
+        }
         // The window buttons fill the strip's full height at its right end.
         if (controls) {
             UI_SetNextFloatingOffset((UI_Vec2){ width - controlWidth * 3, -top });
@@ -853,14 +849,10 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     }
 }
 
-// "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
-// Every segment but the current one opens its folder.
-function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
+// Where a folder's crumbs start in `path`: the deepest path root it is inside, from that root's own folder name on, else the whole path, with `drive`
+// set for a drive letter's.
+function u64 Prog__CrumbStart(const Prog_State *state, String path, b32 *drive)
 {
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    String path = state->directory.path;
-    u64 start = path.length && path.value[0] == '/' ? 1 : 0;
-    // The deepest root the folder is inside starts the crumbs, under its own folder name.
     u64 rootLength = 0;
     for (u64 i = 0; i < state->pathRoots.header.count; ++i) {
         String root = state->pathRoots.v[i];
@@ -869,13 +861,33 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
             rootLength = root.length;
         }
     }
-    b32 drive = !rootLength && path.length >= 2 && path.value[1] == ':';
-    if (rootLength) {
-        Index slash = StrIndexChar(StrFromTo(path, 0, (i64)rootLength), '/', SSF_SearchBackwards);
-        start = slash.exists ? slash.value + 1 : 0;
-    } else if (drive) {
+    *drive = !rootLength && path.length >= 2 && path.value[1] == ':';
+    if (!rootLength) return path.length && path.value[0] == '/' ? 1 : 0;
+    Index slash = StrIndexChar(StrFromTo(path, 0, (i64)rootLength), '/', SSF_SearchBackwards);
+    return slash.exists ? slash.value + 1 : 0;
+}
+
+// The name the sidebar gives the drive `path` is on, or its letter.
+function String Prog__DriveName(const Prog_State *state, String path)
+{
+    for (u64 i = 0; i < state->drives.header.count; ++i) {
+        const P_Place *place = &state->drives.v[i];
+        if (place->path.length >= 2 && Prog__FoldAscii((u8)place->path.value[0]) == Prog__FoldAscii((u8)path.value[0]) && place->path.value[1] == ':') return place->name;
+    }
+    return StrFromTo(path, 0, 2);
+}
+
+// "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
+// Every segment but the current one opens its folder.
+function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    String path = state->directory.path;
+    b32 drive;
+    u64 start = Prog__CrumbStart(state, path, &drive);
+    if (drive) {
         Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, false, m);
-    } else if (start) {
+    } else if (start == 1) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
     }
     for (u64 at = start; at < path.length;) {
@@ -885,11 +897,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         b32 current = end >= path.length;
         if (segment.length) {
             if (at > start || drive) Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), m->bar, theme->textDim, 0.5f, m);
-            // A drive shows under the name the sidebar gives it.
-            for (u64 i = 0; drive && at == 0 && i < state->drives.header.count; ++i) {
-                const P_Place *place = &state->drives.v[i];
-                if (place->path.length >= 2 && Prog__FoldAscii((u8)place->path.value[0]) == Prog__FoldAscii((u8)path.value[0]) && place->path.value[1] == ':') segment = place->name;
-            }
+            if (drive && at == 0) segment = Prog__DriveName(state, path);
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
             UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
                                                           theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
@@ -2268,9 +2276,163 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 
 // The command palette under the toolbar, as the reference draws it: the text typed in a field at the top, the commands it finds in two-line rows with what
 // each does and its hotkeys, and the keys that work it at the bottom.
+// A tab's folder as its crumbs read, "Local\Temp\Fixture", in the system's separators.
+function String Prog__TabSearchPath(Prog_State *state, String path)
+{
+    if (!path.length) return path;
+    b32 drive;
+    u64 start = Prog__CrumbStart(state, path, &drive);
+    String rest = StrFrom(path, drive ? 2 : start);
+    while (rest.length && rest.value[rest.length - 1] == '/') --rest.length;
+    String text = drive ? StrFormat(&state->frameArena, "%S%S", Prog__DriveName(state, path), rest) : rest;
+    return P_NativePath(&state->frameArena, text);
+}
+
+// The palette's tab mode, as the reference's Search Tabs: a box hanging from the tab list button with the text typed at the top and under it the
+// panel's tabs it finds, each with its folder's icon, name and path.
+function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
+    u32 matches[Prog_MaxTabs];
+    u32 count = Prog_TabMatches(state, matches);
+    state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
+    f32 s = m->scale, line = m->separator, stroke = 1.2f * s;
+    f32 field = floorf(32.0f * s + 0.5f), rowHeight = floorf(42.4f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
+    f32 iconSlot = floorf(28.8f * s + 0.5f), lead = floorf(13.6f * s + 0.5f), textGap = floorf(14.4f * s + 0.5f), trail = floorf(8.0f * s + 0.5f);
+    R_Rect button = state->tabListRect;
+    f32 top = button.y1 + floorf(4.0f * s + 0.5f);
+    f32 room = view.y1 - top - field - line - 2 * pad - m->gap;
+    u32 shownMax = (u32)MinF32(MaxF32(floorf(room / rowHeight), 1.0f), 10.0f);
+    u32 first = state->paletteHighlight >= shownMax ? state->paletteHighlight - shownMax + 1 : 0;
+    u32 shown = Min(count - first, shownMax);
+    // As wide as the longest name or path, within the window.
+    String hint = StrFormat(&state->frameArena, "Search %u tab%s...", state->tabCount, state->tabCount == 1 ? "" : "s");
+    f32 textWidth = R_TextWidth(m->font, hint) + floorf(16.0f * s + 0.5f);
+    for (u32 i = 0; i < count; ++i) {
+        String path = Prog_TabPath(state, matches[i]);
+        textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog__FolderName(path)), R_TextWidth(m->detail, Prog__TabSearchPath(state, path))));
+    }
+    f32 width = floorf(MinF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, view.x1 - view.x0 - 2 * m->gap));
+    f32 height = field + line + 2 * pad + (f32)shown * rowHeight;
+    f32 x = floorf(MaxF32(view.x0 + m->gap, button.x1 - width));
+    f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("TabSearchReveal")), 1, 0);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, top - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
+    f32 radius = floorf(8.0f * s + 0.5f);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TabSearch")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        // The field's darker color follows the box's rounded top and stops square at the line under it.
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(field));
+        UI_Block *fieldClip = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+        UI_Parent(fieldClip) {
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(field + radius));
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextColors((UI_Colors){ .background = theme->inner });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.0f * s + 0.5f), 0, floorf(9.6f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(box) {
+            Prog__Icon(Icon_Search, floorf(23.2f * s + 0.5f), field, theme->textDim, 0, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(field));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                if (!state->palette.length) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f) });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(hint);
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
+            }
+            UI_Interaction close = Prog__TextButton(S("TabSearchClose"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ inset, pad, inset, pad });
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels((f32)shown * rowHeight + 2 * pad), UI_Layout_Vertical, (R_Color){0}, 0);
+        UI_Parent(list) for (u32 i = first; i < first + shown; ++i) {
+            u32 tab = matches[i];
+            UI_Key key = UI_KeyFromStr(Prog__TabKey(state, tab), S("Search"));
+            b32 highlighted = i == state->paletteHighlight || UI->hotKey == key;
+            String path = Prog_TabPath(state, tab), where = Prog__TabSearchPath(state, path);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(rowHeight));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ lead, 0, trail, 0 });
+            UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (highlighted ? UI_Flag_DrawBackground : 0));
+            UI_Interaction interaction = UI_InteractionFromBlock(row);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
+            UI_Parent(row) {
+                // ponytail: the list's icon size centered in a larger slot; a large-icon atlas would match the reference's bigger pictures.
+                const Prog_Icon *icon = path.length ? Prog_FolderIcon(state, path) : NULL;
+                UI_SetNextPrefWidth(UI_Pixels(iconSlot));
+                UI_SetNextPrefHeight(UI_Pixels(rowHeight));
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                if (icon) {
+                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                    UI_AddBlock(UI_Flag_DrawImage);
+                } else {
+                    UI_SetNextFont(m->icons);
+                    UI_SetNextColors((UI_Colors){ .text = theme->icon });
+                    UI_SetNextText(Icon_Folder);
+                    UI_AddBlock(UI_Flag_DrawText);
+                }
+                Prog__Spacer(UI_Pixels(textGap), UI_Pixels(rowHeight));
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(rowHeight));
+                UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(texts) {
+                    Prog__Label(path.length ? Prog__FolderName(path) : S("This PC"), UI_Flex(), m->line, 0, theme->text, 0);
+                    if (where.length) {
+                        Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
+                        UI_SetNextFont(m->detail);
+                        Prog__Label(where, UI_Flex(), m->detail->lineHeight, 0, highlighted ? theme->text : theme->textDim, 0);
+                    }
+                }
+            }
+        }
+        // The border over everything inside.
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness(stroke);
+        UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+    }
+}
+
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->paletteOpen) return;
+    if (state->paletteTabs) {
+        Prog__TabSearch(state, m);
+        return;
+    }
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
