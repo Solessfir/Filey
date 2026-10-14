@@ -178,7 +178,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         P__ArrayMenuItem items = {0};
         u32 first = 0;
         P__MenuRead(arena, shell, shell->popup, &items, &first, &menu->rootCount);
-        // the reference drops these from the top level: view commands it has its own versions of or does not support, and sharing on the folder background.
+        // Dropped from the top level: view commands that the browser has its own versions of or does not support, and sharing on the folder background.
         // An item without a label is not shown.
         local_persist const String dropped[] = { S("groupby"), S("pintohome"), S("viewcustomwizard"), S("undo"), S("redo") };
         for (u32 i = 0; i < menu->rootCount; ++i) {

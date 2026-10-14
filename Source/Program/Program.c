@@ -1,5 +1,5 @@
 // Browser UI.
-// Sizes derive from the font's line height so the layout keeps its proportions at any font size and display scale; the ratios were measured against the reference.
+// Sizes derive from the font's line height so the layout keeps its proportions at any font size and display scale; the ratios come from the reference screenshots.
 
 #include <math.h>
 
@@ -327,7 +327,7 @@ function b32 Prog__TabHot(Prog_State *state, i64 slot)
     return UI->hotKey == key || UI->hotKey == UI_KeyFromStr(key, S("Close"));
 }
 
-// The title bar, as in the reference: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
+// The title bar: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
 // Tabs share the strip's width up to a fixed size; dragging one moves it between the others, and the strip's empty space moves the window.
 function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m)
 {
@@ -580,7 +580,7 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
 
 function void Prog__Columns(Prog_Column *columns, f32 scale)
 {
-    // Logical widths measured from the reference; Name flexes.
+    // Logical widths from the reference screenshots; Name flexes.
     columns[Prog_ColumnId_Name] = (Prog_Column){ S("Name"), 0, 0 };
     columns[Prog_ColumnId_Type] = (Prog_Column){ S("Type"), floorf(192 * scale), 0 };
     columns[Prog_ColumnId_Modified] = (Prog_Column){ S("Date Modified"), floorf(193 * scale), 0 };
@@ -611,11 +611,11 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
             UI_Parent(cell) {
                 if (i == Prog_ColumnId_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
-                // Titles start at the left even over right-aligned values, as in the reference.
+                // Titles start at the left even over right-aligned values.
                 Prog__Label(columns[i].title, UI_Flex(), m->row, m->gap, color, 0);
                 if (sorted) Prog__Icon(state->descending ? Icon_ArrowDown : Icon_ArrowUp, m->line + m->gap, m->row, theme->textDim, 0.5f, m);
                 if (i + 1 < Prog_ColumnId_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
-                // While folder totals are being counted, the columns they fill show a spinner at their right end, as in the reference.
+                // While folder totals are being counted, the columns they fill show a spinner at their right end.
                 const Prog_Icon *spinner = state->measureJob && (i == Prog_ColumnId_Files || i == Prog_ColumnId_Size) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
                 if (spinner) {
                     f32 slot = m->line + m->gap;
@@ -740,7 +740,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
-    // Hover wins over selection, matching the reference.
+    // Hover wins over selection.
     R_Color background = position & 1 ? theme->alternateRow : theme->background;
     if (entry->selected) background = theme->selection;
     if (hot) background = theme->hover;
@@ -781,7 +781,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
         if (!onName) result = !state->marquee;
         else if (entry->selected) Prog_QueueCommand(state, Prog_CommandKind_DragSelection, index, 0, 0);
     }
-    // Folders show their totals once measured; zero counts and files' counts read "--", as in the reference.
+    // Folders show their totals once measured; zero counts and files' counts read "--".
     Arena *frame = &state->frameArena;
     String none = S("--");
     String folders = none, files = none, size = {0};
@@ -980,7 +980,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             status = StrFormat(&state->frameArena, "Loading %S...", ((Prog_JobInput *)state->directoryJob->input)->path);
         }
         if (!status.length) {
-            // Shown out of everything the folder holds, as in the reference; one number when nothing is left out.
+            // Shown out of everything the folder holds; one number when nothing is left out.
             const Prog_Directory *directory = &state->directory;
             u64 shown[2] = { state->viewFolders, state->viewCount - state->viewFolders };
             u64 total[2] = { directory->totalFolders, directory->totalFiles };
@@ -1026,7 +1026,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// the reference's filled drive, which Lucide has only as an outline: a solid top over an outlined base with a light on its left.
+// A filled drive, which Lucide has only as an outline: a solid top over an outlined base with a light on its left.
 // It sits where an icon glyph's ink would, centered on the glyph's advance.
 function void Prog__DriveGlyph(f32 width, f32 height, R_Color color, const Prog_Metrics *m)
 {
@@ -1040,7 +1040,7 @@ function void Prog__DriveGlyph(f32 width, f32 height, R_Color color, const Prog_
     UI_Block *slot = UI_AddBlock(0);
     UI_Parent(slot) {
         UI_Vec2 at = { floorf((R_TextWidth(m->icons, Icon_HardDrive) - size) * 0.5f), floorf((height - size) * 0.5f) };
-        // The top is a block rounded more than the base, as the reference's narrows upward, cut off square where the base starts.
+        // The top is a block rounded more than the base, so that it narrows upward, cut off square where the base starts.
         UI_SetNextFloatingOffset((UI_Vec2){ at.x + 1, at.y });
         UI_SetNextPrefWidth(UI_Pixels(size - 2));
         UI_SetNextPrefHeight(UI_Pixels(top));
@@ -1069,7 +1069,7 @@ function void Prog__DriveGlyph(f32 width, f32 height, R_Color color, const Prog_
     }
 }
 
-// A sidebar section title, which opens and closes the section; without an icon it shows the reference's drive glyph.
+// A sidebar section title, which opens and closes the section; without an icon it shows the filled drive glyph.
 function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title, String icon, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1244,7 +1244,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
     u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, visible);
     if (!shown) return false;
-    // the reference's measurements: rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
+    // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
     f32 itemHeight = m->row, line = MaxF32(1, floorf(m->scale)), separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
     f32 labelWidth = 0, height = 2 * pad;

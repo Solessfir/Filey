@@ -566,7 +566,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_MoveTab: Prog_MoveTab(state, (u32)command->row, (u32)command->target); break;
             case Prog_CommandKind_TabNew:
             case Prog_CommandKind_TabDuplicate: {
-                // ponytail: new tabs show the current folder; the reference's New Tab Show setting chooses other places.
+                // ponytail: new tabs show the current folder; a setting for other starting places can come later.
                 String path = Prog_TabPath(state, state->activeTab);
                 Prog_OpenTab(state, path, state->activeTab + 1, true);
             } break;
@@ -841,7 +841,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             R_Rect box = state->filterRect;
             if (!(event->x >= box.x0 && event->x < box.x1 && event->y >= box.y0 && event->y < box.y1)) state->filtering = false;
         }
-        // Typing anywhere in the browser filters it, as the reference does by default.
+        // Typing anywhere in the browser filters it.
         if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
             u32 version = state->filter.version;
             state->filtering = true;
@@ -852,7 +852,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         if (event->kind != PlatformEventKind_KeyDown) continue;
         KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
         // Escape removes the filter.
-        // Keys the box does not use still reach the list: Up and Down move through it and Enter opens the focused item, as in the reference.
+        // Keys the box does not use still reach the list: Up and Down move through it and Enter opens the focused item.
         if (!state->menuOpen && event->key == Key_Escape && (state->filtering || state->filter.length)) {
             Prog_QueueCommand(state, Prog_CommandKind_RemoveFilter, 0, 0, order);
             continue;

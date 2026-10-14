@@ -657,7 +657,7 @@ function b32 TestFilterConsistent(Prog_State *state)
 
 function void TestFilter(TestFileFixture *fixture)
 {
-    // the reference's rules: letters in order, Unicode case folded, accents kept.
+    // Letters in order, Unicode case folded, accents kept.
     u8 marks[16];
     Check(Prog_FilterMatch(S("my_folder.txt"), S("mfd"), marks) && marks[0] && !marks[1] && marks[3] && marks[6] && !marks[7]);
     Check(Prog_FilterMatch(S("Élan.txt"), S("éLAN"), marks) && marks[0] && marks[1] && marks[4] && !marks[5]);

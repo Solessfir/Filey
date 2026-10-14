@@ -150,7 +150,7 @@ function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
     return icon && icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 
-// the reference's busy spinner: eight rounded rays around an empty middle, drawn white so that the draw tints it.
+// The busy spinner: eight rounded rays around an empty middle, drawn white so that the draw tints it.
 // The renderer cannot rotate, so each frame is the spinner turned a little further.
 function void Prog__DrawSpinners(Prog_State *state)
 {

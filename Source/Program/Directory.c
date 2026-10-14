@@ -6,7 +6,7 @@ function String Prog_JoinPath(Arena *arena, String path, String name)
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
-// 1024-based with one decimal that is dropped when zero, as in the reference: "1010 B", "1 kB", "11.7 MB".
+// 1024-based with one decimal that is dropped when zero: "1010 B", "1 kB", "11.7 MB".
 function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
     local_persist const char *units[] = { "kB", "MB", "GB", "TB", "PB" };
@@ -45,7 +45,7 @@ function String Prog_EntryParent(String name)
 }
 
 // The lowercase form of `c` for matching.
-// Accents stay, so "e" does not match "é", as in the reference.
+// Accents stay, so "e" does not match "é".
 // ponytail: Latin, Greek and Cyrillic only; add a generated case table if other scripts need it.
 function rune Prog__FoldRune(rune c)
 {
@@ -62,7 +62,7 @@ function rune Prog__FoldRune(rune c)
     return c;
 }
 
-// Whether the letters of `filter` appear in `name` in order, ignoring case, as the reference matches.
+// Whether the letters of `filter` appear in `name` in order, ignoring case.
 // Each letter takes its first occurrence after the previous one.
 // `marks`, when not NULL, flags the bytes of `name` that matched.
 function b32 Prog_FilterMatch(String name, String filter, u8 *marks)
