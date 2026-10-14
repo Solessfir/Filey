@@ -929,7 +929,26 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
             UI_Parent(cell) {
                 b32 name = i == Prog_ColumnId_Name;
                 f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m), line = Prog__ColumnLineAfter(i) ? m->separator : 0;
-                if (name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+                if (name) {
+                    Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+                    // A box over the icons' column selects everything, and is checked once everything is.
+                    f32 box = floorf(18.0f * m->scale + 0.5f);
+                    b32 all = state->viewCount && state->selectedCount == state->viewCount;
+                    UI_Key boxKey = UI_KeyFromStr(0, S("Header/SelectAll"));
+                    b32 boxHot = UI->hotKey == boxKey;
+                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(5.0f * m->scale + 0.5f), floorf((m->row - box) * 0.5f) });
+                    UI_SetNextPrefWidth(UI_Pixels(box));
+                    UI_SetNextPrefHeight(UI_Pixels(box));
+                    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                    UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+                    UI_SetNextBorderThickness(1.5f * m->scale);
+                    UI_SetNextFont(m->iconsSmall);
+                    UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = boxHot ? theme->textDim : theme->tabBorder, .text = theme->text });
+                    UI_SetNextText(Icon_Check);
+                    UI_Block *selectAll = UI_AddBlockFromKey(boxKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (all ? UI_Flag_DrawBackground | UI_Flag_DrawText : UI_Flag_DrawBorder));
+                    UI_Interaction toggle = UI_InteractionFromBlock(selectAll);
+                    if (toggle.clicked && !state->loading) Prog_QueueCommand(state, Prog_CommandKind_ToggleSelectAll, 0, 0, toggle.clickOrder);
+                }
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
                 // Titles start at the left even over right-aligned values, and end in an ellipsis where the column is too narrow; the sort arrow sits at the column's end.
                 f32 arrow = sorted ? floorf(m->line * 0.6f) : 0;

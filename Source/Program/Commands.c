@@ -1011,10 +1011,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomFirstIcon; state->revealFocus = true; break;
             case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomFirstIcon + 7; state->revealFocus = true; break;
             case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomLevels - 1; state->revealFocus = true; break;
-            case Prog_CommandKind_SelectAll: {
+            case Prog_CommandKind_SelectAll:
+            case Prog_CommandKind_ToggleSelectAll: {
                 if (!state->loading) {
-                    for (u64 i = 0; i < state->viewCount; ++i) state->directory.entries[state->view[i]].selected = true;
-                    state->selectedCount = state->viewCount;
+                    b32 select = command->kind == Prog_CommandKind_SelectAll || state->selectedCount < state->viewCount || !state->viewCount;
+                    for (u64 i = 0; i < state->viewCount; ++i) state->directory.entries[state->view[i]].selected = select;
+                    state->selectedCount = select ? state->viewCount : 0;
                 }
             } break;
             case Prog_CommandKind_FocusUp:

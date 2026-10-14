@@ -66,6 +66,10 @@ command SelectAll {
     hotkey  = "Ctrl+A"
 }
 
+// The box at the start of the header: selects everything shown, or nothing once everything is.
+command ToggleSelectAll {
+}
+
 // Focus movement. Shift extends the selection; Ctrl moves the focus without selecting.
 
 command FocusUp {
