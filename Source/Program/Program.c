@@ -492,6 +492,63 @@ function void Prog__PillButton(Prog_State *state, String identity, String icon, 
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
+// The expand button's glyph, two folders each with a dash at its side, as the reference draws it; no icon in the font has its shape.
+function void Prog__ExpandButton(Prog_State *state, b32 on, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 width = Prog__ToolbarButtonWidth(m);
+    Prog__PillButton(state, S("FilterExpand"), S(""), Prog_CommandKind_ToggleExpandFolder, on, m);
+    UI_Block *button = UI->parent->last;
+    // The reference's pixels at 125%: "#" is ink, and "+" and "-" the softer pixels of its smoothed edges.
+    local_persist const char *const pixels[] = {
+        ".......+++++........",
+        "......+######-......",
+        "......+#+..+#######.",
+        "......+#+...-######-",
+        "-++++-+#+........+#-",
+        "######+#+........+#-",
+        "-++++-+#+........+#-",
+        "......+#+........+#-",
+        "......+############-",
+        ".......++++++++++++.",
+        "....................",
+        ".......+++++-.......",
+        "......+######-......",
+        "......+#+..-#######.",
+        "......+#+...-++++##-",
+        "-++++-+#+........+#-",
+        "######+#+........+#-",
+        "......+#+........+#-",
+        "......+#+........+#-",
+        "......+############-",
+        ".......++++++++++++.",
+    };
+    f32 unit = m->scale / 1.25f;
+    R_Color ink = on || UI->hotKey == button->key ? theme->text : theme->icon;
+    // On whole pixels from where the button and the filter's pill were laid out last, since they can sit between them: a pixel right of the
+    // button's middle and a pixel above the pill's, which keeps it in place while the button moves as the filter opens, as there.
+    f32 x = floorf(button->rect.x0 + (width - 20 * unit) * 0.5f + unit) - button->rect.x0;
+    f32 y = floorf(state->filterRect.y0 + (m->pill - 21 * unit) * 0.5f - unit + 0.5f) - button->rect.y0;
+    UI_Parent(button) {
+        for (u32 row = 0; row < CArrayCount(pixels); ++row) {
+            for (u32 at = 0; pixels[row][at];) {
+                char level = pixels[row][at];
+                u32 from = at;
+                while (pixels[row][at] == level) ++at;
+                if (level == '.') continue;
+                f32 left = floorf((f32)from * unit + 0.5f), top = floorf((f32)row * unit + 0.5f);
+                R_Color color = ink;
+                color.a *= level == '#' ? 1.0f : level == '+' ? 0.45f : 0.2f;
+                UI_SetNextFloatingOffset((UI_Vec2){ x + left, y + top });
+                UI_SetNextPrefWidth(UI_Pixels(MaxF32(1, floorf((f32)at * unit + 0.5f) - left)));
+                UI_SetNextPrefHeight(UI_Pixels(MaxF32(1, floorf((f32)(row + 1) * unit + 0.5f) - top)));
+                UI_SetNextColors((UI_Colors){ .background = color });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        }
+    }
+}
+
 typedef enum Prog_WindowButton {
     Prog_WindowButton_Minimize,
     Prog_WindowButton_Maximize,
@@ -1707,7 +1764,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 }
                 UI_Block *buttons = Prog__Box(UI_Fill(), UI_Pixels(tall), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(buttons) {
-                    Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
+                    Prog__ExpandButton(state, state->expanded, m);
                     Prog__PillButton(state, S("FilterPin"), state->filterSticky ? Icon_Pin : Icon_PinOff, Prog_CommandKind_ToggleFilterPin, state->filterSticky, m);
                     Prog__PillButton(state, S("FilterApply"), Icon_Check, Prog_CommandKind_ApplyFilter, false, m);
                     Prog__PillButton(state, S("FilterOpen"), Icon_CornerDownLeft, Prog_CommandKind_OpenFocused, false, m);
@@ -1717,7 +1774,9 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
                 String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
-                Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
+                // In the pill's middle, as the buttons of the filter field are in theirs.
+                UI_Block *slot = Prog__Box(UI_Pixels(Prog__ToolbarButtonWidth(m)), UI_Pixels(m->pill), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(slot) Prog__ExpandButton(state, state->expanded, m);
             }
         }
 
