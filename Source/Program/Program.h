@@ -90,6 +90,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Create,
     Prog_JobKind_Places,
     Prog_JobKind_Save,
+    Prog_JobKind_Preview,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -186,6 +187,15 @@ typedef struct Prog_Transfer {
 } Prog_Transfer;
 
 #define Prog_MaxTransfers 4
+
+// What the preview pane shows of a file: a picture of Prog_PreviewSize squared, or the start of its text.
+#define Prog_PreviewSize 512
+#define Prog_PreviewBytes 16384
+
+typedef struct Prog_Preview {
+    u32 *pixels;
+    String text;
+} Prog_Preview;
 
 typedef struct Prog_Created {
     P_FileError error;
@@ -413,6 +423,14 @@ typedef struct Prog_State {
     Prog_TextEdit palette;
     u32 paletteHighlight;
     Prog_Transfer transfers[Prog_MaxTransfers];
+    // The preview pane beside the active panel's list: the focused item's picture or text, loaded by previewJob into previewArena.
+    b32 previewShown;
+    Arena previewArena;
+    String previewPath;       // shown, or on its way
+    P_Job *previewJob;
+    String previewText;
+    R_TextureHandle previewTexture;
+    b32 previewPicture;       // the texture holds previewPath's picture
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
     Arena confirmArena;

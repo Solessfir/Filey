@@ -281,6 +281,20 @@ function void Prog__SortByTotals(Prog_State *state)
     Prog_ApplyFilter(state, false);
 }
 
+// Whether the start of a file reads as text: no NUL bytes, and nearly all of it UTF-8; the end may cut a character.
+function b32 Prog__LooksLikeText(String start)
+{
+    if (!start.length) return false;
+    u64 runes = 0, invalid = 0;
+    u64 end = start.length > 4 ? start.length - 4 : start.length;
+    for (u64 at = 0; at < end;) {
+        if (start.value[at] == 0) return false;
+        invalid += StrDecodeUtf8(start, &at) == 0xFFFD;
+        ++runes;
+    }
+    return invalid * 50 <= runes;
+}
+
 function void Prog__DirectoryJob(P_Job *job)
 {
     Prog_JobInput *input = job->input;
@@ -319,6 +333,23 @@ function void Prog__DirectoryJob(P_Job *job)
             ProfileScope("TrashItems") *error = P_TrashItems(&job->arena, input->paths, input->pathCount);
         }
         job->result = error;
+        return;
+    }
+    if (input->kind == Prog_JobKind_Preview) {
+        // Text where the start of the file reads as text, else the system's picture of it.
+        Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
+        String start = {0};
+        if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
+            result->text = start;
+        } else if (!P_IsCancelled(&job->cancelToken)) {
+            Scratch scratch = GetScratchEx(&job->arena);
+            P_Image image = {0};
+            if (P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, &image)) {
+                result->pixels = Prog_ResizeIcon(&job->arena, image, Prog_PreviewSize);
+            }
+            ReleaseScratch(scratch);
+        }
+        job->result = result;
         return;
     }
     if (input->kind == Prog_JobKind_Create) {
@@ -1095,7 +1126,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu;
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             P_JobRelease(job);
@@ -1105,6 +1136,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         if (input->kind == Prog_JobKind_Icons) {
             Prog__TakeIcons(state, job);
             changed = true;
+        } else if (input->kind == Prog_JobKind_Preview) {
+            // Only the latest one is shown; the texture is made on first use and refilled after.
+            const Prog_Preview *preview = job->result;
+            if (job == state->previewJob && preview) {
+                state->previewJob = NULL;
+                state->previewText = StrCopy(&state->previewArena, preview->text);
+                if (preview->pixels) {
+                    if (!state->previewTexture.u64[0]) state->previewTexture = R_TextureCreateRGBA(Prog_PreviewSize, Prog_PreviewSize, preview->pixels);
+                    else R_TextureUpdateRGBA(state->previewTexture, 0, 0, Prog_PreviewSize, Prog_PreviewSize, preview->pixels);
+                    state->previewPicture = state->previewTexture.u64[0] != 0;
+                }
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_Open) {
             P_FileError *error = job->result;
             if (error && error->code) {

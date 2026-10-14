@@ -240,6 +240,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .checked = state->showHidden);
             Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .checked = !state->sidebarHidden);
+            Prog__Item(.kind = Prog_CommandKind_TogglePreview, .checked = state->previewShown);
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .checked = Prog_IsBookmarked(state, state->directory.path));
             Prog__Item(.kind = Prog_CommandKind_CopyAsPath);
             Prog__Item(.kind = Prog_CommandKind_None);
@@ -561,6 +562,35 @@ function u64 Prog__SelectedPaths(Prog_State *state, Arena *arena, String **paths
     return at;
 }
 
+// Starts loading the preview of the active panel's focused item when it is another than the one shown.
+function void Prog__UpdatePreview(Prog_State *state)
+{
+    if (!state->previewShown) return;
+    String want = {0};
+    b32 folder = false;
+    if (!state->loading && state->hasFocus && state->focusedRow < state->directory.count) {
+        const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
+        want = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
+        folder = entry->file.kind == P_FileKind_Directory;
+    }
+    if (StrIsEqual(want, state->previewPath)) return;
+    if (state->previewJob) P_RequestCancel(&state->previewJob->cancelToken);
+    state->previewJob = NULL;
+    ArenaClear(&state->previewArena);
+    state->previewPath = StrCopy(&state->previewArena, want);
+    state->previewText = (String){0};
+    state->previewPicture = false;
+    if (!want.length) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Preview;
+    input->path = StrCopy(&job->arena, want);
+    input->folder = folder;
+    job->input = input;
+    state->previewJob = job;
+    P_JobSubmit(job);
+}
+
 function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name)
 {
     if (!directory.length || (kind != Prog_JobKind_Create && !count)) return;
@@ -755,6 +785,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelect8: Prog_SelectTab(state, (u32)(command->kind - Prog_CommandKind_TabSelect1)); break;
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
             case Prog_CommandKind_ToggleQuickAccess: state->sidebarHidden = !state->sidebarHidden; break;
+            case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
             case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
             case Prog_CommandKind_BookmarksClear: {
                 Prog__SetList(&state->bookmarkArena, &state->bookmarks, NULL, 0);
@@ -1057,6 +1088,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     P_SetDropTakesFolders(state->bookmarkDrop != 0);
     Prog_SubmitIconRequests(state);
     // The header spinner turns while folders are being measured.
+    Prog__UpdatePreview(state);
     // Transfers redraw while they run, for their progress and questions.
     b32 transferring = false;
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;

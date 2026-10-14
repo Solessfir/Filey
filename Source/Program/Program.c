@@ -2031,6 +2031,72 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     }
 }
 
+// The preview pane, `width` wide with its divider: the focused item's picture or text over its name and details.
+function void Prog__PreviewPane(Prog_State *state, f32 width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
+    f32 inner = width - m->separator, room = inner - 2 * m->inset;
+    // Keyed, so that their last layouts tell how much fits.
+    UI_SetNextPrefWidth(UI_Pixels(inner));
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, m->inset });
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PreviewPane")), UI_Flag_DrawBackground | UI_Flag_Clip);
+    UI_Parent(pane) {
+        const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
+        if (!entry) {
+            Prog__Label(S("Nothing to preview"), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+        } else {
+            // A picture as wide as the pane, but no taller than half of it.
+            f32 side = floorf(MinF32(room, MaxF32(0, (pane->rect.y1 - pane->rect.y0) * 0.5f)));
+            if (state->previewPicture && side > 0) {
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(side));
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ side, side }, (R_Color){ 1, 1, 1, 1 });
+                UI_AddBlock(UI_Flag_DrawImage);
+                Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
+            }
+            Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
+            String details = entry->file.kind == P_FileKind_Directory
+                ? (entry->measured ? StrFormat(&state->frameArena, "%S, %" PRIu64 " folders, %" PRIu64 " files, %S", entry->type, entry->folders, entry->files, Prog_FormatSize(&state->frameArena, entry->bytes)) : entry->type)
+                : StrFormat(&state->frameArena, "%S, %S", entry->type, Prog_FormatSize(&state->frameArena, entry->file.size));
+            Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
+            Prog__Label(entry->modified, UI_Flex(), m->row, 0, theme->textDim, 0);
+            // The start of a text file, one line per row, as many as fit; tabs show as spaces.
+            if (state->previewText.length && !state->previewPicture) {
+                Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Flex());
+                UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap, m->gap, m->gap, m->gap });
+                UI_SetNextCornerRadius(m->radius * 2);
+                UI_SetNextColors((UI_Colors){ .background = theme->panel });
+                UI_Block *page = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PreviewText")), UI_Flag_DrawBackground | UI_Flag_Clip);
+                UI_Parent(page) {
+                    f32 lineHeight = floorf(m->line * 1.25f);
+                    u32 lines = (u32)MaxF32(1, (page->rect.y1 - page->rect.y0) / lineHeight + 1);
+                    String text = state->previewText;
+                    for (u64 at = 0; at < text.length && lines; --lines) {
+                        Index newline = StrIndexChar(StrFrom(text, at), '\n', SSF_CountOnFail);
+                        String line = StrFromTo(text, at, (i64)(at + newline.value));
+                        at += newline.value + 1;
+                        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+                        StrBuilder shown = {0};
+                        for (u64 i = 0; i < line.length; ++i) {
+                            if (line.value[i] == '\t') StrBuildStr(&state->frameArena, &shown, S("    "));
+                            else StrBuildChar(&state->frameArena, &shown, line.value[i]);
+                        }
+                        Prog__Label(shown.buffer, UI_Flex(), lineHeight, 0, theme->text, 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The key seed of panel `id`'s blocks; a nonzero parent keeps it from depending on the seed in use.
 function UI_Key Prog_PanelKeySeed(u64 id)
 {
@@ -2048,8 +2114,11 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[index].id;
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel;
+    // The active panel's list makes room for the preview pane.
+    f32 previewWidth = active && state->previewShown ? floorf(MinF32(width * 0.4f, m->line * 30)) : 0;
+    f32 listWidth = width - previewWidth;
     Prog_Column panelColumns[Prog_ColumnId_Count];
-    Prog__Columns(panelColumns, scale, width - 2 * m->inset - m->iconSlot);
+    Prog__Columns(panelColumns, scale, listWidth - 2 * m->inset - m->iconSlot);
     columns = panelColumns;
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -2060,8 +2129,15 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
         UI_Parent(main) {
             Prog__Toolbar(state, m);
-            if (Prog_ZoomView(state->zoom) == Prog_View_Details) Prog__Header(state, columns, m);
-            Prog__List(state, columns, m);
+            UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
+            UI_Parent(body) {
+                UI_Block *listColumn = Prog__Box(UI_Pixels(listWidth), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+                UI_Parent(listColumn) {
+                    if (Prog_ZoomView(state->zoom) == Prog_View_Details) Prog__Header(state, columns, m);
+                    Prog__List(state, columns, m);
+                }
+                if (previewWidth > 0) Prog__PreviewPane(state, previewWidth, m);
+            }
             if (active) Prog__StatusBar(state, m);
             if (!active) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });

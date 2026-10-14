@@ -476,6 +476,23 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return result;
 }
 
+function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
+{
+    *contents = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    HANDLE file = wide ? CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL) : INVALID_HANDLE_VALUE;
+    ReleaseScratch(scratch);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    limit = Min(limit, (u64)UINT32_MAX);
+    char *bytes = ArenaPushArrayNoZero(arena, limit + 1, char);
+    DWORD read = 0;
+    b32 result = ReadFile(file, bytes, (DWORD)limit, &read, NULL) != 0;
+    if (result) *contents = StrMake(bytes, read);
+    CloseHandle(file);
+    return result;
+}
+
 function P_FileError P_WriteFile(Arena *arena, String path, String contents)
 {
     Scratch scratch = GetScratchEx(arena);

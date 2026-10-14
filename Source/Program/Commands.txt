@@ -495,6 +495,13 @@ command TransferAnswerAll {
 command TransferCancel {
 }
 
+command TogglePreview {
+    label   = "Toggle Preview^pane,quick look,peek,panel"
+    tooltip = "Show the focused item's picture or text beside the list."
+    hotkey  = "Alt+P"
+    repeat  = "false"
+}
+
 command CommandPalette {
     label   = "Command Palette^commands,actions,search,run"
     tooltip = "Find and run any command by name."

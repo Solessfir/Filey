@@ -1075,6 +1075,25 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return length == 0;
 }
 
+function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
+{
+    *contents = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, path);
+    i32 fd = native ? open(native, O_RDONLY | O_CLOEXEC) : -1;
+    ReleaseScratch(scratch);
+    if (fd < 0) return false;
+    char *bytes = ArenaPushArrayNoZero(arena, limit + 1, char);
+    u64 have = 0;
+    ssize_t length = 0;
+    while (have < limit && ((length = read(fd, bytes + have, limit - have)) > 0 || (length < 0 && errno == EINTR))) {
+        if (length > 0) have += (u64)length;
+    }
+    close(fd);
+    *contents = StrMake(bytes, have);
+    return length >= 0;
+}
+
 function P_FileError P_WriteFile(Arena *arena, String path, String contents)
 {
     Scratch scratch = GetScratchEx(arena);
