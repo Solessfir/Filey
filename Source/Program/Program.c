@@ -301,6 +301,7 @@ typedef struct Prog_Metrics {
     const R_Font *font;
     const R_Font *detail;  // the details columns beside the names
     const R_Font *icons;
+    const R_Font *iconsSmall;
 } Prog_Metrics;
 
 function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32 scale)
@@ -310,6 +311,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
         .font = font,
         .detail = font,
         .icons = icons,
+        .iconsSmall = icons,
         .line = line,
         .row = floorf(line * 1.6f + 0.5f),
         .bar = floorf(line * 2.1f + 0.5f),
@@ -372,6 +374,13 @@ function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R
     UI_SetNextColors((UI_Colors){ .text = color });
     UI_SetNextText(text);
     UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
+}
+
+// An icon at the smaller size, for the breadcrumbs' separators.
+function void Prog__SmallIcon(String icon, f32 width, f32 height, R_Color color, f32 alignX, const Prog_Metrics *m)
+{
+    UI_SetNextFont(m->iconsSmall);
+    Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
 }
 
 function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 alignX, const Prog_Metrics *m)
@@ -755,13 +764,29 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     }
 }
 
-// "C:/Git/Filey" -> "C:" › "Git" › "Filey"; every segment but the current one opens its folder.
+// "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
+// Every segment but the current one opens its folder.
 function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String path = state->directory.path;
     u64 start = path.length && path.value[0] == '/' ? 1 : 0;
-    if (start) {
+    // The deepest root the folder is inside starts the crumbs, under its own folder name.
+    u64 rootLength = 0;
+    for (u64 i = 0; i < state->pathRoots.header.count; ++i) {
+        String root = state->pathRoots.v[i];
+        while (root.length > 1 && root.value[root.length - 1] == '/') --root.length;
+        if (root.length > rootLength && path.length > root.length + 1 && path.value[root.length] == '/' && StrIsEqual(StrFromTo(path, 0, (i64)root.length), root)) {
+            rootLength = root.length;
+        }
+    }
+    b32 drive = !rootLength && path.length >= 2 && path.value[1] == ':';
+    if (rootLength) {
+        Index slash = StrIndexChar(StrFromTo(path, 0, (i64)rootLength), '/', SSF_SearchBackwards);
+        start = slash.exists ? slash.value + 1 : 0;
+    } else if (drive) {
+        Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, false, m);
+    } else if (start) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
     }
     for (u64 at = start; at < path.length;) {
@@ -770,10 +795,15 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         String segment = StrFromTo(path, at, (i64)end);
         b32 current = end >= path.length;
         if (segment.length) {
-            if (at > start) Prog__Icon(Icon_ChevronRight, floorf(m->line * 1.6f), m->bar, theme->textDim, 0.5f, m);
+            if (at > start || drive) Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), m->bar, theme->textDim, 0.5f, m);
+            // A drive shows under the name the sidebar gives it.
+            for (u64 i = 0; drive && at == 0 && i < state->drives.header.count; ++i) {
+                const P_Place *place = &state->drives.v[i];
+                if (place->path.length >= 2 && Prog__FoldAscii((u8)place->path.value[0]) == Prog__FoldAscii((u8)path.value[0]) && place->path.value[1] == ':') segment = place->name;
+            }
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
             UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
-                                                          current ? theme->text : theme->textDim, theme->text, theme->textDim, !current, m);
+                                                          theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, end, 0, interaction.clickOrder);
         }
         at = end + 1;
@@ -2510,6 +2540,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
     metrics.detail = state->smallFont ? state->smallFont : font;
+    metrics.iconsSmall = state->smallIcons ? state->smallIcons : icons;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
     const Prog_Metrics *m = &metrics;

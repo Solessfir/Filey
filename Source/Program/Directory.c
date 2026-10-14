@@ -385,6 +385,7 @@ function void Prog__DirectoryJob(P_Job *job)
         ProfileScope("ListPlaces") {
             result->places = P_UserPlaces(&job->arena);
             result->drives = P_Drives(&job->arena);
+            result->roots = P_PathRoots(&job->arena);
         }
         job->result = result;
         return;
@@ -1440,6 +1441,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 job->arena = (Arena){0};
                 state->places = result->places;
                 state->drives = result->drives;
+                state->pathRoots = result->roots;
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_Save) {

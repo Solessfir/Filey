@@ -236,6 +236,7 @@ typedef struct Prog_Created {
 typedef struct Prog_Places {
     P_ArrayPlace places;
     P_ArrayPlace drives;
+    ArrayStr roots;
 } Prog_Places;
 
 // Sidebar sections, in display order.
@@ -485,6 +486,7 @@ typedef struct Prog_State {
     Arena placesArena;        // the latest places listing
     P_ArrayPlace places;
     P_ArrayPlace drives;
+    ArrayStr pathRoots;       // folders that breadcrumbs start from, for folders inside them
     P_Job *placesJob;
     u64 placesTime;
     // Bookmarked and recently shown folders, saved in configDirectory when the app sets one.
@@ -515,6 +517,7 @@ typedef struct Prog_State {
     b32 animationsOff;
     // A point smaller than the main font, for the details columns; the main font while unset.
     const R_Font *smallFont;
+    const R_Font *smallIcons;  // the icons at about two thirds of their size
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
     b32 warmMenus;
 } Prog_State;

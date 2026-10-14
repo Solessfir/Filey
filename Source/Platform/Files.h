@@ -147,6 +147,8 @@ typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
 
 // The user's home and its desktop, documents, downloads, music, pictures and videos folders that exist.
 function P_ArrayPlace P_UserPlaces(Arena *arena);
+// Folders that the breadcrumbs of the folders inside them start from: the user's places, and on Windows the local and roaming app data.
+function ArrayStr P_PathRoots(Arena *arena);
 // Mounted drives with their sizes; network drives may be slow to answer, so run it in a job.
 function P_ArrayPlace P_Drives(Arena *arena);
 // The folder Filey keeps its settings in, created when missing; empty when there is none.

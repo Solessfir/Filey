@@ -379,6 +379,7 @@ global const GUID P__FolderMusic     = { 0x4BD8D571, 0x6D19, 0x48D3, { 0xBE, 0x9
 global const GUID P__FolderPictures  = { 0x33E28130, 0x4E1E, 0x4676, { 0x83, 0x5A, 0x98, 0x39, 0x5C, 0x3B, 0xC3, 0xBB } };
 global const GUID P__FolderVideos    = { 0x18989B1D, 0x99B5, 0x455B, { 0x84, 0x1C, 0xAB, 0x7C, 0x74, 0xE4, 0xDD, 0xFC } };
 global const GUID P__FolderLocalData = { 0xF1B32785, 0x6FBA, 0x4FCF, { 0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91 } };
+global const GUID P__FolderRoamingData = { 0x3EB685DB, 0x65F9, 0x4CF6, { 0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D } };
 
 function String P__KnownFolder(Arena *arena, const GUID *id)
 {
@@ -404,6 +405,17 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
         String path = P__KnownFolder(arena, folders[i].id);
         if (path.length) ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
     }
+    return result;
+}
+
+function ArrayStr P_PathRoots(Arena *arena)
+{
+    ArrayStr result = {0};
+    P_ArrayPlace places = P_UserPlaces(arena);
+    for (u64 i = 0; i < places.header.count; ++i) ArrayPush(arena, result, places.v[i].path);
+    String local = P__KnownFolder(arena, &P__FolderLocalData), roaming = P__KnownFolder(arena, &P__FolderRoamingData);
+    if (local.length) ArrayPush(arena, result, local);
+    if (roaming.length) ArrayPush(arena, result, roaming);
     return result;
 }
 

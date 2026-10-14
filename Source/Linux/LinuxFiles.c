@@ -1004,6 +1004,14 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
     return result;
 }
 
+function ArrayStr P_PathRoots(Arena *arena)
+{
+    ArrayStr result = {0};
+    P_ArrayPlace places = P_UserPlaces(arena);
+    for (u64 i = 0; i < places.header.count; ++i) ArrayPush(arena, result, places.v[i].path);
+    return result;
+}
+
 // The root and what is mounted under the usual places for disks: /run/media and /media for removable ones, /mnt for the rest.
 function P_ArrayPlace P_Drives(Arena *arena)
 {
