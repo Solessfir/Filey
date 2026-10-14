@@ -432,6 +432,8 @@ function P_ArrayPlace P_Drives(Arena *arena)
     for (wchar *drive = drives; *drive; drive += lstrlenW(drive) + 1) {
         u32 type = GetDriveTypeW(drive);
         if (type == DRIVE_NO_ROOT_DIR || type == DRIVE_UNKNOWN) continue;
+        // A fixed disk without a file system to read, such as one being formatted, is left out as the reference does; removable ones without a medium stay.
+        if (type == DRIVE_FIXED && !GetVolumeInformationW(drive, NULL, 0, NULL, NULL, NULL, NULL, 0)) continue;
         P_Place place = { .path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, drive, lstrlenW(drive))) };
         // "Local Disk (C:)", as Explorer names it.
         SHFILEINFOW info = {0};
