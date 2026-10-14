@@ -403,6 +403,22 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+    // Shell dialogs and menus hosted in this process (copy progress, context menus) follow the system's dark mode only
+    // when the process opts in through uxtheme's unnamed SetPreferredAppMode (ordinal 135, 1 = follow the system).
+    HMODULE uxtheme = LoadLibraryExW(L"uxtheme.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (uxtheme != NULL) {
+        typedef i32 SetPreferredAppModeFn(i32 mode);
+        typedef void FlushMenuThemesFn(void);
+        SetPreferredAppModeFn *setPreferredAppMode = (SetPreferredAppModeFn *)(void *)GetProcAddress(uxtheme, MAKEINTRESOURCEA(135));
+        FlushMenuThemesFn *flushMenuThemes = (FlushMenuThemesFn *)(void *)GetProcAddress(uxtheme, MAKEINTRESOURCEA(136));
+        if (setPreferredAppMode != NULL) {
+            setPreferredAppMode(1);
+        }
+        if (flushMenuThemes != NULL) {
+            flushMenuThemes();
+        }
+    }
+
     HINSTANCE instance = GetModuleHandleW(NULL);
     WNDCLASSEXW windowClass = {
         .cbSize        = sizeof(windowClass),
