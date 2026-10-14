@@ -338,7 +338,7 @@ function f32 Prog_RowHeight(const R_Font *font)
 
 function f32 Prog__CaretWidth(const Prog_Metrics *m)
 {
-    return MaxF32(1.0f, floorf(m->separator * 0.75f));
+    return MaxF32(1.0f, floorf(1.6f * m->scale + 0.5f));
 }
 
 function UI_Block *Prog__Box(UI_Size width, UI_Size height, UI_Layout layout, R_Color background, UI_Flags flags)
@@ -1078,29 +1078,35 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
     }
 }
 
-// The caret stays lit for a moment after every change, then fades out and back in, about once a second.
+// The caret blinks once every 1.05 s, as the reference's: lit for 325 ms, fading from 90% to almost nothing over 340 ms and back over 385 ms.
+// A change starts it 150 ms into the lit part, so that it stays lit a moment after every keystroke.
 function f32 Prog__CaretOpacity(const Prog_TextEdit *edit)
 {
     UI_Key key = UI_KeyFromStr(0, StrFormat(UI->frameArena, "Caret/%p/%u/%u/%llu", (const void *)edit, edit->cursor, edit->anchor, (unsigned long long)Prog_EditText(edit).length));
-    u64 since = UI_TimeSince(key) % 1050000;
+    u64 since = (UI_TimeSince(key) + 150000) % 1050000;
     UI_KeepAnimating();
-    if (!UI->animate || since < 300000) return 1;
-    f32 t = (f32)(since - 300000) / 375000.0f;
-    return 0.85f * (t < 1 ? 1 - t : t - 1);
+    if (!UI->animate || since < 325000) return 1;
+    f32 high = 0.9f, low = 0.04f;
+    if (since < 665000) return high + (low - high) * (f32)(since - 325000) / 340000.0f;
+    return low + (high - low) * (f32)(since - 665000) / 385000.0f;
 }
 
 // The text of `edit` with its selection and, when `caret` is set, its caret, floating at `x`, `y` in the current parent.
-function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, const Prog_Metrics *m)
+// `caretGrow` lengthens the caret past the text line at both ends, as the palettes' tall fields draw it.
+function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, f32 caretGrow, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String text = Prog_EditText(edit);
     u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
-    // The selection's ends and the caret ease to where they go, so that clearing the text draws them back to its start.
-    f32 x0 = floorf(x + UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditFrom/%p", (const void *)edit)), R_TextWidth(m->font, StrMake(text.value, from)), R_TextWidth(m->font, StrMake(text.value, from))) + 0.5f);
-    f32 x1 = floorf(x + UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditTo/%p", (const void *)edit)), R_TextWidth(m->font, StrMake(text.value, to)), R_TextWidth(m->font, StrMake(text.value, to))) + 0.5f);
-    f32 at = R_TextWidth(m->font, StrMake(text.value, edit->cursor));
-    f32 caretX = floorf(x + UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditCaret/%p", (const void *)edit)), at, at) + 0.5f);
-    if (caret && x1 > x0) {
+    f32 x0 = floorf(x + R_TextWidth(m->font, StrMake(text.value, from)) + 0.5f);
+    f32 target = floorf(R_TextWidth(m->font, StrMake(text.value, to)) - R_TextWidth(m->font, StrMake(text.value, from)) + 0.5f);
+    // The caret jumps where it goes, but the selection's width eases, so that clearing the text draws the selection back to its start;
+    // the caret waits for that.
+    f32 width = floorf(UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditSelection/%p", (const void *)edit)), target, target) + 0.5f);
+    f32 x1 = x0 + width;
+    b32 collapsing = to == from && width > 0;
+    f32 caretX = edit->cursor == from ? x0 : x0 + target;
+    if (caret && width > 0) {
         UI_SetNextFloatingOffset((UI_Vec2){ x0, y });
         UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
         UI_SetNextPrefHeight(UI_Pixels(m->line));
@@ -1112,10 +1118,10 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     UI_SetNextColors((UI_Colors){ .text = theme->text });
     UI_SetNextText(text);
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
-    if (caret) {
-        UI_SetNextFloatingOffset((UI_Vec2){ caretX, y });
+    if (caret && !collapsing) {
+        UI_SetNextFloatingOffset((UI_Vec2){ caretX, y - caretGrow });
         UI_SetNextPrefWidth(UI_Pixels(Prog__CaretWidth(m)));
-        UI_SetNextPrefHeight(UI_Pixels(m->line));
+        UI_SetNextPrefHeight(UI_Pixels(m->line + 2 * caretGrow));
         UI_SetNextColors((UI_Colors){ .background = theme->text });
         UI_SetNextOpacity(Prog__CaretOpacity(edit));
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
@@ -1172,7 +1178,7 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metri
         UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->renameRect = box->rect;
         Prog__EditMouse(state, box, &state->rename, pad, Prog_CommandKind_RenameCaret, m);
-        UI_Parent(box) Prog__EditContents(&state->rename, pad, floorf((height - m->line) * 0.5f), true, m);
+        UI_Parent(box) Prog__EditContents(&state->rename, pad, floorf((height - m->line) * 0.5f), true, 0, m);
     }
 }
 
@@ -1666,7 +1672,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextPrefHeight(UI_Pixels(tall));
                     UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
                     Prog__EditMouse(state, field, &state->filter, floorf(m->gap * 0.5f), Prog_CommandKind_FilterCaret, m);
-                    UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->filtering, m);
+                    UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->filtering, 0, m);
                 }
                 UI_Block *buttons = Prog__Box(UI_Fill(), UI_Pixels(tall), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(buttons) {
@@ -2179,7 +2185,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextText(S("Select..."));
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                     }
-                    Prog__EditContents(&state->menuSearch, 0, floorf((itemHeight - m->line) * 0.5f), true, m);
+                    Prog__EditContents(&state->menuSearch, 0, floorf((itemHeight - m->line) * 0.5f), true, 0, m);
                 }
             }
             Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -2469,13 +2475,13 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(text) {
                 if (!state->palette.length) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(hint);
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
             }
             UI_Interaction close = Prog__TextButton(S("TabSearchClose"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                     theme->icon, theme->text, theme->iconDisabled, true, m);
@@ -2689,13 +2695,13 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(text) {
                 if (!state->palette.length) {
                     // A little past the caret, as the reference sets it.
-                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(3.2f * s + 0.5f), floorf((field - m->line) * 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(3.2f * s + 0.5f), floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(S("Open or expand a folder..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
             }
             struct { String identity; String icon; Prog_CommandKind kind; b32 enabled; } buttons[] = {
                 { S("GoToBack"), Icon_ArrowLeft, Prog_CommandKind_GoToBack, state->gotoHistoryAt > 0 },
@@ -2752,7 +2758,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 // Section items sit in from their title; a folder's items do not.
-                UI_SetNextChildrenPadding((UI_Padding){ floorf((sections ? 32.8f : 8.0f) * s + 0.5f), 0, pad, 0 });
+                UI_SetNextChildrenPadding((UI_Padding){ floorf((sections ? 32.8f : 8.8f) * s + 0.5f), 0, pad, 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
                 UI_SetNextBorderThickness(1.2f * s);
                 UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = theme->selection });
@@ -2776,8 +2782,8 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     R_Color dim = highlighted ? theme->text : theme->textDim;
                     Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, theme->text, m);
                     if (sections || searching) {
-                        Prog__Spacer(UI_Pixels(floorf(7.2f * s + 0.5f)), UI_Pixels(face));
-                        Prog__SmallIcon(Icon_ChevronRight, R_TextWidth(m->iconsSmall, Icon_ChevronRight) + floorf(5.6f * s + 0.5f), face, dim, 0, m);
+                        Prog__Spacer(UI_Pixels(floorf(5.6f * s + 0.5f)), UI_Pixels(face));
+                        Prog__Icon(Icon_ChevronRight, R_TextWidth(m->icons, Icon_ChevronRight) + floorf(4.0f * s + 0.5f), face, dim, 0, m);
                         Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, m);
                     }
                 }
@@ -2873,13 +2879,13 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(text) {
                 if (!state->palette.length) {
                     // Placed as the edit's own text is.
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(S("Select a command..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f), true, m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
             }
             UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                     theme->icon, theme->text, theme->iconDisabled, true, m);
