@@ -484,6 +484,30 @@ command WindowToggleMaximize {
 command WindowClose {
 }
 
+// Filey's own menus, opened from their buttons at Prog_Command.at.
+command ViewMenu {
+}
+
+command HistoryMenu {
+}
+
+command TabList {
+}
+
+command MainMenu {
+}
+
+// A folder of the history picked from its menu; row is its place in the history.
+command HistoryGo {
+}
+
+command NewWindow {
+    label   = "New Window^open,instance"
+    tooltip = "Open the current folder in a new window."
+    hotkey  = "Ctrl+N"
+    repeat  = "false"
+}
+
 command SplitRight {
     label   = "Split Right^panel,side,dual,pane"
     tooltip = "Split current panel to the right."

@@ -241,6 +241,19 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
+// Toolbar button that opens one of Filey's menus below it.
+function void Prog__MenuButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 size = m->bar * 0.75f;
+    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(size), size, 0, theme->icon, theme->text, theme->iconDisabled, enabled, m);
+    if (interaction.clicked) {
+        // The button is the block just added.
+        R_Rect rect = UI->parent->last->rect;
+        Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder)->at = (UI_Vec2){ rect.x0, rect.y1 };
+    }
+}
+
 // Icon button inside a bottom pill; `on` shows a toggle that is set.
 function void Prog__PillButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 on, const Prog_Metrics *m)
 {
@@ -420,7 +433,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         controls = controls && PlatformWindowHasButtons();
         f32 controlWidth = floorf(40.0f * scale);
         f32 plus = floorf(m->bar * 0.9f);
-        f32 room = MaxF32(0, width - leadWidth - plus - m->inset - (controls ? controlWidth * 3 : 0));
+        f32 room = MaxF32(0, width - leadWidth - plus - button - m->inset - (controls ? controlWidth * 3 : 0));
         // A tab dragged over the strip goes into the slot nearest the pointer, which a placeholder marks unless it would stay where it is.
         u64 panelId = Prog__PanelId(state);
         b32 dropHere = state->tabDrag && UI__Contains(strip->rect, UI->mouse);
@@ -549,6 +562,14 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                                                   state->tabCount < Prog_MaxTabs, m);
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
         }
+        // The tab list, left of the window buttons.
+        UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(button));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_Block *listBox = UI_AddBlock(UI_Flag_Floating);
+        UI_Parent(listBox) Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, m);
         // The window buttons fill the strip's full height at its right end.
         if (controls) {
             UI_SetNextFloatingOffset((UI_Vec2){ width - controlWidth * 3, -top });
@@ -601,6 +622,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
         Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
+        Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
@@ -614,6 +636,9 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         Prog__Breadcrumbs(state, m);
+        Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
+        Prog__MenuButton(state, S("MainMenu"), Icon_EllipsisVertical, Prog_CommandKind_MainMenu, true, m);
+        Prog__Spacer(UI_Pixels(m->inset * 0.4f), UI_Pixels(m->bar));
     }
 }
 
@@ -1263,10 +1288,23 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 local_persist const String viewNames[Prog_View_Count] = { S("Details"), S("List"), S("Columns"), {0} };
                 u32 step = state->zoom - Prog_ZoomFirstIcon;
                 String name = view != Prog_View_Icons ? viewNames[view] : step < 7 ? S("M Icons") : state->zoom + 1 < Prog_ZoomLevels ? S("L Icons") : S("XL Icons");
-                Prog__Icon(viewIcons[view], 0, m->pill, theme->icon, 0.5f, m);
-                Prog__Label(name, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
                 f32 zoom = Prog__ZoomFraction(state->zoom);
                 f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
+                // The view and its zoom open the view menu above them.
+                UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->icons, viewIcons[view]) + R_TextWidth(m->font, name) + m->gap * 1.5f + barWidth));
+                UI_SetNextPrefHeight(UI_Pixels(m->pill));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *viewButton = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ViewMenu")), UI_Flag_LeftMouseClickable);
+                UI_Interaction viewClick = UI_InteractionFromBlock(viewButton);
+                if (viewClick.clicked) {
+                    f32 menuHeight = m->row * 9 + floorf(13.0f * m->scale);
+                    Prog_QueueCommand(state, Prog_CommandKind_ViewMenu, 0, 0, viewClick.clickOrder)->at = (UI_Vec2){ viewButton->rect.x0, viewButton->rect.y0 - menuHeight };
+                }
+                b32 viewHot = UI->hotKey == viewButton->key;
+                UI_Parent(viewButton) {
+                Prog__Icon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, 0.5f, m);
+                Prog__Label(name, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
                 Prog__Spacer(UI_Pixels(m->gap * 0.5f), UI_Pixels(m->pill));
                 UI_SetNextPrefWidth(UI_Pixels(barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(barHeight));
@@ -1283,6 +1321,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     // A block's text draws before its children, so the percentage is a child after the fill.
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                     Prog__Label(StrFormat(&state->frameArena, "%u%%", (u32)(zoom * 100.0f + 0.001f)), UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
+                }
                 }
             }
         } else {
@@ -1540,16 +1579,19 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
     f32 itemHeight = m->row, line = MaxF32(1, floorf(m->scale)), separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
-    f32 labelWidth = 0, height = 2 * pad;
+    f32 labelWidth = 0, hotkeyWidth = 0, height = 2 * pad;
     b32 anySubmenu = false;
+    String *hotkeys = ArenaPushArray(&state->frameArena, Max(shown, 1u), String);
     for (u32 i = 0; i < shown; ++i) {
         const P_MenuItem *item = &state->menu.items[visible[i]];
         height += item->separator ? separatorHeight : itemHeight;
         labelWidth = MaxF32(labelWidth, R_TextWidth(m->font, item->label));
         anySubmenu |= item->childCount != 0;
+        if (state->menuCommands && !item->separator) hotkeys[i] = Prog_HotkeyText(&state->frameArena, state->menuCommands[visible[i]].kind);
+        if (hotkeys[i].length) hotkeyWidth = MaxF32(hotkeyWidth, R_TextWidth(m->font, hotkeys[i]) + 2 * m->inset);
     }
     f32 arrow = anySubmenu ? m->line * 1.5f : 0;
-    f32 width = floorf(MinF32(MaxF32(labelWidth + iconLeft + iconColumn + m->inset + arrow + 2 * pad, m->line * 12), m->line * 30));
+    f32 width = floorf(MinF32(MaxF32(labelWidth + hotkeyWidth + iconLeft + iconColumn + m->inset + arrow + 2 * pad, m->line * 12), m->line * 36));
     R_Rect view = UI->root->rect;
     f32 x = place.x, y = place.y;
     // Submenus open to the right of their item, or to the left when there is no room.
@@ -1624,8 +1666,14 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 UI_SetNextPrefHeight(UI_Pixels(itemHeight));
                 UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
                 if (icon) UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, enabled ? (R_Color){ 1, 1, 1, 1 } : (R_Color){ 1, 1, 1, 0.4f });
-                UI_AddBlock(icon ? UI_Flag_DrawImage : 0);
+                if (!icon && state->menuCommands && item->isDefault) {
+                    UI_SetNextFont(m->icons);
+                    UI_SetNextColors((UI_Colors){ .text = theme->text });
+                    UI_SetNextText(Icon_Check);
+                }
+                UI_AddBlock(icon ? UI_Flag_DrawImage : state->menuCommands && item->isDefault ? UI_Flag_DrawText : 0);
                 Prog__Label(item->label, UI_Flex(), itemHeight, 0, color, 0);
+                if (hotkeys[i].length) Prog__Label(hotkeys[i], UI_Pixels(hotkeyWidth), itemHeight, m->inset, theme->textDim, 1);
                 if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {

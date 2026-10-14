@@ -25,3 +25,5 @@ panel-left
 menu
 columns-3
 image
+ellipsis-vertical
+settings

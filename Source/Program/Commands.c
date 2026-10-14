@@ -45,6 +45,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuOpen = false;
     state->menuRows = NULL;
     state->menuIcons = NULL;
+    state->menuCommands = NULL;
     state->menuRowCount = 0;
     state->menuDepth = 0;
     state->menuHighlight = UINT32_MAX;
@@ -121,6 +122,103 @@ function String Prog__RowsFolder(Prog_State *state, Arena *arena, u64 *rows, u64
     }
     *count = kept;
     return parent.length ? Prog_JoinPath(arena, state->directory.path, parent) : state->directory.path;
+}
+
+// Opens Filey's own menu of `items` with its corner at `at`.
+function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at)
+{
+    Prog_CloseMenu(state);
+    if (!count) return;
+    state->menu.items = ArenaPushArray(&state->menuArena, count, P_MenuItem);
+    state->menuCommands = ArenaPushArray(&state->menuArena, count, Prog_MenuCommand);
+    state->menuIcons = ArenaPushArray(&state->menuArena, count, const Prog_Icon *);
+    for (u32 i = 0; i < count; ++i) {
+        Prog_MenuCommand item = items[i];
+        item.label = StrCopy(&state->menuArena, item.label.length ? item.label : Prog_Commands[item.kind].label);
+        state->menuCommands[i] = item;
+        state->menu.items[i] = (P_MenuItem){ .label = item.label, .id = i + 1, .separator = item.kind == Prog_CommandKind_None, .isDefault = (b8)(item.checked != 0) };
+    }
+    state->menu.count = state->menu.rootCount = count;
+    state->menuOpen = true;
+    state->menuAt = at;
+    state->menuHighlight = UINT32_MAX;
+}
+
+// "Ctrl+Shift+S" for the first default hotkey of `kind`; empty when it has none.
+function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind)
+{
+    local_persist const char *named[Key_Count] = {
+        [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Del", [Key_Insert] = "Ins",
+        [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
+        [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu",
+    };
+    for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
+        const Prog_Hotkey *hotkey = &Prog_DefaultHotkeys[i];
+        if (hotkey->command != kind) continue;
+        char key[4] = {0};
+        const char *name = hotkey->key < Key_Count ? named[hotkey->key] : NULL;
+        if (hotkey->key >= Key_A && hotkey->key <= Key_Z) key[0] = (char)('A' + (hotkey->key - Key_A));
+        else if (hotkey->key >= Key_0 && hotkey->key <= Key_9) key[0] = (char)('0' + (hotkey->key - Key_0));
+        else if (hotkey->key >= Key_F1 && hotkey->key <= Key_F12) {
+            u32 number = (u32)(hotkey->key - Key_F1) + 1;
+            key[0] = 'F';
+            key[1] = (char)(number < 10 ? '0' + number : '1');
+            key[2] = (char)(number < 10 ? 0 : '0' + number - 10);
+        }
+        if (key[0]) name = key;
+        if (!name) continue;
+        return StrFormat(arena, "%s%s%s%s%s", (hotkey->mods & KeyMod_Control) ? "Ctrl+" : "", (hotkey->mods & KeyMod_Alt) ? "Alt+" : "",
+                         (hotkey->mods & KeyMod_Shift) ? "Shift+" : "", (hotkey->mods & KeyMod_Super) ? "Super+" : "", name);
+    }
+    return (String){0};
+}
+
+// Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
+function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
+{
+    Scratch scratch = GetScratch();
+    u32 capacity = Max(Prog_MaxTabs, (u32)state->history.header.count) + 32, count = 0;
+    Prog_MenuCommand *items = ArenaPushArray(scratch.arena, capacity, Prog_MenuCommand);
+#define Prog__Item(...) (items[count++] = (Prog_MenuCommand){ __VA_ARGS__ })
+    switch (command->kind) {
+        case Prog_CommandKind_ViewMenu: {
+            u32 zoom = state->zoom;
+            Prog__Item(.kind = Prog_CommandKind_ViewDetails, .checked = zoom == 0);
+            Prog__Item(.kind = Prog_CommandKind_ViewList, .checked = zoom == 1);
+            Prog__Item(.kind = Prog_CommandKind_ViewColumns, .checked = zoom == 2);
+            Prog__Item(.kind = Prog_CommandKind_ViewMediumIcons, .checked = zoom >= Prog_ZoomFirstIcon && zoom < Prog_ZoomFirstIcon + 7);
+            Prog__Item(.kind = Prog_CommandKind_ViewLargeIcons, .checked = zoom >= Prog_ZoomFirstIcon + 7 && zoom + 1 < Prog_ZoomLevels);
+            Prog__Item(.kind = Prog_CommandKind_ViewXLIcons, .checked = zoom + 1 == Prog_ZoomLevels);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_ZoomIn);
+            Prog__Item(.kind = Prog_CommandKind_ZoomOut);
+        } break;
+        case Prog_CommandKind_HistoryMenu: {
+            // Newest first, as browsers list it.
+            for (u64 i = state->history.header.count; i-- > 0;) Prog__Item(.kind = Prog_CommandKind_HistoryGo, .row = i, .label = state->history.v[i], .checked = i == state->historyAt);
+        } break;
+        case Prog_CommandKind_TabList: {
+            for (u32 i = 0; i < state->tabCount; ++i) Prog__Item(.kind = Prog_CommandKind_SelectTab, .row = i, .label = Prog_TabPath(state, i), .checked = i == state->activeTab);
+        } break;
+        case Prog_CommandKind_MainMenu: {
+            Prog__Item(.kind = Prog_CommandKind_TabNew);
+            Prog__Item(.kind = Prog_CommandKind_NewWindow);
+            Prog__Item(.kind = Prog_CommandKind_SplitRight);
+            Prog__Item(.kind = Prog_CommandKind_SplitBottom);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .checked = state->showHidden);
+            Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .checked = !state->sidebarHidden);
+            Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .checked = Prog_IsBookmarked(state, state->directory.path));
+            Prog__Item(.kind = Prog_CommandKind_CopyAsPath);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .checked = state->transparent);
+            Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .checked = state->debugTheme);
+        } break;
+        default: break;
+    }
+#undef Prog__Item
+    Prog_OpenCommandMenu(state, items, count, command->at);
+    ReleaseScratch(scratch);
 }
 
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
@@ -365,6 +463,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     if (!state->menuOpen || index >= state->menu.count) return;
     P_MenuItem item = state->menu.items[index];
     if (item.separator || item.disabled || item.childCount) return;
+    if (state->menuCommands) {
+        Prog_MenuCommand chosen = state->menuCommands[index];
+        Prog_CloseMenu(state);
+        Prog_QueueCommand(state, chosen.kind, chosen.row, 0, UINT64_MAX);
+        return;
+    }
     // "Open" stays inside Filey: folders open here and files go through the same job as double-click.
     // The shell's Rename needs an Explorer view to edit in, so Filey edits the name itself.
     if (StrIsEqual(item.verb, S("rename")) && state->menuRowCount == 1) {
@@ -768,6 +872,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_ViewMenu:
+            case Prog_CommandKind_HistoryMenu:
+            case Prog_CommandKind_TabList:
+            case Prog_CommandKind_MainMenu: Prog__OpenProgramMenu(state, command); break;
+            case Prog_CommandKind_HistoryGo: {
+                if (command->row < state->history.header.count) Prog_RequestDirectory(state, state->history.v[command->row], false, command->row);
+            } break;
+            case Prog_CommandKind_NewWindow: {
+                P_FileError error = P_OpenWindow(&state->frameArena, Prog_TabPath(state, state->activeTab));
+                if (error.code) {
+                    ArenaClear(&state->errorArena);
+                    state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
+                }
+            } break;
             case Prog_CommandKind_ToggleTransparency: Prog_SetTransparent(state, !state->transparent); break;
             case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
             case Prog_CommandKind_WindowMove: PlatformWindowStartMove(); break;

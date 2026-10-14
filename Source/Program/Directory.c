@@ -1285,8 +1285,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     } else if (!input->addHistory && state->history.header.count) {
                         state->historyAt = input->historyAt;
                     }
-                    // The menu's rows index the listing being replaced.
-                    Prog_CloseMenu(state);
+                    // The menu's rows index the listing being replaced; Filey's own menus have none.
+                    if (!state->menuCommands) Prog_CloseMenu(state);
                     ArenaRelease(&state->directoryArena);
                     state->directoryArena = job->arena;
                     state->directory = *result;

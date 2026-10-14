@@ -53,7 +53,16 @@ struct Prog_Command {
     u32 pressCount;
     u64 inputOrder;
     KeyMods mods;
+    UI_Vec2 at;  // menus: where they open
 };
+
+// An item of Filey's own menus, which queues `kind` with `row`; Prog_CommandKind_None is a separator.
+typedef struct Prog_MenuCommand {
+    enum8(Prog_CommandKind) kind;
+    u64 row;
+    String label;  // the command's label when empty
+    b32 checked;
+} Prog_MenuCommand;
 
 typedef struct Prog_Entry {
     P_File file;
@@ -367,6 +376,7 @@ typedef struct Prog_State {
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
+    Prog_MenuCommand *menuCommands;  // per item of Filey's own menus; NULL for the system's
     UI_Key menuHot;           // hot block when the menu was last built
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
@@ -474,3 +484,5 @@ function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);
 function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds);
 function Prog_View Prog_ZoomView(u32 zoom);
+function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
+function String Prog_HotkeyText(Arena *arena, Prog_CommandKind kind);
