@@ -1482,12 +1482,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_ToggleExpandFolder:
             case Prog_CommandKind_StartExpandedSearch: {
-                b32 expand = command->kind == Prog_CommandKind_StartExpandedSearch || !state->expanded;
-                if (expand != state->expanded) {
-                    state->expanded = expand;
-                    Prog_Reload(state);
-                }
-                if (command->kind == Prog_CommandKind_StartExpandedSearch && !state->renaming) {
+                // Both toggle: the search ends as it started, back to the folder's own items with the filter kept, as the reference does.
+                b32 expand = !state->expanded;
+                state->expanded = expand;
+                Prog_Reload(state);
+                if (command->kind == Prog_CommandKind_StartExpandedSearch && expand && !state->renaming) {
                     state->filtering = true;
                     state->filter.anchor = 0;
                     state->filter.cursor = state->filter.length;
