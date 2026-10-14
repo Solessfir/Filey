@@ -469,6 +469,10 @@ command SidebarOpen {
 command SidebarOpenInTab {
 }
 
+// Sidebar item right click; carries the Prog_Group and the item, whose folder's system menu opens at the pointer.
+command SidebarMenu {
+}
+
 // Sidebar section title click; carries the Prog_Group.
 command ToggleGroup {
 }

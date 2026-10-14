@@ -438,6 +438,7 @@ typedef struct Prog_State {
     UI_Vec2 menuAt;
     u64 *menuRows;            // directory entries the menu acts on
     u64 menuRowCount;
+    String menuTarget;        // the folder a sidebar item's menu acts on instead, in menuArena
     u32 menuPath[8];          // the open submenu item at each level
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none

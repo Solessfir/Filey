@@ -1832,7 +1832,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
     UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
     b32 hot = UI->hotKey == key || UI->hotKey == removeKey;
-    b32 current = StrIsEqual(path, state->directory.path);
+    // Lit while it is shown, or while its menu is open.
+    b32 current = StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget));
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -1840,8 +1841,12 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f), 0, floorf(m->gap * 0.5f), 0 });
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = current ? theme->selection : theme->alternateRow });
-    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
+    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_RightMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    if (interaction.pressed && interaction.button == MouseButton_Right) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarMenu, (u64)group, 0, interaction.pressOrder);
+        command->target = index;
+    }
     if (interaction.clicked && interaction.button == MouseButton_Left) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;

@@ -45,6 +45,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menu = (P_ContextMenu){0};
     state->menuOpen = false;
     state->menuRows = NULL;
+    state->menuTarget = (String){0};
     state->menuIcons = NULL;
     state->menuCommands = NULL;
     state->menuRowCount = 0;
@@ -623,6 +624,14 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         Prog_QueueCommand(state, chosen.kind, chosen.row, 0, UINT64_MAX);
         return;
     }
+    // A sidebar folder's menu: Open shows it here, and of Filey's own items, which act on the list's selection, only Copy As Path applies.
+    if (state->menuTarget.length && (item.action || StrIsEqual(item.verb, S("open")))) {
+        String target = StrCopy(&state->frameArena, state->menuTarget);
+        Prog_CloseMenu(state);
+        if (item.action == P_MenuAction_CopyAsPath) PlatformClipboardSetText(P_NativePath(&state->frameArena, target));
+        else if (!item.action) Prog_RequestDirectory(state, target, true, 0);
+        return;
+    }
     // "Open" stays inside Filey: folders open here and files go through the same job as double-click.
     // The shell's Rename needs an Explorer view to edit in, so Filey edits the name itself.
     if (StrIsEqual(item.verb, S("rename")) && state->menuRowCount == 1) {
@@ -937,6 +946,23 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!path.length) break;
                 if (command->kind == Prog_CommandKind_SidebarOpenInTab) Prog_OpenTab(state, path, state->activeTab + 1, false);
                 else if (!StrIsEqual(path, state->directory.path)) Prog_RequestDirectory(state, path, true, 0);
+            } break;
+            case Prog_CommandKind_SidebarMenu: {
+                String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
+                if (!path.length) break;
+                Prog_CloseMenu(state);
+                state->menuTarget = StrCopy(&state->menuArena, path);
+                // A drive's root has no folder above it, so its own background menu stands in.
+                String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
+                b32 root = StrIsEqual(parent, path) || !parent.length;
+                state->menuOpen = P_ContextMenuOpen(&state->menuArena, root ? path : parent, &name, root ? 0 : 1, &state->menu);
+                if (!state->menuOpen) {
+                    Prog_CloseMenu(state);
+                    break;
+                }
+                state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
+                for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
+                state->menuAt = state->ui.mouse;
             } break;
             case Prog_CommandKind_ToggleGroup: if (command->row < Prog_Group_Count) state->groupToggled[command->row] = !state->groupToggled[command->row]; break;
             case Prog_CommandKind_RemoveBookmark: {
