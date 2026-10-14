@@ -6,22 +6,19 @@ function String Prog_JoinPath(Arena *arena, String path, String name)
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
-// 1024-based with one decimal that is dropped when zero: "1010 B", "1 kB", "11.7 MB".
+// 1024-based with one decimal, cut rather than rounded as the reference does, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".
 function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
     local_persist const char *units[] = { "kB", "MB", "GB", "TB", "PB" };
     if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " B", bytes);
-    f64 value = (f64)bytes / 1024.0;
+    // In single precision, which lands a value a hair under a tenth on the tenth before it is cut.
+    f32 value = (f32)bytes / 1024.0f;
     u32 unit = 0;
-    while (value >= 1024.0 && unit + 1 < CArrayCount(units)) {
-        value /= 1024.0;
+    while (value >= 1024.0f && unit + 1 < CArrayCount(units)) {
+        value /= 1024.0f;
         ++unit;
     }
-    f64 rounded = floor(value * 10.0 + 0.5) / 10.0;
-    if (rounded >= 1024.0 && unit + 1 < CArrayCount(units)) {
-        rounded = 1;
-        ++unit;
-    }
+    f64 rounded = floor((f64)(value * 10.0f)) / 10.0;
     return rounded == floor(rounded) ? StrFormat(arena, "%.0f %s", rounded, units[unit]) : StrFormat(arena, "%.1f %s", rounded, units[unit]);
 }
 

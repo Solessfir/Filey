@@ -63,6 +63,7 @@ typedef struct Prog_Loop {
     Prog_State state;
     Arena fontArena;
     R_Font font;
+    R_Font detailFont;
     R_Font icons;
     f32 fontScale;    // the display scale the fonts were rasterized for
     b32 running;
@@ -81,21 +82,26 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     const f32 fontPixelSize = 15.0f;
 #endif
     Arena arena = {0};
-    R_Font font = {0}, icons = {0};
+    R_Font font = {0}, detailFont = {0}, icons = {0};
     // Icons are a little smaller than the text's line height, which gives their strokes the reference's weight.
     b32 ok = R_FontCreate(&arena, S("Segoe UI"), fontPixelSize * scale, &font) &&
+             R_FontCreate(&arena, S("Segoe UI"), (fontPixelSize - 96.0f / 72.0f) * scale, &detailFont) &&
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f + 0.5f),
                                     Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &icons);
     if (!ok) {
         R_TextureRelease(font.atlas);
+        R_TextureRelease(detailFont.atlas);
         ArenaRelease(&arena);
         return false;
     }
     R_TextureRelease(loop->font.atlas);
+    R_TextureRelease(loop->detailFont.atlas);
     R_TextureRelease(loop->icons.atlas);
     ArenaRelease(&loop->fontArena);
     loop->fontArena = arena;
     loop->font = font;
+    loop->detailFont = detailFont;
+    loop->state.smallFont = &loop->detailFont;
     loop->icons = icons;
     loop->fontScale = scale;
     return true;

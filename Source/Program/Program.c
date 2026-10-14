@@ -43,7 +43,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .alternateRow = Prog_Gray(28),
     .separator    = Prog_Gray(28),
     .hover        = Prog_Gray(80),
-    .selection    = Prog_Gray(44),
+    .selection    = Prog_Gray(80),
     .focus        = Prog_Gray(80),
     .tabBorder    = Prog_Gray(56),
     .closeHover   = Prog_Rgb(196, 43, 28),
@@ -71,7 +71,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     .alternateRow = Prog_White(0.012f),
     .separator    = Prog_White(0.03f),
     .hover        = Prog_White(0.2f),
-    .selection    = Prog_White(0.09f),
+    .selection    = Prog_White(0.2f),
     .focus        = Prog_White(0.22f),
     .tabBorder    = Prog_White(0.04f),
     .closeHover   = Prog_Rgb(196, 43, 28),
@@ -299,6 +299,7 @@ typedef struct Prog_Metrics {
     f32 radius;
     f32 scale;
     const R_Font *font;
+    const R_Font *detail;  // the details columns beside the names
     const R_Font *icons;
 } Prog_Metrics;
 
@@ -307,6 +308,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
     f32 line = font->lineHeight;
     return (Prog_Metrics){
         .font = font,
+        .detail = font,
         .icons = icons,
         .line = line,
         .row = floorf(line * 1.6f + 0.5f),
@@ -348,6 +350,17 @@ function void Prog__Spacer(UI_Size width, UI_Size height)
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(height);
     UI_AddBlock(0);
+}
+
+function void Prog__LabelPadded(String text, UI_Size width, f32 height, f32 left, f32 right, R_Color color, f32 alignX)
+{
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
+    UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
+    UI_SetNextColors((UI_Colors){ .text = color });
+    UI_SetNextText(text);
+    UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
 }
 
 function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R_Color color, f32 alignX)
@@ -808,22 +821,34 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
     Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size,
 };
 
-// The columns of a list whose rows have `room` beside the icon.
-// Logical widths come from the reference screenshots and Name flexes; in a narrow panel the others shrink alike, so that Name keeps over a third,
-// down to the least that still shows a size or a count whole.
+// The columns of a list whose rows are `room` wide: shares of it as the reference measures them, Name taking what is left, down to the least that still shows a size or a count whole.
 function void Prog__Columns(Prog_Column *columns, f32 scale, f32 room)
 {
-    local_persist const f32 widths[Prog_ColumnId_Count] = { 0, 192, 193, 90, 105, 105 };
+    local_persist const f32 shares[Prog_ColumnId_Count] = { 0, 0.15f, 0.15f, 0.075f, 0.075f, 0.1f };
+    // Of the slot they share, Folders takes a little more than half.
+    local_persist const f32 shift[Prog_ColumnId_Count] = { 0, 0, 0, 6, -6, 0 };
     local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 75 };
-    f32 fixed = 0;
-    for (u32 i = 0; i < Prog_ColumnId_Count; ++i) fixed += widths[i] * scale;
-    f32 shrink = room > 0 && fixed > room * 0.65f ? room * 0.65f / fixed : 1;
+    if (room <= 0) room = 918.0f * scale;
     local_persist const String titles[Prog_ColumnId_Count] = { S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size") };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
-        f32 width = i == Prog_ColumnId_Name ? 0 : MaxF32(least[i], widths[i] * shrink) * scale;
-        columns[i] = (Prog_Column){ titles[i], floorf(width), i == Prog_ColumnId_Size ? 1.0f : 0 };
+        f32 width = i == Prog_ColumnId_Name ? 0 : MaxF32(least[i] * scale, floorf(shares[i] * room + shift[i] * scale + 0.5f));
+        columns[i] = (Prog_Column){ titles[i], width, i == Prog_ColumnId_Size ? 1.0f : 0 };
     }
 }
+
+// The space inside a details column before and after its title and values; Files sits close after Folders, and sizes keep clear of the row's end.
+function f32 Prog__ColumnLeft(u32 column, const Prog_Metrics *m)
+{
+    return column == Prog_ColumnId_Name ? m->gap : floorf((column == Prog_ColumnId_Files ? 8.0f : 20.0f) * m->scale + 0.5f);
+}
+
+function f32 Prog__ColumnRight(u32 column, const Prog_Metrics *m)
+{
+    return column == Prog_ColumnId_Size ? floorf(20.0f * m->scale + 0.5f) : column == Prog_ColumnId_Folders ? 0 : m->gap;
+}
+
+// Folders and Files share one slot, so no line parts them.
+function b32 Prog__ColumnLineAfter(u32 column) { return column + 1 < Prog_ColumnId_Count && column != Prog_ColumnId_Folders; }
 
 function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f32 width);
 
@@ -847,18 +872,25 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
             UI_Interaction interaction = UI_InteractionFromBlock(cell);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
             UI_Parent(cell) {
-                if (i == Prog_ColumnId_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+                b32 name = i == Prog_ColumnId_Name;
+                f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m), line = Prog__ColumnLineAfter(i) ? m->separator : 0;
+                if (name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
-                // Titles start at the left even over right-aligned values, and end in an ellipsis where the column is too narrow.
-                f32 room = columns[i].width > 0 ? columns[i].width - 2 * m->gap - m->separator - (sorted ? m->line + m->gap : 0) : 0;
-                Prog__Label(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, columns[i].title, room) : columns[i].title, UI_Flex(), m->row, m->gap, color, 0);
-                if (sorted) Prog__Icon(state->descending ? Icon_ArrowDown : Icon_ArrowUp, m->line + m->gap, m->row, theme->textDim, 0.5f, m);
-                if (i + 1 < Prog_ColumnId_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
+                // Titles start at the left even over right-aligned values, and end in an ellipsis where the column is too narrow; the sort arrow sits at the column's end.
+                f32 arrow = sorted ? floorf(m->line * 0.6f) : 0;
+                f32 room = columns[i].width > 0 ? columns[i].width - left - right - line - arrow : 0;
+                Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, columns[i].title, room) : columns[i].title, UI_Flex(), m->row, left, sorted ? 0 : right, color, 0);
+                if (sorted) Prog__Icon(state->descending ? Icon_MoveDown : Icon_MoveUp, arrow, m->row, theme->textDim, 0.5f, m);
+                if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, Prog__ColumnLeft(Prog_ColumnId_Type, m))), UI_Pixels(m->row));
+                if (line > 0) {
+                    UI_SetNextCornerRadius(line * 0.5f);
+                    Prog__Box(UI_Pixels(line), UI_Pixels(floorf(m->line * 1.15f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0)->flags |= UI_Flag_DrawBackground;
+                }
                 // While folder totals are being counted, the columns they fill show a spinner at their right end.
                 const Prog_Icon *spinner = state->measureJob && (i == Prog_ColumnId_Files || i == Prog_ColumnId_Size) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
                 if (spinner) {
                     f32 slot = m->line + m->gap;
-                    UI_SetNextFloatingOffset((UI_Vec2){ cell->rect.x1 - cell->rect.x0 - slot - (i + 1 < Prog_ColumnId_Count ? m->separator + m->gap : 0), 0 });
+                    UI_SetNextFloatingOffset((UI_Vec2){ cell->rect.x1 - cell->rect.x0 - slot - (Prog__ColumnLineAfter(i) ? m->separator + m->gap : 0), 0 });
                     UI_SetNextPrefWidth(UI_Pixels(slot));
                     UI_SetNextPrefHeight(UI_Pixels(m->row));
                     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
@@ -1009,7 +1041,7 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
 function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f32 width)
 {
     if (R_TextWidth(font, text) <= width) return text;
-    String dots = S("…");
+    String dots = S("...");
     f32 room = width - R_TextWidth(font, dots);
     u64 fit = 0;
     // ponytail: measures every prefix; names are short, so this stays cheap.
@@ -1020,6 +1052,42 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
         fit = at = next;
     }
     return StrFormat(arena, "%S%S", StrMake(text.value, fit), dots);
+}
+
+// How an item's box shows: filled with the selection color when selected, washed with it and outlined under the pointer, and outlined as the keyboard's item.
+typedef struct Prog_ItemLook { R_Color fill, border; UI_Flags flags; } Prog_ItemLook;
+
+function Prog_ItemLook Prog__ItemLook(b32 selected, b32 hot, b32 focused)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog_ItemLook result = { .fill = theme->selection, .border = hot ? theme->selection : theme->focus };
+    if (!selected) result.fill.a *= 0.35f;
+    if (selected || hot) result.flags |= UI_Flag_DrawBackground;
+    if (!selected && (hot || focused)) result.flags |= UI_Flag_DrawBorder;
+    return result;
+}
+
+// The line under each row of the list.
+function f32 Prog__RowLine(const Prog_Metrics *m) { return MaxF32(1, floorf(2.0f * m->scale + 0.5f)); }
+
+// A line-height item's box behind what comes after it in the current block, `width` wide, with the line under it.
+function void Prog__ItemBox(Prog_ItemLook look, UI_Size width, const Prog_Metrics *m)
+{
+    f32 line = Prog__RowLine(m);
+    if (look.flags) {
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(width);
+        UI_SetNextPrefHeight(UI_Pixels(m->row - line));
+        UI_SetNextCornerRadius(m->radius);
+        UI_SetNextBorderThickness(1.5f * m->scale);
+        UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
+        UI_AddBlock(UI_Flag_Floating | look.flags);
+    }
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, m->row - line });
+    UI_SetNextPrefWidth(width);
+    UI_SetNextPrefHeight(UI_Pixels(line));
+    UI_SetNextColors((UI_Colors){ .background = Prog_CurrentTheme()->separator });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
 }
 
 // Hidden and dot-named items are faded whether or not the OS marks them hidden.
@@ -1095,19 +1163,14 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
-    // Hover wins over selection.
-    R_Color background = position & 1 ? theme->alternateRow : theme->background;
-    if (entry->selected) background = theme->selection;
-    if (hot) background = theme->hover;
+    (void)position;
     b32 highlighted = entry->selected || hot;
     b32 faded = Prog__EntryFaded(entry);
+    f32 height = m->row - Prog__RowLine(m);
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
-    UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
-    UI_Flags flags = UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0);
-    UI_Block *row = UI_AddBlockFromKey(key, flags);
+    UI_Block *row = UI_AddBlockFromKey(key, !state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0);
     b32 renaming = Prog__ItemRenaming(state, entry);
     // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
     b32 onName = UI->pressOrigin.x < row->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
@@ -1115,7 +1178,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     String values[Prog_ColumnId_Count];
     Prog__EntryValues(state, entry, values);
     UI_Parent(row) {
-        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, m->row, 1, highlighted, m);
+        Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
+        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         for (u32 i = 0; i < (nameOnly ? 1u : (u32)Prog_ColumnId_Count); ++i) {
             UI_Size width = columns[i].width > 0 && !nameOnly ? UI_Pixels(columns[i].width) : UI_Flex();
             if (i == Prog_ColumnId_Name && renaming) {
@@ -1132,8 +1196,12 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 continue;
             }
             // Values too wide for a fixed column end in an ellipsis.
-            String value = columns[i].width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->font, values[i], columns[i].width - 2 * m->gap) : values[i];
-            Prog__Label(value, width, m->row, m->gap, color, columns[i].alignX);
+            f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m);
+            // Right-aligned values may run into the space before them.
+            if (columns[i].alignX > 0) left = m->gap;
+            String value = columns[i].width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->detail, values[i], columns[i].width - left - right) : values[i];
+            if (i != Prog_ColumnId_Name) UI_SetNextFont(m->detail);
+            Prog__LabelPadded(value, width, height, left, right, color, columns[i].alignX);
         }
     }
     return result;
@@ -1146,23 +1214,21 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
-    R_Color background = line & 1 ? theme->alternateRow : theme->background;
-    if (entry->selected) background = theme->selection;
-    if (hot) background = theme->hover;
+    (void)line;
     b32 highlighted = entry->selected || hot;
+    f32 height = m->row - Prog__RowLine(m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_SetNextCornerRadius(highlighted || focused ? m->radius : 0);
-    UI_SetNextColors((UI_Colors){ .background = background, .border = theme->focus });
-    UI_Block *cell = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0) | (focused ? UI_Flag_DrawBorder : 0));
+    UI_Block *cell = UI_AddBlockFromKey(key, !state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0);
     b32 renaming = Prog__ItemRenaming(state, entry);
     b32 onName = UI->pressOrigin.x < cell->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
     b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
     UI_Parent(cell) {
-        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, m->row, 1, highlighted, m);
+        Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
+        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), m);
-        else Prog__Label(entry->file.name, UI_Flex(), m->row, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
+        else Prog__Label(entry->file.name, UI_Flex(), height, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
     }
     return result;
 }
@@ -1181,9 +1247,10 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
     UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(9.0f * m->scale), 0, 0 });
     UI_SetNextCornerRadius(m->radius * 2);
-    UI_SetNextColors((UI_Colors){ .background = hot ? theme->hover : theme->selection, .border = theme->focus });
-    UI_Block *cell = UI_AddBlockFromKey(key, (highlighted ? UI_Flag_DrawBackground : 0) | (focused ? UI_Flag_DrawBorder : 0) |
-                                        (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
+    Prog_ItemLook look = Prog__ItemLook(entry->selected, hot, focused);
+    UI_SetNextBorderThickness(1.5f * m->scale);
+    UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
+    UI_Block *cell = UI_AddBlockFromKey(key, look.flags | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
     // The whole cell is the item, so presses on it drag the files; the box selection starts from the space between cells.
     Prog__ItemInput(state, index, cell, key, true, renaming);
@@ -2317,7 +2384,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 previewWidth = active && state->previewShown ? floorf(MinF32(width * 0.4f, m->line * 30)) : 0;
     f32 listWidth = width - previewWidth;
     Prog_Column panelColumns[Prog_ColumnId_Count];
-    Prog__Columns(panelColumns, scale, listWidth - 2 * m->inset - m->iconSlot);
+    Prog__Columns(panelColumns, scale, listWidth - 2 * m->inset);
     columns = panelColumns;
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -2332,7 +2399,10 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
             UI_Parent(body) {
                 UI_Block *listColumn = Prog__Box(UI_Pixels(listWidth), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
                 UI_Parent(listColumn) {
-                    if (Prog_ZoomView(state->zoom) == Prog_View_Details) Prog__Header(state, columns, m);
+                    if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
+                        Prog__Header(state, columns, m);
+                        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.0f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
+                    }
                     Prog__List(state, columns, m);
                 }
                 if (previewWidth > 0) Prog__PreviewPane(state, previewWidth, m);
@@ -2439,6 +2509,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (state->tabDragCancelled && UI->activeKey != state->tabDragKey) state->tabDragCancelled = false;
     state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
+    metrics.detail = state->smallFont ? state->smallFont : font;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
     const Prog_Metrics *m = &metrics;

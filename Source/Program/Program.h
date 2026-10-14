@@ -513,6 +513,8 @@ typedef struct Prog_State {
     b32 debugTheme;
     // "animations = off" in the settings: menus, scrolling and the caret change at once.
     b32 animationsOff;
+    // A point smaller than the main font, for the details columns; the main font while unset.
+    const R_Font *smallFont;
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
     b32 warmMenus;
 } Prog_State;

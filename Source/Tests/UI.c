@@ -634,7 +634,7 @@ function void TestProgramVirtualRows(void)
         Check(visible && visible->clipRect.y1 > visible->clipRect.y0);
         if (frame) {
             Check(list->scrollOffset.y > 0 && !state.revealFocus);
-            Check(visible && FlagIntersects(visible->flags, UI_Flag_DrawBorder));
+            Check(visible && visible->first && FlagIntersects(visible->first->flags, UI_Flag_DrawBorder));
             Check(!UI__Find(UI_KeyFromStr(directoryKey, state.directory.entries[0].file.name)));
         }
     }

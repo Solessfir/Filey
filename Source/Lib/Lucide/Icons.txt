@@ -27,3 +27,7 @@ columns-3
 image
 ellipsis-vertical
 settings
+move-up
+move-down
+square
+lock-open

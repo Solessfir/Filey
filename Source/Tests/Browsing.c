@@ -864,8 +864,10 @@ function void TestMeasure(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_FormatSize(&arena, 0), S("0 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1010), S("1010 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1024), S("1 kB")));
-    Check(StrIsEqual(Prog_FormatSize(&arena, 9420), S("9.2 kB")));
-    Check(StrIsEqual(Prog_FormatSize(&arena, 1048575), S("1 MB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 9420), S("9.1 kB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 150000), S("146.4 kB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 1048575), S("1023.9 kB")));
+    Check(StrIsEqual(Prog_FormatSize(&arena, 3200000), S("3 MB")));
     Check(StrIsEqual(Prog_FormatSize(&arena, UINT64_C(12268339)), S("11.7 MB")));
 
     P_CancelToken token = {0};
