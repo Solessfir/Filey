@@ -130,6 +130,7 @@ typedef struct Prog_Metrics {
     f32 gap;         // text padding inside cells and buttons
     f32 iconSlot;    // reserved for file icons
     f32 radius;
+    f32 scale;
     const R_Font *font;
     const R_Font *icons;
 } Prog_Metrics;
@@ -150,6 +151,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
         .gap = floorf(8.0f * scale + 0.5f),
         .iconSlot = floorf(30.0f * scale + 0.5f),
         .radius = 3.0f * scale,
+        .scale = scale,
     };
 }
 
@@ -1158,7 +1160,9 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
     u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, visible);
     if (!shown) return false;
-    f32 itemHeight = m->row, separatorHeight = m->gap + m->separator, pad = m->gap * 0.5f;
+    // the reference's measurements: rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
+    f32 itemHeight = m->row, line = MaxF32(1, floorf(m->scale)), separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
+    f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
     f32 labelWidth = 0, height = 2 * pad;
     b32 anySubmenu = false;
     for (u32 i = 0; i < shown; ++i) {
@@ -1168,7 +1172,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         anySubmenu |= item->childCount != 0;
     }
     f32 arrow = anySubmenu ? m->line * 1.5f : 0;
-    f32 width = floorf(MinF32(MaxF32(labelWidth + 2 * m->inset + arrow + 2 * pad, m->line * 12), m->line * 30));
+    f32 width = floorf(MinF32(MaxF32(labelWidth + iconLeft + iconColumn + m->inset + arrow + 2 * pad, m->line * 12), m->line * 30));
     R_Rect view = UI->root->rect;
     f32 x = place.x, y = place.y;
     // Submenus open to the right of their item, or to the left when there is no room.
@@ -1177,13 +1181,24 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
 
+    f32 radius = floorf(10.0f * m->scale + 0.5f);
+    // A shadow of a few faint layers, each a little larger and lower, since the renderer has no blur.
+    for (u32 i = 1; i <= 3; ++i) {
+        f32 grow = (f32)i * floorf(m->scale + 0.5f);
+        UI_SetNextPrefWidth(UI_Pixels(width + 2 * grow));
+        UI_SetNextPrefHeight(UI_Pixels(height + 2 * grow));
+        UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0 - grow, y - view.y0 });
+        UI_SetNextCornerRadius(radius + grow);
+        UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.09f } });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
-    UI_SetNextCornerRadius(m->radius * 2);
-    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->separator });
     // Clickable so that clicks on the padding do not reach the catcher behind it.
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuPanel/%u", level)),
                                          UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
@@ -1196,10 +1211,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             if (item->separator) {
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(separatorHeight));
-                UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
-                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                UI_Block *line = UI_AddBlock(0);
-                UI_Parent(line) Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->hover, 0);
+                Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
                 itemY += separatorHeight;
                 continue;
             }
@@ -1220,17 +1232,24 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_SetNextPrefHeight(UI_Pixels(itemHeight));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextCornerRadius(m->radius);
-            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_SetNextChildrenPadding((UI_Padding){ iconLeft, 0, 0, 0 });
+            UI_SetNextCornerRadius(m->radius * 2);
+            UI_SetNextColors((UI_Colors){ .background = theme->hover });
             UI_Block *row = UI_AddBlockFromKey(key, (highlighted ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
             UI_Interaction interaction = UI_InteractionFromBlock(row);
             if (interaction.clicked && !item->childCount) {
                 Prog_QueueCommand(state, Prog_CommandKind_ContextMenuInvoke, index, 0, interaction.clickOrder);
             }
             UI_Parent(row) {
-                R_Color color = !enabled ? theme->iconDisabled : highlighted ? theme->text : theme->textHeading;
-                Prog__Label(item->label, UI_Flex(), itemHeight, m->inset - pad, color, 0);
-                if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, color, 0.5f, m);
+                R_Color color = enabled ? theme->text : theme->textDim;
+                const Prog_Icon *icon = state->menuIcons ? state->menuIcons[index] : NULL;
+                UI_SetNextPrefWidth(UI_Pixels(iconColumn));
+                UI_SetNextPrefHeight(UI_Pixels(itemHeight));
+                UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+                if (icon) UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, enabled ? (R_Color){ 1, 1, 1, 1 } : (R_Color){ 1, 1, 1, 0.4f });
+                UI_AddBlock(icon ? UI_Flag_DrawImage : 0);
+                Prog__Label(item->label, UI_Flex(), itemHeight, 0, color, 0);
+                if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
                 *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, itemY - pad, width };

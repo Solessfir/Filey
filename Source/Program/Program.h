@@ -261,6 +261,7 @@ typedef struct Prog_State {
     u32 menuPath[8];          // the open submenu item at each level
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
+    const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
     UI_Key menuHot;           // hot block when the menu was last built
     R_Rect focusedRowRect;    // last layout, to place a keyboard-opened menu
     // Drag and drop.
@@ -371,3 +372,4 @@ function void Prog_SelectTab(Prog_State *state, u32 index);
 function void Prog_CloseTab(Prog_State *state, u32 index);
 function void Prog_MoveTab(Prog_State *state, u32 from, u32 to);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);
+function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);

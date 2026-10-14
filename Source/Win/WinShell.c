@@ -44,6 +44,37 @@ function String P__MenuLabel(Arena *arena, const wchar *text)
     return P__FileStringWide(arena, clean, (i32)length);
 }
 
+// Menu item bitmaps are premultiplied BGRA; P_Image wants straight RGBA. Bitmaps without alpha are opaque.
+function b32 P__MenuBitmapPixels(Arena *arena, HBITMAP bitmap, P_Image *image)
+{
+    BITMAP info = {0};
+    if (GetObjectW(bitmap, sizeof(info), &info) != sizeof(info) || info.bmWidth <= 0 || info.bmHeight <= 0) return false;
+    i32 width = info.bmWidth, height = info.bmHeight;
+    BITMAPINFO format = { .bmiHeader = {
+        .biSize = sizeof(BITMAPINFOHEADER), .biWidth = width, .biHeight = -height, .biPlanes = 1, .biBitCount = 32, .biCompression = BI_RGB,
+    } };
+    u32 *pixels = ArenaPushArray(arena, (u64)width * (u64)height, u32);
+    HDC dc = GetDC(NULL);
+    b32 result = GetDIBits(dc, bitmap, 0, (UINT)height, pixels, &format, DIB_RGB_COLORS) == height;
+    ReleaseDC(NULL, dc);
+    if (!result) return false;
+    i64 count = (i64)width * height;
+    b32 hasAlpha = false;
+    for (i64 i = 0; i < count && !hasAlpha; ++i) hasAlpha = (pixels[i] >> 24) != 0;
+    for (i64 i = 0; i < count; ++i) {
+        u32 p = pixels[i];
+        u32 a = hasAlpha ? p >> 24 : 255, r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+        if (hasAlpha && a && a < 255) {
+            r = Min(255u, r * 255 / a);
+            g = Min(255u, g * 255 / a);
+            b = Min(255u, b * 255 / a);
+        }
+        pixels[i] = (a << 24) | (b << 16) | (g << 8) | r;
+    }
+    *image = (P_Image){ pixels, width, height };
+    return true;
+}
+
 // Appends `popup`'s items as one contiguous block, then the blocks of its submenus.
 function void P__MenuRead(Arena *arena, P__ShellMenu *shell, HMENU popup, P__ArrayMenuItem *items, u32 *first, u32 *count)
 {
@@ -55,7 +86,7 @@ function void P__MenuRead(Arena *arena, P__ShellMenu *shell, HMENU popup, P__Arr
     for (u32 i = 0; i < *count; ++i) {
         wchar text[256] = {0};
         MENUITEMINFOW info = {
-            .cbSize = sizeof(info), .fMask = MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU | MIIM_STRING,
+            .cbSize = sizeof(info), .fMask = MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU | MIIM_STRING | MIIM_BITMAP,
             .dwTypeData = text, .cch = CArrayCount(text) - 1,
         };
         if (!GetMenuItemInfoW(popup, i, TRUE, &info)) continue;
@@ -66,10 +97,19 @@ function void P__MenuRead(Arena *arena, P__ShellMenu *shell, HMENU popup, P__Arr
         };
         if (!item.separator) {
             item.label = P__MenuLabel(arena, text);
-            if (info.hSubMenu == NULL && info.wID >= P__MenuFirstId && info.wID <= P__MenuLastId) {
-                item.id = info.wID;
+            // Small handle values name system glyphs (HBMMENU_*), and HBMMENU_CALLBACK asks the owner to draw; only real bitmaps are pictures.
+            if ((UINT_PTR)info.hbmpItem > (UINT_PTR)HBMMENU_POPUP_MINIMIZE && info.hbmpItem != HBMMENU_CALLBACK) {
+                P__MenuBitmapPixels(arena, info.hbmpItem, &item.icon);
+            }
+            // Submenu items can have verbs too ("windows.share"), but only plain items are invoked.
+            if (info.wID >= P__MenuFirstId && info.wID <= P__MenuLastId) {
+                if (info.hSubMenu == NULL) item.id = info.wID;
                 wchar verb[64] = {0};
                 if (SUCCEEDED(shell->menu->lpVtbl->GetCommandString(shell->menu, info.wID - P__MenuFirstId, GCS_VERBW, NULL, (LPSTR)verb, CArrayCount(verb) - 1)) && verb[0]) {
+                    // Verbs are case-insensitive ("Windows.Share"); lowercase lets the program compare them directly.
+                    for (wchar *c = verb; *c; ++c) {
+                        if (*c >= L'A' && *c <= L'Z') *c = (wchar)(*c + (L'a' - L'A'));
+                    }
                     item.verb = P__FileStringWide(arena, verb, (i32)wcslen(verb));
                 }
             }
@@ -138,6 +178,15 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         P__ArrayMenuItem items = {0};
         u32 first = 0;
         P__MenuRead(arena, shell, shell->popup, &items, &first, &menu->rootCount);
+        // the reference drops these from the top level: view commands it has its own versions of or does not support, and sharing on the folder background.
+        // An item without a label is not shown.
+        local_persist const String dropped[] = { S("groupby"), S("pintohome"), S("viewcustomwizard"), S("undo"), S("redo") };
+        for (u32 i = 0; i < menu->rootCount; ++i) {
+            P_MenuItem *item = &items.v[i];
+            b32 drop = count == 0 && StrIsEqual(item->verb, S("windows.share"));
+            for (u32 j = 0; j < CArrayCount(dropped) && !drop; ++j) drop = StrIsEqual(item->verb, dropped[j]);
+            if (drop) item->label = (String){0};
+        }
         menu->items = items.v;
         menu->count = (u32)items.header.count;
         menu->native = shell;

@@ -173,10 +173,11 @@ typedef enum P_MenuAction {
 
 typedef struct P_MenuItem {
     String label;
-    String verb;       // canonical verb such as "open" or "delete" when the system has one
+    String verb;       // canonical verb such as "open" or "delete", in lowercase, when the system has one
     u32 id;            // passed back to P_ContextMenuInvoke; 0 for separators
     u32 firstChild;    // index into P_ContextMenu.items
     u32 childCount;    // nonzero for submenus
+    P_Image icon;      // the item's own picture at its native size, in the menu's arena; empty when it has none
     b8 separator;
     b8 disabled;
     b8 isDefault;

@@ -108,37 +108,56 @@ function void Prog_SubmitIconRequests(Prog_State *state)
     P_JobSubmit(job);
 }
 
+// Copies `pixels` (iconSize square) into the next atlas cell; false when the atlas is full.
+function b32 Prog__PlaceIcon(Prog_State *state, Prog_Icon *icon, const u32 *pixels)
+{
+    i32 size = state->iconSize;
+    i32 perRow = Prog_IconPageSize / size;
+    u32 page = state->iconCell / (u32)(perRow * perRow);
+    u32 cell = state->iconCell % (u32)(perRow * perRow);
+    if (page >= CArrayCount(state->iconPages)) return false;
+    if (page >= state->iconPageCount) {
+        if (!state->iconPages[page].u64[0]) state->iconPages[page] = R_TextureCreateRGBA(Prog_IconPageSize, Prog_IconPageSize, NULL);
+        state->iconPageCount = page + 1;
+    }
+    ++state->iconCell;
+    i32 x = (i32)(cell % (u32)perRow) * size, y = (i32)(cell / (u32)perRow) * size;
+    R_TextureUpdateRGBA(state->iconPages[page], x, y, size, size, pixels);
+    f32 scale = 1.0f / Prog_IconPageSize;
+    icon->texture = state->iconPages[page];
+    icon->uv = (R_Rect){ (f32)x * scale, (f32)y * scale, (f32)(x + size) * scale, (f32)(y + size) * scale };
+    icon->state = Prog_IconState_Loaded;
+    return true;
+}
+
+// An icon for pixels already in hand, such as a menu item's picture, cached by content so that reopening a menu reuses its cells.
+function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
+{
+    if (state->iconSize <= 0 || !image.pixels) return NULL;
+    u64 hash = MapHashBytes(image.pixels, (u64)image.width * (u64)image.height * sizeof(u32));
+    String key = StrFormat(&state->frameArena, "/image/%dx%d/%016" PRIx64, image.width, image.height, hash);
+    Prog_Icon *icon = MapsGetPtrNull(state->icons, key);
+    if (icon == NULL) {
+        Scratch scratch = GetScratch();
+        Prog_Icon placed = {0};
+        u32 *pixels = Prog_ResizeIcon(scratch.arena, image, state->iconSize);
+        if (!pixels || !Prog__PlaceIcon(state, &placed, pixels)) placed.state = Prog_IconState_Failed;
+        ReleaseScratch(scratch);
+        MapsPut(&state->iconArena, state->icons, StrCopy(&state->iconArena, key), placed);
+        icon = MapsGetPtrNull(state->icons, key);
+    }
+    return icon && icon->state == Prog_IconState_Loaded ? icon : NULL;
+}
+
 function void Prog__TakeIcons(Prog_State *state, P_Job *job)
 {
     Prog_JobInput *input = job->input;
     u32 **pixels = job->result;
     // Results for an old icon size are stale; their keys were dropped with the reset.
     if (input->iconSize != state->iconSize || pixels == NULL) return;
-    i32 size = state->iconSize;
-    i32 perRow = Prog_IconPageSize / size;
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_Icon *icon = MapsGetPtrNull(state->icons, input->icons[i].key);
         if (icon == NULL) continue;
-        if (pixels[i] == NULL) {
-            icon->state = Prog_IconState_Failed;
-            continue;
-        }
-        u32 page = state->iconCell / (u32)(perRow * perRow);
-        u32 cell = state->iconCell % (u32)(perRow * perRow);
-        if (page >= CArrayCount(state->iconPages)) {
-            icon->state = Prog_IconState_Failed;
-            continue;
-        }
-        if (page >= state->iconPageCount) {
-            if (!state->iconPages[page].u64[0]) state->iconPages[page] = R_TextureCreateRGBA(Prog_IconPageSize, Prog_IconPageSize, NULL);
-            state->iconPageCount = page + 1;
-        }
-        ++state->iconCell;
-        i32 x = (i32)(cell % (u32)perRow) * size, y = (i32)(cell / (u32)perRow) * size;
-        R_TextureUpdateRGBA(state->iconPages[page], x, y, size, size, pixels[i]);
-        f32 scale = 1.0f / Prog_IconPageSize;
-        icon->texture = state->iconPages[page];
-        icon->uv = (R_Rect){ (f32)x * scale, (f32)y * scale, (f32)(x + size) * scale, (f32)(y + size) * scale };
-        icon->state = Prog_IconState_Loaded;
+        if (pixels[i] == NULL || !Prog__PlaceIcon(state, icon, pixels[i])) icon->state = Prog_IconState_Failed;
     }
 }

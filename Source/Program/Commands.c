@@ -43,6 +43,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menu = (P_ContextMenu){0};
     state->menuOpen = false;
     state->menuRows = NULL;
+    state->menuIcons = NULL;
     state->menuRowCount = 0;
     state->menuDepth = 0;
     state->menuHighlight = UINT32_MAX;
@@ -151,6 +152,8 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
         Prog_CloseMenu(state);
         return;
     }
+    state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
+    for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
     state->menuAt = mouse ? state->ui.mouse
                   : state->menuRowCount ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 }
                   : state->ui.mouse;
