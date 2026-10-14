@@ -33,6 +33,8 @@ function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)
 
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
 {
+    // Each drive has its own icon (system, removable, optical, network).
+    if (kind == P_FileKind_Drive) return StrCopy(arena, path);
     String result = P_FileTypeKey(arena, path, kind);
     for (u64 i = 0; result.value[0] == '.' && i < CArrayCount(P__IconPerPathExtensions); ++i) {
         if (StrIsEqual(StrFrom(result, 1), P__IconPerPathExtensions[i])) return StrCopy(arena, path);
@@ -49,6 +51,11 @@ function void P__EnsureCom(void)
     if (!P__comReady) {
         HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         P__comReady = SUCCEEDED(com) || com == RPC_E_CHANGED_MODE;
+        // Until the system image list is set up, the shell fails icon lookups of real paths such as drive roots for the first few calls.
+        // FileIconInit sets it up; shell32 exports it by ordinal only.
+        typedef BOOL WINAPI P__FileIconInit(BOOL restoreCache);
+        P__FileIconInit *fileIconInit = (P__FileIconInit *)(void *)GetProcAddress(GetModuleHandleW(L"shell32.dll"), MAKEINTRESOURCEA(660));
+        if (fileIconInit) fileIconInit(TRUE);
     }
 }
 
@@ -108,7 +115,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     b32 result = false;
     if (wide) {
         P__EnsureCom();
-        DWORD attributes = kind == P_FileKind_Directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        DWORD attributes = kind == P_FileKind_Directory || kind == P_FileKind_Drive ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
         SHFILEINFOW info = {0};
         if (SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0))) {
             // The lists are sized by system DPI: take the smallest one that covers the request.

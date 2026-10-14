@@ -60,15 +60,19 @@ function void Prog__IconJob(P_Job *job)
 // NULL until the icon is loaded; failed and pending icons both return NULL.
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry)
 {
+    return Prog_PathIcon(state, Prog_JoinPath(&state->frameArena, directory, entry->file.name), entry->file.kind);
+}
+
+function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind)
+{
     if (state->iconSize <= 0) return NULL;
-    String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
-    String key = P_FileIconKey(&state->frameArena, path, entry->file.kind);
+    String key = P_FileIconKey(&state->frameArena, path, kind);
     Prog_Icon *icon = MapsGetPtrNull(state->icons, key);
     if (icon == NULL) {
         key = StrCopy(&state->iconArena, key);
         MapsPut(&state->iconArena, state->icons, key, (Prog_Icon){ .state = Prog_IconState_Pending });
         // Requests outlive the frame when nothing submits them before the next one.
-        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = key, .kind = entry->file.kind };
+        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = key, .kind = (u8)kind };
         ArrayPush(&state->iconArena, state->iconRequests, request);
         return NULL;
     }

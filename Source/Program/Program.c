@@ -940,7 +940,50 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// A sidebar section title, which opens and closes the section.
+// the reference's filled drive, which Lucide has only as an outline: a solid top over an outlined base with a light on its left.
+// It sits where an icon glyph's ink would, centered on the glyph's advance.
+function void Prog__DriveGlyph(f32 width, f32 height, R_Color color, const Prog_Metrics *m)
+{
+    f32 size = floorf(m->line * 0.75f + 0.5f);
+    f32 stroke = m->separator;
+    f32 radius = floorf(size * 0.2f + 0.5f);
+    f32 top = floorf(size * 0.55f + 0.5f);
+    f32 light = MaxF32(2, floorf(size * 0.2f + 0.5f));
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_Block *slot = UI_AddBlock(0);
+    UI_Parent(slot) {
+        UI_Vec2 at = { floorf((R_TextWidth(m->icons, Icon_HardDrive) - size) * 0.5f), floorf((height - size) * 0.5f) };
+        // The top is a block rounded more than the base, as the reference's narrows upward, cut off square where the base starts.
+        UI_SetNextFloatingOffset((UI_Vec2){ at.x + 1, at.y });
+        UI_SetNextPrefWidth(UI_Pixels(size - 2));
+        UI_SetNextPrefHeight(UI_Pixels(top));
+        UI_Block *cut = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+        UI_Parent(cut) {
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(size - 2));
+            UI_SetNextPrefHeight(UI_Pixels(size));
+            UI_SetNextCornerRadius(floorf(size * 0.33f + 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = color });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+        UI_SetNextFloatingOffset((UI_Vec2){ at.x, at.y + top - stroke });
+        UI_SetNextPrefWidth(UI_Pixels(size));
+        UI_SetNextPrefHeight(UI_Pixels(size - top + stroke));
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness(stroke);
+        UI_SetNextColors((UI_Colors){ .border = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+        UI_SetNextFloatingOffset((UI_Vec2){ at.x + stroke + 1, at.y + top + floorf((size - top - light) * 0.5f) });
+        UI_SetNextPrefWidth(UI_Pixels(light));
+        UI_SetNextPrefHeight(UI_Pixels(light));
+        UI_SetNextCornerRadius(light * 0.3f);
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+}
+
+// A sidebar section title, which opens and closes the section; without an icon it shows the reference's drive glyph.
 function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title, String icon, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -958,7 +1001,8 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
     UI_Parent(row) {
         R_Color color = hot ? theme->text : theme->textHeading;
-        Prog__Icon(icon, m->line * 1.5f, m->row, color, 0, m);
+        if (icon.length) Prog__Icon(icon, m->line * 1.5f, m->row, color, 0, m);
+        else Prog__DriveGlyph(m->line * 1.5f, m->row, color, m);
         Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
         Prog__Icon(Prog_GroupOpen(state, group) ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
     }
@@ -993,7 +1037,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_Parent(row) {
         f32 slot = (f32)state->iconSize + m->gap;
         Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
-        const Prog_Icon *icon = drive ? NULL : Prog_FileIcon(state, Prog_ParentPath(path), &folder);
+        const Prog_Icon *icon = drive ? Prog_PathIcon(state, path, P_FileKind_Drive) : Prog_FileIcon(state, Prog_ParentPath(path), &folder);
         if (icon) {
             UI_SetNextPrefWidth(UI_Pixels(slot));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
@@ -1083,7 +1127,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                 Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog__FolderName(path), path, NULL, m);
             }
         }
-        Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), Icon_HardDrive, m);
+        Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
         if (Prog_GroupOpen(state, Prog_Group_Storage)) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
                 const P_Place *drive = &state->drives.v[i];

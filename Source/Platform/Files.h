@@ -6,6 +6,7 @@ typedef enum P_FileKind {
     P_FileKind_Directory,
     P_FileKind_File,
     P_FileKind_Other,
+    P_FileKind_Drive,  // a drive's root or mount point, for its icon; listings never return it
     P_FileKind_Count,
 } P_FileKind;
 

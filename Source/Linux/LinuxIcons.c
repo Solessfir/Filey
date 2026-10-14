@@ -410,6 +410,7 @@ function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)
 // ponytail: one access() per candidate file and no icon-theme.cache; add the cache if lookups show up in profiles.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
 {
+    if (kind == P_FileKind_Drive) return S("/drive");
     return P_FileTypeKey(arena, path, kind);
 }
 
@@ -419,7 +420,10 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     Scratch scratch = GetScratchEx(arena);
     ArrayStr names = {0};
     String key = P_FileIconKey(scratch.arena, path, kind);
-    if (kind == P_FileKind_Directory) {
+    if (kind == P_FileKind_Drive) {
+        ArrayPush(scratch.arena, names, S("drive-harddisk"));
+        ArrayPush(scratch.arena, names, S("folder"));
+    } else if (kind == P_FileKind_Directory) {
         ArrayPush(scratch.arena, names, S("folder"));
     } else {
         String mime = key.length && key.value[0] == '.' ? MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1)) : (String){0};

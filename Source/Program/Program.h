@@ -346,6 +346,7 @@ function b32 Prog_ProcessCommands(Prog_State *state);
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale);
 function f32 Prog_RowHeight(const R_Font *font);
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);
+function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind);
 function void Prog_SubmitIconRequests(Prog_State *state);
 function void Prog_CloseMenu(Prog_State *state);
 function void Prog_DragSelection(Prog_State *state);
