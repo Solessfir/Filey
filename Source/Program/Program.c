@@ -2576,9 +2576,12 @@ function void Prog__PaletteHints(const char *const *keys, const char *const *wor
     }
 }
 
-// `text` in `color` with what `search` finds in it in the match color: the first place it appears whole, else its letters in order.
-function void Prog__MarkedLabel(Prog_State *state, String text, String search, const R_Font *font, f32 height, R_Color color, const Prog_Metrics *m)
+// `text` in `color` with what `search` finds in it in the match color, faded with the text when `faded` is set: the first place it appears
+// whole, else its letters in order.
+function void Prog__MarkedLabel(Prog_State *state, String text, String search, const R_Font *font, f32 height, R_Color color, b32 faded, const Prog_Metrics *m)
 {
+    R_Color match = Prog_CurrentTheme()->textMatch;
+    if (faded) match.a *= 0.5f;
     u8 *marks = search.length ? ArenaPushArray(&state->frameArena, Max(text.length, (u64)1), u8) : NULL;
     b32 whole = false;
     for (u64 start = 0; marks && !whole && start + search.length <= text.length; ++start) {
@@ -2588,10 +2591,11 @@ function void Prog__MarkedLabel(Prog_State *state, String text, String search, c
     }
     if (marks && !whole && !Prog_FilterMatch(text, search, marks)) marks = NULL;
     for (u64 start = 0, end = 0; start < text.length; start = end) {
-        b32 match = marks && marks[start];
-        while (end < text.length && (marks && marks[end]) == match) ++end;
+        b32 isMatch = marks && marks[start];
+        while (end < text.length && (marks && marks[end]) == isMatch) ++end;
+        R_Color matched = isMatch ? match : color;
         UI_SetNextFont(font);
-        Prog__Label(StrFromTo(text, start, (i64)end), UI_TextContent(), height, 0, match ? Prog_CurrentTheme()->textMatch : color, 0);
+        Prog__Label(StrFromTo(text, start, (i64)end), UI_TextContent(), height, 0, matched, 0);
     }
 }
 
@@ -2767,24 +2771,25 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, (u64)at.item, 0, interaction.clickOrder);
                 UI_Parent(entry) {
                     const Prog_Icon *icon = item.file ? Prog_PathIcon(state, item.path, P_FileKind_File) : Prog_FolderIcon(state, item.path);
+                    b32 faded = item.hidden && !highlighted;
                     f32 slot = (f32)state->iconSize + floorf(7.2f * s + 0.5f);
                     if (icon) {
                         UI_SetNextPrefWidth(UI_Pixels(slot));
                         UI_SetNextPrefHeight(UI_Pixels(face));
                         UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-                        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
                         UI_AddBlock(UI_Flag_DrawImage);
                     } else {
-                        Prog__Icon(item.file ? Icon_File : Icon_Folder, slot, face, theme->icon, 0, m);
+                        Prog__Icon(item.file ? Icon_File : Icon_Folder, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
                     }
                     // What was searched for shows in the match color, in the name and in the path.
                     String name = Prog__FolderName(item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
                     R_Color dim = highlighted ? theme->text : theme->textDim;
-                    Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, theme->text, m);
+                    Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, faded ? theme->textDim : theme->text, faded, m);
                     if (sections || searching) {
                         Prog__Spacer(UI_Pixels(floorf(5.6f * s + 0.5f)), UI_Pixels(face));
                         Prog__Icon(Icon_ChevronRight, R_TextWidth(m->icons, Icon_ChevronRight) + floorf(4.0f * s + 0.5f), face, dim, 0, m);
-                        Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, m);
+                        Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, faded, m);
                     }
                 }
                 Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);

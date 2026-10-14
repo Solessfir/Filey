@@ -266,11 +266,15 @@ typedef struct Prog_GoToItem {
     String path;
     enum8(Prog_GoToSection) section;
     b8 file;
+    b8 hidden;  // hidden by the system or named with a leading dot, which dims it as the list does
 } Prog_GoToItem;
+
+typedef struct Prog_ArrayFlag { ArrayHeader header; b8 *v; } Prog_ArrayFlag;
 
 // The folders found inside the first `listed` of an index job's folders, in order.
 typedef struct Prog_Indexed {
     String *found;
+    b8 *hidden;      // per folder found, hidden by the system
     u64 count;
     u64 listed;
 } Prog_Indexed;
@@ -552,6 +556,7 @@ typedef struct Prog_State {
     // Every folder on the drives, which indexJob walks breadth first a slice at a time; the ones from indexAt on are still to be listed.
     Arena indexArena;
     ArrayStr indexFolders;
+    Prog_ArrayFlag indexHidden;  // per folder, hidden by the system
     u64 indexAt;
     P_Job *indexJob;
     b32 indexStarted;

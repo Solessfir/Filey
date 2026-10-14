@@ -368,7 +368,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             if (tier == 4 || MapsGetPtrNull(seen, path)) continue;
             MapsPut(arena, seen, path, true);
             ranks[pooled] = (u16)(tier * Lengths + Min(name.length, (u64)Lengths - 1));
-            pool[pooled++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, false };
+            b32 hidden = (i >= nearby && state->indexHidden.v[i - nearby]) || (name.length && name.value[0] == '.');
+            pool[pooled++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, false, (b8)hidden };
         }
         // A counting sort, which keeps the order within a rank.
         for (u32 i = 0; i < pooled; ++i) ++starts[ranks[i] + 1];
@@ -396,7 +397,10 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 for (u64 i = 0; i < limit; ++i) {
                     String path = list->v[i];
                     b32 named = Prog__ContainsFolded(Prog__FolderName(path), text);
-                    if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false };
+                    if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) {
+                        String name = Prog__FolderName(path);
+                        result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false, (b8)(name.length && name.value[0] == '.') };
+                    }
                 }
             }
         }
@@ -429,7 +433,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             const P_File *file = &state->gotoListing.files[i];
             b32 starts = file->name.length >= leaf.length && Prog__ContainsFolded(StrFromTo(file->name, 0, (i64)leaf.length), leaf);
             if ((tier == 0 && starts) || (tier == 1 && !starts && Prog__ContainsFolded(file->name, leaf))) {
-                result[(*count)++] = (Prog_GoToItem){ Prog_JoinPath(frame, path, file->name), Prog_GoToSection_Folder, file->kind != P_FileKind_Directory };
+                b32 hidden = file->hidden || (file->name.length && file->name.value[0] == '.');
+                result[(*count)++] = (Prog_GoToItem){ Prog_JoinPath(frame, path, file->name), Prog_GoToSection_Folder, file->kind != P_FileKind_Directory, (b8)hidden };
             }
         }
     }
@@ -1348,7 +1353,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     // With nothing found, the text itself is the place to go.
-                    Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false };
+                    Prog_GoToItem item = chosen < count ? found[chosen] : (Prog_GoToItem){ Prog__GoToPath(state, Prog_EditText(&state->palette)), Prog_GoToSection_Folder, false, false };
                     state->paletteOpen = false;
                     // Ctrl shows it in the panel instead: its folder, with it selected.
                     String name = Prog__FolderName(item.path), parent = Prog_ParentPath(item.path);

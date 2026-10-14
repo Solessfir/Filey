@@ -317,6 +317,7 @@ function void Prog__DirectoryJob(P_Job *job)
         // Lists folders for a few dozen milliseconds and hands back the folders inside them, so that it never holds a worker for long.
         Prog_Indexed *result = ArenaPushStruct(&job->arena, Prog_Indexed);
         ArrayStr found = {0};
+        Prog_ArrayFlag hidden = {0};
         u64 start = PlatformNowMicroseconds();
         while (result->listed < input->pathCount && PlatformNowMicroseconds() - start < UINT64_C(30000) && !P_IsCancelled(&job->cancelToken)) {
             String folder = input->paths[result->listed++];
@@ -326,11 +327,14 @@ function void Prog__DirectoryJob(P_Job *job)
                 const P_File *file = &listing.files.v[i];
                 if (file->kind != P_FileKind_Directory || file->symbolicLink) continue;
                 String path = Prog_JoinPath(&job->arena, folder, file->name);
-                if (!P_IsVirtualFolder(path)) ArrayPush(&job->arena, found, path);
+                if (P_IsVirtualFolder(path)) continue;
+                ArrayPush(&job->arena, found, path);
+                ArrayPush(&job->arena, hidden, file->hidden);
             }
             ReleaseScratch(scratch);
         }
         result->found = found.v;
+        result->hidden = hidden.v;
         result->count = found.header.count;
         job->result = result;
         return;
@@ -1437,7 +1441,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         state->indexStarted = true;
         for (u64 i = 0; i < state->drives.header.count; ++i) {
             String root = state->drives.v[i].path;
-            if (root.length) ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, root));
+            if (!root.length) continue;
+            ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, root));
+            ArrayPush(&state->indexArena, state->indexHidden, (b8)false);
         }
     }
     if (state->indexStarted && !state->indexJob && state->indexAt < state->indexFolders.header.count) {
@@ -1550,6 +1556,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->indexAt += result->listed;
                 for (u64 i = 0; i < result->count && state->indexFolders.header.count < Prog_MaxIndexedFolders; ++i) {
                     ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, result->found[i]));
+                    ArrayPush(&state->indexArena, state->indexHidden, result->hidden[i]);
                 }
             }
         } else if (input->kind == Prog_JobKind_GoTo) {
