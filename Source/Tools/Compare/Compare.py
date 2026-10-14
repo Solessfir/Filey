@@ -1,6 +1,6 @@
 # Side-by-side checks of Filey against the reference app on Windows, without touching the real pointer, keyboard or screen.
 #
-# Both apps start on the same fixture folder with their windows off-screen. The reference gets FakeInput.dll, which answers its pointer, focus and
+# Both apps start on the same fixture folder in the middle of the main screen, without taking the focus. The reference gets FakeInput.dll, which answers its pointer, focus and
 # held-key queries from shared memory that the steps write, and is captured with PrintWindow; Filey writes its own frames (FILEY_CAPTURE_DIR),
 # since an off-screen GL window keeps none of what it draws. Steps post input to the two windows only, and only the started processes are closed.
 #
@@ -85,7 +85,9 @@ class App:
         if exe == FILEY:
             self.frames = os.path.join(OUT, 'frames'); shutil.rmtree(self.frames, ignore_errors=True); os.makedirs(self.frames)
             e['FILEY_CAPTURE_DIR'] = self.frames; e['FILEY_CAPTURE_SEQUENCE'] = '1'
-        self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Shown without being activated; the runs also lock the foreground, so the window being worked in keeps the keyboard.
+        startup = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=4)
+        self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
         self.mapping, self.fake = inject(self.process.pid)
         self.window = None
         for _ in range(100):
@@ -93,7 +95,7 @@ class App:
             if found: self.window = found[0]; break
             time.sleep(0.1)
         assert self.window, 'the app opened no window'
-        u32.ShowWindow(self.window, 1)
+        u32.ShowWindow(self.window, 4)
         u32.MoveWindow(self.window, x, y, w, h, True)
         self.fake.hwnd = self.window; self.fake.active = 1; self.fake.x, self.fake.y = -10000, -10000
         self.post(0x6, 1, 0); self.post(0x7, 0, 0)
@@ -219,7 +221,10 @@ def steps(app, text, side, name, tags):
 def run(side, name, text, tags):
     root, config = fixture()
     path = os.environ.get('COMPARE_PATH', root)
-    geometry = [int(os.environ.get(k, d)) for k, d in (('COMPARE_W', 1200), ('COMPARE_H', 800), ('COMPARE_X', 2100), ('COMPARE_Y', 40))]
+    # In the middle of the main screen, to watch.
+    w, h = int(os.environ.get('COMPARE_W', 1200)), int(os.environ.get('COMPARE_H', 800))
+    x, y = (u32.GetSystemMetrics(0) - w) // 2, (u32.GetSystemMetrics(1) - h) // 2
+    geometry = [w, h, int(os.environ.get('COMPARE_X', x)), int(os.environ.get('COMPARE_Y', y))]
     if side == 'filey':
         exe, env, saved = FILEY, {'FILEY_CONFIG_DIR': config}, []
     else:
@@ -229,11 +234,13 @@ def run(side, name, text, tags):
         backup = os.path.join(OUT, 'reference-state'); os.makedirs(backup, exist_ok=True)
         saved = [p for p in os.environ.get('COMPARE_REFERENCE_STATE', '').split(';') if p and os.path.exists(p)]
         for i, p in enumerate(saved): shutil.copy2(p, os.path.join(backup, f'{i}'))
+    u32.LockSetForegroundWindow(1)
     app = App(exe, [path], env, *geometry)
     time.sleep(1.5)
     try: steps(app, text, side, name, tags)
     finally:
         app.close()
+        u32.LockSetForegroundWindow(2)
         for i, p in enumerate(saved): shutil.copy2(os.path.join(os.path.join(OUT, 'reference-state'), f'{i}'), p)
 
 def main(argv):
