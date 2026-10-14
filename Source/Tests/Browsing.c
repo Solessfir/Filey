@@ -93,7 +93,7 @@ function void TestDirectoryFiles(TestFileFixture *fixture)
     String expected = StrFormat(&arena, "%S/Empty", fixture->path);
     Check(StrIsEqual(absolute, expected) && !StrIndexChar(absolute, '\\', SSF_None).exists);
     Check(P_AbsolutePath(&arena, S(".")).length != 0);
-    Check(P_FormatFileTime(&arena, 0).length == 16);
+    Check(P_FormatFileTime(&arena, 0).length >= 10);
     Check(P_FormatFileTime(&arena, INT64_MAX).length == 0);
     ArenaRelease(&arena);
 }

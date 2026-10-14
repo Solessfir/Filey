@@ -73,7 +73,19 @@ function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix)
     SYSTEMTIME utc = {0};
     SYSTEMTIME local = {0};
     if (!FileTimeToSystemTime(&time, &utc) || !SystemTimeToTzSpecificLocalTime(NULL, &utc, &local) || local.wYear > 9999) return (String){0};
-    return StrFormat(arena, "%04u-%02u-%02u %02u:%02u", (u32)local.wYear, (u32)local.wMonth, (u32)local.wDay, (u32)local.wHour, (u32)local.wMinute);
+    // The user's short date and time without seconds, as Explorer shows them.
+    wchar date[64], clock[64];
+    i32 dateLength = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &local, NULL, date, (i32)CArrayCount(date), NULL);
+    i32 clockLength = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &local, NULL, clock, (i32)CArrayCount(clock));
+    if (dateLength <= 1 || clockLength <= 1) {
+        return StrFormat(arena, "%04u-%02u-%02u %02u:%02u", (u32)local.wYear, (u32)local.wMonth, (u32)local.wDay, (u32)local.wHour, (u32)local.wMinute);
+    }
+    // Newer locales put a narrow no-break space before AM and PM; a plain one needs no glyph of its own.
+    for (i32 i = 0; i < clockLength; ++i) if (clock[i] == 0x202F || clock[i] == 0x00A0) clock[i] = ' ';
+    Scratch scratch = GetScratchEx(arena);
+    String result = StrFormat(arena, "%S %S", P__FileStringWide(scratch.arena, date, dateLength - 1), P__FileStringWide(scratch.arena, clock, clockLength - 1));
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function wchar *P__FileExtendedPath(Arena *arena, String path)
