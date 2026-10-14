@@ -29,6 +29,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_GIF
+#define STBI_ONLY_BMP
 #define STBI_NO_STDIO
 #include "Lib/stb/stb_image.h"
 #define NANOSVG_IMPLEMENTATION
@@ -414,15 +417,48 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
     return P_FileTypeKey(arena, path, kind);
 }
 
-// ponytail: theme icons only; read the freedesktop thumbnail cache (~/.cache/thumbnails) for image previews when icon views want them.
-function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
+// Pictures stb_image decodes are their own thumbnails; every other file shows its type's icon.
+function b32 P__IsPicture(String typeKey)
 {
-    return P_FileIconKey(arena, path, kind);
+    local_persist const String pictures[] = { S(".png"), S(".jpg"), S(".jpeg"), S(".jpe"), S(".gif"), S(".bmp") };
+    for (u64 i = 0; i < CArrayCount(pictures); ++i) {
+        if (StrIsEqual(typeKey, pictures[i])) return true;
+    }
+    return false;
 }
 
+function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
+{
+    String key = P_FileIconKey(arena, path, kind);
+    return kind == P_FileKind_File && P__IsPicture(key) ? StrCopy(arena, path) : key;
+}
+
+// ponytail: decodes the whole picture every time; read the freedesktop cache (~/.cache/thumbnails, md5 of the file URI) first if big photo folders feel slow.
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
 {
-    return P_LoadFileIcon(arena, path, kind, size, image);
+    Scratch scratch = GetScratchEx(arena);
+    b32 result = false;
+    if (kind == P_FileKind_File && P__IsPicture(P_FileTypeKey(scratch.arena, path, kind))) {
+        // Files past this are left to their icon rather than read whole into memory.
+        const u64 limit = UINT64_C(64) << 20;
+        struct stat info;
+        char *cpath = P__FilePathCString(scratch.arena, path);
+        if (cpath && stat(cpath, &info) == 0 && (u64)info.st_size <= limit) {
+            String data = P__ReadFile(scratch.arena, path);
+            i32 width = 0, height = 0, channels = 0;
+            u8 *pixels = data.length ? stbi_load_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels, 4) : NULL;
+            if (pixels) {
+                image->width = width;
+                image->height = height;
+                image->pixels = ArenaPushArrayNoZero(arena, (u64)width * (u64)height, u32);
+                MemCopy(image->pixels, pixels, (u64)width * (u64)height * 4);
+                stbi_image_free(pixels);
+                result = true;
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+    return result || P_LoadFileIcon(arena, path, kind, size, image);
 }
 
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
