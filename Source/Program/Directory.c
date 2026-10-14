@@ -447,6 +447,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     if (!count) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Measure;
     input->path = StrCopy(&job->arena, state->directory.path);
     input->listing = state->listing;
@@ -468,6 +469,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
     input->path = StrCopy(&job->arena, path);
     input->generation = ++state->generation;
     input->sort = state->sort;
@@ -488,6 +490,8 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
 }
 
 function void Prog__EnsureTab(Prog_State *state);
+function void Prog__EnsurePanel(Prog_State *state);
+function void Prog__EndRename(Prog_State *state, b32 commit);
 
 // Bookmarks and recents, one path per line in the config folder.
 #define Prog_BookmarksFile S("Bookmarks.txt")
@@ -518,8 +522,15 @@ function String Prog__ListText(Arena *arena, ArrayStr list)
 function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
 {
     if (!state->configDirectory.length) return;
+    u32 which = StrIsEqual(file, Prog_RecentsFile) ? 1 : 0;
+    if (state->saving[which]) {
+        state->saveAgain[which] = true;
+        return;
+    }
+    state->saving[which] = true;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Save;
     input->path = Prog_JoinPath(&job->arena, state->configDirectory, file);
     input->name = Prog__ListText(&job->arena, list);
@@ -655,9 +666,181 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
 // `{0}` state has one tab: the shown one.
 function void Prog__EnsureTab(Prog_State *state)
 {
+    Prog__EnsurePanel(state);
+    if (!state->tabs) state->tabs = ArenaPushArray(&state->tabArena, Prog_MaxTabs, Prog_Tab);
     if (state->tabCount) return;
     state->tabCount = 1;
     state->tabs[0].id = ++state->nextTabId;
+}
+
+// `{0}` state has one panel, current and active, filling the whole layout.
+function void Prog__EnsurePanel(Prog_State *state)
+{
+    if (state->panelCount) return;
+    state->panelCount = 1;
+    state->panels[0].id = ++state->nextPanelId;
+    state->currentPanel = state->activePanel = 0;
+    state->splits[0] = (Prog_Split){ .kind = Prog_SplitKind_Panel, .panel = state->panels[0].id };
+}
+
+function u64 Prog__PanelId(const Prog_State *state)
+{
+    return state->panelCount ? state->panels[state->currentPanel].id : 0;
+}
+
+function u32 Prog_PanelIndex(const Prog_State *state, u64 id)
+{
+    for (u32 i = 0; i < state->panelCount; ++i) {
+        if (state->panels[i].id == id) return i;
+    }
+    return UINT32_MAX;
+}
+
+function void Prog__SwapPanel(Prog_State *state, Prog_Panel *panel)
+{
+#define Prog__SwapField(type, name) { type swap = state->name; state->name = panel->name; panel->name = swap; }
+    Prog_TabFields(Prog__SwapField)
+    Prog_PanelFields(Prog__SwapField)
+#undef Prog__SwapField
+}
+
+// Makes panel `index` current: its fields move into Prog_State and the current one's go back to its slot.
+// Other panels are current only briefly, to build their UI or take their jobs' results; the active one is current between frames.
+function void Prog__UsePanel(Prog_State *state, u32 index)
+{
+    Prog__EnsurePanel(state);
+    if (index >= state->panelCount || index == state->currentPanel) return;
+    Prog__SwapPanel(state, &state->panels[state->currentPanel]);
+    Prog__SwapPanel(state, &state->panels[index]);
+    state->currentPanel = index;
+}
+
+// Gives panel `index` the keyboard: a rename commits and a menu closes, since both belong to the panel they were in.
+function void Prog__ActivatePanel(Prog_State *state, u32 index)
+{
+    Prog__EnsurePanel(state);
+    if (index >= state->panelCount) return;
+    if (index != state->activePanel) {
+        if (state->renaming) Prog__EndRename(state, true);
+        Prog_CloseMenu(state);
+        state->hasHoverRow = false;
+    }
+    Prog__UsePanel(state, index);
+    state->activePanel = index;
+}
+
+// Stops and frees what the current panel holds, leaving it empty.
+function void Prog__ReleaseCurrentPanel(Prog_State *state)
+{
+    if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
+    if (state->measureJob) P_RequestCancel(&state->measureJob->cancelToken);
+    P_DirectoryWatchStop(&state->watch);
+    ArenaRelease(&state->watch.arena);
+    ArenaRelease(&state->directoryArena);
+    ArenaRelease(&state->historyArena);
+    ArenaRelease(&state->viewArena);
+    ArenaRelease(&state->errorArena);
+    for (u32 i = 0; i < state->tabCount; ++i) {
+        if (i != state->activeTab) Prog__ReleaseTab(&state->tabs[i]);
+    }
+    ArenaRelease(&state->tabArena);
+#define Prog__ZeroField(type, name) state->name = (type){0};
+    Prog_TabFields(Prog__ZeroField)
+    Prog_PanelFields(Prog__ZeroField)
+#undef Prog__ZeroField
+}
+
+function u32 Prog__SplitOf(const Prog_State *state, u64 panel)
+{
+    for (u32 i = 0; i < Prog_MaxSplits; ++i) {
+        if (state->splits[i].kind == Prog_SplitKind_Panel && state->splits[i].panel == panel) return i;
+    }
+    return UINT32_MAX;
+}
+
+function u32 Prog__FreeSplit(const Prog_State *state)
+{
+    for (u32 i = 1; i < Prog_MaxSplits; ++i) {
+        if (state->splits[i].kind == Prog_SplitKind_None) return i;
+    }
+    return UINT32_MAX;
+}
+
+// The first panel of the subtree at `node`, in reading order.
+function u64 Prog__FirstPanelOf(const Prog_State *state, u32 node)
+{
+    while (node < Prog_MaxSplits && state->splits[node].kind != Prog_SplitKind_Panel && state->splits[node].kind != Prog_SplitKind_None) node = state->splits[node].first;
+    return node < Prog_MaxSplits ? state->splits[node].panel : 0;
+}
+
+// Splits panel `index` in two along `kind`, the new panel `before` it or after it, and makes the new one, which shows `path`, active.
+// Returns the new panel's index, or UINT32_MAX when there is no room.
+function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path)
+{
+    Prog__EnsureTab(state);
+    if (state->panelCount >= Prog_MaxPanels || index >= state->panelCount || !path.length) return UINT32_MAX;
+    u32 leaf = Prog__SplitOf(state, state->panels[index].id);
+    u32 kept = Prog__FreeSplit(state);
+    if (leaf == UINT32_MAX || kept == UINT32_MAX) return UINT32_MAX;
+    state->splits[kept] = state->splits[leaf];
+    u32 added = Prog__FreeSplit(state);
+    if (added == UINT32_MAX) {
+        state->splits[kept] = (Prog_Split){0};
+        return UINT32_MAX;
+    }
+    u32 at = state->panelCount++;
+    // The new panel starts with the order and hidden-item choice of the one it splits.
+    b32 current = index == state->currentPanel;
+    state->panels[at] = (Prog_Panel){
+        .id = ++state->nextPanelId,
+        .sort = current ? state->sort : state->panels[index].sort,
+        .descending = current ? state->descending : state->panels[index].descending,
+        .showHidden = current ? state->showHidden : state->panels[index].showHidden,
+        .zoom = current ? state->zoom : state->panels[index].zoom,
+    };
+    state->splits[added] = (Prog_Split){ .kind = Prog_SplitKind_Panel, .panel = state->panels[at].id };
+    state->splits[leaf] = (Prog_Split){ .kind = (u8)kind, .first = (u8)(before ? added : kept), .second = (u8)(before ? kept : added), .ratio = 0.5f };
+    Prog__ActivatePanel(state, at);
+    Prog__EnsureTab(state);
+    Prog_RequestDirectory(state, path, true, 0);
+    return at;
+}
+
+// Closes panel `index`, whose neighbor in the layout takes its space; the last panel stays.
+function void Prog_ClosePanel(Prog_State *state, u32 index)
+{
+    Prog__EnsurePanel(state);
+    if (state->panelCount <= 1 || index >= state->panelCount) return;
+    u64 id = state->panels[index].id;
+    u32 leaf = Prog__SplitOf(state, id), parent = UINT32_MAX;
+    for (u32 i = 0; i < Prog_MaxSplits && leaf != UINT32_MAX; ++i) {
+        Prog_Split *split = &state->splits[i];
+        if ((split->kind == Prog_SplitKind_Horizontal || split->kind == Prog_SplitKind_Vertical) && (split->first == leaf || split->second == leaf)) parent = i;
+    }
+    if (parent == UINT32_MAX) return;
+    // The sibling's subtree moves up into the parent's node.
+    u32 sibling = state->splits[parent].first == leaf ? state->splits[parent].second : state->splits[parent].first;
+    state->splits[parent] = state->splits[sibling];
+    state->splits[sibling] = state->splits[leaf] = (Prog_Split){0};
+    u32 next = Prog_PanelIndex(state, Prog__FirstPanelOf(state, parent));
+    // Released while current, so that its fields are live; the slot left behind is empty.
+    if (state->renaming && index == state->activePanel) Prog__EndRename(state, false);
+    Prog_CloseMenu(state);
+    Prog__UsePanel(state, index);
+    Prog__ReleaseCurrentPanel(state);
+    Prog__UsePanel(state, next);
+    MemMove(&state->panels[index], &state->panels[index + 1], (state->panelCount - index - 1) * sizeof(Prog_Panel));
+    --state->panelCount;
+    state->panels[state->panelCount] = (Prog_Panel){0};
+    if (state->currentPanel > index) --state->currentPanel;
+    state->activePanel = state->currentPanel;
+}
+
+function b32 Prog__AnyMeasuring(const Prog_State *state)
+{
+    b32 result = state->measureJob != NULL;
+    for (u32 i = 0; i < state->panelCount; ++i) result |= i != state->currentPanel && state->panels[i].measureJob != NULL;
+    return result;
 }
 
 function void Prog__SwapTab(Prog_State *state, Prog_Tab *tab)
@@ -745,7 +928,13 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
 function void Prog_CloseTab(Prog_State *state, u32 index)
 {
     Prog__EnsureTab(state);
-    // ponytail: the last tab stays; closing it would close the window.
+    // A panel's only tab closes the panel; the last panel's last tab stays, since closing it would close the window.
+    if (index < state->tabCount && state->tabCount == 1 && state->panelCount > 1) {
+        String path = Prog_TabPath(state, index);
+        if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
+        Prog_ClosePanel(state, state->currentPanel);
+        return;
+    }
     if (index >= state->tabCount || state->tabCount == 1) return;
     String path = Prog_TabPath(state, index);
     if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
@@ -780,19 +969,27 @@ function b32 Prog_TakeCompletions(Prog_State *state)
 {
     b32 changed = false;
     u64 now = PlatformNowMicroseconds();
-    if (P_DirectoryWatchTakeChanged(&state->watch)) state->watchDirty = true;
-    if (state->watchDirty && !state->directoryJob && now - state->watchReloadTime >= Prog_WatchInterval) {
-        state->watchDirty = false;
-        state->watchReloadTime = now;
-        Prog_Reload(state);
+    Prog__EnsurePanel(state);
+    u32 active = state->activePanel;
+    // Every panel watches its folder.
+    for (u32 panel = 0; panel < state->panelCount; ++panel) {
+        Prog__UsePanel(state, panel);
+        if (P_DirectoryWatchTakeChanged(&state->watch)) state->watchDirty = true;
+        if (state->watchDirty && !state->directoryJob && now - state->watchReloadTime >= Prog_WatchInterval) {
+            state->watchDirty = false;
+            state->watchReloadTime = now;
+            Prog_Reload(state);
+        }
+        // A deferred reload needs frames until it runs.
+        changed |= state->watchDirty;
     }
-    // A deferred reload needs frames until it runs.
-    changed |= state->watchDirty;
+    Prog__UsePanel(state, active);
     // ponytail: drives that come and go show at the next refresh after some input; watch device changes if that feels slow.
     if (state->placesWanted && !state->placesJob && (!state->placesTime || now - state->placesTime >= Millions(5))) {
         state->placesTime = now;
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->panel = Prog__PanelId(state);
         input->kind = Prog_JobKind_Places;
         job->input = input;
         state->placesJob = job;
@@ -800,6 +997,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     }
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
+        // Results about a panel's folder go to that panel, and are dropped once it is closed.
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu;
+        u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
+        if (owner == UINT32_MAX) {
+            P_JobRelease(job);
+            continue;
+        }
+        Prog__UsePanel(state, owner);
         if (input->kind == Prog_JobKind_Icons) {
             Prog__TakeIcons(state, job);
             changed = true;
@@ -862,6 +1067,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "Save %S: %S", input->path, error->message);
                 changed = true;
+            }
+            b32 recents = StrIsEqual(Prog_EntryLeaf(input->path), Prog_RecentsFile);
+            state->saving[recents] = false;
+            if (state->saveAgain[recents]) {
+                state->saveAgain[recents] = false;
+                Prog__SaveList(state, recents ? Prog_RecentsFile : Prog_BookmarksFile, recents ? state->recents : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
@@ -1015,6 +1226,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         }
         P_JobRelease(job);
     }
+    Prog__UsePanel(state, state->activePanel);
     return changed;
 }
 
@@ -1054,6 +1266,7 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
     } else {
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->panel = Prog__PanelId(state);
         input->kind = Prog_JobKind_Open;
         input->generation = state->generation;
         input->sort = state->directory.sort;
@@ -1066,9 +1279,12 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 
 function void Prog_Release(Prog_State *state)
 {
-    // Its thread wakes the window, like the workers.
-    P_DirectoryWatchStop(&state->watch);
     Prog_CloseMenu(state);
+    // Watch threads wake the window, like the workers, so they stop first.
+    for (u32 panel = 0; panel < state->panelCount; ++panel) {
+        Prog__UsePanel(state, panel);
+        Prog__ReleaseCurrentPanel(state);
+    }
     ArenaRelease(&state->menuArena);
     P_JobsShutdown(&state->jobs);
     // Shutting down drops saves still waiting in the queue, and the workers are done, so the lists are written once more here.
@@ -1081,11 +1297,8 @@ function void Prog_Release(Prog_State *state)
     }
     UI_Release(&state->ui);
     ArenaRelease(&state->frameArena);
-    ArenaRelease(&state->directoryArena);
-    ArenaRelease(&state->viewArena);
-    ArenaRelease(&state->historyArena);
-    ArenaRelease(&state->errorArena);
     ArenaRelease(&state->iconArena);
+    ArenaRelease(&state->thumbnailArena);
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->closedArena);
     ArenaRelease(&state->confirmArena);
@@ -1093,6 +1306,5 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->settingsArena);
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);
-    for (u32 i = 0; i < state->tabCount; ++i) Prog__ReleaseTab(&state->tabs[i]);
     *state = (Prog_State){0};
 }

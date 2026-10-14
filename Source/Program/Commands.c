@@ -6,6 +6,7 @@ function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kin
     Assert(kind > Prog_CommandKind_None && kind < Prog_CommandKind_Count);
     Prog_Command *command = ArenaPushStruct(&state->frameArena, Prog_Command);
     command->kind = (u8)kind;
+    command->panel = Prog__PanelId(state);
     command->row = row;
     command->pressCount = pressCount;
     command->inputOrder = inputOrder;
@@ -347,6 +348,7 @@ function void Prog__EndRename(Prog_State *state, b32 commit)
     if (!commit || !to.length || StrIsEqual(from, to) || state->loading) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Rename;
     input->path = prefix.length ? Prog_JoinPath(&job->arena, state->directory.path, prefix) : StrCopy(&job->arena, state->directory.path);
     input->prefix = StrCopy(&job->arena, prefix);
@@ -428,6 +430,7 @@ function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *
     if (!directory.length || (kind != Prog_JobKind_Create && !count)) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
     input->kind = (u8)kind;
     input->path = StrCopy(&job->arena, directory);
     input->paths = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
@@ -550,6 +553,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
 {
     b32 changed = state->commandFirst != NULL;
     for (Prog_Command *command = state->commandFirst; command; command = command->next) {
+        // Input in another panel's UI makes that panel active first.
+        u32 from = command->panel ? Prog_PanelIndex(state, command->panel) : UINT32_MAX;
+        if (from != UINT32_MAX && from != state->activePanel) Prog__ActivatePanel(state, from);
         switch (command->kind) {
             case Prog_CommandKind_SelectRow: {
                 if (!state->loading) {
@@ -696,6 +702,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->hasFocus = state->hasAnchor = true;
                 }
             } break;
+            case Prog_CommandKind_SplitRight:
+            case Prog_CommandKind_SplitBottom: {
+                String path = Prog_TabPath(state, state->activeTab);
+                Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_SplitRight ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, path);
+            } break;
+            case Prog_CommandKind_ResizeSplit: {
+                if (command->row < Prog_MaxSplits) state->splits[command->row].ratio = UI__Clamp((f32)command->target / 1e6f, 0.1f, 0.9f);
+            } break;
             case Prog_CommandKind_ZoomIn: if (state->zoom + 1 < Prog_ZoomLevels) { ++state->zoom; state->revealFocus = true; } break;
             case Prog_CommandKind_ZoomOut: if (state->zoom) { --state->zoom; state->revealFocus = true; } break;
             case Prog_CommandKind_ViewDetails: state->zoom = 0; state->revealFocus = true; break;
@@ -825,7 +839,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->commandFirst = NULL;
     state->commandLast = NULL;
     if (state->sortPending) Prog__SortByTotals(state);
-    // Files dragged onto the window go into the folder under the pointer, else into this one.
+    // Files dragged onto the window go into the folder under the pointer, else into the folder of the panel under it.
+    u32 dropPanel = Prog_PanelIndex(state, state->hasHoverRow ? state->hoverPanel : state->pointerPanel);
+    if (dropPanel != UINT32_MAX) Prog__UsePanel(state, dropPanel);
     String drop = state->loading ? (String){0} : state->directory.path;
     if (!state->loading && state->hasHoverRow && state->hoverRow < state->directory.count) {
         const Prog_Entry *entry = &state->directory.entries[state->hoverRow];
@@ -834,6 +850,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             drop = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
         }
     }
+    Prog__UsePanel(state, state->activePanel);
     P_SetDropDirectory(drop);
     // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
@@ -845,7 +862,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     P_SetDropTakesFolders(state->bookmarkDrop != 0);
     Prog_SubmitIconRequests(state);
     // The header spinner turns while folders are being measured.
-    return changed || state->measureJob != NULL;
+    return changed || Prog__AnyMeasuring(state);
 }
 
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)

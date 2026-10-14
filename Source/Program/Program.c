@@ -335,56 +335,68 @@ function b32 Prog__TabHot(Prog_State *state, i64 slot)
     return UI->hotKey == key || UI->hotKey == UI_KeyFromStr(key, S("Close"));
 }
 
-// The title bar: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
-// Tabs share the strip's width up to a fixed size; dragging one moves it between the others, and the strip's empty space moves the window.
-function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m)
+// The strip's line under it, which the shown tab opens into the toolbar; it is as thick as the sidebar's edge it meets.
+function void Prog__StripLine(f32 width, f32 y, const Prog_Metrics *m)
+{
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, y - m->separator });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(m->separator));
+    UI_SetNextColors((UI_Colors){ .background = Prog_CurrentTheme()->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+}
+
+// Empty title bar space, under everything else on it, which moves the window and maximizes it on a double click.
+function void Prog__Caption(Prog_State *state, String identity, f32 width, f32 height, f32 y)
+{
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, y });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_Interaction caption = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, identity), UI_Flag_Floating | UI_Flag_LeftMouseClickable));
+    if (caption.pressed && caption.button == MouseButton_Left) {
+        Prog_Command *command = Prog_QueueCommand(state, caption.pressCount == 2 ? Prog_CommandKind_WindowToggleMaximize : Prog_CommandKind_WindowMove, 0, 0, caption.pressOrder);
+        command->panel = 0;
+    }
+}
+
+function void Prog__SidebarToggle(Prog_State *state, f32 button, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Interaction toggle = Prog__TextButton(S("ToggleQuickAccess"), Icon_PanelLeft, m->icons, UI_Pixels(button), button, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+    if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder)->panel = 0;
+}
+
+// A panel's tab strip `width` wide: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
+// Tabs share the strip's width up to a fixed size, and dragging one moves it between the others.
+// In the title bar (`caption`) the strip's empty space moves the window; `lead` puts the sidebar button first while the sidebar is hidden, and `controls` the window buttons last.
+function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead, b32 controls, f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog__EnsureTab(state);
-    f32 windowWidth = UI->root->rect.x1 - UI->root->rect.x0;
     f32 top = floorf(m->bar * 0.15f);
     UI_SetNextChildrenPadding((UI_Padding){ 0, top, 0, 0 });
-    UI_Block *strip = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
+    UI_Block *strip = Prog__Box(UI_Pixels(width), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
     // Children start at the top, so that tabs taller than the strip hang below it.
     strip->props.childrenAlignment.y = 0;
     UI_Parent(strip) {
-        // Under everything else on the strip, so that only its empty space moves the window.
-        UI_SetNextFloatingOffset((UI_Vec2){ 0, -top });
-        UI_SetNextPrefWidth(UI_Pixels(windowWidth));
-        UI_SetNextPrefHeight(UI_Pixels(m->bar));
-        UI_Interaction caption = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("Caption")), UI_Flag_Floating | UI_Flag_LeftMouseClickable));
-        if (caption.pressed && caption.button == MouseButton_Left) {
-            Prog_QueueCommand(state, caption.pressCount == 2 ? Prog_CommandKind_WindowToggleMaximize : Prog_CommandKind_WindowMove, 0, 0, caption.pressOrder);
-        }
-        // The line under the strip, which the shown tab opens into the toolbar; it is as thick as the sidebar's edge it meets.
+        if (caption) Prog__Caption(state, S("Caption"), width, m->bar, -top);
         f32 stroke = m->separator;
-        UI_SetNextFloatingOffset((UI_Vec2){ 0, m->bar - top - stroke });
-        UI_SetNextPrefWidth(UI_Pixels(windowWidth));
-        UI_SetNextPrefHeight(UI_Pixels(stroke));
-        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-
-        // The sidebar button sits at the sidebar's right edge, or at the window's left edge while the sidebar is hidden.
+        Prog__StripLine(width, m->bar - top, m);
         f32 button = floorf(m->bar * 0.75f);
-        f32 lead = state->sidebarHidden ? button + m->inset : m->sidebar + m->separator + floorf(6.0f * scale + 0.5f);
-        UI_SetNextPrefWidth(UI_Pixels(lead));
+        f32 leadWidth = lead ? button + m->inset : floorf(6.0f * scale + 0.5f);
+        UI_SetNextPrefWidth(UI_Pixels(leadWidth));
         UI_SetNextPrefHeight(UI_Pixels(m->bar - top));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ state->sidebarHidden ? 0.5f : 1, 0.5f });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
         // Centered on the whole strip rather than on the tabs.
-        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, state->sidebarHidden ? 0 : m->inset, top });
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, 0, top });
         UI_Block *leading = UI_AddBlock(0);
-        UI_Parent(leading) {
-            UI_Interaction toggle = Prog__TextButton(S("ToggleQuickAccess"), Icon_PanelLeft, m->icons, UI_Pixels(button), button, 0,
-                                                     theme->icon, theme->text, theme->iconDisabled, true, m);
-            if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder);
-        }
-        b32 controls = PlatformWindowHasButtons();
+        if (lead) UI_Parent(leading) Prog__SidebarToggle(state, button, m);
+        controls = controls && PlatformWindowHasButtons();
         f32 controlWidth = floorf(40.0f * scale);
         f32 plus = floorf(m->bar * 0.9f);
-        f32 room = MaxF32(0, windowWidth - lead - plus - m->inset - (controls ? controlWidth * 3 : 0));
+        f32 room = MaxF32(0, width - leadWidth - plus - m->inset - (controls ? controlWidth * 3 : 0));
         f32 slot = floorf(MinF32(m->line * 12.0f, room / (f32)state->tabCount));
-        f32 width = MaxF32(0, slot - m->separator);
+        f32 tabWidth = MaxF32(0, slot - m->separator);
         f32 height = m->bar - top;
         // The shown tab hangs past the strip by its corner radius, so the toolbar drawn after it covers its lower corners and border.
         f32 tabRadius = floorf(8.0f * scale + 0.5f);
@@ -398,7 +410,7 @@ function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m
             UI_Key key = Prog__TabKey(state, i);
             UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
             b32 hot = Prog__TabHot(state, i);
-            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefWidth(UI_Pixels(tabWidth));
             UI_SetNextPrefHeight(UI_Pixels(height));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
@@ -417,12 +429,12 @@ function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m
                     // Floating offsets start inside the padding.
                     // A hovered tab has the shown tab's shape cut off square above the strip's bottom line.
                     UI_SetNextFloatingOffset((UI_Vec2){ -tabInset, 0 });
-                    UI_SetNextPrefWidth(UI_Pixels(width));
+                    UI_SetNextPrefWidth(UI_Pixels(tabWidth));
                     UI_SetNextPrefHeight(UI_Pixels(shown ? height + hang : height - stroke));
                     UI_Block *outline = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
                     UI_Parent(outline) {
                         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-                        UI_SetNextPrefWidth(UI_Pixels(width));
+                        UI_SetNextPrefWidth(UI_Pixels(tabWidth));
                         UI_SetNextPrefHeight(UI_Pixels(height + hang));
                         UI_SetNextCornerRadius(tabRadius);
                         UI_SetNextBorderThickness(stroke);
@@ -437,7 +449,7 @@ function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m
                     f32 flare = floorf(m->radius + 0.5f) + stroke;
                     for (u32 side = 0; side < 2; ++side) {
                         if (Prog__TabHot(state, side ? (i64)i + 1 : (i64)i - 1)) continue;
-                        UI_SetNextFloatingOffset((UI_Vec2){ side ? width - tabInset - stroke : -tabInset - flare, height - flare });
+                        UI_SetNextFloatingOffset((UI_Vec2){ side ? tabWidth - tabInset - stroke : -tabInset - flare, height - flare });
                         UI_SetNextPrefWidth(UI_Pixels(flare + stroke));
                         UI_SetNextPrefHeight(UI_Pixels(flare));
                         UI_SetNextColors((UI_Colors){ .background = theme->background });
@@ -500,7 +512,7 @@ function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m
         }
         // The window buttons fill the strip's full height at its right end.
         if (controls) {
-            UI_SetNextFloatingOffset((UI_Vec2){ windowWidth - controlWidth * 3, -top });
+            UI_SetNextFloatingOffset((UI_Vec2){ width - controlWidth * 3, -top });
             UI_SetNextPrefWidth(UI_Pixels(controlWidth * 3));
             UI_SetNextPrefHeight(UI_Pixels(m->bar));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -514,7 +526,7 @@ function void Prog__TabStrip(Prog_State *state, f32 scale, const Prog_Metrics *m
         }
         // A dragged tab takes the slot under the pointer.
         if (dragFrom != UINT32_MAX && slot > 0) {
-            f32 x = dragX - (UI->root->rect.x0 + lead);
+            f32 x = dragX - (strip->rect.x0 + leadWidth);
             u32 to = (u32)MinF32(MaxF32(0, x / slot), (f32)(state->tabCount - 1));
             if (to != dragFrom) {
                 Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_MoveTab, dragFrom, 0, 0);
@@ -586,16 +598,24 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
     Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size,
 };
 
-function void Prog__Columns(Prog_Column *columns, f32 scale)
+// The columns of a list whose rows have `room` beside the icon.
+// Logical widths come from the reference screenshots and Name flexes; in a narrow panel the others shrink alike, so that Name keeps over a third,
+// down to the least that still shows a size or a count whole.
+function void Prog__Columns(Prog_Column *columns, f32 scale, f32 room)
 {
-    // Logical widths from the reference screenshots; Name flexes.
-    columns[Prog_ColumnId_Name] = (Prog_Column){ S("Name"), 0, 0 };
-    columns[Prog_ColumnId_Type] = (Prog_Column){ S("Type"), floorf(192 * scale), 0 };
-    columns[Prog_ColumnId_Modified] = (Prog_Column){ S("Date Modified"), floorf(193 * scale), 0 };
-    columns[Prog_ColumnId_Folders] = (Prog_Column){ S("Folders"), floorf(90 * scale), 0 };
-    columns[Prog_ColumnId_Files] = (Prog_Column){ S("Files"), floorf(105 * scale), 0 };
-    columns[Prog_ColumnId_Size] = (Prog_Column){ S("Size"), floorf(105 * scale), 1 };
+    local_persist const f32 widths[Prog_ColumnId_Count] = { 0, 192, 193, 90, 105, 105 };
+    local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 75 };
+    f32 fixed = 0;
+    for (u32 i = 0; i < Prog_ColumnId_Count; ++i) fixed += widths[i] * scale;
+    f32 shrink = room > 0 && fixed > room * 0.65f ? room * 0.65f / fixed : 1;
+    local_persist const String titles[Prog_ColumnId_Count] = { S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size") };
+    for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
+        f32 width = i == Prog_ColumnId_Name ? 0 : MaxF32(least[i], widths[i] * shrink) * scale;
+        columns[i] = (Prog_Column){ titles[i], floorf(width), i == Prog_ColumnId_Size ? 1.0f : 0 };
+    }
 }
+
+function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f32 width);
 
 function void Prog__Header(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
 {
@@ -619,8 +639,9 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
             UI_Parent(cell) {
                 if (i == Prog_ColumnId_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
-                // Titles start at the left even over right-aligned values.
-                Prog__Label(columns[i].title, UI_Flex(), m->row, m->gap, color, 0);
+                // Titles start at the left even over right-aligned values, and end in an ellipsis where the column is too narrow.
+                f32 room = columns[i].width > 0 ? columns[i].width - 2 * m->gap - m->separator - (sorted ? m->line + m->gap : 0) : 0;
+                Prog__Label(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, columns[i].title, room) : columns[i].title, UI_Flex(), m->row, m->gap, color, 0);
                 if (sorted) Prog__Icon(state->descending ? Icon_ArrowDown : Icon_ArrowUp, m->line + m->gap, m->row, theme->textDim, 0.5f, m);
                 if (i + 1 < Prog_ColumnId_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
                 // While folder totals are being counted, the columns they fill show a spinner at their right end.
@@ -815,6 +836,7 @@ function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_K
     if (state->hasFocus && state->focusedRow == index) state->focusedRowRect = block->rect;
     if (UI->hotKey == key && !state->loading) {
         state->hoverRow = index;
+        state->hoverPanel = Prog__PanelId(state);
         state->hasHoverRow = true;
     }
     UI_Interaction interaction = UI_InteractionFromBlock(block);
@@ -887,7 +909,9 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 Prog__NameLabel(entry->file.name, prefix, marks, width, color, theme->textDim, m);
                 continue;
             }
-            Prog__Label(values[i], width, m->row, m->gap, color, columns[i].alignX);
+            // Values too wide for a fixed column end in an ellipsis.
+            String value = columns[i].width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->font, values[i], columns[i].width - 2 * m->gap) : values[i];
+            Prog__Label(value, width, m->row, m->gap, color, columns[i].alignX);
         }
     }
     return result;
@@ -1638,34 +1662,140 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
     state->menuHot = UI->hotKey;
 }
 
-function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
+// The key seed of panel `id`'s blocks; a nonzero parent keeps it from depending on the seed in use.
+function UI_Key Prog_PanelKeySeed(u64 id)
 {
-    state->hasHoverRow = false;
-    state->bookmarkDropShown = 0;
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
-    i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
-    if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
-    const Prog_Metrics *m = &metrics;
-    Prog_Column columns[Prog_ColumnId_Count];
-    Prog__Columns(columns, scale);
+    return UI_KeyFromStr(1, StrMake((const char *)&id, sizeof(id)));
+}
 
-    UI->root->props.childrenPadding = (UI_Padding){0};
-    Prog__TabStrip(state, scale, m);
-    UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
-    UI_Parent(body) {
-        if (!state->sidebarHidden) {
-            Prog__Sidebar(state, m);
-            Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
-        }
+// One panel at `rect`: its tab strip over its toolbar, column header and list; only the active panel has the filter and status bar, and the others are dimmed.
+function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect area, const Prog_Column *columns, f32 scale, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog__UsePanel(state, index);
+    // Keys of blocks without a parent start from the panel's, so that panels showing the same folder keep apart.
+    UI->keySeed = Prog_PanelKeySeed(state->panels[index].id);
+    if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[index].id;
+    f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
+    b32 top = rect.y0 <= area.y0, active = index == state->activePanel;
+    Prog_Column panelColumns[Prog_ColumnId_Count];
+    Prog__Columns(panelColumns, scale, width - 2 * m->inset - m->iconSlot);
+    columns = panelColumns;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_Block *panel = UI_AddBlock(UI_Flag_Clip);
+    UI_Parent(panel) {
+        Prog__TabStrip(state, width, top, top && state->sidebarHidden && rect.x0 <= area.x0, top && rect.x1 >= area.x1, scale, m);
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
         UI_Parent(main) {
             Prog__Toolbar(state, m);
             if (Prog_ZoomView(state->zoom) == Prog_View_Details) Prog__Header(state, columns, m);
             Prog__List(state, columns, m);
-            Prog__StatusBar(state, m);
+            if (active) Prog__StatusBar(state, m);
+            if (!active) {
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                UI_SetNextPrefWidth(UI_Pixels(width));
+                UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - m->bar)));
+                R_Color dim = theme->background;
+                dim.a = 0.4f;
+                UI_SetNextColors((UI_Colors){ .background = dim });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
         }
     }
+}
+
+// The layout tree below `node` filling `rect`, its splits parted by dividers that drag to resize; `area` is the whole tree's rect.
+function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area, const Prog_Column *columns, f32 scale, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    const Prog_Split *split = &state->splits[node];
+    if (split->kind == Prog_SplitKind_Panel) {
+        u32 index = Prog_PanelIndex(state, split->panel);
+        if (index != UINT32_MAX) Prog__PanelUI(state, index, rect, area, columns, scale, m);
+        return;
+    }
+    if (split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) return;
+    b32 across = split->kind == Prog_SplitKind_Horizontal;
+    f32 length = across ? rect.x1 - rect.x0 : rect.y1 - rect.y0, line = m->separator;
+    f32 first = floorf(MaxF32(0, length - line) * (split->ratio > 0 ? split->ratio : 0.5f));
+    R_Rect a = rect, b = rect;
+    if (across) { a.x1 = rect.x0 + first; b.x0 = a.x1 + line; }
+    else        { a.y1 = rect.y0 + first; b.y0 = a.y1 + line; }
+    UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
+    UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
+    UI_SetNextChildrenLayout(across ? UI_Layout_Horizontal : UI_Layout_Vertical);
+    UI_Block *box = UI_AddBlock(0);
+    UI_Parent(box) {
+        Prog__Layout(state, split->first, a, area, columns, scale, m);
+        // Keys here are the window's, not the last built panel's.
+        UI->keySeed = 0;
+        UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Divider/%u", node));
+        UI_SetNextPrefWidth(UI_Pixels(across ? line : rect.x1 - rect.x0));
+        UI_SetNextPrefHeight(UI_Pixels(across ? rect.y1 - rect.y0 : line));
+        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+        UI_Block *divider = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
+        UI_Interaction drag = UI_InteractionFromBlock(divider);
+        if (drag.active && drag.isDragging && length > line) {
+            f32 at = (across ? UI->mouse.x - rect.x0 : UI->mouse.y - rect.y0) / (length - line);
+            Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_ResizeSplit, node, 0, 0);
+            command->target = (u64)(UI__Clamp(at, 0, 1) * 1e6f);
+            command->panel = 0;
+        }
+        Prog__Layout(state, split->second, b, area, columns, scale, m);
+    }
+}
+
+// The sidebar with, above it in the title bar, its button at its right edge over the strip line.
+function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 scale, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_Block *column = UI_AddBlock(0);
+    UI_Parent(column) {
+        // Where the button sat when the tabs began right after the sidebar.
+        f32 button = floorf(m->bar * 0.75f);
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, MaxF32(0, m->inset - floorf(6.0f * scale + 0.5f)), 0 });
+        UI_Block *bar = Prog__Box(UI_Pixels(width), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
+        bar->props.childrenAlignment = (UI_Vec2){ 1, 0.5f };
+        UI_Parent(bar) {
+            Prog__Caption(state, S("SidebarCaption"), width, m->bar, 0);
+            Prog__StripLine(width, m->bar, m);
+            Prog__SidebarToggle(state, button, m);
+        }
+        UI_Block *body = Prog__Box(UI_Pixels(width), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
+        UI_Parent(body) {
+            Prog__Sidebar(state, m);
+            Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
+        }
+    }
+}
+
+function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
+{
+    state->hasHoverRow = false;
+    state->bookmarkDropShown = 0;
+    state->pointerPanel = 0;
+    Prog__EnsureTab(state);
+    Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
+    i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
+    if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
+    const Prog_Metrics *m = &metrics;
+    Prog_Column columns[Prog_ColumnId_Count];
+    Prog__Columns(columns, scale, 0);
+
+    UI->root->props.childrenPadding = (UI_Padding){0};
+    UI->root->props.childrenLayout = UI_Layout_Horizontal;
+    R_Rect view = UI->root->rect;
+    f32 sidebar = state->sidebarHidden ? 0 : m->sidebar + m->separator;
+    if (sidebar > 0) Prog__SidebarColumn(state, sidebar, view.y1 - view.y0, scale, m);
+    R_Rect area = { view.x0 + sidebar, view.y0, view.x1, view.y1 };
+    Prog__Layout(state, 0, area, area, columns, scale, m);
+    UI->keySeed = 0;
+    Prog__UsePanel(state, state->activePanel);
     Prog__ContextMenu(state, m);
     Prog__DeleteConfirmation(state, m);
 }

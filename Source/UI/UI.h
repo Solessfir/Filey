@@ -103,6 +103,8 @@ typedef struct UI_Context {
     u64 doubleClickMicroseconds;
     f32 doubleClickDistance;
     b32 mouseKnown;
+    // Keys made without a parent start from this, so that copies of one UI, such as one per panel, keep apart.
+    UI_Key keySeed;
 } UI_Context;
 
 global UI_Context *UI;

@@ -1175,6 +1175,39 @@ function void TestTabs(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Splitting makes a second panel with its own listing; a command from a panel's UI makes it active, and closing a panel's only tab closes the panel.
+function void TestPanels(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized) return;
+    Check(TestWaitDirectory(&state));
+    u64 first = state.panels[0].id;
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
+    Check(state.panelCount == 2 && state.activePanel == 1 && state.currentPanel == 1 && StrIsEqual(state.directory.path, fixture->path));
+    Check(state.splits[0].kind == Prog_SplitKind_Horizontal && Prog__FirstPanelOf(&state, 0) == first);
+    u64 empty = TestEntryIndex(&state, S("Empty"));
+    Check(empty != UINT64_MAX);
+    Prog_OpenRow(&state, empty);
+    Check(TestWaitDirectory(&state) && TestEndsWith(state.directory.path, S("/Empty")));
+    // The first panel kept its folder.
+    ArenaClear(&state.frameArena);
+    Prog_Command *select = Prog_QueueCommand(&state, Prog_CommandKind_FocusFirst, 0, 0, 0);
+    select->panel = first;
+    Prog_ProcessCommands(&state);
+    Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitBottom, 0);
+    Check(state.panelCount == 3 && state.activePanel == 2 && state.splits[0].kind == Prog_SplitKind_Horizontal);
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    Check(state.panelCount == 2 && state.splits[0].kind == Prog_SplitKind_Horizontal && StrIsEqual(state.directory.path, fixture->path));
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    Check(state.panelCount == 1 && state.splits[0].kind == Prog_SplitKind_Panel && TestEndsWith(state.directory.path, S("/Empty")));
+    // The last panel stays.
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    Check(state.panelCount == 1 && state.tabCount == 1);
+    Prog_Release(&state);
+}
+
 // Sidebar locations, and bookmarks and recents kept in a config folder inside the fixture.
 function void TestSidebar(TestFileFixture *fixture)
 {
@@ -1352,6 +1385,7 @@ function void TestBrowsing(void)
 #endif
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);
+        TestPanels(&fixture);
         TestSidebar(&fixture);
         TestRename(&fixture);
         TestFilter(&fixture);

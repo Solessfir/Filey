@@ -484,6 +484,24 @@ command WindowToggleMaximize {
 command WindowClose {
 }
 
+command SplitRight {
+    label   = "Split Right^panel,side,dual,pane"
+    tooltip = "Split current panel to the right."
+    hotkey  = "Ctrl+Shift+S"
+    repeat  = "false"
+}
+
+command SplitBottom {
+    label   = "Split Bottom^panel,below,dual,pane"
+    tooltip = "Split current panel to the bottom."
+    hotkey  = "Ctrl+S"
+    repeat  = "false"
+}
+
+// A divider between panels dragged; row is the split node and target its first child's share in millionths.
+command ResizeSplit {
+}
+
 command ZoomIn {
     label   = "Zoom In^bigger,larger,icons,view"
     tooltip = "Show the files larger, one view step at a time."

@@ -10,6 +10,7 @@ function UI_Size UI_Fill(void) { return (UI_Size){UI_SizeKind_Fill, 0}; }
 
 function UI_Key UI_KeyFromStr(UI_Key parent, String text)
 {
+    if (!parent && UI) parent = UI->keySeed;
     u64 result = UINT64_C(14695981039346656037) ^ parent;
     for (u64 i = 0; i < text.length; ++i) {
         result ^= (u8)text.value[i];

@@ -599,7 +599,9 @@ function void TestProgramVirtualRows(void)
         state.directory.entries[i].type = S("txt file");
     }
     Prog_ApplyFilter(&state, false);
-    UI_Key listKey = UI_KeyFromStr(0, S("Files"));
+    // The panel's blocks are keyed from its seed.
+    Prog__EnsureTab(&state);
+    UI_Key listKey = UI_KeyFromStr(Prog_PanelKeySeed(state.panels[0].id), S("Files"));
     UI_Key directoryKey = UI_KeyFromStr(listKey, state.directory.path);
     for (u32 frame = 0; frame < 2; ++frame) {
         if (frame) {

@@ -93,6 +93,9 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_WindowMinimize,
     Prog_CommandKind_WindowToggleMaximize,
     Prog_CommandKind_WindowClose,
+    Prog_CommandKind_SplitRight,
+    Prog_CommandKind_SplitBottom,
+    Prog_CommandKind_ResizeSplit,
     Prog_CommandKind_ZoomIn,
     Prog_CommandKind_ZoomOut,
     Prog_CommandKind_ViewDetails,
@@ -195,6 +198,9 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_WindowMinimize] = { .name = { "WindowMinimize", 14 } },
     [Prog_CommandKind_WindowToggleMaximize] = { .name = { "WindowToggleMaximize", 20 } },
     [Prog_CommandKind_WindowClose] = { .name = { "WindowClose", 11 } },
+    [Prog_CommandKind_SplitRight] = { .name = { "SplitRight", 10 }, .label = { "Split Right", 11 }, .aliases = { "panel,side,dual,pane", 20 }, .tooltip = { "Split current panel to the right.", 33 }, .noRepeat = true },
+    [Prog_CommandKind_SplitBottom] = { .name = { "SplitBottom", 11 }, .label = { "Split Bottom", 12 }, .aliases = { "panel,below,dual,pane", 21 }, .tooltip = { "Split current panel to the bottom.", 34 }, .noRepeat = true },
+    [Prog_CommandKind_ResizeSplit] = { .name = { "ResizeSplit", 11 } },
     [Prog_CommandKind_ZoomIn] = { .name = { "ZoomIn", 6 }, .label = { "Zoom In", 7 }, .aliases = { "bigger,larger,icons,view", 24 }, .tooltip = { "Show the files larger, one view step at a time.", 47 } },
     [Prog_CommandKind_ZoomOut] = { .name = { "ZoomOut", 7 }, .label = { "Zoom Out", 8 }, .aliases = { "smaller,icons,view", 18 }, .tooltip = { "Show the files smaller, one view step at a time.", 48 } },
     [Prog_CommandKind_ViewDetails] = { .name = { "ViewDetails", 11 }, .label = { "View Details", 12 }, .aliases = { "layout", 6 }, .tooltip = { "Display files with detailed information and metadata.", 53 } },
@@ -278,6 +284,8 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_8, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelect8 },
     { .key = Key_9, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelectLast },
     { .key = Key_B, .mods = KeyMod_Control, .command = Prog_CommandKind_BookmarksToggle },
+    { .key = Key_S, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_SplitRight },
+    { .key = Key_S, .mods = KeyMod_Control, .command = Prog_CommandKind_SplitBottom },
     { .key = Key_B, .mods = KeyMod_Control | KeyMod_Alt, .command = Prog_CommandKind_ToggleTransparency },
 };
 #endif

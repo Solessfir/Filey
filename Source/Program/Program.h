@@ -47,6 +47,7 @@ typedef struct Prog_Command Prog_Command;
 struct Prog_Command {
     Prog_Command *next;
     enum8(Prog_CommandKind) kind;
+    u64 panel;   // the panel whose UI queued it, which becomes the active one; 0 for the active one
     u64 row;
     u64 target;  // MoveTab: the slot the tab moves to
     u32 pressCount;
@@ -133,6 +134,7 @@ typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon v
 
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
+    u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;
     enum8(Prog_Sort) sort;
@@ -215,6 +217,7 @@ typedef struct Prog_Directory {
 
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter and scroll.
+// The filter keeps the rows it lets through in `view`, in listing order; rows it hides are never selected, so commands cannot act on them.
 #define Prog_TabFields(X) \
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
@@ -229,44 +232,83 @@ typedef struct Prog_Tab {
 } Prog_Tab;
 #undef Prog__TabField
 
-// ponytail: fixed tab count; grow the array if 32 tabs per window falls short.
+// ponytail: fixed tab count; grow the array if 32 tabs per panel falls short.
 #define Prog_MaxTabs 32
+
+// The Prog_State fields each panel has its own of, besides its tabs' (Prog_TabFields).
+// The current panel's live in Prog_State; Prog__UsePanel swaps them with the panel's slot, so every panel keeps its own listing, jobs, watch and layout.
+//   error: the last failure, in errorArena; directoryJob, generation, loading: the listing on its way
+//   revealFocus, resetScroll, restoreScroll: scroll changes the next build makes; pageRows: lines visible in the last layout, for Page Up/Down
+//   tabs, tabCount, activeTab: the panel's Prog_MaxTabs tab slots, in tabArena from the first use; the shown one's slot holds nothing while it is shown
+//   zoom: the view's zoom level, below Prog_ZoomLevels
+//   gridColumns, gridPitch, gridItem: the list's last layout, in its coordinates (x from its left edge, y from the top of its content):
+//     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box
+//   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
+//   filtering: the filter box has the keyboard; filterRect: its last layout
+//   listing, measureJob, sortPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort later
+//   watch, watchDirty, watchReloadTime: the shown folder's watch, which reloads it at most every Prog_WatchInterval
+//   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
+//   renameCreatedUntil: until then, rename the one item a listing of this folder adds
+#define Prog_PanelFields(X) \
+    X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
+    X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
+    X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) X(u32, zoom) \
+    X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
+    X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
+    X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
+    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil)
+
+#define Prog__PanelField(type, name) type name;
+typedef struct Prog_Panel {
+    u64 id;  // 0 for a free slot; keys the panel's blocks and tags its commands and jobs
+    Prog_TabFields(Prog__PanelField)
+    Prog_PanelFields(Prog__PanelField)
+} Prog_Panel;
+#undef Prog__PanelField
+
+// ponytail: fixed panel count; 8 side by side are already narrow.
+#define Prog_MaxPanels 8
+
+// The panel layout: a tree of splits whose leaves are panels, kept in Prog_State.splits with the root first.
+typedef enum Prog_SplitKind {
+    Prog_SplitKind_None,        // a free node
+    Prog_SplitKind_Panel,
+    Prog_SplitKind_Horizontal,  // `first` left of `second`
+    Prog_SplitKind_Vertical,    // `first` above `second`
+    Prog_SplitKind_Count,
+} Prog_SplitKind;
+
+typedef struct Prog_Split {
+    enum8(Prog_SplitKind) kind;
+    u8 first, second;  // child nodes of a split
+    u64 panel;         // a leaf's panel id
+    f32 ratio;         // the first child's share; 0 halves
+} Prog_Split;
+
+#define Prog_MaxSplits (2 * Prog_MaxPanels)
 
 typedef struct Prog_State {
     Arena frameArena;
     Arena jobsArena;
-    Arena directoryArena;
-    Arena historyArena;
-    Arena errorArena;
     UI_Context ui;
     P_JobQueue jobs;
-    P_Job *directoryJob;
-    Prog_Directory directory;
-    ArrayStr history;
-    u64 historyAt;
-    u64 generation;
-    u64 focusedRow;
-    u64 anchorRow;
-    u64 selectedCount;
-    b32 hasFocus;
-    b32 hasAnchor;
-    b32 loading;
-    b32 showHidden;
-    enum8(Prog_Sort) sort;
-    b32 descending;
-    String error;
     Prog_Command *commandFirst;
     Prog_Command *commandLast;
-    b32 revealFocus;
-    b32 resetScroll;
-    b32 restoreScroll;        // put the list back at `scroll`, after a tab switch
-    UI_Vec2 scroll;           // the list's offset in the last build
-    u64 pageRows;  // rows visible in the last layout, for Page Up/Down
-    // Tabs. The shown one's slot holds nothing while it is shown; see Prog_TabFields.
-    Prog_Tab tabs[Prog_MaxTabs];
-    u32 tabCount;
-    u32 activeTab;
+    // The current panel's fields; see Prog_TabFields and Prog_PanelFields.
+#define Prog__StateField(type, name) type name;
+    Prog_TabFields(Prog__StateField)
+    Prog_PanelFields(Prog__StateField)
+#undef Prog__StateField
     u64 nextTabId;
+    // Panels. The current one's slot holds nothing while it is current; the active one has the keyboard and is current between frames.
+    Prog_Panel panels[Prog_MaxPanels];
+    u32 panelCount;
+    u32 currentPanel;
+    u32 activePanel;
+    u64 nextPanelId;
+    Prog_Split splits[Prog_MaxSplits];
+    u64 hoverPanel;           // the panel of the row under the pointer, and the panel under the pointer, in the last build
+    u64 pointerPanel;
     Arena closedArena;        // paths of closed tabs, for Reopen Closed Tab
     ArrayStr closedTabs;
     // File icons, keyed by P_FileIconKey.
@@ -297,26 +339,12 @@ typedef struct Prog_State {
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
     UI_Key menuHot;           // hot block when the menu was last built
-    R_Rect focusedRowRect;    // last layout, to place a keyboard-opened menu
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
     b32 dragRequested;
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
-    // The view's zoom level, below Prog_ZoomLevels; Ctrl+wheel steps it.
-    u32 zoom;
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
-    // The list's layout in its last build, for keyboard movement, revealing the focus and the selection box.
-    // Coordinates are the list's: x from its left edge, y from the top of its content.
-    u64 gridColumns;          // items per line; 1 in Details and List
-    UI_Vec2 gridPitch;        // from one cell to the next across and down
-    R_Rect gridItem;          // the first cell's item box; the others are offset by the pitch
-    R_Rect marqueeBox;        // the selection box in the same coordinates
-    // Box selection: dragging across rows from anywhere but a name, or from the empty space below them.
-    b32 marquee;
-    UI_Key marqueeKey;        // the block the drag began on; kept after the drag so that its release does not count as a click
-    UI_Vec2 marqueeAnchor;    // where it began, in the list's content coordinates
-    KeyMods marqueeAdds;      // Ctrl toggles rows against the earlier selection and Shift adds them to it
     b32 hasHoverRow;
     // Inline rename of the entry named renameFrom.
     b32 renaming;
@@ -324,32 +352,9 @@ typedef struct Prog_State {
     u32 renameFromLength;
     Prog_TextEdit rename;
     R_Rect renameRect;        // last layout of the edit box
-    u64 renameCreatedUntil;   // until then, rename the one item a listing of this folder adds
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
     b32 selectRename;         // and rename it, for items Filey just created
-    // Live filter of the listing.
-    // The view holds the rows it lets through, in listing order; rows it hides are never selected, so commands cannot act on them.
-    Prog_TextEdit filter;
-    b32 filtering;            // the filter box has the keyboard
-    b32 filterSticky;         // keep the filter and the expanded listing in other folders
-    b32 expanded;             // list subfolders' items too
-    b32 hideFolders;
-    b32 hideFiles;
-    u64 viewFolders;          // folders among the shown rows
-    R_Rect filterRect;        // last layout of the filter box
-    Arena viewArena;
-    u64 *view;
-    u64 viewCount;
-    // Folder totals.
-    // Each adopted listing gets a new id; results for an older listing of the same folder are matched by name.
-    u64 listing;
-    P_Job *measureJob;
-    b32 sortPending;          // totals arrived while a menu or drag held the rows still
-    // The shown folder's watch. Changes reload it, at most every Prog_WatchInterval.
-    P_DirectoryWatch watch;
-    b32 watchDirty;
-    u64 watchReloadTime;
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
     Arena confirmArena;
@@ -375,6 +380,9 @@ typedef struct Prog_State {
     u64 bookmarkDrop;
     Arena recentArena;
     ArrayStr recents;
+    // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
+    b32 saving[2];            // bookmarks, recents
+    b32 saveAgain[2];
     // See-through window with the glass theme; the app applies it to the window.
     b32 transparent;
     // Loud colors for telling UI surfaces apart; FILEY_DEBUG_THEME turns it on at startup.
@@ -419,6 +427,12 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
 function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
+function u32 Prog_PanelIndex(const Prog_State *state, u64 id);
+function u64 Prog__PanelId(const Prog_State *state);
+function UI_Key Prog_PanelKeySeed(u64 id);
+function void Prog__ReleaseTab(Prog_Tab *tab);
+function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
+function void Prog_ClosePanel(Prog_State *state, u32 index);
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
