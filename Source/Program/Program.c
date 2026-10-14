@@ -1544,6 +1544,19 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefHeight(UI_Pixels(thickness));
             UI_SetNextColors((UI_Colors){ .background = theme->accent });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            // What letting go does, beside the pointer; the drag image covers the pointer itself.
+            String hint = S("Pin to Bookmarks");
+            f32 hintWidth = R_TextWidth(m->font, hint) + 2 * m->inset, hintHeight = m->row;
+            UI_SetNextFloatingOffset((UI_Vec2){ floorf(MinF32(UI->mouse.x - sidebar->rect.x0 + m->inset * 2, sidebar->rect.x1 - sidebar->rect.x0 - hintWidth - m->gap)),
+                                                floorf(lineY - sidebar->rect.y0 + m->gap) });
+            UI_SetNextPrefWidth(UI_Pixels(hintWidth));
+            UI_SetNextPrefHeight(UI_Pixels(hintHeight));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextCornerRadius(m->radius * 2);
+            UI_SetNextBorderThickness(m->separator);
+            UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->accent, .text = theme->text });
+            UI_SetNextText(hint);
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
         }
         Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
         if (Prog_GroupOpen(state, Prog_Group_Storage)) {
