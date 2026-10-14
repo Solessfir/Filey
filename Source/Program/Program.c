@@ -1505,17 +1505,20 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
 function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
+    // The pills sit in the panel's bottom corners, running past its edges by their corner radius, so that only their inner corners round off.
+    f32 radius = floorf(13.0f * m->scale + 0.5f);
+    UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
     UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(bar) {
-        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f)));
-        UI_SetNextPrefHeight(UI_Pixels(m->pill));
+        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f) + floorf(8.0f * m->scale + 0.5f) + radius));
+        UI_SetNextPrefHeight(UI_Pixels(m->pill + radius));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-        UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
-        UI_SetNextCornerRadius(m->radius * 2);
-        UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->focus });
-        UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterBox")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable |
-                                              (state->filtering ? UI_Flag_DrawBorder : 0));
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
+        UI_SetNextChildrenPadding((UI_Padding){ m->gap + radius, 0, m->gap, 0 });
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness(1.5f * m->scale);
+        UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = state->filtering ? theme->focus : theme->tabBorder });
+        UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->filterRect = filter->rect;
         UI_Interaction interaction = UI_InteractionFromBlock(filter);
         if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_StartFilter, 0, interaction.pressCount, interaction.pressOrder);
@@ -1554,9 +1557,12 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             String icons[2] = { Icon_Folder, Icon_File };
             String keys[2] = { S("ToggleFolders"), S("ToggleFiles") };
             Prog_CommandKind kinds[2] = { Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles };
-            UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
-            UI_SetNextCornerRadius(m->radius * 2);
-            UI_Block *counts = Prog__Box(UI_Fill(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->panel, 0);
+            UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap + radius, 0 });
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(1.5f * m->scale);
+            UI_Block *counts = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
+            counts->props.colors.border = theme->tabBorder;
+            counts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
             UI_Parent(counts) {
                 for (u32 i = 0; i < 2; ++i) {
                     String text = shown[i] == total[i] ? StrFormat(&state->frameArena, "%" PRIu64, total[i])
@@ -1572,7 +1578,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     b32 hot = UI->hotKey == toggle->key;
                     UI_Parent(toggle) {
                         Prog__Icon(icons[i], 0, m->pill, hidden[i] ? theme->iconDisabled : hot ? theme->text : theme->icon, 0.5f, m);
-                        Prog__Label(text, UI_TextContent(), m->pill, m->gap * 0.5f, hidden[i] ? theme->textDim : theme->text, 0);
+                        Prog__LabelPadded(text, UI_TextContent(), m->pill, floorf(9.0f * m->scale + 0.5f), floorf(12.0f * m->scale + 0.5f), hidden[i] ? theme->textDim : theme->text, 0);
                     }
                 }
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->pill));
@@ -1585,7 +1591,8 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 f32 zoom = Prog__ZoomFraction(state->zoom);
                 f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
                 // The view and its zoom open the view menu above them.
-                UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->icons, viewIcons[view]) + R_TextWidth(m->font, name) + m->gap * 1.5f + barWidth));
+                f32 nameGap = floorf(10.0f * m->scale + 0.5f), barGap = floorf(17.0f * m->scale + 0.5f);
+                UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->icons, viewIcons[view]) + R_TextWidth(m->font, name) + nameGap + barGap + barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
@@ -1598,8 +1605,8 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 b32 viewHot = UI->hotKey == viewButton->key;
                 UI_Parent(viewButton) {
                 Prog__Icon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, 0.5f, m);
-                Prog__Label(name, UI_TextContent(), m->pill, m->gap * 0.5f, theme->text, 0);
-                Prog__Spacer(UI_Pixels(m->gap * 0.5f), UI_Pixels(m->pill));
+                Prog__LabelPadded(name, UI_TextContent(), m->pill, nameGap, 0, theme->text, 0);
+                Prog__Spacer(UI_Pixels(barGap), UI_Pixels(m->pill));
                 UI_SetNextPrefWidth(UI_Pixels(barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(barHeight));
                 UI_SetNextCornerRadius(m->radius * 0.5f);
