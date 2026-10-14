@@ -455,6 +455,8 @@ typedef struct Prog_State {
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
     b32 dragRequested;
+    // The system's window move loop is modal too, and runs between frames for the same reason.
+    b32 moveRequested;
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet

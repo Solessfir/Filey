@@ -1104,7 +1104,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_ToggleTransparency: Prog_SetTransparent(state, !state->transparent); break;
             case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
-            case Prog_CommandKind_WindowMove: PlatformWindowStartMove(); break;
+            case Prog_CommandKind_WindowMove: state->moveRequested = true; break;
             case Prog_CommandKind_WindowMinimize: PlatformWindowMinimize(); break;
             case Prog_CommandKind_WindowToggleMaximize: PlatformWindowToggleMaximize(); break;
             case Prog_CommandKind_WindowClose: PlatformWindowClose(); break;

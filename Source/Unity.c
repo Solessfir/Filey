@@ -71,6 +71,8 @@ typedef struct Prog_Loop {
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
     u64 startTime;  // cleared once the first frame is presented
+    // A frame that is running; the system's modal loops can call back for a frame while one is, and that one is skipped.
+    b32 inFrame;
     // FILEY_CAPTURE_DIR: each presented frame is written there as frame.bmp, or with FILEY_CAPTURE_SEQUENCE as numbered files named after their time,
     // for comparing screenshots without the window on screen, where the OS may not keep what is drawn.
     String captureDirectory;
@@ -159,9 +161,10 @@ function void Prog__Frame(void *user, PlatformEventList events)
             loop->running = false;
         }
     }
-    if (!loop->running) {
+    if (!loop->running || loop->inFrame) {
         return;
     }
+    loop->inFrame = true;
     ProfileScope("Frame") {
         ArenaClear(&state->frameArena);
         b32 completed = false;
@@ -194,6 +197,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
         // Includes the wait for vsync.
         ProfileScope("SwapBuffers") PlatformSwapBuffers();
     }
+    loop->inFrame = false;
     if (loop->startTime) {
         ProfileRecordSince("StartupToFirstFrame", loop->startTime);
         loop->startTime = 0;
@@ -280,6 +284,11 @@ int main(void)
         PlatformEventList events = {0};
         ProfileScope("PollEvents") events = PlatformPollEvents(!loop.needsFrame);
         Prog__Frame(&loop, events);
+        if (loop.state.moveRequested) {
+            loop.state.moveRequested = false;
+            PlatformWindowStartMove();
+            loop.needsFrame = true;
+        }
         if (loop.state.dragRequested) {
             Prog_DragSelection(&loop.state);
             loop.needsFrame = true;
