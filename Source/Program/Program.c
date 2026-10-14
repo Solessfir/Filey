@@ -1085,9 +1085,12 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     const Prog_Theme *theme = Prog_CurrentTheme();
     String text = Prog_EditText(edit);
     u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
-    f32 x0 = x + R_TextWidth(m->font, StrMake(text.value, from));
-    f32 x1 = x + R_TextWidth(m->font, StrMake(text.value, to));
-    if (caret && to > from) {
+    // The selection's ends and the caret ease to where they go, so that clearing the text draws them back to its start.
+    f32 x0 = floorf(x + UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditFrom/%p", (const void *)edit)), R_TextWidth(m->font, StrMake(text.value, from)), R_TextWidth(m->font, StrMake(text.value, from))) + 0.5f);
+    f32 x1 = floorf(x + UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditTo/%p", (const void *)edit)), R_TextWidth(m->font, StrMake(text.value, to)), R_TextWidth(m->font, StrMake(text.value, to))) + 0.5f);
+    f32 at = R_TextWidth(m->font, StrMake(text.value, edit->cursor));
+    f32 caretX = floorf(x + UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditCaret/%p", (const void *)edit)), at, at) + 0.5f);
+    if (caret && x1 > x0) {
         UI_SetNextFloatingOffset((UI_Vec2){ x0, y });
         UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
         UI_SetNextPrefHeight(UI_Pixels(m->line));
@@ -1100,7 +1103,7 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     UI_SetNextText(text);
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
     if (caret) {
-        UI_SetNextFloatingOffset((UI_Vec2){ edit->cursor == from ? x0 : x1, y });
+        UI_SetNextFloatingOffset((UI_Vec2){ caretX, y });
         UI_SetNextPrefWidth(UI_Pixels(Prog__CaretWidth(m)));
         UI_SetNextPrefHeight(UI_Pixels(m->line));
         UI_SetNextColors((UI_Colors){ .background = theme->text });
@@ -2605,11 +2608,20 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     if (highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
     state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
     u32 first = state->gotoScroll, shown = Min(rowCount - first, visible);
-    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 718.4f * s));
+    // It opens a tenth smaller and grows into place from its top while it fades in, slower than the menus ease.
+    f32 reveal = 1;
+    if (UI->animate) {
+        reveal = 1 - expf(-(f32)UI_TimeSince(UI_KeyFromStr(0, S("GoToReveal"))) / 50000.0f);
+        if (reveal < 0.995f) UI_KeepAnimating();
+        else reveal = 1;
+    }
+    f32 grow = 0.9f + 0.1f * reveal;
+    row = floorf(row * grow + 0.5f);
+    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 718.4f * s) * grow);
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
     f32 listHeight = (f32)shown * row + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
-    f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("GoToReveal")), 1, 0);
+    f32 opacity = 0.3f + 0.7f * reveal;
     f32 radius = floorf(8.0f * s + 0.5f);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
