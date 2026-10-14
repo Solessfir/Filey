@@ -445,6 +445,12 @@ typedef struct Prog_State {
     Prog_MenuCommand *menuCommands;  // per item of Filey's own menus; NULL for the system's
     UI_Key menuHot;           // hot block when the menu was last built
     enum8(Prog_CommandKind) menuOpener;  // the button whose menu is open, which stays lit; None for other menus
+    // The button under the pointer this frame, whose tip shows once the pointer rests on it.
+    UI_Key tooltipKey;
+    R_Rect tooltipRect;
+    enum8(Prog_CommandKind) tooltipKind;
+    String tooltipLabel;      // the command's label when empty
+    String tooltipDetail;     // a line over the command, such as the folder a history button goes to
     f32 menuRight;            // when nonzero, the right edge the top level lines up with
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.

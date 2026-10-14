@@ -427,11 +427,29 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
 function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
 function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
 
+// Notes the button just added as the one under the pointer, for Prog__Tooltip.
+function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String label)
+{
+    UI_Block *button = UI->parent->last;
+    if (!button || UI->hotKey != button->key || UI->activeKey) return;
+    state->tooltipKey = button->key;
+    state->tooltipRect = button->rect;
+    state->tooltipKind = (u8)kind;
+    state->tooltipLabel = label;
+    // The history buttons say where they go.
+    String to = {0};
+    if (kind == Prog_CommandKind_Back && state->historyAt > 0) to = state->history.v[state->historyAt - 1];
+    if (kind == Prog_CommandKind_Forward && state->historyAt + 1 < state->history.header.count) to = state->history.v[state->historyAt + 1];
+    if (kind == Prog_CommandKind_Up) to = Prog_ParentPath(state->directory.path);
+    state->tooltipDetail = to.length ? P_NativePath(&state->frameArena, to) : (String){0};
+}
+
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                   theme->icon, theme->text, theme->iconDisabled, enabled, m);
+    if (enabled) Prog__NoteTooltip(state, kind, (String){0});
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
@@ -453,6 +471,10 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
     UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot || lit ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    // These open menus rather than run commands, so they name themselves.
+    String tip = kind == Prog_CommandKind_PanelMenu ? S("Panel Menu") : kind == Prog_CommandKind_MainMenu ? S("Main Menu")
+               : kind == Prog_CommandKind_HistoryMenu ? S("History") : kind == Prog_CommandKind_TabList ? S("Tabs") : S("View");
+    if (enabled && !lit) Prog__NoteTooltip(state, kind, tip);
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     if (enabled && interaction.clicked) {
         R_Rect rect = block->rect;
@@ -469,6 +491,7 @@ function void Prog__PillButton(Prog_State *state, String identity, String icon, 
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(floorf(m->line * 1.5f)), floorf(m->line * 1.5f), 0,
                                                   on ? theme->text : theme->icon, theme->text, theme->iconDisabled, true, m);
+    Prog__NoteTooltip(state, kind, (String){0});
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
@@ -2135,6 +2158,64 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
 }
 
 // The command palette near the top of the window: the text typed over the commands it finds, with their hotkeys.
+// After the pointer rests on a button for a moment, a tip under it with the command the button runs and its hotkeys, fading in.
+function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->tooltipKey || state->menuOpen || state->paletteOpen) return;
+    if (UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait"))) < 700000) {
+        UI_KeepAnimating();
+        return;
+    }
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, opacity = UI_Animate(UI_KeyFromStr(state->tooltipKey, S("TooltipShown")), 1, 0);
+    String label = state->tooltipLabel.length ? state->tooltipLabel : Prog_Commands[state->tooltipKind].label;
+    // A tip with a place to go shows it over the command and leaves the hotkeys out.
+    String detail = state->tooltipDetail;
+    String hotkeys[3];
+    u32 hotkeyCount = detail.length ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, 3);
+    f32 pad = floorf(9.6f * s + 0.5f), gap = floorf(4.8f * s + 0.5f), chipGap = floorf(8.0f * s + 0.5f), lineHeight = floorf(37.6f * s + 0.5f);
+    f32 height = detail.length ? 2 * floorf(m->line * 1.6f + 0.5f) : lineHeight, margin = floorf(6.4f * s + 0.5f);
+    String lead = S("Cmd:");
+    f32 width = R_TextWidth(m->font, lead) + gap + R_TextWidth(m->font, label);
+    for (u32 i = 0; i < hotkeyCount; ++i) width += chipGap + R_TextWidth(m->detail, hotkeys[i]) + 2 * floorf(4.8f * s + 0.5f);
+    width = 2 * pad + MaxF32(width, R_TextWidth(m->font, detail));
+    R_Rect view = UI->root->rect, button = state->tooltipRect;
+    // Centered under the button and kept a little inside the window.
+    f32 x = floorf((button.x0 + button.x1 - width) * 0.5f);
+    f32 y = button.y1 + margin;
+    if (y + height > view.y1) y = button.y0 - height - margin;
+    x = floorf(MaxF32(view.x0 + margin, MinF32(x, view.x1 - margin - width)));
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, floorf(y) - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+    UI_SetNextCornerRadius(floorf(8.0f * s + 0.5f));
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *tip = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+    UI_Parent(tip) {
+        f32 row = detail.length ? height * 0.5f : height;
+        if (detail.length) Prog__Label(detail, UI_TextContent(), row, 0, theme->text, 0.5f);
+        UI_SetNextPrefWidth(UI_Fill());
+        UI_SetNextPrefHeight(UI_Pixels(row));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_Block *command = UI_AddBlock(0);
+        UI_Parent(command) {
+            Prog__Label(lead, UI_TextContent(), row, 0, theme->text, 0);
+            Prog__Spacer(UI_Pixels(gap), UI_Pixels(row));
+            Prog__Label(label, UI_TextContent(), row, 0, theme->textDim, 0);
+            for (u32 i = 0; i < hotkeyCount; ++i) {
+                Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(row));
+                Prog__Chip(hotkeys[i], row, false, m);
+            }
+        }
+    }
+}
+
 // The command palette under the toolbar, as the reference draws it: the text typed in a field at the top, the commands it finds in two-line rows with what
 // each does and its hotkeys, and the keys that work it at the bottom.
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
@@ -2731,6 +2812,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->hasHoverRow = false;
+    state->tooltipKey = 0;
     state->bookmarkDropShown = 0;
     state->pointerPanel = 0;
     Prog__EnsureTab(state);
@@ -2768,5 +2850,6 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__Transfers(state, m);
     Prog__ContextMenu(state, m);
     Prog__Palette(state, m);
+    Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);
 }
