@@ -1214,6 +1214,8 @@ function void TestPanels(TestFileFixture *fixture)
     Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Right, .panel = alone, .fromPanel = alone, .fromSlot = 1 });
     Check(TestWaitDirectory(&state) && state.panelCount == 2 && state.activePanel == 1 && TestEndsWith(state.directory.path, S("/Empty")));
     Check(state.panels[0].tabCount == 1);
+    // The moved tab keeps its history, so Back still leads where it came from.
+    Check(state.history.header.count == 2 && state.historyAt == 1 && StrIsEqual(state.history.v[0], fixture->path));
     u64 right = state.panels[1].id;
     Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Into, .panel = right, .fromPanel = alone, .fromSlot = 0, .copy = true });
     Check(TestWaitDirectory(&state) && state.panelCount == 2 && state.activePanel == 1 && state.tabCount == 2 && state.panels[0].tabCount == 1);

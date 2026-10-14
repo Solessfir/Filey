@@ -836,8 +836,8 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
     state->activePanel = state->currentPanel;
 }
 
-// Moves, or with `copy` copies, a tab to where it was dropped; the tab takes its folder there, and the place it lands becomes active.
-// ponytail: the moved tab starts over in its folder, without its history or selection; carry the Prog_Tab across when that matters.
+// Moves, or with `copy` copies, a tab to where it was dropped; the tab takes its folder and history there, and the place it lands becomes active.
+// ponytail: the selection and scroll start over; carry the whole Prog_Tab across when that matters.
 function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
 {
     u32 from = Prog_PanelIndex(state, drop.fromPanel), into = Prog_PanelIndex(state, drop.panel);
@@ -846,6 +846,17 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
     if (drop.fromSlot >= state->tabCount) return;
     String path = StrCopy(&state->frameArena, Prog_TabPath(state, drop.fromSlot));
     if (!path.length) return;
+    b32 shown = drop.fromSlot == state->activeTab;
+    ArrayStr history = shown ? state->history : state->tabs[drop.fromSlot].history;
+    u64 historyAt = shown ? state->historyAt : state->tabs[drop.fromSlot].historyAt;
+    String *saved = ArenaPushArray(&state->frameArena, history.header.count + 1, String);
+    for (u64 i = 0; i < history.header.count; ++i) saved[i] = StrCopy(&state->frameArena, history.v[i]);
+    // A tab that has not listed its folder yet has no history of it.
+    if (historyAt >= history.header.count || !StrIsEqual(saved[historyAt], path)) {
+        saved[0] = path;
+        history.header.count = 1;
+        historyAt = 0;
+    }
     b32 alone = state->tabCount == 1;
     switch (drop.kind) {
         case Prog_TabDrop_Strip:
@@ -857,7 +868,14 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
                 return;
             }
             Prog__ActivatePanel(state, into);
-            Prog_OpenTab(state, path, drop.kind == Prog_TabDrop_Into ? state->tabCount : drop.slot, true);
+            u32 at = Min(drop.kind == Prog_TabDrop_Into ? state->tabCount : drop.slot, state->tabCount);
+            u32 count = state->tabCount;
+            Prog_OpenTab(state, path, at, false);
+            if (state->tabCount == count) return;
+            Prog_Tab *tab = &state->tabs[at];
+            Prog__SetList(&tab->historyArena, &tab->history, saved, history.header.count);
+            tab->historyAt = historyAt;
+            Prog_SelectTab(state, at);
         } break;
         case Prog_TabDrop_Left:
         case Prog_TabDrop_Right:
@@ -868,6 +886,9 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
             b32 across = drop.kind == Prog_TabDrop_Left || drop.kind == Prog_TabDrop_Right;
             b32 before = drop.kind == Prog_TabDrop_Left || drop.kind == Prog_TabDrop_Top;
             if (Prog_SplitPanel(state, into, across ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, before, path) == UINT32_MAX) return;
+            // The listing on its way finds `path` already in the history, where it adds nothing.
+            Prog__SetList(&state->historyArena, &state->history, saved, history.header.count);
+            state->historyAt = historyAt;
         } break;
         case Prog_TabDrop_Window: {
             P_FileError error = P_OpenWindow(&state->frameArena, path);
