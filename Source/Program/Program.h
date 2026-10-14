@@ -249,6 +249,7 @@ typedef struct Prog_Tab {
 //   watch, watchDirty, watchReloadTime: the shown folder's watch, which reloads it at most every Prog_WatchInterval
 //   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
 //   renameCreatedUntil: until then, rename the one item a listing of this folder adds
+//   panelRect: the panel's last layout, for moving between panels with the keyboard
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -256,7 +257,7 @@ typedef struct Prog_Tab {
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
-    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil)
+    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
@@ -462,6 +463,7 @@ function void Prog__ReleaseTab(Prog_Tab *tab);
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
 function void Prog_ClosePanel(Prog_State *state, u32 index);
 function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop);
+function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy);
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);

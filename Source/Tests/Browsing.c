@@ -1196,6 +1196,14 @@ function void TestPanels(TestFileFixture *fixture)
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
+    // The keyboard moves to the panel beside the active one in the last layout.
+    state.panelRect = (R_Rect){ 0, 0, 500, 800 };
+    state.panels[1].panelRect = (R_Rect){ 501, 0, 1000, 800 };
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelRight, 0);
+    Check(state.activePanel == 1 && TestEndsWith(state.directory.path, S("/Empty")));
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelUp, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelLeft, 0);
+    Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path));
     TestBrowsingCommand(&state, Prog_CommandKind_SplitBottom, 0);
     Check(state.panelCount == 3 && state.activePanel == 2 && state.splits[0].kind == Prog_SplitKind_Horizontal);
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);

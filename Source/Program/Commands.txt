@@ -498,6 +498,34 @@ command SplitBottom {
     repeat  = "false"
 }
 
+command PanelLeft {
+    label   = "Focus Left Panel^split,pane,switch"
+    tooltip = "Move the keyboard to the panel on the left."
+    hotkey  = "Ctrl+Alt+Left"
+    repeat  = "false"
+}
+
+command PanelRight {
+    label   = "Focus Right Panel^split,pane,switch"
+    tooltip = "Move the keyboard to the panel on the right."
+    hotkey  = "Ctrl+Alt+Right"
+    repeat  = "false"
+}
+
+command PanelUp {
+    label   = "Focus Upper Panel^split,pane,switch,above"
+    tooltip = "Move the keyboard to the panel above."
+    hotkey  = "Ctrl+Alt+Up"
+    repeat  = "false"
+}
+
+command PanelDown {
+    label   = "Focus Lower Panel^split,pane,switch,below"
+    tooltip = "Move the keyboard to the panel below."
+    hotkey  = "Ctrl+Alt+Down"
+    repeat  = "false"
+}
+
 // A dragged tab let go; Prog_State.tabDropped says where.
 command TabDrop {
 }

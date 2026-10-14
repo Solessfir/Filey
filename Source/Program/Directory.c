@@ -911,6 +911,28 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
     if (back != UINT32_MAX) Prog__ActivatePanel(state, back);
 }
 
+// Activates the panel beside the active one toward (`dx`, `dy`) in the last layout: the nearest one past that edge that overlaps it across, the most overlapping among equally near ones.
+function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy)
+{
+    Prog__ActivatePanel(state, state->activePanel);
+    R_Rect from = state->panelRect;
+    u32 best = UINT32_MAX;
+    f32 bestGap = 0, bestOverlap = 0;
+    for (u32 i = 0; i < state->panelCount; ++i) {
+        if (i == state->currentPanel) continue;
+        R_Rect r = state->panels[i].panelRect;
+        f32 gap = dx > 0 ? r.x0 - from.x1 : dx < 0 ? from.x0 - r.x1 : dy > 0 ? r.y0 - from.y1 : from.y0 - r.y1;
+        f32 overlap = dx ? MinF32(r.y1, from.y1) - MaxF32(r.y0, from.y0) : MinF32(r.x1, from.x1) - MaxF32(r.x0, from.x0);
+        if (gap < -1 || overlap <= 0) continue;
+        if (best == UINT32_MAX || gap < bestGap - 1 || (gap <= bestGap + 1 && overlap > bestOverlap)) {
+            best = i;
+            bestGap = gap;
+            bestOverlap = overlap;
+        }
+    }
+    if (best != UINT32_MAX) Prog__ActivatePanel(state, best);
+}
+
 function b32 Prog__AnyMeasuring(const Prog_State *state)
 {
     b32 result = state->measureJob != NULL;

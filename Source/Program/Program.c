@@ -1815,6 +1815,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     Prog__UsePanel(state, index);
     // Keys of blocks without a parent start from the panel's, so that panels showing the same folder keep apart.
     UI->keySeed = Prog_PanelKeySeed(state->panels[index].id);
+    state->panelRect = rect;
     if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[index].id;
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel;
