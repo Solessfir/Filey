@@ -112,6 +112,26 @@ typedef struct TestJobResult {
     b32 timedOut;
 } TestJobResult;
 
+// Each lane adds its number plus one and uses its own scratch, which lanes on threads of their own give back as they end.
+function void TestLane(void *user, u32 lane)
+{
+    Scratch scratch = GetScratch();
+    StrFormat(scratch.arena, "lane %u", lane);
+    ReleaseScratch(scratch);
+    atomic_fetch_add((atomic_uint_fast64_t *)user, (u64)lane + 1);
+}
+
+function void TestLanes(void)
+{
+    atomic_uint_fast64_t sum = 0;
+    P_RunLanes(4, TestLane, &sum);
+    Check(atomic_load(&sum) == 10);
+    // More than there can be run as many as there can.
+    atomic_store(&sum, 0);
+    P_RunLanes(P_MaxLanes + 4, TestLane, &sum);
+    Check(atomic_load(&sum) == (u64)P_MaxLanes * (P_MaxLanes + 1) / 2);
+}
+
 function void TestJobCallback(P_Job *job)
 {
     TestJobInput *input = job->input;

@@ -161,3 +161,42 @@ function void P_JobRelease(P_Job *job)
     job->state = P_JobState_Free;
     StackPush(job->queue->freeFirst, job);
 }
+
+typedef struct P__Lane {
+    P_LaneCallback *callback;
+    void *user;
+    u32 index;
+} P__Lane;
+
+function void P__LaneMain(void *parameter)
+{
+    P__Lane *lane = parameter;
+    lane->callback(lane->user, lane->index);
+    ReleaseThreadScratch();
+}
+
+function void P_RunLanes(u32 count, P_LaneCallback *callback, void *user)
+{
+    count = Max(1u, Min(count, (u32)P_MaxLanes));
+    P__Lane lanes[P_MaxLanes];
+    P_Thread threads[P_MaxLanes];
+    b32 started[P_MaxLanes] = {0};
+    for (u32 i = 0; i < count; ++i) lanes[i] = (P__Lane){ callback, user, i };
+    for (u32 i = 1; i < count; ++i) started[i] = P__ThreadStartLane(&threads[i], &lanes[i]);
+    callback(user, 0);
+    // A lane whose thread would not start runs here instead, once the others have the work.
+    for (u32 i = 1; i < count; ++i) {
+        if (started[i]) P__ThreadJoin(&threads[i]);
+        else callback(user, i);
+    }
+}
+
+function u32 P_ProcessorCount(void) { return P__ProcessorCount(); }
+function b32 P_MutexInit(P_Mutex *mutex) { return P__MutexInit(mutex); }
+function void P_MutexRelease(P_Mutex *mutex) { P__MutexRelease(mutex); }
+function void P_MutexLock(P_Mutex *mutex) { P__MutexLock(mutex); }
+function void P_MutexUnlock(P_Mutex *mutex) { P__MutexUnlock(mutex); }
+function b32 P_ConditionInit(P_Condition *condition) { return P__ConditionInit(condition); }
+function void P_ConditionRelease(P_Condition *condition) { P__ConditionRelease(condition); }
+function void P_ConditionWait(P_Condition *condition, P_Mutex *mutex) { P__ConditionWait(condition, mutex); }
+function void P_ConditionBroadcast(P_Condition *condition) { P__ConditionBroadcast(condition); }

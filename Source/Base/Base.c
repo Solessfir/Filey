@@ -212,6 +212,11 @@ function void ReleaseScratch(Scratch scratch)
     ArenaRestore(scratch);
 }
 
+function void ReleaseThreadScratch(void)
+{
+    for (u32 i = 0; i < CArrayCount(ScratchArenas); ++i) ArenaRelease(&ScratchArenas[i]);
+}
+
 // -----------------------------------------------------------------------------
 // Pools
 // -----------------------------------------------------------------------------

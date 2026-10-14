@@ -843,12 +843,15 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         }
                     }
                 }
-                const Prog_Icon *icon = path.length ? Prog_FolderIcon(state, path) : NULL;
+                // A spinner stands in for the folder while the shown tab's listing is on its way.
+                const Prog_Icon *spinner = shown && state->directoryJob ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+                if (spinner) UI_KeepAnimating();
+                const Prog_Icon *icon = spinner ? spinner : path.length ? Prog_FolderIcon(state, path) : NULL;
                 if (icon) {
                     UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + floorf(4.8f * scale + 0.5f)));
                     UI_SetNextPrefHeight(UI_Pixels(height));
                     UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, 1 });
                     UI_AddBlock(UI_Flag_DrawImage);
                 } else {
                     Prog__Icon(Icon_Folder, (f32)state->iconSize + floorf(4.8f * scale + 0.5f), height, theme->icon, 0, m);
@@ -1306,7 +1309,7 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     } else if (entry->file.metadataValid) {
         size = Prog_FormatSize(frame, entry->file.size);
     }
-    String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, entry->modified, folders, files, size };
+    String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, Prog_EntryModified(frame, entry), folders, files, size };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = result[i];
 }
 
@@ -1720,6 +1723,8 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     }
 }
 
+function String Prog__FormatCount(Arena *arena, u64 count);
+
 function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1783,14 +1788,23 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
         Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
 
         String status = state->error;
-        if (!status.length && state->loading) {
-            status = StrFormat(&state->frameArena, "Loading %S...", ((Prog_JobInput *)state->directoryJob->input)->path);
+        // While a listing walks, what it has found so far, as the reference counts up through a big tree.
+        Prog_JobInput *walking = state->directoryJob ? state->directoryJob->input : NULL;
+        u64 found = walking ? atomic_load(&walking->foundFolders) + atomic_load(&walking->foundFiles) : 0;
+        if (!status.length && state->loading && !found) {
+            status = StrFormat(&state->frameArena, "Loading %S...", walking->path);
         }
         if (!status.length) {
             // Shown out of everything the folder holds; one number when nothing is left out.
             const Prog_Directory *directory = &state->directory;
             u64 shown[2] = { state->viewFolders, state->viewCount - state->viewFolders };
             u64 total[2] = { directory->totalFolders, directory->totalFiles };
+            if (found) {
+                shown[0] = atomic_load(&walking->shownFolders);
+                shown[1] = atomic_load(&walking->shownFiles);
+                total[0] = atomic_load(&walking->foundFolders);
+                total[1] = atomic_load(&walking->foundFiles);
+            }
             b32 hidden[2] = { state->hideFolders, state->hideFiles };
             String icons[2] = { Icon_Folder, Icon_File };
             String keys[2] = { S("ToggleFolders"), S("ToggleFiles") };
@@ -1802,9 +1816,17 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             counts->props.colors.border = theme->tabBorder;
             counts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
             UI_Parent(counts) {
+                // How long the listing has taken, once that is a second or more: counting while it walks, then kept.
+                u64 now = UI->nowMicroseconds, took = walking ? now - Min(state->listStarted, now) : state->listTook;
+                if (took >= 1000000) {
+                    Prog__Icon(Icon_Clock, 0, m->pill, theme->icon, 0.5f, m);
+                    Prog__LabelPadded(StrFormat(&state->frameArena, "%.2f sec", (f64)took / 1e6), UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), theme->text, 0);
+                }
+                if (walking) UI_KeepAnimating();
                 for (u32 i = 0; i < 2; ++i) {
-                    String text = shown[i] == total[i] ? StrFormat(&state->frameArena, "%" PRIu64, total[i])
-                                                       : StrFormat(&state->frameArena, "%" PRIu64 "/%" PRIu64, shown[i], total[i]);
+                    // Both while a walk counts, so that the text does not jump between one number and two as they meet and part.
+                    String text = shown[i] == total[i] && !found ? Prog__FormatCount(&state->frameArena, total[i])
+                                                       : StrFormat(&state->frameArena, "%S/%S", Prog__FormatCount(&state->frameArena, shown[i]), Prog__FormatCount(&state->frameArena, total[i]));
                     // Each count toggles whether its kind is listed.
                     UI_SetNextPrefWidth(UI_Fill());
                     UI_SetNextPrefHeight(UI_Pixels(m->pill));
@@ -2377,7 +2399,8 @@ function String Prog__FormatCount(Arena *arena, u64 count)
     if (count < 1000) return StrFormat(arena, "%" PRIu64, count);
     u64 unit = count < 1000000 ? 1000 : 1000000, tenths = count * 10 / unit;
     String suffix = unit == 1000 ? S("K") : S("M");
-    return tenths < 1000 ? StrFormat(arena, "%" PRIu64 ".%" PRIu64 "%S", tenths / 10, tenths % 10, suffix) : StrFormat(arena, "%" PRIu64 "%S", tenths / 10, suffix);
+    // A whole number goes without its ".0", as "1M".
+    return tenths < 1000 && tenths % 10 ? StrFormat(arena, "%" PRIu64 ".%" PRIu64 "%S", tenths / 10, tenths % 10, suffix) : StrFormat(arena, "%" PRIu64 "%S", tenths / 10, suffix);
 }
 
 // The tip of a sidebar folder, beside its row: its name over its path, when it was made, what it holds once that is counted, and the click that opens it in a tab.
@@ -3371,7 +3394,7 @@ function void Prog__PreviewPane(Prog_State *state, f32 width, const Prog_Metrics
                 ? (entry->measured ? StrFormat(&state->frameArena, "%S, %" PRIu64 " folders, %" PRIu64 " files, %S", entry->type, entry->folders, entry->files, Prog_FormatSize(&state->frameArena, entry->bytes)) : entry->type)
                 : StrFormat(&state->frameArena, "%S, %S", entry->type, Prog_FormatSize(&state->frameArena, entry->file.size));
             Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
-            Prog__Label(entry->modified, UI_Flex(), m->row, 0, theme->textDim, 0);
+            Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
             // The start of a text file, one line per row, as many as fit; tabs show as spaces.
             if (state->previewText.length && !state->previewPicture) {
                 Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));

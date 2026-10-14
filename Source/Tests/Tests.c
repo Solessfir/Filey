@@ -152,6 +152,12 @@ function void TestScratch(void)
 
     Check(StrIsEqual(kept, S("kept")));
     ReleaseScratch(outer);
+
+    // A thread's scratch arenas can be given back and come again on the next use.
+    ReleaseThreadScratch();
+    Scratch again = GetScratch();
+    Check(StrIsEqual(StrCopy(again.arena, S("again")), S("again")));
+    ReleaseScratch(again);
 }
 
 typedef struct Node Node;
@@ -514,6 +520,7 @@ int main(void)
     TestHotkeyDispatch();
     TestProgramVirtualRows();
     TestJobs();
+    TestLanes();
     TestBrowsing();
     TestProfiler();
     TestContextMenuModel();

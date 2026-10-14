@@ -60,6 +60,19 @@ function DWORD WINAPI Win__JobWorker(void *user)
     return 0;
 }
 
+function DWORD WINAPI Win__LaneThread(void *lane)
+{
+    P__LaneMain(lane);
+    return 0;
+}
+
+function b32 P__ThreadStartLane(P_Thread *thread, void *lane)
+{
+    HANDLE handle = CreateThread(NULL, 0, Win__LaneThread, lane, 0, NULL);
+    MemCopy(thread->storage, &handle, sizeof(handle));
+    return handle != NULL;
+}
+
 function b32 P__ThreadStart(P_Thread *thread, P_JobQueue *queue)
 {
     HANDLE handle = CreateThread(NULL, 0, Win__JobWorker, queue, 0, NULL);

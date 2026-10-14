@@ -8,6 +8,7 @@
 
 ## Recursive listing (Ctrl+E)
 
+- Show rows as the walk finds them, as the reference does, instead of all at once at the end; its first count is the rows listed so far.
 - The reference marks it with "[..]" after the folder's name in the tab and the breadcrumbs.
 - It shows an item inside a subfolder as "file001.txt › Docs", not "Docs/file001.txt", and lists the folder's own items before those of its subfolders.
 - With nothing left after filtering it shows an empty list, without "No items match the filter".

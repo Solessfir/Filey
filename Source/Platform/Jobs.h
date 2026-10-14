@@ -82,6 +82,21 @@ function void P_WakeWindow(void);
 // Release the wakeup resource after all workers have joined.
 function void P_ReleaseWindowWake(void);
 
+// Runs `callback(user, lane)` for lanes 0 to `count` - 1 at once, lane 0 on the calling thread and every other on a thread of its own, and
+// returns once all of them have. For a job with work to split, such as walking a tree; what the lanes share in `user` needs the mutex.
+typedef void P_LaneCallback(void *user, u32 lane);
+#define P_MaxLanes 16
+function void P_RunLanes(u32 count, P_LaneCallback *callback, void *user);
+function u32 P_ProcessorCount(void);
+function b32 P_MutexInit(P_Mutex *mutex);
+function void P_MutexRelease(P_Mutex *mutex);
+function void P_MutexLock(P_Mutex *mutex);
+function void P_MutexUnlock(P_Mutex *mutex);
+function b32 P_ConditionInit(P_Condition *condition);
+function void P_ConditionRelease(P_Condition *condition);
+function void P_ConditionWait(P_Condition *condition, P_Mutex *mutex);
+function void P_ConditionBroadcast(P_Condition *condition);
+
 function b32 P__MutexInit(P_Mutex *mutex);
 function void P__MutexRelease(P_Mutex *mutex);
 function void P__MutexLock(P_Mutex *mutex);
@@ -95,3 +110,6 @@ function b32 P__ThreadStart(P_Thread *thread, P_JobQueue *queue);
 function void P__ThreadJoin(P_Thread *thread);
 function u32 P__ProcessorCount(void);
 function void P__JobsRunWorker(P_JobQueue *queue);
+// Starts `thread` on P__LaneMain(lane).
+function b32 P__ThreadStartLane(P_Thread *thread, void *lane);
+function void P__LaneMain(void *lane);

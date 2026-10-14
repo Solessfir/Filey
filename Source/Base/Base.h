@@ -207,6 +207,8 @@ function void *ArenaBootstrapStructRaw(u64 structSize, u64 structAlignment, u64 
 // Pass the arena that results must survive in as `conflict` so the scratch scope never rolls back caller-owned allocations.
 function Scratch GetScratchEx(Arena *conflict);
 function void    ReleaseScratch(Scratch scratch);
+// Gives back the calling thread's scratch arenas, for a thread that is about to end.
+function void    ReleaseThreadScratch(void);
 
 #define GetScratch() GetScratchEx(NULL)
 

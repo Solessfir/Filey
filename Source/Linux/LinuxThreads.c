@@ -58,6 +58,20 @@ function void *Linux__JobWorker(void *user)
     return NULL;
 }
 
+function void *Linux__LaneThread(void *lane)
+{
+    P__LaneMain(lane);
+    return NULL;
+}
+
+function b32 P__ThreadStartLane(P_Thread *thread, void *lane)
+{
+    pthread_t handle;
+    if (pthread_create(&handle, NULL, Linux__LaneThread, lane) != 0) return false;
+    MemCopy(thread->storage, &handle, sizeof(handle));
+    return true;
+}
+
 function b32 P__ThreadStart(P_Thread *thread, P_JobQueue *queue)
 {
     pthread_t handle;

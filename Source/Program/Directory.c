@@ -6,6 +6,11 @@ function String Prog_JoinPath(Arena *arena, String path, String name)
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
+function String Prog_EntryModified(Arena *arena, const Prog_Entry *entry)
+{
+    return entry->file.metadataValid ? P_FormatFileTime(arena, entry->file.modifiedTimeUnix) : (String){0};
+}
+
 function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
 {
     // The names from the entry up to its root, then joined from the root down.
@@ -224,7 +229,7 @@ function i32 Prog_CompareNames(String a, String b)
 
 #define Prog__Order(a, b) ((a) == (b) ? 0 : (a) < (b) ? -1 : 1)
 
-// Folders first, then by `sort`, then by name.
+// Folders first, then by `sort`, then by name: in an expanded listing by the item's own name and then its place, as the reference sorts it.
 // Folders sort by their totals once measured, and by zero until then.
 function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending)
 {
@@ -243,30 +248,68 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
         case Prog_Sort_Files: result = Prog__Order(a->files, b->files); break;
         default: InvalidPath;
     }
+    if (!result) result = Prog_CompareNames(Prog_EntryLeaf(a->file.name), Prog_EntryLeaf(b->file.name));
     if (!result) result = Prog_CompareNames(a->file.name, b->file.name);
     return descending ? -result : result;
 }
 
-// Stable bottom-up merge sort that alternates between `entries` and `buffer`.
-// Returns the one that ends up sorted, or NULL when cancelled.
-function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, u64 count, Prog_Sort sort, b32 descending, const P_CancelToken *cancel)
+// The threads a walk through a tree or the sort of a big listing uses at most.
+#define Prog_WalkLanes 8
+
+// One stable bottom-up merge sort of `order` from `start` to `end`, runs of `width` already sorted, using `spare` beside it; the result ends in `order`.
+// Returns false when cancelled.
+function b32 Prog__SortRun(const Prog_Entry *entries, u32 *order, u32 *spare, u64 start, u64 end, u64 width, Prog_Sort sort, b32 descending, const P_CancelToken *cancel)
 {
-    for (u64 width = 1; width < count; width *= 2) {
-        for (u64 start = 0; start < count; start += width * 2) {
-            u64 middle = Min(start + width, count);
-            u64 end = Min(start + width * 2, count);
-            u64 left = start, right = middle;
-            for (u64 out = start; out < end; ++out) {
-                if (cancel && (out & 255) == 0 && P_IsCancelled(cancel)) return NULL;
-                b32 takeLeft = right == end || (left < middle && Prog__CompareEntries(&entries[left], &entries[right], sort, descending) <= 0);
-                buffer[out] = entries[takeLeft ? left++ : right++];
+    u32 *from = order, *to = spare;
+    for (; width < end - start; width *= 2) {
+        for (u64 run = start; run < end; run += width * 2) {
+            u64 middle = Min(run + width, end), stop = Min(run + width * 2, end);
+            u64 left = run, right = middle;
+            for (u64 out = run; out < stop; ++out) {
+                if (cancel && (out & 1023) == 0 && P_IsCancelled(cancel)) return false;
+                b32 takeLeft = right == stop || (left < middle && Prog__CompareEntries(&entries[from[left]], &entries[from[right]], sort, descending) <= 0);
+                to[out] = from[takeLeft ? left++ : right++];
             }
         }
-        Prog_Entry *swap = entries;
-        entries = buffer;
-        buffer = swap;
+        u32 *swap = from;
+        from = to;
+        to = swap;
     }
-    return entries;
+    if (from != order) MemCopy(order + start, from + start, (end - start) * sizeof(u32));
+    return true;
+}
+
+typedef struct Prog__Sort {
+    const Prog_Entry *entries;
+    u32 *order, *spare;
+    u64 count, slice;
+    Prog_Sort sort;
+    b32 descending;
+    const P_CancelToken *cancel;
+} Prog__Sort;
+
+function void Prog__SortLane(void *user, u32 lane)
+{
+    Prog__Sort *job = user;
+    u64 start = Min((u64)lane * job->slice, job->count), end = Min(start + job->slice, job->count);
+    if (start < end) Prog__SortRun(job->entries, job->order, job->spare, start, end, 1, job->sort, job->descending, job->cancel);
+}
+
+// Stable merge sort into `buffer`, which it returns, or NULL when cancelled.
+// It sorts the entries' places rather than the entries, so that each entry moves once; a big listing is sorted in slices on several
+// threads at once, which are then merged.
+function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, u64 count, Prog_Sort sort, b32 descending, const P_CancelToken *cancel)
+{
+    Scratch scratch = GetScratch();
+    u32 *order = ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), u32), *spare = ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), u32);
+    for (u64 i = 0; i < count; ++i) order[i] = (u32)i;
+    u32 lanes = count >= 65536 ? Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)) : 1;
+    Prog__Sort job = { entries, order, spare, count, (count + lanes - 1) / lanes, sort, descending, cancel };
+    if (lanes > 1) P_RunLanes(lanes, Prog__SortLane, &job);
+    b32 done = !(cancel && P_IsCancelled(cancel)) && Prog__SortRun(entries, order, spare, 0, count, lanes > 1 ? job.slice : 1, sort, descending, cancel);
+    if (done) for (u64 i = 0; i < count; ++i) buffer[i] = entries[order[i]];
+    ReleaseScratch(scratch);
+    return done ? buffer : NULL;
 }
 
 // Sorts on folder totals are redone as the totals arrive.
@@ -317,6 +360,72 @@ function b32 Prog__LooksLikeText(String start)
         ++runes;
     }
     return invalid * 50 <= runes;
+}
+
+// A walk through a whole tree: the folders still to list, by their path below the listed one, and what each lane has found.
+typedef struct Prog__Walk {
+    Prog_JobInput *input;
+    const P_CancelToken *cancel;
+    P_Mutex mutex;
+    P_Condition condition;
+    Arena arena;  // `pending`, which only grows; the names in it live in the lanes' arenas
+    ArrayStr pending;
+    u32 busy;     // lanes listing a folder, which can still add to `pending`
+    struct { Arena arena; P_FileArray found; } lanes[Prog_WalkLanes];
+} Prog__Walk;
+
+function void Prog__CountFound(Prog_JobInput *input, const P_File *files, u64 count);
+
+function void Prog__WalkLane(void *user, u32 index)
+{
+    Prog__Walk *walk = user;
+    Arena *arena = &walk->lanes[index].arena;
+    for (;;) {
+        P_MutexLock(&walk->mutex);
+        // Waits while the stack is empty but a lane that is listing may still fill it.
+        while (!walk->pending.header.count && walk->busy && !P_IsCancelled(walk->cancel)) P_ConditionWait(&walk->condition, &walk->mutex);
+        if (!walk->pending.header.count || P_IsCancelled(walk->cancel)) {
+            P_ConditionBroadcast(&walk->condition);
+            P_MutexUnlock(&walk->mutex);
+            break;
+        }
+        String folder = walk->pending.v[--walk->pending.header.count];
+        ++walk->busy;
+        P_MutexUnlock(&walk->mutex);
+        P_DirectoryResult inside = {0};
+        Scratch scratch = GetScratchEx(arena);
+        ProfileScope("WalkList") inside = P_EnumerateDirectory(scratch.arena, Prog_JoinPath(scratch.arena, walk->input->path, folder), walk->cancel);
+        ArrayStr below = {0};
+        for (u64 i = 0; i < inside.files.header.count; ++i) {
+            P_File file = inside.files.v[i];
+            file.name = StrFormat(arena, "%S/%S", folder, file.name);
+            ArrayPush(arena, walk->lanes[index].found, file);
+            if (file.kind == P_FileKind_Directory && !file.symbolicLink && (!file.hidden || walk->input->showHidden)) ArrayPush(scratch.arena, below, file.name);
+        }
+        Prog__CountFound(walk->input, inside.files.v, inside.files.header.count);
+        P_MutexLock(&walk->mutex);
+        for (u64 i = 0; i < below.header.count; ++i) ArrayPush(&walk->arena, walk->pending, below.v[i]);
+        --walk->busy;
+        P_ConditionBroadcast(&walk->condition);
+        P_MutexUnlock(&walk->mutex);
+        ReleaseScratch(scratch);
+    }
+}
+
+// Adds `count` more found items to what the listing shows while it works.
+function void Prog__CountFound(Prog_JobInput *input, const P_File *files, u64 count)
+{
+    u64 folders = 0, shownFolders = 0, shownFiles = 0;
+    for (u64 i = 0; i < count; ++i) {
+        b32 folder = files[i].kind == P_FileKind_Directory, shown = !files[i].hidden || input->showHidden;
+        folders += folder ? 1 : 0;
+        shownFolders += folder && shown ? 1 : 0;
+        shownFiles += !folder && shown ? 1 : 0;
+    }
+    atomic_fetch_add(&input->foundFolders, folders);
+    atomic_fetch_add(&input->foundFiles, count - folders);
+    atomic_fetch_add(&input->shownFolders, shownFolders);
+    atomic_fetch_add(&input->shownFiles, shownFiles);
 }
 
 function void Prog__DirectoryJob(P_Job *job)
@@ -552,31 +661,59 @@ function void Prog__DirectoryJob(P_Job *job)
     result->cancelled = listing.cancelled;
     if (result->error.code || result->cancelled) return;
     P_FileArray files = listing.files;
-    if (input->expanded) {
-        // Walks every subfolder breadth first; links are not followed and unreadable folders are skipped.
-        // ponytail: hands back one result at the end; stream chunks like the measure job if big trees feel slow.
-        ProfileScope("ExpandDirectory") {
-            P_FileArray all = {0};
-            for (u64 i = 0; i < files.header.count; ++i) ArrayPush(&job->arena, all, files.v[i]);
-            for (u64 i = 0; i < all.header.count; ++i) {
-                if (P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
-                P_File folder = all.v[i];
-                if (folder.kind != P_FileKind_Directory || folder.symbolicLink || (folder.hidden && !input->showHidden)) continue;
-                P_DirectoryResult inside = P_EnumerateDirectory(&job->arena, Prog_JoinPath(&job->arena, input->path, folder.name), &job->cancelToken);
-                for (u64 j = 0; j < inside.files.header.count; ++j) {
-                    P_File file = inside.files.v[j];
-                    file.name = StrFormat(&job->arena, "%S/%S", folder.name, file.name);
-                    ArrayPush(&job->arena, all, file);
-                }
-            }
-            files = all;
+    Prog__CountFound(input, files.v, files.header.count);
+    if (input->expanded) ProfileScope("ExpandDirectory") {
+        // Lanes on threads of their own list folders from one shared stack, keeping what they find apart; links are not followed and
+        // unreadable folders are skipped.
+        Prog__Walk walk = { .input = input, .cancel = &job->cancelToken };
+        if (!P_MutexInit(&walk.mutex)) {
+            result->cancelled = true;
+            return;
         }
+        if (!P_ConditionInit(&walk.condition)) {
+            P_MutexRelease(&walk.mutex);
+            result->cancelled = true;
+            return;
+        }
+        for (u64 i = 0; i < files.header.count; ++i) {
+            const P_File *folder = &files.v[i];
+            if (folder->kind == P_FileKind_Directory && !folder->symbolicLink && (!folder->hidden || input->showHidden)) ArrayPush(&walk.arena, walk.pending, folder->name);
+        }
+        u32 lanes = Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes));
+        P_RunLanes(lanes, Prog__WalkLane, &walk);
+        P_ConditionRelease(&walk.condition);
+        P_MutexRelease(&walk.mutex);
+        u64 total = files.header.count;
+        for (u32 i = 0; i < lanes; ++i) total += walk.lanes[i].found.header.count;
+        P_FileArray all = {0};
+        ArrayReserve(&job->arena, all, total);
+        for (u64 i = 0; i < files.header.count; ++i) ArrayPush(&job->arena, all, files.v[i]);
+        for (u32 i = 0; i < lanes; ++i) {
+            for (u64 j = 0; j < walk.lanes[i].found.header.count; ++j) {
+                P_File file = walk.lanes[i].found.v[j];
+                file.name = StrCopy(&job->arena, file.name);
+                ArrayPush(&job->arena, all, file);
+            }
+            ArenaRelease(&walk.lanes[i].arena);
+        }
+        ArenaRelease(&walk.arena);
+        if (P_IsCancelled(&job->cancelToken)) {
+            result->cancelled = true;
+            return;
+        }
+        files = all;
     }
     result->entries = ArenaPushArray(&job->arena, files.header.count, Prog_Entry);
     // Type names repeat per type, so each is asked of the system once per listing.
     struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
-    for (u64 i = 0; i < files.header.count; ++i) {
-        if (P_IsCancelled(&job->cancelToken)) { result->cancelled = true; return; }
+    // The keys are made in scratch, and only a type seen for the first time keeps a copy.
+    Scratch keys = GetScratchEx(&job->arena);
+    ProfileScope("ListEntries") for (u64 i = 0; i < files.header.count; ++i) {
+        if (P_IsCancelled(&job->cancelToken)) {
+            result->cancelled = true;
+            ReleaseScratch(keys);
+            return;
+        }
         P_File file = files.v[i];
         if (file.kind == P_FileKind_Directory) ++result->totalFolders;
         else ++result->totalFiles;
@@ -584,20 +721,20 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
         result->folderCount += file.kind == P_FileKind_Directory;
-        String typeKey = P_FileTypeKey(&job->arena, file.name, file.kind);
+        u64 mark = ArenaPos(keys.arena);
+        String typeKey = P_FileTypeKey(keys.arena, file.name, file.kind);
         String *type = MapsGetPtrNull(types, typeKey);
         if (type) {
             entry->type = *type;
         } else {
             entry->type = P_FileTypeName(&job->arena, file.name, file.kind);
-            MapsPut(&job->arena, types, typeKey, entry->type);
+            MapsPut(&job->arena, types, StrCopy(&job->arena, typeKey), entry->type);
         }
+        ArenaPopTo(keys.arena, mark);
         if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
-        if (file.metadataValid) {
-            entry->modified = P_FormatFileTime(&job->arena, file.modifiedTimeUnix);
-        }
     }
-    if (input->expanded) {
+    ReleaseScratch(keys);
+    if (input->expanded) ProfileScope("FolderTotals") {
         // The walk saw everything below each folder, so folder totals come from the listing instead of measure jobs.
         // Hidden items count only when they are shown.
         struct { MapHeader header; struct { String key; u64 value; } *v; } folders = {0};
@@ -623,7 +760,8 @@ function void Prog__DirectoryJob(P_Job *job)
         }
     }
     Prog_Entry *buffer = ArenaPushArray(&job->arena, result->count, Prog_Entry);
-    Prog_Entry *sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, &job->cancelToken);
+    Prog_Entry *sorted = NULL;
+    ProfileScope("SortEntries") sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, &job->cancelToken);
     if (sorted) result->entries = sorted;
     else result->cancelled = true;
 }
@@ -631,7 +769,8 @@ function void Prog__DirectoryJob(P_Job *job)
 // Measures the shown folder's subfolders that have no totals yet, one job at a time.
 function void Prog__MeasureFolders(Prog_State *state)
 {
-    if (state->measureJob) return;
+    // Not while a walk through the whole tree is on its way, which counts them itself.
+    if (state->measureJob || (state->directoryJob && ((Prog_JobInput *)state->directoryJob->input)->expanded)) return;
     u64 count = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
         const Prog_Entry *entry = &state->directory.entries[i];
@@ -692,6 +831,12 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->historyAt = historyAt;
     job->input = input;
     state->directoryJob = job;
+    state->listStarted = PlatformNowMicroseconds();
+    // A walk through the whole tree counts the folders itself, so counting them at the same time would only slow it down.
+    if (input->expanded && state->measureJob) {
+        P_RequestCancel(&state->measureJob->cancelToken);
+        state->measureJob = NULL;
+    }
     // Refreshing the shown folder keeps its rows usable until the new listing replaces them.
     state->loading = !StrIsEqual(path, state->directory.path);
     ArenaClear(&state->errorArena);
@@ -861,7 +1006,8 @@ function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry
         state->knownSet = (Prog_PathSet){0};
     }
     for (u64 i = 0; i <= count; ++i) {
-        if (i < count && entries[i].file.kind != P_FileKind_Directory) continue;
+        // Of an expanded listing only the folder's own, since the drive index has the rest and a big tree has hundreds of thousands.
+        if (i < count && (entries[i].file.kind != P_FileKind_Directory || StrIndexChar(entries[i].file.name, '/', SSF_None).exists)) continue;
         String folder = i < count ? Prog_JoinPath(&state->frameArena, path, entries[i].file.name) : path;
         if (MapsGetPtrNull(state->knownSet, folder)) continue;
         folder = StrCopy(&state->knownArena, folder);
@@ -1556,7 +1702,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_JobSubmit(job);
         }
     }
-    if (state->indexStarted && !state->indexDone && !state->indexJob) {
+    // The index waits while a panel walks a tree, which wants the disk to itself.
+    b32 walking = state->directoryJob && ((Prog_JobInput *)state->directoryJob->input)->expanded;
+    for (u32 i = 0; i < state->panelCount; ++i) {
+        if (i != state->currentPanel && state->panels[i].directoryJob) walking |= ((Prog_JobInput *)state->panels[i].directoryJob->input)->expanded;
+    }
+    if (state->indexStarted && !state->indexDone && !state->indexJob && !walking) {
         // The next folders to list, past the files among them.
         u32 batch[4096];
         u64 batchCount = 0, at = state->indexAt;
@@ -1798,6 +1949,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->generation == state->generation) {
             state->directoryJob = NULL;
             state->loading = false;
+            state->listTook = PlatformNowMicroseconds() - Min(state->listStarted, PlatformNowMicroseconds());
             changed = true;
             Prog_Directory *result = job->result;
             if (result && !result->cancelled && !P_IsCancelled(&job->cancelToken)) {
@@ -1826,9 +1978,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if (renameCreated) {
                         for (u64 i = 0; i < state->directory.count; ++i) MapsPut(&state->frameArena, known, state->directory.entries[i].file.name, true);
                     }
-                    // Refreshes keep the totals of folders that were not modified, so a busy folder is not walked again and again.
+                    // Refreshes keep the totals of folders that were not modified, so a busy folder is not walked again and again; an expanded
+                    // listing counted them itself.
                     struct { MapHeader header; struct { String key; Prog_Entry *value; } *v; } totals = {0};
-                    if (samePath) {
+                    if (samePath && !result->expanded) {
                         for (u64 i = 0; i < state->directory.count; ++i) {
                             Prog_Entry *old = &state->directory.entries[i];
                             if (old->measured) MapsPut(&state->frameArena, totals, old->file.name, old);
@@ -1843,14 +1996,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->selectedCount = 0;
                     for (u64 i = 0; i < result->count; ++i) {
                         Prog_Entry *entry = &result->entries[i];
-                        entry->selected = samePath && MapsGet(selected, b32, entry->file.name);
+                        // Each lookup hashes the name, which a big tree has millions of, so empty maps are not asked.
+                        entry->selected = selected.header.count && MapsGet(selected, b32, entry->file.name);
                         state->selectedCount += entry->selected != 0;
                         if (samePath && StrIsEqual(focus, entry->file.name)) { state->hasFocus = true; state->focusedRow = i; }
                         if (samePath && StrIsEqual(anchor, entry->file.name)) { state->hasAnchor = true; state->anchorRow = i; }
-                        if (renameCreated && !MapsGet(known, b32, entry->file.name) && ++created == 1) pickRow = i;
+                        if (renameCreated && !(known.header.count && MapsGet(known, b32, entry->file.name)) && ++created == 1) pickRow = i;
                         if (pick.length && StrIsEqual(pick, entry->file.name)) pickRow = i;
                         renameStillThere |= samePath && StrIsEqual(renameFrom, entry->file.name);
-                        Prog_Entry **old = samePath ? MapsGetPtrNull(totals, entry->file.name) : NULL;
+                        Prog_Entry **old = totals.header.count ? MapsGetPtrNull(totals, entry->file.name) : NULL;
                         if (old && (*old)->file.kind == entry->file.kind && (*old)->file.modifiedTimeUnix == entry->file.modifiedTimeUnix) {
                             entry->measured = true;
                             entry->folders = (*old)->folders;

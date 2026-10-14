@@ -70,7 +70,6 @@ typedef struct Prog_MenuCommand {
 typedef struct Prog_Entry {
     P_File file;
     String type;
-    String modified;
     b32 selected;
     b32 marqueeBase;  // selected when the current box selection began
     // Recursive totals of a folder, filled in by measure jobs.
@@ -208,6 +207,8 @@ typedef struct Prog_JobInput {
     u32 *entries;
     u64 room;
     b32 restart;
+    // Directory: what it has found so far, which the status bar shows while it walks a big tree; the totals count hidden items too.
+    atomic_uint_fast64_t foundFolders, foundFiles, shownFolders, shownFiles;
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
@@ -399,6 +400,7 @@ typedef struct Prog_Tab {
 //   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
 //   renameCreatedUntil: until then, rename the one item a listing of this folder adds
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
+//   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -406,7 +408,7 @@ typedef struct Prog_Tab {
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
-    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)
+    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
@@ -742,6 +744,8 @@ function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 #define Prog_IndexFileMagic S("Filey index 1\n")
 // The searched index's entry `entry` as a whole path, in `arena`.
 function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry);
+// When the entry was last changed as the list shows it, in `arena`; made only for the rows shown, since a big tree has millions.
+function String Prog_EntryModified(Arena *arena, const Prog_Entry *entry);
 function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder);
 function String Prog_SessionText(Arena *arena, Prog_State *state);
 function b32 Prog_RestoreSession(Prog_State *state, String text);
