@@ -84,7 +84,7 @@ function b32 Prog_FilterMatch(String name, String filter, u8 *marks)
 }
 
 // Rebuilds the view from the filter and the folder and file toggles, and drops hidden rows from the selection.
-// After an edit the focus moves to the first match, so that Enter opens it.
+// After an edit the focus moves to the first match, so that Enter opens it; a listing without a focused item puts it on the first one, as a cursor that selects nothing.
 function void Prog_ApplyFilter(Prog_State *state, b32 edited)
 {
     ArenaClear(&state->viewArena);
@@ -103,7 +103,7 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
         }
         state->selectedCount += entry->selected != 0;
     }
-    if (edited || (state->hasFocus && Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX)) {
+    if (edited || !state->hasFocus || Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX) {
         state->hasFocus = state->viewCount != 0;
         state->focusedRow = state->viewCount ? state->view[0] : 0;
         state->revealFocus = true;

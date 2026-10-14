@@ -1237,8 +1237,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         // Typing anywhere in the browser filters it.
         if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
             u32 version = state->filter.version;
+            // '/' outside the box only puts the keyboard in it, like Ctrl+F.
+            b32 opens = !state->filtering && event->codepoint == '/';
             state->filtering = true;
-            Prog__EditInsert(&state->filter, event->codepoint);
+            if (!opens) Prog__EditInsert(&state->filter, event->codepoint);
             if (state->filter.version != version) Prog_ApplyFilter(state, true);
             continue;
         }

@@ -457,7 +457,8 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(Prog_ProcessCommands(&state) && state.loading);
     Check(TestWaitDirectory(&state));
     Check(state.directory.count == 1 && StrIsEqual(state.directory.entries[0].file.name, S("inside.txt")));
-    Check(!state.hasFocus && !state.hasAnchor && !TestSelectionCount(&state));
+    // A new folder has its cursor on the first item, which selects nothing.
+    Check(state.hasFocus && state.focusedRow == 0 && !state.hasAnchor && !TestSelectionCount(&state));
     Check(state.history.header.count == 2 && state.historyAt == 1);
     TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
     Check(StrIsEqual(state.directory.path, fixture->path) && state.historyAt == 0);

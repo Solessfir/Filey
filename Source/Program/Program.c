@@ -1303,7 +1303,8 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
     u64 lines = (state->viewCount + perLine - 1) / perLine;
 
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / pitch.y);
-    if (state->revealFocus && state->hasFocus) {
+    // Before its first layout the list has no height to reveal anything in.
+    if (state->revealFocus && state->hasFocus && list->rect.y1 > list->rect.y0) {
         u64 position = Prog_ViewPosition(state, state->focusedRow);
         f32 top = (f32)((position == UINT64_MAX ? 0 : position) / perLine) * pitch.y;
         f32 height = Max(0.0f, list->rect.y1 - list->rect.y0);

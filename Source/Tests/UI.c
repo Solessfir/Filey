@@ -543,7 +543,7 @@ function void TestUICommandEventOrder(void)
         if (frameIndex) {
             Check(upperInteraction.pressed && upperInteraction.clicked && upperInteraction.pressOrder == 3 && upperInteraction.clickOrder == 4);
             Check(lowerInteraction.pressed && lowerInteraction.clicked && lowerInteraction.pressOrder == 1 && lowerInteraction.clickOrder == 2);
-            Check(!state.hasFocus && state.commandFirst->row == 1 && state.commandLast->row == 0);
+            Check(state.commandFirst->row == 1 && state.commandLast->row == 0);
             Check(Prog_ProcessCommands(&state) && state.hasFocus && state.focusedRow == 0 && entries[0].selected && !entries[1].selected);
         }
     }
@@ -561,7 +561,7 @@ function void TestProgramCommands(void)
     Prog_ApplyFilter(&state, false);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 7, 1, 0);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, 3, 1, 1);
-    Check(!state.hasFocus && !entries[7].selected);
+    Check(state.hasFocus && state.focusedRow == 0 && !entries[7].selected);
     Check(state.commandFirst->row == 7 && state.commandLast->row == 3);
     Check(Prog_ProcessCommands(&state));
     Check(state.hasFocus && state.focusedRow == 3 && entries[3].selected && !entries[7].selected);
