@@ -1091,7 +1091,7 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
         UI_SetNextFloatingOffset((UI_Vec2){ x0, y });
         UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
         UI_SetNextPrefHeight(UI_Pixels(m->line));
-        UI_SetNextColors((UI_Colors){ .background = theme->hover });
+        UI_SetNextColors((UI_Colors){ .background = theme->selection });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
@@ -2579,7 +2579,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     u32 count;
     String folder;
     Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
-    state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
+    if (state->paletteHighlight != UINT32_MAX) state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, row = m->row;
     f32 field = floorf(40.0f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.8f * s + 0.5f);
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(33.6f * s + 0.5f), bottom = floorf(60.8f * s + 0.5f);

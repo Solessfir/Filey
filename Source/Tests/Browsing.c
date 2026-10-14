@@ -1209,6 +1209,12 @@ function void TestTabs(TestFileFixture *fixture)
     Check(state.tabCount == 1 && TestWindowCalls[2] == closes + 1);
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
+    // Edit Path starts Go To on the shown folder, its path selected and nothing highlighted.
+    TestBrowsingCommand(&state, Prog_CommandKind_EditPath, 0);
+    String shownPath = P_NativePath(&state.frameArena, Prog_JoinPath(&state.frameArena, state.directory.path, S("")));
+    Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_GoTo && StrIsEqual(Prog_EditText(&state.palette), shownPath));
+    Check(state.palette.anchor == 0 && state.palette.cursor == state.palette.length && state.paletteHighlight == UINT32_MAX);
+    TestBrowsingCommand(&state, Prog_CommandKind_PaletteClose, 0);
     // Go To lists the folder typed, offers its subfolders starting with what follows it, and opens the one picked.
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_GoTo);

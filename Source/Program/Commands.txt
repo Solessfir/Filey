@@ -525,6 +525,15 @@ command OpenSettings {
     repeat  = "false"
 }
 
+// Go To with the shown folder's path in its box, selected, over what is in the folder, none of it highlighted.
+command EditPath {
+    label   = "Edit Path^location,address,path,type"
+    tooltip = "Type a path to go to, starting from the current folder's."
+    hotkey  = "Ctrl+L"
+    hotkey  = "Alt+D"
+    repeat  = "false"
+}
+
 command GoTo {
     label   = "Go To^open,folder,path,jump,recent,navigate"
     tooltip = "Open a recent folder, or type a path and expand its folders."

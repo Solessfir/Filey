@@ -1268,9 +1268,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
             } break;
-            case Prog_CommandKind_GoTo: {
+            case Prog_CommandKind_GoTo:
+            case Prog_CommandKind_EditPath: {
                 Prog_CloseMenu(state);
-                state->paletteOpen = !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_GoTo);
+                b32 edit = command->kind == Prog_CommandKind_EditPath;
+                state->paletteOpen = edit || !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_GoTo);
                 state->paletteMode = Prog_PaletteMode_GoTo;
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
@@ -1278,6 +1280,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 ArenaClear(&state->gotoHistoryArena);
                 state->gotoHistory = (ArrayStr){0};
                 state->gotoHistoryAt = 0;
+                if (edit && state->directory.path.length) {
+                    Prog__GoToSetText(state, P_NativePath(&state->frameArena, Prog_JoinPath(&state->frameArena, state->directory.path, S(""))), false);
+                    state->palette.anchor = 0;
+                    state->paletteHighlight = UINT32_MAX;
+                }
             } break;
             case Prog_CommandKind_GoToBack:
             case Prog_CommandKind_GoToForward: {
@@ -1472,7 +1479,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 u32 count;
                 String folder;
                 Prog_GoToMatches(state, &count, &folder);
-                i64 at = (i64)state->paletteHighlight - (i64)(event->wheelY * 3);
+                i64 at = (state->paletteHighlight == UINT32_MAX ? -1 : (i64)state->paletteHighlight) - (i64)(event->wheelY * 3);
                 state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
                 continue;
             }
@@ -1500,7 +1507,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 }
                 if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order);
-                else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
+                else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count ? count - 1 : 0);
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : 0;
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(&state->palette, event);

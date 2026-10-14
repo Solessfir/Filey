@@ -519,7 +519,7 @@ typedef struct Prog_State {
     // The command palette, which takes the keyboard while open; the highlight indexes Prog_PaletteMatches.
     b32 paletteOpen;
     Prog_TextEdit palette;
-    u32 paletteHighlight;
+    u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;
