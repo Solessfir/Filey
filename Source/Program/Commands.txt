@@ -180,6 +180,7 @@ command StartFilter {
     label   = "Filter^search"
     tooltip = "Start filtering the current folder's contents."
     hotkey  = "Ctrl+F"
+    hotkey  = "F3"
     repeat  = "false"
 }
 
@@ -346,6 +347,7 @@ command TabClose {
     label   = "Close Tab^exit"
     tooltip = "Close the current tab."
     hotkey  = "Ctrl+W"
+    hotkey  = "Ctrl+F4"
     repeat  = "false"
 }
 
@@ -515,6 +517,7 @@ command Undo {
 command OpenSettings {
     label   = "Settings^preferences,options,config,theme,colors,hotkeys,keys,scale"
     tooltip = "Open the settings file, whose saved changes apply at once."
+    hotkey  = "Ctrl+Comma"
     repeat  = "false"
 }
 
@@ -628,31 +631,37 @@ command ZoomOut {
 command ViewDetails {
     label   = "View Details^layout"
     tooltip = "Display files with detailed information and metadata."
+    hotkey  = "Ctrl+Shift+1"
 }
 
 command ViewList {
     label   = "View List^layout"
     tooltip = "Display files as a simple list with just icons and names."
+    hotkey  = "Ctrl+Shift+2"
 }
 
 command ViewColumns {
     label   = "View Columns^layout"
     tooltip = "Arrange files in multiple columns for easy scanning."
+    hotkey  = "Ctrl+Shift+3"
 }
 
 command ViewMediumIcons {
     label   = "View Medium Icons^layout,grid"
     tooltip = "Display files as medium-sized icons for balanced detail."
+    hotkey  = "Ctrl+Shift+4"
 }
 
 command ViewLargeIcons {
     label   = "View Large Icons^layout,grid"
     tooltip = "Show files as large icons for easier recognition."
+    hotkey  = "Ctrl+Shift+5"
 }
 
 command ViewXLIcons {
     label   = "View XL Icons^layout,grid,extra"
     tooltip = "Show files with extra large icons for high visibility."
+    hotkey  = "Ctrl+Shift+6"
 }
 
 command ToggleDebugTheme {

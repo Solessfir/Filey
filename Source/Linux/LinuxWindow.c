@@ -167,6 +167,7 @@ function Key LinuxKeyFromKeysym(xkb_keysym_t sym)
         case XKB_KEY_Super_L:
         case XKB_KEY_Super_R:   return Key_Super;
         case XKB_KEY_Menu:      return Key_ContextMenu;
+        case XKB_KEY_comma:     return Key_Comma;
         default:                return Key_None;
     }
 }

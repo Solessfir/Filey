@@ -21,7 +21,6 @@ typedef struct Prog_Theme {
     R_Color selection;
     R_Color focus;         // outline of the focused row
     R_Color tabBorder;     // outline of the shown tab, which the strip's bottom line and the sidebar's edge continue
-    R_Color closeHover;    // the window's close button under the pointer
     R_Color text;
     R_Color textDim;
     R_Color textHeading;   // sidebar section titles
@@ -49,7 +48,6 @@ global const Prog_Theme Prog_ThemeCustom = {
     .selection    = Prog_Gray(80),
     .focus        = Prog_Gray(80),
     .tabBorder    = Prog_Gray(56),
-    .closeHover   = Prog_Rgb(196, 43, 28),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(107, 112, 120),
     .textHeading  = Prog_Gray(162),
@@ -79,7 +77,6 @@ global const Prog_Theme Prog_ThemeGlass = {
     .selection    = Prog_White(0.2f),
     .focus        = Prog_White(0.22f),
     .tabBorder    = Prog_White(0.04f),
-    .closeHover   = Prog_Rgb(196, 43, 28),
     .text         = Prog_Rgb(221, 222, 224),
     .textDim      = Prog_Rgb(150, 155, 162),
     .textHeading  = Prog_Gray(170),
@@ -107,7 +104,6 @@ global const Prog_Theme Prog_ThemeDebug = {
     .selection    = Prog_Rgb(150, 20, 20),
     .focus        = Prog_Rgb(255, 255, 0),
     .tabBorder    = Prog_Rgb(0, 255, 255),
-    .closeHover   = Prog_Rgb(255, 0, 0),
     .text         = Prog_Rgb(255, 255, 255),
     .textDim      = Prog_Rgb(255, 170, 200),
     .textHeading  = Prog_Rgb(150, 255, 150),
@@ -137,7 +133,6 @@ global const Prog_Theme Prog_ThemeFullmoon = {
     .selection    = Prog_Hex(0x0079A6),
     .focus        = Prog_Hex(0x0079A6),
     .tabBorder    = Prog_Hex(0x343A3B),
-    .closeHover   = Prog_Rgb(196, 43, 28),
     .text         = Prog_Hex(0xDDDEE0),
     .textDim      = Prog_Hex(0x6B7078),
     .textHeading  = Prog_Hex(0x9A9C9D),
@@ -163,7 +158,7 @@ global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
 #define Prog__ThemeColor(field) { #field, offsetof(Prog_Theme, field) }
     Prog__ThemeColor(window), Prog__ThemeColor(background), Prog__ThemeColor(inner), Prog__ThemeColor(caption), Prog__ThemeColor(menu), Prog__ThemeColor(panel), Prog__ThemeColor(alternateRow),
     Prog__ThemeColor(separator), Prog__ThemeColor(hover), Prog__ThemeColor(selection), Prog__ThemeColor(focus), Prog__ThemeColor(tabBorder),
-    Prog__ThemeColor(closeHover), Prog__ThemeColor(text), Prog__ThemeColor(textDim), Prog__ThemeColor(textHeading), Prog__ThemeColor(textMatch),
+    Prog__ThemeColor(text), Prog__ThemeColor(textDim), Prog__ThemeColor(textHeading), Prog__ThemeColor(textMatch),
     Prog__ThemeColor(marquee), Prog__ThemeColor(accent), Prog__ThemeColor(track), Prog__ThemeColor(outline), Prog__ThemeColor(danger), Prog__ThemeColor(icon), Prog__ThemeColor(iconDisabled),
 #undef Prog__ThemeColor
 };
@@ -504,7 +499,7 @@ typedef enum Prog_WindowButton {
     Prog_WindowButton_Close,
 } Prog_WindowButton;
 
-// A window button at the strip's right end; the close button turns red under the pointer, as the system's does.
+// A window button at the strip's right end, washed under the pointer like the other buttons, the close button in the danger color.
 // The glyphs are thin shapes the size of the system's caption glyphs, which the icon font's strokes are too heavy for; only the close cross comes from the font.
 function void Prog__WindowButton(Prog_State *state, String identity, Prog_WindowButton kind, Prog_CommandKind command, f32 width, f32 height, f32 scale, const Prog_Metrics *m)
 {
@@ -512,8 +507,9 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = UI->hotKey == key;
     b32 close = kind == Prog_WindowButton_Close;
-    R_Color background = close ? theme->closeHover : theme->selection;
-    R_Color ink = !hot ? theme->icon : close ? (R_Color){ 1, 1, 1, 1 } : theme->text;
+    R_Color background = close ? theme->danger : theme->selection;
+    background.a *= 0.35f;
+    R_Color ink = hot ? theme->text : theme->icon;
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
