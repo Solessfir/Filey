@@ -487,7 +487,14 @@ function ArrayStr P_StartupPaths(Arena *arena)
     ArrayStr result = {0};
     Scratch scratch = GetScratchEx(arena);
     for (i32 i = 1; arguments && i < count; ++i) {
-        String path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, arguments[i], lstrlenW(arguments[i])));
+        // Short 8.3 names, as in %TEMP%, become their long ones, the names the folders show under.
+        wchar *argument = arguments[i];
+        u32 needed = GetLongPathNameW(argument, NULL, 0);
+        if (needed) {
+            wchar *full = ArenaPushArrayNoZero(scratch.arena, needed, wchar);
+            if (GetLongPathNameW(argument, full, needed) && full[0]) argument = full;
+        }
+        String path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, argument, lstrlenW(argument)));
         if (path.length) ArrayPush(arena, result, path);
     }
     ReleaseScratch(scratch);

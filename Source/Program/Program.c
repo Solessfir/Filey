@@ -833,8 +833,14 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line * 1.2f), UI_Layout_Horizontal, theme->separator, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-        Prog__Breadcrumbs(state, m);
-        Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
+        // A path wider than the room shows its end, cut off at the left.
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(m->bar));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextScrollOffset((UI_Vec2){ 1e9f, 0 });
+        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Breadcrumbs")), UI_Flag_Clip);
+        UI_Parent(crumbs) Prog__Breadcrumbs(state, m);
         Prog__MenuButton(state, S("MainMenu"), Icon_EllipsisVertical, Prog_CommandKind_MainMenu, true, m);
         Prog__Spacer(UI_Pixels(m->inset * 0.4f), UI_Pixels(m->bar));
     }

@@ -48,6 +48,8 @@ typedef struct R_Font {
 function b32  R_Init(void);
 function void R_BeginFrame(i32 width, i32 height, R_Color clear);
 function void R_EndFrame(void);
+// The drawn frame before it is presented, bottom row first, 4 bytes a pixel in blue, green, red, alpha order.
+function void R_ReadPixels(u32 width, u32 height, void *bgra);
 
 // Single-channel coverage texture, sampled as alpha.
 function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *pixels);

@@ -71,6 +71,11 @@ typedef struct Prog_Loop {
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
     u64 startTime;  // cleared once the first frame is presented
+    // FILEY_CAPTURE_DIR: each presented frame is written there as frame.bmp, or with FILEY_CAPTURE_SEQUENCE as numbered files named after their time,
+    // for comparing screenshots without the window on screen, where the OS may not keep what is drawn.
+    String captureDirectory;
+    b32 captureSequence;
+    u64 captureCount;
 } Prog_Loop;
 
 // Fonts are rasterized for one display scale, so another scale (a window moved to another monitor, or a changed display setting) rebuilds them.
@@ -112,6 +117,25 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     loop->state.smallIcons = &loop->smallIcons;
     loop->fontScale = scale;
     return true;
+}
+
+function void Prog__CaptureFrame(Prog_Loop *loop, u32 width, u32 height)
+{
+    if (!width || !height) return;
+    Arena *arena = &loop->state.frameArena;
+    u64 pixels = (u64)width * height * 4, size = 54 + pixels;
+    u8 *file = ArenaPushArray(arena, size, u8);
+    // A 32-bit bitmap is stored bottom row first, as the pixels are read.
+    file[0] = 'B'; file[1] = 'M';
+    u32 fields[] = { (u32)size, 0, 54, 40, width, height };
+    MemCopy(file + 2, fields, sizeof(fields));
+    u16 planes[] = { 1, 32 };
+    MemCopy(file + 26, planes, sizeof(planes));
+    u32 rest[] = { 0, (u32)pixels };
+    MemCopy(file + 30, rest, sizeof(rest));
+    R_ReadPixels(width, height, file + 54);
+    String name = loop->captureSequence ? StrFormat(arena, "frame-%06" PRIu64 "-%" PRIu64 ".bmp", loop->captureCount++, PlatformNowMicroseconds()) : S("frame.bmp");
+    P_WriteFile(arena, StrFormat(arena, "%S/%S", loop->captureDirectory, name), StrMake((const char *)file, size));
 }
 
 function void Prog__Wake(void *user)
@@ -165,6 +189,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
             R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
             UI_Draw();
             R_EndFrame();
+            if (loop->captureDirectory.length) Prog__CaptureFrame(loop, (u32)Max(window.width, 0), (u32)Max(window.height, 0));
         }
         // Includes the wait for vsync.
         ProfileScope("SwapBuffers") PlatformSwapBuffers();
@@ -216,6 +241,11 @@ int main(void)
     // Without folders to open, the last run's panels and tabs come back.
     if (ok && !startPaths.header.count) Prog_LoadSession(&loop.state);
     if (ok && getenv("FILEY_DEBUG_THEME")) Prog_SetDebugTheme(&loop.state, true);
+    const char *capture = getenv("FILEY_CAPTURE_DIR");
+    if (capture && capture[0]) {
+        loop.captureDirectory = StrFromCStr(capture);
+        loop.captureSequence = getenv("FILEY_CAPTURE_SEQUENCE") != NULL;
+    }
     ReleaseScratch(startup);
     if (!ok) {
         fprintf(stderr, "Failed to start workers\n");

@@ -30,6 +30,7 @@ typedef i64       GLsizeiptr;
 #define GL_FLOAT                 0x1406
 #define GL_RED                   0x1903
 #define GL_RGBA                  0x1908
+#define GL_BGRA                  0x80E1
 #define GL_VERSION               0x1F02
 #define GL_NEAREST               0x2600
 #define GL_TEXTURE_MAG_FILTER    0x2800
@@ -57,6 +58,7 @@ typedef i64       GLsizeiptr;
     X(void,            Viewport,                GLint x, GLint y, GLsizei width, GLsizei height) \
     X(void,            ClearColor,              GLfloat r, GLfloat g, GLfloat b, GLfloat a) \
     X(void,            Clear,                   GLbitfield mask) \
+    X(void,            ReadPixels,              GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels) \
     X(const GLubyte *, GetString,               GLenum name) \
     X(void,            Enable,                  GLenum cap) \
     X(void,            BlendFuncSeparate,       GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) \
@@ -396,6 +398,11 @@ function void R_PopClip(void)
 {
     Assert(GL.clipDepth > 0);
     GL.clipDepth -= 1;
+}
+
+function void R_ReadPixels(u32 width, u32 height, void *bgra)
+{
+    GL.ReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, bgra);
 }
 
 function void R_EndFrame(void)
