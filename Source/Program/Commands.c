@@ -687,16 +687,30 @@ function void Prog__EditPaste(Prog_TextEdit *edit)
 
 // Caret movement, deletion, Ctrl+A and the clipboard.
 // Returns false for keys the field does not use.
+// The byte where the next word starts toward `step` from `at`: past any separators, then past the word.
+function u32 Prog__EditWordStep(const Prog_TextEdit *edit, u32 at, i32 step)
+{
+    if (step < 0) {
+        while (at && !Prog__IsWordByte(edit->text[at - 1])) --at;
+        while (at && Prog__IsWordByte(edit->text[at - 1])) --at;
+    } else {
+        while (at < edit->length && !Prog__IsWordByte(edit->text[at])) ++at;
+        while (at < edit->length && Prog__IsWordByte(edit->text[at])) ++at;
+    }
+    return at;
+}
+
+// Ctrl moves and deletes by word, as the reference's text fields do.
 function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
 {
-    b32 shift = (event->mods & KeyMod_Shift) != 0;
+    b32 shift = (event->mods & KeyMod_Shift) != 0, word = (event->mods & KeyMod_Control) != 0;
     u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
     switch (event->key) {
         case Key_Left:
         case Key_Right: {
             i32 step = event->key == Key_Left ? -1 : 1;
-            if (!shift && from != to) edit->cursor = step < 0 ? from : to;
-            else edit->cursor = Prog__EditStep(edit, edit->cursor, step);
+            if (!shift && !word && from != to) edit->cursor = step < 0 ? from : to;
+            else edit->cursor = word ? Prog__EditWordStep(edit, edit->cursor, step) : Prog__EditStep(edit, edit->cursor, step);
             if (!shift) edit->anchor = edit->cursor;
         } return true;
         case Key_Home:
@@ -706,7 +720,8 @@ function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
         } return true;
         case Key_Backspace:
         case Key_Delete: {
-            if (from == to) edit->anchor = Prog__EditStep(edit, edit->cursor, event->key == Key_Backspace ? -1 : 1);
+            i32 step = event->key == Key_Backspace ? -1 : 1;
+            if (from == to) edit->anchor = word ? Prog__EditWordStep(edit, edit->cursor, step) : Prog__EditStep(edit, edit->cursor, step);
             Prog__EditReplace(edit, NULL, 0);
         } return true;
         case Key_A: {

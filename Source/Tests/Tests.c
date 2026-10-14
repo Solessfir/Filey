@@ -414,6 +414,27 @@ function void TestMaps(void)
     ArenaRelease(&arena);
 }
 
+// Ctrl+Backspace and Ctrl+Delete delete a word, Ctrl+Left and Ctrl+Right step over one, and Shift extends the selection.
+function void TestTextEditWords(void)
+{
+    Prog_TextEdit edit = {0};
+    String text = S("open some/folder now");
+    Prog__EditReplace(&edit, (const u8 *)text.value, (u32)text.length);
+    PlatformEvent key = { .kind = PlatformEventKind_KeyDown, .key = Key_Backspace, .mods = KeyMod_Control };
+    Check(Prog__EditKey(&edit, &key) && StrIsEqual(Prog_EditText(&edit), S("open some/folder ")));
+    Check(Prog__EditKey(&edit, &key) && StrIsEqual(Prog_EditText(&edit), S("open some/")));
+    key.key = Key_Left;
+    Check(Prog__EditKey(&edit, &key) && edit.cursor == 5 && edit.anchor == 5);
+    key.mods = KeyMod_Control | KeyMod_Shift;
+    key.key = Key_Right;
+    Check(Prog__EditKey(&edit, &key) && edit.cursor == 9 && edit.anchor == 5);
+    key.mods = KeyMod_Control;
+    key.key = Key_Home;
+    Check(Prog__EditKey(&edit, &key) && edit.cursor == 0);
+    key.key = Key_Delete;
+    Check(Prog__EditKey(&edit, &key) && StrIsEqual(Prog_EditText(&edit), S(" some/")));
+}
+
 function void TestContextMenuModel(void)
 {
     // sep, A, (unlabeled), sep, sep, B (disabled), C, sep
@@ -496,6 +517,7 @@ int main(void)
     TestBrowsing();
     TestProfiler();
     TestContextMenuModel();
+    TestTextEditWords();
 
     if (CheckFailures != 0) {
         fprintf(stderr, "%d check(s) failed\n", CheckFailures);
