@@ -322,7 +322,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
         .bar = floorf(line * 2.1f + 0.5f),
         .pill = floorf(line * 2.0f + 0.5f),
         .separator = MaxF32(1.0f, floorf(1.6f * scale + 0.5f)),
-        .sidebar = floorf(180.0f * scale + 0.5f),
+        .sidebar = floorf(179.2f * scale + 0.5f),
         .inset = floorf(15.0f * scale + 0.5f),
         .gap = floorf(8.0f * scale + 0.5f),
         .iconSlot = floorf(30.0f * scale + 0.5f),
@@ -443,7 +443,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     if (enabled && interaction.clicked) {
         R_Rect rect = block->rect;
-        f32 gap = floorf(4.0f * m->scale + 0.5f);
+        f32 gap = floorf(3.2f * m->scale + 0.5f);
         Prog_Command *command = Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
         command->at = (UI_Vec2){ rect.x0, rect.y1 + gap };
         if (rect.x0 > (UI->root->rect.x0 + UI->root->rect.x1) * 0.5f) command->atRight = rect.x1;
@@ -713,8 +713,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         }
                     }
                 }
-                Prog_Entry folder = { .file = { .name = name, .kind = P_FileKind_Directory } };
-                const Prog_Icon *icon = path.length ? Prog_FileIcon(state, Prog_ParentPath(path), &folder) : NULL;
+                const Prog_Icon *icon = path.length ? Prog_FolderIcon(state, path) : NULL;
                 if (icon) {
                     UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + m->gap));
                     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -879,10 +878,10 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
 // The columns of a list whose rows are `room` wide: shares of it as the reference measures them, Name taking what is left, down to the least that still shows a size or a count whole.
 function void Prog__Columns(Prog_Column *columns, f32 scale, f32 room)
 {
-    local_persist const f32 shares[Prog_ColumnId_Count] = { 0, 0.15f, 0.15f, 0.075f, 0.075f, 0.1f };
+    local_persist const f32 shares[Prog_ColumnId_Count] = { 0, 0.15f, 0.15f, 0.075f, 0.075f, 0.099f };
     // Of the slot they share, Folders takes a little more than half.
-    local_persist const f32 shift[Prog_ColumnId_Count] = { 0, 0, 0, 6, -6, 0 };
-    local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 75 };
+    local_persist const f32 shift[Prog_ColumnId_Count] = { 0, 0, 0, 4.8f, -4.8f, 0 };
+    local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 66 };
     if (room <= 0) room = 918.0f * scale;
     local_persist const String titles[Prog_ColumnId_Count] = { S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size") };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
@@ -894,12 +893,12 @@ function void Prog__Columns(Prog_Column *columns, f32 scale, f32 room)
 // The space inside a details column before and after its title and values; Files sits close after Folders, and sizes keep clear of the row's end.
 function f32 Prog__ColumnLeft(u32 column, const Prog_Metrics *m)
 {
-    return column == Prog_ColumnId_Name ? m->gap : floorf((column == Prog_ColumnId_Files ? 8.0f : 20.0f) * m->scale + 0.5f);
+    return column == Prog_ColumnId_Name ? m->gap : floorf((column == Prog_ColumnId_Files ? 6.4f : 17.6f) * m->scale + 0.5f);
 }
 
 function f32 Prog__ColumnRight(u32 column, const Prog_Metrics *m)
 {
-    return column == Prog_ColumnId_Size ? floorf(20.0f * m->scale + 0.5f) : column == Prog_ColumnId_Folders ? 0 : m->gap;
+    return column == Prog_ColumnId_Size ? floorf(16.0f * m->scale + 0.5f) : column == Prog_ColumnId_Folders ? 0 : m->gap;
 }
 
 // Folders and Files share one slot, so no line parts them.
@@ -932,16 +931,16 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                 if (name) {
                     Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                     // A box over the icons' column selects everything, and is checked once everything is.
-                    f32 box = floorf(18.0f * m->scale + 0.5f);
+                    f32 box = floorf(16.0f * m->scale + 0.5f);
                     b32 all = state->viewCount && state->selectedCount == state->viewCount;
                     UI_Key boxKey = UI_KeyFromStr(0, S("Header/SelectAll"));
                     b32 boxHot = UI->hotKey == boxKey;
-                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(5.0f * m->scale + 0.5f), floorf((m->row - box) * 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(7.2f * m->scale + 0.5f), floorf((m->row - box) * 0.5f) });
                     UI_SetNextPrefWidth(UI_Pixels(box));
                     UI_SetNextPrefHeight(UI_Pixels(box));
                     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                    UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-                    UI_SetNextBorderThickness(1.5f * m->scale);
+                    UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
+                    UI_SetNextBorderThickness(1.2f * m->scale);
                     UI_SetNextFont(m->iconsSmall);
                     UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = boxHot ? theme->textDim : theme->tabBorder, .text = theme->text });
                     UI_SetNextText(Icon_Check);
@@ -955,10 +954,16 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                 f32 room = columns[i].width > 0 ? columns[i].width - left - right - line - arrow : 0;
                 Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, columns[i].title, room) : columns[i].title, UI_Flex(), m->row, left, sorted ? 0 : right, color, 0);
                 if (sorted) Prog__Icon(state->descending ? Icon_MoveDown : Icon_MoveUp, arrow, m->row, theme->textDim, 0.5f, m);
-                if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, Prog__ColumnLeft(Prog_ColumnId_Type, m))), UI_Pixels(m->row));
+                if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, floorf(15.2f * m->scale + 0.5f))), UI_Pixels(m->row));
+                // The line starts the next column, so that it sits on the boundary.
                 if (line > 0) {
+                    f32 tall = floorf(m->line * 1.15f + 0.5f);
+                    UI_SetNextFloatingOffset((UI_Vec2){ columns[i].width > 0 ? columns[i].width : cell->rect.x1 - cell->rect.x0, floorf((m->row - tall) * 0.5f) });
+                    UI_SetNextPrefWidth(UI_Pixels(line));
+                    UI_SetNextPrefHeight(UI_Pixels(tall));
                     UI_SetNextCornerRadius(line * 0.5f);
-                    Prog__Box(UI_Pixels(line), UI_Pixels(floorf(m->line * 1.15f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0)->flags |= UI_Flag_DrawBackground;
+                    UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 }
                 // While folder totals are being counted, the columns they fill show a spinner at their right end.
                 const Prog_Icon *spinner = state->measureJob && (i == Prog_ColumnId_Files || i == Prog_ColumnId_Size) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
@@ -1142,7 +1147,7 @@ function Prog_ItemLook Prog__ItemLook(b32 selected, b32 hot, b32 focused)
 }
 
 // The line under each row of the list.
-function f32 Prog__RowLine(const Prog_Metrics *m) { return MaxF32(1, floorf(2.0f * m->scale + 0.5f)); }
+function f32 Prog__RowLine(const Prog_Metrics *m) { return m->separator; }
 
 // A line-height item's box behind what comes after it in the current block, `width` wide, with the line under it.
 function void Prog__ItemBox(Prog_ItemLook look, UI_Size width, const Prog_Metrics *m)
@@ -1153,7 +1158,7 @@ function void Prog__ItemBox(Prog_ItemLook look, UI_Size width, const Prog_Metric
         UI_SetNextPrefWidth(width);
         UI_SetNextPrefHeight(UI_Pixels(m->row - line));
         UI_SetNextCornerRadius(m->radius);
-        UI_SetNextBorderThickness(1.5f * m->scale);
+        UI_SetNextBorderThickness(1.2f * m->scale);
         UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
         UI_AddBlock(UI_Flag_Floating | look.flags);
     }
@@ -1322,7 +1327,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(9.0f * m->scale), 0, 0 });
     UI_SetNextCornerRadius(m->radius * 2);
     Prog_ItemLook look = Prog__ItemLook(entry->selected, hot, focused);
-    UI_SetNextBorderThickness(1.5f * m->scale);
+    UI_SetNextBorderThickness(1.2f * m->scale);
     UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
     UI_Block *cell = UI_AddBlockFromKey(key, look.flags | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
@@ -1525,17 +1530,17 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     // The pills sit in the panel's bottom corners, running past its edges by their corner radius, so that only their inner corners round off.
-    f32 radius = floorf(13.0f * m->scale + 0.5f);
+    f32 radius = floorf(10.4f * m->scale + 0.5f);
     UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
     UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(bar) {
-        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f) + floorf(8.0f * m->scale + 0.5f) + radius));
+        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f) + floorf(6.4f * m->scale + 0.5f) + radius));
         UI_SetNextPrefHeight(UI_Pixels(m->pill + radius));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
         UI_SetNextChildrenPadding((UI_Padding){ m->gap + radius, 0, m->gap, 0 });
         UI_SetNextCornerRadius(radius);
-        UI_SetNextBorderThickness(1.5f * m->scale);
+        UI_SetNextBorderThickness(1.2f * m->scale);
         UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = state->filtering ? theme->focus : theme->tabBorder });
         UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->filterRect = filter->rect;
@@ -1578,7 +1583,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             Prog_CommandKind kinds[2] = { Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles };
             UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap + radius, 0 });
             UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(1.5f * m->scale);
+            UI_SetNextBorderThickness(1.2f * m->scale);
             UI_Block *counts = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
             counts->props.colors.border = theme->tabBorder;
             counts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
@@ -1597,7 +1602,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     b32 hot = UI->hotKey == toggle->key;
                     UI_Parent(toggle) {
                         Prog__Icon(icons[i], 0, m->pill, hidden[i] ? theme->iconDisabled : hot ? theme->text : theme->icon, 0.5f, m);
-                        Prog__LabelPadded(text, UI_TextContent(), m->pill, floorf(9.0f * m->scale + 0.5f), floorf(12.0f * m->scale + 0.5f), hidden[i] ? theme->textDim : theme->text, 0);
+                        Prog__LabelPadded(text, UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), hidden[i] ? theme->textDim : theme->text, 0);
                     }
                 }
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->pill));
@@ -1610,7 +1615,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 f32 zoom = Prog__ZoomFraction(state->zoom);
                 f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
                 // The view and its zoom open the view menu above them.
-                f32 nameGap = floorf(10.0f * m->scale + 0.5f), barGap = floorf(17.0f * m->scale + 0.5f);
+                f32 nameGap = floorf(8.0f * m->scale + 0.5f), barGap = floorf(13.6f * m->scale + 0.5f);
                 UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->icons, viewIcons[view]) + R_TextWidth(m->font, name) + nameGap + barGap + barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -1753,8 +1758,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
     UI_Parent(row) {
         f32 slot = (f32)state->iconSize + m->gap;
-        Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
-        const Prog_Icon *icon = drive ? Prog_PathIcon(state, path, P_FileKind_Drive) : Prog_FileIcon(state, Prog_ParentPath(path), &folder);
+        const Prog_Icon *icon = drive ? Prog_PathIcon(state, path, P_FileKind_Drive) : Prog_FolderIcon(state, path);
         if (icon) {
             UI_SetNextPrefWidth(UI_Pixels(slot));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
@@ -1841,10 +1845,18 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         // ponytail: the filter box is a placeholder until Filter Quick Access is implemented.
         UI_Block *filter = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
         UI_Parent(filter) {
-            Prog__Spacer(UI_Pixels(floorf(m->gap * 0.5f)), UI_Pixels(m->bar));
+            Prog__Spacer(UI_Pixels(floorf(9.6f * m->scale + 0.5f)), UI_Pixels(m->bar));
             Prog__Icon(Icon_Search, 0, m->bar, theme->textDim, 0, m);
-            Prog__Label(S("Filter..."), UI_Flex(), m->bar, m->gap * 0.5f, theme->textDim, 0);
+            Prog__LabelPadded(S("Filter..."), UI_Flex(), m->bar, floorf(8.8f * m->scale + 0.5f), 0, theme->textDim, 0);
+            // A line across the whole sidebar under the box, level with the toolbar's.
+            f32 side = floorf(m->gap * 0.75f);
+            UI_SetNextFloatingOffset((UI_Vec2){ -side, m->bar - m->separator });
+            UI_SetNextPrefWidth(UI_Pixels(m->sidebar));
+            UI_SetNextPrefHeight(UI_Pixels(m->separator));
+            UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
+        Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.0f * m->scale + 0.5f)));
         Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
         UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents);
         if (body) UI_Parent(body) {
@@ -1931,8 +1943,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
     f32 itemHeight = m->row, line = m->separator, separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
-    f32 chipPad = floorf(6.0f * m->scale + 0.5f), chipGap = floorf(4.0f * m->scale + 0.5f), chipHeight = floorf(m->line * 1.35f + 0.5f);
-    f32 box = floorf(18.0f * m->scale + 0.5f);
+    f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f), chipHeight = floorf(m->line * 1.35f + 0.5f);
+    f32 box = floorf(14.4f * m->scale + 0.5f);
     String *chips = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String) : NULL;
     u32 *chipCounts = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u), u32) : NULL;
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
@@ -1986,7 +1998,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.5f * m->scale);
+    UI_SetNextBorderThickness(1.2f * m->scale);
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     // Clickable so that clicks on the padding do not reach the catcher behind it.
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuPanel/%u", level)),
@@ -2056,8 +2068,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextPrefWidth(UI_Flex());
                         UI_SetNextPrefHeight(UI_Pixels(chipHeight));
                         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                        UI_SetNextCornerRadius(floorf(5.0f * m->scale + 0.5f));
-                        UI_SetNextBorderThickness(m->scale);
+                        UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+                        UI_SetNextBorderThickness(0.8f * m->scale);
                         UI_SetNextFont(m->detail);
                         UI_SetNextColors((UI_Colors){ .background = theme->track, .border = highlighted ? theme->text : theme->outline, .text = highlighted ? theme->text : theme->icon });
                         UI_SetNextText(chips[i * 3 + c]);
@@ -2076,8 +2088,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextPrefWidth(UI_Pixels(box));
                         UI_SetNextPrefHeight(UI_Pixels(box));
                         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                        UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-                        UI_SetNextBorderThickness(1.5f * m->scale);
+                        UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
+                        UI_SetNextBorderThickness(1.2f * m->scale);
                         UI_SetNextFont(m->iconsSmall);
                         UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = highlighted ? theme->text : theme->tabBorder, .text = theme->text });
                         UI_SetNextText(Icon_Check);
@@ -2406,8 +2418,7 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
         UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
         UI_Block *tab = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
         UI_Parent(tab) {
-            Prog_Entry folder = { .file = { .name = Prog__FolderName(path), .kind = P_FileKind_Directory } };
-            const Prog_Icon *icon = path.length ? Prog_FileIcon(state, Prog_ParentPath(path), &folder) : NULL;
+            const Prog_Icon *icon = path.length ? Prog_FolderIcon(state, path) : NULL;
             if (icon) {
                 UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + m->gap));
                 UI_SetNextPrefHeight(UI_Pixels(height));
@@ -2533,7 +2544,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 UI_Parent(listColumn) {
                     if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
                         Prog__Header(state, columns, m);
-                        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.0f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
+                        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
                     }
                     Prog__List(state, columns, m);
                 }
@@ -2615,7 +2626,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         UI_Parent(bar) {
             Prog__Caption(state, S("SidebarCaption"), width, m->bar, 0);
             Prog__StripLine(width, m->bar, m);
-            Prog__Spacer(UI_Pixels(floorf(10.0f * scale + 0.5f)), UI_Pixels(m->bar));
+            Prog__Spacer(UI_Pixels(floorf(8.0f * scale + 0.5f)), UI_Pixels(m->bar));
             Prog__MenuButton(state, S("MainMenu"), Icon_Menu, Prog_CommandKind_MainMenu, true, m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
             Prog__SidebarToggle(state, button, m);

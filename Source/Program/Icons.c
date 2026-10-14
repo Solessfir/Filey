@@ -52,7 +52,7 @@ function void Prog__IconJob(P_Job *job)
         P_Image image = {0};
         b32 thumbnail = request->size != input->iconSize;
         if (thumbnail ? P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, &image)
-                      : P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, &image)) {
+                      : P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, request->exact, &image)) {
             pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
         }
         ReleaseScratch(scratch);
@@ -66,13 +66,13 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
 }
 
 // The cached icon for `key` in `map`, or NULL after queueing a load of `path` at `size` when it is new.
-function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog_IconMap *map, String key, String path, P_FileKind kind, i32 size)
+function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog_IconMap *map, String key, String path, P_FileKind kind, i32 size, b32 exact)
 {
     Prog_Icon *icon = MapsGetPtrNull(*map, key);
     if (icon == NULL) {
         MapsPut(arena, *map, StrCopy(arena, key), (Prog_Icon){ .state = Prog_IconState_Pending });
         // Requests outlive the frame when nothing submits them before the next one.
-        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size };
+        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size, .exact = (b8)(exact != 0) };
         ArrayPush(&state->iconArena, state->iconRequests, request);
         return NULL;
     }
@@ -83,7 +83,15 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 {
     if (state->iconSize <= 0) return NULL;
     String key = P_FileIconKey(&state->frameArena, path, kind);
-    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, kind, state->iconSize);
+    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, kind, state->iconSize, false);
+}
+
+// The folder's own icon, as the shell shows the desktop or downloads, for the few folders named in the sidebar and the tabs.
+function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path)
+{
+    if (state->iconSize <= 0) return NULL;
+    String key = StrFormat(&state->frameArena, "exact:%S", path);
+    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true);
 }
 
 function void Prog__ResetAtlas(Prog_IconAtlas *atlas, i32 size, i32 pageSize, u32 pageLimit)
@@ -125,7 +133,7 @@ function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory
     if (size != state->thumbnailAtlas.size) Prog__ResetThumbnails(state, size);
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     String key = P_FileThumbnailKey(&state->frameArena, path, entry->file.kind);
-    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size);
+    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size, false);
 }
 
 function void Prog_SubmitIconRequests(Prog_State *state)
@@ -139,7 +147,7 @@ function void Prog_SubmitIconRequests(Prog_State *state)
     input->icons = ArenaPushArray(&job->arena, input->iconCount, Prog_IconRequest);
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_IconRequest *source = &state->iconRequests.v[i];
-        input->icons[i] = (Prog_IconRequest){ StrCopy(&job->arena, source->path), StrCopy(&job->arena, source->key), source->kind, source->size };
+        input->icons[i] = (Prog_IconRequest){ StrCopy(&job->arena, source->path), StrCopy(&job->arena, source->key), source->kind, source->size, source->exact };
     }
     job->input = input;
     state->iconRequests = (Prog_ArrayIconRequest){0};

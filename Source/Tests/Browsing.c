@@ -528,12 +528,12 @@ function void TestFileIcons(TestFileFixture *fixture)
 
     P_Image image = {0};
     String file = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));
-    b32 loaded = P_LoadFileIcon(&arena, file, P_FileKind_File, 16, &image);
+    b32 loaded = P_LoadFileIcon(&arena, file, P_FileKind_File, 16, false, &image);
 #if defined(_WIN32)
     Check(loaded);
 #endif
     Check(!loaded || (image.width > 0 && image.height > 0 && image.pixels != NULL));
-    loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, &image);
+    loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, true, &image);
     Check(!loaded || (image.width > 0 && image.height > 0));
     // A picture is its own thumbnail.
     local_persist const char pixel[] = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\xda\x63\xfc\xcf\xc0\x50\x0f\x00\x04\x85\x01\x80\x84\xa9\x8c\x21\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";

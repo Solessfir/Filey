@@ -139,14 +139,14 @@ function b32 P__IconPixels(Arena *arena, HICON icon, P_Image *image)
     return result;
 }
 
-function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
     // Type-keyed icons come from the name and attributes alone, so the shell does not open the file.
     // Shared generic keys use a neutral name, since the first file to request one decides it for all.
     String key = P_FileIconKey(scratch.arena, path, kind);
-    b32 byType = !StrIsEqual(key, path);
-    b32 generic = StrIsEqual(key, S("/file")) || StrIsEqual(key, S("/folder"));
+    b32 byType = !exact && !StrIsEqual(key, path);
+    b32 generic = !exact && (StrIsEqual(key, S("/file")) || StrIsEqual(key, S("/folder")));
     wchar *wide = P__FilePathWide(scratch.arena, generic ? S("item") : path);
     b32 result = false;
     if (wide) {
@@ -206,7 +206,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || P_LoadFileIcon(arena, path, kind, size, image);
+    return result || P_LoadFileIcon(arena, path, kind, size, false, image);
 }
 
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)

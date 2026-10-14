@@ -458,11 +458,13 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || P_LoadFileIcon(arena, path, kind, size, image);
+    return result || P_LoadFileIcon(arena, path, kind, size, false, image);
 }
 
-function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+// ponytail: `exact` is ignored, so the user's folders show the plain folder icon; map them to the theme's folder-download and kin when that matters.
+function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image)
 {
+    (void)exact;
     pthread_once(&P__iconsOnce, P__LoadIconData);
     Scratch scratch = GetScratchEx(arena);
     ArrayStr names = {0};
