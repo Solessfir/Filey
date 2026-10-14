@@ -6,6 +6,7 @@
 #
 #   python Source/Tools/Compare/Compare.py run <name> "<steps>" [ref|filey|both]
 #       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | key VK | mods VK... | wait s | shot [tag] | frames n interval tag
+#       | keyframes VK n interval tag (presses VK and records from then)
 #       writes <out>/<name><tag>_{ref,filey}.png and a stacked <name><tag>.png; frames also write <name><tag>_<side>.times in milliseconds
 #   python Source/Tools/Compare/Compare.py zoom <name> x0 y0 x1 y1 scale      the same crop of both shots, enlarged, to zoom.png
 #   python Source/Tools/Compare/Compare.py runs <png> y0 y1 x0 x1 threshold   column runs brighter than threshold in a band, for measuring positions
@@ -14,7 +15,7 @@
 # COMPARE_REFERENCE names the reference executable and COMPARE_REFERENCE_STATE its settings files, ';' separated, which are copied before every
 # run and put back after it. COMPARE_OUT is the output folder (%TEMP%/filey-compare); Filey's settings live in its Config folder, which starts
 # with "theme = fullmoon". COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window.
-import ctypes, ctypes.wintypes as wt, os, shutil, subprocess, sys, time
+import ctypes, ctypes.wintypes as wt, os, re, shutil, subprocess, sys, time
 from PIL import Image, ImageChops
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -96,7 +97,9 @@ class App:
             time.sleep(0.1)
         assert self.window, 'the app opened no window'
         u32.ShowWindow(self.window, 4)
-        u32.MoveWindow(self.window, x, y, w, h, True)
+        # The reference draws at the size it opened with and only stretches to a size set from outside, so it opens at its size from the session
+        # file instead; Filey takes a new size at once.
+        if exe == FILEY: u32.MoveWindow(self.window, x, y, w, h, True)
         self.fake.hwnd = self.window; self.fake.active = 1; self.fake.x, self.fake.y = -10000, -10000
         self.post(0x6, 1, 0); self.post(0x7, 0, 0)
         self.buttons = 0
@@ -131,6 +134,17 @@ class App:
         pixels = ctypes.create_string_buffer(w * h * 4)
         g32.GetDIBits(memory, bitmap, 0, h, pixels, ctypes.byref(BIH(ctypes.sizeof(BIH), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)), 0)
         g32.DeleteObject(bitmap); g32.DeleteDC(memory); u32.ReleaseDC(self.window, dc)
+        return Image.frombuffer('RGBA', (w, h), bytes(pixels), 'raw', 'BGRA', 0, 1).convert('RGB')
+    def grab_screen(self):
+        # What the screen shows of the client area, far quicker than PrintWindow, for animation frames; the window is on screen and on top.
+        r = wt.RECT(); u32.GetClientRect(self.window, ctypes.byref(r)); w, h = r.right, r.bottom
+        p = wt.POINT(0, 0); u32.ClientToScreen(self.window, ctypes.byref(p))
+        screen = u32.GetDC(None); memory = g32.CreateCompatibleDC(screen); bitmap = g32.CreateCompatibleBitmap(screen, w, h)
+        g32.SelectObject(memory, bitmap)
+        g32.BitBlt(memory, 0, 0, w, h, screen, p.x, p.y, 0x00CC0020)
+        pixels = ctypes.create_string_buffer(w * h * 4)
+        g32.GetDIBits(memory, bitmap, 0, h, pixels, ctypes.byref(BIH(ctypes.sizeof(BIH), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)), 0)
+        g32.DeleteObject(bitmap); g32.DeleteDC(memory); u32.ReleaseDC(None, screen)
         return Image.frombuffer('RGBA', (w, h), bytes(pixels), 'raw', 'BGRA', 0, 1).convert('RGB')
     def captured(self):
         names = sorted(f for f in os.listdir(self.frames) if f.startswith('frame-') and f.endswith('.bmp'))
@@ -198,11 +212,14 @@ def steps(app, text, side, name, tags):
         elif op == 'shot':
             tag = words[1] if len(words) > 1 else ''
             app.shot().save(os.path.join(OUT, f'{name}{tag}_{side}.png')); tags.add(tag)
-        elif op == 'frames':
+        elif op in ('frames', 'keyframes'):
+            # keyframes presses a key and records from that moment, so that an animation's first frames are not lost.
+            if op == 'keyframes': vk, words = n[0], words[1:]
             count, interval, tag = int(words[1]), float(words[2]), words[3]
             times = []
+            before = {p for _, p in app.captured()} if app.frames else set()
+            if op == 'keyframes': app.post(0x100, vk, 1)
             if app.frames:
-                before = {p for _, p in app.captured()}
                 time.sleep(count * max(interval, 0.012))
                 fresh = [(t, p) for t, p in app.captured() if p not in before][:count]
                 images = [Image.open(p).convert('RGB') for _, p in fresh]
@@ -210,10 +227,11 @@ def steps(app, text, side, name, tags):
             else:
                 start = time.perf_counter(); images = []
                 for _ in range(count):
-                    times.append(int((time.perf_counter() - start) * 1000)); images.append(app.grab())
+                    times.append(int((time.perf_counter() - start) * 1000)); images.append(app.grab_screen())
                     if interval: time.sleep(interval)
             for i, image in enumerate(images):
                 image.save(os.path.join(OUT, f'{name}{tag}{i:02d}_{side}.png')); tags.add(f'{tag}{i:02d}')
+            if op == 'keyframes': app.post(0x101, vk, 0xC0000001)
             with open(os.path.join(OUT, f'{name}{tag}_{side}.times'), 'w') as f: f.write(' '.join(map(str, times)))
         else:
             raise SystemExit(f'unknown step {op}')
@@ -234,6 +252,13 @@ def run(side, name, text, tags):
         backup = os.path.join(OUT, 'reference-state'); os.makedirs(backup, exist_ok=True)
         saved = [p for p in os.environ.get('COMPARE_REFERENCE_STATE', '').split(';') if p and os.path.exists(p)]
         for i, p in enumerate(saved): shutil.copy2(p, os.path.join(backup, f'{i}'))
+        for p in saved:
+            if not p.endswith('Session.json'): continue
+            with open(p, encoding='utf-8-sig') as f: session = f.read()
+            for key, value in zip(('WindowX', 'WindowY', 'WindowWidth', 'WindowHeight'), (geometry[2], geometry[3], geometry[0], geometry[1])):
+                session = re.sub(rf'"{key}": -?\d+', f'"{key}": {value}', session)
+            session = re.sub(r'"WindowMaximized": \w+', '"WindowMaximized": false', session)
+            with open(p, 'w', encoding='utf-8') as f: f.write(session)
     u32.LockSetForegroundWindow(1)
     app = App(exe, [path], env, *geometry)
     time.sleep(1.5)
