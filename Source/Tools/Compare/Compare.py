@@ -108,7 +108,8 @@ class App:
         time.sleep(1.0)
     def post(self, message, w=0, l=0): u32.PostMessageW(self.window, message, w, l)
     def key(self, vk):
-        self.post(0x100, vk, 1); time.sleep(0.03); self.post(0x101, vk, 0xC0000001); time.sleep(0.05)
+        self.fake.keys[vk] = 1; self.post(0x100, vk, 1); time.sleep(0.03)
+        self.fake.keys[vk] = 0; self.post(0x101, vk, 0xC0000001); time.sleep(0.05)
     def mods(self, *vks):
         for i in range(256): self.fake.keys[i] = 0
         # The left-hand keys too, since apps ask for either.
@@ -220,7 +221,8 @@ def steps(app, text, side, name, tags):
             count, interval, tag = int(words[1]), float(words[2]), words[3]
             times = []
             before = {p for _, p in app.captured()} if app.frames else set()
-            if op == 'keyframes': app.post(0x100, vk, 1)
+            # Held while the frames are taken, for apps that ask whether it is down.
+            if op == 'keyframes': app.fake.keys[vk] = 1; app.post(0x100, vk, 1)
             if app.frames:
                 time.sleep(count * max(interval, 0.012))
                 fresh = [(t, p) for t, p in app.captured() if p not in before][:count]
@@ -233,7 +235,7 @@ def steps(app, text, side, name, tags):
                     if interval: time.sleep(interval)
             for i, image in enumerate(images):
                 image.save(os.path.join(OUT, f'{name}{tag}{i:02d}_{side}.png')); tags.add(f'{tag}{i:02d}')
-            if op == 'keyframes': app.post(0x101, vk, 0xC0000001)
+            if op == 'keyframes': app.fake.keys[vk] = 0; app.post(0x101, vk, 0xC0000001)
             with open(os.path.join(OUT, f'{name}{tag}_{side}.times'), 'w') as f: f.write(' '.join(map(str, times)))
         else:
             raise SystemExit(f'unknown step {op}')
@@ -242,7 +244,7 @@ def run(side, name, text, tags):
     root, config = fixture()
     path = os.environ.get('COMPARE_PATH', root)
     # In the middle of the main screen, to watch.
-    w, h = int(os.environ.get('COMPARE_W', 1200)), int(os.environ.get('COMPARE_H', 800))
+    w, h = int(os.environ.get('COMPARE_W', 1600)), int(os.environ.get('COMPARE_H', 1000))
     x, y = (u32.GetSystemMetrics(0) - w) // 2, (u32.GetSystemMetrics(1) - h) // 2
     geometry = [w, h, int(os.environ.get('COMPARE_X', x)), int(os.environ.get('COMPARE_Y', y))]
     if side == 'filey':
