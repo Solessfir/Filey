@@ -2788,10 +2788,8 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 UI_SetNextColors((UI_Colors){ .background = dim });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
-            // Over the dimming, so that an inactive panel's zones show as clearly.
-            if (state->tabDrag && UI__Contains((R_Rect){ rect.x0, rect.y0 + m->bar, rect.x1, rect.y1 }, UI->mouse)) {
-                Prog__DropZones(state, (R_Rect){ rect.x0, rect.y0 + m->bar, rect.x1, rect.y1 }, 0, m);
-            }
+            // Every panel shows its zones from the start of a drag, over the dimming so that an inactive panel's show as clearly.
+            if (state->tabDrag) Prog__DropZones(state, (R_Rect){ rect.x0, rect.y0 + m->bar, rect.x1, rect.y1 }, 0, m);
         }
     }
 }
