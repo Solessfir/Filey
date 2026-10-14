@@ -1243,6 +1243,21 @@ function void TestTabs(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state));
     u64 shownEmpty = TestEntryIndex(&state, S("Empty"));
     Check(StrIsEqual(state.directory.path, fixture->path) && shownEmpty != UINT64_MAX && state.directory.entries[shownEmpty].selected);
+    // The drive index walks every folder below the drives, and Go To finds them by name.
+    Arena driveArena = {0};
+    ArrayPush(&driveArena, state.drives, ((P_Place){ .path = fixture->path }));
+    start = PlatformNowMicroseconds();
+    do {
+        Prog_TakeCompletions(&state);
+        P__TestPause();
+    } while ((state.indexJob || state.indexAt < state.indexFolders.header.count) && PlatformNowMicroseconds() - start < Millions(5));
+    Check(state.indexStarted && !state.indexJob && state.indexFolders.header.count >= 2);
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    Prog__EditReplace(&state.palette, (const u8 *)"mpt", 3);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 1 && TestEndsWith(found[0].path, S("/Empty")));
+    state.drives = (P_ArrayPlace){0};
+    ArenaRelease(&driveArena);
     Prog_Release(&state);
 }
 

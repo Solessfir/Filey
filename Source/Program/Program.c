@@ -885,6 +885,16 @@ function String Prog__CrumbPath(Prog_State *state, String path)
     return P_NativePath(&state->frameArena, text);
 }
 
+// Go To writes a folder outside the path roots from its drive letter, "C:\Program Files", as the reference does.
+function String Prog__GoToWhere(Prog_State *state, String path)
+{
+    b32 drive;
+    Prog__CrumbStart(state, path, &drive);
+    if (!drive) return Prog__CrumbPath(state, path);
+    while (path.length > 3 && path.value[path.length - 1] == '/') --path.length;
+    return P_NativePath(&state->frameArena, path);
+}
+
 // "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
 // Every segment but the current one opens its folder.
 function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
@@ -2762,7 +2772,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         Prog__Icon(item.file ? Icon_File : Icon_Folder, slot, face, theme->icon, 0, m);
                     }
                     // What was searched for shows in the match color, in the name and in the path.
-                    String name = Prog__FolderName(item.path), where = Prog__CrumbPath(state, item.path), typed = Prog_EditText(&state->palette);
+                    String name = Prog__FolderName(item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
                     R_Color dim = highlighted ? theme->text : theme->textDim;
                     Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, theme->text, m);
                     if (sections || searching) {

@@ -277,6 +277,8 @@ function b32 P__MeasurePush(Arena *arena, P__MeasureStack *stack, wchar *buffer,
     return true;
 }
 
+function b32 P_IsVirtualFolder(String path) { return false; }
+
 function i64 P_FileCreatedTime(String path)
 {
     Scratch scratch = GetScratch();

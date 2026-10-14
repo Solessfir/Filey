@@ -467,6 +467,15 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
 
 typedef struct P__MeasureStack { ArrayHeader header; DIR **v; } P__MeasureStack;
 
+function b32 P_IsVirtualFolder(String path)
+{
+    local_persist const char *virtuals[] = { "/proc", "/sys", "/dev", "/run" };
+    for (u32 i = 0; i < CArrayCount(virtuals); ++i) {
+        if (StrIsEqual(path, StrFromCStr(virtuals[i]))) return true;
+    }
+    return false;
+}
+
 function i64 P_FileCreatedTime(String path)
 {
     Scratch scratch = GetScratch();

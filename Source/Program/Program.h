@@ -90,6 +90,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Measure,
     Prog_JobKind_Inspect,
     Prog_JobKind_GoTo,
+    Prog_JobKind_Index,
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
@@ -266,6 +267,13 @@ typedef struct Prog_GoToItem {
     enum8(Prog_GoToSection) section;
     b8 file;
 } Prog_GoToItem;
+
+// The folders found inside the first `listed` of an index job's folders, in order.
+typedef struct Prog_Indexed {
+    String *found;
+    u64 count;
+    u64 listed;
+} Prog_Indexed;
 
 // A folder's folders, then its files.
 typedef struct Prog_GoToListed {
@@ -541,6 +549,19 @@ typedef struct Prog_State {
     Arena knownArena;
     ArrayStr knownFolders;
     Prog_PathSet knownSet;
+    // Every folder on the drives, which indexJob walks breadth first a slice at a time; the ones from indexAt on are still to be listed.
+    Arena indexArena;
+    ArrayStr indexFolders;
+    u64 indexAt;
+    P_Job *indexJob;
+    b32 indexStarted;
+    // Go To's last search, kept while the text and the folders searched stay the same.
+    Arena gotoFoundArena;
+    Prog_GoToItem *gotoFound;
+    u32 gotoFoundCount;
+    u8 gotoFoundText[1024];
+    u32 gotoFoundTextLength;
+    u64 gotoFoundSize;        // folders searched then
     Prog_Transfer transfers[Prog_MaxTransfers];
     Arena sizeArena;
     Prog_SizeMap sizes;
@@ -669,6 +690,8 @@ function void Prog_ReloadSettingsFile(Prog_State *state);
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 #define Prog_MaxGoToFound 500
+// ponytail: the index stops growing here, about 150 MB of paths; a smaller form or one kept on disk would let it cover more.
+#define Prog_MaxIndexedFolders 2000000
 function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder);
 function String Prog_SessionText(Arena *arena, Prog_State *state);
 function b32 Prog_RestoreSession(Prog_State *state, String text);

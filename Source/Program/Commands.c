@@ -339,24 +339,49 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     for (u64 i = 0; i < text.length; ++i) if (text.value[i] == '/' || text.value[i] == separator) cut = (i64)i;
     *count = 0;
     *folder = (String){0};
-    // Something typed searches every folder known by name, then by path, as one list.
+    // Something typed searches every folder known, those of the drive index included, by name and then the few close at hand by path, as one list.
     if (cut < 0 && text.length) {
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
-        u64 total = recents + bookmarks + known;
-        Prog_GoToItem *result = ArenaPushArray(frame, Min(total, (u64)Prog_MaxGoToFound) + 1, Prog_GoToItem);
-        Prog_PathSet seen = {0};
-        for (u32 tier = 0; tier < 3 && *count < Prog_MaxGoToFound; ++tier) {
-            for (u64 i = 0; i < total && *count < Prog_MaxGoToFound; ++i) {
-                String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks];
-                String name = Prog__FolderName(path);
-                b32 contains = Prog__ContainsFolded(name, text);
-                b32 letters = !contains && Prog_FilterMatch(name, text, NULL);
-                b32 within = !contains && !letters && Prog_FilterMatch(path, text, NULL);
-                if (!((tier == 0 && contains) || (tier == 1 && letters) || (tier == 2 && within)) || MapsGetPtrNull(seen, path)) continue;
-                MapsPut(frame, seen, path, true);
-                result[(*count)++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, false };
-            }
+        u64 nearby = recents + bookmarks + known, total = nearby + state->indexFolders.header.count;
+        // The search is kept while nothing it depends on changes, since it runs over every folder on the drives.
+        String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
+        if (state->gotoFound && StrIsEqual(last, text) && state->gotoFoundSize == total) {
+            *count = state->gotoFoundCount;
+            return state->gotoFound;
         }
+        ArenaClear(&state->gotoFoundArena);
+        Arena *arena = &state->gotoFoundArena;
+        // Ranked by how the name holds the text, starting with it before holding it whole before holding its letters, the few close at hand
+        // also by their path, and then shorter names first; within a rank the walk's order keeps shallower folders first.
+        enum { Lengths = 64, Ranks = 4 * Lengths, Pool = 20000 };
+        Prog_GoToItem *pool = ArenaPushArray(arena, Pool, Prog_GoToItem);
+        u16 *ranks = ArenaPushArray(arena, Pool, u16);
+        u32 *starts = ArenaPushArray(arena, Ranks + 1, u32);
+        u32 pooled = 0;
+        Prog_PathSet seen = {0};
+        for (u64 i = 0; i < total && pooled < Pool; ++i) {
+            String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents]
+                        : i < nearby ? state->knownFolders.v[i - recents - bookmarks] : state->indexFolders.v[i - nearby];
+            String name = Prog__FolderName(path);
+            b32 starting = name.length >= text.length && Prog__ContainsFolded(StrFromTo(name, 0, (i64)text.length), text);
+            u32 tier = starting ? 0 : Prog__ContainsFolded(name, text) ? 1 : Prog_FilterMatch(name, text, NULL) ? 2 : i < nearby && Prog_FilterMatch(path, text, NULL) ? 3 : 4;
+            if (tier == 4 || MapsGetPtrNull(seen, path)) continue;
+            MapsPut(arena, seen, path, true);
+            ranks[pooled] = (u16)(tier * Lengths + Min(name.length, (u64)Lengths - 1));
+            pool[pooled++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, false };
+        }
+        // A counting sort, which keeps the order within a rank.
+        for (u32 i = 0; i < pooled; ++i) ++starts[ranks[i] + 1];
+        for (u32 r = 0; r < Ranks; ++r) starts[r + 1] += starts[r];
+        Prog_GoToItem *sorted = ArenaPushArray(arena, Max(pooled, 1u), Prog_GoToItem);
+        for (u32 i = 0; i < pooled; ++i) sorted[starts[ranks[i]]++] = pool[i];
+        Prog_GoToItem *result = sorted;
+        *count = Min(pooled, (u32)Prog_MaxGoToFound);
+        state->gotoFound = result;
+        state->gotoFoundCount = *count;
+        state->gotoFoundSize = total;
+        state->gotoFoundTextLength = (u32)Min(text.length, (u64)sizeof(state->gotoFoundText));
+        MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
         return result;
     }
     if (cut < 0) {

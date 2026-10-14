@@ -313,6 +313,28 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    if (input->kind == Prog_JobKind_Index) {
+        // Lists folders for a few dozen milliseconds and hands back the folders inside them, so that it never holds a worker for long.
+        Prog_Indexed *result = ArenaPushStruct(&job->arena, Prog_Indexed);
+        ArrayStr found = {0};
+        u64 start = PlatformNowMicroseconds();
+        while (result->listed < input->pathCount && PlatformNowMicroseconds() - start < UINT64_C(30000) && !P_IsCancelled(&job->cancelToken)) {
+            String folder = input->paths[result->listed++];
+            Scratch scratch = GetScratchEx(&job->arena);
+            P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, folder, &job->cancelToken);
+            for (u64 i = 0; i < listing.files.header.count; ++i) {
+                const P_File *file = &listing.files.v[i];
+                if (file->kind != P_FileKind_Directory || file->symbolicLink) continue;
+                String path = Prog_JoinPath(&job->arena, folder, file->name);
+                if (!P_IsVirtualFolder(path)) ArrayPush(&job->arena, found, path);
+            }
+            ReleaseScratch(scratch);
+        }
+        result->found = found.v;
+        result->count = found.header.count;
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_GoTo) {
         Prog_GoToListed *result = ArenaPushStruct(&job->arena, Prog_GoToListed);
         P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
@@ -1410,10 +1432,29 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         state->placesJob = job;
         P_JobSubmit(job);
     }
+    // The folder index starts from the drives once they are known and walks on a slice at a time.
+    if (!state->indexStarted && state->drives.header.count) {
+        state->indexStarted = true;
+        for (u64 i = 0; i < state->drives.header.count; ++i) {
+            String root = state->drives.v[i].path;
+            if (root.length) ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, root));
+        }
+    }
+    if (state->indexStarted && !state->indexJob && state->indexAt < state->indexFolders.header.count) {
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_Index;
+        input->pathCount = Min(state->indexFolders.header.count - state->indexAt, (u64)256);
+        input->paths = ArenaPushArray(&job->arena, input->pathCount, String);
+        for (u64 i = 0; i < input->pathCount; ++i) input->paths[i] = StrCopy(&job->arena, state->indexFolders.v[state->indexAt + i]);
+        job->input = input;
+        state->indexJob = job;
+        P_JobSubmit(job);
+    }
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             P_JobRelease(job);
@@ -1502,6 +1543,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Undo: %S", error->message);
             }
             Prog_Reload(state);
+        } else if (input->kind == Prog_JobKind_Index) {
+            if (state->indexJob == job) state->indexJob = NULL;
+            const Prog_Indexed *result = job->result;
+            if (result && !P_IsCancelled(&job->cancelToken)) {
+                state->indexAt += result->listed;
+                for (u64 i = 0; i < result->count && state->indexFolders.header.count < Prog_MaxIndexedFolders; ++i) {
+                    ArrayPush(&state->indexArena, state->indexFolders, StrCopy(&state->indexArena, result->found[i]));
+                }
+            }
         } else if (input->kind == Prog_JobKind_GoTo) {
             if (state->gotoJob == job) state->gotoJob = NULL;
             String wanted = StrMake((const char *)state->gotoFolder, state->gotoFolderLength);
@@ -1811,6 +1861,8 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->gotoArena);
     ArenaRelease(&state->gotoHistoryArena);
     ArenaRelease(&state->knownArena);
+    ArenaRelease(&state->indexArena);
+    ArenaRelease(&state->gotoFoundArena);
     ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};
 }
