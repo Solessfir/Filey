@@ -87,6 +87,7 @@ function void Prog__ResetIcons(Prog_State *state, i32 size)
     state->iconSize = size;
     state->iconCell = 0;
     state->iconPageCount = 0;  // pages are kept in iconPages and reused
+    state->spinnerSize = 0;
     ArenaClear(&state->iconArena);
 }
 
@@ -147,6 +148,48 @@ function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
         icon = MapsGetPtrNull(state->icons, key);
     }
     return icon && icon->state == Prog_IconState_Loaded ? icon : NULL;
+}
+
+// the reference's busy spinner: eight rounded rays around an empty middle, drawn white so that the draw tints it.
+// The renderer cannot rotate, so each frame is the spinner turned a little further.
+function void Prog__DrawSpinners(Prog_State *state)
+{
+    i32 size = state->iconSize;
+    Scratch scratch = GetScratch();
+    u32 *pixels = ArenaPushArray(scratch.arena, (u64)size * (u64)size, u32);
+    f32 radius = (f32)size * 0.5f, inner = radius * 0.45f, outer = radius * 0.82f, half = MaxF32(0.75f, radius * 0.15f);
+    f32 pi = 3.14159265f;
+    for (u32 frame = 0; frame < Prog_SpinnerFrames; ++frame) {
+        f32 turn = (f32)frame / Prog_SpinnerFrames * (pi / 4);
+        for (i32 y = 0; y < size; ++y) {
+            for (i32 x = 0; x < size; ++x) {
+                f32 px = (f32)x + 0.5f - radius, py = (f32)y + 0.5f - radius;
+                f32 nearest = 1e9f;
+                for (u32 ray = 0; ray < 8; ++ray) {
+                    f32 angle = turn + (f32)ray * (pi / 4), dx = cosf(angle), dy = sinf(angle);
+                    // Distance to the ray's segment, which runs from `inner` to `outer` along its direction.
+                    f32 along = UI__Clamp(px * dx + py * dy, inner, outer);
+                    f32 ex = px - dx * along, ey = py - dy * along;
+                    nearest = MinF32(nearest, sqrtf(ex * ex + ey * ey));
+                }
+                f32 coverage = UI__Clamp(half + 0.5f - nearest, 0, 1);
+                pixels[y * size + x] = ((u32)(coverage * 255.0f + 0.5f) << 24) | 0xFFFFFFu;
+            }
+        }
+        if (!Prog__PlaceIcon(state, &state->spinner[frame], pixels)) state->spinner[frame].state = Prog_IconState_Failed;
+    }
+    ReleaseScratch(scratch);
+    state->spinnerSize = size;
+}
+
+// The spinner frame for this moment: a full turn every 1.2 seconds.
+function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds)
+{
+    if (state->iconSize <= 0) return NULL;
+    if (state->spinnerSize != state->iconSize) Prog__DrawSpinners(state);
+    u64 period = 1200000 / 8;
+    const Prog_Icon *icon = &state->spinner[nowMicroseconds % period * Prog_SpinnerFrames / period];
+    return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 
 function void Prog__TakeIcons(Prog_State *state, P_Job *job)

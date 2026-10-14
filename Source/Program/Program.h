@@ -98,6 +98,8 @@ typedef enum Prog_IconState {
     Prog_IconState_Count,
 } Prog_IconState;
 
+#define Prog_SpinnerFrames 9
+
 typedef struct Prog_Icon {
     enum8(Prog_IconState) state;
     R_TextureHandle texture;
@@ -252,6 +254,9 @@ typedef struct Prog_State {
     u32 iconPageCount;
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
     R_TextureHandle iconPages[8];
+    // The busy spinner's frames in the icon atlas; its eight rays repeat every eighth of a turn, so the frames cover that much.
+    Prog_Icon spinner[Prog_SpinnerFrames];
+    i32 spinnerSize;          // iconSize the frames were drawn at; 0 before they are
     // Context menu. Items and rows live in menuArena until the menu closes.
     Arena menuArena;
     P_ContextMenu menu;
@@ -379,3 +384,4 @@ function void Prog_CloseTab(Prog_State *state, u32 index);
 function void Prog_MoveTab(Prog_State *state, u32 from, u32 to);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);
+function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds);

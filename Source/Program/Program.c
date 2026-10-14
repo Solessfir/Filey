@@ -611,10 +611,21 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
             UI_Parent(cell) {
                 if (i == Prog_ColumnId_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
-                if (columns[i].alignX > 0) Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
-                Prog__Label(columns[i].title, columns[i].alignX > 0 ? UI_TextContent() : UI_Flex(), m->row, m->gap, color, 0);
+                // Titles start at the left even over right-aligned values, as in the reference.
+                Prog__Label(columns[i].title, UI_Flex(), m->row, m->gap, color, 0);
                 if (sorted) Prog__Icon(state->descending ? Icon_ArrowDown : Icon_ArrowUp, m->line + m->gap, m->row, theme->textDim, 0.5f, m);
                 if (i + 1 < Prog_ColumnId_Count) Prog__Box(UI_Pixels(m->separator), UI_Pixels(m->line), UI_Layout_Horizontal, theme->separator, 0);
+                // While folder totals are being counted, the columns they fill show a spinner at their right end, as in the reference.
+                const Prog_Icon *spinner = state->measureJob && (i == Prog_ColumnId_Files || i == Prog_ColumnId_Size) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+                if (spinner) {
+                    f32 slot = m->line + m->gap;
+                    UI_SetNextFloatingOffset((UI_Vec2){ cell->rect.x1 - cell->rect.x0 - slot - (i + 1 < Prog_ColumnId_Count ? m->separator + m->gap : 0), 0 });
+                    UI_SetNextPrefWidth(UI_Pixels(slot));
+                    UI_SetNextPrefHeight(UI_Pixels(m->row));
+                    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                    UI_SetNextImage(spinner->texture, spinner->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, theme->icon);
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+                }
             }
         }
     }

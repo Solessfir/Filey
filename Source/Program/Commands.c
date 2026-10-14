@@ -805,7 +805,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     P_SetDropDirectory(drop);
     Prog_SubmitIconRequests(state);
-    return changed;
+    // The header spinner turns while folders are being measured.
+    return changed || state->measureJob != NULL;
 }
 
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
