@@ -31,3 +31,14 @@ move-up
 move-down
 square
 lock-open
+eye
+scan-eye
+unfold-horizontal
+unfold-vertical
+square-plus
+square-x
+app-window
+copy
+terminal
+palette
+blend

@@ -541,6 +541,10 @@ command TabList {
 command MainMenu {
 }
 
+// The panel's own menu, from the button at the toolbar's end.
+command PanelMenu {
+}
+
 // A folder of the history picked from its menu; row is its place in the history.
 command HistoryGo {
 }

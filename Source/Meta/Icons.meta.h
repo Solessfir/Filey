@@ -2,7 +2,7 @@
 #pragma once
 
 #define Icon_FirstRune 0xE000
-#define Icon_Count     30
+#define Icon_Count     41
 
 #define Icon_ArrowLeft        S("\uE000")
 #define Icon_ArrowRight       S("\uE001")
@@ -34,6 +34,17 @@
 #define Icon_MoveDown         S("\uE01B")
 #define Icon_Square           S("\uE01C")
 #define Icon_LockOpen         S("\uE01D")
+#define Icon_Eye              S("\uE01E")
+#define Icon_ScanEye          S("\uE01F")
+#define Icon_UnfoldHorizontal S("\uE020")
+#define Icon_UnfoldVertical   S("\uE021")
+#define Icon_SquarePlus       S("\uE022")
+#define Icon_SquareX          S("\uE023")
+#define Icon_AppWindow        S("\uE024")
+#define Icon_Copy             S("\uE025")
+#define Icon_Terminal         S("\uE026")
+#define Icon_Palette          S("\uE027")
+#define Icon_Blend            S("\uE028")
 
 global const u8 Icon_FontData[] = {
 #embed "../Lib/Lucide/Lucide.ttf"

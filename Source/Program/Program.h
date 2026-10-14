@@ -54,6 +54,7 @@ struct Prog_Command {
     u64 inputOrder;
     KeyMods mods;
     UI_Vec2 at;  // menus: where they open
+    f32 atRight;  // menus: when nonzero, the right edge they line up with instead of at.x
 };
 
 // An item of Filey's own menus, which queues `kind` with `row`; Prog_CommandKind_None is a separator.
@@ -62,6 +63,8 @@ typedef struct Prog_MenuCommand {
     u64 row;
     String label;  // the command's label when empty
     b32 checked;
+    String icon;   // a glyph of the icon font before the label, or none
+    b8 toggle;     // shows `checked` as a box at the row's end rather than a check before the label
 } Prog_MenuCommand;
 
 typedef struct Prog_Entry {
@@ -440,6 +443,8 @@ typedef struct Prog_State {
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
     Prog_MenuCommand *menuCommands;  // per item of Filey's own menus; NULL for the system's
     UI_Key menuHot;           // hot block when the menu was last built
+    enum8(Prog_CommandKind) menuOpener;  // the button whose menu is open, which stays lit; None for other menus
+    f32 menuRight;            // when nonzero, the right edge the top level lines up with
     // Drag and drop.
     // The system's drag loop is modal, so a drag is requested during a frame and run between frames by Prog_DragSelection.
     b32 dragRequested;

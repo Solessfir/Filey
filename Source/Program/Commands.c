@@ -1,5 +1,6 @@
 #define Prog_CommandsTable
 #include "Meta/Commands.meta.h"
+#include "Meta/Icons.meta.h"
 
 function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kind, u64 row, u32 pressCount, u64 inputOrder)
 {
@@ -49,6 +50,8 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuRowCount = 0;
     state->menuDepth = 0;
     state->menuHighlight = UINT32_MAX;
+    state->menuOpener = Prog_CommandKind_None;
+    state->menuRight = 0;
 }
 
 // Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
@@ -141,7 +144,9 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     state->menu.count = state->menu.rootCount = count;
     state->menuOpen = true;
     state->menuAt = at;
+    // The keyboard starts on the first item, as the reference's menus do.
     state->menuHighlight = UINT32_MAX;
+    for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator) state->menuHighlight = i;
 }
 
 // Key names as Commands.txt and the settings spell them, and shorter ones for showing.
@@ -216,9 +221,11 @@ function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods)
 }
 
 // "Ctrl+Shift+S" for the first hotkey of `kind`, the settings' own before the defaults; empty when it has none.
-function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
+// Every hotkey of `kind`, up to `max` of them, in the order they are looked up; returns how many.
+function u32 Prog_HotkeyTexts(Arena *arena, const Prog_State *state, Prog_CommandKind kind, String *out, u32 max)
 {
-    for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys); ++i) {
+    u32 count = 0;
+    for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys) && count < max; ++i) {
         b32 user = i < state->userHotkeyCount;
         const Prog_Hotkey *hotkey = user ? &state->userHotkeys[i] : &Prog_DefaultHotkeys[i - state->userHotkeyCount];
         if (hotkey->command != kind || (!user && state->hotkeyOverridden[kind])) continue;
@@ -234,10 +241,17 @@ function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_Comm
         }
         if (key[0]) name = key;
         if (!name) continue;
-        return StrFormat(arena, "%s%s%s%s%s", (hotkey->mods & KeyMod_Control) ? "Ctrl+" : "", (hotkey->mods & KeyMod_Alt) ? "Alt+" : "",
-                         (hotkey->mods & KeyMod_Shift) ? "Shift+" : "", (hotkey->mods & KeyMod_Super) ? "Super+" : "", name);
+        out[count++] = StrFormat(arena, "%s%s%s%s%s", (hotkey->mods & KeyMod_Control) ? "Ctrl+" : "", (hotkey->mods & KeyMod_Alt) ? "Alt+" : "",
+                                 (hotkey->mods & KeyMod_Shift) ? "Shift+" : "", (hotkey->mods & KeyMod_Super) ? "Super+" : "", name);
     }
-    return (String){0};
+    return count;
+}
+
+function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
+{
+    String result = {0};
+    Prog_HotkeyTexts(arena, state, kind, &result, 1);
+    return result;
 }
 
 // Whether `needle` appears in `text` as one run, ignoring ASCII case.
@@ -298,27 +312,40 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             for (u32 i = 0; i < state->tabCount; ++i) Prog__Item(.kind = Prog_CommandKind_SelectTab, .row = i, .label = Prog_TabPath(state, i), .checked = i == state->activeTab);
         } break;
         case Prog_CommandKind_MainMenu: {
-            Prog__Item(.kind = Prog_CommandKind_CommandPalette);
+            Prog__Item(.kind = Prog_CommandKind_CommandPalette, .icon = Icon_Terminal);
+            Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow);
             Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_TabNew);
-            Prog__Item(.kind = Prog_CommandKind_NewWindow);
-            Prog__Item(.kind = Prog_CommandKind_SplitRight);
-            Prog__Item(.kind = Prog_CommandKind_SplitBottom);
+            Prog__Item(.kind = Prog_CommandKind_OpenSettings, .icon = Icon_Settings);
             Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .checked = state->showHidden);
-            Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .checked = !state->sidebarHidden);
-            Prog__Item(.kind = Prog_CommandKind_TogglePreview, .checked = state->previewShown);
-            Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .checked = Prog_IsBookmarked(state, state->directory.path));
-            Prog__Item(.kind = Prog_CommandKind_CopyAsPath);
+            Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .icon = Icon_Blend, .toggle = true, .checked = state->transparent);
+            Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .icon = Icon_Palette, .toggle = true, .checked = state->debugTheme);
+        } break;
+        // In the reference's order: the panel's views, its splits, its tabs, the app, then what the listing shows.
+        case Prog_CommandKind_PanelMenu: {
+            Prog__Item(.kind = Prog_CommandKind_ToggleExpandFolder, .icon = Icon_FolderTree, .toggle = true, .checked = state->directory.expanded);
+            Prog__Item(.kind = Prog_CommandKind_TogglePreview, .icon = Icon_ScanEye, .toggle = true, .checked = state->previewShown);
             Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_OpenSettings);
-            Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .checked = state->transparent);
-            Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .checked = state->debugTheme);
+            Prog__Item(.kind = Prog_CommandKind_SplitRight, .icon = Icon_UnfoldHorizontal);
+            Prog__Item(.kind = Prog_CommandKind_SplitBottom, .icon = Icon_UnfoldVertical);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_TabNew, .icon = Icon_SquarePlus);
+            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_OpenSettings, .icon = Icon_Settings);
+            Prog__Item(.kind = Prog_CommandKind_CopyAsPath, .icon = Icon_Copy);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .icon = Icon_Eye, .toggle = true, .checked = state->showHidden);
+            Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .icon = Icon_PanelLeft, .toggle = true, .checked = !state->sidebarHidden);
+            Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .icon = Icon_Bookmark, .toggle = true, .checked = Prog_IsBookmarked(state, state->directory.path));
         } break;
         default: break;
     }
 #undef Prog__Item
     Prog_OpenCommandMenu(state, items, count, command->at);
+    if (state->menuOpen) {
+        state->menuOpener = command->kind;
+        state->menuRight = command->atRight;
+    }
     ReleaseScratch(scratch);
 }
 
@@ -1061,7 +1088,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
             case Prog_CommandKind_TabList:
-            case Prog_CommandKind_MainMenu: Prog__OpenProgramMenu(state, command); break;
+            case Prog_CommandKind_MainMenu:
+            case Prog_CommandKind_PanelMenu: Prog__OpenProgramMenu(state, command); break;
             case Prog_CommandKind_HistoryGo: {
                 if (command->row < state->history.header.count) Prog_RequestDirectory(state, state->history.v[command->row], false, command->row);
             } break;
