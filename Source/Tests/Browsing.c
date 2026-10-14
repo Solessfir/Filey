@@ -1191,9 +1191,10 @@ function void TestTabs(TestFileFixture *fixture)
     Check(state.activeTab == 0 && TestEndsWith(state.directory.path, S("/Empty")) && StrIsEqual(Prog_TabPath(&state, 1), fixture->path));
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
     Check(state.tabCount == 1 && state.activeTab == 0 && StrIsEqual(state.directory.path, fixture->path));
-    // The last tab stays.
+    // The last tab closes the window.
+    u32 closes = TestWindowCalls[2];
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
-    Check(state.tabCount == 1);
+    Check(state.tabCount == 1 && TestWindowCalls[2] == closes + 1);
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
     Prog_Release(&state);
@@ -1272,9 +1273,10 @@ function void TestPanels(TestFileFixture *fixture)
     Check(state.panelCount == 2 && state.splits[0].kind == Prog_SplitKind_Horizontal && StrIsEqual(state.directory.path, fixture->path));
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
     Check(state.panelCount == 1 && state.splits[0].kind == Prog_SplitKind_Panel && TestEndsWith(state.directory.path, S("/Empty")));
-    // The last panel stays.
+    // The last panel's last tab closes the window.
+    u32 closes = TestWindowCalls[2];
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
-    Check(state.panelCount == 1 && state.tabCount == 1);
+    Check(state.panelCount == 1 && state.tabCount == 1 && TestWindowCalls[2] == closes + 1);
     // Dragged tabs: within their strip they change place, into another panel they move there, and beside a panel they make a new one; Ctrl copies.
     u64 alone = state.panels[0].id;
     Prog_OpenTab(&state, fixture->path, 1, false);

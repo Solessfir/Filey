@@ -1268,7 +1268,11 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
 function void Prog_CloseTab(Prog_State *state, u32 index)
 {
     Prog__EnsureTab(state);
-    // A panel's only tab closes the panel; the last panel's last tab stays, since closing it would close the window.
+    // A panel's only tab closes the panel, and the last panel's last tab the window.
+    if (index < state->tabCount && state->tabCount == 1 && state->panelCount <= 1) {
+        PlatformWindowClose();
+        return;
+    }
     if (index < state->tabCount && state->tabCount == 1 && state->panelCount > 1) {
         String path = Prog_TabPath(state, index);
         if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));

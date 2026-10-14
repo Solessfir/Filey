@@ -42,3 +42,4 @@ copy
 terminal
 palette
 blend
+trash-2
