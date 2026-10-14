@@ -489,7 +489,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
 function void Prog__PillButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 on, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(floorf(m->line * 1.5f)), floorf(m->line * 1.5f), 0,
+    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                   on ? theme->text : theme->icon, theme->text, theme->iconDisabled, true, m);
     Prog__NoteTooltip(state, kind, (String){0});
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
@@ -1573,32 +1573,50 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
     UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(bar) {
-        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f) + floorf(6.4f * m->scale + 0.5f) + radius));
+        // While filtering, the text sits in a darker field and the box grows to the right for the buttons that work the filter.
+        b32 active = state->filtering || state->filter.length;
+        f32 inset = floorf(2.4f * m->scale + 0.5f);
+        UI_SetNextPrefWidth(UI_Pixels(floorf(m->line * 15.3f) + floorf(6.4f * m->scale + 0.5f) + radius + (active ? 4 * Prog__ToolbarButtonWidth(m) : 0)));
         UI_SetNextPrefHeight(UI_Pixels(m->pill + radius));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
-        UI_SetNextChildrenPadding((UI_Padding){ m->gap + radius, 0, m->gap, 0 });
+        UI_SetNextChildrenPadding(active ? (UI_Padding){ radius, inset, m->gap, 0 } : (UI_Padding){ m->gap + radius, 0, m->gap, 0 });
         UI_SetNextCornerRadius(radius);
         UI_SetNextBorderThickness(1.2f * m->scale);
-        UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = state->filtering ? theme->focus : theme->tabBorder });
+        UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
         UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->filterRect = filter->rect;
         UI_Interaction interaction = UI_InteractionFromBlock(filter);
         if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_StartFilter, 0, interaction.pressCount, interaction.pressOrder);
         UI_Parent(filter) {
-            Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, state->filter.length ? theme->text : theme->textDim, 0.5f, m);
-            if (state->filtering || state->filter.length) {
+            if (active) {
+                f32 tall = m->pill - inset;
                 UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(m->pill));
-                UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
-                Prog__EditMouse(state, field, &state->filter, floorf(m->gap * 0.5f), Prog_CommandKind_FilterCaret, m);
-                UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((m->pill - m->line) * 0.5f), state->filtering, m);
-                Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
-                Prog__PillButton(state, S("FilterPin"), state->filterSticky ? Icon_Pin : Icon_PinOff, Prog_CommandKind_ToggleFilterPin, state->filterSticky, m);
-                Prog__PillButton(state, S("FilterApply"), Icon_Check, Prog_CommandKind_ApplyFilter, false, m);
-                Prog__PillButton(state, S("FilterOpen"), Icon_CornerDownLeft, Prog_CommandKind_OpenFocused, false, m);
-                Prog__PillButton(state, S("FilterRemove"), Icon_X, Prog_CommandKind_RemoveFilter, false, m);
+                UI_SetNextPrefHeight(UI_Pixels(tall + radius));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, 0, 0 });
+                UI_SetNextCornerRadius(floorf(8.0f * m->scale + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = theme->inner });
+                UI_Block *well = UI_AddBlock(UI_Flag_DrawBackground);
+                UI_Parent(well) {
+                    Prog__Icon(Icon_Search, m->iconSlot - m->gap, tall, state->filter.length ? theme->text : theme->textDim, 0.5f, m);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(tall));
+                    UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+                    Prog__EditMouse(state, field, &state->filter, floorf(m->gap * 0.5f), Prog_CommandKind_FilterCaret, m);
+                    UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->filtering, m);
+                }
+                UI_Block *buttons = Prog__Box(UI_Fill(), UI_Pixels(tall), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(buttons) {
+                    Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
+                    Prog__PillButton(state, S("FilterPin"), state->filterSticky ? Icon_Pin : Icon_PinOff, Prog_CommandKind_ToggleFilterPin, state->filterSticky, m);
+                    Prog__PillButton(state, S("FilterApply"), Icon_Check, Prog_CommandKind_ApplyFilter, false, m);
+                    Prog__PillButton(state, S("FilterOpen"), Icon_CornerDownLeft, Prog_CommandKind_OpenFocused, false, m);
+                    Prog__PillButton(state, S("FilterRemove"), Icon_X, Prog_CommandKind_RemoveFilter, false, m);
+                }
             } else {
+                Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
                 String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
                 Prog__PillButton(state, S("FilterExpand"), Icon_FolderTree, Prog_CommandKind_ToggleExpandFolder, state->expanded, m);
@@ -2241,6 +2259,8 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     u32 shown = Min(count - first, shownMax);
     f32 width = floorf(MinF32((view.x1 - view.x0) * 0.761f, m->line * 60));
     f32 height = field + line + (f32)shown * (rowHeight + line) + footer;
+    // It fades in as the menus do.
+    f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("PaletteReveal")), 1, 0);
     f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
     for (u32 i = 1; i <= 3; ++i) {
         f32 grow = (f32)i * floorf(s + 0.5f);
@@ -2249,12 +2269,14 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextFloatingOffset((UI_Vec2){ x - grow, top });
         UI_SetNextCornerRadius(radius + grow);
         UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.09f } });
+        UI_SetNextOpacity(opacity);
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
@@ -2349,6 +2371,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextCornerRadius(radius);
     UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }

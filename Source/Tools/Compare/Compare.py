@@ -142,13 +142,17 @@ class App:
                 if frames and time.time() - os.path.getmtime(frames[-1][1]) > 0.15: break
                 time.sleep(0.05)
             return Image.open(frames[-1][1]).convert('RGB')
-        # A capture can catch a frame half drawn, so one is taken once two in a row agree.
-        last = self.grab()
-        for _ in range(8):
-            time.sleep(0.03)
-            now = self.grab()
-            if now.tobytes() == last.tobytes(): break
-            last = now
+        # A capture can catch a frame half drawn, so one is taken once two in a row agree; now and then the reference presents a frame drawn
+        # for a smaller window, which leaves its top left corner black where the title bar is, and that one is taken again.
+        for _ in range(20):
+            last = self.grab()
+            for _ in range(8):
+                time.sleep(0.03)
+                now = self.grab()
+                if now.tobytes() == last.tobytes(): break
+                last = now
+            if now.getpixel((4, 4)) != (0, 0, 0): break
+            time.sleep(0.1)
         return now
     def close(self):
         self.post(0x10)
