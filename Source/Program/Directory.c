@@ -11,22 +11,29 @@ function String Prog_EntryModified(Arena *arena, const Prog_Entry *entry)
     return entry->file.metadataValid ? P_FormatFileTime(arena, entry->file.modifiedTimeUnix) : (String){0};
 }
 
-function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
+// The path of an index entry written into `text`, cut at `room`.
+function String Prog__IndexPathTo(char *text, u64 room, const Prog_Index *index, u32 entry)
 {
     // The names from the entry up to its root, then joined from the root down.
     String chain[256];
     u32 depth = 0;
     for (u32 at = entry; at < index->names.header.count && depth < CArrayCount(chain); at = index->parents.v[at]) chain[depth++] = index->names.v[at];
-    u64 length = 0;
-    for (u32 i = 0; i < depth; ++i) length += chain[i].length + 1;
-    char *text = ArenaPushArray(arena, Max(length, (u64)1), char);
     u64 used = 0;
     for (u32 i = depth; i-- > 0;) {
-        if (used && text[used - 1] != '/') text[used++] = '/';
-        MemCopy(text + used, chain[i].value, chain[i].length);
-        used += chain[i].length;
+        if (used && used < room && text[used - 1] != '/') text[used++] = '/';
+        u64 length = Min(chain[i].length, room - used);
+        MemCopy(text + used, chain[i].value, length);
+        used += length;
     }
     return StrMake(text, used);
+}
+
+function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
+{
+    u64 length = 0;
+    u32 depth = 0;
+    for (u32 at = entry; at < index->names.header.count && depth < 256; at = index->parents.v[at], ++depth) length += index->names.v[at].length + 1;
+    return Prog__IndexPathTo(ArenaPushArray(arena, Max(length, (u64)1), char), Max(length, (u64)1), index, entry);
 }
 
 // 1024-based with one decimal, cut rather than rounded as the reference does, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".

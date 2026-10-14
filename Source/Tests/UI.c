@@ -596,6 +596,18 @@ function void TestProgramCommands(void)
     ArenaRelease(&state.viewArena);
 }
 
+// The reference's Go To scores, worked out by hand from its rules.
+function void TestGoToScore(void)
+{
+    Check(Prog__FuzzyMatch(S("Downloads"), S("down")) == 735);
+    Check(Prog__FuzzyMatch(S("Someone12\\Downloads"), S("DOWN")) == 645);
+    Check(Prog__FuzzyMatch(S("Windows NT"), S("down")) == 504);
+    Check(Prog__FuzzyMatch(S("Downloads\\That"), S("down")) == 720);
+    Check(Prog__FuzzyMatch(S("That"), S("down")) == 0);
+    // Each word scores on its own, and the later "n" right after the space beats the earlier one.
+    Check(Prog__FuzzyMatch(S("Windows NT"), S("win nt")) == 529 + 293);
+}
+
 function void TestProgramVirtualRows(void)
 {
     Prog_State state = {0};

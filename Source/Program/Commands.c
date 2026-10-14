@@ -58,6 +58,7 @@ function void Prog_CloseMenu(Prog_State *state)
 
 // Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
 function b32 Prog__ContainsFolded(String text, String needle);
+function u64 Prog__CrumbStart(const Prog_State *state, String path, b32 *drive);
 function void Prog__EditReplace(Prog_TextEdit *edit, const u8 *bytes, u32 count);
 
 function u32 Prog_MenuVisible(const P_ContextMenu *menu, u32 first, u32 count, String filter, u32 *out)
@@ -327,6 +328,249 @@ function String Prog__GoToPath(Prog_State *state, String typed)
     return path;
 }
 
+enum { Prog_FuzzyText = 512, Prog_FuzzyTerm = 64 };
+
+typedef struct Prog__Fuzzy {
+    const rune *term, *text, *folded;
+    u32 termCount, count, calls;
+} Prog__Fuzzy;
+
+// The reference's score for the letters of a term placed at `at` in `text`: placed letters that follow one another, start the text,
+// follow a lowercase letter as an uppercase one or follow "_" or a space score; letters before the first, letters left over and gaps cost.
+function i32 Prog__FuzzyScore(const Prog__Fuzzy *f, const u32 *at)
+{
+    i32 score = 100 + ((i32)f->termCount - (i32)f->count) * 3 - (i32)at[0];
+    for (u32 i = 0; i < f->termCount; ++i) {
+        u32 place = at[i];
+        if (i) {
+            i32 gap = (i32)(place - at[i - 1]);
+            if (gap > 5) score += (5 - gap) * 50;
+            if (gap == 1) score += 200;
+        }
+        if (place == 0) {
+            score += 50;
+            continue;
+        }
+        rune previous = f->text[place - 1], current = f->text[place];
+        b32 lower = (previous >= 'a' && previous <= 'z') || (previous >= 0xE0 && previous <= 0xFF && previous != 0xF7) || (previous >= 0x430 && previous <= 0x45F);
+        if (lower && Prog__FoldRune(current) != current) score += 30;
+        if (previous == '_' || previous == ' ') score += 25;
+    }
+    return score;
+}
+
+// Places the term's letters from `placed` on in the text from `from` on, the best of the ways the reference tries.
+function b32 Prog__FuzzyPlace(Prog__Fuzzy *f, u32 placed, u32 from, u32 *at, i32 *score)
+{
+    // The reference gives up after ten tries.
+    if (++f->calls >= 10) return false;
+    u32 own[Prog_FuzzyTerm], other[Prog_FuzzyTerm], best[Prog_FuzzyTerm];
+    MemCopy(own, at, placed * sizeof(u32));
+    b32 retried = false;
+    i32 retriedScore = 0;
+    for (u32 t = from; placed < f->termCount && t < f->count; ++t) {
+        if (f->folded[t] != f->term[placed]) continue;
+        // The same letter placed further on instead.
+        i32 otherScore = 0;
+        MemCopy(other, own, placed * sizeof(u32));
+        if (Prog__FuzzyPlace(f, placed, t + 1, other, &otherScore) && (!retried || otherScore > retriedScore)) {
+            MemCopy(best, other, f->termCount * sizeof(u32));
+            retriedScore = otherScore;
+            retried = true;
+        }
+        own[placed++] = t;
+    }
+    b32 matched = placed == f->termCount;
+    i32 ownScore = matched ? Prog__FuzzyScore(f, own) : 0;
+    if (retried && (!matched || retriedScore > ownScore)) {
+        MemCopy(at, best, f->termCount * sizeof(u32));
+        *score = retriedScore;
+        return true;
+    }
+    if (!matched) return false;
+    MemCopy(at, own, f->termCount * sizeof(u32));
+    *score = ownScore;
+    return true;
+}
+
+// The reference's score for `text` holding the letters of each of the space-separated terms of `typed` in order, ignoring case,
+// summed over the terms; 0 for a term whose letters it does not hold.
+function i32 Prog__FuzzyMatch(String text, String typed)
+{
+    rune original[Prog_FuzzyText], folded[Prog_FuzzyText], term[Prog_FuzzyTerm];
+    u32 count = 0;
+    b32 decoded = false;
+    i32 result = 0;
+    for (u64 at = 0; at < typed.length;) {
+        u32 termCount = 0;
+        while (at < typed.length && typed.value[at] == ' ') ++at;
+        u64 termStart = at;
+        while (at < typed.length && typed.value[at] != ' ') {
+            rune c = Prog__FoldRune(StrDecodeUtf8(typed, &at));
+            if (termCount < Prog_FuzzyTerm) term[termCount++] = c;
+        }
+        if (!termCount) continue;
+        // Most texts do not hold the letters at all, which this finds without scoring; bytes for a term of ASCII letters, which no other letter folds to.
+        b32 ascii = true;
+        for (u32 i = 0; i < termCount; ++i) ascii &= term[i] < 0x80;
+        if (ascii) {
+            u32 found = 0;
+            for (u64 i = 0; i < text.length && found < termCount; ++i) found += (rune)Prog__FoldAscii((u8)text.value[i]) == term[found];
+            if (found < termCount) continue;
+        } else if (!Prog_FilterMatch(text, StrFromTo(typed, termStart, (i64)at), NULL)) {
+            continue;
+        }
+        for (u64 from = 0; !decoded && from < text.length && count < Prog_FuzzyText;) {
+            original[count] = StrDecodeUtf8(text, &from);
+            folded[count] = Prog__FoldRune(original[count]);
+            ++count;
+        }
+        decoded = true;
+        Prog__Fuzzy f = { term, original, folded, termCount, count, 0 };
+        u32 places[Prog_FuzzyTerm];
+        i32 score = 0;
+        if (Prog__FuzzyPlace(&f, 0, 0, places, &score)) result += score;
+    }
+    return result;
+}
+
+// The most three quarters of a path's score can add for `typed`: each letter placed right after the last, after a lowercase letter
+// as an uppercase one and after a space, the first at the start, and no letter left over.
+function i32 Prog__FuzzyBest(String typed)
+{
+    i32 result = 0;
+    for (u64 at = 0; at < typed.length;) {
+        i32 letters = 0;
+        while (at < typed.length && typed.value[at] == ' ') ++at;
+        while (at < typed.length && typed.value[at] != ' ') {
+            StrDecodeUtf8(typed, &at);
+            letters += letters < Prog_FuzzyTerm;
+        }
+        if (letters) result += ((150 + 255 * (letters - 1)) * 3 + 3) / 4 + 1;
+    }
+    return result;
+}
+
+// What a Go To row scores: its name, and three quarters of its path as the row shows it, from the root it is in or its drive, rounded half away from zero.
+function i32 Prog__GoToScore(const Prog_State *state, String path, String typed, i32 nameScore)
+{
+    b32 drive;
+    u64 start = Prog__CrumbStart(state, path, &drive);
+    String shown = StrFrom(path, drive ? 0 : start);
+    while (shown.length > 2 && shown.value[shown.length - 1] == '/') --shown.length;
+    i32 where = Prog__FuzzyMatch(shown, typed);
+    f32 scaled = (f32)where * 0.75f;
+    return nameScore + (i32)(scaled < 0 ? scaled - 0.5f : scaled + 0.5f);
+}
+
+// Go To's search ranks matches by score; ranks of Prog_GoToRanks and above tie, which only long texts of several words reach.
+enum { Prog_GoToRanks = 8192, Prog_GoToPool = 2048 };
+
+function u16 Prog__GoToRank(i32 score)
+{
+    return (u16)(Prog_GoToRanks - 1 - Min(Max(score, 0), (i32)Prog_GoToRanks - 1));
+}
+
+// Whether the index's `folder` is one of the folders close at hand, whose entries match by their path too.
+function b32 Prog__GoToNearby(const Prog_State *state, const Prog_Index *index, u32 folder)
+{
+    if (folder >= index->names.header.count) return false;
+    String name = index->names.v[folder];
+    if (index->parents.v[folder] == UINT32_MAX) name = Prog__FolderName(name);
+    if (!MapsGetPtrNull(state->gotoNearbyNames, name)) return false;
+    char made[1024];
+    return MapsGetPtrNull(state->gotoNearbyPaths, Prog__IndexPathTo(made, sizeof(made), index, folder)) != NULL;
+}
+
+typedef struct Prog__GoToFound {
+    u32 entry;
+    i32 score;
+} Prog__GoToFound;
+
+enum { Prog_GoToBlock = 2048 };
+
+// A frame's look through the index: the lanes take blocks of its entries in turn until the time is up, so that a block costly to look
+// through holds up no other lane, and the blocks taken are the first ones.
+typedef struct Prog__GoToLook {
+    const Prog_State *state;
+    const Prog_Index *index;
+    String text;
+    u64 first, count, until;
+    u32 floor;
+    i32 pathBest;
+    atomic_uint_fast64_t next;  // the next block to take
+    Prog__GoToFound *found;     // per block, from its first entry's place on
+    u32 *foundCount;            // per block
+} Prog__GoToLook;
+
+function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
+{
+    const Prog_Index *index = look->index;
+    u64 from = look->first + block * Prog_GoToBlock, to = Min(from + Prog_GoToBlock, look->first + look->count);
+    Prog__GoToFound *found = look->found + block * Prog_GoToBlock;
+    u32 count = 0;
+    // Entries of a folder follow one another, so that its answer is asked once.
+    u32 lastParent = UINT32_MAX - 1;
+    b32 inside = false;
+    for (u64 at = from; at < to; ++at) {
+        u32 entry = (u32)at, parent = index->parents.v[entry];
+        String name = index->names.v[entry];
+        // A root's name is its whole path.
+        if (parent == UINT32_MAX) name = Prog__FolderName(name);
+        if (parent != lastParent) {
+            lastParent = parent;
+            inside = Prog__GoToNearby(look->state, index, parent);
+        }
+        i32 nameScore = Prog__FuzzyMatch(name, look->text);
+        if (nameScore <= 0 && !inside) continue;
+        // A name that cannot get past the floor with the best path there is does not have its path looked at.
+        if (Prog__GoToRank(nameScore + look->pathBest) >= look->floor) continue;
+        char made[1024];
+        i32 score = Prog__GoToScore(look->state, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text, nameScore);
+        if (score <= 0 || Prog__GoToRank(score) >= look->floor) continue;
+        found[count++] = (Prog__GoToFound){ entry, score };
+    }
+    look->foundCount[block] = count;
+}
+
+function void Prog__GoToLane(void *user, u32 lane)
+{
+    (void)lane;
+    Prog__GoToLook *look = user;
+    u64 blocks = (look->count + Prog_GoToBlock - 1) / Prog_GoToBlock;
+    while (PlatformNowMicroseconds() < look->until) {
+        u64 block = atomic_fetch_add(&look->next, 1);
+        if (block >= blocks) break;
+        Prog__GoToBlock(look, block);
+    }
+}
+
+// Adds a match to the pool. A full pool keeps its better half in its order, the ranks before the one that would overflow it and of that one
+// the earliest, and refuses from then on what does not rank before that one, so that the whole index is searched with little kept.
+function void Prog__GoToPool(Prog_State *state, Arena *scratch, Prog_GoToItem item, u16 rank)
+{
+    if (rank >= state->gotoFloor) return;
+    if (state->gotoPooled == Prog_GoToPool) {
+        u32 *bins = ArenaPushArray(scratch, Prog_GoToRanks, u32);
+        for (u32 p = 0; p < Prog_GoToPool; ++p) ++bins[state->gotoRanks[p]];
+        u32 floor = 0, kept = 0;
+        while (kept + bins[floor] <= Prog_GoToPool / 2) kept += bins[floor++];
+        u32 room = Prog_GoToPool / 2 - kept, to = 0;
+        for (u32 p = 0; p < Prog_GoToPool; ++p) {
+            u16 r = state->gotoRanks[p];
+            if (r > floor || (r == floor && !room)) continue;
+            if (r == floor) --room;
+            state->gotoRanks[to] = r;
+            state->gotoPool[to++] = state->gotoPool[p];
+        }
+        state->gotoPooled = to;
+        state->gotoFloor = floor;
+        if (rank >= floor) return;
+    }
+    state->gotoRanks[state->gotoPooled] = rank;
+    state->gotoPool[state->gotoPooled++] = item;
+}
+
 // The rows Go To offers for the text typed, best first, in the frame arena: without a separator typed, the recent folders and the bookmarks
 // holding it, those of folded sections left out; with one, what is inside the folder typed so far, `folder`, that starts with or holds what
 // follows it. A folder not listed yet starts its listing and offers nothing until it arrives.
@@ -345,72 +589,80 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         const Prog_Index *index = state->indexDone || !state->savedIndex.names.header.count ? &state->index : &state->savedIndex;
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
         u64 nearby = recents + bookmarks + known;
-        // Ranked by how the name holds the text, starting with it before holding it whole before holding its letters, the few close at hand
-        // also by their path, and then shorter names first; within a rank the walk's order keeps shallower entries first.
-        enum { Lengths = 64, Ranks = 4 * Lengths, Pool = 20000 };
+        // Ranked by the reference's score of the name and the shown path; within a score the walk's order keeps shallower entries first.
+        // The few close at hand and what is right inside them match by their path too, the rest of the index by their name only.
         Arena *arena = &state->gotoFoundArena;
         String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
         if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby || state->gotoIndex != index) {
             ArenaClear(arena);
-            state->gotoPool = ArenaPushArray(arena, Pool, Prog_GoToItem);
-            state->gotoPoolEntries = ArenaPushArray(arena, Pool, u32);
-            state->gotoRanks = ArenaPushArray(arena, Pool, u16);
+            state->gotoPool = ArenaPushArray(arena, Prog_GoToPool, Prog_GoToItem);
+            state->gotoRanks = ArenaPushArray(arena, Prog_GoToPool, u16);
             state->gotoPooled = 0;
+            state->gotoFloor = Prog_GoToRanks;
             state->gotoScanAt = 0;
             state->gotoScanFrame = UINT64_MAX;
             state->gotoNearby = nearby;
             state->gotoIndex = index;
             state->gotoSeen = (Prog_PathSet){0};
             state->gotoNearbyNames = (Prog_PathSet){0};
+            state->gotoNearbyPaths = (Prog_PathSet){0};
             state->gotoFoundTextLength = (u32)Min(text.length, (u64)sizeof(state->gotoFoundText));
             MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
-        }
-        // Once a frame, so that every look in a frame sees the same rows; the walk's new entries are reached in turn.
-        u64 entries = nearby + index->names.header.count;
-        if (state->gotoScanFrame != state->ui.frameIndex) ProfileScope("GoToSearch") {
-            state->gotoScanFrame = state->ui.frameIndex;
-            u64 start = PlatformNowMicroseconds();
-            u64 first = state->gotoScanAt;
-            for (u64 i = first; i < entries && state->gotoPooled < Pool; ++i) {
-                if (((i - first) & 1023) == 1023 && PlatformNowMicroseconds() - start > UINT64_C(4000)) break;
-                state->gotoScanAt = i + 1;
-                b32 indexed = i >= nearby;
-                u32 entry = indexed ? (u32)(i - nearby) : UINT32_MAX;
-                String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents]
-                            : !indexed ? state->knownFolders.v[i - recents - bookmarks] : (String){0};
-                String name = indexed ? index->names.v[entry] : Prog__FolderName(path);
-                // A root's name is its whole path.
-                if (indexed && index->parents.v[entry] == UINT32_MAX) name = Prog__FolderName(name);
-                if (!indexed) MapsPut(arena, state->gotoNearbyNames, name, true);
-                b32 starting = name.length >= text.length && Prog__ContainsFolded(StrFromTo(name, 0, (i64)text.length), text);
-                u32 tier = starting ? 0 : Prog__ContainsFolded(name, text) ? 1 : Prog_FilterMatch(name, text, NULL) ? 2 : !indexed && Prog_FilterMatch(path, text, NULL) ? 3 : 4;
-                if (tier == 4) continue;
-                // The index finds the folders close at hand again, which only a name of theirs can be.
-                if (indexed && MapsGetPtrNull(state->gotoNearbyNames, name)) path = Prog_IndexPath(arena, index, entry);
-                if (path.length && MapsGetPtrNull(state->gotoSeen, path)) continue;
-                if (path.length) MapsPut(arena, state->gotoSeen, path, true);
-                u8 flags = indexed ? (u8)index->flags.v[entry] : 0;
-                b32 hidden = (flags & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.');
-                state->gotoRanks[state->gotoPooled] = (u16)(tier * Lengths + Min(name.length, (u64)Lengths - 1));
-                state->gotoPoolEntries[state->gotoPooled] = entry;
-                state->gotoPool[state->gotoPooled++] = (Prog_GoToItem){ path, Prog_GoToSection_Found, (b8)((flags & Prog_IndexFlag_File) != 0), (b8)hidden, {0}, NULL };
+            // The folders close at hand first, which the index's entries are then told apart by.
+            for (u64 i = 0; i < nearby; ++i) {
+                String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks];
+                String name = Prog__FolderName(path);
+                MapsPut(arena, state->gotoNearbyNames, name, true);
+                MapsPut(arena, state->gotoNearbyPaths, path, true);
+                i32 score = Prog__GoToScore(state, path, text, Prog__FuzzyMatch(name, text));
+                if (score <= 0 || MapsGetPtrNull(state->gotoSeen, path)) continue;
+                MapsPut(arena, state->gotoSeen, path, true);
+                Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, false, (b8)(name.length && name.value[0] == '.'), {0}, NULL }, Prog__GoToRank(score));
             }
         }
-        state->gotoSearching = state->gotoScanAt < entries && state->gotoPooled < Pool;
-        // A counting sort, which keeps the order within a rank; the paths of the index's entries are made for the rows offered.
+        // Once a frame, so that every look in a frame sees the same rows; the walk's new entries are reached in turn.
+        // Each frame looks for about 4 ms.
+        u64 entries = index->names.header.count;
+        if (state->gotoScanFrame != state->ui.frameIndex && state->gotoScanAt < entries) ProfileScope("GoToSearch") {
+            state->gotoScanFrame = state->ui.frameIndex;
+            Prog__GoToLook look = {
+                .state = state, .index = index, .text = text, .first = state->gotoScanAt, .count = Min(entries - state->gotoScanAt, (u64)1 << 20),
+                .until = PlatformNowMicroseconds() + 4000, .floor = state->gotoFloor, .pathBest = Prog__FuzzyBest(text),
+            };
+            u64 blocks = (look.count + Prog_GoToBlock - 1) / Prog_GoToBlock;
+            look.found = ArenaPushArrayNoZero(frame, look.count, Prog__GoToFound);
+            look.foundCount = ArenaPushArrayNoZero(frame, blocks, u32);
+            P_RunLanes(Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)), Prog__GoToLane, &look);
+            u64 taken = Min((u64)atomic_load(&look.next), blocks);
+            state->gotoScanAt = Min(look.first + taken * Prog_GoToBlock, entries);
+            // In the blocks' order, which is the walk's.
+            for (u64 block = 0; block < taken; ++block) {
+                for (u32 i = 0; i < look.foundCount[block]; ++i) {
+                    Prog__GoToFound found = look.found[block * Prog_GoToBlock + i];
+                    u16 rank = Prog__GoToRank(found.score);
+                    if (rank >= state->gotoFloor) continue;
+                    char made[1024];
+                    String path = Prog__IndexPathTo(made, sizeof(made), index, found.entry);
+                    // The index finds the folders close at hand again.
+                    if (MapsGetPtrNull(state->gotoSeen, path)) continue;
+                    u8 flags = (u8)index->flags.v[found.entry];
+                    String name = index->names.v[found.entry];
+                    b32 hidden = (flags & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.');
+                    Prog__GoToPool(state, frame, (Prog_GoToItem){ StrCopy(arena, path), Prog_GoToSection_Found, (b8)((flags & Prog_IndexFlag_File) != 0), (b8)hidden, {0}, NULL }, rank);
+                }
+            }
+        }
+        state->gotoSearching = state->gotoScanAt < entries;
+        // A counting sort, which keeps the order within a rank.
         u32 pooled = state->gotoPooled;
-        u32 *starts = ArenaPushArray(frame, Ranks + 1, u32);
+        u32 *starts = ArenaPushArray(frame, Prog_GoToRanks + 1, u32);
         for (u32 i = 0; i < pooled; ++i) ++starts[state->gotoRanks[i] + 1];
-        for (u32 r = 0; r < Ranks; ++r) starts[r + 1] += starts[r];
+        for (u32 r = 0; r < Prog_GoToRanks; ++r) starts[r + 1] += starts[r];
         u32 *order = ArenaPushArray(frame, Max(pooled, 1u), u32);
         for (u32 i = 0; i < pooled; ++i) order[starts[state->gotoRanks[i]]++] = i;
         *count = Min(pooled, (u32)Prog_MaxGoToFound);
         Prog_GoToItem *result = ArenaPushArray(frame, Max(*count, 1u), Prog_GoToItem);
-        for (u32 i = 0; i < *count; ++i) {
-            u32 at = order[i];
-            result[i] = state->gotoPool[at];
-            if (!result[i].path.length) result[i].path = Prog_IndexPath(frame, index, state->gotoPoolEntries[at]);
-        }
+        for (u32 i = 0; i < *count; ++i) result[i] = state->gotoPool[order[i]];
         return result;
     }
     if (cut < 0) {

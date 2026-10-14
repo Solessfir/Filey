@@ -595,15 +595,16 @@ typedef struct Prog_State {
     // Go To's search, which goes through the folders close at hand and then the index a few milliseconds at every look, so that typing never waits
     // for it; what it found is kept while the text, the folders close at hand and the index searched stay the same.
     Arena gotoFoundArena;
-    Prog_GoToItem *gotoPool;  // what matched so far; an entry of the index has its path made only when it is shown
-    u32 *gotoPoolEntries;     // per match, its entry in the index, or UINT32_MAX for a folder close at hand
+    Prog_GoToItem *gotoPool;  // what matched so far
     u16 *gotoRanks;
     u32 gotoPooled;
-    u64 gotoScanAt;           // the next to look at: the folders close at hand first, then the index's entries
+    u32 gotoFloor;            // the rank a match must beat, once the pool has been full
+    u64 gotoScanAt;           // the index's next entry to look at
     u64 gotoScanFrame;        // the UI frame that looked last
     u64 gotoNearby;
     const Prog_Index *gotoIndex;
     Prog_PathSet gotoNearbyNames;  // the names of the folders close at hand, which the index finds again only under them
+    Prog_PathSet gotoNearbyPaths;
     Prog_PathSet gotoSeen;
     u8 gotoFoundText[1024];
     u32 gotoFoundTextLength;

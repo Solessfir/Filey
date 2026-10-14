@@ -516,6 +516,7 @@ int main(void)
     TestUIFrameFontLifetime();
     TestUICommandEventOrder();
     TestProgramCommands();
+    TestGoToScore();
     TestCodegenParse();
     TestHotkeyDispatch();
     TestProgramVirtualRows();
