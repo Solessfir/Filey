@@ -82,9 +82,9 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
 #endif
     Arena arena = {0};
     R_Font font = {0}, icons = {0};
-    // Icons are drawn a little larger than the text's line height.
+    // Icons are a little smaller than the text's line height, which gives their strokes the reference's weight.
     b32 ok = R_FontCreate(&arena, S("Segoe UI"), fontPixelSize * scale, &font) &&
-             R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 1.1f + 0.5f),
+             R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f + 0.5f),
                                     Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &icons);
     if (!ok) {
         R_TextureRelease(font.atlas);

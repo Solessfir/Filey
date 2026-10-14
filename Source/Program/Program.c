@@ -11,6 +11,7 @@
 typedef struct Prog_Theme {
     R_Color window;        // cleared behind everything
     R_Color background;    // toolbar and list base
+    R_Color caption;       // the tab strip and the bar above the sidebar
     R_Color menu;          // context menus, which cover other content
     R_Color panel;         // sidebar and bottom pills
     R_Color alternateRow;
@@ -36,6 +37,7 @@ typedef struct Prog_Theme {
 global const Prog_Theme Prog_ThemeCustom = {
     .window       = Prog_Gray(25),
     .background   = Prog_Gray(25),
+    .caption      = Prog_Gray(31),
     .menu         = Prog_Gray(31),
     .panel        = Prog_Gray(31),
     .alternateRow = Prog_Gray(28),
@@ -63,6 +65,7 @@ global const Prog_Theme Prog_ThemeCustom = {
 global const Prog_Theme Prog_ThemeGlass = {
     .window       = { 25 / 255.0f, 25 / 255.0f, 25 / 255.0f, 0.55f },
     .background   = { 0, 0, 0, 0 },
+    .caption      = Prog_White(0.025f),
     .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.97f },
     .panel        = Prog_White(0.025f),
     .alternateRow = Prog_White(0.012f),
@@ -88,6 +91,7 @@ global const Prog_Theme Prog_ThemeGlass = {
 global const Prog_Theme Prog_ThemeDebug = {
     .window       = Prog_Rgb(60, 0, 60),
     .background   = Prog_Rgb(10, 25, 80),
+    .caption      = Prog_Rgb(80, 40, 0),
     .menu         = Prog_Rgb(0, 70, 70),
     .panel        = Prog_Rgb(10, 70, 20),
     .alternateRow = Prog_Rgb(90, 80, 0),
@@ -109,6 +113,34 @@ global const Prog_Theme Prog_ThemeDebug = {
     .iconDisabled = Prog_Rgb(120, 100, 60),
 };
 
+#define Prog_Hex(v) { (((v) >> 16) & 255) / 255.0f, (((v) >> 8) & 255) / 255.0f, ((v) & 255) / 255.0f, 1 }
+
+// The reference's built-in "Fullmoon" scheme, for comparing the two side by side.
+global const Prog_Theme Prog_ThemeFullmoon = {
+    .window       = Prog_Hex(0x151515),
+    .background   = Prog_Hex(0x191B1C),
+    .caption      = Prog_Hex(0x272A2B),
+    .menu         = Prog_Hex(0x1F2223),
+    .panel        = Prog_Hex(0x1F2223),
+    .alternateRow = Prog_Hex(0x1D1F21),
+    .separator    = Prog_Hex(0x202324),
+    .hover        = Prog_Hex(0x595959),
+    .selection    = Prog_Hex(0x0079A6),
+    .focus        = Prog_Hex(0x0079A6),
+    .tabBorder    = Prog_Hex(0x343A3B),
+    .closeHover   = Prog_Rgb(196, 43, 28),
+    .text         = Prog_Hex(0xDDDEE0),
+    .textDim      = Prog_Hex(0x6B7078),
+    .textHeading  = Prog_Hex(0x9A9C9D),
+    .textMatch    = Prog_Hex(0x00ADEE),
+    .marquee      = Prog_Hex(0x00ADEE),
+    .accent       = Prog_Hex(0x0079A6),
+    .track        = Prog_Hex(0x383C3D),
+    .danger       = Prog_Hex(0xFF6666),
+    .icon         = Prog_Hex(0x9A9C9D),
+    .iconDisabled = Prog_Hex(0x595959),
+};
+
 global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
 function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
@@ -119,7 +151,7 @@ global Prog_Theme Prog_ThemeUser = Prog_ThemeCustom;
 // The theme's colors by the names the settings give them.
 global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
 #define Prog__ThemeColor(field) { #field, offsetof(Prog_Theme, field) }
-    Prog__ThemeColor(window), Prog__ThemeColor(background), Prog__ThemeColor(menu), Prog__ThemeColor(panel), Prog__ThemeColor(alternateRow),
+    Prog__ThemeColor(window), Prog__ThemeColor(background), Prog__ThemeColor(caption), Prog__ThemeColor(menu), Prog__ThemeColor(panel), Prog__ThemeColor(alternateRow),
     Prog__ThemeColor(separator), Prog__ThemeColor(hover), Prog__ThemeColor(selection), Prog__ThemeColor(focus), Prog__ThemeColor(tabBorder),
     Prog__ThemeColor(closeHover), Prog__ThemeColor(text), Prog__ThemeColor(textDim), Prog__ThemeColor(textHeading), Prog__ThemeColor(textMatch),
     Prog__ThemeColor(marquee), Prog__ThemeColor(accent), Prog__ThemeColor(track), Prog__ThemeColor(danger), Prog__ThemeColor(icon), Prog__ThemeColor(iconDisabled),
@@ -150,6 +182,7 @@ function b32 Prog__ParseColor(String text, R_Color *color)
 
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
+//   theme = fullmoon              the reference's scheme under the colors below, for side-by-side checks
 //   color.<theme field> = #rrggbb[aa]
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
 function void Prog_ApplySettings(Prog_State *state, String text)
@@ -179,6 +212,9 @@ function void Prog_ApplySettings(Prog_State *state, String text)
                 else { scale = 0; break; }
             }
             if (scale >= 0.5f && scale <= 3) state->uiScale = scale;
+        } else if (StrIsEqual(name, S("theme"))) {
+            // Colors given before the theme line are replaced with the rest.
+            if (Prog__EqualFolded(value, S("fullmoon"))) Prog_ThemeUser = Prog_ThemeFullmoon;
         } else if (name.length > 6 && StrIsEqual(StrFromTo(name, 0, 6), S("color."))) {
             String field = StrFrom(name, 6);
             R_Color color;
@@ -214,6 +250,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\"; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
+                                "# \"fullmoon\" starts from the reference's scheme; colors set before this line are replaced.\n# theme = default\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
     for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
         R_Color c = *(const R_Color *)((const u8 *)&Prog_ThemeCustom + Prog_ThemeColors[i].offset);
@@ -526,7 +563,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     // Children start at the top, so that tabs taller than the strip hang below it.
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
-    UI_SetNextColors((UI_Colors){ .background = theme->panel });
+    UI_SetNextColors((UI_Colors){ .background = theme->caption });
     // Keyed, so that its last layout tells whether a dragged tab is over it.
     UI_Block *strip = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TabStrip")), UI_Flag_DrawBackground);
     UI_Parent(strip) {
@@ -625,7 +662,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                             UI_SetNextPrefHeight(UI_Pixels(flare * 2));
                             UI_SetNextCornerRadius(flare);
                             UI_SetNextBorderThickness(stroke);
-                            UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
+                            UI_SetNextColors((UI_Colors){ .background = theme->caption, .border = theme->tabBorder });
                             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
                         }
                     }
@@ -2322,7 +2359,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         // Where the button sat when the tabs began right after the sidebar.
         f32 button = floorf(m->bar * 0.75f);
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, MaxF32(0, m->inset - floorf(6.0f * scale + 0.5f)), 0 });
-        UI_Block *bar = Prog__Box(UI_Pixels(width), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->panel, 0);
+        UI_Block *bar = Prog__Box(UI_Pixels(width), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->caption, 0);
         bar->props.childrenAlignment = (UI_Vec2){ 1, 0.5f };
         UI_Parent(bar) {
             Prog__Caption(state, S("SidebarCaption"), width, m->bar, 0);
