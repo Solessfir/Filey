@@ -70,7 +70,8 @@ global const Prog_Theme Prog_ThemeGlass = {
     .inner        = Prog_White(0.02f),
     // Clear like the panels, as the shown tab cannot hide a tint under it the way an opaque tab does, and would show lighter than its panel.
     .caption      = { 0, 0, 0, 0 },
-    .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.97f },
+    // Opaque, as nothing blurs the window's own contents under a menu or the palette, and any of them showing through reads as clutter.
+    .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 1 },
     .panel        = Prog_White(0.025f),
     .alternateRow = Prog_White(0.012f),
     .separator    = Prog_White(0.03f),
@@ -369,6 +370,14 @@ function void Prog__LabelPadded(String text, UI_Size width, f32 height, f32 left
     UI_SetNextColors((UI_Colors){ .text = color });
     UI_SetNextText(text);
     UI_AddBlock(UI_Flag_DrawText | UI_Flag_Clip);
+}
+
+// The fill of a box floating over the window, such as the palette: the background, or the menus' fill where a translucent theme leaves it clear,
+// so that what is under the box does not show through.
+function R_Color Prog__FloatingFill(void)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    return theme->background.a < 1 ? theme->menu : theme->background;
 }
 
 function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R_Color color, f32 alignX)
@@ -2854,7 +2863,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("GoTo")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
@@ -3099,7 +3108,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
         UI_SetNextChildrenPadding((UI_Padding){ floorf(14.4f * s + 0.5f), 0, floorf(14.4f * s + 0.5f), 0 });
@@ -3773,7 +3782,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextCornerRadius(radius);
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
     UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorDetails")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(card) {
         UI_SetNextChildrenPadding((UI_Padding){ left, 0, floorf(4.8f * s + 0.5f), 0 });
