@@ -3050,7 +3050,15 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f), 0, floorf(m->gap * 0.5f), 0 });
+    // The bookmarks on either side of where a drag would put its folder move apart, easing, to open a gap there; the row keeps its place.
+    f32 shift = 0;
+    if (group == Prog_Group_Bookmarks) {
+        UI_Key shiftKey = UI_KeyFromStr(key, S("Shift"));
+        f32 apart = floorf(6.4f * m->scale + 0.5f);
+        f32 target = !state->bookmarkGap ? 0 : index + 1 == state->bookmarkGap ? apart : index + 2 == state->bookmarkGap ? -apart : 0;
+        if (target != 0 || UI_Kept(shiftKey) != 0) shift = floorf(UI_Animate(shiftKey, target, 0) + 0.5f);
+    }
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f), shift, floorf(m->gap * 0.5f), -shift });
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = theme->selection });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_RightMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
@@ -3221,30 +3229,17 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             if (inZone) Prog_QueueCommand(state, Prog_CommandKind_MoveBookmark, state->bookmarkDrag - 1, 0, 0)->target = before;
             state->bookmarkDrag = 0;
         }
-        if ((state->bookmarkDrag || P_DropPending()) && inZone) {
-            f32 thickness = MaxF32(2, floorf(2 * m->scale));
-            UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf(lineY - thickness * 0.5f) - sidebar->rect.y0 });
-            UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - 2 * floorf(m->gap * 0.75f)));
+        state->bookmarkGap = (state->bookmarkDrag || P_DropPending()) && inZone ? before + 1 : 0;
+        if (state->bookmarkGap) {
+            f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
+            // Floating offsets start inside the sidebar's padding.
+            UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY - thickness * 0.5f) - sidebar->rect.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
             UI_SetNextPrefHeight(UI_Pixels(thickness));
             UI_SetNextColors((UI_Colors){ .background = theme->accent });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
-        if (P_DropPending() && inZone) {
-            state->bookmarkDropShown = before + 1;
-            // What letting go does, beside the pointer; the drag image covers the pointer itself.
-            String hint = S("Pin to Bookmarks");
-            f32 hintWidth = R_TextWidth(m->font, hint) + 2 * m->inset, hintHeight = m->row;
-            UI_SetNextFloatingOffset((UI_Vec2){ floorf(MinF32(UI->mouse.x - sidebar->rect.x0 + m->inset * 2, sidebar->rect.x1 - sidebar->rect.x0 - hintWidth - m->gap)),
-                                                floorf(lineY - sidebar->rect.y0 + m->gap) });
-            UI_SetNextPrefWidth(UI_Pixels(hintWidth));
-            UI_SetNextPrefHeight(UI_Pixels(hintHeight));
-            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-            UI_SetNextCornerRadius(m->radius * 2);
-            UI_SetNextBorderThickness(m->separator);
-            UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->accent, .text = theme->text });
-            UI_SetNextText(hint);
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
-        }
+        if (P_DropPending() && inZone) state->bookmarkDropShown = before + 1;
         Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
         body = Prog__GroupBody(state, Prog_Group_Storage, m);
         if (body) UI_Parent(body) {
@@ -3608,6 +3603,8 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
 function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->tooltipKey || state->menuOpen || state->paletteOpen) return;
+    // None while something is dragged.
+    if (state->bookmarkDrag || state->tabDrag || state->dragging || P_DropPending()) return;
     if (UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait"))) < 700000) {
         UI_KeepAnimating();
         return;

@@ -1033,6 +1033,7 @@ typedef struct Prog_State {
     u64 bookmarkDrop;
     u64 bookmarkDrag;         // the bookmark being dragged among the others, plus one
     b32 bookmarkDragHeld;     // its row still held in this build
+    u64 bookmarkGap;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
     Arena recentArena;
     ArrayStr recents;
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
