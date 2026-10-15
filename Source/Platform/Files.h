@@ -49,16 +49,10 @@ typedef struct P_DirectoryTotals {
     b32 complete;  // false when cancelled or when `path` itself could not be read
 } P_DirectoryTotals;
 
-// What a measure has counted so far, written from its thread every few hundred items, for showing while it runs.
-typedef struct P_MeasureProgress {
-    atomic_uint_fast64_t folders, files, bytes;
-} P_MeasureProgress;
-
-// Totals of everything below `path`, hidden items included.
-// Links and junctions count as items but are not followed; unreadable subfolders are skipped.
-// `progress`, when not NULL, gets the totals counted so far as the walk goes.
-// Big trees take a while, so run it in a job.
-function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel, P_MeasureProgress *progress);
+// Adds the items directly inside `path`, hidden ones included, to `totals`: its folders, its files and their bytes.
+// Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions.
+// False when `path` cannot be read. Touches the disk, so run it in a job.
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders);
 // Whether `path` is a folder the system makes up rather than stores, such as Linux's /proc, which a walk of the whole drive leaves out.
 function b32 P_IsVirtualFolder(String path);
 // When `path` was created, in seconds since the Unix epoch; 0 when the file system does not say.

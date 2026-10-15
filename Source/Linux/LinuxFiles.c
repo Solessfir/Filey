@@ -469,8 +469,6 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     *watch = (P_DirectoryWatch){0};
 }
 
-typedef struct P__MeasureStack { ArrayHeader header; DIR **v; } P__MeasureStack;
-
 function b32 P_IsVirtualFolder(String path)
 {
     local_persist const char *virtuals[] = { "/proc", "/sys", "/dev", "/run" };
@@ -490,60 +488,35 @@ function i64 P_FileCreatedTime(String path)
     return found ? (i64)info.stx_btime.tv_sec : 0;
 }
 
-function void P__MeasureReport(P_MeasureProgress *progress, P_DirectoryTotals totals)
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders)
 {
-    atomic_store_explicit(&progress->folders, totals.folders, memory_order_relaxed);
-    atomic_store_explicit(&progress->files, totals.files, memory_order_relaxed);
-    atomic_store_explicit(&progress->bytes, totals.bytes, memory_order_relaxed);
-}
-
-function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel, P_MeasureProgress *progress)
-{
-    P_DirectoryTotals result = {0};
-    Scratch scratch = GetScratch();
-    char *root = P__FilePathCString(scratch.arena, path.length ? path : S("."));
-    P__MeasureStack stack = {0};
-    // ponytail: one open folder per level, so trees deeper than the descriptor limit are cut short.
-    DIR *first = root ? opendir(root) : NULL;
-    if (first) ArrayPush(scratch.arena, stack, first);
-    result.complete = first != NULL;
-    for (u64 step = 0; stack.header.count; ++step) {
-        if (progress && (step & 255) == 0) P__MeasureReport(progress, result);
-        if (P_IsCancelled(cancel)) {
-            result.complete = false;
-            break;
+    Scratch scratch = GetScratchEx(arena);
+    char *cpath = P__FilePathCString(scratch.arena, path.length ? path : S("."));
+    DIR *stream = cpath ? opendir(cpath) : NULL;
+    String parent = path.length > 1 && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
+    if (stream) {
+        for (struct dirent *entry; (entry = readdir(stream));) {
+            const char *name = entry->d_name;
+            if (name[0] == '.' && (!name[1] || (name[1] == '.' && !name[2]))) continue;
+            u8 type = entry->d_type;
+            struct stat metadata = {0};
+            b32 statted = false;
+            if (type == DT_UNKNOWN || type == DT_REG) {
+                statted = fstatat(dirfd(stream), name, &metadata, AT_SYMLINK_NOFOLLOW) == 0;
+                if (statted) type = S_ISDIR(metadata.st_mode) ? DT_DIR : S_ISLNK(metadata.st_mode) ? DT_LNK : DT_REG;
+            }
+            if (type == DT_DIR) {
+                ++totals->folders;
+                ArrayPush(arena, *subfolders, StrFormat(arena, "%S/%s", StrIsEqual(parent, S("/")) ? (String){0} : parent, name));
+            } else {
+                ++totals->files;
+                if (statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) totals->bytes += (u64)metadata.st_size;
+            }
         }
-        DIR *stream = stack.v[stack.header.count - 1];
-        struct dirent *entry = readdir(stream);
-        if (!entry) {
-            closedir(stream);
-            --stack.header.count;
-            continue;
-        }
-        const char *name = entry->d_name;
-        if (name[0] == '.' && (!name[1] || (name[1] == '.' && !name[2]))) continue;
-        u8 type = entry->d_type;
-        struct stat metadata = {0};
-        b32 statted = false;
-        if (type == DT_UNKNOWN || type == DT_REG) {
-            statted = fstatat(dirfd(stream), name, &metadata, AT_SYMLINK_NOFOLLOW) == 0;
-            if (statted) type = S_ISDIR(metadata.st_mode) ? DT_DIR : S_ISLNK(metadata.st_mode) ? DT_LNK : DT_REG;
-        }
-        if (type == DT_DIR) {
-            ++result.folders;
-            i32 fd = openat(dirfd(stream), name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-            DIR *child = fd >= 0 ? fdopendir(fd) : NULL;
-            if (child) ArrayPush(scratch.arena, stack, child);
-            else if (fd >= 0) close(fd);
-        } else {
-            ++result.files;
-            if (statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) result.bytes += (u64)metadata.st_size;
-        }
+        closedir(stream);
     }
-    if (progress) P__MeasureReport(progress, result);
-    for (u64 i = 0; i < stack.header.count; ++i) closedir(stack.v[i]);
     ReleaseScratch(scratch);
-    return result;
+    return stream != NULL;
 }
 
 function String P_NativePath(Arena *arena, String path)

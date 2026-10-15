@@ -909,18 +909,22 @@ function void TestMeasure(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_FormatSize(&arena, UINT64_C(12268339)), S("11.7 MB")));
 
     P_CancelToken token = {0};
-    P_DirectoryTotals totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("Folder2")), &token, NULL);
-    Check(totals.complete && totals.folders == 0 && totals.files == 1 && totals.bytes == 5);
-    // Hidden items count; the subfolder's file counts toward the root.
-    P_MeasureProgress progress = {0};
-    totals = P_MeasureDirectory(fixture->path, &token, &progress);
-    Check(totals.complete && totals.folders == 3 && totals.files >= 7 && totals.bytes >= 22);
-    // What it reports as it goes ends at the totals.
-    Check(atomic_load(&progress.folders) == totals.folders && atomic_load(&progress.files) == totals.files && atomic_load(&progress.bytes) == totals.bytes);
-    totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("missing")), &token, NULL);
-    Check(!totals.complete && !totals.files);
+    // Several trees measured at once each get their own totals; hidden items count, and a subfolder's files count toward its tree.
+    {
+        String paths[] = { Prog_JoinPath(&arena, fixture->path, S("Folder2")), fixture->path, Prog_JoinPath(&arena, fixture->path, S("missing")) };
+        Prog_TreeTotals trees[CArrayCount(paths)] = {0};
+        Check(Prog_MeasureTrees(paths, CArrayCount(paths), trees, &token));
+        P_DirectoryTotals folder = Prog_TreeTotalsTaken(&trees[0], true), root = Prog_TreeTotalsTaken(&trees[1], true), missing = Prog_TreeTotalsTaken(&trees[2], true);
+        Check(folder.complete && folder.folders == 0 && folder.files == 1 && folder.bytes == 5);
+        Check(root.complete && root.folders == 3 && root.files >= 7 && root.bytes >= 22);
+        Check(!missing.complete && !missing.files);
+        for (u32 i = 0; i < CArrayCount(paths); ++i) Check(atomic_load(&trees[i].pending) == 0);
+    }
     P_RequestCancel(&token);
-    Check(!P_MeasureDirectory(fixture->path, &token, NULL).complete);
+    {
+        Prog_TreeTotals tree = {0};
+        Check(!Prog_MeasureTrees(&fixture->path, 1, &tree, &token));
+    }
 
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));

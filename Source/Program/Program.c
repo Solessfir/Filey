@@ -1295,17 +1295,21 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
 // What a row or cell shows in each column: folders show their totals once measured; zero counts and files' counts read "--".
 function String Prog__FormatCount(Arena *arena, u64 count);
 
-// The totals counted so far of the shown folder's subfolder `entry` while it is being measured.
+// The totals counted so far of the shown folder's subfolder `entry` while it is being measured; `complete` once its tree is all counted.
 function b32 Prog__LiveTotals(const Prog_State *state, const Prog_Entry *entry, P_DirectoryTotals *totals)
 {
     Prog_JobInput *input = state->measureJob ? state->measureJob->input : NULL;
-    u64 at = input ? atomic_load(&input->measuringAt) : UINT64_MAX;
-    if (at >= (input ? input->rowCount : 0) || input->listing != state->listing) return false;
-    u64 row = input->rows[at];
-    if (row >= state->directory.count || &state->directory.entries[row] != entry) return false;
-    totals->folders = atomic_load(&input->measuring.folders);
-    totals->files = atomic_load(&input->measuring.files);
-    totals->bytes = atomic_load(&input->measuring.bytes);
+    if (!input || input->listing != state->listing || entry < state->directory.entries || entry >= state->directory.entries + state->directory.count) return false;
+    // The rows measured are in listing order.
+    u64 row = (u64)(entry - state->directory.entries), low = 0, high = input->rowCount;
+    while (low < high) {
+        u64 middle = (low + high) / 2;
+        if (input->rows[middle] < row) low = middle + 1;
+        else high = middle;
+    }
+    if (low >= input->rowCount || input->rows[low] != row) return false;
+    Prog_TreeTotals *tree = &input->trees[low];
+    *totals = (P_DirectoryTotals){ atomic_load(&tree->folders), atomic_load(&tree->files), atomic_load(&tree->bytes), atomic_load(&tree->pending) == 0 };
     return true;
 }
 
@@ -1474,7 +1478,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     String values[Prog_ColumnId_Count];
     Prog__EntryValues(state, entry, values);
     P_DirectoryTotals live;
-    b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live);
+    b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live) && !live.complete;
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
         Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);

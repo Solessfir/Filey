@@ -664,6 +664,113 @@ function void Prog__WalkLane(void *user, u32 index)
     }
 }
 
+// A measure of several folders' trees at once, sharing the lanes:
+// each lane lists one folder at a time, adds what it holds to its tree's totals and leaves its subfolders for whichever lane is free next.
+// Each tree keeps its own stack of folders to list, and the lanes take from the trees in turn, so that small trees finish while a big one is walked.
+typedef struct Prog__Measure {
+    Prog_TreeTotals *trees;
+    const P_CancelToken *cancel;
+    P_Mutex mutex;
+    P_Condition condition;
+    Arena arena;      // the stacks and the turn, whose paths live in the lanes' arenas
+    ArrayStr *stacks; // by tree
+    u32 *turn;        // the trees with folders on their stacks
+    b8 *inTurn;
+    b8 *started;      // its own folder has been taken, so later ones are its subfolders
+    u32 turnCount, next;
+    u64 waiting;      // folders on all the stacks
+    u32 busy;
+    Arena lanes[Prog_WalkLanes];
+} Prog__Measure;
+
+function void Prog__MeasureLane(void *user, u32 index)
+{
+    Prog__Measure *walk = user;
+    Arena *arena = &walk->lanes[index];
+    for (;;) {
+        P_MutexLock(&walk->mutex);
+        while (!walk->waiting && walk->busy && !P_IsCancelled(walk->cancel)) P_ConditionWait(&walk->condition, &walk->mutex);
+        if (!walk->waiting || P_IsCancelled(walk->cancel)) {
+            P_ConditionBroadcast(&walk->condition);
+            P_MutexUnlock(&walk->mutex);
+            break;
+        }
+        // The next tree in turn gives its newest folder; a tree whose stack empties leaves the turn until it gets more.
+        walk->next %= walk->turnCount;
+        u32 at = walk->next, which = walk->turn[at];
+        ArrayStr *stack = &walk->stacks[which];
+        String path = stack->v[--stack->header.count];
+        --walk->waiting;
+        if (stack->header.count) {
+            ++walk->next;
+        } else {
+            walk->turn[at] = walk->turn[--walk->turnCount];
+            walk->inTurn[which] = false;
+        }
+        b32 root = !walk->started[which];
+        walk->started[which] = true;
+        ++walk->busy;
+        P_MutexUnlock(&walk->mutex);
+        P_DirectoryTotals counted = {0};
+        ArrayStr below = {0};
+        b32 read = P_CountFolder(arena, path, &counted, &below);
+        Prog_TreeTotals *tree = &walk->trees[which];
+        if (!read && root) atomic_store(&tree->failed, true);
+        atomic_fetch_add(&tree->folders, counted.folders);
+        atomic_fetch_add(&tree->files, counted.files);
+        atomic_fetch_add(&tree->bytes, counted.bytes);
+        P_MutexLock(&walk->mutex);
+        for (u64 i = 0; i < below.header.count; ++i) ArrayPush(&walk->arena, *stack, below.v[i]);
+        if (below.header.count && !walk->inTurn[which]) {
+            walk->turn[walk->turnCount++] = which;
+            walk->inTurn[which] = true;
+        }
+        walk->waiting += below.header.count;
+        // Its subfolders are left to list in its place.
+        atomic_fetch_add(&tree->pending, below.header.count);
+        atomic_fetch_sub(&tree->pending, 1);
+        --walk->busy;
+        P_ConditionBroadcast(&walk->condition);
+        P_MutexUnlock(&walk->mutex);
+    }
+}
+
+// Measures the trees below `paths` into `trees`, `count` of each, which start zeroed; returns false when cancelled.
+function b32 Prog_MeasureTrees(const String *paths, u64 count, Prog_TreeTotals *trees, const P_CancelToken *cancel)
+{
+    Prog__Measure walk = { .trees = trees, .cancel = cancel };
+    if (!P_MutexInit(&walk.mutex)) return false;
+    if (!P_ConditionInit(&walk.condition)) {
+        P_MutexRelease(&walk.mutex);
+        return false;
+    }
+    u64 room = Max(count, (u64)1);
+    walk.stacks = ArenaPushArray(&walk.arena, room, ArrayStr);
+    walk.turn = ArenaPushArray(&walk.arena, room, u32);
+    walk.inTurn = ArenaPushArray(&walk.arena, room, b8);
+    walk.started = ArenaPushArray(&walk.arena, room, b8);
+    for (u64 i = 0; i < count; ++i) {
+        atomic_store(&trees[i].pending, 1);
+        ArrayPush(&walk.arena, walk.stacks[i], paths[i]);
+        walk.turn[walk.turnCount++] = (u32)i;
+        walk.inTurn[i] = true;
+    }
+    walk.waiting = count;
+    u32 lanes = Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes));
+    P_RunLanes(lanes, Prog__MeasureLane, &walk);
+    for (u32 i = 0; i < lanes; ++i) ArenaRelease(&walk.lanes[i]);
+    ArenaRelease(&walk.arena);
+    P_ConditionRelease(&walk.condition);
+    P_MutexRelease(&walk.mutex);
+    return !P_IsCancelled(cancel);
+}
+
+// A tree's totals, complete when it was measured to the end.
+function P_DirectoryTotals Prog_TreeTotalsTaken(Prog_TreeTotals *tree, b32 finished)
+{
+    return (P_DirectoryTotals){ atomic_load(&tree->folders), atomic_load(&tree->files), atomic_load(&tree->bytes), finished && !atomic_load(&tree->failed) };
+}
+
 // Adds `count` more found items to what the listing shows while it works.
 function void Prog__CountFound(Prog_JobInput *input, const P_File *files, u64 count)
 {
@@ -800,7 +907,9 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_Inspect) {
         Prog_Inspected *result = ArenaPushStruct(&job->arena, Prog_Inspected);
         result->created = P_FileCreatedTime(input->path);
-        result->totals = P_MeasureDirectory(input->path, &job->cancelToken, NULL);
+        Prog_TreeTotals tree = {0};
+        b32 finished = Prog_MeasureTrees(&input->path, 1, &tree, &job->cancelToken);
+        result->totals = Prog_TreeTotalsTaken(&tree, finished);
         job->result = result;
         return;
     }
@@ -808,21 +917,14 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Measured *result = ArenaPushStruct(&job->arena, Prog_Measured);
         result->totals = ArenaPushArray(&job->arena, Max(input->rowCount, (u64)1), P_DirectoryTotals);
         job->result = result;
-        // Hands back what it has every few dozen milliseconds, so rows fill in while big trees are walked.
-        u64 start = PlatformNowMicroseconds();
-        while (result->count < input->rowCount && PlatformNowMicroseconds() - start < UINT64_C(50000)) {
-            String path = Prog_JoinPath(&job->arena, input->path, input->names[result->count]);
-            P_DirectoryTotals totals = {0};
-            // What it counts of the folder shows in its row while it is counted.
-            atomic_store(&input->measuring.folders, 0);
-            atomic_store(&input->measuring.files, 0);
-            atomic_store(&input->measuring.bytes, 0);
-            atomic_store(&input->measuringAt, result->count);
-            ProfileScope("MeasureDirectory") totals = P_MeasureDirectory(path, &job->cancelToken, &input->measuring);
-            if (P_IsCancelled(&job->cancelToken)) break;
-            result->totals[result->count++] = totals;
-        }
-        atomic_store(&input->measuringAt, UINT64_MAX);
+        // All of them at once, so that small ones are done while a big one is still walked, and their rows show the totals so far meanwhile.
+        String *paths = ArenaPushArray(&job->arena, Max(input->rowCount, (u64)1), String);
+        for (u64 i = 0; i < input->rowCount; ++i) paths[i] = Prog_JoinPath(&job->arena, input->path, input->names[i]);
+        b32 finished = false;
+        ProfileScope("MeasureTrees") finished = Prog_MeasureTrees(paths, input->rowCount, input->trees, &job->cancelToken);
+        if (!finished) return;
+        for (u64 i = 0; i < input->rowCount; ++i) result->totals[i] = Prog_TreeTotalsTaken(&input->trees[i], true);
+        result->count = input->rowCount;
         return;
     }
     if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete) {
@@ -1083,7 +1185,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     input->kind = Prog_JobKind_Measure;
     input->path = StrCopy(&job->arena, state->directory.path);
     input->listing = state->listing;
-    atomic_store(&input->measuringAt, UINT64_MAX);
+    input->trees = ArenaPushArray(&job->arena, count, Prog_TreeTotals);
     input->names = ArenaPushArray(&job->arena, count, String);
     input->rows = ArenaPushArray(&job->arena, count, u64);
     for (u64 i = 0; i < state->directory.count; ++i) {

@@ -178,6 +178,13 @@ typedef struct Prog_Icon {
 
 typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon value; } *v; } Prog_IconMap;
 
+// What a measure of a folder's tree has counted so far, readable while it runs; `pending` is the folders of it left to list, 0 once it is done.
+typedef struct Prog_TreeTotals {
+    atomic_uint_fast64_t folders, files, bytes;
+    atomic_uint_fast64_t pending;
+    atomic_bool failed;  // its folder could not be read
+} Prog_TreeTotals;
+
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
@@ -211,9 +218,8 @@ typedef struct Prog_JobInput {
     u32 *entries;
     u64 room;
     b32 restart;
-    // Measure: the totals so far of the folder `measuringAt` of `names`, or UINT64_MAX between folders.
-    P_MeasureProgress measuring;
-    atomic_uint_fast64_t measuringAt;
+    // Measure: each of `names`' totals so far.
+    Prog_TreeTotals *trees;
     // Directory: what it has found so far, which the status bar shows while it walks a big tree; the totals count hidden items too.
     atomic_uint_fast64_t foundFolders, foundFiles, shownFolders, shownFiles;
     // Icons

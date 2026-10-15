@@ -258,27 +258,39 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     *watch = (P_DirectoryWatch){0};
 }
 
-typedef struct P__MeasureFrame {
-    HANDLE find;
-    u32 length;    // where names inside this folder start in the path buffer
-    b32 fresh;     // `data` holds the first entry, not yet counted
-    WIN32_FIND_DATAW data;
-} P__MeasureFrame;
-
-typedef struct P__MeasureStack { ArrayHeader header; P__MeasureFrame *v; } P__MeasureStack;
-
-// Opens the folder named by buffer[0, length) as a new level of the walk.
-function b32 P__MeasurePush(Arena *arena, P__MeasureStack *stack, wchar *buffer, u32 length, u32 capacity)
+function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders)
 {
-    if (!length || length + 3 > capacity) return false;
-    if (buffer[length - 1] != L'\\') buffer[length++] = L'\\';
-    buffer[length] = L'*';
-    buffer[length + 1] = 0;
-    P__MeasureFrame frame = { .length = length, .fresh = true };
-    frame.find = FindFirstFileExW(buffer, FindExInfoBasic, &frame.data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
-    if (frame.find == INVALID_HANDLE_VALUE) return false;
-    ArrayPush(arena, *stack, frame);
-    return true;
+    Scratch scratch = GetScratchEx(arena);
+    wchar *folder = P__FileExtendedPath(scratch.arena, path);
+    u32 length = 0;
+    while (folder && folder[length]) ++length;
+    wchar *pattern = ArenaPushArray(scratch.arena, length + 3, wchar);
+    for (u32 i = 0; i < length; ++i) pattern[i] = folder[i];
+    if (length && pattern[length - 1] != L'\\') pattern[length++] = L'\\';
+    pattern[length] = L'*';
+    WIN32_FIND_DATAW data;
+    HANDLE find = folder ? FindFirstFileExW(pattern, FindExInfoBasic, &data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH) : INVALID_HANDLE_VALUE;
+    b32 result = find != INVALID_HANDLE_VALUE;
+    String parent = path.length && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
+    if (result) {
+        do {
+            const wchar *name = data.cFileName;
+            if (name[0] == L'.' && (!name[1] || (name[1] == L'.' && !name[2]))) continue;
+            if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                ++totals->folders;
+                if (!(data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                    String leaf = P__FileStringWide(scratch.arena, name, lstrlenW(name));
+                    ArrayPush(arena, *subfolders, StrFormat(arena, "%S/%S", parent, leaf));
+                }
+            } else {
+                ++totals->files;
+                totals->bytes += ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow;
+            }
+        } while (FindNextFileW(find, &data));
+        FindClose(find);
+    }
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function b32 P_IsVirtualFolder(String path) { return false; }
@@ -293,62 +305,6 @@ function i64 P_FileCreatedTime(String path)
     if (!found) return 0;
     u64 time = ((u64)data.ftCreationTime.dwHighDateTime << 32) | data.ftCreationTime.dwLowDateTime;
     return (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600);
-}
-
-function void P__MeasureReport(P_MeasureProgress *progress, P_DirectoryTotals totals)
-{
-    atomic_store_explicit(&progress->folders, totals.folders, memory_order_relaxed);
-    atomic_store_explicit(&progress->files, totals.files, memory_order_relaxed);
-    atomic_store_explicit(&progress->bytes, totals.bytes, memory_order_relaxed);
-}
-
-function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel, P_MeasureProgress *progress)
-{
-    P_DirectoryTotals result = {0};
-    Scratch scratch = GetScratch();
-    wchar *root = P__FileExtendedPath(scratch.arena, path);
-    // One path buffer for the whole walk, at the longest path Windows allows.
-    u32 capacity = 32768;
-    wchar *buffer = ArenaPushArray(scratch.arena, capacity, wchar);
-    u32 length = 0;
-    while (root && root[length] && length + 1 < capacity) {
-        buffer[length] = root[length];
-        ++length;
-    }
-    P__MeasureStack stack = {0};
-    result.complete = root && P__MeasurePush(scratch.arena, &stack, buffer, length, capacity);
-    for (u64 step = 0; stack.header.count; ++step) {
-        if (progress && (step & 255) == 0) P__MeasureReport(progress, result);
-        if (P_IsCancelled(cancel)) {
-            result.complete = false;
-            break;
-        }
-        P__MeasureFrame *frame = &stack.v[stack.header.count - 1];
-        if (!frame->fresh && !FindNextFileW(frame->find, &frame->data)) {
-            FindClose(frame->find);
-            --stack.header.count;
-            continue;
-        }
-        frame->fresh = false;
-        const wchar *name = frame->data.cFileName;
-        if (name[0] == L'.' && (!name[1] || (name[1] == L'.' && !name[2]))) continue;
-        if (frame->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            ++result.folders;
-            if (frame->data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;
-            u32 nameLength = (u32)lstrlenW(name);
-            u32 at = frame->length;
-            if (at + nameLength + 3 > capacity) continue;
-            MemCopy(buffer + at, name, nameLength * sizeof(wchar));
-            P__MeasurePush(scratch.arena, &stack, buffer, at + nameLength, capacity);
-        } else {
-            ++result.files;
-            result.bytes += ((u64)frame->data.nFileSizeHigh << 32) | frame->data.nFileSizeLow;
-        }
-    }
-    if (progress) P__MeasureReport(progress, result);
-    for (u64 i = 0; i < stack.header.count; ++i) FindClose(stack.v[i].find);
-    ReleaseScratch(scratch);
-    return result;
 }
 
 function String P_NativePath(Arena *arena, String path)
