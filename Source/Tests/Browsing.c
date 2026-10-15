@@ -694,7 +694,7 @@ function b32 TestFilterConsistent(Prog_State *state)
     String filter = Prog_EditText(&state->filter);
     u64 shown = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
-        b32 match = Prog_FilterMatch(Prog_EntryLeaf(state->directory.entries[i].file.name), filter, NULL);
+        b32 match = Prog_EntryScore(state->directory.entries[i].file.name, filter, NULL) > 0;
         b32 inView = Prog_ViewPosition(state, i) != UINT64_MAX;
         result &= match == inView && (inView || !state->directory.entries[i].selected);
         shown += inView != 0;
@@ -808,12 +808,12 @@ function void TestExpand(TestFileFixture *fixture)
     if (inside == UINT64_MAX || folder == UINT64_MAX) goto finish;
     Check(state.directory.entries[folder].measured && state.directory.entries[folder].files == 1 && state.directory.entries[folder].bytes == 5);
 
-    // The filter matches names, not the folders they are in.
+    // The filter matches names, and the folders they are in for less.
     TestRenameType(&state, S("inside"));
     Check(state.viewCount == 1 && state.view[0] == inside && state.focusedRow == inside);
     TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("folder2"));
-    Check(state.viewCount == 1 && state.view[0] == folder);
+    Check(state.viewCount == 2 && state.view[0] == folder && state.view[1] == inside);
     TestRenameKey(&state, Key_A, KeyMod_Control);
     TestRenameType(&state, S("inside"));
 

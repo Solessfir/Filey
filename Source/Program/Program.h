@@ -78,6 +78,7 @@ typedef struct Prog_Entry {
     u64 folders;
     u64 files;
     u64 bytes;
+    u32 parent;       // in a listing of the subfolders, the folder it is in, by its place in `parents`
 } Prog_Entry;
 
 typedef enum Prog_JobKind {
@@ -363,11 +364,14 @@ typedef struct Prog_Directory {
     b32 showHidden;
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
+    // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
+    String *parents;
+    u32 parentCount;
 } Prog_Directory;
 
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter and scroll.
-// The filter keeps the rows it lets through in `view`, in listing order; rows it hides are never selected, so commands cannot act on them.
+// The filter keeps the rows it lets through in `view`, best match first and in listing order within a score; rows it hides are never selected, so commands cannot act on them.
 #define Prog_TabFields(X) \
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
@@ -702,6 +706,8 @@ function String Prog_EditText(const Prog_TextEdit *edit);
 function String Prog_EntryLeaf(String name);
 function String Prog_EntryParent(String name);
 function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
+function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks);
+function i32 Prog_EntryScore(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row);

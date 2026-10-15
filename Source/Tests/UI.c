@@ -599,13 +599,21 @@ function void TestProgramCommands(void)
 // The reference's Go To scores, worked out by hand from its rules.
 function void TestGoToScore(void)
 {
-    Check(Prog__FuzzyMatch(S("Downloads"), S("down")) == 735);
-    Check(Prog__FuzzyMatch(S("Someone12\\Downloads"), S("DOWN")) == 645);
-    Check(Prog__FuzzyMatch(S("Windows NT"), S("down")) == 504);
-    Check(Prog__FuzzyMatch(S("Downloads\\That"), S("down")) == 720);
-    Check(Prog__FuzzyMatch(S("That"), S("down")) == 0);
+    Check(Prog_FuzzyScore(S("Downloads"), (String){0}, S("down"), NULL, NULL) == 735);
+    Check(Prog_FuzzyScore(S("Someone12\\Downloads"), (String){0}, S("DOWN"), NULL, NULL) == 645);
+    Check(Prog_FuzzyScore(S("Windows NT"), (String){0}, S("down"), NULL, NULL) == 504);
+    Check(Prog_FuzzyScore(S("Downloads\\That"), (String){0}, S("down"), NULL, NULL) == 720);
+    Check(Prog_FuzzyScore(S("That"), (String){0}, S("down"), NULL, NULL) == 0);
     // Each word scores on its own, and the later "n" right after the space beats the earlier one.
-    Check(Prog__FuzzyMatch(S("Windows NT"), S("win nt")) == 529 + 293);
+    Check(Prog_FuzzyScore(S("Windows NT"), (String){0}, S("win nt"), NULL, NULL) == 529 + 293);
+    // The filter's cases from the reference, in its order: the best place of the letters, and its folder in a listing of the subfolders.
+    u8 marks[16];
+    Check(Prog_EntryScore(S("abc.txt"), S("abc"), NULL) == 538);
+    Check(Prog_EntryScore(S("aXbXc_abc.txt"), S("abc"), marks) == 489 && !marks[0] && marks[6] && marks[7] && marks[8] && !marks[9]);
+    Check(Prog_EntryScore(S("xxabc.txt"), S("abc"), NULL) == 480 && Prog_EntryScore(S("a1b2c3.txt"), S("abc"), NULL) == 129);
+    Check(Prog_EntryScore(S("a_________b_________c.txt"), S("abc"), NULL) <= 0);
+    Check(Prog_EntryScore(S("act.txt"), S("c a"), NULL) == 213 && Prog_EntryScore(S("abc.txt"), S("c a"), NULL) == 212);
+    Check(Prog_EntryScore(S("abc/zzz.txt"), S("abc"), marks) == 413 && marks[0] && marks[2] && !marks[3] && !marks[4]);
 }
 
 function void TestProgramVirtualRows(void)

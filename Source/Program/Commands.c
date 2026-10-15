@@ -328,139 +328,14 @@ function String Prog__GoToPath(Prog_State *state, String typed)
     return path;
 }
 
-enum { Prog_FuzzyText = 512, Prog_FuzzyTerm = 64 };
-
-typedef struct Prog__Fuzzy {
-    const rune *term, *text, *folded;
-    u32 termCount, count, calls;
-} Prog__Fuzzy;
-
-// The reference's score for the letters of a term placed at `at` in `text`: placed letters that follow one another, start the text,
-// follow a lowercase letter as an uppercase one or follow "_" or a space score; letters before the first, letters left over and gaps cost.
-function i32 Prog__FuzzyScore(const Prog__Fuzzy *f, const u32 *at)
-{
-    i32 score = 100 + ((i32)f->termCount - (i32)f->count) * 3 - (i32)at[0];
-    for (u32 i = 0; i < f->termCount; ++i) {
-        u32 place = at[i];
-        if (i) {
-            i32 gap = (i32)(place - at[i - 1]);
-            if (gap > 5) score += (5 - gap) * 50;
-            if (gap == 1) score += 200;
-        }
-        if (place == 0) {
-            score += 50;
-            continue;
-        }
-        rune previous = f->text[place - 1], current = f->text[place];
-        b32 lower = (previous >= 'a' && previous <= 'z') || (previous >= 0xE0 && previous <= 0xFF && previous != 0xF7) || (previous >= 0x430 && previous <= 0x45F);
-        if (lower && Prog__FoldRune(current) != current) score += 30;
-        if (previous == '_' || previous == ' ') score += 25;
-    }
-    return score;
-}
-
-// Places the term's letters from `placed` on in the text from `from` on, the best of the ways the reference tries.
-function b32 Prog__FuzzyPlace(Prog__Fuzzy *f, u32 placed, u32 from, u32 *at, i32 *score)
-{
-    // The reference gives up after ten tries.
-    if (++f->calls >= 10) return false;
-    u32 own[Prog_FuzzyTerm], other[Prog_FuzzyTerm], best[Prog_FuzzyTerm];
-    MemCopy(own, at, placed * sizeof(u32));
-    b32 retried = false;
-    i32 retriedScore = 0;
-    for (u32 t = from; placed < f->termCount && t < f->count; ++t) {
-        if (f->folded[t] != f->term[placed]) continue;
-        // The same letter placed further on instead.
-        i32 otherScore = 0;
-        MemCopy(other, own, placed * sizeof(u32));
-        if (Prog__FuzzyPlace(f, placed, t + 1, other, &otherScore) && (!retried || otherScore > retriedScore)) {
-            MemCopy(best, other, f->termCount * sizeof(u32));
-            retriedScore = otherScore;
-            retried = true;
-        }
-        own[placed++] = t;
-    }
-    b32 matched = placed == f->termCount;
-    i32 ownScore = matched ? Prog__FuzzyScore(f, own) : 0;
-    if (retried && (!matched || retriedScore > ownScore)) {
-        MemCopy(at, best, f->termCount * sizeof(u32));
-        *score = retriedScore;
-        return true;
-    }
-    if (!matched) return false;
-    MemCopy(at, own, f->termCount * sizeof(u32));
-    *score = ownScore;
-    return true;
-}
-
-// The reference's score for `text` holding the letters of each of the space-separated terms of `typed` in order, ignoring case,
-// summed over the terms; 0 for a term whose letters it does not hold.
-function i32 Prog__FuzzyMatch(String text, String typed)
-{
-    rune original[Prog_FuzzyText], folded[Prog_FuzzyText], term[Prog_FuzzyTerm];
-    u32 count = 0;
-    b32 decoded = false;
-    i32 result = 0;
-    for (u64 at = 0; at < typed.length;) {
-        u32 termCount = 0;
-        while (at < typed.length && typed.value[at] == ' ') ++at;
-        u64 termStart = at;
-        while (at < typed.length && typed.value[at] != ' ') {
-            rune c = Prog__FoldRune(StrDecodeUtf8(typed, &at));
-            if (termCount < Prog_FuzzyTerm) term[termCount++] = c;
-        }
-        if (!termCount) continue;
-        // Most texts do not hold the letters at all, which this finds without scoring; bytes for a term of ASCII letters, which no other letter folds to.
-        b32 ascii = true;
-        for (u32 i = 0; i < termCount; ++i) ascii &= term[i] < 0x80;
-        if (ascii) {
-            u32 found = 0;
-            for (u64 i = 0; i < text.length && found < termCount; ++i) found += (rune)Prog__FoldAscii((u8)text.value[i]) == term[found];
-            if (found < termCount) continue;
-        } else if (!Prog_FilterMatch(text, StrFromTo(typed, termStart, (i64)at), NULL)) {
-            continue;
-        }
-        for (u64 from = 0; !decoded && from < text.length && count < Prog_FuzzyText;) {
-            original[count] = StrDecodeUtf8(text, &from);
-            folded[count] = Prog__FoldRune(original[count]);
-            ++count;
-        }
-        decoded = true;
-        Prog__Fuzzy f = { term, original, folded, termCount, count, 0 };
-        u32 places[Prog_FuzzyTerm];
-        i32 score = 0;
-        if (Prog__FuzzyPlace(&f, 0, 0, places, &score)) result += score;
-    }
-    return result;
-}
-
-// The most three quarters of a path's score can add for `typed`: each letter placed right after the last, after a lowercase letter
-// as an uppercase one and after a space, the first at the start, and no letter left over.
-function i32 Prog__FuzzyBest(String typed)
-{
-    i32 result = 0;
-    for (u64 at = 0; at < typed.length;) {
-        i32 letters = 0;
-        while (at < typed.length && typed.value[at] == ' ') ++at;
-        while (at < typed.length && typed.value[at] != ' ') {
-            StrDecodeUtf8(typed, &at);
-            letters += letters < Prog_FuzzyTerm;
-        }
-        if (letters) result += ((150 + 255 * (letters - 1)) * 3 + 3) / 4 + 1;
-    }
-    return result;
-}
-
-// What a Go To row scores: its name, and three quarters of its path as the row shows it, from the root it is in or its drive, rounded half away from zero.
-function i32 Prog__GoToScore(const Prog_State *state, String path, String typed, i32 nameScore)
+// What a Go To row scores: its name and its path as the row shows it, from the root it is in or its drive.
+function i32 Prog__GoToScore(const Prog_State *state, String name, String path, String typed)
 {
     b32 drive;
     u64 start = Prog__CrumbStart(state, path, &drive);
     String shown = StrFrom(path, drive ? 0 : start);
     while (shown.length > 2 && shown.value[shown.length - 1] == '/') --shown.length;
-    i32 where = Prog__FuzzyMatch(shown, typed);
-    f32 scaled = (f32)where * 0.75f;
-    return nameScore + (i32)(scaled < 0 ? scaled - 0.5f : scaled + 0.5f);
+    return Prog_FuzzyScore(name, shown, typed, NULL, NULL);
 }
 
 // Go To's search ranks matches by score; ranks of Prog_GoToRanks and above tie, which only long texts of several words reach.
@@ -521,12 +396,12 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
             lastParent = parent;
             inside = Prog__GoToNearby(look->state, index, parent);
         }
-        i32 nameScore = Prog__FuzzyMatch(name, look->text);
+        i32 nameScore = Prog_FuzzyScore(name, (String){0}, look->text, NULL, NULL);
         if (nameScore <= 0 && !inside) continue;
         // A name that cannot get past the floor with the best path there is does not have its path looked at.
         if (Prog__GoToRank(nameScore + look->pathBest) >= look->floor) continue;
         char made[1024];
-        i32 score = Prog__GoToScore(look->state, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text, nameScore);
+        i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text);
         if (score <= 0 || Prog__GoToRank(score) >= look->floor) continue;
         found[count++] = (Prog__GoToFound){ entry, score };
     }
@@ -614,7 +489,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 String name = Prog__FolderName(path);
                 MapsPut(arena, state->gotoNearbyNames, name, true);
                 MapsPut(arena, state->gotoNearbyPaths, path, true);
-                i32 score = Prog__GoToScore(state, path, text, Prog__FuzzyMatch(name, text));
+                i32 score = Prog__GoToScore(state, name, path, text);
                 if (score <= 0 || MapsGetPtrNull(state->gotoSeen, path)) continue;
                 MapsPut(arena, state->gotoSeen, path, true);
                 Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, false, (b8)(name.length && name.value[0] == '.'), {0}, NULL }, Prog__GoToRank(score));
@@ -627,7 +502,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             state->gotoScanFrame = state->ui.frameIndex;
             Prog__GoToLook look = {
                 .state = state, .index = index, .text = text, .first = state->gotoScanAt, .count = Min(entries - state->gotoScanAt, (u64)1 << 20),
-                .until = PlatformNowMicroseconds() + 4000, .floor = state->gotoFloor, .pathBest = Prog__FuzzyBest(text),
+                .until = PlatformNowMicroseconds() + 4000, .floor = state->gotoFloor, .pathBest = Prog_FuzzyPathBest(text),
             };
             u64 blocks = (look.count + Prog_GoToBlock - 1) / Prog_GoToBlock;
             look.found = ArenaPushArrayNoZero(frame, look.count, Prog__GoToFound);

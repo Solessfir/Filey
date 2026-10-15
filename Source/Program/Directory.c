@@ -110,34 +110,277 @@ function b32 Prog_FilterMatch(String name, String filter, u8 *marks)
     return true;
 }
 
+enum { Prog_FuzzyText = 512, Prog_FuzzyTerm = 64 };
+
+// A text's letters for scoring, decoded once the first term may match it.
+typedef struct Prog__FuzzyText {
+    String text;
+    rune original[Prog_FuzzyText], folded[Prog_FuzzyText];
+    u32 offsets[Prog_FuzzyText + 1];  // each letter's first byte, and the end
+    u32 count;
+    b32 decoded;
+} Prog__FuzzyText;
+
+typedef struct Prog__Fuzzy {
+    const rune *term, *text, *folded;
+    u32 termCount, count, calls;
+} Prog__Fuzzy;
+
+// The reference's score for the letters of a term placed at `at` in `text`: placed letters that follow one another, start the text,
+// follow a lowercase letter as an uppercase one or follow "_" or a space score; letters before the first, letters left over and gaps cost.
+function i32 Prog__FuzzyScore(const Prog__Fuzzy *f, const u32 *at)
+{
+    i32 score = 100 + ((i32)f->termCount - (i32)f->count) * 3 - (i32)at[0];
+    for (u32 i = 0; i < f->termCount; ++i) {
+        u32 place = at[i];
+        if (i) {
+            i32 gap = (i32)(place - at[i - 1]);
+            if (gap > 5) score += (5 - gap) * 50;
+            if (gap == 1) score += 200;
+        }
+        if (place == 0) {
+            score += 50;
+            continue;
+        }
+        rune previous = f->text[place - 1], current = f->text[place];
+        b32 lower = (previous >= 'a' && previous <= 'z') || (previous >= 0xE0 && previous <= 0xFF && previous != 0xF7) || (previous >= 0x430 && previous <= 0x45F);
+        if (lower && Prog__FoldRune(current) != current) score += 30;
+        if (previous == '_' || previous == ' ') score += 25;
+    }
+    return score;
+}
+
+// Places the term's letters from `placed` on in the text from `from` on, the best of the ways the reference tries.
+function b32 Prog__FuzzyPlace(Prog__Fuzzy *f, u32 placed, u32 from, u32 *at, i32 *score)
+{
+    // The reference gives up after ten tries.
+    if (++f->calls >= 10) return false;
+    u32 own[Prog_FuzzyTerm], other[Prog_FuzzyTerm], best[Prog_FuzzyTerm];
+    MemCopy(own, at, placed * sizeof(u32));
+    b32 retried = false;
+    i32 retriedScore = 0;
+    for (u32 t = from; placed < f->termCount && t < f->count; ++t) {
+        if (f->folded[t] != f->term[placed]) continue;
+        // The same letter placed further on instead.
+        i32 otherScore = 0;
+        MemCopy(other, own, placed * sizeof(u32));
+        if (Prog__FuzzyPlace(f, placed, t + 1, other, &otherScore) && (!retried || otherScore > retriedScore)) {
+            MemCopy(best, other, f->termCount * sizeof(u32));
+            retriedScore = otherScore;
+            retried = true;
+        }
+        own[placed++] = t;
+    }
+    b32 matched = placed == f->termCount;
+    i32 ownScore = matched ? Prog__FuzzyScore(f, own) : 0;
+    if (retried && (!matched || retriedScore > ownScore)) {
+        MemCopy(at, best, f->termCount * sizeof(u32));
+        *score = retriedScore;
+        return true;
+    }
+    if (!matched) return false;
+    MemCopy(at, own, f->termCount * sizeof(u32));
+    *score = ownScore;
+    return true;
+}
+
+// The score of one term in `t`, or 0 when it does not hold the term's letters in order; `marks` flags the bytes of the letters placed.
+function i32 Prog__FuzzyTerm(Prog__FuzzyText *t, const rune *term, u32 termCount, String termText, u8 *marks)
+{
+    String text = t->text;
+    // Most texts do not hold the letters at all, which this finds without scoring; bytes for a term of ASCII letters, which no other letter folds to.
+    b32 ascii = true;
+    for (u32 i = 0; i < termCount; ++i) ascii &= term[i] < 0x80;
+    if (ascii) {
+        u32 found = 0;
+        for (u64 i = 0; i < text.length && found < termCount; ++i) found += (rune)Prog__FoldAscii((u8)text.value[i]) == term[found];
+        if (found < termCount) return 0;
+    } else if (!Prog_FilterMatch(text, termText, NULL)) {
+        return 0;
+    }
+    if (!t->decoded) {
+        for (u64 from = 0; from < text.length && t->count < Prog_FuzzyText;) {
+            t->offsets[t->count] = (u32)from;
+            t->original[t->count] = StrDecodeUtf8(text, &from);
+            t->folded[t->count] = Prog__FoldRune(t->original[t->count]);
+            t->offsets[++t->count] = (u32)from;
+        }
+        t->decoded = true;
+    }
+    Prog__Fuzzy f = { term, t->original, t->folded, termCount, t->count, 0 };
+    u32 places[Prog_FuzzyTerm];
+    i32 score = 0;
+    if (!Prog__FuzzyPlace(&f, 0, 0, places, &score)) return 0;
+    if (marks) for (u32 i = 0; i < termCount; ++i) for (u32 b = t->offsets[places[i]]; b < t->offsets[places[i] + 1]; ++b) marks[b] = 1;
+    return score;
+}
+
+// The reference's score of a name and its path for `typed`: for each of its space-separated terms, the name's score and three quarters
+// of the path's, rounded half away from zero, where a text that does not hold the term's letters in order, ignoring case, scores 0.
+// `nameMarks` and `pathMarks`, when not NULL, flag the bytes of the letters placed.
+function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks)
+{
+    if (nameMarks) MemZero(nameMarks, name.length);
+    if (pathMarks) MemZero(pathMarks, path.length);
+    Prog__FuzzyText names, paths;
+    names.text = name, names.count = 0, names.decoded = false;
+    paths.text = path, paths.count = 0, paths.decoded = false;
+    rune term[Prog_FuzzyTerm];
+    i32 result = 0;
+    for (u64 at = 0; at < typed.length;) {
+        u32 termCount = 0;
+        while (at < typed.length && typed.value[at] == ' ') ++at;
+        u64 termStart = at;
+        while (at < typed.length && typed.value[at] != ' ') {
+            rune c = Prog__FoldRune(StrDecodeUtf8(typed, &at));
+            if (termCount < Prog_FuzzyTerm) term[termCount++] = c;
+        }
+        if (!termCount) continue;
+        String termText = StrFromTo(typed, termStart, (i64)at);
+        result += Prog__FuzzyTerm(&names, term, termCount, termText, nameMarks);
+        if (path.length) {
+            f32 scaled = (f32)Prog__FuzzyTerm(&paths, term, termCount, termText, pathMarks) * 0.75f;
+            result += (i32)(scaled < 0 ? scaled - 0.5f : scaled + 0.5f);
+        }
+    }
+    return result;
+}
+
+// The most three quarters of a path's score can add for `typed`: each letter placed right after the last, after a lowercase letter
+// as an uppercase one and after a space, the first at the start, and no letter left over.
+function i32 Prog_FuzzyPathBest(String typed)
+{
+    i32 result = 0;
+    for (u64 at = 0; at < typed.length;) {
+        i32 letters = 0;
+        while (at < typed.length && typed.value[at] == ' ') ++at;
+        while (at < typed.length && typed.value[at] != ' ') {
+            StrDecodeUtf8(typed, &at);
+            letters += letters < Prog_FuzzyTerm;
+        }
+        if (letters) result += ((150 + 255 * (letters - 1)) * 3 + 3) / 4 + 1;
+    }
+    return result;
+}
+
+// What the filter scores an entry with: its own name, and the folder it is in for a listing of the subfolders too.
+function i32 Prog_EntryScore(String name, String filter, u8 *marks)
+{
+    String leaf = Prog_EntryLeaf(name);
+    u64 prefix = name.length - leaf.length;
+    return Prog_FuzzyScore(leaf, StrFromTo(name, 0, prefix ? (i64)prefix - 1 : 0), filter, marks ? marks + prefix : NULL, marks);
+}
+
+// Filter scores as ranks for a counting sort, best first; scores of Prog_FilterRanks and above tie, which only long texts of several words reach.
+enum { Prog_FilterRanks = 8192 };
+
+function u16 Prog_FilterRank(i32 score)
+{
+    return (u16)(Prog_FilterRanks - 1 - Min(Max(score, 0), (i32)Prog_FilterRanks - 1));
+}
+
+#define Prog_WalkLanes 8
+
+enum { Prog_FilterBlock = 4096, Prog_FilterHidden = 0xFFFF };
+
+// The filter's look through a listing: lanes take blocks of its entries in turn and rank each, or leave it out.
+typedef struct Prog__FilterLook {
+    const Prog_State *state;
+    String filter;
+    u16 *ranks;
+    atomic_int *parentScores;  // per folder of a listing of the subfolders, its part of the score once a lane has worked it out
+    atomic_uint_fast64_t next;
+} Prog__FilterLook;
+
+enum { Prog_FilterUnscored = INT32_MIN };
+
+function void Prog__FilterLane(void *user, u32 lane)
+{
+    (void)lane;
+    Prog__FilterLook *look = user;
+    const Prog_State *state = look->state;
+    for (;;) {
+        u64 from = atomic_fetch_add(&look->next, 1) * Prog_FilterBlock;
+        if (from >= state->directory.count) break;
+        u64 to = Min(from + Prog_FilterBlock, state->directory.count);
+        for (u64 i = from; i < to; ++i) {
+            const Prog_Entry *entry = &state->directory.entries[i];
+            b32 hidden = entry->file.kind == P_FileKind_Directory ? state->hideFolders : state->hideFiles;
+            i32 score = hidden ? 0 : 1;
+            if (!hidden && look->filter.length) {
+                String name = entry->file.name, leaf = Prog_EntryLeaf(name);
+                score = Prog_FuzzyScore(leaf, (String){0}, look->filter, NULL, NULL);
+                if (leaf.length < name.length) {
+                    // A listing of the subfolders has many entries in each folder, whose part of the score is the same for all of them;
+                    // an entry added since the listing has its folder looked at on its own.
+                    String folder = StrFromTo(name, 0, (i64)(name.length - leaf.length - 1));
+                    b32 listed = entry->parent < state->directory.parentCount && StrIsEqual(state->directory.parents[entry->parent], folder);
+                    i32 folderScore = listed ? atomic_load_explicit(&look->parentScores[entry->parent], memory_order_relaxed) : Prog_FilterUnscored;
+                    if (folderScore == Prog_FilterUnscored) {
+                        folderScore = Prog_FuzzyScore((String){0}, folder, look->filter, NULL, NULL);
+                        if (listed) atomic_store_explicit(&look->parentScores[entry->parent], folderScore, memory_order_relaxed);
+                    }
+                    score += folderScore;
+                }
+            }
+            look->ranks[i] = score > 0 ? Prog_FilterRank(score) : Prog_FilterHidden;
+        }
+    }
+}
+
 // Rebuilds the view from the filter and the folder and file toggles, and drops hidden rows from the selection.
 // After an edit the focus moves to the first match, so that Enter opens it; a listing without a focused item puts it on the first one, as a cursor that selects nothing.
 function void Prog_ApplyFilter(Prog_State *state, b32 edited)
 {
-    ArenaClear(&state->viewArena);
-    String filter = Prog_EditText(&state->filter);
-    state->view = ArenaPushArrayNoZero(&state->viewArena, Max(state->directory.count, (u64)1), u64);
-    state->viewCount = state->viewFolders = 0;
-    state->selectedCount = 0;
-    for (u64 i = 0; i < state->directory.count; ++i) {
-        Prog_Entry *entry = &state->directory.entries[i];
-        b32 folder = entry->file.kind == P_FileKind_Directory;
-        if (!(folder ? state->hideFolders : state->hideFiles) && Prog_FilterMatch(Prog_EntryLeaf(entry->file.name), filter, NULL)) {
-            state->view[state->viewCount++] = i;
-            state->viewFolders += folder != 0;
-        } else {
-            entry->selected = false;
+    ProfileScope("ApplyFilter") {
+        ArenaClear(&state->viewArena);
+        String filter = Prog_EditText(&state->filter);
+        state->view = ArenaPushArrayNoZero(&state->viewArena, Max(state->directory.count, (u64)1), u64);
+        state->viewCount = state->viewFolders = 0;
+        state->selectedCount = 0;
+        Scratch scratch = GetScratch();
+        // What matches comes best first, as the reference ranks it, folders still before files and in the listing's order within a score;
+        // a big listing is ranked on several lanes.
+        Prog__FilterLook look = { .state = state, .filter = filter, .ranks = ArenaPushArrayNoZero(scratch.arena, Max(state->directory.count, (u64)1), u16) };
+        look.parentScores = ArenaPushArrayNoZero(scratch.arena, Max(state->directory.parentCount, 1u), atomic_int);
+        for (u32 i = 0; i < state->directory.parentCount; ++i) atomic_init(&look.parentScores[i], Prog_FilterUnscored);
+        u32 lanes = state->directory.count >= 4 * Prog_FilterBlock ? Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)) : 1;
+        if (lanes > 1) P_RunLanes(lanes, Prog__FilterLane, &look);
+        else Prog__FilterLane(&look, 0);
+        u16 *ranks = filter.length ? look.ranks : NULL;
+        for (u64 i = 0; i < state->directory.count; ++i) {
+            Prog_Entry *entry = &state->directory.entries[i];
+            b32 folder = entry->file.kind == P_FileKind_Directory;
+            if (look.ranks[i] != Prog_FilterHidden) {
+                if (ranks) ranks[state->viewCount] = look.ranks[i];
+                state->view[state->viewCount++] = i;
+                state->viewFolders += folder != 0;
+            } else {
+                entry->selected = false;
+            }
+            state->selectedCount += entry->selected != 0;
         }
-        state->selectedCount += entry->selected != 0;
-    }
-    if (edited || !state->hasFocus || Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX) {
-        state->hasFocus = state->viewCount != 0;
-        state->focusedRow = state->viewCount ? state->view[0] : 0;
-        state->revealFocus = true;
-    }
-    if (state->hasAnchor && Prog_ViewPosition(state, state->anchorRow) == UINT64_MAX) {
-        state->hasAnchor = state->hasFocus;
-        state->anchorRow = state->focusedRow;
+        if (ranks && state->viewCount > 1) {
+            u32 *starts = ArenaPushArray(scratch.arena, 2 * Prog_FilterRanks + 1, u32);
+            u64 *sorted = ArenaPushArrayNoZero(scratch.arena, state->viewCount, u64);
+            for (u64 i = 0; i < state->viewCount; ++i) {
+                ranks[i] += state->directory.entries[state->view[i]].file.kind == P_FileKind_Directory ? 0 : Prog_FilterRanks;
+                ++starts[ranks[i] + 1];
+            }
+            for (u32 r = 0; r < 2 * Prog_FilterRanks; ++r) starts[r + 1] += starts[r];
+            for (u64 i = 0; i < state->viewCount; ++i) sorted[starts[ranks[i]]++] = state->view[i];
+            MemCopy(state->view, sorted, state->viewCount * sizeof(u64));
+        }
+        ReleaseScratch(scratch);
+        if (edited || !state->hasFocus || Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX) {
+            state->hasFocus = state->viewCount != 0;
+            state->focusedRow = state->viewCount ? state->view[0] : 0;
+            state->revealFocus = true;
+        }
+        if (state->hasAnchor && Prog_ViewPosition(state, state->anchorRow) == UINT64_MAX) {
+            state->hasAnchor = state->hasFocus;
+            state->anchorRow = state->focusedRow;
+        }
     }
 }
 
@@ -261,7 +504,6 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
 }
 
 // The threads a walk through a tree or the sort of a big listing uses at most.
-#define Prog_WalkLanes 8
 
 // One stable bottom-up merge sort of `order` from `start` to `end`, runs of `width` already sorted, using `spare` beside it; the result ends in `order`.
 // Returns false when cancelled.
@@ -711,6 +953,8 @@ function void Prog__DirectoryJob(P_Job *job)
         files = all;
     }
     result->entries = ArenaPushArray(&job->arena, files.header.count, Prog_Entry);
+    // The walk keeps each folder's items together, so that a folder is a run of them.
+    if (input->expanded) result->parents = ArenaPushArrayNoZero(&job->arena, Max(files.header.count, (u64)1), String);
     // Type names repeat per type, so each is asked of the system once per listing.
     struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
     // The keys are made in scratch, and only a type seen for the first time keeps a copy.
@@ -728,6 +972,11 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
         result->folderCount += file.kind == P_FileKind_Directory;
+        if (result->parents) {
+            String parent = Prog_EntryParent(file.name);
+            if (!result->parentCount || !StrIsEqual(result->parents[result->parentCount - 1], parent)) result->parents[result->parentCount++] = parent;
+            entry->parent = result->parentCount - 1;
+        }
         u64 mark = ArenaPos(keys.arena);
         String typeKey = P_FileTypeKey(keys.arena, file.name, file.kind);
         String *type = MapsGetPtrNull(types, typeKey);
@@ -2029,7 +2278,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
                     // The filter resets in another folder unless pinned, and gives way to an item that was just created or renamed.
-                    if ((!samePath && !state->filterSticky) || (pickRow < result->count && !Prog_FilterMatch(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL))) {
+                    if ((!samePath && !state->filterSticky) || (pickRow < result->count && Prog_EntryScore(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL) <= 0)) {
                         Prog_ClearFilter(state);
                     }
                     b32 renamePicked = (renameCreated && created == 1 && !pick.length) || (state->selectRename && pick.length && pickRow < result->count);

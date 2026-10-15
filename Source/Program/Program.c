@@ -1283,11 +1283,11 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(cell) {
-        if (prefix) Prog__Label(StrFromTo(name, 0, (i64)prefix), UI_TextContent(), m->row, 0, dim, 0);
-        for (u64 start = prefix, end = prefix; start < name.length; start = end) {
-            b32 match = marks && marks[start - prefix];
-            while (end < name.length && (marks && marks[end - prefix]) == match) ++end;
-            Prog__Label(StrFromTo(name, start, (i64)end), UI_TextContent(), m->row, 0, match ? Prog_CurrentTheme()->textMatch : color, 0);
+        for (u64 start = 0, end = 0; start < name.length; start = end) {
+            b32 match = marks && marks[start];
+            b32 folder = start < prefix;
+            while (end < name.length && (marks && marks[end]) == match && (end < prefix) == folder) ++end;
+            Prog__Label(StrFromTo(name, start, (i64)end), UI_TextContent(), m->row, 0, match ? Prog_CurrentTheme()->textMatch : folder ? dim : color, 0);
         }
     }
 }
@@ -1466,8 +1466,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             if (i == Prog_ColumnId_Name && (state->filter.length || state->directory.expanded)) {
                 String leaf = Prog_EntryLeaf(entry->file.name);
                 u64 prefix = entry->file.name.length - leaf.length;
-                u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(leaf.length, (u64)1), u8) : NULL;
-                if (marks && !Prog_FilterMatch(leaf, Prog_EditText(&state->filter), marks)) marks = NULL;
+                u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(entry->file.name.length, (u64)1), u8) : NULL;
+                if (marks) Prog_EntryScore(entry->file.name, Prog_EditText(&state->filter), marks);
                 Prog__NameLabel(entry->file.name, prefix, marks, width, color, theme->textDim, m);
                 continue;
             }
