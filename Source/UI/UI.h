@@ -121,6 +121,7 @@ typedef struct UI_Context {
     // Off by default, so that a layout depends only on its input; animating says the last frame left something moving.
     b32 animate, animating, wasAnimating;
     f32 dt;  // seconds the animations advance this frame
+    u32 noInput;  // inside UI_NoInput, blocks take no presses
     UI_Animation animations[UI_MaxAnimations];
     u32 animationCount;
 } UI_Context;
@@ -152,6 +153,8 @@ function UI_Interaction UI_InteractionFromBlock(UI_Block *block);
 function void UI_CancelActive(void);
 function UI_Block *UI_PushParent(UI_Block *block);
 function void UI_PopParent(UI_Block *previous);
+// Blocks added inside take no presses, for something still drawn as it fades out after it closed.
+#define UI_NoInput() for (u32 UI__once = (++UI->noInput, 1u); UI__once; --UI->noInput, UI__once = 0)
 #define UI_Parent(block) for (UI_Block *UI__previous = UI_PushParent(block), *UI__once = (block); UI__once; UI_PopParent(UI__previous), UI__once = NULL)
 
 function void UI_SetNextPrefWidth(UI_Size size);

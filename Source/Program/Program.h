@@ -857,6 +857,9 @@ typedef struct Prog_State {
     b32 selectRename;         // and rename it, for items Filey just created
     // The command palette, which takes the keyboard while open; the highlight indexes Prog_PaletteMatches.
     b32 paletteOpen;
+    b32 paletteShown;         // it was open last frame, so that a close starts its fade
+    u64 paletteClosedAt;      // when it closed, while it fades out
+    f32 paletteFade;          // its opacity as it fades out, 1 while open
     Prog_TextEdit palette;
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     u32 paletteScroll;        // the first command row shown

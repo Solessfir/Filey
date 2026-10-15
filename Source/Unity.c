@@ -81,6 +81,7 @@ typedef struct Prog_Loop {
     u64 startTime;  // cleared once the first frame is presented
     u64 launchTime;
     b32 shown;      // a frame has been presented
+    u32 shownFrames;  // frames presented, up to the warm-up after the first
     // A frame that is running; the system's modal loops can call back for a frame while one is, and that one is skipped.
     b32 inFrame;
     // FILEY_CAPTURE_DIR: each presented frame is written there as frame.bmp, or with FILEY_CAPTURE_SEQUENCE as numbered files named after their time,
@@ -240,9 +241,22 @@ function void Prog__Frame(void *user, PlatformEventList events)
                 loop->backdrop = state->glassBackdrop;
                 PlatformWindowSetTransparent(loop->transparent, (PlatformBackdrop)loop->backdrop);
             }
+            // The frame after the first one shown draws the popups' layer, blur and shadow once unseen, so that the driver's first-use work
+            // for them is done before a popup first opens rather than stalling it.
+            if (loop->shownFrames < 2 && loop->shownFrames++ == 1) ProfileScope("WarmUp") {
+                R_Rect box = { 0, 0, (f32)Min(window.width, 256), (f32)Min(window.height, 256) };
+                R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
+                R_DrawSoftRect(box, Prog_CurrentTheme()->window, 8, 8);
+                R_PushLayer(box);
+                R_BlurBehind(box, 8, 24, 1);
+                R_DrawRect(box, Prog_CurrentTheme()->window, 8);
+                R_PopLayer(0.5f);
+                R_EndFrame();
+            }
             R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
             UI_Draw();
             R_EndFrame();
+            if (loop->shownFrames == 1) loop->needsFrame = true;
             if (loop->captureDirectory.length) Prog__CaptureFrame(loop, (u32)Max(window.width, 0), (u32)Max(window.height, 0));
         }
         // Includes the wait for vsync.

@@ -873,6 +873,15 @@ function f32 Prog__TitleStripHeight(const Prog_Metrics *m) { return Prog__StripH
 function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
 function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
 
+// How far a popup has faded in under `key`: evenly over 135 ms, as the reference's do.
+function f32 Prog__FadeIn(UI_Key key)
+{
+    if (!UI->animate) return 1;
+    f32 shown = MinF32(1, (f32)UI_TimeSince(key) / 135000.0f);
+    if (shown < 1) UI_KeepAnimating();
+    return shown;
+}
+
 // How far from its place a slide starts at most, as the reference's do, whatever the distance.
 function f32 Prog__SlideCap(const Prog_Metrics *m) { return floorf(30.0f * m->scale + 0.5f); }
 
@@ -3334,12 +3343,15 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     if (y + height > view.y1) y = view.y1 - height;
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
-    // A new panel fades in while its rows spread from a little closer together to their place.
-    f32 reveal = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first)), 1, 0);
+    // A new panel of Filey's own fades in while its rows spread from a little closer together to their place; a system menu shows at once,
+    // as the reference's do.
+    UI_Key revealKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first));
+    b32 own = state->menuCommands != NULL;
+    f32 reveal = own ? UI_Animate(revealKey, 1, 0) : 1;
     itemHeight *= 0.9f + 0.1f * reveal;
     height = 2 * pad + searchHeight;
     for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
-    f32 opacity = 0.3f + 0.7f * reveal;
+    f32 opacity = own ? Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade"))) : 1;
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
     Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, opacity, m);
@@ -3677,7 +3689,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     f32 width = floorf(MinF32(MaxF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, 187.2f * s), view.x1 - view.x0 - 2 * m->gap));
     f32 height = field + line + 2 * pad + (f32)shown * rowHeight;
     f32 x = floorf(MaxF32(view.x0 + m->gap, button.x1 - width));
-    f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("TabSearchReveal")), 1, 0);
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("TabSearchReveal"))) * state->paletteFade;
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, top - view.y0 });
@@ -3903,7 +3915,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     if (highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
     state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
     u32 first = state->gotoScroll, shown = Min(rowCount - first, visible + 1);
-    // It opens a tenth smaller and grows into place while it fades in from nothing, both easing with a 31 ms time constant.
+    // It opens a tenth smaller and grows into place, easing with a 31 ms time constant, while it fades in from nothing.
     f32 reveal = 1;
     if (UI->animate) {
         reveal = 1 - expf(-(f32)UI_TimeSince(UI_KeyFromStr(0, S("GoToReveal"))) / 31000.0f);
@@ -3916,7 +3928,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
     f32 listHeight = MinF32((f32)shown * row - line, floorf(room * grow)) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
-    f32 opacity = reveal;
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("GoToFade"))) * state->paletteFade;
     f32 radius = floorf(8.0f * s + 0.5f);
     Prog__DropShadow(x, top, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -4454,9 +4466,33 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     #undef Prog__ZoomY
 }
 
+function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m);
+
+// The palette, Go To, Search Tabs or Options while open, and for a moment after they close as they fade out, as the reference's do.
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
-    if (!state->paletteOpen) return;
+    if (state->paletteOpen) {
+        state->paletteShown = true;
+        state->paletteFade = 1;
+        Prog__PaletteBody(state, m);
+        return;
+    }
+    if (state->paletteShown) {
+        state->paletteShown = false;
+        state->paletteClosedAt = UI->animate ? UI->nowMicroseconds : 0;
+    }
+    if (!state->paletteClosedAt) return;
+    state->paletteFade = expf(-(f32)(UI->nowMicroseconds - Min(state->paletteClosedAt, UI->nowMicroseconds)) / 32000.0f);
+    if (state->paletteFade < 0.02f) {
+        state->paletteClosedAt = 0;
+        return;
+    }
+    UI_KeepAnimating();
+    UI_NoInput() Prog__PaletteBody(state, m);
+}
+
+function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
+{
     if (state->paletteMode == Prog_PaletteMode_GoTo) {
         Prog__GoTo(state, m);
         return;
@@ -4496,7 +4532,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     f32 listHeight = MinF32((f32)shown * row - line, room) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     // It fades in as the menus do.
-    f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("PaletteReveal")), 1, 0);
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
     f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
     Prog__DropShadow(x, top, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));

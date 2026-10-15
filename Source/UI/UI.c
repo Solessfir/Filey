@@ -262,6 +262,7 @@ function UI_Block *UI_AddBlockFromKey(UI_Key key, UI_Flags flags)
     }
     Assert(!key || block->lastFrameTouched != UI->frameIndex);
     block->lastFrameTouched = UI->frameIndex;
+    if (UI->noInput) flags &= ~UI_Flag_MouseClickable;
     block->flags = flags;
     block->parent = UI->parent;
     block->first = block->last = block->next = NULL;
