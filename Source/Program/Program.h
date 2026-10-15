@@ -250,6 +250,11 @@ typedef struct Prog_Preview {
     i32 sourceWidth, sourceHeight;  // the image's own size, for an image
     b32 image;
     String text;
+    // A folder's items, folders first and by name, with its totals before hidden items are left out.
+    Prog_Entry *entries;
+    u64 entryCount;
+    u64 totalFolders, totalFiles;
+    b32 listed;
 } Prog_Preview;
 
 // How the inspector sizes an image: shrunk to fit its view, at its own size, or at a scale set with the zoom commands.
@@ -688,6 +693,11 @@ typedef struct Prog_State {
     i32 previewTextureWidth, previewTextureHeight;
     b32 previewImage;         // the picture is the image file's own, previewImageWidth by previewImageHeight
     i32 previewImageWidth, previewImageHeight;
+    // A folder in the inspector lists its items.
+    Prog_Entry *previewEntries;
+    u64 previewEntryCount;
+    u64 previewFolders, previewFiles;
+    b32 previewListed;
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit; the view
     // is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;

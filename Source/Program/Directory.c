@@ -862,11 +862,42 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         String start = {0};
         P_Image image = {0};
+        if (input->folder) {
+            // A folder's items, with their types asked of the system once per type.
+            P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+            Prog_Entry *entries = ArenaPushArray(&job->arena, Max(listing.files.header.count, (u64)1), Prog_Entry);
+            struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
+            u64 count = 0;
+            for (u64 i = 0; i < listing.files.header.count && !P_IsCancelled(&job->cancelToken); ++i) {
+                P_File file = listing.files.v[i];
+                if (file.kind == P_FileKind_Directory) ++result->totalFolders;
+                else ++result->totalFiles;
+                if (file.hidden && !input->showHidden) continue;
+                Prog_Entry *entry = &entries[count++];
+                entry->file = file;
+                String key = P_FileTypeKey(&job->arena, file.name, file.kind);
+                String *type = MapsGetPtrNull(types, key);
+                if (type) {
+                    entry->type = *type;
+                } else {
+                    entry->type = P_FileTypeName(&job->arena, file.name, file.kind);
+                    MapsPut(&job->arena, types, key, entry->type);
+                }
+                if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
+            }
+            Prog_Entry *buffer = ArenaPushArray(&job->arena, Max(count, (u64)1), Prog_Entry);
+            result->entries = Prog__SortEntries(entries, buffer, count, Prog_Sort_Name, false, &job->cancelToken);
+            result->entryCount = result->entries ? count : 0;
+            result->listed = !listing.errorCode && result->entries != NULL;
+        }
         if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
                    P_LoadImageFile(&job->arena, input->path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
-            *result = (Prog_Preview){ image.pixels, image.width, image.height, result->sourceWidth, result->sourceHeight, true, {0} };
+            result->pixels = image.pixels;
+            result->width = image.width;
+            result->height = image.height;
+            result->image = true;
         } else if (!P_IsCancelled(&job->cancelToken)) {
             Scratch scratch = GetScratchEx(&job->arena);
             if (P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, &image)) {
@@ -2030,6 +2061,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
+                state->previewListed = preview->listed;
+                state->previewEntryCount = preview->entryCount;
+                state->previewFolders = preview->totalFolders;
+                state->previewFiles = preview->totalFiles;
+                state->previewEntries = ArenaPushArray(&state->previewArena, Max(preview->entryCount, (u64)1), Prog_Entry);
+                for (u64 i = 0; i < preview->entryCount; ++i) {
+                    Prog_Entry entry = preview->entries[i];
+                    entry.file.name = StrCopy(&state->previewArena, entry.file.name);
+                    entry.type = StrCopy(&state->previewArena, entry.type);
+                    state->previewEntries[i] = entry;
+                }
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
                 u32 lines = 0;

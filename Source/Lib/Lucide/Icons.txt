@@ -65,3 +65,4 @@ maximize-2
 hash
 locate
 locate-off
+chevron-up

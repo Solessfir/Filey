@@ -1352,6 +1352,19 @@ function void TestPanels(TestFileFixture *fixture)
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
+    // The inspector lists the items of the folder in focus.
+    {
+        state.previewShown = true;
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Folder2")), 0);
+        u64 start = PlatformNowMicroseconds();
+        Prog_ProcessCommands(&state);
+        while (!state.previewListed && PlatformNowMicroseconds() - start < Millions(5)) {
+            P__TestPause();
+            Prog_TakeCompletions(&state);
+        }
+        Check(state.previewListed && state.previewEntryCount == 1 && state.previewFiles == 1 && state.previewFolders == 0);
+        state.previewShown = false;
+    }
     // The palette lists its groups, opens one from its title, finds commands across them by their label and description, and runs the highlighted one.
     {
         Prog_PaletteRow matches[Prog_MaxPaletteRows];

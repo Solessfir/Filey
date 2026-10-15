@@ -3515,6 +3515,40 @@ function void Prog__InspectorRow(Prog_State *state, String text, const u8 *match
     }
 }
 
+// The inspector's scroll bar at the right edge of `view`, a block in the current parent: a thumb as long as the share in sight, where that is,
+// between arrows that scroll three rows of `pitch`, dimmed at their end.
+function void Prog__InspectorScrollBar(UI_Block *view, f32 pitch, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale;
+    f32 viewHeight = view->rect.y1 - view->rect.y0, content = view->contentSize.y;
+    if (content > viewHeight && viewHeight > 0) {
+        f32 head = floorf(31.2f * s + 0.5f), foot = floorf(13.6f * s + 0.5f), track = MaxF32(0, viewHeight - head - foot);
+        f32 thumb = MaxF32(floorf(track * viewHeight / content), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
+        f32 at = floorf((track - thumb) * MinF32(1, view->scrollShown.y / (content - viewHeight)));
+        f32 x = view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), y = view->rect.y0 - UI->parent->rect.y0;
+        UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + at });
+        UI_SetNextPrefWidth(UI_Pixels(thick));
+        UI_SetNextPrefHeight(UI_Pixels(thumb));
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        f32 size = floorf(16.0f * s + 0.5f);
+        for (u32 down = 0; down < 2; ++down) {
+            b32 end = down ? view->scrollOffset.y >= content - viewHeight - 0.5f : view->scrollOffset.y <= 0.5f;
+            UI_Key key = UI_KeyFromStr(0, down ? S("InspectorScrollDown") : S("InspectorScrollUp"));
+            UI_SetNextFloatingOffset((UI_Vec2){ x + floorf((thick - size) * 0.5f), down ? y + viewHeight - floorf(10.4f * s + 0.5f) - floorf(size * 0.5f) : y + floorf(20.0f * s + 0.5f) - floorf(size * 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(size));
+            UI_SetNextPrefHeight(UI_Pixels(size));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextFont(m->iconsSmall);
+            UI_SetNextColors((UI_Colors){ .text = end ? theme->tabBorder : UI->hotKey == key ? theme->text : theme->icon });
+            UI_SetNextText(down ? Icon_ChevronDown : Icon_ChevronUp);
+            UI_Block *arrow = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
+            if (UI_InteractionFromBlock(arrow).clicked) view->scrollOffset.y = MinF32(MaxF32(view->scrollOffset.y + (down ? 3 : -3) * pitch, 0), content - viewHeight);
+        }
+    }
+}
+
 // The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked; only the rows in
 // sight get blocks, with spacers for the rest.
 function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
@@ -3617,18 +3651,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
     }
-    // The scroll bar at the right edge: a thumb as long as the share of the text in sight, where that is in it.
-    f32 viewHeight = view->rect.y1 - view->rect.y0, content = view->contentSize.y;
-    if (content > viewHeight && viewHeight > 0) {
-        f32 end = floorf(16.0f * s + 0.5f), track = MaxF32(0, viewHeight - 2 * end);
-        f32 thumb = MaxF32(floorf(track * viewHeight / content), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
-        f32 at = floorf((track - thumb) * MinF32(1, view->scrollShown.y / (content - viewHeight)));
-        UI_SetNextFloatingOffset((UI_Vec2){ view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), view->rect.y0 - UI->parent->rect.y0 + end + at });
-        UI_SetNextPrefWidth(UI_Pixels(thick));
-        UI_SetNextPrefHeight(UI_Pixels(thumb));
-        UI_SetNextColors((UI_Colors){ .background = theme->track });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-    }
+    Prog__InspectorScrollBar(view, pitch, m);
 }
 
 // A dashed outline with round corners, `width` by `height` at `x`, `y` in the parent: the corners are cut from a rounded outline,
@@ -3736,9 +3759,131 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
-// The inspector's filter box at its footer's left: what it holds with buttons to keep it and to clear it, or while empty and idle a prompt with
-// the number of lines.
-function void Prog__InspectorFilterBox(Prog_State *state, const Prog_Metrics *m)
+// A folder in the inspector: its items under the list's column titles, those the filter keeps, each opened by a double click. `kept` gets
+// how many folders and files show.
+function void Prog__InspectorFolder(Prog_State *state, u64 *keptFolders, u64 *keptFiles, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_Block *body = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorFolder")), UI_Flag_Clip);
+    // The rows stop short of the right edge, leaving the scroll bar room, as the text does.
+    f32 margin = floorf(32.8f * m->scale + 0.5f);
+    Prog_Column columns[Prog_ColumnId_Count];
+    Prog__Columns(columns, m->scale, body->rect.x1 - body->rect.x0 - m->inset - margin);
+    // The items the filter keeps, by their place in the listing.
+    String filter = Prog_EditText(&state->inspectorFilter);
+    u64 *shown = ArenaPushArrayNoZero(frame, Max(state->previewEntryCount, (u64)1), u64), count = 0;
+    *keptFolders = *keptFiles = 0;
+    for (u64 i = 0; i < state->previewEntryCount; ++i) {
+        const Prog_Entry *entry = &state->previewEntries[i];
+        if (filter.length && !Prog_FilterMatch(entry->file.name, filter, NULL)) continue;
+        shown[count++] = i;
+        if (entry->file.kind == P_FileKind_Directory) ++*keptFolders;
+        else ++*keptFiles;
+    }
+    UI_Parent(body) {
+        // The titles sit a little lower under the inspector's toolbar than the list's under its own.
+        Prog__Spacer(UI_Flex(), UI_Pixels(floorf(8.0f * m->scale + 0.5f)));
+        UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, margin, 0 });
+        UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->background, 0);
+        UI_Parent(header) {
+            for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
+                UI_SetNextPrefWidth(columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(m->row));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_Block *cell = UI_AddBlock(0);
+                UI_Parent(cell) {
+                    if (i == Prog_ColumnId_Name) Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
+                    f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m), line = Prog__ColumnLineAfter(i) ? m->separator : 0;
+                    f32 room = columns[i].width > 0 ? columns[i].width - left - right - line : 0;
+                    Prog__LabelPadded(room > 0 ? Prog__Ellipsize(frame, m->font, columns[i].title, room) : columns[i].title, UI_Flex(), m->row, left, right, theme->textDim, 0);
+                    if (line > 0) {
+                        f32 tall = floorf(m->line * 1.15f + 0.5f);
+                        UI_SetNextFloatingOffset((UI_Vec2){ columns[i].width > 0 ? columns[i].width : cell->rect.x1 - cell->rect.x0, floorf((m->row - tall) * 0.5f) });
+                        UI_SetNextPrefWidth(UI_Pixels(line));
+                        UI_SetNextPrefHeight(UI_Pixels(tall));
+                        UI_SetNextCornerRadius(line * 0.5f);
+                        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                }
+            }
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Flex());
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, margin, 0 });
+        UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorFolderList")), UI_Flag_Clip | UI_Flag_Scrollable);
+        if (state->inspectorResetScroll) {
+            list->scrollOffset = list->scrollShown = (UI_Vec2){0};
+            state->inspectorResetScroll = false;
+        }
+        if (!UI->animate) list->scrollShown = list->scrollOffset;
+        if (!state->previewListed) {
+            UI_Parent(list) Prog__Label(S("Loading..."), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+        } else if (!count) {
+            UI_Parent(list) Prog__Label(state->previewEntryCount ? S("All items are currently hidden by view settings.") : S("This folder is empty"), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+        } else {
+            // Only the rows in sight get blocks.
+            f32 from = MinF32(list->scrollOffset.y, list->scrollShown.y), to = MaxF32(list->scrollOffset.y, list->scrollShown.y) + (list->rect.y1 - list->rect.y0);
+            u64 first = Min((u64)MaxF32(0, floorf(from / m->row)), count), last = Min((u64)MaxF32(0, ceilf(to / m->row)) + 1, count);
+            UI_Parent(list) {
+                Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * m->row));
+                for (u64 r = first; r < last; ++r) {
+                    const Prog_Entry *entry = &state->previewEntries[shown[r]];
+                    UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "InspectorItem/%S", entry->file.name));
+                    b32 hot = UI->hotKey == key, faded = Prog__EntryFaded(entry);
+                    f32 height = m->row - Prog__RowLine(m);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(m->row));
+                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable);
+                    UI_Interaction interaction = UI_InteractionFromBlock(row);
+                    if (interaction.clicked && interaction.pressCount == 2) Prog_QueueCommand(state, Prog_CommandKind_InspectorOpenItem, shown[r], 0, interaction.clickOrder);
+                    String values[Prog_ColumnId_Count];
+                    Prog__EntryValues(state, entry, values);
+                    UI_Parent(row) {
+                        Prog__ItemBox(Prog__ItemLook(false, hot, false), UI_Percent(1), m);
+                        const Prog_Icon *icon = Prog_FileIcon(state, state->previewPath, entry);
+                        if (icon) {
+                            UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));
+                            UI_SetNextPrefHeight(UI_Pixels(height));
+                            UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
+                            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+                            UI_AddBlock(UI_Flag_DrawImage);
+                        } else {
+                            Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, m->iconSlot - m->gap, height, faded ? theme->iconDisabled : theme->icon, 1, m);
+                        }
+                        for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
+                            UI_Size width = columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex();
+                            R_Color color = i == Prog_ColumnId_Name && !faded ? theme->text : theme->textDim;
+                            if (i == Prog_ColumnId_Name && filter.length) {
+                                u8 *marks = ArenaPushArray(frame, Max(entry->file.name.length, (u64)1), u8);
+                                Prog_FilterMatch(entry->file.name, filter, marks);
+                                Prog__NameLabel(entry->file.name, 0, marks, width, color, theme->textDim, m);
+                                continue;
+                            }
+                            f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m);
+                            if (columns[i].alignX > 0) left = m->gap;
+                            String value = columns[i].width > 0 ? Prog__Ellipsize(frame, m->detail, values[i], columns[i].width - left - right) : values[i];
+                            if (i != Prog_ColumnId_Name) UI_SetNextFont(m->detail);
+                            Prog__LabelPadded(value, width, height, left, right, color, columns[i].alignX);
+                        }
+                    }
+                }
+                Prog__Spacer(UI_Flex(), UI_Pixels((f32)(count - last) * m->row));
+            }
+        }
+        Prog__InspectorScrollBar(list, m->row, m);
+    }
+}
+
+// The inspector's filter box at its footer's left: what it holds with buttons to keep it and to clear it, or while empty and idle `prompt`.
+function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 radius = floorf(10.4f * m->scale + 0.5f), inset = floorf(2.4f * m->scale + 0.5f);
@@ -3780,7 +3925,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, const Prog_Metrics *m)
             }
         } else {
             Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
-            Prog__Label(StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
+            Prog__Label(prompt, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
         }
     }
 }
@@ -3924,6 +4069,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
     b32 text = entry && state->previewText.length && !state->previewPicture && state->previewLines;
     b32 image = entry && state->previewImage;
+    b32 folder = entry && entry->file.kind == P_FileKind_Directory;
+    u64 keptFolders = 0, keptFiles = 0;
     UI_SetNextPrefWidth(below ? UI_Flex() : UI_Pixels(inner));
     UI_SetNextPrefHeight(below ? UI_Pixels(inner) : UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -3981,6 +4128,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__InspectorText(state, m);
         } else if (image) {
             Prog__InspectorImage(state, m);
+        } else if (folder) {
+            Prog__InspectorFolder(state, &keptFolders, &keptFiles, m);
         } else {
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Flex());
@@ -4016,8 +4165,28 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
         UI_Block *footer = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(footer) {
-            if (text) Prog__InspectorFilterBox(state, m);
+            if (text) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
+            if (folder) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->previewEntryCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            if (folder && state->previewListed) {
+                // How many folders and files it holds, and of them how many the filter keeps.
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(radius);
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_Block *counts = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
+                counts->props.colors.border = theme->tabBorder;
+                counts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
+                UI_Parent(counts) {
+                    u64 kept[2] = { keptFolders, keptFiles }, total[2] = { state->previewFolders, state->previewFiles };
+                    String icons[2] = { Icon_Folder, Icon_File };
+                    for (u32 i = 0; i < 2; ++i) {
+                        String number = kept[i] == total[i] ? Prog__FormatCount(&state->frameArena, total[i])
+                                                            : StrFormat(&state->frameArena, "%S/%S", Prog__FormatCount(&state->frameArena, kept[i]), Prog__FormatCount(&state->frameArena, total[i]));
+                        Prog__Icon(icons[i], 0, m->pill, theme->icon, 0.5f, m);
+                        Prog__LabelPadded(number, UI_TextContent(), m->pill, floorf(7.2f * s + 0.5f), floorf(9.6f * s + 0.5f), theme->text, 0);
+                    }
+                }
+            }
             if (image) {
                 // An image's scale, filled up to its own size.
                 f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(state->imageFit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;

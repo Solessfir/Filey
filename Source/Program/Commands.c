@@ -1112,7 +1112,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
-    state->previewPicture = state->previewImage = false;
+    state->previewPicture = state->previewImage = state->previewListed = false;
+    state->previewEntryCount = 0;
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineCount = state->previewRowColumns = 0;
@@ -1123,6 +1124,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     input->kind = Prog_JobKind_Preview;
     input->path = StrCopy(&job->arena, want);
     input->folder = folder;
+    input->showHidden = state->showHidden;
     job->input = input;
     state->previewJob = job;
     P_JobSubmit(job);
@@ -1344,6 +1346,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->inspectorFilter.cursor = state->inspectorFilter.length;
             } break;
             case Prog_CommandKind_InspectorApplyFilter: state->inspectorFiltering = false; break;
+            case Prog_CommandKind_InspectorOpenItem: {
+                if (command->row < state->previewEntryCount) {
+                    const Prog_Entry *entry = &state->previewEntries[command->row];
+                    Prog__GoToOpen(state, (Prog_GoToItem){ Prog_JoinPath(&state->frameArena, state->previewPath, entry->file.name), Prog_GoToSection_Folder,
+                                                           entry->file.kind != P_FileKind_Directory, entry->file.hidden, {0}, NULL });
+                }
+            } break;
             case Prog_CommandKind_InspectorRemoveFilter: {
                 state->inspectorFilter = (Prog_TextEdit){ .version = state->inspectorFilter.version + 1 };
                 state->inspectorFiltering = false;
