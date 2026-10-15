@@ -47,6 +47,11 @@ typedef i64       GLsizeiptr;
 #define GL_VERTEX_SHADER         0x8B31
 #define GL_COMPILE_STATUS        0x8B81
 #define GL_LINK_STATUS           0x8B82
+#define GL_ZERO                  0
+#define GL_TRIANGLES             0x0004
+#define GL_LINEAR                0x2601
+#define GL_FRAMEBUFFER           0x8D40
+#define GL_COLOR_ATTACHMENT0     0x8CE0
 
 #if defined(_WIN32)
 #define GL_API __stdcall
@@ -92,7 +97,12 @@ typedef i64       GLsizeiptr;
     X(void,            VertexAttribPointer,     GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer) \
     X(void,            VertexAttribDivisor,     GLuint index, GLuint divisor) \
     X(void,            EnableVertexAttribArray, GLuint index) \
-    X(void,            DrawArraysInstanced,     GLenum mode, GLint first, GLsizei count, GLsizei instanceCount)
+    X(void,            DrawArraysInstanced,     GLenum mode, GLint first, GLsizei count, GLsizei instanceCount) \
+    X(void,            CopyTexSubImage2D,       GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height) \
+    X(void,            GenFramebuffers,         GLsizei n, GLuint *framebuffers) \
+    X(void,            BindFramebuffer,         GLenum target, GLuint framebuffer) \
+    X(void,            FramebufferTexture2D,    GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) \
+    X(void,            Uniform1i,               GLint location, GLint v0)
 
 #define X(ret, name, ...) typedef ret GL_API GL_##name##Fn(__VA_ARGS__);
 GL_FUNCTIONS(X)
@@ -104,7 +114,7 @@ typedef struct GL_Instance {
     R_Color color;
     f32     radius;
     f32     thickness;  // 0 fills; otherwise an inner outline this wide
-    f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA
+    f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA; 3 draws its premultiplied RGBA, as copied from the frame
     f32     pad;
 } GL_Instance;
 
@@ -113,12 +123,17 @@ typedef struct GL_Batch {
     R_Rect clip;
     u32    first;
     u32    count;
+    // A blur of the frame drawn so far under `region` (whole pixels, top-down), `radius` across, laid back in through its two instances.
+    b32    blur;
+    i32    region[4];
+    f32    radius;
 } GL_Batch;
 
 typedef struct GL_ArrayInstance { ArrayHeader header; GL_Instance *v; } GL_ArrayInstance;
 typedef struct GL_ArrayBatch    { ArrayHeader header; GL_Batch *v; } GL_ArrayBatch;
 
 #define GL_MaxClipDepth 64
+#define GL_BlurLevels 4
 
 typedef struct GL_State {
 #define X(ret, name, ...) GL_##name##Fn *name;
@@ -141,6 +156,13 @@ typedef struct GL_State {
     f32              scale, offsetX, offsetY;
     i32              width;
     i32              height;
+    // Blurs, by the dual Kawase filter: the frame under a box copied at its size, halved level by level and grown back level by level.
+    GLuint           blurProgram;
+    GLint            blurSourceLocation, blurModeLocation, blurScaleLocation, blurTexelLocation, blurLimitLocation;
+    GLuint           blurVertexArray;
+    GLuint           framebuffer;
+    GLuint           blurLevels[GL_BlurLevels + 1];  // the copy, then each level about half the one before
+    i32              blurWidth, blurHeight;          // the window's size they were made for
 } GL_State;
 
 global GL_State GL;
@@ -186,6 +208,10 @@ global const char GL_FragmentShader[] =
     "    if (vStyle.y > 0.0) {\n"
     "        alpha *= clamp(0.5 + distance + vStyle.y, 0.0, 1.0);\n"
     "    }\n"
+    "    if (vStyle.z > 2.5) {\n"
+    "        fragColor = texture(uTexture, vUV) * (vColor.a * alpha);\n"
+    "        return;\n"
+    "    }\n"
     "    vec4 color = vColor;\n"
     "    if (vStyle.z > 1.5) {\n"
     "        color *= texture(uTexture, vUV);\n"
@@ -193,6 +219,35 @@ global const char GL_FragmentShader[] =
     "        alpha *= texture(uTexture, vUV).r;\n"
     "    }\n"
     "    fragColor = vec4(color.rgb, color.a * alpha);\n"
+    "}\n";
+
+// One triangle over the whole target, which is a level of the dual Kawase blur: mode 0 halves the source, mode 1 doubles it.
+// `uScale` maps the target's pixels to the source's coordinates, `uTexel` is half a source texel or more, and reads stay below `uLimit`,
+// the corner of the part of the source in use.
+global const char GL_BlurVertexShader[] =
+    "#version 330 core\n"
+    "void main() {\n"
+    "    vec2 position = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);\n"
+    "    gl_Position = vec4(position * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n";
+
+global const char GL_BlurFragmentShader[] =
+    "#version 330 core\n"
+    "uniform sampler2D uSource;\n"
+    "uniform int uMode;\n"
+    "uniform vec2 uScale;\n"
+    "uniform vec2 uTexel;\n"
+    "uniform vec2 uLimit;\n"
+    "out vec4 fragColor;\n"
+    "vec4 Read(vec2 uv) { return texture(uSource, min(uv, uLimit)); }\n"
+    "void main() {\n"
+    "    vec2 uv = gl_FragCoord.xy * uScale, h = uTexel;\n"
+    "    if (uMode == 0) {\n"
+    "        fragColor = (Read(uv) * 4.0 + Read(uv - h) + Read(uv + h) + Read(uv + vec2(h.x, -h.y)) + Read(uv - vec2(h.x, -h.y))) / 8.0;\n"
+    "    } else {\n"
+    "        fragColor = (Read(uv + vec2(-2.0 * h.x, 0.0)) + Read(uv + vec2(-h.x, h.y)) * 2.0 + Read(uv + vec2(0.0, 2.0 * h.y)) + Read(uv + vec2(h.x, h.y)) * 2.0 +\n"
+    "                     Read(uv + vec2(2.0 * h.x, 0.0)) + Read(uv + vec2(h.x, -h.y)) * 2.0 + Read(uv + vec2(0.0, -2.0 * h.y)) + Read(uv + vec2(-h.x, -h.y)) * 2.0) / 12.0;\n"
+    "    }\n"
     "}\n";
 
 function R_TextureHandle GL__TextureHandleFromRef(GLuint ref)
@@ -265,6 +320,24 @@ function b32 R_Init(void)
     }
     GL.viewportLocation = GL.GetUniformLocation(GL.program, "uViewport");
 
+    GLuint blurVertex = GL__CompileShader(GL_VERTEX_SHADER, GL_BlurVertexShader), blurFragment = GL__CompileShader(GL_FRAGMENT_SHADER, GL_BlurFragmentShader);
+    if (blurVertex == 0 || blurFragment == 0) return false;
+    GL.blurProgram = GL.CreateProgram();
+    GL.AttachShader(GL.blurProgram, blurVertex);
+    GL.AttachShader(GL.blurProgram, blurFragment);
+    GL.LinkProgram(GL.blurProgram);
+    GL.DeleteShader(blurVertex);
+    GL.DeleteShader(blurFragment);
+    GL.GetProgramiv(GL.blurProgram, GL_LINK_STATUS, &linked);
+    if (!linked) return false;
+    GL.blurSourceLocation = GL.GetUniformLocation(GL.blurProgram, "uSource");
+    GL.blurModeLocation = GL.GetUniformLocation(GL.blurProgram, "uMode");
+    GL.blurScaleLocation = GL.GetUniformLocation(GL.blurProgram, "uScale");
+    GL.blurTexelLocation = GL.GetUniformLocation(GL.blurProgram, "uTexel");
+    GL.blurLimitLocation = GL.GetUniformLocation(GL.blurProgram, "uLimit");
+    GL.GenVertexArrays(1, &GL.blurVertexArray);
+    GL.GenFramebuffers(1, &GL.framebuffer);
+
     GL.GenVertexArrays(1, &GL.vertexArray);
     GL.BindVertexArray(GL.vertexArray);
     GL.GenBuffers(1, &GL.instanceBuffer);
@@ -330,6 +403,8 @@ function R_Rect GL__CurrentClip(void)
     return (R_Rect){ 0.0f, 0.0f, (f32)GL.width, (f32)GL.height };
 }
 
+function GLuint GL__BlurTexture(i32 width, i32 height);
+
 function void R_BeginFrame(i32 width, i32 height, R_Color clear)
 {
     ArenaClear(&GL.frameArena);
@@ -346,6 +421,18 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.Scissor(0, 0, width, height);
     GL.ClearColor(clear.r * clear.a, clear.g * clear.a, clear.b * clear.a, clear.a);
     GL.Clear(GL_COLOR_BUFFER_BIT);
+    // The blur levels follow the window's size.
+    if (GL.blurWidth != width || GL.blurHeight != height) {
+        if (GL.blurLevels[0]) GL.DeleteTextures(GL_BlurLevels + 1, GL.blurLevels);
+        i32 levelWidth = width, levelHeight = height;
+        for (u32 level = 0; level <= GL_BlurLevels; ++level) {
+            GL.blurLevels[level] = GL__BlurTexture(levelWidth, levelHeight);
+            levelWidth = levelWidth / 2 + 1;
+            levelHeight = levelHeight / 2 + 1;
+        }
+        GL.blurWidth = width;
+        GL.blurHeight = height;
+    }
 }
 
 function R_Rect GL__Scaled(R_Rect rect)
@@ -364,7 +451,7 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
     b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
     b32 compatibleTexture = batch != NULL && (texture == 0 || batch->texture == 0 || batch->texture == texture);
-    if (!sameClip || !compatibleTexture) {
+    if (!sameClip || !compatibleTexture || batch->blur) {
         batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
         batch->clip = clip;
         batch->first = (u32)GL.instances.header.count;
@@ -374,6 +461,115 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     }
     batch->count += 1;
     ArrayPush(&GL.frameArena, GL.instances, instance);
+}
+
+// A filtered texture of `width` by `height` whose pixels are left undefined, for the blur passes to draw into.
+function GLuint GL__BlurTexture(i32 width, i32 height)
+{
+    GLuint texture = 0;
+    GL.GenTextures(1, &texture);
+    GL.BindTexture(GL_TEXTURE_2D, texture);
+    GL.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return texture;
+}
+
+function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
+{
+    if (opacity <= 0 || radius <= 0) return;
+    if (GL.scale != 1) {
+        rect = GL__Scaled(rect);
+        cornerRadius *= GL.scale;
+        radius *= GL.scale;
+    }
+    // What is drawn around the box blurs into its edge, so the copy reaches past it by the blur's width.
+    R_Rect clip = GL__CurrentClip();
+    f32 margin = ceilf(radius);
+    i32 region[4] = {
+        (i32)MaxF32(0, floorf(MaxF32(rect.x0, clip.x0) - margin)), (i32)MaxF32(0, floorf(MaxF32(rect.y0, clip.y0) - margin)),
+        (i32)MinF32((f32)GL.width, ceilf(MinF32(rect.x1, clip.x1) + margin)), (i32)MinF32((f32)GL.height, ceilf(MinF32(rect.y1, clip.y1) + margin)),
+    };
+    if (region[2] <= region[0] || region[3] <= region[1]) return;
+    // The blur ends in the first level, which holds the region at about half its size from its bottom-left corner, bottom row first, as the frame is.
+    f32 width = (f32)(region[2] - region[0]), height = (f32)(region[3] - region[1]);
+    f32 halfWidth = (f32)((region[2] - region[0] + 1) / 2), halfHeight = (f32)((region[3] - region[1] + 1) / 2);
+    f32 levelWidth = (f32)(GL.width / 2 + 1), levelHeight = (f32)(GL.height / 2 + 1);
+    R_Rect uv = {
+        (rect.x0 - (f32)region[0]) / width * halfWidth / levelWidth, ((f32)region[3] - rect.y0) / height * halfHeight / levelHeight,
+        (rect.x1 - (f32)region[0]) / width * halfWidth / levelWidth, ((f32)region[3] - rect.y1) / height * halfHeight / levelHeight,
+    };
+    GL_Batch *batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
+    *batch = (GL_Batch){ .clip = clip, .first = (u32)GL.instances.header.count, .count = 2, .blur = true, .region = { region[0], region[1], region[2], region[3] }, .radius = radius };
+    // First the frame under the box is taken away, then the blur is added in its place, both by the box's rounded coverage.
+    ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .color = { 0, 0, 0, opacity }, .radius = cornerRadius }));
+    ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .uv = uv, .color = { 1, 1, 1, opacity }, .radius = cornerRadius, .textured = 3.0f }));
+}
+
+// Draws one instance of the main program, `index` in the uploaded instances.
+function void GL__DrawInstance(u32 index, GLuint texture)
+{
+    u64 base = index * sizeof(GL_Instance);
+    GLsizei stride = (GLsizei)sizeof(GL_Instance);
+    GL.VertexAttribPointer(0, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, rect)));
+    GL.VertexAttribPointer(1, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, uv)));
+    GL.VertexAttribPointer(2, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, color)));
+    GL.VertexAttribPointer(3, 3, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
+    GL.BindTexture(GL_TEXTURE_2D, texture);
+    GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, 1);
+}
+
+// The blur of `batch`: the frame under its region copied, halved down more levels the wider the blur and grown back to the first level,
+// then laid back in through its two instances.
+function void GL__Blur(const GL_Batch *batch)
+{
+    i32 sizes[GL_BlurLevels + 1][2], textures[GL_BlurLevels + 1][2];
+    for (u32 level = 0; level <= GL_BlurLevels; ++level) {
+        sizes[level][0] = level ? (sizes[level - 1][0] + 1) / 2 : batch->region[2] - batch->region[0];
+        sizes[level][1] = level ? (sizes[level - 1][1] + 1) / 2 : batch->region[3] - batch->region[1];
+        textures[level][0] = level ? textures[level - 1][0] / 2 + 1 : GL.width;
+        textures[level][1] = level ? textures[level - 1][1] / 2 + 1 : GL.height;
+    }
+    u32 levels = batch->radius < 8 ? 2 : batch->radius < 20 ? 3 : GL_BlurLevels;
+    // The taps spread further apart for a wider blur, which smooths it without another level.
+    f32 spread = MinF32(MaxF32(batch->radius / 12.0f, 1), 3);
+    GL.Scissor(0, 0, GL.width, GL.height);
+    GL.BindTexture(GL_TEXTURE_2D, GL.blurLevels[0]);
+    GL.CopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, batch->region[0], GL.height - batch->region[3], sizes[0][0], sizes[0][1]);
+    GL.BlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+    GL.UseProgram(GL.blurProgram);
+    GL.BindVertexArray(GL.blurVertexArray);
+    GL.Uniform1i(GL.blurSourceLocation, 0);
+    GL.BindFramebuffer(GL_FRAMEBUFFER, GL.framebuffer);
+    // Down to the smallest level, then back up to the first.
+    for (u32 pass = 0; pass < 2 * levels - 1; ++pass) {
+        b32 down = pass < levels;
+        u32 from = down ? pass : 2 * levels - 1 - pass, to = down ? pass + 1 : from - 1;
+        GL.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL.blurLevels[to], 0);
+        GL.Viewport(0, 0, sizes[to][0], sizes[to][1]);
+        GL.Scissor(0, 0, sizes[to][0], sizes[to][1]);
+        f32 sourceWidth = (f32)textures[from][0], sourceHeight = (f32)textures[from][1];
+        GL.Uniform1i(GL.blurModeLocation, down ? 0 : 1);
+        GL.Uniform2f(GL.blurScaleLocation, (f32)sizes[from][0] / (f32)sizes[to][0] / sourceWidth, (f32)sizes[from][1] / (f32)sizes[to][1] / sourceHeight);
+        GL.Uniform2f(GL.blurTexelLocation, 0.5f * spread / sourceWidth, 0.5f * spread / sourceHeight);
+        GL.Uniform2f(GL.blurLimitLocation, ((f32)sizes[from][0] - 0.5f) / sourceWidth, ((f32)sizes[from][1] - 0.5f) / sourceHeight);
+        GL.BindTexture(GL_TEXTURE_2D, GL.blurLevels[from]);
+        GL.DrawArraysInstanced(GL_TRIANGLES, 0, 3, 1);
+    }
+    GL.BindFramebuffer(GL_FRAMEBUFFER, 0);
+    GL.Viewport(0, 0, GL.width, GL.height);
+    i32 cx0 = (i32)floorf(batch->clip.x0), cy0 = (i32)floorf(batch->clip.y0), cx1 = (i32)ceilf(batch->clip.x1), cy1 = (i32)ceilf(batch->clip.y1);
+    GL.Scissor(cx0, GL.height - cy1, cx1 - cx0, cy1 - cy0);
+    GL.UseProgram(GL.program);
+    GL.BindVertexArray(GL.vertexArray);
+    GL.BindBuffer(GL_ARRAY_BUFFER, GL.instanceBuffer);
+    GL.BlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+    GL__DrawInstance(batch->first, 0);
+    GL.BlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+    GL__DrawInstance(batch->first + 1, GL.blurLevels[1]);
+    GL.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius)
@@ -457,6 +653,10 @@ function void R_EndFrame(void)
 
     for (u64 i = 0; i < GL.batches.header.count; ++i) {
         GL_Batch *batch = &GL.batches.v[i];
+        if (batch->blur) {
+            GL__Blur(batch);
+            continue;
+        }
         // GL 3.3 has no base-instance draw, so the attributes are rebased instead.
         u64 base = batch->first * sizeof(GL_Instance);
         GLsizei stride = (GLsizei)sizeof(GL_Instance);

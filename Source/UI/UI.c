@@ -301,6 +301,7 @@ function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_
 }
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
 function void UI_SetNextOpacity(f32 opacity) { UI->next.fade = 1.0f - UI__Clamp(opacity, 0, 1); }
+function void UI_SetNextBlur(f32 radius) { UI->next.blur = radius; }
 function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
@@ -486,6 +487,7 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     b32 visible = block->clipRect.x1 > block->clipRect.x0 && block->clipRect.y1 > block->clipRect.y0;
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     if (visible) {
+        if (block->props.blur > 0) R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity);
         if (FlagExists(block->flags, UI_Flag_DrawBackground)) R_DrawRect(block->rect, UI__Faded(block->props.colors.background, opacity), block->props.cornerRadius);
         if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, UI__Faded(block->props.colors.border, opacity), block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
         if (FlagExists(block->flags, UI_Flag_DrawImage)) {

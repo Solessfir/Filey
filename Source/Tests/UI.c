@@ -113,6 +113,10 @@ function void R_TextureRelease(R_TextureHandle texture)
 {
 }
 
+function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
+{
+}
+
 function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint)
 {
     TestUIRecordDraw(rect, tint, 3);
