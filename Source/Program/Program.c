@@ -4493,12 +4493,15 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextCornerRadius(track * 0.5f);
         UI_SetNextColors((UI_Colors){ .background = theme->track });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-        UI_SetNextPrefWidth(UI_Pixels(track));
-        UI_SetNextPrefHeight(UI_Pixels(MaxF32(trackBottom - thumb, track)));
-        UI_SetNextFloatingOffset((UI_Vec2){ trackX, MinF32(thumb, trackBottom - track) });
-        UI_SetNextCornerRadius(track * 0.5f);
-        UI_SetNextColors((UI_Colors){ .background = theme->accent });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        // Shorter than it is wide, the knob covers it, and drawn rounded at its width it would stand out above the knob.
+        if (trackBottom - thumb >= track) {
+            UI_SetNextPrefWidth(UI_Pixels(track));
+            UI_SetNextPrefHeight(UI_Pixels(trackBottom - thumb));
+            UI_SetNextFloatingOffset((UI_Vec2){ trackX, thumb });
+            UI_SetNextCornerRadius(track * 0.5f);
+            UI_SetNextColors((UI_Colors){ .background = theme->accent });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
         UI_SetNextPrefWidth(UI_Pixels(knob));
         UI_SetNextPrefHeight(UI_Pixels(knob));
         UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f), thumb - floorf(knob * 0.5f) });
