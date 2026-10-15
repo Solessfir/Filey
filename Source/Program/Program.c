@@ -166,9 +166,13 @@ global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
 };
 static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_Color) == sizeof(Prog_Theme));
 
+// The transparent theme with the settings' glass colors, and how far its floating boxes blur what is under them, in logical pixels.
+global Prog_Theme Prog_ThemeGlassUser = Prog_ThemeGlass;
+global f32 Prog_GlassBlur = 24;
+
 function void Prog__ApplyTheme(Prog_State *state)
 {
-    Prog_Theme_ = state->debugTheme ? &Prog_ThemeDebug : state->transparent ? &Prog_ThemeGlass : &Prog_ThemeUser;
+    Prog_Theme_ = state->debugTheme ? &Prog_ThemeDebug : state->transparent ? &Prog_ThemeGlassUser : &Prog_ThemeUser;
     state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
 }
 
@@ -187,15 +191,34 @@ function b32 Prog__ParseColor(String text, R_Color *color)
     return true;
 }
 
+// A setting's number, such as "1.25"; -1 when it is not one.
+function f32 Prog__ParseNumber(String value)
+{
+    f32 number = 0, fraction = 0;
+    for (u64 i = 0; i < value.length; ++i) {
+        char c = value.value[i];
+        if (c == '.' && fraction == 0) fraction = 0.1f;
+        else if (c >= '0' && c <= '9' && fraction == 0) number = number * 10 + (f32)(c - '0');
+        else if (c >= '0' && c <= '9') { number += (f32)(c - '0') * fraction; fraction *= 0.1f; }
+        else return -1;
+    }
+    return value.length ? number : -1;
+}
+
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
 //   theme = fullmoon              the reference's scheme under the colors below, for side-by-side checks
 //   animations = off              menus, scrolling and the caret change at once
 //   color.<theme field> = #rrggbb[aa]
+//   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
+//   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
+//   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
     Prog_ThemeUser = Prog_ThemeCustom;
+    Prog_ThemeGlassUser = Prog_ThemeGlass;
+    Prog_GlassBlur = 24;
     state->uiScale = 1;
     state->animationsOff = false;
     state->userHotkeyCount = 0;
@@ -211,16 +234,16 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         String name = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
         while (name.length && name.value[name.length - 1] == ' ') --name.length;
         while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+        R_Color color;
+        f32 number = Prog__ParseNumber(value);
         if (StrIsEqual(name, S("scale"))) {
-            f32 scale = 0, fraction = 0;
-            for (u64 i = 0; i < value.length; ++i) {
-                char c = value.value[i];
-                if (c == '.' && fraction == 0) fraction = 0.1f;
-                else if (c >= '0' && c <= '9' && fraction == 0) scale = scale * 10 + (f32)(c - '0');
-                else if (c >= '0' && c <= '9') { scale += (f32)(c - '0') * fraction; fraction *= 0.1f; }
-                else { scale = 0; break; }
-            }
-            if (scale >= 0.5f && scale <= 3) state->uiScale = scale;
+            if (number >= 0.5f && number <= 3) state->uiScale = number;
+        } else if (StrIsEqual(name, S("glass.window")) && Prog__ParseColor(value, &color)) {
+            Prog_ThemeGlassUser.window = color;
+        } else if (StrIsEqual(name, S("glass.popup")) && Prog__ParseColor(value, &color)) {
+            Prog_ThemeGlassUser.menu = color;
+        } else if (StrIsEqual(name, S("glass.blur"))) {
+            if (number >= 0 && number <= 100) Prog_GlassBlur = number;
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
             if (Prog__EqualFolded(value, S("fullmoon"))) Prog_ThemeUser = Prog_ThemeFullmoon;
@@ -228,7 +251,6 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->animationsOff = Prog__EqualFolded(value, S("off")) || Prog__EqualFolded(value, S("false")) || StrIsEqual(value, S("0"));
         } else if (name.length > 6 && StrIsEqual(StrFromTo(name, 0, 6), S("color."))) {
             String field = StrFrom(name, 6);
-            R_Color color;
             for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
                 if (StrIsEqual(field, StrFromCStr(Prog_ThemeColors[i].name)) && Prog__ParseColor(value, &color)) *(R_Color *)((u8 *)&Prog_ThemeUser + Prog_ThemeColors[i].offset) = color;
             }
@@ -270,6 +292,17 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
+    // The glass settings, at their defaults.
+    R_Color colors[2] = { Prog_ThemeGlass.window, Prog_ThemeGlass.menu };
+    String hex[2];
+    for (u32 i = 0; i < 2; ++i) {
+        R_Color c = colors[i];
+        hex[i] = StrFormat(arena, "#%02x%02x%02x%02x", (u32)(c.r * 255 + 0.5f), (u32)(c.g * 255 + 0.5f), (u32)(c.b * 255 + 0.5f), (u32)(c.a * 255 + 0.5f));
+    }
+    StrBuildStr(arena, &text, StrFormat(arena, "\n# The transparent theme (the \"Transparency\" command), with colors as #rrggbbaa whose last pair is the opacity:\n"
+                                               "# glass.window tints what is behind the window, glass.popup the blur under menus, the palette and the other floating boxes,\n"
+                                               "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
+                                               "# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n", hex[0], hex[1]));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
@@ -383,7 +416,7 @@ function R_Color Prog__FloatingFill(void)
 // How far a floating box blurs what is under it: only where its fill lets that show through, as in the transparent theme.
 function f32 Prog__FloatingBlur(const Prog_Metrics *m)
 {
-    return Prog_CurrentTheme()->menu.a < 1 ? floorf(24.0f * m->scale + 0.5f) : 0;
+    return Prog_CurrentTheme()->menu.a < 1 ? floorf(Prog_GlassBlur * m->scale + 0.5f) : 0;
 }
 
 function void Prog__Label(String text, UI_Size width, f32 height, f32 padding, R_Color color, f32 alignX)
