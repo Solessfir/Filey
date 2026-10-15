@@ -1,2 +1,4 @@
 /AppSpecification.md
 /Bin/
+__pycache__/
+Filey.trace.json
