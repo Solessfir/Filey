@@ -612,6 +612,7 @@ typedef struct Prog_State {
     b32 tipKnown;
     Prog_Inspected tip;
     String tooltipDetail;     // a line over the command, such as the folder a history button goes to
+    b32 tooltipDescribes;     // that line says what the button does, and the command's hotkeys stay
     String tooltipPath;       // a sidebar folder, whose tip shows what it holds instead
     f32 menuRight;            // when nonzero, the right edge the top level lines up with
     // Drag and drop.
@@ -629,6 +630,7 @@ typedef struct Prog_State {
     u32 renameFromLength;
     Prog_TextEdit rename;
     R_Rect renameRect;        // last layout of the edit box
+    R_Rect inspectorRect;     // the inspector's in the last layout; empty while it is hidden
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
     b32 selectRename;         // and rename it, for items Filey just created

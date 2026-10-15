@@ -102,6 +102,20 @@ function void TestHotkeyDispatch(void)
         ArenaRelease(&typing.frameArena);
     }
 
+    // Ctrl+wheel over the inspector sizes its contents, and elsewhere zooms the list.
+    {
+        Prog_State wheel = { .inspectorRect = { 100, 0, 200, 100 } };
+        PlatformEvent turns[] = {
+            { .kind = PlatformEventKind_MouseWheel, .mods = KeyMod_Control, .x = 150, .y = 50, .wheelY = 1 },
+            { .kind = PlatformEventKind_MouseWheel, .mods = KeyMod_Control, .x = 50, .y = 50, .wheelY = -1 },
+        };
+        Prog_HandleInput(&wheel, TestUIEvents(turns, CArrayCount(turns)));
+        Prog_Command *first = wheel.commandFirst;
+        Check(first && first->kind == Prog_CommandKind_InspectorIncreaseContentsSize);
+        Check(first && first->next && first->next->kind == Prog_CommandKind_ZoomOut);
+        ArenaRelease(&wheel.frameArena);
+    }
+
     // Every generated table entry names a real command and binds a key.
     for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
         Check(Prog_DefaultHotkeys[i].command > Prog_CommandKind_None && Prog_DefaultHotkeys[i].command < Prog_CommandKind_Count);

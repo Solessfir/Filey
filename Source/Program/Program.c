@@ -492,6 +492,7 @@ function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String
     if (kind == Prog_CommandKind_Forward && state->historyAt + 1 < state->history.header.count) to = state->history.v[state->historyAt + 1];
     if (kind == Prog_CommandKind_Up) to = Prog_ParentPath(state->directory.path);
     state->tooltipDetail = to.length ? P_NativePath(&state->frameArena, to) : (String){0};
+    state->tooltipDescribes = false;
 }
 
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
@@ -2595,7 +2596,9 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     // A tip with a place to go shows it over the command and leaves the hotkeys out.
     String detail = state->tooltipDetail;
     String hotkeys[3];
-    u32 hotkeyCount = detail.length ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, 3);
+    u32 hotkeyCount = detail.length && !state->tooltipDescribes ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, 3);
+    // A described button's command without a hotkey says so.
+    if (state->tooltipDescribes && !hotkeyCount) hotkeys[hotkeyCount++] = S("Blank");
     f32 pad = floorf(9.6f * s + 0.5f), gap = floorf(4.8f * s + 0.5f), chipGap = floorf(8.0f * s + 0.5f), lineHeight = floorf(37.6f * s + 0.5f);
     f32 height = detail.length ? 2 * floorf(m->line * 1.6f + 0.5f) : lineHeight, margin = floorf(6.4f * s + 0.5f);
     String lead = S("Cmd:");
@@ -4047,9 +4050,10 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
     }
 }
 
-// A row of buttons in a dashed outline, the chosen one lit, each running `kind` with its place in the row; a NULL font is the icon font's.
-function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const String *labels, const R_Font *const *fonts, u32 count, u32 chosen,
-                                Prog_CommandKind kind, const Prog_Metrics *m)
+// A row of buttons in a dashed outline, the chosen one lit, each running `kind` with its place in the row;
+// their tips say what each does over the command `tipKind`. A NULL font is the icon font's.
+function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const String *labels, const R_Font *const *fonts, const String *tips, u32 count, u32 chosen,
+                                Prog_CommandKind kind, Prog_CommandKind tipKind, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale, bar = Prog__StripHeight(m), pad = floorf(4.0f * s + 0.5f), gap = floorf(6.4f * s + 0.5f);
@@ -4072,6 +4076,11 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
             UI_SetNextFont(fonts && fonts[i] ? fonts[i] : m->icons);
             UI_SetNextText(labels[i]);
             UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
+            Prog__NoteTooltip(state, tipKind, (String){0});
+            if (state->tooltipKey == key) {
+                state->tooltipDetail = tips[i];
+                state->tooltipDescribes = true;
+            }
             UI_Interaction interaction = UI_InteractionFromBlock(button);
             if (interaction.clicked) Prog_QueueCommand(state, kind, i, 0, interaction.clickOrder);
         }
@@ -4194,6 +4203,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Inspector")), UI_Flag_DrawBackground | UI_Flag_Clip);
+    state->inspectorRect = pane->rect;
     UI_Parent(pane) {
         UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(toolbar) {
@@ -4207,16 +4217,25 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             local_persist const String layoutKeys[Prog_InspectorLayout_Count] = { S("InspectorLayoutAuto"), S("InspectorLayoutRight"), S("InspectorLayoutBelow") };
             local_persist const String layoutIcons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
             Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
-            Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout, m);
+            local_persist const String layoutTips[Prog_InspectorLayout_Count] = {
+                S("Auto positions the inspector to the right or below based on available space."), S("Forces the inspector to the right."), S("Forces the inspector below."),
+            };
+            Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, layoutTips, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout,
+                              Prog_CommandKind_InspectorChangeLayout, m);
             if (image) {
                 // An image's scales the same way, then its grid and minimap.
                 local_persist const String scaleKeys[Prog_ImageScale_Count] = { S("InspectorScaleFit"), S("InspectorScaleOriginal"), S("InspectorScaleCustom") };
                 local_persist const String scaleLabels[Prog_ImageScale_Count] = { Icon_Minimize2, S("1:1"), Icon_Maximize2 };
                 const R_Font *scaleFonts[Prog_ImageScale_Count] = { NULL, m->detail, NULL };
+                local_persist const String scaleTips[Prog_ImageScale_Count] = {
+                    S("Display image scaled to fit within the viewport."), S("Display image at its original source size, no scaling."),
+                    S("Display image with a custom scale adjustment."),
+                };
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
                 Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
-                Prog__ChoiceGroup(state, scaleKeys, scaleLabels, scaleFonts, Prog_ImageScale_Count, state->imageScaleMode, Prog_CommandKind_InspectorSetImageScale, m);
+                Prog__ChoiceGroup(state, scaleKeys, scaleLabels, scaleFonts, scaleTips, Prog_ImageScale_Count, state->imageScaleMode, Prog_CommandKind_InspectorSetImageScale,
+                                  Prog_CommandKind_InspectorToggleImageScale, m);
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
                 UI_Interaction grid = Prog__TextButton(S("InspectorGrid"), Icon_Hash, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                        state->imageHideGrid ? theme->iconDisabled : theme->icon, theme->text, theme->iconDisabled, true, m);
@@ -4536,6 +4555,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->hasHoverRow = false;
     state->tooltipKey = 0;
     state->tooltipPath = (String){0};
+    state->inspectorRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
     state->pointerPanel = 0;
     Prog__EnsureTab(state);

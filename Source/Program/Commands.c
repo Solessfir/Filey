@@ -1975,11 +1975,15 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             if (state->filter.version != version) Prog_ApplyFilter(state, true);
             continue;
         }
-        // Ctrl+wheel zooms instead of scrolling; fine-grained wheels add up to whole steps.
+        // Ctrl+wheel zooms instead of scrolling, the inspector's contents under the pointer; fine-grained wheels add up to whole steps.
         if (event->kind == PlatformEventKind_MouseWheel && (event->mods & KeyMod_Control) && !state->menuOpen) {
+            R_Rect pane = state->inspectorRect;
+            b32 inspector = event->x >= pane.x0 && event->x < pane.x1 && event->y >= pane.y0 && event->y < pane.y1;
+            Prog_CommandKind in = inspector ? Prog_CommandKind_InspectorIncreaseContentsSize : Prog_CommandKind_ZoomIn;
+            Prog_CommandKind out = inspector ? Prog_CommandKind_InspectorDecreaseContentsSize : Prog_CommandKind_ZoomOut;
             state->zoomWheel += event->wheelY;
-            for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, Prog_CommandKind_ZoomIn, 0, 0, order);
-            for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, Prog_CommandKind_ZoomOut, 0, 0, order);
+            for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, in, 0, 0, order);
+            for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, out, 0, 0, order);
             continue;
         }
         if (event->kind != PlatformEventKind_KeyDown) continue;
