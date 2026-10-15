@@ -857,6 +857,11 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
     return result;
 }
 
+function f32 Prog__StripHeight(const Prog_Metrics *m) { return m->bar - floorf(0.8f * m->scale + 0.5f); }
+
+// A strip along the window's top: a little shorter while the window is maximized, as the reference's, whose tabs then reach the top edge.
+function f32 Prog__TitleStripHeight(const Prog_Metrics *m) { return Prog__StripHeight(m) - (PlatformWindowIsMaximized() ? floorf(1.6f * m->scale + 0.5f) : 0); }
+
 // The reference's toolbar buttons are a little wider than tall.
 function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
 function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
@@ -909,11 +914,14 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     b32 hot = enabled && UI->hotKey == key;
     R_Color wash = theme->selection;
     wash.a *= 0.35f;
-    // The tab list's, in the title bar, is taller and rounder than the toolbar's.
-    UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
-    UI_SetNextPrefHeight(UI_Pixels(tabs ? floorf(26.4f * m->scale + 0.5f) : Prog__ToolbarButtonHeight(m)));
+    // The tab list's, in the title bar, is taller and rounder than the toolbar's, and the main menu's wider and as round; in a maximized
+    // window both fill the title bar under its border, square, as the reference's do.
+    b32 main = kind == Prog_CommandKind_MainMenu, title = (tabs || main) && PlatformWindowIsMaximized();
+    f32 height = title ? Prog__TitleStripHeight(m) - m->separator : tabs ? floorf(26.4f * m->scale + 0.5f) : Prog__ToolbarButtonHeight(m);
+    UI_SetNextPrefWidth(UI_Pixels(main ? floorf(36.0f * m->scale + 0.5f) : Prog__ToolbarButtonWidth(m)));
+    UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextCornerRadius(floorf((tabs ? 5.6f : 4.0f) * m->scale + 0.5f));
+    UI_SetNextCornerRadius(title ? 0 : floorf((tabs || main ? 5.6f : 4.0f) * m->scale + 0.5f));
     UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit ? theme->text : theme->icon });
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
@@ -925,9 +933,11 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     if (enabled && interaction.clicked) {
         R_Rect rect = block->rect;
-        f32 gap = floorf(3.2f * m->scale + 0.5f);
+        f32 gap = floorf(4.0f * m->scale + 0.5f);
         Prog_Command *command = Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
         command->at = (UI_Vec2){ rect.x0, rect.y1 + gap };
+        // The main menu hangs just under the title bar.
+        if (main) command->at.y = UI->root->rect.y0 + m->separator + Prog__TitleStripHeight(m) + floorf((title ? 3.2f : 2.4f) * m->scale + 0.5f);
         if (rect.x0 > (UI->root->rect.x0 + UI->root->rect.x1) * 0.5f) command->atRight = rect.x1;
     }
 }
@@ -1091,7 +1101,6 @@ function b32 Prog__TabHot(Prog_State *state, i64 slot)
 }
 
 // The tab strip's and the toolbar's height, a pixel under the bar's as the reference's; the title bar's strip has the window's top border over it too.
-function f32 Prog__StripHeight(const Prog_Metrics *m) { return m->bar - floorf(0.8f * m->scale + 0.5f); }
 
 // The strip's line under it from `x0` to `x1`, which the shown tab opens into the toolbar; it is as thick as the sidebar's edge it meets.
 function void Prog__StripLine(f32 x0, f32 x1, f32 y, const Prog_Metrics *m)
@@ -1152,8 +1161,9 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog__EnsureTab(state);
-    f32 bar = Prog__StripHeight(m);
-    f32 top = floorf(m->bar * 0.15f) - floorf(0.8f * scale + 0.5f);
+    b32 flush = caption && PlatformWindowIsMaximized();
+    f32 bar = caption ? Prog__TitleStripHeight(m) : Prog__StripHeight(m);
+    f32 top = flush ? 0 : floorf(m->bar * 0.15f) - floorf(0.8f * scale + 0.5f);
     UI_SetNextChildrenPadding((UI_Padding){ 0, top, 0, 0 });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(bar));
@@ -1371,7 +1381,9 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
         }
         // The tab list, left of the window buttons.
-        UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap - floorf(4.8f * scale + 0.5f), -floorf(0.8f * scale + 0.5f) });
+        b32 maximized = PlatformWindowIsMaximized();
+        UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap - floorf((maximized ? 2.4f : 4.8f) * scale + 0.5f),
+                                            -floorf(0.8f * scale + 0.5f) });
         UI_SetNextPrefWidth(UI_Pixels(button));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -3646,6 +3658,13 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// The width of the palette, Go To and the Options popup in a window `view` wide: half of it, from 720 to 960 units, as the reference's,
+// inside the margins.
+function f32 Prog__PaletteWidth(f32 view, f32 margin, f32 s)
+{
+    return MinF32(view - 2 * margin, UI__Clamp(view * 0.5f, 720.0f * s, 960.0f * s));
+}
+
 // The keys that work a palette, in its footer: each key's chip, then what it does.
 function void Prog__PaletteHints(const char *const *keys, const char *const *words, u32 count, f32 height, R_Color background, const Prog_Metrics *m)
 {
@@ -3766,7 +3785,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     }
     f32 grow = 0.9f + 0.1f * reveal;
     row = floorf(row * grow + 0.5f);
-    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 720.0f * s) * grow);
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
     f32 listHeight = MinF32((f32)shown * row - line, floorf(room * grow)) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
@@ -4342,7 +4361,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     if (state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
     u32 first = state->paletteScroll, shown = Min(count - first, visible + 1);
-    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 720.0f * s));
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
     f32 listHeight = MinF32((f32)shown * row - line, room) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     // It fades in as the menus do.
@@ -5488,7 +5507,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     // The active panel gives half of itself under the tab strip to the inspector:
     // the right half, or the lower half when the panel is taller than wide or when asked.
     b32 inspecting = active && state->previewShown;
-    f32 mainHeight = height - (top ? m->separator : 0) - Prog__StripHeight(m);
+    f32 mainHeight = height - (top ? m->separator : 0) - (top ? Prog__TitleStripHeight(m) : Prog__StripHeight(m));
     b32 below = state->inspectorLayout == Prog_InspectorLayout_Below || (state->inspectorLayout == Prog_InspectorLayout_Auto && mainHeight > width);
     if (inspecting) state->inspectorBelow = below;
     f32 previewWidth = inspecting && !below ? floorf((width - m->separator) * 0.5f) : 0;
@@ -5602,7 +5621,7 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
         if (across && rect.y0 <= area.y0) UI_Parent(divider) {
             UI_SetNextFloatingOffset((UI_Vec2){ 0, line });
             UI_SetNextPrefWidth(UI_Pixels(line));
-            UI_SetNextPrefHeight(UI_Pixels(Prog__StripHeight(m) - line));
+            UI_SetNextPrefHeight(UI_Pixels(Prog__TitleStripHeight(m) - line));
             UI_SetNextColors((UI_Colors){ .background = theme->caption });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
@@ -5630,15 +5649,22 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         f32 button = floorf(m->bar * 0.75f);
         // The window's top border over the title bar, then the bar as tall as the strips beside it.
         Prog__Box(UI_Pixels(width), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
-        f32 strip = Prog__StripHeight(m);
+        f32 strip = Prog__TitleStripHeight(m);
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, MaxF32(0, m->inset - floorf(6.0f * scale + 0.5f)), 0 });
         UI_Block *bar = Prog__Box(UI_Pixels(width), UI_Pixels(strip), UI_Layout_Horizontal, theme->caption, 0);
         bar->props.childrenAlignment = (UI_Vec2){ 0, 0.5f };
         UI_Parent(bar) {
             Prog__Caption(state, S("SidebarCaption"), width, strip, 0);
             Prog__StripLine(0, width, strip, m);
-            Prog__Spacer(UI_Pixels(floorf(8.0f * scale + 0.5f)), UI_Pixels(strip));
-            Prog__MenuButton(state, S("MainMenu"), Icon_Menu, Prog_CommandKind_MainMenu, true, m);
+            // In a maximized window the button reaches the screen's corner; it sits a pixel below the middle, or then a pixel above it.
+            b32 maximized = PlatformWindowIsMaximized();
+            f32 nudge = floorf(1.6f * scale + 0.5f);
+            Prog__Spacer(UI_Pixels(maximized ? 0 : floorf(2.4f * scale + 0.5f)), UI_Pixels(strip));
+            UI_SetNextPrefWidth(UI_Pixels(floorf(36.0f * scale + 0.5f)));
+            UI_SetNextPrefHeight(UI_Pixels(strip));
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ 0, maximized ? 0 : nudge, 0, maximized ? nudge : 0 });
+            UI_Parent(UI_AddBlock(0)) Prog__MenuButton(state, S("MainMenu"), Icon_Menu, Prog_CommandKind_MainMenu, true, m);
             Prog__Spacer(UI_Flex(), UI_Pixels(strip));
             Prog__SidebarToggle(state, button, m);
         }

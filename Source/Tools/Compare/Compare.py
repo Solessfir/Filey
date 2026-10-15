@@ -15,7 +15,7 @@
 #
 # COMPARE_REFERENCE names the reference executable and COMPARE_REFERENCE_STATE its settings files, ';' separated, which are copied before every
 # run and put back after it. COMPARE_OUT is the output folder (%TEMP%/filey-compare); Filey's settings live in its Config folder, which starts
-# with "theme = fullmoon". COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window.
+# with "theme = fullmoon". COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window, and COMPARE_MAXIMIZED=1 maximizes it.
 # COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times; =frames also saves each change.
 import ctypes, ctypes.wintypes as wt, os, re, shutil, subprocess, sys, time
 from PIL import Image, ImageChops
@@ -106,6 +106,8 @@ class App:
         # The reference draws at the size it opened with and only stretches to a size set from outside, so it opens at its size from the session
         # file instead; Filey takes a new size at once.
         if exe == FILEY: u32.MoveWindow(self.window, x, y, w, h, True)
+        # COMPARE_MAXIMIZED=1 maximizes both; showing without the focus above put the window back to its last size.
+        if os.environ.get("COMPARE_MAXIMIZED"): u32.ShowWindow(self.window, 3)
         # COMPARE_STARTUP grabs the window for a while and reports when it first looked as it does at the end, in ms from the launch.
         if os.environ.get('COMPARE_STARTUP'):
             grabs = []
@@ -289,7 +291,8 @@ def run(side, name, text, tags):
             with open(p, encoding='utf-8-sig') as f: session = f.read()
             for key, value in zip(('WindowX', 'WindowY', 'WindowWidth', 'WindowHeight'), (geometry[2], geometry[3], geometry[0], geometry[1])):
                 session = re.sub(rf'"{key}": -?\d+', f'"{key}": {value}', session)
-            session = re.sub(r'"WindowMaximized": \w+', '"WindowMaximized": false', session)
+            maximized = 'true' if os.environ.get('COMPARE_MAXIMIZED') else 'false'
+            session = re.sub(r'"WindowMaximized": \w+', f'"WindowMaximized": {maximized}', session)
             with open(p, 'w', encoding='utf-8') as f: f.write(session)
     u32.LockSetForegroundWindow(1)
     app = App(exe, [path], env, *geometry)
