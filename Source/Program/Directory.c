@@ -861,13 +861,17 @@ function void Prog__DirectoryJob(P_Job *job)
         // Text where the start of the file reads as text, else the system's picture of it.
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         String start = {0};
+        P_Image image = {0};
         if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
+        } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
+                   P_LoadImageFile(&job->arena, input->path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+            *result = (Prog_Preview){ image.pixels, image.width, image.height, result->sourceWidth, result->sourceHeight, true, {0} };
         } else if (!P_IsCancelled(&job->cancelToken)) {
             Scratch scratch = GetScratchEx(&job->arena);
-            P_Image image = {0};
             if (P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, &image)) {
                 result->pixels = Prog_ResizeIcon(&job->arena, image, Prog_PreviewSize);
+                result->width = result->height = Prog_PreviewSize;
             }
             ReleaseScratch(scratch);
         }
@@ -2038,9 +2042,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 for (u64 i = 0; i + 1 < text.length; ++i) if (text.value[i] == '\n') state->previewLines[line++] = (u32)(i + 1);
                 state->previewLines[lines] = (u32)text.length;
                 if (preview->pixels) {
-                    if (!state->previewTexture.u64[0]) state->previewTexture = R_TextureCreateRGBA(Prog_PreviewSize, Prog_PreviewSize, preview->pixels);
-                    else R_TextureUpdateRGBA(state->previewTexture, 0, 0, Prog_PreviewSize, Prog_PreviewSize, preview->pixels);
+                    // The texture is made again for a picture of another size.
+                    if (state->previewTexture.u64[0] && (state->previewTextureWidth != preview->width || state->previewTextureHeight != preview->height)) {
+                        R_TextureRelease(state->previewTexture);
+                        state->previewTexture = (R_TextureHandle){0};
+                    }
+                    if (!state->previewTexture.u64[0]) state->previewTexture = R_TextureCreateRGBA(preview->width, preview->height, preview->pixels);
+                    else R_TextureUpdateRGBA(state->previewTexture, 0, 0, preview->width, preview->height, preview->pixels);
+                    state->previewTextureWidth = preview->width;
+                    state->previewTextureHeight = preview->height;
                     state->previewPicture = state->previewTexture.u64[0] != 0;
+                    state->previewImage = state->previewPicture && preview->image;
+                    state->previewImageWidth = preview->sourceWidth;
+                    state->previewImageHeight = preview->sourceHeight;
                 }
                 changed = true;
             }

@@ -240,10 +240,25 @@ typedef struct Prog_Transfer {
 #define Prog_InspectorFontMin 8
 #define Prog_InspectorFontMax 16
 
+// A picture is the file's own at up to Prog_PreviewImageSide on its longer side when it is an image, else the system's thumbnail of
+// Prog_PreviewSize squared.
+#define Prog_PreviewImageSide 4096
+
 typedef struct Prog_Preview {
     u32 *pixels;
+    i32 width, height;              // of pixels
+    i32 sourceWidth, sourceHeight;  // the image's own size, for an image
+    b32 image;
     String text;
 } Prog_Preview;
+
+// How the inspector sizes an image: shrunk to fit its view, at its own size, or at a scale set with the zoom commands.
+typedef enum Prog_ImageScale {
+    Prog_ImageScale_Fit,
+    Prog_ImageScale_Original,
+    Prog_ImageScale_Custom,
+    Prog_ImageScale_Count,
+} Prog_ImageScale;
 
 // A copy or move's result: where each item went, for undoing it.
 typedef struct Prog_Transferred {
@@ -670,6 +685,18 @@ typedef struct Prog_State {
     String previewText;
     R_TextureHandle previewTexture;
     b32 previewPicture;       // the texture holds previewPath's picture
+    i32 previewTextureWidth, previewTextureHeight;
+    b32 previewImage;         // the picture is the image file's own, previewImageWidth by previewImageHeight
+    i32 previewImageWidth, previewImageHeight;
+    // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit; the view
+    // is dragged to move it.
+    enum8(Prog_ImageScale) imageScaleMode;
+    f32 imageScale;           // for Custom
+    f32 imageFit;             // the scale Fit last showed, where the zoom commands start from and stop going down
+    b32 imageHideGrid;
+    b32 imageHideMinimap;
+    UI_Vec2 imagePan;         // of the image's center from the view's, in pixels
+    UI_Vec2 imageDragFrom;
     u32 *previewLines;        // where each line of previewText starts, and one past its end
     u32 previewLineCount;
     u32 *previewRows;         // the first wrapped row of each line, and the total, at previewRowColumns characters across

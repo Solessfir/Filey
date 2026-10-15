@@ -883,6 +883,18 @@ function void TestMeasure(TestFileFixture *fixture)
     Arena arena = {0};
     Check(StrIsEqual(Prog__FormatCount(&arena, 999), S("999")) && StrIsEqual(Prog__FormatCount(&arena, 1599), S("1.5K")));
     Check(StrIsEqual(Prog__FormatCount(&arena, 250000), S("250K")) && StrIsEqual(Prog__FormatCount(&arena, 3210000), S("3.2M")));
+    // An image file is read at its own size or shrunk to fit, and a text file is not taken for a picture.
+    {
+        local_persist const u8 picture[] = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52\x00\x00\x00\x03\x00\x00\x00\x02\x08\x06\x00\x00\x00\x9D\x74\x66\x1A\x00\x00\x00\x11\x49\x44\x41\x54\x78\x9C\x63\xF8\xCF\xC0\xF0\x1F\x86\x19\x90\x39\x00\x9B\x7E\x0B\xF5\x72\xB0\xB9\x3C\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82";
+        String path = Prog_JoinPath(&arena, fixture->path, S("red.png"));
+        Check(!P_WriteFile(&arena, path, StrMake((const char *)picture, sizeof(picture) - 1)).code);
+        P_Image image = {0};
+        i32 width = 0, height = 0;
+        Check(P_LoadImageFile(&arena, path, 4096, &image, &width, &height) && width == 3 && height == 2 && image.width == 3 && image.pixels[0] == 0xFF0000FFu);
+        Check(P_LoadImageFile(&arena, path, 2, &image, &width, &height) && width == 3 && image.width == 2);
+        Check(!P_LoadImageFile(&arena, Prog_JoinPath(&arena, fixture->path, S("plain.txt")), 4096, &image, &width, &height));
+        Check(P__TestRemovePath(fixture, S("red.png"), false));
+    }
     Check(StrIsEqual(Prog_FormatSize(&arena, 0), S("0 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1010), S("1010 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1024), S("1 kB")));

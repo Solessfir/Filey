@@ -780,6 +780,33 @@ command InspectorApplyFilter {
 command InspectorRemoveFilter {
 }
 
+command InspectorToggleImageGrid {
+    label   = "Toggle Inspector Image Grid^show,hide"
+    tooltip = "Toggle display of image grid to better differentiate background from the image contents."
+}
+
+command InspectorToggleImageMinimap {
+    label   = "Toggle Inspector Image Minimap^show,hide"
+    tooltip = "Toggle display of minimap when an image is being zoomed."
+}
+
+command InspectorToggleImageScale {
+    label   = "Toggle Inspector Image Scale"
+    tooltip = "Toggle inspector image scale between fit to viewport and original source size."
+}
+
+command InspectorScaleImageUp {
+    label   = "Scale Up Inspector Image"
+}
+
+command InspectorScaleImageDown {
+    label   = "Scale Down Inspector Image"
+}
+
+// Inspector image scale button; carries the Prog_ImageScale.
+command InspectorSetImageScale {
+}
+
 command InspectorIncreaseContentsSize {
     label   = "Increase Contents Size^large,big,scale"
     tooltip = "Increase contents size in the inspector; font size for text, zoom for images, etc."

@@ -301,7 +301,9 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorStartFilter,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
+    Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
     Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
@@ -1110,7 +1112,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
-    state->previewPicture = false;
+    state->previewPicture = state->previewImage = false;
+    state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineCount = state->previewRowColumns = 0;
     state->inspectorResetScroll = true;
@@ -1123,6 +1126,16 @@ function void Prog__UpdatePreview(Prog_State *state)
     job->input = input;
     state->previewJob = job;
     P_JobSubmit(job);
+}
+
+// Zooms the inspector's image a fifth of its size in or out from the scale it shows, down to no smaller than fitting the view.
+function void Prog__ScaleImage(Prog_State *state, b32 up)
+{
+    f32 fit = state->imageFit > 0 ? state->imageFit : 1, least = MinF32(fit, 1);
+    f32 shown = state->imageScaleMode == Prog_ImageScale_Custom ? state->imageScale : state->imageScaleMode == Prog_ImageScale_Original ? 1 : least;
+    f32 scale = roundf((shown + (up ? 0.2f : -0.2f)) * 100.0f) / 100.0f;
+    state->imageScale = MinF32(MaxF32(scale, least), 32.0f);
+    state->imageScaleMode = Prog_ImageScale_Custom;
 }
 
 function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name)
@@ -1337,8 +1350,26 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_InspectorToggleLineNumbers: state->inspectorHideNumbers = !state->inspectorHideNumbers; break;
             case Prog_CommandKind_InspectorToggleWhitespace: state->inspectorWhitespace = !state->inspectorWhitespace; break;
+            case Prog_CommandKind_InspectorToggleImageGrid: state->imageHideGrid = !state->imageHideGrid; break;
+            case Prog_CommandKind_InspectorToggleImageMinimap: state->imageHideMinimap = !state->imageHideMinimap; break;
+            case Prog_CommandKind_InspectorToggleImageScale: {
+                state->imageScaleMode = state->imageScaleMode == Prog_ImageScale_Fit ? Prog_ImageScale_Original : Prog_ImageScale_Fit;
+                state->imagePan = (UI_Vec2){0};
+            } break;
+            case Prog_CommandKind_InspectorSetImageScale: {
+                if (command->row < Prog_ImageScale_Count) state->imageScaleMode = (u8)command->row;
+                if (state->imageScaleMode == Prog_ImageScale_Custom && state->imageScale <= 0) state->imageScale = 1;
+                state->imagePan = (UI_Vec2){0};
+            } break;
+            case Prog_CommandKind_InspectorScaleImageUp:
+            case Prog_CommandKind_InspectorScaleImageDown: Prog__ScaleImage(state, command->kind == Prog_CommandKind_InspectorScaleImageUp); break;
             case Prog_CommandKind_InspectorIncreaseContentsSize:
             case Prog_CommandKind_InspectorDecreaseContentsSize: {
+                // An image zooms instead of the text growing.
+                if (state->previewImage) {
+                    Prog__ScaleImage(state, command->kind == Prog_CommandKind_InspectorIncreaseContentsSize);
+                    break;
+                }
                 u32 size = state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize;
                 b32 up = command->kind == Prog_CommandKind_InspectorIncreaseContentsSize;
                 state->inspectorFontSize = up ? Min(size + 1, (u32)Prog_InspectorFontMax) : Max(size - 1, (u32)Prog_InspectorFontMin);

@@ -5,6 +5,7 @@
 #include <commctrl.h>
 #include <commoncontrols.h>
 #include <shobjidl.h>
+#include <wincodec.h>
 #pragma pop_macro("function")
 
 // Extensions whose files carry their own icon, so they cannot share one per type.
@@ -207,6 +208,65 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
     }
     ReleaseScratch(scratch);
     return result || P_LoadFileIcon(arena, path, kind, size, false, image);
+}
+
+// The Windows Imaging Component's, defined here so that windowscodecs.lib need not be linked.
+// {CACAF262-9370-4615-A13B-9F5539DA4C0A}
+global const CLSID P__CLSID_WICImagingFactory = { 0xCACAF262, 0x9370, 0x4615, { 0xA1, 0x3B, 0x9F, 0x55, 0x39, 0xDA, 0x4C, 0x0A } };
+// {EC5EC8A9-C395-4314-9C77-54D7A935FF70}
+global const IID P__IID_IWICImagingFactory = { 0xEC5EC8A9, 0xC395, 0x4314, { 0x9C, 0x77, 0x54, 0xD7, 0xA9, 0x35, 0xFF, 0x70 } };
+// {F5C7AD2D-6A8D-43DD-A7A8-A29935261AE9}, straight-alpha RGBA with red in the lowest byte, as P_Image holds it.
+global const GUID P__WICPixelFormat32bppRGBA = { 0xF5C7AD2D, 0x6A8D, 0x43DD, { 0xA7, 0xA8, 0xA2, 0x99, 0x35, 0x26, 0x1A, 0xE9 } };
+
+function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    b32 result = false;
+    P__EnsureCom();
+    IWICImagingFactory *factory = NULL;
+    IWICBitmapDecoder *decoder = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    IWICBitmapScaler *scaler = NULL;
+    IWICFormatConverter *converter = NULL;
+    UINT width = 0, height = 0;
+    if (wide && SUCCEEDED(CoCreateInstance(&P__CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &P__IID_IWICImagingFactory, (void **)&factory)) &&
+        SUCCEEDED(factory->lpVtbl->CreateDecoderFromFilename(factory, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)) &&
+        SUCCEEDED(decoder->lpVtbl->GetFrame(decoder, 0, &frame)) &&
+        SUCCEEDED(frame->lpVtbl->GetSize(frame, &width, &height)) && width && height) {
+        // A picture larger than the square is scaled down as it is decoded.
+        IWICBitmapSource *source = (IWICBitmapSource *)frame;
+        UINT shownWidth = width, shownHeight = height;
+        if (width > (UINT)maxSide || height > (UINT)maxSide) {
+            f64 shrink = (f64)maxSide / (f64)Max(width, height);
+            shownWidth = (UINT)Max(1.0, (f64)width * shrink);
+            shownHeight = (UINT)Max(1.0, (f64)height * shrink);
+            if (SUCCEEDED(factory->lpVtbl->CreateBitmapScaler(factory, &scaler)) &&
+                SUCCEEDED(scaler->lpVtbl->Initialize(scaler, source, shownWidth, shownHeight, WICBitmapInterpolationModeFant))) {
+                source = (IWICBitmapSource *)scaler;
+            } else {
+                source = NULL;
+            }
+        }
+        if (source && SUCCEEDED(factory->lpVtbl->CreateFormatConverter(factory, &converter)) &&
+            SUCCEEDED(converter->lpVtbl->Initialize(converter, source, &P__WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, NULL, 0, WICBitmapPaletteTypeCustom))) {
+            u64 count = (u64)shownWidth * shownHeight;
+            u32 *pixels = ArenaPushArrayNoZero(arena, count, u32);
+            if (SUCCEEDED(converter->lpVtbl->CopyPixels(converter, NULL, shownWidth * 4, (UINT)(count * 4), (BYTE *)pixels))) {
+                *image = (P_Image){ pixels, (i32)shownWidth, (i32)shownHeight };
+                *sourceWidth = (i32)width;
+                *sourceHeight = (i32)height;
+                result = true;
+            }
+        }
+    }
+    if (converter) converter->lpVtbl->Release(converter);
+    if (scaler) scaler->lpVtbl->Release(scaler);
+    if (frame) frame->lpVtbl->Release(frame);
+    if (decoder) decoder->lpVtbl->Release(decoder);
+    if (factory) factory->lpVtbl->Release(factory);
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)

@@ -109,6 +109,10 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 {
 }
 
+function void R_TextureRelease(R_TextureHandle texture)
+{
+}
+
 function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint)
 {
     TestUIRecordDraw(rect, tint, 3);

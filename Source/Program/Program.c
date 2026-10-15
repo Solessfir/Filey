@@ -3785,6 +3785,134 @@ function void Prog__InspectorFilterBox(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// A row of buttons in a dashed outline, the chosen one lit, each running `kind` with its place in the row; a NULL font is the icon font's.
+function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const String *labels, const R_Font *const *fonts, u32 count, u32 chosen,
+                                Prog_CommandKind kind, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, bar = Prog__StripHeight(m), pad = floorf(4.0f * s + 0.5f), gap = floorf(6.4f * s + 0.5f);
+    f32 width = (f32)count * Prog__ToolbarButtonWidth(m) + (f32)(count - 1) * gap + 2 * pad, height = floorf(29.6f * s + 0.5f);
+    UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Block *group = Prog__Box(UI_Pixels(width), UI_Pixels(bar), UI_Layout_Horizontal, (R_Color){0}, 0);
+    UI_Parent(group) {
+        R_Color wash = theme->selection;
+        wash.a *= 0.35f;
+        for (u32 i = 0; i < count; ++i) {
+            if (i) Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
+            UI_Key key = UI_KeyFromStr(0, keys[i]);
+            b32 lit = chosen == i || UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
+            UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = wash, .text = lit ? theme->text : theme->icon });
+            UI_SetNextFont(fonts && fonts[i] ? fonts[i] : m->icons);
+            UI_SetNextText(labels[i]);
+            UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
+            UI_Interaction interaction = UI_InteractionFromBlock(button);
+            if (interaction.clicked) Prog_QueueCommand(state, kind, i, 0, interaction.clickOrder);
+        }
+        Prog__RoundDashedOutline(0, floorf((bar - height) * 0.5f), width, height, floorf(8.0f * s + 0.5f), MaxF32(1, floorf(1.2f * s + 0.5f)),
+                                 floorf(4.8f * s + 0.5f), floorf(2.4f * s + 0.5f), theme->outline);
+    }
+}
+
+// The inspector's image: fitted, at its own size or zoomed, centered in the view and dragged to move it while it does not fit, over a
+// checkered grid, with a minimap of the part in sight.
+function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    // The picture keeps inside a margin, wider above it and at the right, where the scroll bar of the text view would be.
+    f32 s = m->scale, left = floorf(10.4f * s + 0.5f), right = floorf(15.2f * s + 0.5f), top = floorf(18.4f * s + 0.5f), bottom = floorf(8.0f * s + 0.5f);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorImage")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Interaction drag = UI_InteractionFromBlock(view);
+    f32 roomWidth = MaxF32(1, view->rect.x1 - view->rect.x0 - left - right), roomHeight = MaxF32(1, view->rect.y1 - view->rect.y0 - top - bottom);
+    f32 width = (f32)Max(state->previewImageWidth, 1), height = (f32)Max(state->previewImageHeight, 1);
+    f32 fit = MinF32(roomWidth / width, roomHeight / height);
+    state->imageFit = fit;
+    f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(fit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
+    f32 shownWidth = floorf(width * scale + 0.5f), shownHeight = floorf(height * scale + 0.5f);
+    if (drag.pressed) state->imageDragFrom = UI->mouse;
+    if (drag.active && drag.isDragging) {
+        state->imagePan.x += UI->mouse.x - state->imageDragFrom.x;
+        state->imagePan.y += UI->mouse.y - state->imageDragFrom.y;
+        state->imageDragFrom = UI->mouse;
+    }
+    f32 spareX = MaxF32(0, (shownWidth - roomWidth) * 0.5f), spareY = MaxF32(0, (shownHeight - roomHeight) * 0.5f);
+    state->imagePan.x = MinF32(MaxF32(state->imagePan.x, -spareX), spareX);
+    state->imagePan.y = MinF32(MaxF32(state->imagePan.y, -spareY), spareY);
+    // In the room's coordinates.
+    f32 x = floorf((roomWidth - shownWidth) * 0.5f + state->imagePan.x), y = floorf((roomHeight - shownHeight) * 0.5f + state->imagePan.y);
+    UI_Parent(view) {
+        UI_SetNextFloatingOffset((UI_Vec2){ left, top });
+        UI_SetNextPrefWidth(UI_Pixels(roomWidth));
+        UI_SetNextPrefHeight(UI_Pixels(roomHeight));
+        UI_Block *room = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+        UI_Parent(room) {
+            // The grid: squares a little lighter than the background between plain ones.
+            if (!state->imageHideGrid) {
+                f32 cell = floorf(36.0f * s + 0.5f);
+                R_Color light = theme->background;
+                light.r += 4.0f / 255.0f, light.g += 4.0f / 255.0f, light.b += 5.0f / 255.0f;
+                for (u32 row = 0; (f32)row * cell < roomHeight; ++row) {
+                    for (u32 column = (row + 1) & 1; (f32)column * cell < roomWidth; column += 2) {
+                        UI_SetNextFloatingOffset((UI_Vec2){ (f32)column * cell, (f32)row * cell });
+                        UI_SetNextPrefWidth(UI_Pixels(cell));
+                        UI_SetNextPrefHeight(UI_Pixels(cell));
+                        UI_SetNextColors((UI_Colors){ .background = light });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                }
+            }
+            UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+            UI_SetNextPrefWidth(UI_Pixels(shownWidth));
+            UI_SetNextPrefHeight(UI_Pixels(shownHeight));
+            UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, (R_Color){ 1, 1, 1, 1 });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+            // Its edge, for pictures with clear parts.
+            f32 line = MaxF32(1, floorf(0.8f * s + 0.5f));
+            UI_SetNextFloatingOffset((UI_Vec2){ x - line, y - line });
+            UI_SetNextPrefWidth(UI_Pixels(shownWidth + 2 * line));
+            UI_SetNextPrefHeight(UI_Pixels(shownHeight + 2 * line));
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+        }
+        // The minimap: the whole picture dimmed in the bottom right corner, with the part in sight bright and outlined.
+        if (!state->imageHideMinimap && (shownWidth > roomWidth + 0.5f || shownHeight > roomHeight + 0.5f)) {
+            f32 most = floorf(240.0f * s + 0.5f), tall = floorf(160.0f * s + 0.5f), shrink = MinF32(most / width, tall / height);
+            f32 mapWidth = floorf(width * shrink), mapHeight = floorf(height * shrink), edge = floorf(1.6f * s + 0.5f);
+            f32 mapX = left + roomWidth - floorf(10.4f * s + 0.5f) - mapWidth, mapY = top + roomHeight - floorf(10.4f * s + 0.5f) - mapHeight;
+            UI_SetNextFloatingOffset((UI_Vec2){ mapX - edge, mapY - edge });
+            UI_SetNextPrefWidth(UI_Pixels(mapWidth + 2 * edge));
+            UI_SetNextPrefHeight(UI_Pixels(mapHeight + 2 * edge));
+            UI_SetNextBorderThickness(edge);
+            UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->outline });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+            UI_SetNextFloatingOffset((UI_Vec2){ mapX, mapY });
+            UI_SetNextPrefWidth(UI_Pixels(mapWidth));
+            UI_SetNextPrefHeight(UI_Pixels(mapHeight));
+            UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ mapWidth, mapHeight }, (R_Color){ 0.35f, 0.35f, 0.35f, 1 });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+            R_Rect seen = {
+                MaxF32(0, -x / shownWidth), MaxF32(0, -y / shownHeight),
+                MinF32(1, (roomWidth - x) / shownWidth), MinF32(1, (roomHeight - y) / shownHeight),
+            };
+            f32 seenWidth = floorf((seen.x1 - seen.x0) * mapWidth), seenHeight = floorf((seen.y1 - seen.y0) * mapHeight);
+            UI_SetNextFloatingOffset((UI_Vec2){ mapX + floorf(seen.x0 * mapWidth), mapY + floorf(seen.y0 * mapHeight) });
+            UI_SetNextPrefWidth(UI_Pixels(seenWidth));
+            UI_SetNextPrefHeight(UI_Pixels(seenHeight));
+            UI_SetNextImage(state->previewTexture, seen, (UI_Vec2){ seenWidth, seenHeight }, (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextBorderThickness(MaxF32(1, floorf(1.2f * s + 0.5f)));
+            UI_SetNextColors((UI_Colors){ .border = theme->text });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage | UI_Flag_DrawBorder);
+        }
+    }
+}
+
 // The inspector beside the list or below it, `size` wide or tall with its divider: a toolbar with its layouts, the text view's switches and
 // the item's name, the focused item's text or picture and details, and a footer with the text's filter and what it holds.
 function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog_Metrics *m)
@@ -3795,6 +3923,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     f32 inner = size - m->separator;
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
     b32 text = entry && state->previewText.length && !state->previewPicture && state->previewLines;
+    b32 image = entry && state->previewImage;
     UI_SetNextPrefWidth(below ? UI_Flex() : UI_Pixels(inner));
     UI_SetNextPrefHeight(below ? UI_Pixels(inner) : UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -3803,47 +3932,42 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     UI_Parent(pane) {
         UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(toolbar) {
-            Prog__Spacer(UI_Pixels(floorf(4.8f * s + 0.5f)), UI_Pixels(bar));
+            // Spaced as the reference's: the groups sit a little closer to the lines between them than the list toolbar's buttons do.
+            f32 tight = m->gap - floorf(1.6f * s + 0.5f);
+            Prog__Spacer(UI_Pixels(floorf(3.2f * s + 0.5f)), UI_Pixels(bar));
             Prog__ToolbarButton(state, S("InspectorClose"), Icon_X, Prog_CommandKind_TogglePreview, true, m);
-            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+            Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
             Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
             // The layouts, in a dashed outline, the one chosen lit.
-            f32 groupPad = floorf(4.0f * s + 0.5f), groupWidth = 3 * Prog__ToolbarButtonWidth(m) + 2 * floorf(5.6f * s + 0.5f) + 2 * groupPad;
-            f32 groupHeight = floorf(29.6f * s + 0.5f);
-            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
-            UI_SetNextChildrenPadding((UI_Padding){ groupPad, 0, groupPad, 0 });
-            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_Block *group = Prog__Box(UI_Pixels(groupWidth), UI_Pixels(bar), UI_Layout_Horizontal, (R_Color){0}, 0);
-            UI_Parent(group) {
-                local_persist const String icons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
-                local_persist const String keys[Prog_InspectorLayout_Count] = { S("InspectorLayoutAuto"), S("InspectorLayoutRight"), S("InspectorLayoutBelow") };
-                for (u32 i = 0; i < Prog_InspectorLayout_Count; ++i) {
-                    if (i) Prog__Spacer(UI_Pixels(floorf(5.6f * s + 0.5f)), UI_Pixels(bar));
-                    b32 chosen = state->inspectorLayout == i;
-                    R_Color wash = theme->selection;
-                    wash.a *= 0.35f;
-                    UI_Key key = UI_KeyFromStr(0, keys[i]);
-                    b32 hot = UI->hotKey == key;
-                    UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
-                    UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
-                    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                    UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                    UI_SetNextColors((UI_Colors){ .background = wash, .text = chosen || hot ? theme->text : theme->icon });
-                    UI_SetNextFont(m->icons);
-                    UI_SetNextText(icons[i]);
-                    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (chosen || hot ? UI_Flag_DrawBackground : 0));
-                    UI_Interaction interaction = UI_InteractionFromBlock(button);
-                    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorSetLayout, i, 0, interaction.clickOrder);
-                }
-                Prog__RoundDashedOutline(0, floorf((bar - groupHeight) * 0.5f), groupWidth, groupHeight, floorf(8.0f * s + 0.5f), MaxF32(1, floorf(1.2f * s + 0.5f)),
-                                    floorf(4.8f * s + 0.5f), floorf(2.4f * s + 0.5f), theme->outline);
+            local_persist const String layoutKeys[Prog_InspectorLayout_Count] = { S("InspectorLayoutAuto"), S("InspectorLayoutRight"), S("InspectorLayoutBelow") };
+            local_persist const String layoutIcons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
+            Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+            Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout, m);
+            if (image) {
+                // An image's scales the same way, then its grid and minimap.
+                local_persist const String scaleKeys[Prog_ImageScale_Count] = { S("InspectorScaleFit"), S("InspectorScaleOriginal"), S("InspectorScaleCustom") };
+                local_persist const String scaleLabels[Prog_ImageScale_Count] = { Icon_Minimize2, S("1:1"), Icon_Maximize2 };
+                const R_Font *scaleFonts[Prog_ImageScale_Count] = { NULL, m->detail, NULL };
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+                Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+                Prog__ChoiceGroup(state, scaleKeys, scaleLabels, scaleFonts, Prog_ImageScale_Count, state->imageScaleMode, Prog_CommandKind_InspectorSetImageScale, m);
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+                UI_Interaction grid = Prog__TextButton(S("InspectorGrid"), Icon_Hash, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                       state->imageHideGrid ? theme->iconDisabled : theme->icon, theme->text, theme->iconDisabled, true, m);
+                Prog__NoteTooltip(state, Prog_CommandKind_InspectorToggleImageGrid, (String){0});
+                if (grid.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorToggleImageGrid, 0, 0, grid.clickOrder);
+                Prog__ToolbarButton(state, S("InspectorMinimap"), state->imageHideMinimap ? Icon_LocateOff : Icon_Locate, Prog_CommandKind_InspectorToggleImageMinimap, true, m);
             }
             if (text) {
-                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+                f32 apart = floorf(6.4f * s + 0.5f);
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
                 Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
-                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+                Prog__Spacer(UI_Pixels(m->gap - floorf(0.8f * s + 0.5f)), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorWrap"), state->inspectorWrap ? Icon_TextWrap : Icon_TextAlignStart, Prog_CommandKind_InspectorToggleWordWrap, true, m);
+                Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorNumbers"), state->inspectorHideNumbers ? Icon_ListX : Icon_ListOrdered, Prog_CommandKind_InspectorToggleLineNumbers, true, m);
+                Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorWhitespace"), state->inspectorWhitespace ? Icon_Minus : Icon_Space, Prog_CommandKind_InspectorToggleWhitespace, true, m);
             }
             Prog__Spacer(UI_Flex(), UI_Pixels(bar));
@@ -3855,6 +3979,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         }
         if (text) {
             Prog__InspectorText(state, m);
+        } else if (image) {
+            Prog__InspectorImage(state, m);
         } else {
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Flex());
@@ -3892,6 +4018,21 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         UI_Parent(footer) {
             if (text) Prog__InspectorFilterBox(state, m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            if (image) {
+                // An image's scale, filled up to its own size.
+                f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(state->imageFit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(radius);
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_Block *zoom = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
+                zoom->props.colors.border = theme->tabBorder;
+                zoom->props.childrenAlignment = (UI_Vec2){ 0, 0 };
+                UI_Parent(zoom) {
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_Block *slot = Prog__Box(UI_Pixels(floorf(m->line * 2.4f)), UI_Pixels(m->pill), UI_Layout_Horizontal, (R_Color){0}, 0);
+                    UI_Parent(slot) Prog__FillBar(StrFormat(&state->frameArena, "%u%%", (u32)(scale * 100.0f + 0.5f)), MinF32(scale, 1), m);
+                }
+            }
             if (text) {
                 UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(radius);

@@ -31,7 +31,7 @@ Missing, by the reference's group:
 - Folder: ToggleCursorSelection, OpenInRightSplit, OpenInBottomSplit, OpenInWindow, SelectionPasteLink, SelectionCopy/MovePrev/NextPanel, SelectionInspect, SelectionRestore, SelectionCopyAsPathSmart, OpenRelativePath(InTab), OpenContainingPath(InTab), CalcDirsContents, TrashDeleteAll, TrashRestoreAll, FolderViewToggle, FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - View: ToggleSepFilesFolders, SizeAllHeaderColumnsFit, HeaderColumnsOpenOptions, Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles, ToggleRecents, ToggleSortRecents.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
-- Inspector: ToggleImageGrid, ToggleImageMinimap, ToggleImageScale, ScaleImageUp/Down. Its text view reads the first 1 MB, has no scroll arrows, and the reference's folder previews list the folder.
+- Inspector: the layout and image buttons have no tooltips, and Ctrl+wheel over an image does not zoom it. Its text view reads the first 1 MB, has no scroll arrows, and the reference's folder previews list the folder.
 - Panels: PanelEvenSiblings, PanelEvenAll.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow, TabCloseAll, TabMenu.
 - Go To: GoToSelectInPanel.

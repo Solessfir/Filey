@@ -59,3 +59,9 @@ list-ordered
 list-x
 space
 minus
+
+minimize-2
+maximize-2
+hash
+locate
+locate-off
