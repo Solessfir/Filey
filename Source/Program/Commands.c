@@ -1530,10 +1530,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_Reload(state);
             } break;
             case Prog_CommandKind_NavigatePrefix: {
-                String path = state->directory.path;
+                // The crumbs are the trail's while it goes on from the shown folder.
+                String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
+                String path = trail.length ? trail : state->directory.path;
                 // Before a drive's name, This PC.
                 if (command->row == 0 && !StrIsEqual(path, Prog_ThisPC)) Prog_RequestDirectory(state, Prog_ThisPC, true, 0);
-                if (command->row > 0 && command->row < path.length) {
+                if (command->row > 0 && command->row <= path.length) {
                     // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
                     u64 length = path.value[command->row - 1] == ':' ? command->row + 1 : command->row;
                     Prog_RequestDirectory(state, StrFromTo(path, 0, (i64)length), true, 0);

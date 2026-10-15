@@ -500,7 +500,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     // This PC lists the drives with their own columns; Up from a drive's root leads there and goes no further.
     {
         Arena kept = {0};
-        String here = StrCopy(&kept, state.directory.path);
+        String here = StrCopy(&kept, state.directory.path), trail = StrCopy(&kept, Prog_TrailText(&state));
         Prog_RequestDirectory(&state, Prog_ThisPC, true, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC) && state.directory.count >= 1);
         Check(state.directory.count && state.directory.entries[0].drive && Prog_PanelColumns(&state).kinds[5] == Prog_ColumnKind_PercentFull);
@@ -509,8 +509,14 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         for (u64 i = 0; i < state.directory.count; ++i) root |= StrIsEqual(Prog_UpPath(state.directory.entries[i].file.name), Prog_ThisPC);
         Check(!Prog_UpPath(Prog_ThisPC).length && root);
         Check(StrIsEqual(Prog_JoinPath(&kept, Prog_ThisPC, state.directory.entries[0].file.name), state.directory.entries[0].file.name));
+        // The trail of visited folders stays through This PC and a parent, and goes on past the parent's crumbs.
+        Check(StrIsEqual(Prog_TrailText(&state), trail));
+        Prog_RequestDirectory(&state, Prog_UpPath(here), true, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(Prog_TrailText(&state), trail));
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
-        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here));
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && StrIsEqual(Prog_TrailText(&state), trail));
         Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
         ArenaRelease(&kept);
     }

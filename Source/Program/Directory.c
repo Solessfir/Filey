@@ -1254,8 +1254,33 @@ function void Prog_InspectFolder(Prog_State *state, String path)
 function b32 Prog__TakeNumber(String *text, u64 *value);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
 
+// The tab's trail, when it goes on from the folder shown, or This PC shows; empty otherwise.
+function String Prog_TrailText(const Prog_State *state)
+{
+    String trail = StrMake(state->trail.text, state->trail.length), path = state->directory.path;
+    while (path.length > 1 && path.value[path.length - 1] == '/' && !(path.length == 3 && path.value[1] == ':')) --path.length;
+    if (StrIsEqual(path, Prog_ThisPC)) return trail;
+    if (path.length && path.value[path.length - 1] == '/') --path.length;
+    b32 below = trail.length >= path.length && StrIsEqual(StrFromTo(trail, 0, (i64)path.length), path) && (trail.length == path.length || trail.value[path.length] == '/');
+    return below ? trail : (String){0};
+}
+
+// A folder deeper than the trail, or off it, becomes the trail; This PC keeps it.
+function void Prog__FollowTrail(Prog_State *state, String path)
+{
+    if (StrIsEqual(path, Prog_ThisPC)) return;
+    String trail = StrMake(state->trail.text, state->trail.length);
+    while (path.length > 1 && path.value[path.length - 1] == '/' && !(path.length == 3 && path.value[1] == ':')) --path.length;
+    String bare = path.length && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
+    b32 within = trail.length > bare.length && StrIsEqual(StrFromTo(trail, 0, (i64)bare.length), bare) && trail.value[bare.length] == '/';
+    if (within || path.length > sizeof(state->trail.text)) return;
+    MemCopy(state->trail.text, path.value, path.length);
+    state->trail.length = (u32)path.length;
+}
+
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
+    Prog__FollowTrail(state, path);
     // Another folder brings its kept view, or the panel's own back; a reload keeps what is shown.
     if (!StrIsEqual(path, state->directory.path)) Prog__ApplyFolderView(state, path);
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);

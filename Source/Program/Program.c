@@ -266,6 +266,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
     state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
     state->hideExtensions = state->showSystem = false;
+    state->fullPaths = state->noTrail = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
     u8 inspectorLayout = Prog_InspectorLayout_Auto;
@@ -312,6 +313,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->hideExtensions = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("files.hidden"))) {
             showHidden = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("paths.short"))) {
+            state->fullPaths = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("paths.trail"))) {
+            state->noTrail = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("files.system"))) {
             state->showSystem = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("click.onPress"))) {
@@ -457,6 +462,10 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_ShowHiddenFiles] = { S("Show Hidden Files"), S("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
                                       Prog_OptionSwitch, 2, S("files.hidden") },
     [Prog_Option_ShowSystemFiles] = { S("Show System Files"), S("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("files.system") },
+    [Prog_Option_ShortenedPaths] = { S("Show Shortened Paths"), S("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
+                                     Prog_OptionSwitch, 2, S("paths.short") },
+    [Prog_Option_Breadcrumbs] = { S("Show Breadcrumbs"), S("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
+                                  Prog_OptionSwitch, 2, S("paths.trail") },
     [Prog_Option_ActOnPress] = { S("Act On Press"), S("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, S("click.onPress") },
     [Prog_Option_SingleClick] = { S("Single Click"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
@@ -508,6 +517,8 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShowFileExtension: return !state->hideExtensions;
         case Prog_Option_ShowHiddenFiles: return state->showHidden;
         case Prog_Option_ShowSystemFiles: return state->showSystem;
+        case Prog_Option_ShortenedPaths: return !state->fullPaths;
+        case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_ActOnPress: return !state->actOnRelease;
         case Prog_Option_SingleClick: return state->singleClick;
         case Prog_Option_SingleClickFoldersOnly: return state->singleClickFoldersOnly;
@@ -1295,7 +1306,8 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
 function u64 Prog__CrumbStart(const Prog_State *state, String path, b32 *drive)
 {
     u64 rootLength = 0;
-    for (u64 i = 0; i < state->pathRoots.header.count; ++i) {
+    // Without shortened paths, every crumb from the drive shows.
+    for (u64 i = 0; !state->fullPaths && i < state->pathRoots.header.count; ++i) {
         String root = state->pathRoots.v[i];
         while (root.length > 1 && root.value[root.length - 1] == '/') --root.length;
         if (root.length > rootLength && path.length > root.length + 1 && path.value[root.length] == '/' && StrIsEqual(StrFromTo(path, 0, (i64)root.length), root)) {
@@ -1346,12 +1358,20 @@ function String Prog__GoToWhere(Prog_State *state, String path)
 function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    String path = state->directory.path;
+    String shown = state->directory.path;
+    b32 thisPC = StrIsEqual(shown, Prog_ThisPC);
+    // The trail of folders visited below the shown one goes on past it, as the reference's address bar does.
+    String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
+    String path = trail.length ? trail : thisPC ? (String){0} : shown;
+    u64 shownEnd = thisPC ? 0 : shown.length;
+    while (shownEnd > 2 && shown.value[shownEnd - 1] == '/') --shownEnd;
     b32 drive;
     u64 start = Prog__CrumbStart(state, path, &drive);
-    if (drive) {
-        UI_Interaction thisPC = Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, true, m);
-        if (thisPC.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, 0, 0, thisPC.clickOrder);
+    if (drive || thisPC) {
+        UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
+                                                 thisPC ? theme->text : theme->textDim, !thisPC, m);
+        if (button.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, 0, 0, button.clickOrder);
+        drive = drive || (thisPC && path.length);
     } else if (start == 1) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
     }
@@ -1359,7 +1379,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         Index slash = StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail);
         u64 end = at + slash.value;
         String segment = StrFromTo(path, at, (i64)end);
-        b32 current = end >= path.length;
+        b32 current = end == shownEnd;
         if (segment.length) {
             if (at > start || drive) Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), Prog__StripHeight(m), theme->textDim, 0.5f, m);
             if (drive && at == 0) segment = Prog__DriveName(state, path);

@@ -382,6 +382,8 @@ typedef enum Prog_Option {
     Prog_Option_ShowFileExtension,
     Prog_Option_ShowHiddenFiles,
     Prog_Option_ShowSystemFiles,
+    Prog_Option_ShortenedPaths,
+    Prog_Option_Breadcrumbs,
     Prog_Option_ActOnPress,
     Prog_Option_SingleClick,
     Prog_Option_SingleClickFoldersOnly,
@@ -528,6 +530,12 @@ typedef struct Prog_Measured {
 
 // A single-line text field.
 // Offsets are bytes into `text`; names never reach the buffer size on any file system.
+// The deepest folder a tab has visited below the one it shows, whose crumbs go on past the shown folder's.
+typedef struct Prog_Trail {
+    u32 length;
+    char text[1024];
+} Prog_Trail;
+
 typedef struct Prog_TextEdit {
     u8 text[1024];
     u32 length;
@@ -565,7 +573,7 @@ typedef struct Prog_Directory {
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) \
     X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) \
-    X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll)
+    X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail)
 
 #define Prog__TabField(type, name) type name;
 typedef struct Prog_Tab {
@@ -793,6 +801,9 @@ typedef struct Prog_State {
     b32 hideExtensions;
     b32 showSystem;
     u8 settingHidden;
+    // The breadcrumbs: from the drive rather than from the first known folder, and without the trail of visited folders.
+    b32 fullPaths;
+    b32 noTrail;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;
@@ -1006,6 +1017,7 @@ function void Prog__ReleaseTab(Prog_Tab *tab);
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
 function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
 function String Prog_UpPath(String path);
+function String Prog_TrailText(const Prog_State *state);
 function void Prog_ListInInspector(Prog_State *state, String path);
 function void Prog_DropInspectorPanel(Prog_State *state, u64 owner);
 function void Prog_ClosePanel(Prog_State *state, u32 index);
