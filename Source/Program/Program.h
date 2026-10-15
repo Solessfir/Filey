@@ -211,6 +211,9 @@ typedef struct Prog_JobInput {
     u32 *entries;
     u64 room;
     b32 restart;
+    // Measure: the totals so far of the folder `measuringAt` of `names`, or UINT64_MAX between folders.
+    P_MeasureProgress measuring;
+    atomic_uint_fast64_t measuringAt;
     // Directory: what it has found so far, which the status bar shows while it walks a big tree; the totals count hidden items too.
     atomic_uint_fast64_t foundFolders, foundFiles, shownFolders, shownFiles;
     // Icons

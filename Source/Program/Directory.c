@@ -800,7 +800,7 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_Inspect) {
         Prog_Inspected *result = ArenaPushStruct(&job->arena, Prog_Inspected);
         result->created = P_FileCreatedTime(input->path);
-        result->totals = P_MeasureDirectory(input->path, &job->cancelToken);
+        result->totals = P_MeasureDirectory(input->path, &job->cancelToken, NULL);
         job->result = result;
         return;
     }
@@ -813,10 +813,16 @@ function void Prog__DirectoryJob(P_Job *job)
         while (result->count < input->rowCount && PlatformNowMicroseconds() - start < UINT64_C(50000)) {
             String path = Prog_JoinPath(&job->arena, input->path, input->names[result->count]);
             P_DirectoryTotals totals = {0};
-            ProfileScope("MeasureDirectory") totals = P_MeasureDirectory(path, &job->cancelToken);
+            // What it counts of the folder shows in its row while it is counted.
+            atomic_store(&input->measuring.folders, 0);
+            atomic_store(&input->measuring.files, 0);
+            atomic_store(&input->measuring.bytes, 0);
+            atomic_store(&input->measuringAt, result->count);
+            ProfileScope("MeasureDirectory") totals = P_MeasureDirectory(path, &job->cancelToken, &input->measuring);
             if (P_IsCancelled(&job->cancelToken)) break;
             result->totals[result->count++] = totals;
         }
+        atomic_store(&input->measuringAt, UINT64_MAX);
         return;
     }
     if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete) {
@@ -1077,6 +1083,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     input->kind = Prog_JobKind_Measure;
     input->path = StrCopy(&job->arena, state->directory.path);
     input->listing = state->listing;
+    atomic_store(&input->measuringAt, UINT64_MAX);
     input->names = ArenaPushArray(&job->arena, count, String);
     input->rows = ArenaPushArray(&job->arena, count, u64);
     for (u64 i = 0; i < state->directory.count; ++i) {

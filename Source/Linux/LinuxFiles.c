@@ -490,7 +490,14 @@ function i64 P_FileCreatedTime(String path)
     return found ? (i64)info.stx_btime.tv_sec : 0;
 }
 
-function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel)
+function void P__MeasureReport(P_MeasureProgress *progress, P_DirectoryTotals totals)
+{
+    atomic_store_explicit(&progress->folders, totals.folders, memory_order_relaxed);
+    atomic_store_explicit(&progress->files, totals.files, memory_order_relaxed);
+    atomic_store_explicit(&progress->bytes, totals.bytes, memory_order_relaxed);
+}
+
+function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *cancel, P_MeasureProgress *progress)
 {
     P_DirectoryTotals result = {0};
     Scratch scratch = GetScratch();
@@ -500,7 +507,8 @@ function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *
     DIR *first = root ? opendir(root) : NULL;
     if (first) ArrayPush(scratch.arena, stack, first);
     result.complete = first != NULL;
-    while (stack.header.count) {
+    for (u64 step = 0; stack.header.count; ++step) {
+        if (progress && (step & 255) == 0) P__MeasureReport(progress, result);
         if (P_IsCancelled(cancel)) {
             result.complete = false;
             break;
@@ -532,6 +540,7 @@ function P_DirectoryTotals P_MeasureDirectory(String path, const P_CancelToken *
             if (statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) result.bytes += (u64)metadata.st_size;
         }
     }
+    if (progress) P__MeasureReport(progress, result);
     for (u64 i = 0; i < stack.header.count; ++i) closedir(stack.v[i]);
     ReleaseScratch(scratch);
     return result;

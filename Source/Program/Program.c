@@ -1293,16 +1293,36 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
 }
 
 // What a row or cell shows in each column: folders show their totals once measured; zero counts and files' counts read "--".
+function String Prog__FormatCount(Arena *arena, u64 count);
+
+// The totals counted so far of the shown folder's subfolder `entry` while it is being measured.
+function b32 Prog__LiveTotals(const Prog_State *state, const Prog_Entry *entry, P_DirectoryTotals *totals)
+{
+    Prog_JobInput *input = state->measureJob ? state->measureJob->input : NULL;
+    u64 at = input ? atomic_load(&input->measuringAt) : UINT64_MAX;
+    if (at >= (input ? input->rowCount : 0) || input->listing != state->listing) return false;
+    u64 row = input->rows[at];
+    if (row >= state->directory.count || &state->directory.entries[row] != entry) return false;
+    totals->folders = atomic_load(&input->measuring.folders);
+    totals->files = atomic_load(&input->measuring.files);
+    totals->bytes = atomic_load(&input->measuring.bytes);
+    return true;
+}
+
 function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, String *values)
 {
     Arena *frame = &state->frameArena;
     String none = S("--");
     String folders = none, files = none, size = {0};
+    P_DirectoryTotals live = {0};
     if (entry->file.kind == P_FileKind_Directory) {
-        if (entry->measured) {
-            if (entry->folders) folders = StrFormat(frame, "%" PRIu64, entry->folders);
-            if (entry->files) files = StrFormat(frame, "%" PRIu64, entry->files);
-            size = entry->files ? Prog_FormatSize(frame, entry->bytes) : none;
+        // Counts read short, as "172.5K"; a folder being measured shows what has been counted so far.
+        b32 counting = !entry->measured && Prog__LiveTotals(state, entry, &live);
+        u64 folderCount = counting ? live.folders : entry->folders, fileCount = counting ? live.files : entry->files, bytes = counting ? live.bytes : entry->bytes;
+        if (entry->measured || counting) {
+            if (folderCount) folders = Prog__FormatCount(frame, folderCount);
+            if (fileCount) files = Prog__FormatCount(frame, fileCount);
+            size = fileCount ? Prog_FormatSize(frame, bytes) : none;
         } else {
             folders = files = (String){0};
         }
@@ -1453,6 +1473,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     b32 result = Prog__ItemInput(state, index, row, key, onName, renaming);
     String values[Prog_ColumnId_Count];
     Prog__EntryValues(state, entry, values);
+    P_DirectoryTotals live;
+    b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live);
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
         Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
@@ -1478,6 +1500,19 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             String value = columns[i].width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->detail, values[i], columns[i].width - left - right) : values[i];
             if (i != Prog_ColumnId_Name) UI_SetNextFont(m->detail);
             Prog__LabelPadded(value, width, height, left, right, color, columns[i].alignX);
+            // Totals still being counted are underlined.
+            if (counting && i >= Prog_ColumnId_Folders && value.length && !StrIsEqual(value, S("--"))) {
+                UI_Block *cell = UI->parent->last;
+                f32 textWidth = R_TextWidth(m->detail, value), cellWidth = columns[i].width, thick = MaxF32(1, floorf(0.8f * m->scale + 0.5f));
+                UI_Parent(cell) {
+                    // Offsets count from inside the cell's padding.
+                    UI_SetNextFloatingOffset((UI_Vec2){ columns[i].alignX > 0 ? cellWidth - left - right - textWidth : 0, floorf((height + m->detail->lineHeight) * 0.5f) });
+                    UI_SetNextPrefWidth(UI_Pixels(textWidth));
+                    UI_SetNextPrefHeight(UI_Pixels(thick));
+                    UI_SetNextColors((UI_Colors){ .background = color });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
+            }
         }
     }
     return result;

@@ -909,15 +909,18 @@ function void TestMeasure(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_FormatSize(&arena, UINT64_C(12268339)), S("11.7 MB")));
 
     P_CancelToken token = {0};
-    P_DirectoryTotals totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("Folder2")), &token);
+    P_DirectoryTotals totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("Folder2")), &token, NULL);
     Check(totals.complete && totals.folders == 0 && totals.files == 1 && totals.bytes == 5);
     // Hidden items count; the subfolder's file counts toward the root.
-    totals = P_MeasureDirectory(fixture->path, &token);
+    P_MeasureProgress progress = {0};
+    totals = P_MeasureDirectory(fixture->path, &token, &progress);
     Check(totals.complete && totals.folders == 3 && totals.files >= 7 && totals.bytes >= 22);
-    totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("missing")), &token);
+    // What it reports as it goes ends at the totals.
+    Check(atomic_load(&progress.folders) == totals.folders && atomic_load(&progress.files) == totals.files && atomic_load(&progress.bytes) == totals.bytes);
+    totals = P_MeasureDirectory(Prog_JoinPath(&arena, fixture->path, S("missing")), &token, NULL);
     Check(!totals.complete && !totals.files);
     P_RequestCancel(&token);
-    Check(!P_MeasureDirectory(fixture->path, &token).complete);
+    Check(!P_MeasureDirectory(fixture->path, &token, NULL).complete);
 
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
