@@ -234,7 +234,11 @@ typedef struct Prog_Transfer {
 
 // What the preview pane shows of a file: a picture of Prog_PreviewSize squared, or the start of its text.
 #define Prog_PreviewSize 512
-#define Prog_PreviewBytes 16384
+#define Prog_PreviewBytes (1 << 20)
+// The inspector's text size in points, unless changed.
+#define Prog_InspectorFontSize 10
+#define Prog_InspectorFontMin 8
+#define Prog_InspectorFontMax 16
 
 typedef struct Prog_Preview {
     u32 *pixels;
@@ -658,6 +662,18 @@ typedef struct Prog_State {
     String previewText;
     R_TextureHandle previewTexture;
     b32 previewPicture;       // the texture holds previewPath's picture
+    u32 *previewLines;        // where each line of previewText starts, and one past its end
+    u32 previewLineCount;
+    u32 *previewRows;         // the first wrapped row of each line, and the total, at previewRowColumns characters across
+    u32 previewRowColumns;
+    // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks, in inspectorFontSize points
+    // (0 for Prog_InspectorFontSize).
+    b32 inspectorWrap;
+    b32 inspectorHideNumbers;
+    b32 inspectorWhitespace;
+    u32 inspectorFontSize;
+    b32 inspectorResetScroll; // a new file starts at its top
+    const R_Font *monoFont;   // the inspector's, at its size; NULL until made
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
     Arena confirmArena;

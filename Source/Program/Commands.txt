@@ -506,8 +506,9 @@ command TransferCancel {
 }
 
 command TogglePreview {
-    label   = "Toggle Preview^pane,quick look,peek,panel"
-    tooltip = "Show the focused item's picture or text beside the list."
+    label   = "Toggle Inspector^show,hide,preview,pane,quick look,peek,panel"
+    tooltip = "Toggle inspector in currently active panel."
+    hotkey  = "Space"
     hotkey  = "Alt+P"
     repeat  = "false"
 }
@@ -744,6 +745,31 @@ command SortByItemCount {
 command SortByType {
     label   = "Sort By Type^order"
     tooltip = "Sort folder contents by file type."
+}
+
+command InspectorIncreaseContentsSize {
+    label   = "Increase Contents Size^large,big,scale"
+    tooltip = "Increase contents size in the inspector; font size for text, zoom for images, etc."
+}
+
+command InspectorDecreaseContentsSize {
+    label   = "Decrease Inspector Contents Size^small,scale"
+    tooltip = "Decrease contents size in the inspector; font size for text, zoom for images, etc."
+}
+
+command InspectorToggleWordWrap {
+    label   = "Toggle Inspector Word Wrap"
+    tooltip = "Toggle word wrap option of the previewed text in the inspector."
+}
+
+command InspectorToggleLineNumbers {
+    label   = "Toggle Inspector Line Numbers^show,hide"
+    tooltip = "Toggle display of line numbers for the previewed text in the inspector."
+}
+
+command InspectorToggleWhitespace {
+    label   = "Toggle Inspector Whitespace^show,hide"
+    tooltip = "Toggle display of whitespace in the previewed text in the inspector."
 }
 
 command ToggleDebugTheme {

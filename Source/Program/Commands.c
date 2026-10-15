@@ -298,6 +298,9 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
+    Prog__PaletteGroup(Inspector),
+    Prog_CommandKind_InspectorIncreaseContentsSize, Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap,
+    Prog_CommandKind_InspectorToggleLineNumbers, Prog_CommandKind_InspectorToggleWhitespace,
     Prog__PaletteGroup(Panels),
     Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
@@ -1107,6 +1110,9 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
     state->previewPicture = false;
+    state->previewLines = state->previewRows = NULL;
+    state->previewLineCount = state->previewRowColumns = 0;
+    state->inspectorResetScroll = true;
     if (!want.length) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
@@ -1313,6 +1319,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
             case Prog_CommandKind_ToggleQuickAccess: state->sidebarHidden = !state->sidebarHidden; break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
+            case Prog_CommandKind_InspectorToggleWordWrap: state->inspectorWrap = !state->inspectorWrap; break;
+            case Prog_CommandKind_InspectorToggleLineNumbers: state->inspectorHideNumbers = !state->inspectorHideNumbers; break;
+            case Prog_CommandKind_InspectorToggleWhitespace: state->inspectorWhitespace = !state->inspectorWhitespace; break;
+            case Prog_CommandKind_InspectorIncreaseContentsSize:
+            case Prog_CommandKind_InspectorDecreaseContentsSize: {
+                u32 size = state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize;
+                b32 up = command->kind == Prog_CommandKind_InspectorIncreaseContentsSize;
+                state->inspectorFontSize = up ? Min(size + 1, (u32)Prog_InspectorFontMax) : Max(size - 1, (u32)Prog_InspectorFontMin);
+            } break;
             case Prog_CommandKind_OpenSettings: {
                 // A first open writes every setting there is, commented out at its default.
                 if (!state->configDirectory.length) break;
@@ -1873,6 +1888,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // Typing anywhere in the browser filters it.
         if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
+            // A space outside the box is the key's command, such as toggling the inspector, rather than the start of a filter.
+            if (!state->filtering && event->codepoint == ' ' && Prog_FindHotkey(state, Key_Space, 0)) continue;
             u32 version = state->filter.version;
             // '/' outside the box only puts the keyboard in it, like Ctrl+F.
             b32 opens = !state->filtering && event->codepoint == '/';
@@ -1932,6 +1949,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             }
             continue;
         }
+        // While filtering, a space is typed.
+        if (state->filtering && event->key == Key_Space && !mods) continue;
         const Prog_Hotkey *hotkey = Prog_FindHotkey(state, event->key, mods);
         if (hotkey && (!event->isRepeat || !Prog_Commands[hotkey->command].noRepeat)) {
             Prog_Command *command = Prog_QueueCommand(state, hotkey->command, 0, 0, order);

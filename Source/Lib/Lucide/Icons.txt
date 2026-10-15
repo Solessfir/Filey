@@ -51,3 +51,11 @@ share-2
 sliders-horizontal
 text-cursor-input
 chevrons-up-down
+panels-top-left
+panel-top
+text-align-start
+text-wrap
+list-ordered
+list-x
+space
+minus

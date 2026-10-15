@@ -2026,6 +2026,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
+                // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
+                String text = state->previewText;
+                u32 lines = 0;
+                for (u64 i = 0; i < text.length; ++i) lines += text.value[i] == '\n';
+                if (text.length && text.value[text.length - 1] != '\n') ++lines;
+                state->previewLines = ArenaPushArray(&state->previewArena, lines + 1, u32);
+                state->previewLineCount = lines;
+                u32 line = 0;
+                if (lines) state->previewLines[line++] = 0;
+                for (u64 i = 0; i + 1 < text.length; ++i) if (text.value[i] == '\n') state->previewLines[line++] = (u32)(i + 1);
+                state->previewLines[lines] = (u32)text.length;
                 if (preview->pixels) {
                     if (!state->previewTexture.u64[0]) state->previewTexture = R_TextureCreateRGBA(Prog_PreviewSize, Prog_PreviewSize, preview->pixels);
                     else R_TextureUpdateRGBA(state->previewTexture, 0, 0, Prog_PreviewSize, Prog_PreviewSize, preview->pixels);

@@ -517,6 +517,7 @@ int main(void)
     TestUICommandEventOrder();
     TestProgramCommands();
     TestGoToScore();
+    TestInspectorWrap();
     TestCodegenParse();
     TestHotkeyDispatch();
     TestProgramVirtualRows();

@@ -597,6 +597,19 @@ function void TestProgramCommands(void)
 }
 
 // The reference's Go To scores, worked out by hand from its rules.
+// The inspector wraps as the reference does: a space that does not fit starts the next row, a word that does not moves down whole, and a word
+// longer than the row is cut; tabs count to their stops.
+function void TestInspectorWrap(void)
+{
+    u32 starts[8];
+    Check(Prog__WrapLine(S("aaaa bbbb"), 9, starts, 8) == 1);
+    Check(Prog__WrapLine(S("aaaa bbbb cc"), 9, starts, 8) == 2 && starts[1] == 9);
+    Check(Prog__WrapLine(S("aaaa bbbbb"), 9, starts, 8) == 2 && starts[1] == 5);
+    Check(Prog__WrapLine(S("abcdefghijk"), 4, starts, 8) == 3 && starts[1] == 4 && starts[2] == 8);
+    Check(Prog__TextCells(S("a	b")) == 5 && Prog__WrapLine(S("		x"), 8, starts, 8) == 2 && starts[1] == 2);
+    Check(Prog__WrapLine(S(""), 4, starts, 8) == 1);
+}
+
 function void TestGoToScore(void)
 {
     Check(Prog_FuzzyScore(S("Downloads"), (String){0}, S("down"), NULL, NULL) == 735);

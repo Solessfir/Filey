@@ -1725,6 +1725,29 @@ function void Prog__List(Prog_State *state, const Prog_Column *columns, const Pr
 
 function String Prog__FormatCount(Arena *arena, u64 count);
 
+// A bar filled to `fraction` with `label` over it, as the zoom shows in the status bar.
+function void Prog__FillBar(String label, f32 fraction, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
+    UI_SetNextPrefWidth(UI_Pixels(barWidth));
+    UI_SetNextPrefHeight(UI_Pixels(barHeight));
+    UI_SetNextCornerRadius(m->radius * 0.5f);
+    UI_SetNextColors((UI_Colors){ .background = theme->track });
+    UI_Block *bar = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
+    UI_Parent(bar) {
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * fraction)));
+        UI_SetNextPrefHeight(UI_Pixels(barHeight));
+        UI_SetNextCornerRadius(m->radius * 0.5f);
+        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        // A block's text draws before its children, so the label is a child after the fill.
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        Prog__Label(label, UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
+    }
+}
+
 function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1849,7 +1872,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 u32 step = state->zoom - Prog_ZoomFirstIcon;
                 String name = view != Prog_View_Icons ? viewNames[view] : step < 7 ? S("M Icons") : state->zoom + 1 < Prog_ZoomLevels ? S("L Icons") : S("XL Icons");
                 f32 zoom = Prog__ZoomFraction(state->zoom);
-                f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
+                f32 barWidth = floorf(m->line * 2.4f);
                 // The view and its zoom open the view menu above them.
                 f32 nameGap = floorf(8.0f * m->scale + 0.5f), barGap = floorf(13.6f * m->scale + 0.5f);
                 UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->icons, viewIcons[view]) + R_TextWidth(m->font, name) + nameGap + barGap + barWidth));
@@ -1867,22 +1890,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 Prog__Icon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, 0.5f, m);
                 Prog__LabelPadded(name, UI_TextContent(), m->pill, nameGap, 0, theme->text, 0);
                 Prog__Spacer(UI_Pixels(barGap), UI_Pixels(m->pill));
-                UI_SetNextPrefWidth(UI_Pixels(barWidth));
-                UI_SetNextPrefHeight(UI_Pixels(barHeight));
-                UI_SetNextCornerRadius(m->radius * 0.5f);
-                UI_SetNextColors((UI_Colors){ .background = theme->track });
-                UI_Block *bar = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
-                UI_Parent(bar) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-                    UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * zoom)));
-                    UI_SetNextPrefHeight(UI_Pixels(barHeight));
-                    UI_SetNextCornerRadius(m->radius * 0.5f);
-                    UI_SetNextColors((UI_Colors){ .background = theme->accent });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                    // A block's text draws before its children, so the percentage is a child after the fill.
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-                    Prog__Label(StrFormat(&state->frameArena, "%u%%", (u32)(zoom * 100.0f + 0.001f)), UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
-                }
+                Prog__FillBar(StrFormat(&state->frameArena, "%u%%", (u32)(zoom * 100.0f + 0.001f)), zoom, m);
                 }
             }
         } else {
@@ -3423,66 +3431,273 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     }
 }
 
-// The preview pane, `width` wide with its divider: the focused item's picture or text over its name and details.
-function void Prog__PreviewPane(Prog_State *state, f32 width, const Prog_Metrics *m)
+// The character cells `text` takes, with tabs to the next stop of four.
+function u32 Prog__TextCells(String text)
+{
+    u32 cells = 0;
+    for (u64 i = 0; i < text.length; ++i) {
+        u8 c = (u8)text.value[i];
+        if (c == '\t') cells += 4 - cells % 4;
+        else if ((c & 0xC0) != 0x80) ++cells;
+    }
+    return cells;
+}
+
+// The rows `line` takes wrapped at `columns` cells: a space that does not fit starts the next row, and a word that does not is moved to it whole,
+// unless it is the row's only one. `starts`, when not NULL, gets where each of the first `room` rows starts.
+function u32 Prog__WrapLine(String line, u32 columns, u32 *starts, u32 room)
+{
+    u32 rows = 1, cells = 0;
+    u64 rowStart = 0, breakAt = 0;
+    if (starts && room) starts[0] = 0;
+    for (u64 i = 0; i < line.length;) {
+        u8 c = (u8)line.value[i];
+        u64 next = i + 1;
+        while (next < line.length && ((u8)line.value[next] & 0xC0) == 0x80) ++next;
+        u32 width = c == '\t' ? 4 - cells % 4 : 1;
+        if (cells && cells + width > columns) {
+            u64 at = c != ' ' && c != '	' && breakAt > rowStart ? breakAt : i;
+            if (starts && rows < room) starts[rows] = (u32)at;
+            ++rows;
+            rowStart = breakAt = at;
+            cells = Prog__TextCells(StrFromTo(line, at, (i64)i));
+            width = c == '\t' ? 4 - cells % 4 : 1;
+        }
+        cells += width;
+        if (c == ' ' || c == '\t') breakAt = next;
+        i = next;
+    }
+    return rows;
+}
+
+// One row of the inspector's text in `font`, `cell` wide per character: tabs to their stops, and with `marks` spaces as dots and tabs as dashes.
+function void Prog__InspectorRow(Prog_State *state, String text, const R_Font *font, f32 cell, f32 height, b32 marks, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
+    u32 cells = 0;
+    for (u64 start = 0; start < text.length;) {
+        u8 c = (u8)text.value[start];
+        if (c == '\t') {
+            u32 width = 4 - cells % 4;
+            cells += width;
+            ++start;
+            UI_SetNextPrefWidth(UI_Pixels((f32)width * cell));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_Block *tab = UI_AddBlock(0);
+            if (marks) UI_Parent(tab) {
+                // A dash from the tab's first cell, short of the next stop.
+                f32 thick = MaxF32(1, floorf(1.6f * m->scale + 0.5f));
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((height - thick + 1) * 0.5f) });
+                UI_SetNextPrefWidth(UI_Pixels((f32)width * cell - floorf(cell * 0.67f)));
+                UI_SetNextPrefHeight(UI_Pixels(thick));
+                UI_SetNextColors((UI_Colors){ .background = theme->textDim });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            continue;
+        }
+        // A run of spaces, as dots when marked, or of everything else up to the next tab or space.
+        b32 spaces = c == ' ';
+        u64 end = start;
+        while (end < text.length && text.value[end] != '\t' && (text.value[end] == ' ') == spaces) ++end;
+        String run = StrFromTo(text, start, (i64)end);
+        u32 runCells = Prog__TextCells(run);
+        cells += runCells;
+        start = end;
+        if (spaces && !marks) {
+            Prog__Spacer(UI_Pixels((f32)runCells * cell), UI_Pixels(height));
+            continue;
+        }
+        StrBuilder dots = {0};
+        if (spaces) for (u64 i = 0; i < run.length; ++i) StrBuildStr(&state->frameArena, &dots, S("·"));
+        UI_SetNextFont(font);
+        Prog__Label(spaces ? dots.buffer : run, UI_Pixels((f32)runCells * cell), height, 0, spaces ? theme->textDim : theme->text, 0);
+    }
+}
+
+// The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked; only the rows in
+// sight get blocks, with spacers for the rest.
+function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    const R_Font *font = state->monoFont ? state->monoFont : m->font;
+    f32 s = m->scale, size = (f32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
+    f32 pitch = floorf((size + 6.8f) * s + 0.5f), cell = R_TextWidth(font, S("M"));
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    // The text stops short of the right edge, leaving the scroll bar room.
+    f32 margin = floorf(32.8f * s + 0.5f);
+    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(13.6f * s + 0.5f), margin, floorf(4.0f * s + 0.5f) });
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText")), UI_Flag_Clip | UI_Flag_Scrollable);
+    if (state->inspectorResetScroll) {
+        view->scrollOffset = view->scrollShown = (UI_Vec2){0};
+        state->inspectorResetScroll = false;
+    }
+    if (!UI->animate) view->scrollShown = view->scrollOffset;
+    String text = state->previewText;
+    u32 lineCount = state->previewLineCount;
+    // The numbers sit in a gutter that grows for long files; the text starts closer to the edge without them.
+    u32 digits = 1;
+    for (u32 n = lineCount; n >= 10; n /= 10) ++digits;
+    f32 digitWidth = R_TextWidth(m->detail, S("0")), numbers = (f32)digits * digitWidth;
+    f32 gap = floorf(10.4f * s + 0.5f), left = state->inspectorHideNumbers ? floorf(9.6f * s + 0.5f) : MaxF32(floorf(52.0f * s + 0.5f), floorf(26.4f * s + 0.5f) + numbers + gap);
+    f32 room = MaxF32(cell, view->rect.x1 - view->rect.x0 - left - margin);
+    u32 columns = state->inspectorWrap ? Max((u32)(room / cell), 1u) : 0;
+    // Each line's first row, worked out again when the width in characters changes.
+    if (columns && state->previewRowColumns != columns) {
+        state->previewRows = ArenaPushArray(&state->previewArena, lineCount + 1, u32);
+        u32 rows = 0;
+        for (u32 i = 0; i < lineCount; ++i) {
+            state->previewRows[i] = rows;
+            rows += Prog__WrapLine(StrFromTo(text, state->previewLines[i], (i64)state->previewLines[i + 1]), columns, NULL, 0);
+        }
+        state->previewRows[lineCount] = rows;
+        state->previewRowColumns = columns;
+    }
+    u32 rowCount = columns ? state->previewRows[lineCount] : lineCount;
+    f32 from = MinF32(view->scrollOffset.y, view->scrollShown.y), to = MaxF32(view->scrollOffset.y, view->scrollShown.y) + (view->rect.y1 - view->rect.y0);
+    u32 first = Min((u32)MaxF32(0, floorf(from / pitch)), rowCount), last = Min((u32)MaxF32(0, ceilf(to / pitch)) + 1, rowCount);
+    UI_Parent(view) {
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch));
+        // The line holding the first row in sight.
+        u32 line = first;
+        if (columns) {
+            u32 low = 0, high = lineCount;
+            while (low + 1 < high) {
+                u32 middle = (low + high) / 2;
+                if (state->previewRows[middle] <= first) low = middle;
+                else high = middle;
+            }
+            line = low;
+        }
+        for (u32 row = first; row < last && line < lineCount; ++line) {
+            String whole = StrFromTo(text, state->previewLines[line], (i64)state->previewLines[line + 1]);
+            if (whole.length && whole.value[whole.length - 1] == '\n') --whole.length;
+            if (whole.length && whole.value[whole.length - 1] == '\r') --whole.length;
+            u32 starts[256];
+            u32 rows = columns ? Min(Prog__WrapLine(whole, columns, starts, CArrayCount(starts)), (u32)CArrayCount(starts)) : 1;
+            if (!columns) starts[0] = 0;
+            u32 lineRow = columns ? state->previewRows[line] : line;
+            for (u32 r = row - lineRow; r < rows && row < last; ++r, ++row) {
+                u64 end = r + 1 < rows ? starts[r + 1] : whole.length;
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(pitch));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_Block *rowBlock = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(rowBlock) {
+                    // The number shows on a line's first row, right-aligned against the gap before the text.
+                    if (!state->inspectorHideNumbers && r == 0) {
+                        UI_SetNextFont(m->detail);
+                        Prog__Label(StrFormat(&state->frameArena, "%u", line + 1), UI_Pixels(left - gap), pitch, 0, theme->textDim, 1);
+                        Prog__Spacer(UI_Pixels(gap), UI_Pixels(pitch));
+                    } else {
+                        Prog__Spacer(UI_Pixels(left), UI_Pixels(pitch));
+                    }
+                    Prog__InspectorRow(state, StrFromTo(whole, starts[r], (i64)end), font, cell, pitch, state->inspectorWhitespace, m);
+                }
+            }
+        }
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
+    }
+    // The scroll bar at the right edge: a thumb as long as the share of the text in sight, where that is in it.
+    f32 viewHeight = view->rect.y1 - view->rect.y0, content = view->contentSize.y;
+    if (content > viewHeight && viewHeight > 0) {
+        f32 end = floorf(16.0f * s + 0.5f), track = MaxF32(0, viewHeight - 2 * end);
+        f32 thumb = MaxF32(floorf(track * viewHeight / content), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
+        f32 at = floorf((track - thumb) * MinF32(1, view->scrollShown.y / (content - viewHeight)));
+        UI_SetNextFloatingOffset((UI_Vec2){ view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), view->rect.y0 - UI->parent->rect.y0 + end + at });
+        UI_SetNextPrefWidth(UI_Pixels(thick));
+        UI_SetNextPrefHeight(UI_Pixels(thumb));
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+}
+
+// The inspector beside the list, `width` wide with its divider: a toolbar with the text view's switches and the item's name, the focused item's
+// text or picture and details, and a footer with what the text holds.
+function void Prog__Inspector(Prog_State *state, f32 width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, bar = Prog__StripHeight(m);
     Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
-    f32 inner = width - m->separator, room = inner - 2 * m->inset;
-    // Keyed, so that their last layouts tell how much fits.
+    f32 inner = width - m->separator;
+    const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
+    b32 text = entry && state->previewText.length && !state->previewPicture && state->previewLines;
     UI_SetNextPrefWidth(UI_Pixels(inner));
     UI_SetNextPrefHeight(UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, m->inset });
     UI_SetNextColors((UI_Colors){ .background = theme->background });
-    UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PreviewPane")), UI_Flag_DrawBackground | UI_Flag_Clip);
+    UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Inspector")), UI_Flag_DrawBackground | UI_Flag_Clip);
     UI_Parent(pane) {
-        const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
-        if (!entry) {
-            Prog__Label(S("Nothing to preview"), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+        UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
+        UI_Parent(toolbar) {
+            Prog__Spacer(UI_Pixels(floorf(4.8f * s + 0.5f)), UI_Pixels(bar));
+            Prog__ToolbarButton(state, S("InspectorClose"), Icon_X, Prog_CommandKind_TogglePreview, true, m);
+            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+            Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+            Prog__ToolbarButton(state, S("InspectorWrap"), state->inspectorWrap ? Icon_TextWrap : Icon_TextAlignStart, Prog_CommandKind_InspectorToggleWordWrap, text, m);
+            Prog__ToolbarButton(state, S("InspectorNumbers"), state->inspectorHideNumbers ? Icon_ListX : Icon_ListOrdered, Prog_CommandKind_InspectorToggleLineNumbers, text, m);
+            Prog__ToolbarButton(state, S("InspectorWhitespace"), state->inspectorWhitespace ? Icon_Minus : Icon_Space, Prog_CommandKind_InspectorToggleWhitespace, text, m);
+            Prog__Spacer(UI_Flex(), UI_Pixels(bar));
+            if (entry) Prog__Label(entry->file.name, UI_TextContent(), bar, 0, theme->text, 0);
+            Prog__Spacer(UI_Pixels(m->inset), UI_Pixels(bar));
+        }
+        if (text) {
+            Prog__InspectorText(state, m);
         } else {
-            // A picture as wide as the pane, but no taller than half of it.
-            f32 side = floorf(MinF32(room, MaxF32(0, (pane->rect.y1 - pane->rect.y0) * 0.5f)));
-            if (state->previewPicture && side > 0) {
-                UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(side));
-                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ side, side }, (R_Color){ 1, 1, 1, 1 });
-                UI_AddBlock(UI_Flag_DrawImage);
-                Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
-            }
-            Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
-            String details = entry->file.kind == P_FileKind_Directory
-                ? (entry->measured ? StrFormat(&state->frameArena, "%S, %" PRIu64 " folders, %" PRIu64 " files, %S", entry->type, entry->folders, entry->files, Prog_FormatSize(&state->frameArena, entry->bytes)) : entry->type)
-                : StrFormat(&state->frameArena, "%S, %S", entry->type, Prog_FormatSize(&state->frameArena, entry->file.size));
-            Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
-            Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
-            // The start of a text file, one line per row, as many as fit; tabs show as spaces.
-            if (state->previewText.length && !state->previewPicture) {
-                Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
-                UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Flex());
-                UI_SetNextChildrenLayout(UI_Layout_Vertical);
-                UI_SetNextChildrenPadding((UI_Padding){ m->gap, m->gap, m->gap, m->gap });
-                UI_SetNextCornerRadius(m->radius * 2);
-                UI_SetNextColors((UI_Colors){ .background = theme->panel });
-                UI_Block *page = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PreviewText")), UI_Flag_DrawBackground | UI_Flag_Clip);
-                UI_Parent(page) {
-                    f32 lineHeight = floorf(m->line * 1.25f);
-                    u32 lines = (u32)MaxF32(1, (page->rect.y1 - page->rect.y0) / lineHeight + 1);
-                    String text = state->previewText;
-                    for (u64 at = 0; at < text.length && lines; --lines) {
-                        Index newline = StrIndexChar(StrFrom(text, at), '\n', SSF_CountOnFail);
-                        String line = StrFromTo(text, at, (i64)(at + newline.value));
-                        at += newline.value + 1;
-                        if (line.length && line.value[line.length - 1] == '\r') --line.length;
-                        StrBuilder shown = {0};
-                        for (u64 i = 0; i < line.length; ++i) {
-                            if (line.value[i] == '\t') StrBuildStr(&state->frameArena, &shown, S("    "));
-                            else StrBuildChar(&state->frameArena, &shown, line.value[i]);
-                        }
-                        Prog__Label(shown.buffer, UI_Flex(), lineHeight, 0, theme->text, 0);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Flex());
+            UI_SetNextChildrenLayout(UI_Layout_Vertical);
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, m->inset });
+            UI_Block *body = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorBody")), UI_Flag_Clip);
+            UI_Parent(body) {
+                f32 room = inner - 2 * m->inset;
+                if (!entry) {
+                    Prog__Label(S("Nothing to preview"), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+                } else {
+                    // A picture as wide as the pane, but no taller than half of it.
+                    f32 side = floorf(MinF32(room, MaxF32(0, (body->rect.y1 - body->rect.y0) * 0.5f)));
+                    if (state->previewPicture && side > 0) {
+                        UI_SetNextPrefWidth(UI_Flex());
+                        UI_SetNextPrefHeight(UI_Pixels(side));
+                        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                        UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ side, side }, (R_Color){ 1, 1, 1, 1 });
+                        UI_AddBlock(UI_Flag_DrawImage);
+                        Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
                     }
+                    Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
+                    String details = entry->file.kind == P_FileKind_Directory
+                        ? (entry->measured ? StrFormat(&state->frameArena, "%S, %" PRIu64 " folders, %" PRIu64 " files, %S", entry->type, entry->folders, entry->files, Prog_FormatSize(&state->frameArena, entry->bytes)) : entry->type)
+                        : StrFormat(&state->frameArena, "%S, %S", entry->type, Prog_FormatSize(&state->frameArena, entry->file.size));
+                    Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
+                    Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+                }
+            }
+        }
+        // The footer: the text's encoding, its line count and its size in points.
+        f32 radius = floorf(10.4f * s + 0.5f);
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, -radius, 0 });
+        UI_Block *footer = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
+        UI_Parent(footer) {
+            Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            if (text) {
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(radius);
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_Block *facts = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
+                facts->props.colors.border = theme->tabBorder;
+                facts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
+                UI_Parent(facts) {
+                    f32 before = floorf(7.2f * s + 0.5f);
+                    Prog__LabelPadded(S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
+                    Prog__Icon(Icon_TextAlignStart, 0, m->pill, theme->icon, 0.5f, m);
+                    Prog__LabelPadded(StrFormat(&state->frameArena, "%u", state->previewLineCount), UI_TextContent(), m->pill, floorf(10.4f * s + 0.5f), floorf(12.0f * s + 0.5f), theme->text, 0);
+                    // The text's size, filled from the least to the most it can be.
+                    u32 size = state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize;
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_Block *slot = Prog__Box(UI_Pixels(floorf(m->line * 2.4f)), UI_Pixels(m->pill), UI_Layout_Horizontal, (R_Color){0}, 0);
+                    UI_Parent(slot) Prog__FillBar(StrFormat(&state->frameArena, "%u", size), (f32)(size - Prog_InspectorFontMin) / (f32)(Prog_InspectorFontMax - Prog_InspectorFontMin), m);
                 }
             }
         }
@@ -3506,8 +3721,8 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[index].id;
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel;
-    // The active panel's list makes room for the preview pane.
-    f32 previewWidth = active && state->previewShown ? floorf(MinF32(width * 0.4f, m->line * 30)) : 0;
+    // The active panel gives the right half of its width under the tab strip to the inspector.
+    f32 previewWidth = active && state->previewShown ? floorf((width - m->separator) * 0.5f) : 0;
     f32 listWidth = width - previewWidth;
     Prog_Column panelColumns[Prog_ColumnId_Count];
     Prog__Columns(panelColumns, scale, listWidth - 2 * m->inset);
@@ -3531,21 +3746,8 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
         // The window's top border, over the title bar.
         if (top) Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__TabStrip(state, width, top, top && state->sidebarHidden && rect.x0 <= area.x0, top && rect.x1 >= area.x1, scale, m);
-        UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+        UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(main) {
-            Prog__Toolbar(state, m);
-            UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
-            UI_Parent(body) {
-                UI_Block *listColumn = Prog__Box(UI_Pixels(listWidth), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
-                UI_Parent(listColumn) {
-                    if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
-                        Prog__Header(state, columns, m);
-                        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
-                    }
-                    Prog__List(state, columns, m);
-                }
-                if (previewWidth > 0) Prog__PreviewPane(state, previewWidth, m);
-            }
             // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more
             // slowly, as the reference's; the one that stops being it fades to dim, while the new one brightens at once.
             Prog_Panel *own = &state->panels[index];
@@ -3563,13 +3765,26 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 if (since < 400000) UI_KeepAnimating();
                 else own->focusMicroseconds = 0;
             }
-            if (shown > 0.01f) {
-                UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(floorf(m->pill * shown + 0.5f)));
-                UI_SetNextChildrenLayout(UI_Layout_Vertical);
-                UI_Block *slide = UI_AddBlock(UI_Flag_Clip);
-                UI_Parent(slide) Prog__StatusBar(state, m);
+            UI_Block *listSide = Prog__Box(UI_Pixels(listWidth), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+            UI_Parent(listSide) {
+                Prog__Toolbar(state, m);
+                UI_Block *listColumn = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+                UI_Parent(listColumn) {
+                    if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
+                        Prog__Header(state, columns, m);
+                        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
+                    }
+                    Prog__List(state, columns, m);
+                }
+                if (shown > 0.01f) {
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(floorf(m->pill * shown + 0.5f)));
+                    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                    UI_Block *slide = UI_AddBlock(UI_Flag_Clip);
+                    UI_Parent(slide) Prog__StatusBar(state, m);
+                }
             }
+            if (previewWidth > 0) Prog__Inspector(state, previewWidth, m);
             if (dimmed > 0.01f) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                 UI_SetNextPrefWidth(UI_Pixels(width));

@@ -67,6 +67,10 @@ typedef struct Prog_Loop {
     R_Font icons;
     R_Font smallIcons;
     f32 fontScale;    // the display scale the fonts were rasterized for
+    // The inspector's monospace font, made at its size once it is first shown.
+    Arena monoArena;
+    R_Font mono;
+    f32 monoPixels;
     b32 running;
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
@@ -175,6 +179,29 @@ function void Prog__Frame(void *user, PlatformEventList events)
         if (scale != loop->fontScale) {
             ProfileScope("LoadFonts") Prog__LoadFonts(loop, scale);
             state->ui.doubleClickDistance = PlatformDoubleClickSettings().distance;
+        }
+        if (state->previewShown) {
+            f32 points = (f32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
+            f32 pixels = points * (96.0f / 72.0f) * scale;
+            if (pixels != loop->monoPixels) {
+                loop->monoPixels = pixels;
+#if defined(_WIN32)
+                String family = S("Consolas");
+#else
+                String family = S("monospace");
+#endif
+                Arena arena = {0};
+                R_Font mono = {0};
+                if (R_FontCreate(&arena, family, pixels, &mono)) {
+                    R_TextureRelease(loop->mono.atlas);
+                    ArenaRelease(&loop->monoArena);
+                    loop->monoArena = arena;
+                    loop->mono = mono;
+                } else {
+                    ArenaRelease(&arena);
+                }
+            }
+            state->monoFont = loop->mono.atlas.u64[0] ? &loop->mono : NULL;
         }
         state->ui.animate = !state->animationsOff;
         ProfileScope("BuildUI") {
