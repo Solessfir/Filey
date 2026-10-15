@@ -3,8 +3,8 @@
 
 function String Prog_JoinPath(Arena *arena, String path, String name)
 {
-    // This PC's items are named by their whole paths.
-    if (StrIsEqual(path, Prog_ThisPC)) return StrCopy(arena, name);
+    // This PC's and the Recycle Bin's items are named by their whole paths.
+    if (StrIsEqual(path, Prog_ThisPC) || P_IsTrashFolder(path)) return StrCopy(arena, name);
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
@@ -497,6 +497,8 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
     b32 ad = a->file.kind == P_FileKind_Directory;
     b32 bd = b->file.kind == P_FileKind_Directory;
     if (ad != bd && folders != Prog_FolderSort_Mixed) return ad == (folders == Prog_FolderSort_First) ? -1 : 1;
+    // Items that show another name than their file's go by it.
+    String an = a->label.length ? a->label : Prog_EntryLeaf(a->file.name), bn = b->label.length ? b->label : Prog_EntryLeaf(b->file.name);
     i32 result = 0;
     switch (sort) {
         case Prog_Sort_Name: break;
@@ -512,7 +514,7 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
         case Prog_Sort_Items: result = Prog__Order(a->folders + a->files, b->folders + b->files); break;
         default: InvalidPath;
     }
-    if (!result) result = Prog_CompareNames(Prog_EntryLeaf(a->file.name), Prog_EntryLeaf(b->file.name));
+    if (!result) result = Prog_CompareNames(an, bn);
     if (!result) result = Prog_CompareNames(a->file.name, b->file.name);
     return descending ? -result : result;
 }
@@ -1056,6 +1058,32 @@ function void Prog__DirectoryJob(P_Job *job)
         result->totalFolders = result->folderCount = result->count;
         return;
     }
+    // The Recycle Bin lists what it holds, each with its own name, where it came from and when it went.
+    if (P_IsTrashFolder(input->path)) {
+        P_ArrayTrashed binned = P_ListTrash(&job->arena, input->path, &job->cancelToken);
+        result->entries = ArenaPushArray(&job->arena, Max(binned.header.count, (u64)1), Prog_Entry);
+        for (u64 i = 0; i < binned.header.count; ++i) {
+            const P_Trashed *item = &binned.v[i];
+            b32 folder = item->file.kind == P_FileKind_Directory;
+            if (folder) ++result->totalFolders;
+            else ++result->totalFiles;
+            if (item->file.hidden && !input->showHidden) continue;
+            Prog_Entry *entry = &result->entries[result->count++];
+            entry->file = item->file;
+            entry->label = item->name;
+            entry->original = item->original;
+            entry->deletedTimeUnix = item->deletedTimeUnix;
+            entry->type = P_FileTypeName(&job->arena, item->name, item->file.kind);
+            entry->measured = folder;
+            entry->bytes = folder ? item->file.size : 0;
+            result->folderCount += folder ? 1 : 0;
+        }
+        Prog_Entry *buffer = ArenaPushArray(&job->arena, Max(result->count, (u64)1), Prog_Entry);
+        Prog_Entry *sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, input->folderSort, &job->cancelToken);
+        if (sorted) result->entries = sorted;
+        else result->cancelled = true;
+        return;
+    }
     ProfileScope("EnumerateDirectory") listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
@@ -1176,8 +1204,8 @@ function void Prog__DirectoryJob(P_Job *job)
 // Measures the shown folder's subfolders that have no totals yet, one job at a time.
 function void Prog__MeasureFolders(Prog_State *state)
 {
-    // Drives are not walked to be measured.
-    if (StrIsEqual(state->directory.path, Prog_ThisPC)) return;
+    // Drives are not walked to be measured, and the bin knows its folders' sizes.
+    if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path)) return;
     // Not while a walk through the whole tree is on its way, which counts them itself.
     if (state->measureJob || (state->directoryJob && ((Prog_JobInput *)state->directoryJob->input)->expanded)) return;
     u64 count = 0;
@@ -1878,6 +1906,10 @@ function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state)
         return (Prog_ColumnSet){ .count = 6, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Type, Prog_ColumnKind_FileSystem, Prog_ColumnKind_FreeSpace, Prog_ColumnKind_Size,
                                                         Prog_ColumnKind_PercentFull }, .shares = { 0, 0.09f, 0.09f, 0.09f, 0.09f, 0.36f } };
     }
+    if (P_IsTrashFolder(state->directory.path)) {
+        return (Prog_ColumnSet){ .count = 5, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_OriginalLocation, Prog_ColumnKind_Type, Prog_ColumnKind_Size, Prog_ColumnKind_DateDeleted },
+                                 .shares = { 0, 0.4f, 0.1f, 0.1f, 0.15f } };
+    }
     if (state->columnSet.count) return state->columnSet;
     return (Prog_ColumnSet){ .count = 5, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Type, Prog_ColumnKind_Modified, Prog_ColumnKind_Items, Prog_ColumnKind_Size } };
 }
@@ -1898,7 +1930,7 @@ function f32 Prog_ColumnShare(Prog_ColumnKind kind)
 // a resize carries the new share of the row in millionths as `value`, and a shift its direction.
 function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 column, u64 value)
 {
-    if (StrIsEqual(state->directory.path, Prog_ThisPC)) return;
+    if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path)) return;
     Prog_ColumnSet set = Prog_PanelColumns(state);
     switch (kind) {
         case Prog_CommandKind_ColumnShiftLeft:
@@ -1939,7 +1971,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
 
 // The columns' names in the files that keep them.
 global const String Prog_ColumnWords[Prog_ColumnKind_Count] = {
-    S("name"), S("type"), S("size"), S("items"), S("created"), S("modified"), S("accessed"), S("volume"), S("folder"), S("filesystem"), S("free"), S("full"),
+    S("name"), S("type"), S("size"), S("items"), S("created"), S("modified"), S("accessed"), S("volume"), S("folder"), S("filesystem"), S("free"), S("full"), S("original"), S("deleted"),
 };
 
 // `set` as one word: its columns' names, those resized with their share of the row after a colon, between commas; "-" for the defaults.

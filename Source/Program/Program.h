@@ -45,6 +45,8 @@ typedef enum Prog_ColumnId {
     Prog_ColumnId_FileSystem,
     Prog_ColumnId_FreeSpace,
     Prog_ColumnId_PercentFull,
+    Prog_ColumnId_OriginalLocation,
+    Prog_ColumnId_DateDeleted,
     Prog_ColumnId_Count,
 } Prog_ColumnId;
 
@@ -63,6 +65,9 @@ typedef enum Prog_ColumnKind {
     Prog_ColumnKind_FileSystem,
     Prog_ColumnKind_FreeSpace,
     Prog_ColumnKind_PercentFull,
+    // The Recycle Bin's.
+    Prog_ColumnKind_OriginalLocation,
+    Prog_ColumnKind_DateDeleted,
     Prog_ColumnKind_Count,
 } Prog_ColumnKind;
 
@@ -137,11 +142,14 @@ typedef struct Prog_Entry {
     u64 files;
     u64 bytes;
     u32 parent;       // in a listing of the subfolders, the folder it is in, by its place in `parents`
-    // A drive in This PC: its name is its root's path, and these what it shows.
+    // A drive in This PC, whose name is its root's path, or an item in the Recycle Bin, whose name is where the bin keeps it;
+    // `label` is the name it shows.
     b32 drive;
     String label;
     String fileSystem;
     u64 freeBytes;
+    String original;     // a binned item's folder before it was deleted
+    i64 deletedTimeUnix;
 } Prog_Entry;
 
 // The folder that lists the drives, as Explorer's This PC does; no real path looks like it.

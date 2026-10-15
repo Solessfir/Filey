@@ -504,7 +504,10 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_RequestDirectory(&state, Prog_ThisPC, true, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC) && state.directory.count >= 1);
         Check(state.directory.count && state.directory.entries[0].drive && Prog_PanelColumns(&state).kinds[5] == Prog_ColumnKind_PercentFull);
-        Check(!Prog_UpPath(Prog_ThisPC).length && StrIsEqual(Prog_UpPath(state.directory.entries[0].file.name), Prog_ThisPC));
+        // A root among the drives, which on Linux need not be the first mount.
+        b32 root = false;
+        for (u64 i = 0; i < state.directory.count; ++i) root |= StrIsEqual(Prog_UpPath(state.directory.entries[i].file.name), Prog_ThisPC);
+        Check(!Prog_UpPath(Prog_ThisPC).length && root);
         Check(StrIsEqual(Prog_JoinPath(&kept, Prog_ThisPC, state.directory.entries[0].file.name), state.directory.entries[0].file.name));
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here));
@@ -1843,6 +1846,46 @@ function void TestApps(TestFileFixture *fixture)
 }
 #endif
 
+// A bin's records read back as its items, with their own names, where they came from and when they went; a bin built in the fixture stands in
+// for the real one, which the tests leave alone.
+function void TestTrash(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String bin = Prog_JoinPath(&arena, fixture->path, S("Bin"));
+    Check(P__TestMakeDirectory(fixture, S("Bin")));
+#if defined(_WIN32)
+    // A $I record of version 2: the size, the deletion time, then the path's length and the path in UTF-16.
+    Check(P__TestMakeDirectory(fixture, S("Bin/S-1")));
+    local_persist const wchar original[] = L"C:\\Old\\note.txt";
+    u8 record[28 + sizeof(original)] = {0};
+    i64 version = 2, size = 5, deleted = 116444736000000000LL + 10000000LL * 1000;
+    u32 units = (u32)CArrayCount(original);
+    MemCopy(record, &version, 8);
+    MemCopy(record + 8, &size, 8);
+    MemCopy(record + 16, &deleted, 8);
+    MemCopy(record + 24, &units, 4);
+    MemCopy(record + 28, original, sizeof(original));
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, bin, S("S-1/$IAB12.txt")), StrMake((const char *)record, sizeof(record))).code);
+    Check(P__TestWriteFile(fixture, S("Bin/S-1/$RAB12.txt"), 5, false));
+    P_ArrayTrashed items = P_ListTrash(&arena, bin, NULL);
+    Check(items.header.count == 1 && items.header.count && StrIsEqual(items.v[0].name, S("note.txt")) && StrIsEqual(items.v[0].original, S("C:/Old")));
+    Check(items.header.count && items.v[0].deletedTimeUnix == 1000 && TestEndsWith(items.v[0].file.name, S("/$RAB12.txt")));
+    Check(P__TestRemovePath(fixture, S("Bin/S-1/$IAB12.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1/$RAB12.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1"), true));
+    Check(P_IsTrashFolder(S("D:/$RECYCLE.BIN/")) && !P_IsTrashFolder(S("D:/Recycle")));
+#elif defined(__linux__)
+    Check(P__TestMakeDirectory(fixture, S("Bin/files")) && P__TestMakeDirectory(fixture, S("Bin/info")));
+    Check(P__TestWriteFile(fixture, S("Bin/files/note.txt"), 5, false));
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, bin, S("info/note.txt.trashinfo")), S("[Trash Info]\nPath=/Old%20Folder/note.txt\nDeletionDate=2026-01-02T03:04:05\n")).code);
+    P_ArrayTrashed items = P_ListTrash(&arena, bin, NULL);
+    Check(items.header.count == 1 && items.header.count && StrIsEqual(items.v[0].name, S("note.txt")) && StrIsEqual(items.v[0].original, S("/Old Folder")));
+    Check(items.header.count && items.v[0].deletedTimeUnix > 0 && TestEndsWith(items.v[0].file.name, S("/files/note.txt")));
+    Check(P__TestRemovePath(fixture, S("Bin/files/note.txt"), false) && P__TestRemovePath(fixture, S("Bin/info/note.txt.trashinfo"), false));
+    Check(P__TestRemovePath(fixture, S("Bin/files"), true) && P__TestRemovePath(fixture, S("Bin/info"), true));
+#endif
+    Check(P__TestRemovePath(fixture, S("Bin"), true));
+    ArenaRelease(&arena);
+}
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -1868,6 +1911,7 @@ function void TestBrowsing(void)
         TestMeasure(&fixture);
         TestFileOperations(&fixture);
         TestProgramFileCommands(&fixture);
+        TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);

@@ -1311,12 +1311,12 @@ typedef struct Prog_Columns {
 // This PC's drives are not sorted, so its own columns sort nothing (Prog_Sort_Count).
 global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
     Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Accessed, Prog_Sort_Size, Prog_Sort_Size,
-    Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count,
+    Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count,
 };
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
     S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size"), S("Date Created"), S("Date Accessed"), S("Folder Usage"), S("Volume Usage"),
-    S("File System"), S("Free Space"), S("Percent Full"),
+    S("File System"), S("Free Space"), S("Percent Full"), S("Original Location"), S("Date Deleted"),
 };
 
 // The panel's columns laid out for rows `room` wide, as the reference lays them out at any width: each its share of it, however narrow,
@@ -1326,6 +1326,7 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
     local_persist const Prog_ColumnId ids[Prog_ColumnKind_Count] = {
         Prog_ColumnId_Name, Prog_ColumnId_Type, Prog_ColumnId_Size, Prog_ColumnId_Folders, Prog_ColumnId_Created, Prog_ColumnId_Modified, Prog_ColumnId_Accessed,
         Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage, Prog_ColumnId_FileSystem, Prog_ColumnId_FreeSpace, Prog_ColumnId_PercentFull,
+        Prog_ColumnId_OriginalLocation, Prog_ColumnId_DateDeleted,
     };
     // This PC's values read from the left, its size too.
     b32 drives = StrIsEqual(state->directory.path, Prog_ThisPC);
@@ -1703,6 +1704,10 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     String accessed = entry->file.metadataValid && entry->file.accessedTimeUnix ? P_FormatFileTime(frame, entry->file.accessedTimeUnix) : (String){0};
     String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, Prog_EntryModified(frame, entry), folders, files, size, created, accessed, folderUsage, volumeUsage };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = result[i];
+    // A binned item shows its own name, where it came from and when it went.
+    if (entry->label.length) values[Prog_ColumnId_Name] = entry->label;
+    if (entry->original.length) values[Prog_ColumnId_OriginalLocation] = P_NativePath(frame, entry->original);
+    if (entry->deletedTimeUnix) values[Prog_ColumnId_DateDeleted] = P_FormatFileTime(frame, entry->deletedTimeUnix);
 }
 
 // `text` cut at a codepoint boundary to fit `width`, with an ellipsis when anything was cut.
@@ -2282,8 +2287,10 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         }
         if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
         if (!state->viewCount && !state->loading) {
-            String empty = state->directory.count ? S("No items match the filter") : S("This folder is empty");
-            Prog__Label(empty, UI_Flex(), m->row, m->iconSlot, theme->textDim, 0);
+            // Centered a little below the top, as the reference's.
+            String empty = state->directory.count ? S("No items match the filter.") : S("This folder is empty.");
+            Prog__Spacer(UI_Flex(), UI_Pixels(floorf(m->row * 0.65f)));
+            Prog__Label(empty, UI_Flex(), m->row, 0, theme->textDim, 0.5f);
         }
     }
     // The scroll bar sits in the window's coordinates, since the boxes around the list have no layout of their own yet.

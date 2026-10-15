@@ -901,6 +901,64 @@ function u32 P__TrashInto(Arena *arena, const char *trash, const char *source, S
     return error;
 }
 
+function String P_TrashFolder(Arena *arena)
+{
+    const char *data = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    return data && data[0] == '/' ? StrFormat(arena, "%s/Trash", data) : home && home[0] == '/' ? StrFormat(arena, "%s/.local/share/Trash", home) : (String){0};
+}
+
+function b32 P_IsTrashFolder(String path)
+{
+    // Worked out once, since every join of a path asks.
+    local_persist char trash[4096];
+    local_persist u64 length = UINT64_MAX;
+    if (length == UINT64_MAX) {
+        Scratch scratch = GetScratch();
+        String found = P_TrashFolder(scratch.arena);
+        length = found.length < sizeof(trash) ? found.length : 0;
+        MemCopy(trash, found.value, length);
+        ReleaseScratch(scratch);
+    }
+    while (path.length > 1 && path.value[path.length - 1] == '/') --path.length;
+    return length && StrIsEqual(path, StrMake(trash, length));
+}
+
+// The home trash: each item under files/ with an info file under info/ naming where it came from, percent-encoded, and when it was deleted.
+function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    P_ArrayTrashed result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    String filesFolder = StrFormat(scratch.arena, "%S/files", path), infoFolder = StrFormat(scratch.arena, "%S/info", path);
+    P_DirectoryResult files = P_EnumerateDirectory(scratch.arena, filesFolder, cancel);
+    for (u64 i = 0; i < files.files.header.count; ++i) {
+        const P_File *kept = &files.files.v[i];
+        String info = {0};
+        if (!P_ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/%S.trashinfo", infoFolder, kept->name), &info)) continue;
+        String original = {0}, date = {0};
+        ArrayStr lines = StrSplit(scratch.arena, info, '\n');
+        for (u64 l = 0; l < lines.header.count; ++l) {
+            String line = lines.v[l];
+            if (line.length > 5 && StrIsEqual(StrFromTo(line, 0, 5), S("Path="))) original = P__FilePathFromUri(scratch.arena, StrFormat(scratch.arena, "file://%S", StrFrom(line, 5)));
+            if (line.length > 13 && StrIsEqual(StrFromTo(line, 0, 13), S("DeletionDate="))) date = StrFrom(line, 13);
+        }
+        Index slash = StrIndexChar(original, '/', SSF_SearchBackwards);
+        if (!slash.exists) continue;
+        P_Trashed *item = ArrayAddClear(arena, result, 1);
+        item->file = *kept;
+        item->file.name = StrFormat(arena, "%S/%S", filesFolder, kept->name);
+        item->name = StrCopy(arena, StrFrom(original, slash.value + 1));
+        item->original = StrCopy(arena, StrFromTo(original, 0, slash.value ? (i64)slash.value : 1));
+        struct tm when = {0};
+        char *text = P__FilePathCString(scratch.arena, date);
+        if (text && strptime(text, "%Y-%m-%dT%H:%M:%S", &when)) {
+            when.tm_isdst = -1;
+            item->deletedTimeUnix = (i64)mktime(&when);
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
 {
     Scratch scratch = GetScratchEx(arena);
@@ -1005,6 +1063,8 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
             ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
         }
     }
+    String trash = P_TrashFolder(arena);
+    if (trash.length) ArrayPush(arena, result, ((P_Place){ .name = S("Trash"), .path = trash }));
     ReleaseScratch(scratch);
     return result;
 }

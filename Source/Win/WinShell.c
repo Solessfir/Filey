@@ -394,6 +394,80 @@ function String P__KnownFolder(Arena *arena, const GUID *id)
     return result;
 }
 
+function String P_TrashFolder(Arena *arena)
+{
+    wchar drive[8] = {0};
+    u32 length = GetEnvironmentVariableW(L"SystemDrive", drive, (u32)CArrayCount(drive));
+    if (!length || length >= CArrayCount(drive)) return S("C:/$Recycle.Bin");
+    Scratch scratch = GetScratchEx(arena);
+    String result = StrFormat(arena, "%S/$Recycle.Bin", P__FileStringWide(scratch.arena, drive, (i32)length));
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function b32 P_IsTrashFolder(String path)
+{
+    while (path.length > 3 && path.value[path.length - 1] == '/') --path.length;
+    String bin = S("/$recycle.bin");
+    if (path.length != 2 + bin.length || path.value[1] != ':') return false;
+    for (u64 i = 0; i < bin.length; ++i) {
+        u8 c = (u8)path.value[2 + i];
+        if ((c >= 'A' && c <= 'Z' ? c + 32 : c) != (u8)bin.value[i]) return false;
+    }
+    return true;
+}
+
+// The bin keeps each item as $R<code>, and beside it $I<code>: a version, the size, the deletion time and the original path,
+// 260 UTF-16 units in version 1 and counted in version 2.
+function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    P_ArrayTrashed result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    P_DirectoryResult users = P_EnumerateDirectory(scratch.arena, path, cancel);
+    for (u64 u = 0; u < users.files.header.count; ++u) {
+        if (users.files.v[u].kind != P_FileKind_Directory) continue;
+        String folder = StrFormat(scratch.arena, "%S/%S", path, users.files.v[u].name);
+        P_DirectoryResult items = P_EnumerateDirectory(scratch.arena, folder, cancel);
+        for (u64 i = 0; i < items.files.header.count; ++i) {
+            String name = items.files.v[i].name;
+            if (name.length < 3 || name.value[0] != '$' || name.value[1] != 'I') continue;
+            const P_File *kept = NULL;
+            for (u64 j = 0; j < items.files.header.count && !kept; ++j) {
+                String other = items.files.v[j].name;
+                if (other.length == name.length && other.value[1] == 'R' && StrIsEqual(StrFrom(other, 2), StrFrom(name, 2))) kept = &items.files.v[j];
+            }
+            String record = {0};
+            if (!kept || !P_ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/%S", folder, name), &record) || record.length < 24) continue;
+            i64 version = 0, size = 0, deleted = 0;
+            MemCopy(&version, record.value, 8);
+            MemCopy(&size, record.value + 8, 8);
+            MemCopy(&deleted, record.value + 16, 8);
+            u64 at = 24, units = 260;
+            if (version == 2 && record.length >= 28) {
+                u32 count = 0;
+                MemCopy(&count, record.value + 24, 4);
+                units = count, at = 28;
+            }
+            units = Min(units, (record.length - at) / 2);
+            const wchar *wide = (const wchar *)(record.value + at);
+            i32 length = 0;
+            while ((u64)length < units && wide[length]) ++length;
+            String original = P_AbsolutePath(scratch.arena, P__FileStringWide(scratch.arena, wide, length));
+            Index slash = StrIndexChar(original, '/', SSF_SearchBackwards);
+            if (!slash.exists) continue;
+            P_Trashed *item = ArrayAddClear(arena, result, 1);
+            item->file = *kept;
+            item->file.name = StrFormat(arena, "%S/%S", folder, kept->name);
+            if (kept->kind == P_FileKind_Directory) item->file.size = (u64)size;
+            item->name = StrCopy(arena, StrFrom(original, slash.value + 1));
+            item->original = StrCopy(arena, StrFromTo(original, 0, slash.value ? (i64)slash.value : 1));
+            item->deletedTimeUnix = deleted > 116444736000000000LL ? (deleted - 116444736000000000LL) / 10000000 : 0;
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_ArrayPlace P_UserPlaces(Arena *arena)
 {
     local_persist const struct { const GUID *id; const char *name; } folders[] = {
@@ -405,6 +479,7 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
         String path = P__KnownFolder(arena, folders[i].id);
         if (path.length) ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
     }
+    ArrayPush(arena, result, ((P_Place){ .name = S("$Recycle.Bin"), .path = P_TrashFolder(arena) }));
     return result;
 }
 

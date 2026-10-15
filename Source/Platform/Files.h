@@ -135,6 +135,24 @@ typedef struct P_Progress {
 function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, ArrayStr *placed, const P_CancelToken *cancel);
 // Moves the items at `paths` to the Trash, or the Recycle Bin on Windows, which asks before deleting anything it cannot keep.
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);
+
+// An item in the Recycle Bin or the Trash: its file where the bin keeps it, `file.name` that whole path, with its own name, where it came from
+// and when it was deleted.
+typedef struct P_Trashed {
+    P_File file;
+    String name;
+    String original;  // the folder it was in
+    i64 deletedTimeUnix;
+} P_Trashed;
+
+typedef struct P_ArrayTrashed { ArrayHeader header; P_Trashed *v; } P_ArrayTrashed;
+
+// The folder the user's deleted items are listed in: the system drive's $Recycle.Bin, or the home Trash; P_UserPlaces lists it too.
+function String P_TrashFolder(Arena *arena);
+// True when `path` is a bin P_ListTrash reads: a drive's $Recycle.Bin, or the home Trash.
+function b32 P_IsTrashFolder(String path);
+// What the bin at `path` holds; on Windows, the items of the user's own folders in it.
+function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelToken *cancel);
 // Deletes the items at `paths` for good, folders with everything in them, without asking; the program confirms first.
 // Links are removed, never followed.
 function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel);
