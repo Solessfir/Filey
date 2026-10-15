@@ -152,15 +152,17 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     for (u32 i = 0; i < count; ++i) {
         Prog_MenuCommand item = items[i];
         item.label = StrCopy(&state->menuArena, item.label.length ? item.label : Prog_Commands[item.kind].label);
+        item.mouse = StrCopy(&state->menuArena, item.mouse);
         state->menuCommands[i] = item;
-        state->menu.items[i] = (P_MenuItem){ .label = item.label, .id = i + 1, .separator = item.kind == Prog_CommandKind_None, .isDefault = (b8)(item.checked != 0) };
+        state->menu.items[i] = (P_MenuItem){ .label = item.label, .id = i + 1, .separator = item.kind == Prog_CommandKind_None, .isDefault = (b8)(item.checked != 0),
+                                             .disabled = item.disabled };
     }
     state->menu.count = state->menu.rootCount = count;
     state->menuOpen = true;
     state->menuAt = at;
     // The keyboard starts on the first item, as the reference's menus do.
     state->menuHighlight = UINT32_MAX;
-    for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator) state->menuHighlight = i;
+    for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator && !state->menu.items[i].disabled) state->menuHighlight = i;
 }
 
 // Key names as Commands.txt and the settings spell them, and shorter ones for showing.
@@ -740,14 +742,16 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         } break;
         // In the reference's order: the panel's views, its splits, its tabs, the app, then what the listing shows.
         case Prog_CommandKind_PanelMenu: {
-            Prog__Item(.kind = Prog_CommandKind_ToggleExpandFolder, .icon = Icon_FolderTree, .toggle = true, .checked = state->directory.expanded);
+            // Ctrl+E starts a search through the expanded folder, which is what expands it.
+            Prog__Item(.kind = Prog_CommandKind_ToggleExpandFolder, .icon = Icon_FolderTree, .toggle = true, .checked = state->directory.expanded,
+                       .hotkeysOf = Prog_CommandKind_StartExpandedSearch);
             Prog__Item(.kind = Prog_CommandKind_TogglePreview, .icon = Icon_ScanEye, .toggle = true, .checked = state->previewShown);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_SplitRight, .icon = Icon_UnfoldHorizontal);
             Prog__Item(.kind = Prog_CommandKind_SplitBottom, .icon = Icon_UnfoldVertical);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabNew, .icon = Icon_SquarePlus);
-            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX);
+            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             Prog__Item(.kind = Prog_CommandKind_CopyAsPath, .icon = Icon_Copy);
@@ -760,10 +764,12 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         case Prog_CommandKind_ColumnMenu: {
             Prog_ColumnSet set = Prog_PanelColumns(state);
             u64 at = command->row;
+            // Name stays first and cannot be closed, and the last column has nowhere to go right, as in the reference.
+            b32 name = at < set.count && set.kinds[at] == Prog_ColumnKind_Name;
             Prog__Item(.kind = Prog_CommandKind_ColumnShiftLeft, .row = at, .label = S("Shift Column Left"), .icon = Icon_ChevronsLeft);
-            Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = S("Shift Column Right"), .icon = Icon_ChevronsRight);
+            Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = S("Shift Column Right"), .icon = Icon_ChevronsRight, .disabled = (b8)(name || at + 1 >= set.count));
             Prog__Item(.kind = Prog_CommandKind_ColumnFit, .row = at, .label = S("Size Column To Fit"), .icon = Icon_MoveHorizontal);
-            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = S("Close Column"), .icon = Icon_X);
+            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = S("Close Column"), .icon = Icon_X, .disabled = (b8)name, .mouse = S("MouseMiddle"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_SizeAllColumnsToFit, .icon = Icon_MoveHorizontal);
             Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = S("Restore Default Columns"), .icon = Icon_RotateCcw);
@@ -774,7 +780,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             for (u32 kind = 0; kind < Prog_FolderColumnKinds; ++kind) {
                 b32 shown = false;
                 for (u32 i = 0; i < set.count; ++i) shown |= set.kinds[i] == kind;
-                Prog__Item(.kind = Prog_CommandKind_ColumnToggle, .row = kind, .label = names[kind], .toggle = true, .checked = shown);
+                Prog__Item(.kind = Prog_CommandKind_ColumnToggle, .row = kind, .label = names[kind], .toggle = true, .checked = shown, .disabled = kind == Prog_ColumnKind_Name);
             }
         } break;
         default: break;

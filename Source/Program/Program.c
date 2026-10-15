@@ -1701,7 +1701,10 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
             UI_Interaction interaction = UI_InteractionFromBlock(cell);
             if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
             // A right click opens the header's menu for the column; a middle click closes it, as the reference's do.
-            if (interaction.pressed && interaction.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_ColumnMenu, column->place, 0, interaction.pressOrder)->at = UI->mouse;
+            // It opens at the pointer across, and down from the header's top whatever the pointer's height, as the reference's does.
+            if (interaction.pressed && interaction.button == MouseButton_Right) {
+                Prog_QueueCommand(state, Prog_CommandKind_ColumnMenu, column->place, 0, interaction.pressOrder)->at = (UI_Vec2){ UI->mouse.x, cell->rect.y0 + floorf(4.8f * m->scale + 0.5f) };
+            }
             if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_ColumnClose, column->place, 0, interaction.clickOrder);
             UI_Parent(cell) {
                 b32 name = id == Prog_ColumnId_Name;
@@ -3206,35 +3209,40 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // The system menu's top level has its search field over the items, and stays open with nothing found.
     b32 search = level == 0 && !state->menuCommands;
     if (!shown && !search) return false;
-    // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators.
-    f32 itemHeight = m->row, line = m->separator, separatorHeight = line, pad = floorf(6.0f * m->scale + 0.5f);
+    // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators that lie on the boundary
+    // between two rows rather than taking room of their own, as the reference's do.
+    f32 itemHeight = m->row, line = m->separator, separatorHeight = 0, pad = floorf(6.0f * m->scale + 0.5f);
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
     f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f);
-    f32 box = floorf(14.4f * m->scale + 0.5f);
+    f32 box = floorf(16.0f * m->scale + 0.5f);
     String *chips = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String) : NULL;
     u32 *chipCounts = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u), u32) : NULL;
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
-    f32 labelWidth = 0, hotkeyWidth = 0, height = 2 * pad;
+    // The widest row's label and its chips together, rather than the longest label and the most chips of any rows.
+    f32 rowWidth = 0, height = 2 * pad;
     b32 anySubmenu = false;
     for (u32 i = 0; i < shown; ++i) {
         const P_MenuItem *item = &state->menu.items[visible[i]];
         height += item->separator ? separatorHeight : itemHeight;
-        labelWidth = MaxF32(labelWidth, R_TextWidth(m->font, item->label));
+        f32 labelWidth = R_TextWidth(m->font, item->label), hotkeyWidth = 0;
         anySubmenu |= item->childCount != 0;
         if (state->menuCommands && !item->separator) {
             const Prog_MenuCommand *command = &state->menuCommands[visible[i]];
-            chipCounts[i] = Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)command->kind, chips + i * 3, 3);
+            u32 mouse = command->mouse.length ? 1 : 0;
+            if (mouse) chips[i * 3] = command->mouse;
+            chipCounts[i] = mouse + Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind), chips + i * 3 + mouse, 3 - mouse);
             f32 end = command->toggle ? box + m->gap : 0;
             for (u32 c = 0; c < chipCounts[i]; ++c) end += R_TextWidth(m->detail, chips[i * 3 + c]) + 2 * chipPad + chipGap;
-            hotkeyWidth = MaxF32(hotkeyWidth, end + m->inset);
+            if (end > 0) hotkeyWidth = end + m->inset - floorf(5.6f * m->scale + 0.5f);
         }
+        rowWidth = MaxF32(rowWidth, labelWidth + hotkeyWidth);
     }
     f32 arrow = anySubmenu ? m->line * 1.5f : 0;
-    f32 width = floorf(MinF32(MaxF32(labelWidth + hotkeyWidth + iconLeft + iconColumn + m->inset + arrow + 2 * pad, m->line * 12), m->line * 36));
+    f32 width = floorf(MinF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + 2 * pad, m->line * 12), m->line * 36));
     R_Rect view = UI->root->rect;
     f32 x = level == 0 && state->menuRight > 0 ? state->menuRight - width : place.x, y = place.y;
-    // Submenus open to the right of their item, or to the left when there is no room.
-    if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width + 2 * pad : view.x1 - width;
+    // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
+    if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width + 2 * pad : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
     if (y + height > view.y1) y = view.y1 - height;
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
@@ -3282,17 +3290,22 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     Prog__EditContents(&state->menuSearch, 0, floorf((itemHeight - m->line) * 0.5f), true, 0, m);
                 }
             }
-            Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-            itemY += itemHeight + separatorHeight;
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, itemY + itemHeight - y - pad - floorf(line * 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad));
+            UI_SetNextPrefHeight(UI_Pixels(line));
+            UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            itemY += itemHeight;
         }
         for (u32 i = 0; i < shown; ++i) {
             u32 index = visible[i];
             const P_MenuItem *item = &state->menu.items[index];
             if (item->separator) {
-                UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(separatorHeight));
-                Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-                itemY += separatorHeight;
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, itemY - y - pad - floorf(line * 0.5f) });
+                UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad));
+                UI_SetNextPrefHeight(UI_Pixels(line));
+                UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 continue;
             }
             b32 enabled = !item->disabled || item->childCount;
@@ -3355,7 +3368,10 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
                         UI_SetNextBorderThickness(1.2f * m->scale);
                         UI_SetNextFont(m->iconsSmall);
-                        UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = highlighted ? theme->text : theme->tabBorder, .text = theme->text });
+                        // A box that cannot be changed shows dimmed.
+                        R_Color fill = theme->selection, mark = theme->text;
+                        if (!enabled) { fill.a *= 0.4f; mark.a *= 0.5f; }
+                        UI_SetNextColors((UI_Colors){ .background = fill, .border = highlighted ? theme->text : theme->tabBorder, .text = mark });
                         UI_SetNextText(Icon_Check);
                         UI_AddBlock(item->isDefault ? UI_Flag_DrawBackground | UI_Flag_DrawText | (highlighted ? UI_Flag_DrawBorder : 0) : UI_Flag_DrawBorder);
                     }

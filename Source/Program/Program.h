@@ -128,6 +128,9 @@ typedef struct Prog_MenuCommand {
     b32 checked;
     String icon;   // a glyph of the icon font before the label, or none
     b8 toggle;     // shows `checked` as a box at the row's end rather than a check before the label
+    b8 disabled;
+    String mouse;  // a mouse button that does it too, in a chip before the hotkeys'
+    enum8(Prog_CommandKind) hotkeysOf;  // the command whose hotkeys its chips show, when not its own
 } Prog_MenuCommand;
 
 typedef struct Prog_Entry {
