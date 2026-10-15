@@ -262,6 +262,32 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
 
+// The groups the command palette files its commands under, in the reference's order.
+typedef enum Prog_CommandGroup {
+    Prog_CommandGroup_Quick,
+    Prog_CommandGroup_Folder,
+    Prog_CommandGroup_View,
+    Prog_CommandGroup_Sort,
+    Prog_CommandGroup_Inspector,
+    Prog_CommandGroup_Panels,
+    Prog_CommandGroup_Tabs,
+    Prog_CommandGroup_GoTo,
+    Prog_CommandGroup_Misc,
+    Prog_CommandGroup_Options,
+    Prog_CommandGroup_Rename,
+    Prog_CommandGroup_Text,
+    Prog_CommandGroup_Scroll,
+    Prog_CommandGroup_Count,
+} Prog_CommandGroup;
+
+// A palette row: a group's title when `kind` is None, else one of the group's commands.
+typedef struct Prog_PaletteRow {
+    enum8(Prog_CommandGroup) group;
+    enum8(Prog_CommandKind) kind;
+} Prog_PaletteRow;
+
+enum { Prog_MaxPaletteRows = (u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_Count };
+
 // Go To's rows come from the recent folders and the bookmarks, each section under a title that folds it, or from the folder typed.
 typedef enum Prog_GoToSection {
     Prog_GoToSection_Recents,
@@ -566,6 +592,8 @@ typedef struct Prog_State {
     b32 paletteOpen;
     Prog_TextEdit palette;
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
+    u32 paletteScroll;        // the first command row shown
+    u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;
@@ -740,7 +768,7 @@ function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods);
 function void Prog_ApplySettings(Prog_State *state, String text);
 function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state);
 function void Prog_ReloadSettingsFile(Prog_State *state);
-function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out);
+function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out);
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 #define Prog_MaxGoToFound 500
 // ponytail: the index stops growing here, at about 300 MB, mostly names and their String headers; packing the names into one buffer would let it cover more.

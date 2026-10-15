@@ -279,21 +279,70 @@ function b32 Prog__ContainsFolded(String text, String needle)
     return false;
 }
 
-// The commands the palette's text finds, best first: labels holding it as typed, then labels holding its letters in order, then search words that do.
-// `out` has room for Prog_CommandKind_Count; returns how many it holds.
-function u32 Prog_PaletteMatches(const Prog_State *state, Prog_CommandKind *out)
+// The palette's groups and their commands, in the reference's order. Quick holds the most used commands, which their own groups then leave out.
+#define Prog__PaletteGroup(name) ((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_##name)
+global const u16 Prog_PaletteTree[] = {
+    Prog__PaletteGroup(Quick),
+    Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_TogglePreview, Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_TabNew,
+    Prog_CommandKind_TabClose, Prog_CommandKind_OpenSettings, Prog_CommandKind_ToggleHidden,
+    Prog__PaletteGroup(Folder),
+    Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
+    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Rename,
+    Prog_CommandKind_CopyAsPath, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
+    Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
+    Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
+    Prog_CommandKind_BookmarksToggle,
+    Prog__PaletteGroup(View),
+    Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
+    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons,
+    Prog__PaletteGroup(Panels),
+    Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
+    Prog_CommandKind_PanelDown,
+    Prog__PaletteGroup(Tabs),
+    Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
+    Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabReopen, Prog_CommandKind_TabSelectNext, Prog_CommandKind_TabSelectPrev, Prog_CommandKind_TabSelect1,
+    Prog_CommandKind_TabSelect2, Prog_CommandKind_TabSelect3, Prog_CommandKind_TabSelect4, Prog_CommandKind_TabSelect5, Prog_CommandKind_TabSelect6,
+    Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
+    Prog__PaletteGroup(Misc),
+    Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_BookmarksClear,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog__PaletteGroup(Scroll),
+    Prog_CommandKind_SelectAll,
+};
+static_assert(Prog_CommandKind_Count < 256, "commands fit Prog_PaletteRow");
+
+// The palette's rows: with nothing typed, each group's title and the commands of the groups open; otherwise the commands the text finds by
+// the reference's score of their label and description, best first, then those only their search words find. `out` has room for
+// Prog_MaxPaletteRows; returns how many it holds.
+function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 {
     String text = Prog_EditText(&state->palette);
-    u32 count = 0;
-    for (u32 tier = 0; tier < 3; ++tier) {
-        for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) {
-            const Prog_CommandDesc *desc = &Prog_Commands[kind];
-            if (!desc->label.length || kind == Prog_CommandKind_CommandPalette) continue;
-            b32 contains = Prog__ContainsFolded(desc->label, text);
-            b32 letters = !contains && Prog_FilterMatch(desc->label, text, NULL);
-            b32 aliases = !contains && !letters && Prog_FilterMatch(desc->aliases, text, NULL);
-            if ((tier == 0 && contains) || (tier == 1 && letters) || (tier == 2 && aliases)) out[count++] = (Prog_CommandKind)kind;
+    i32 scores[Prog_MaxPaletteRows];
+    u32 count = 0, group = 0;
+    for (u32 i = 0; i < CArrayCount(Prog_PaletteTree); ++i) {
+        u32 item = Prog_PaletteTree[i];
+        if (item >= Prog_CommandKind_Count) {
+            group = item - Prog_CommandKind_Count;
+            if (!text.length) out[count++] = (Prog_PaletteRow){ (u8)group, Prog_CommandKind_None };
+            continue;
         }
+        if (!text.length) {
+            if (state->paletteExpanded & (1u << group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u8)item };
+            continue;
+        }
+        const Prog_CommandDesc *desc = &Prog_Commands[item];
+        i32 score = Prog_FuzzyScore(desc->label, desc->tooltip, text, NULL, NULL);
+        if (score <= 0) {
+            if (!Prog_FilterMatch(desc->aliases, text, NULL)) continue;
+            score = INT32_MIN;
+        }
+        u32 at = count++;
+        for (; at && scores[at - 1] < score; --at) {
+            out[at] = out[at - 1];
+            scores[at] = scores[at - 1];
+        }
+        out[at] = (Prog_PaletteRow){ (u8)group, (u8)item };
+        scores[at] = score;
     }
     return count;
 }
@@ -1485,6 +1534,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteMode = Prog_PaletteMode_Commands;
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
+                state->paletteScroll = 0;
             } break;
             case Prog_CommandKind_GoTo:
             case Prog_CommandKind_EditPath: {
@@ -1562,11 +1612,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (chosen < count) Prog_SelectTab(state, tabs[chosen]);
                     break;
                 }
-                Prog_CommandKind matches[Prog_CommandKind_Count];
-                u32 count = Prog_PaletteMatches(state, matches);
+                Prog_PaletteRow rows[Prog_MaxPaletteRows];
+                u32 count = Prog_PaletteMatches(state, rows);
                 u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                if (chosen >= count) break;
+                // A group's title opens or closes the group.
+                if (rows[chosen].kind == Prog_CommandKind_None) {
+                    state->paletteExpanded ^= (u16)(1u << rows[chosen].group);
+                    state->paletteHighlight = (u32)chosen;
+                    break;
+                }
                 state->paletteOpen = false;
-                if (chosen < count) Prog_QueueCommand(state, matches[chosen], 0, 0, UINT64_MAX);
+                Prog_QueueCommand(state, rows[chosen].kind, 0, 0, UINT64_MAX);
             } break;
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
@@ -1700,10 +1757,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
         if (state->paletteOpen) {
             // The wheel moves Go To's highlight three rows a notch.
-            if (event->kind == PlatformEventKind_MouseWheel && state->paletteMode == Prog_PaletteMode_GoTo) {
+            if (event->kind == PlatformEventKind_MouseWheel && state->paletteMode != Prog_PaletteMode_Tabs) {
+                Prog_PaletteRow rows[Prog_MaxPaletteRows];
                 u32 count;
                 String folder;
-                Prog_GoToMatches(state, &count, &folder);
+                if (state->paletteMode == Prog_PaletteMode_GoTo) Prog_GoToMatches(state, &count, &folder);
+                else count = Prog_PaletteMatches(state, rows);
                 i64 at = (state->paletteHighlight == UINT32_MAX ? -1 : (i64)state->paletteHighlight) - (i64)(event->wheelY * 3);
                 state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
                 continue;
@@ -1712,7 +1771,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 Prog__EditInsert(&state->palette, event->codepoint);
                 state->paletteHighlight = 0;
             } else if (event->kind == PlatformEventKind_KeyDown) {
-                Prog_CommandKind matches[Prog_CommandKind_Count];
+                Prog_PaletteRow matches[Prog_MaxPaletteRows];
                 u32 tabs[Prog_MaxTabs];
                 b32 goTo = state->paletteMode == Prog_PaletteMode_GoTo;
                 u32 count = 0;
@@ -1728,6 +1787,17 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 // Its own hotkeys close it again.
                 if (goTo && (event->key == Key_F4 || (event->key == Key_P && (event->mods & KeyMod_Control) && !(event->mods & KeyMod_Shift)))) {
                     Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                    continue;
+                }
+                // With nothing typed, Right opens the highlighted group and Left closes the group of the highlighted row, moving to its title.
+                b32 tree = state->paletteMode == Prog_PaletteMode_Commands && !state->palette.length && state->paletteHighlight < count;
+                if (tree && (event->key == Key_Right || event->key == Key_Left)) {
+                    Prog_PaletteRow at = matches[state->paletteHighlight];
+                    if (event->key == Key_Right && at.kind == Prog_CommandKind_None) state->paletteExpanded |= (u16)(1u << at.group);
+                    if (event->key == Key_Left) {
+                        state->paletteExpanded &= (u16)~(1u << at.group);
+                        while (matches[state->paletteHighlight].kind != Prog_CommandKind_None) --state->paletteHighlight;
+                    }
                     continue;
                 }
                 // Escape clears the text first, and closes once there is none.

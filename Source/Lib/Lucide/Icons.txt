@@ -43,3 +43,11 @@ terminal
 palette
 blend
 trash-2
+star
+arrow-down-a-z
+layout-panel-left
+folder-search
+share-2
+sliders-horizontal
+text-cursor-input
+chevrons-up-down

@@ -1332,17 +1332,28 @@ function void TestPanels(TestFileFixture *fixture)
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
-    // The palette finds commands by what their labels hold, then by their letters in order, and runs the highlighted one.
+    // The palette lists its groups, opens one from its title, finds commands across them by their label and description, and runs the highlighted one.
     {
-        Prog_CommandKind matches[Prog_CommandKind_Count];
+        Prog_PaletteRow matches[Prog_MaxPaletteRows];
         TestBrowsingCommand(&state, Prog_CommandKind_CommandPalette, 0);
-        Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > 20);
+        u32 groups = Prog_PaletteMatches(&state, matches);
+        Check(state.paletteOpen && groups >= 5 && matches[0].group == Prog_CommandGroup_Quick && matches[0].kind == Prog_CommandKind_None);
+        // Every command with a label is in exactly one group.
+        state.paletteExpanded = (u16)((1u << Prog_CommandGroup_Count) - 1);
+        u32 all = Prog_PaletteMatches(&state, matches), seen[Prog_CommandKind_Count] = {0};
+        for (u32 i = 0; i < all; ++i) ++seen[matches[i].kind];
+        for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) Check(seen[kind] == (Prog_Commands[kind].label.length ? 1u : 0u));
+        state.paletteExpanded = 0;
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
+        Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > groups && matches[1].group == Prog_CommandGroup_Quick && matches[1].kind != Prog_CommandKind_None);
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
+        Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) == groups);
         for (const char *c = "split b"; *c; ++c) Prog__EditInsert(&state.palette, (rune)*c);
-        Check(Prog_PaletteMatches(&state, matches) >= 1 && matches[0] == Prog_CommandKind_SplitBottom);
+        Check(Prog_PaletteMatches(&state, matches) >= 1 && matches[0].kind == Prog_CommandKind_SplitBottom);
         state.palette = (Prog_TextEdit){0};
         for (const char *c = "split r"; *c; ++c) Prog__EditInsert(&state.palette, (rune)*c);
         u32 found = Prog_PaletteMatches(&state, matches);
-        Check(found >= 1 && matches[0] == Prog_CommandKind_SplitRight);
+        Check(found >= 1 && matches[0].kind == Prog_CommandKind_SplitRight);
         u32 panels = state.panelCount;
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
         Check(!state.paletteOpen && state.panelCount == panels + 1);
