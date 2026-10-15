@@ -213,12 +213,14 @@ function f32 Prog__ParseNumber(String value)
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
+//   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
     Prog_ThemeUser = Prog_ThemeCustom;
     Prog_ThemeGlassUser = Prog_ThemeGlass;
     Prog_GlassBlur = 24;
+    state->glassBackdrop = PlatformBackdrop_Acrylic;
     state->uiScale = 1;
     state->animationsOff = false;
     state->userHotkeyCount = 0;
@@ -244,6 +246,9 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             Prog_ThemeGlassUser.menu = color;
         } else if (StrIsEqual(name, S("glass.blur"))) {
             if (number >= 0 && number <= 100) Prog_GlassBlur = number;
+        } else if (StrIsEqual(name, S("glass.backdrop"))) {
+            local_persist const String backdrops[PlatformBackdrop_Count] = { S("acrylic"), S("mica"), S("tabbed"), S("none") };
+            for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, backdrops[i])) state->glassBackdrop = (u8)i;
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
             if (Prog__EqualFolded(value, S("fullmoon"))) Prog_ThemeUser = Prog_ThemeFullmoon;
@@ -302,7 +307,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The transparent theme (the \"Transparency\" command), with colors as #rrggbbaa whose last pair is the opacity:\n"
                                                "# glass.window tints what is behind the window, glass.popup the blur under menus, the palette and the other floating boxes,\n"
                                                "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
-                                               "# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n", hex[0], hex[1]));
+                                               "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
+                                               "# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;

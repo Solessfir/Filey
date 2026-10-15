@@ -539,15 +539,16 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void)
     };
 }
 
-function void PlatformWindowSetTransparent(b32 transparent)
+function void PlatformWindowSetTransparent(b32 transparent, PlatformBackdrop backdrop)
 {
     // The client area becomes glass, and the frame's backdrop fills it wherever the alpha is below one.
     // The glass grows up from the bottom edge over the whole window rather than in from every edge: extended from the top, the system draws its
     // own caption buttons there over Filey's.
     MARGINS margins = transparent ? (MARGINS){ 0, 0, 0, 32767 } : (MARGINS){0};
     DwmExtendFrameIntoClientArea(Win.window, &margins);
-    i32 backdrop = transparent ? DWMSBT_TRANSIENTWINDOW : DWMSBT_AUTO;
-    DwmSetWindowAttribute(Win.window, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
+    local_persist const i32 types[PlatformBackdrop_Count] = { DWMSBT_TRANSIENTWINDOW, DWMSBT_MAINWINDOW, DWMSBT_TABBEDWINDOW, DWMSBT_NONE };
+    i32 type = transparent ? types[backdrop < PlatformBackdrop_Count ? backdrop : 0] : DWMSBT_AUTO;
+    DwmSetWindowAttribute(Win.window, DWMWA_SYSTEMBACKDROP_TYPE, &type, sizeof(type));
 }
 
 function b32 PlatformWindowHasButtons(void) { return true; }

@@ -1050,10 +1050,10 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void)
     };
 }
 
-function void PlatformWindowSetTransparent(b32 transparent)
+function void PlatformWindowSetTransparent(b32 transparent, PlatformBackdrop backdrop)
 {
     // The alpha the renderer writes is all Wayland needs.
-    (void)transparent;
+    (void)transparent, (void)backdrop;
 }
 
 // Compositors older than xdg-shell version 5 never send their capabilities, and those are taken to support everything.

@@ -74,6 +74,7 @@ typedef struct Prog_Loop {
     b32 running;
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
+    u8 backdrop;
     u64 startTime;  // cleared once the first frame is presented
     // A frame that is running; the system's modal loops can call back for a frame while one is, and that one is skipped.
     b32 inFrame;
@@ -214,9 +215,10 @@ function void Prog__Frame(void *user, PlatformEventList events)
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;
         ProfileScope("Render") {
-            if (loop->transparent != state->transparent) {
+            if (loop->transparent != state->transparent || loop->backdrop != state->glassBackdrop) {
                 loop->transparent = state->transparent;
-                PlatformWindowSetTransparent(loop->transparent);
+                loop->backdrop = state->glassBackdrop;
+                PlatformWindowSetTransparent(loop->transparent, (PlatformBackdrop)loop->backdrop);
             }
             R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
             UI_Draw();

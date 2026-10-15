@@ -769,8 +769,9 @@ typedef struct Prog_State {
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
     b32 saving[2];            // bookmarks, recents
     b32 saveAgain[2];
-    // See-through window with the glass theme; the app applies it to the window.
+    // See-through window with the glass theme, and what Windows draws behind it; the app applies both to the window.
     b32 transparent;
+    enum8(PlatformBackdrop) glassBackdrop;
     // Settings.txt in the config folder: the UI scale and hotkeys here, colors in the custom theme; its folder's watch applies edits as they are saved.
     f32 uiScale;              // 0 is 1
     Prog_Hotkey userHotkeys[64];

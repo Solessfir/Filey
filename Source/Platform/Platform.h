@@ -148,9 +148,18 @@ typedef struct PlatformWindowInfo {
 
 function b32                PlatformWindowOpen(PlatformWindowDesc desc);
 function PlatformWindowInfo PlatformWindowGetInfo(void);
-// Lets the window's alpha show the desktop through it.
-// Windows adds its Acrylic blur; Wayland compositors blur by their own settings (Hyprland's blur).
-function void               PlatformWindowSetTransparent(b32 transparent);
+// What Windows draws behind a transparent window: its Acrylic blur, Mica (the wallpaper's colors, softly), Mica's tabbed kind, or nothing.
+typedef enum PlatformBackdrop {
+    PlatformBackdrop_Acrylic,
+    PlatformBackdrop_Mica,
+    PlatformBackdrop_Tabbed,
+    PlatformBackdrop_None,
+    PlatformBackdrop_Count,
+} PlatformBackdrop;
+
+// Lets the window's alpha show the desktop through it, with `backdrop` behind it on Windows.
+// Wayland compositors blur by their own settings (Hyprland's blur), so there `backdrop` does nothing.
+function void               PlatformWindowSetTransparent(b32 transparent, PlatformBackdrop backdrop);
 
 // The window has no system title bar; the program draws its own and drives the window from it.
 // Without buttons (tiling compositors) the program draws no minimize, maximize or close buttons.

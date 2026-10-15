@@ -1478,10 +1478,10 @@ function void TestSettings(void)
     Prog_State state = {0};
     Prog_ApplySettings(&state, S("# comment\nscale = 1.25\ncolor.accent = #ff8000\ncolor.nothing = #000000\ncolor.text = blue\n"
                                  "hotkey.SplitRight = Ctrl+Alt+R, F6\nhotkey.Refresh = none\nhotkey.Nonsense = Ctrl+Q\n"
-                                 "glass.popup = #10203080\nglass.blur = 12.5\nglass.window = nope\n"));
+                                 "glass.popup = #10203080\nglass.blur = 12.5\nglass.window = nope\nglass.backdrop = Mica\n"));
     Check(state.uiScale > 1.24f && state.uiScale < 1.26f);
     Check(Prog_ThemeGlassUser.menu.b > 0.18f && Prog_ThemeGlassUser.menu.a > 0.5f && Prog_ThemeGlassUser.menu.a < 0.51f && Prog_GlassBlur == 12.5f);
-    Check(Prog_ThemeGlassUser.window.a == Prog_ThemeGlass.window.a);
+    Check(Prog_ThemeGlassUser.window.a == Prog_ThemeGlass.window.a && state.glassBackdrop == PlatformBackdrop_Mica);
     Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
     const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);
     Check(hotkey && hotkey->command == Prog_CommandKind_SplitRight);
@@ -1495,7 +1495,7 @@ function void TestSettings(void)
     Check(Prog_SettingsTemplate(&arena, &state).length > 0);
     Prog_ApplySettings(&state, (String){0});
     Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == Prog_ThemeCustom.accent.r && Prog_FindHotkey(&state, Key_F5, 0));
-    Check(Prog_ThemeGlassUser.menu.a == Prog_ThemeGlass.menu.a && Prog_GlassBlur == 24);
+    Check(Prog_ThemeGlassUser.menu.a == Prog_ThemeGlass.menu.a && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
     ArenaRelease(&arena);
 }
 
