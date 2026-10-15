@@ -1673,6 +1673,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteHighlight = 0;
             } break;
             case Prog_CommandKind_PaletteClose: state->paletteOpen = false; break;
+            case Prog_CommandKind_PaletteToggleDetails: state->paletteCompact = !state->paletteCompact; break;
             case Prog_CommandKind_PaletteRun: {
                 if (!state->paletteOpen) break;
                 if (state->paletteMode == Prog_PaletteMode_GoTo) {

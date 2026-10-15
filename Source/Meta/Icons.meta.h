@@ -2,7 +2,7 @@
 #pragma once
 
 #define Icon_FirstRune 0xE000
-#define Icon_Count     64
+#define Icon_Count     66
 
 #define Icon_ArrowLeft         S("\uE000")
 #define Icon_ArrowRight        S("\uE001")
@@ -68,6 +68,8 @@
 #define Icon_Locate            S("\uE03D")
 #define Icon_LocateOff         S("\uE03E")
 #define Icon_ChevronUp         S("\uE03F")
+#define Icon_FileText          S("\uE040")
+#define Icon_FileX             S("\uE041")
 
 global const u8 Icon_FontData[] = {
 #embed "../Lib/Lucide/Lucide.ttf"

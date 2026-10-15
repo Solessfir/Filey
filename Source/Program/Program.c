@@ -2322,6 +2322,21 @@ typedef struct Prog_MenuPlace {
     f32 openerWidth;  // width of the panel that opened this one; 0 for the top level
 } Prog_MenuPlace;
 
+// The shadow of menus, the palette and Go To, as the reference's: only to the right and below, a fifth dark at the box's edge and fading out over 10.4 logical pixels.
+// Offsets are from the root.
+function void Prog__DropShadow(f32 x, f32 y, f32 width, f32 height, f32 radius, f32 opacity, const Prog_Metrics *m)
+{
+    f32 reach = floorf(10.4f * m->scale + 0.5f), shift = floorf(0.8f * m->scale + 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(width + reach));
+    UI_SetNextPrefHeight(UI_Pixels(height + reach));
+    UI_SetNextFloatingOffset((UI_Vec2){ x + shift, y + shift });
+    UI_SetNextCornerRadius(radius + reach);
+    UI_SetNextSoftness(reach);
+    UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.2f } });
+    UI_SetNextOpacity(opacity);
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+}
+
 // One menu level as a floating panel, kept inside the window.
 // Sets `child` when one of its items has its submenu open.
 function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child)
@@ -2373,17 +2388,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 opacity = 0.3f + 0.7f * reveal;
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
-    // A shadow of a few faint layers, each a little larger and lower, since the renderer has no blur.
-    for (u32 i = 1; i <= 3; ++i) {
-        f32 grow = (f32)i * floorf(m->scale + 0.5f);
-        UI_SetNextPrefWidth(UI_Pixels(width + 2 * grow));
-        UI_SetNextPrefHeight(UI_Pixels(height + 2 * grow));
-        UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0 - grow, y - view.y0 });
-        UI_SetNextCornerRadius(radius + grow);
-        UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.09f } });
-        UI_SetNextOpacity(opacity);
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-    }
+    Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextOpacity(opacity);
@@ -2871,7 +2876,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     if (state->paletteHighlight != UINT32_MAX) state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, row = m->row;
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
-    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(33.6f * s + 0.5f), bottom = floorf(60.8f * s + 0.5f);
+    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
     // The rows in order: each section's title, then its items unless it is folded; a folder typed shows its items alone.
     typedef struct { i32 item; i32 section; } Row;
     // Typing without a separator searches, and the rows found are one list too.
@@ -2888,12 +2893,13 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         }
     }
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
-    u32 visible = (u32)MaxF32(floorf(room / row), 1.0f);
+    // As the palette, the box reaches down to the bottom margin with the row after those that fit cut off.
+    u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
     // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top.
     if (highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
     if (highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
     state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
-    u32 first = state->gotoScroll, shown = Min(rowCount - first, visible);
+    u32 first = state->gotoScroll, shown = Min(rowCount - first, visible + 1);
     // It opens a tenth smaller and grows into place while it fades in from nothing, both easing with a 31 ms time constant.
     f32 reveal = 1;
     if (UI->animate) {
@@ -2903,12 +2909,13 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     }
     f32 grow = 0.9f + 0.1f * reveal;
     row = floorf(row * grow + 0.5f);
-    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 718.4f * s) * grow);
+    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 720.0f * s) * grow);
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
-    f32 listHeight = (f32)shown * row + 2 * pad;
+    f32 listHeight = MinF32((f32)shown * row - line, floorf(room * grow)) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     f32 opacity = reveal;
     f32 radius = floorf(8.0f * s + 0.5f);
+    Prog__DropShadow(x, top, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
@@ -2982,9 +2989,9 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         // Room on the right for the scroll bar while there is one.
-        f32 bar = floorf(6.4f * s + 0.5f), gutter = rowCount > shown ? floorf(19.2f * s + 0.5f) : floorf(6.4f * s + 0.5f);
+        f32 bar = floorf(6.4f * s + 0.5f), gutter = rowCount > visible ? floorf(19.2f * s + 0.5f) : floorf(6.4f * s + 0.5f);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, gutter, pad });
-        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, 0);
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
             for (u32 r = first; r < first + shown; ++r) {
                 Row at = rows[r];
@@ -3077,12 +3084,12 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, faded, m);
                     }
                 }
-                Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+                if (r + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
             }
-            if (rowCount > shown) {
+            if (rowCount > visible) {
                 // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
-                f32 track = (f32)shown * row, thumb = MaxF32(floorf(track * (f32)shown / (f32)rowCount), row);
-                f32 offset = floorf((track - thumb) * (f32)first / (f32)(rowCount - shown));
+                f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)rowCount), row);
+                f32 offset = floorf((track - thumb) * (f32)first / (f32)(rowCount - visible));
                 UI_SetNextFloatingOffset((UI_Vec2){ width - pad - gutter + floorf((gutter - bar) * 0.5f), offset });
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));
@@ -3130,31 +3137,24 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     String typed = Prog_EditText(&state->palette);
     b32 searching = typed.length > 0;
     f32 s = m->scale, line = m->separator;
-    f32 field = floorf(39.2f * s + 0.5f), row = floorf(40.8f * s + 0.5f) + line, footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
-    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(33.6f * s + 0.5f), bottom = floorf(60.8f * s + 0.5f);
-    // As many rows as fit above the window's bottom; the list scrolls only as far as keeps the highlight in sight.
+    f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
+    f32 row = floorf((state->paletteCompact ? 24.0f : 40.8f) * s + 0.5f) + line;
+    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
+    // The box reaches down to the bottom margin, with as many rows as fit and the next one cut off under them, with lines between them.
+    // The list scrolls only as far as keeps the highlight wholly in sight.
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
-    u32 visible = (u32)MaxF32(floorf(room / row), 1.0f);
+    u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
     if (state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
     if (state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
-    u32 first = state->paletteScroll, shown = Min(count - first, visible);
-    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 718.4f * s));
-    f32 listHeight = (f32)shown * row + 2 * pad;
+    u32 first = state->paletteScroll, shown = Min(count - first, visible + 1);
+    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * margin, 720.0f * s));
+    f32 listHeight = MinF32((f32)shown * row - line, room) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     // It fades in as the menus do.
     f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("PaletteReveal")), 1, 0);
     f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
-    for (u32 i = 1; i <= 3; ++i) {
-        f32 grow = (f32)i * floorf(s + 0.5f);
-        UI_SetNextPrefWidth(UI_Pixels(width + 2 * grow));
-        UI_SetNextPrefHeight(UI_Pixels(height + 2 * grow));
-        UI_SetNextFloatingOffset((UI_Vec2){ x - grow, top });
-        UI_SetNextCornerRadius(radius + grow);
-        UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.09f } });
-        UI_SetNextOpacity(opacity);
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-    }
+    Prog__DropShadow(x, top, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
@@ -3165,10 +3165,10 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
-        UI_SetNextChildrenPadding((UI_Padding){ floorf(14.4f * s + 0.5f), 0, floorf(14.4f * s + 0.5f), 0 });
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.8f * s + 0.5f), 0, floorf(8.0f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, 0);
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(20.8f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -3183,6 +3183,26 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
             }
+            // The descriptions' switch, lit while they are hidden, then a line before the close button.
+            UI_Key detailsKey = UI_KeyFromStr(0, S("PaletteDetailsButton"));
+            b32 lit = state->paletteCompact || UI->hotKey == detailsKey;
+            R_Color wash = theme->selection;
+            wash.a *= 0.35f;
+            UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
+            UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = wash, .text = lit ? theme->text : theme->icon });
+            UI_SetNextFont(m->icons);
+            UI_SetNextText(state->paletteCompact ? Icon_FileX : Icon_FileText);
+            UI_Block *details = UI_AddBlockFromKey(detailsKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
+            Prog__NoteTooltip(state, Prog_CommandKind_PaletteToggleDetails, S("Toggle Extra Details"));
+            UI_Interaction toggle = UI_InteractionFromBlock(details);
+            if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteToggleDetails, 0, 0, toggle.clickOrder);
+            f32 apart = floorf(6.4f * s + 0.5f);
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(field));
+            Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(field));
             UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                     theme->icon, theme->text, theme->iconDisabled, true, m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
@@ -3194,9 +3214,9 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                                                     Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextCursorInput, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
         // Room on the right for the scroll bar while there is one.
-        f32 bar = floorf(6.4f * s + 0.5f), side = floorf(6.4f * s + 0.5f), gutter = count > shown ? floorf(19.2f * s + 0.5f) : side;
+        f32 bar = floorf(6.4f * s + 0.5f), side = floorf(6.4f * s + 0.5f), gutter = count > visible ? floorf(19.2f * s + 0.5f) : side;
         UI_SetNextChildrenPadding((UI_Padding){ side, pad, gutter, pad });
-        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, 0);
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
             for (u32 i = first; i < first + shown; ++i) {
                 Prog_PaletteRow at = rows[i];
@@ -3233,7 +3253,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                             Prog__Label(groupNames[at.group], UI_Pixels(floorf(63.2f * s + 0.5f)), face, 0, theme->text, 0);
                             Prog__Icon(Icon_ChevronRight, floorf(20.8f * s + 0.5f), face, icon, 0, m);
                         } else {
-                            Prog__Spacer(UI_Pixels(slot + floorf(0.8f * s + 0.5f)), UI_Pixels(face));
+                            Prog__Spacer(UI_Pixels(slot + floorf(1.6f * s + 0.5f)), UI_Pixels(face));
                         }
                         // What was typed shows in the match color, in the label and in the description.
                         u8 *labelMarks = searching ? ArenaPushArray(&state->frameArena, desc->label.length + 1, u8) : NULL;
@@ -3242,12 +3262,14 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextPrefWidth(UI_Flex());
                         UI_SetNextPrefHeight(UI_Pixels(face));
                         UI_SetNextChildrenLayout(UI_Layout_Vertical);
-                        UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(4.8f * s + 0.5f), 0, 0 });
+                        UI_SetNextChildrenPadding((UI_Padding){ 0, state->paletteCompact ? floorf((face - m->line) * 0.5f) : floorf(4.8f * s + 0.5f), 0, 0 });
                         UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
                         UI_Parent(texts) {
                             Prog__MarkedText(desc->label, labelMarks, m->font, m->line, theme->text);
-                            Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
-                            Prog__MarkedText(desc->tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : theme->textDim);
+                            if (!state->paletteCompact) {
+                                Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
+                                Prog__MarkedText(desc->tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : theme->textDim);
+                            }
                         }
                         String hotkeys[3];
                         u32 hotkeyCount = Prog_HotkeyTexts(&state->frameArena, state, at.kind, hotkeys, 3);
@@ -3257,12 +3279,12 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                         }
                     }
                 }
-                Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+                if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
             }
-            if (count > shown) {
+            if (count > visible) {
                 // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
-                f32 track = (f32)shown * row, thumb = MaxF32(floorf(track * (f32)shown / (f32)count), row);
-                f32 offset = floorf((track - thumb) * (f32)first / (f32)(count - shown));
+                f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)count), row);
+                f32 offset = floorf((track - thumb) * (f32)first / (f32)(count - visible));
                 UI_SetNextFloatingOffset((UI_Vec2){ width - side - gutter + floorf((gutter - bar) * 0.5f), offset });
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));

@@ -63,6 +63,8 @@ function void R_TextureRelease(R_TextureHandle texture);
 // Draw calls are only valid between R_BeginFrame and R_EndFrame and are submitted in order.
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius);
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness);
+// A fill that fades from nothing at its edge to `color` `softness` pixels inside it, for shadows.
+function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness);
 function void R_DrawTexturedRect(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color color);
 // Draws an RGBA texture multiplied by `tint`.
 function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint);

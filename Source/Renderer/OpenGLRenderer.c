@@ -115,7 +115,7 @@ typedef struct GL_Instance {
     f32     radius;
     f32     thickness;  // 0 fills; otherwise an inner outline this wide
     f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA; 3 draws its premultiplied RGBA, as copied from the frame
-    f32     pad;
+    f32     softness;   // 0 has a sharp edge; otherwise a fill fades in from it over this width
 } GL_Instance;
 
 typedef struct GL_Batch {
@@ -172,13 +172,13 @@ global const char GL_VertexShader[] =
     "layout(location = 0) in vec4 aRect;\n"
     "layout(location = 1) in vec4 aUV;\n"
     "layout(location = 2) in vec4 aColor;\n"
-    "layout(location = 3) in vec3 aStyle;\n"
+    "layout(location = 3) in vec4 aStyle;\n"
     "uniform vec2 uViewport;\n"
     "out vec2 vUV;\n"
     "out vec4 vColor;\n"
     "out vec2 vLocal;\n"
     "out vec2 vHalfSize;\n"
-    "out vec3 vStyle;\n"
+    "out vec4 vStyle;\n"
     "void main() {\n"
     "    vec2 corner = vec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
     "    vec2 position = mix(aRect.xy, aRect.zw, corner);\n"
@@ -198,13 +198,14 @@ global const char GL_FragmentShader[] =
     "in vec4 vColor;\n"
     "in vec2 vLocal;\n"
     "in vec2 vHalfSize;\n"
-    "in vec3 vStyle;\n"
+    "in vec4 vStyle;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    float radius = min(vStyle.x, min(vHalfSize.x, vHalfSize.y));\n"
     "    vec2 q = abs(vLocal) - vHalfSize + radius;\n"
     "    float distance = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;\n"
     "    float alpha = clamp(0.5 - distance, 0.0, 1.0);\n"
+    "    if (vStyle.w > 0.0) alpha = clamp(-distance / vStyle.w, 0.0, 1.0);\n"
     "    if (vStyle.y > 0.0) {\n"
     "        alpha *= clamp(0.5 + distance + vStyle.y, 0.0, 1.0);\n"
     "    }\n"
@@ -446,6 +447,7 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
         instance.rect = GL__Scaled(instance.rect);
         instance.radius *= GL.scale;
         instance.thickness *= GL.scale;
+        instance.softness *= GL.scale;
     }
     R_Rect clip = GL__CurrentClip();
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
@@ -516,7 +518,7 @@ function void GL__DrawInstance(u32 index, GLuint texture)
     GL.VertexAttribPointer(0, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, rect)));
     GL.VertexAttribPointer(1, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, uv)));
     GL.VertexAttribPointer(2, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, color)));
-    GL.VertexAttribPointer(3, 3, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
+    GL.VertexAttribPointer(3, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
     GL.BindTexture(GL_TEXTURE_2D, texture);
     GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, 1);
 }
@@ -575,6 +577,11 @@ function void GL__Blur(const GL_Batch *batch)
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius)
 {
     GL__PushInstance((GL_Instance){ .rect = rect, .color = color, .radius = cornerRadius }, 0);
+}
+
+function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness)
+{
+    GL__PushInstance((GL_Instance){ .rect = rect, .color = color, .radius = cornerRadius, .softness = softness }, 0);
 }
 
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness)
@@ -663,7 +670,7 @@ function void R_EndFrame(void)
         GL.VertexAttribPointer(0, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, rect)));
         GL.VertexAttribPointer(1, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, uv)));
         GL.VertexAttribPointer(2, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, color)));
-        GL.VertexAttribPointer(3, 3, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
+        GL.VertexAttribPointer(3, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
 
         // Scissor rects are bottom-up.
         i32 x0 = (i32)floorf(batch->clip.x0);

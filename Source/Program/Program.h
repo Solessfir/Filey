@@ -640,6 +640,7 @@ typedef struct Prog_State {
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     u32 paletteScroll;        // the first command row shown
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
+    b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;

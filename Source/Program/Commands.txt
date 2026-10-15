@@ -571,6 +571,10 @@ command PaletteRun {
 command PaletteClose {
 }
 
+// The palette's button that shows or hides the descriptions under its commands.
+command PaletteToggleDetails {
+}
+
 // Filey's own menus, opened from their buttons at Prog_Command.at.
 command ViewMenu {
 }
