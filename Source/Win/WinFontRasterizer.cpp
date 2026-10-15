@@ -89,9 +89,10 @@ extern "C" b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSiz
             FAILED(factory->CreateRenderingParams(&defaultParams))) {
             break;
         }
-        // ClearType level 0 gives grayscale coverage, identical in every channel.
+        // ClearType level 0 gives grayscale coverage, identical in every channel; GDI-natural outlines snap stems to the pixel grid, which
+        // gives the reference's crisper text at the same advances.
         if (FAILED(factory->CreateCustomRenderingParams(defaultParams->GetGamma(), defaultParams->GetEnhancedContrast(), 0.0f,
-                                                        DWRITE_PIXEL_GEOMETRY_FLAT, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, &params))) {
+                                                        DWRITE_PIXEL_GEOMETRY_FLAT, DWRITE_RENDERING_MODE_GDI_NATURAL, &params))) {
             break;
         }
 

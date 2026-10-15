@@ -137,7 +137,7 @@ global const Prog_Theme Prog_ThemeFullmoon = {
     .tabBorder    = Prog_Hex(0x343A3B),
     .text         = Prog_Hex(0xDDDEE0),
     .textDim      = Prog_Hex(0x6B7078),
-    .textHeading  = Prog_Hex(0x9A9C9D),
+    .textHeading  = Prog_Hex(0xA3A5A6),
     .textMatch    = Prog_Hex(0x00ADEE),
     .marquee      = Prog_Hex(0x00ADEE),
     .accent       = Prog_Hex(0x0079A6),
@@ -145,7 +145,7 @@ global const Prog_Theme Prog_ThemeFullmoon = {
     .outline      = Prog_Hex(0x464A4D),
     .danger       = Prog_Hex(0xFF6666),
     .icon         = Prog_Hex(0x9A9C9D),
-    .iconDisabled = Prog_Hex(0x595959),
+    .iconDisabled = Prog_Hex(0x464849),
 };
 
 // A light scheme, for the system's light mode.
