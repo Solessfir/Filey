@@ -242,6 +242,13 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             }
         } return 0;
 
+        // GL leaves the parts of the window that were off the screen undrawn, so a drag draws again as it brings them back.
+        case WM_MOVE: {
+            if (Win.sizing) {
+                Platform__RunModalFrame();
+            }
+        } return 0;
+
         case WM_ENTERSIZEMOVE: {
             Win.sizing = true;
         } return 0;
@@ -360,6 +367,10 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         } return 1;
 
         case WM_PAINT: {
+            // The main loop is held up while the window is moved or sized, so what the system asks to be painted is drawn here.
+            if (Win.sizing) {
+                Platform__RunModalFrame();
+            }
             if (Win.background) {
                 PAINTSTRUCT paint;
                 HDC dc = BeginPaint(window, &paint);
