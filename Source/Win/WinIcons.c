@@ -156,8 +156,14 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         DWORD attributes = kind == P_FileKind_Directory || kind == P_FileKind_Drive ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
         SHFILEINFOW info = {0};
         b32 found = SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0)) != 0;
-        // Shell folders without a file path, such as This PC by its class id, are found by their item id instead.
+        // Shell folders without a file path, such as This PC by its class id, are found by their item id instead; the Recycle Bin's
+        // folder on disk is a plain one to the shell, so its own icon, empty or full, comes from the Recycle Bin itself.
         PIDLIST_ABSOLUTE list = NULL;
+        if (exact && P_IsTrashFolder(path) && SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_BITBUCKET, &list))) {
+            found = SHGetFileInfoW((const wchar *)list, 0, &info, sizeof(info), SHGFI_PIDL | SHGFI_SYSICONINDEX) != 0;
+            ILFree(list);
+            list = NULL;
+        }
         if (!found && !byType && SUCCEEDED(SHParseDisplayName(wide, NULL, &list, 0, NULL))) {
             found = SHGetFileInfoW((const wchar *)list, 0, &info, sizeof(info), SHGFI_PIDL | SHGFI_SYSICONINDEX) != 0;
             ILFree(list);

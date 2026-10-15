@@ -591,7 +591,7 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
         String path = P__KnownFolder(arena, folders[i].id);
         if (path.length) ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
     }
-    ArrayPush(arena, result, ((P_Place){ .name = S("$Recycle.Bin"), .path = P_TrashFolder(arena) }));
+    ArrayPush(arena, result, ((P_Place){ .name = S("Recycle Bin"), .path = P_TrashFolder(arena) }));
     return result;
 }
 

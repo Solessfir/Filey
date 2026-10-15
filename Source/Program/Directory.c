@@ -2622,6 +2622,7 @@ function const P_Place *Prog_PathDrive(const Prog_State *state, String path)
 // What a tab calls `path`: a drive's root by the drive's name, as "DVD RW Drive (E:)", and other folders by their own.
 function String Prog_PathName(const Prog_State *state, String path)
 {
+    if (P_IsTrashFolder(path)) return S("Recycle Bin");
     const P_Place *drive = Prog_PathDrive(state, path);
     return drive && drive->name.length && StrIsEqual(drive->path, path) ? drive->name : Prog__FolderName(path);
 }

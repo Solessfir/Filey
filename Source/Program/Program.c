@@ -1532,6 +1532,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         if (segment.length) {
             if (at > start || drive) Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), Prog__StripHeight(m), theme->textDim, 0.5f, m);
             if (drive && at == 0) segment = Prog__DriveName(state, path);
+            else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
             UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
                                                           theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
