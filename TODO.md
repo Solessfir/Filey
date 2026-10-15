@@ -29,11 +29,10 @@ Missing, by the reference's group:
 
 - Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick), MenuOpen.
 - Folder: ToggleCursorSelection, OpenInRightSplit, OpenInBottomSplit, OpenInWindow, SelectionPasteLink, SelectionCopy/MovePrev/NextPanel, SelectionInspect, SelectionRestore, SelectionCopyAsPathSmart, OpenRelativePath(InTab), OpenContainingPath(InTab), CalcDirsContents, TrashDeleteAll, TrashRestoreAll, FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
-- View: ToggleSepFilesFolders, SizeAllHeaderColumnsFit, HeaderColumnsOpenOptions, Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles, ToggleRecents, ToggleSortRecents.
+- View: ToggleSepFilesFolders, Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.
-- Options: the popup has the options Filey has a setting for; the reference's others (fonts, spacing, round corners, the system scheme, alternating rows, clicks and hover, scrolling, recents, folder sizes, startup and new tabs, VSync) wait for those features. A folder view keeps zoom and order, not folders first or columns, which Filey cannot change yet.
-- Columns at narrow widths: the reference keeps Name wide and squeezes the others to an ellipsis, in the panel and the inspector's list alike.
+- Options: still missing are the font pickers (`font` and `inspector.font` in Settings.txt take a family's name), Long Path Support, Character Key Action, color scheme editing, custom layouts for Load On Startup, and checkboxes in the icon views. The reference's recents are the items opened from a list, while Filey's are every folder it shows, so Highlight Recents marks more.
 - Panels: PanelEvenSiblings, PanelEvenAll.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow, TabCloseAll, TabMenu.
 - Go To: GoToSelectInPanel.
