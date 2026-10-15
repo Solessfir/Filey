@@ -87,7 +87,7 @@ struct UI_Block {
 
 // A value that eases toward a target, kept while its key is used every frame.
 typedef struct UI_Animation { UI_Key key; f32 value; u64 startMicroseconds, lastFrameTouched; } UI_Animation;
-#define UI_MaxAnimations 64
+#define UI_MaxAnimations 128
 
 #define UI_HashSlotCount 1024
 typedef struct UI_Context {
@@ -184,6 +184,8 @@ function f32 UI_Animate(UI_Key key, f32 target, f32 initial);
 function f32 UI_Slide(UI_Key key, f32 target, f32 cap);
 // The value kept under `key`, which rises to `target` at once and eases only on the way down, as hover washes fade.
 function f32 UI_Fall(UI_Key key, f32 target);
+// The value last kept under `key`, or 0 without one, without keeping it for another frame.
+function f32 UI_Kept(UI_Key key);
 // Microseconds since `key` was first asked for in an unbroken run of frames.
 function u64 UI_TimeSince(UI_Key key);
 // Asks for another frame, for animations that are not eased values.

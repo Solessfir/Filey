@@ -840,25 +840,36 @@ function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 
     Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
 }
 
+// A button's wash: the selection color, faint under the pointer and fading out after it, and solid while pressed, easing both ways,
+// as the reference's buttons do. Its animations are kept only while there is something to show.
+function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed)
+{
+    R_Color wash = Prog_CurrentTheme()->selection;
+    UI_Key hoverKey = UI_KeyFromStr(key, S("Hover")), pressKey = UI_KeyFromStr(key, S("Press"));
+    f32 hover = hot || pressed || UI_Kept(hoverKey) > 0.01f ? UI_Fall(hoverKey, hot || pressed ? 1.0f : 0.0f) : 0;
+    f32 press = pressed || UI_Kept(pressKey) > 0.01f ? UI_Animate(pressKey, pressed ? 1.0f : 0.0f, 0) : 0;
+    wash.a *= 0.35f * hover + (1 - 0.35f * hover) * press;
+    return wash;
+}
+
 // Text button that tints its text when hot and greys out when disabled.
 // A NULL font uses the default one.
 function UI_Interaction Prog__TextButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
                                          R_Color color, R_Color hotColor, R_Color disabledColor, b32 enabled, const Prog_Metrics *m)
 {
     UI_Key key = UI_KeyFromStr(0, identity);
-    b32 hot = enabled && UI->hotKey == key;
+    b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenPadding((UI_Padding){ padding, 0, padding, 0 });
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
     // Under the pointer, the same wash of the selection color as a hovered row.
-    R_Color wash = Prog_CurrentTheme()->selection;
-    wash.a *= 0.35f;
+    R_Color wash = Prog__ButtonWash(key, hot, pressed);
     UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-    UI_SetNextColors((UI_Colors){ .background = wash, .text = !enabled ? disabledColor : hot ? hotColor : color });
+    UI_SetNextColors((UI_Colors){ .background = wash, .text = !enabled ? disabledColor : hot || pressed ? hotColor : color });
     UI_SetNextText(text);
     if (font) UI_SetNextFont(font);
-    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (wash.a > 0 ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
     UI_Interaction result = UI_InteractionFromBlock(block);
     if (!enabled) result.clicked = false;
     return result;
@@ -930,9 +941,8 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     b32 tabs = kind == Prog_CommandKind_TabList;
     b32 lit = tabs ? state->paletteOpen && state->paletteMode == Prog_PaletteMode_Tabs : state->menuOpen && state->menuOpener == kind;
     UI_Key key = UI_KeyFromStr(0, identity);
-    b32 hot = enabled && UI->hotKey == key;
-    R_Color wash = theme->selection;
-    wash.a *= 0.35f;
+    b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
+    R_Color wash = Prog__ButtonWash(key, hot, pressed);
     // The tab list's, in the title bar, is taller and rounder than the toolbar's, and the main menu's wider and as round; in a maximized
     // window both fill the title bar under its border, square, as the reference's do.
     b32 main = kind == Prog_CommandKind_MainMenu, title = (tabs || main) && PlatformWindowIsMaximized();
@@ -941,10 +951,10 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
     UI_SetNextCornerRadius(title ? 0 : floorf((tabs || main ? 5.6f : 4.0f) * m->scale + 0.5f));
-    UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit ? theme->text : theme->icon });
+    UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit || pressed ? theme->text : theme->icon });
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
-    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (hot || lit ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (lit || wash.a > 0 ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
     // These open menus rather than run commands, so they name themselves; the tab list runs Search Tabs.
     String tip = kind == Prog_CommandKind_PanelMenu ? S("Panel Menu") : kind == Prog_CommandKind_MainMenu ? S("Main Menu")
                : kind == Prog_CommandKind_HistoryMenu ? S("History") : tabs ? (String){0} : S("View");

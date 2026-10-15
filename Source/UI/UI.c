@@ -91,6 +91,14 @@ function f32 UI_Fall(UI_Key key, f32 target)
     return animation->value;
 }
 
+function f32 UI_Kept(UI_Key key)
+{
+    for (u32 i = 0; i < UI->animationCount; ++i) {
+        if (UI->animations[i].key == key) return UI->animations[i].value;
+    }
+    return 0;
+}
+
 function u64 UI_TimeSince(UI_Key key)
 {
     UI_Animation *animation = UI__Animation(key, 0);
