@@ -3470,8 +3470,8 @@ function u32 Prog__WrapLine(String line, u32 columns, u32 *starts, u32 room)
     return rows;
 }
 
-// One row of the inspector's text in `font`, `cell` wide per character: tabs to their stops, with `marks` spaces as dots and tabs as dashes, and
-// the bytes flagged in `matched`, when not NULL, in the match color.
+// One row of the inspector's text in `font`, `cell` wide per character: tabs to their stops, with `marks` spaces as dots and tabs as dashes,
+// and the bytes flagged in `matched`, when not NULL, in the match color.
 function void Prog__InspectorRow(Prog_State *state, String text, const u8 *matched, const R_Font *font, f32 cell, f32 height, b32 marks, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3549,8 +3549,8 @@ function void Prog__InspectorScrollBar(UI_Block *view, f32 pitch, const Prog_Met
     }
 }
 
-// The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked; only the rows in
-// sight get blocks, with spacers for the rest.
+// The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked.
+// Only the rows in sight get blocks, with spacers for the rest.
 function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3759,8 +3759,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
-// A folder in the inspector: its items under the list's column titles, those the filter keeps, each opened by a double click. `kept` gets
-// how many folders and files show.
+// A folder in the inspector: its items under the list's column titles, those the filter keeps, each opened by a double click.
+// `keptFolders` and `keptFiles` get how many folders and files show.
 function void Prog__InspectorFolder(Prog_State *state, u64 *keptFolders, u64 *keptFiles, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3963,8 +3963,8 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
     }
 }
 
-// The inspector's image: fitted, at its own size or zoomed, centered in the view and dragged to move it while it does not fit, over a
-// checkered grid, with a minimap of the part in sight.
+// The inspector's image: fitted, at its own size or zoomed, centered in the view and dragged to move it while it does not fit,
+// over a checkered grid, with a minimap of the part in sight.
 function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -4058,8 +4058,9 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// The inspector beside the list or below it, `size` wide or tall with its divider: a toolbar with its layouts, the text view's switches and
-// the item's name, the focused item's text or picture and details, and a footer with the text's filter and what it holds.
+// The inspector beside the list or below it, `size` wide or tall with its divider:
+// a toolbar with its layouts, the text view's switches and the item's name, the focused item's text, picture or folder,
+// and a footer with the filter and what the item holds.
 function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -4246,8 +4247,8 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[index].id;
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel;
-    // The active panel gives half of itself under the tab strip to the inspector: the right half, or with the panel taller than wide or
-    // when asked, the lower half.
+    // The active panel gives half of itself under the tab strip to the inspector:
+    // the right half, or the lower half when the panel is taller than wide or when asked.
     b32 inspecting = active && state->previewShown;
     f32 mainHeight = height - (top ? m->separator : 0) - Prog__StripHeight(m);
     b32 below = state->inspectorLayout == Prog_InspectorLayout_Below || (state->inspectorLayout == Prog_InspectorLayout_Auto && mainHeight > width);

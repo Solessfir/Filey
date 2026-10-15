@@ -41,8 +41,8 @@ function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
     local_persist const char *units[] = { "kB", "MB", "GB", "TB" };
     if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " B", bytes);
-    // As the reference counts it, in whole numbers: the whole units, then the tenths the rest holds, a tenth being the unit over ten cut to a
-    // whole byte, which makes the rest of a nearly full unit ten tenths, shown as nine.
+    // As the reference counts it, in whole numbers: the whole units, then the tenths the rest holds.
+    // A tenth is the unit over ten cut to a whole byte, which makes the rest of a nearly full unit ten tenths, shown as nine.
     u32 unit = 0, shift = 10;
     while (unit + 1 < CArrayCount(units) && bytes >> (shift + 10)) {
         shift += 10;

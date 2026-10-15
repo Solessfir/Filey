@@ -190,8 +190,9 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image);
 // A large picture for icon views, fitting a size x size square: the system's thumbnail where it makes one (an image's contents, a folder's preview), else the icon.
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image);
-// The picture in an image file at its own size, or scaled down to fit a `maxSide` square when larger; `sourceWidth` and `sourceHeight` get the
-// size it has. False for files that are not pictures the system can read. Reads the whole file, so run it in a job.
+// The picture in an image file at its own size, or scaled down to fit a `maxSide` square when larger.
+// `sourceWidth` and `sourceHeight` get the size it has. False for files that are not pictures the system can read.
+// Reads the whole file, so run it in a job.
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight);
 // Thumbnails are keyed by path where the system makes them per file, and by type where it does not.
 function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind);

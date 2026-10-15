@@ -320,9 +320,9 @@ global const u16 Prog_PaletteTree[] = {
 };
 static_assert(Prog_CommandKind_Count < 256, "commands fit Prog_PaletteRow");
 
-// The palette's rows: with nothing typed, each group's title and the commands of the groups open; otherwise the commands the text finds by
-// the reference's score of their label and description, best first, then those only their search words find. `out` has room for
-// Prog_MaxPaletteRows; returns how many it holds.
+// The palette's rows: with nothing typed, each group's title and the commands of the groups open;
+// otherwise the commands the text finds by the reference's score of their label and description, best first, then those only their search words find.
+// `out` has room for Prog_MaxPaletteRows; returns how many it holds.
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 {
     String text = Prog_EditText(&state->palette);

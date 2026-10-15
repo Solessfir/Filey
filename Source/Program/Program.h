@@ -240,8 +240,8 @@ typedef struct Prog_Transfer {
 #define Prog_InspectorFontMin 8
 #define Prog_InspectorFontMax 16
 
-// A picture is the file's own at up to Prog_PreviewImageSide on its longer side when it is an image, else the system's thumbnail of
-// Prog_PreviewSize squared.
+// A picture is the file's own at up to Prog_PreviewImageSide on its longer side when it is an image,
+// else the system's thumbnail of Prog_PreviewSize squared.
 #define Prog_PreviewImageSide 4096
 
 typedef struct Prog_Preview {
@@ -698,8 +698,8 @@ typedef struct Prog_State {
     u64 previewEntryCount;
     u64 previewFolders, previewFiles;
     b32 previewListed;
-    // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit; the view
-    // is dragged to move it.
+    // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
+    // The view is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;
     f32 imageScale;           // for Custom
     f32 imageFit;             // the scale Fit last showed, where the zoom commands start from and stop going down
@@ -711,8 +711,8 @@ typedef struct Prog_State {
     u32 previewLineCount;
     u32 *previewRows;         // the first wrapped row of each line, and the total, at previewRowColumns characters across
     u32 previewRowColumns;
-    // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks, in inspectorFontSize points
-    // (0 for Prog_InspectorFontSize).
+    // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks,
+    // in inspectorFontSize points (0 for Prog_InspectorFontSize).
     b32 inspectorWrap;
     b32 inspectorHideNumbers;
     b32 inspectorWhitespace;
