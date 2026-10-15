@@ -471,6 +471,9 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     *watch = (P_DirectoryWatch){0};
 }
 
+// ponytail: no computer icon yet; load the theme's "computer" icon if the glyph looks out of place.
+function String P_ComputerIconPath(void) { return (String){0}; }
+
 function b32 P_IsVirtualFolder(String path)
 {
     local_persist const char *virtuals[] = { "/proc", "/sys", "/dev", "/run" };

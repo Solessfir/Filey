@@ -94,7 +94,9 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 // The folder's own icon, as the shell shows the desktop or downloads, for the few folders named in the sidebar and the tabs.
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path)
 {
-    if (state->iconSize <= 0 || StrIsEqual(path, Prog_ThisPC)) return NULL;
+    // This PC has the system's icon for the computer, where there is one.
+    if (StrIsEqual(path, Prog_ThisPC)) path = P_ComputerIconPath();
+    if (state->iconSize <= 0 || !path.length) return NULL;
     String key = StrFormat(&state->frameArena, "exact:%S", path);
     return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true, false);
 }

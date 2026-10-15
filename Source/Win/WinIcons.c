@@ -5,6 +5,7 @@
 #include <commctrl.h>
 #include <commoncontrols.h>
 #include <shobjidl.h>
+#include <shlobj.h>
 #include <wincodec.h>
 #pragma pop_macro("function")
 
@@ -154,7 +155,14 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         P__EnsureCom();
         DWORD attributes = kind == P_FileKind_Directory || kind == P_FileKind_Drive ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
         SHFILEINFOW info = {0};
-        if (SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0))) {
+        b32 found = SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0)) != 0;
+        // Shell folders without a file path, such as This PC by its class id, are found by their item id instead.
+        PIDLIST_ABSOLUTE list = NULL;
+        if (!found && !byType && SUCCEEDED(SHParseDisplayName(wide, NULL, &list, 0, NULL))) {
+            found = SHGetFileInfoW((const wchar *)list, 0, &info, sizeof(info), SHGFI_PIDL | SHGFI_SYSICONINDEX) != 0;
+            ILFree(list);
+        }
+        if (found) {
             // The lists are sized by system DPI: take the smallest one that covers the request.
             local_persist const i32 lists[] = { SHIL_SMALL, SHIL_LARGE, SHIL_EXTRALARGE, SHIL_JUMBO };
             IImageList *chosen = NULL;

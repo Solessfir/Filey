@@ -56,6 +56,8 @@ typedef struct P_DirectoryTotals {
 function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders);
 // Whether `path` is a folder the system makes up rather than stores, such as Linux's /proc, which a walk of the whole drive leaves out.
 function b32 P_IsVirtualFolder(String path);
+// What P_LoadFileIcon takes for the icon of the computer, which lists the drives; empty where there is none to load.
+function String P_ComputerIconPath(void);
 // When `path` was created, in seconds since the Unix epoch; 0 when the file system does not say.
 function i64 P_FileCreatedTime(String path);
 // Lexically normalized absolute path with '/' separators; empty means failure.

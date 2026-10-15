@@ -296,6 +296,9 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
 
 function b32 P_IsVirtualFolder(String path) { return false; }
 
+// The shell's This PC folder, by its class id.
+function String P_ComputerIconPath(void) { return S("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"); }
+
 function i64 P_FileCreatedTime(String path)
 {
     Scratch scratch = GetScratch();
