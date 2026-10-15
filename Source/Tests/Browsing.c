@@ -1408,8 +1408,10 @@ function void TestTabs(TestFileFixture *fixture)
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
     // Tabs on a drive whose medium went away, such as an ejected disc, go where a new tab would, the hidden one in its slot.
     {
-        P_Place lost = { .path = fixture->path, .totalBytes = 1 };
+        P_Place lost = { .path = fixture->path, .totalBytes = 1 }, empty = { .path = fixture->path };
         Prog__LeaveLostDrives(&state, (P_ArrayPlace){ .header.count = 1, .v = &lost }, (P_ArrayPlace){0});
+        Check(StrIsEqual(state.directory.path, fixture->path));
+        Prog__LeaveLostDrives(&state, (P_ArrayPlace){ .header.count = 1, .v = &lost }, (P_ArrayPlace){ .header.count = 1, .v = &empty });
         Check(state.tabCount == 2 && state.activeTab == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
         Check(StrIsEqual(Prog_TabPath(&state, 0), Prog_ThisPC));
         Prog_RequestDirectory(&state, fixture->path, true, 0);

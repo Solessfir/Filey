@@ -2482,15 +2482,19 @@ function b32 Prog__IsUnder(String path, String root)
     return path.length == root.length || root.value[root.length - 1] == '/' || path.value[root.length] == '/';
 }
 
-// Tabs on drives that went away or lost their medium, such as an ejected disc, go where a new tab would.
+// A drive with a medium to read: its size, or its file system, which an audio CD shows without one.
+function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length; }
+
+// Tabs on drives that went away or have no medium, such as an ejected disc, go where a new tab would; there is nothing to show there.
 function void Prog__LeaveLostDrives(Prog_State *state, P_ArrayPlace before, P_ArrayPlace after)
 {
+    // A listing that found no drives at all failed rather than saw them all go.
+    if (!after.header.count) return;
     u32 panel = state->currentPanel;
     for (u64 d = 0; d < before.header.count; ++d) {
         String root = before.v[d].path;
-        if (!before.v[d].totalBytes) continue;
         b32 kept = false;
-        for (u64 i = 0; i < after.header.count && !kept; ++i) kept = StrIsEqual(after.v[i].path, root) && after.v[i].totalBytes;
+        for (u64 i = 0; i < after.header.count && !kept; ++i) kept = StrIsEqual(after.v[i].path, root) && Prog__HasMedium(&after.v[i]);
         if (kept) continue;
         for (u32 p = 0; p < state->panelCount; ++p) {
             Prog__UsePanel(state, p);
