@@ -1206,6 +1206,12 @@ function void Prog__DirectoryJob(P_Job *job)
     else result->cancelled = true;
 }
 
+// Whether the window has what its first frame should show: the folder listed, the sidebar's places, and every file icon the last build drew.
+function b32 Prog_ReadyToShow(const Prog_State *state)
+{
+    return !state->loading && !state->directoryJob && (state->places.header.count || !state->placesWanted) && !state->iconsPending;
+}
+
 // Whether the settings have the shown folder's subfolders measured, on its kind of drive.
 function b32 Prog_MeasuresFolders(const Prog_State *state)
 {

@@ -5652,6 +5652,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
 
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
+    state->iconsPending = 0;
     state->hasHoverRow = false;
     state->tooltipKey = 0;
     state->tooltipPath = (String){0};

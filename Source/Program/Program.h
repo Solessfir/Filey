@@ -829,6 +829,7 @@ typedef struct Prog_State {
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
     u64 gridMoveTime;         // when the grid's layout last changed, which its items glide from for a moment
+    u32 iconsPending;         // file icons this build drew without, still loading; the first frame waits for them
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
     // The views on a slider over the active panel's view button: shown while the pointer is over the button or the popup, and for a moment
     // after each Ctrl+wheel step.
@@ -1112,6 +1113,7 @@ function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
 function String Prog_UpPath(String path);
 function String Prog_TrailText(const Prog_State *state);
 function b32 Prog_MeasuresFolders(const Prog_State *state);
+function b32 Prog_ReadyToShow(const Prog_State *state);
 function void Prog_StartUp(Prog_State *state);
 function String Prog_HomePath(Arena *arena);
 function b32 Prog_ShowsThumbnails(const Prog_State *state);

@@ -52,10 +52,11 @@ function void Prog__IconJob(P_Job *job)
         Scratch scratch = GetScratchEx(&job->arena);
         P_Image image = {0};
         b32 thumbnail = request->size != input->iconSize && !request->plain;
-        if (thumbnail ? P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, &image)
-                      : P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, request->exact, &image)) {
-            pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
-        }
+        b32 loaded = false;
+        if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, &image);
+        else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, true, &image);
+        else ProfileScope("LoadIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, false, &image);
+        if (loaded) pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
         ReleaseScratch(scratch);
     }
 }
@@ -76,8 +77,10 @@ function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog
         Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size,
                                      .exact = (b8)(exact != 0), .plain = (b8)(plain != 0) };
         ArrayPush(&state->iconArena, state->iconRequests, request);
+        if (map == &state->icons) ++state->iconsPending;
         return NULL;
     }
+    if (icon->state == Prog_IconState_Pending && map == &state->icons) ++state->iconsPending;
     return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 

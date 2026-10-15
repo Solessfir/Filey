@@ -16,7 +16,7 @@
 # COMPARE_REFERENCE names the reference executable and COMPARE_REFERENCE_STATE its settings files, ';' separated, which are copied before every
 # run and put back after it. COMPARE_OUT is the output folder (%TEMP%/filey-compare); Filey's settings live in its Config folder, which starts
 # with "theme = fullmoon". COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window.
-# COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times.
+# COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times; =frames also saves each change.
 import ctypes, ctypes.wintypes as wt, os, re, shutil, subprocess, sys, time
 from PIL import Image, ImageChops
 
@@ -113,6 +113,14 @@ class App:
             final = grabs[-1][1]
             settled = next(t for t, image in grabs if not ImageChops.difference(image, final).point(lambda v: 255 if v > 24 else 0).getbbox())
             self.startup = int((settled - launched) * 1000)
+            # COMPARE_STARTUP=frames also keeps each grab that differs from the one before, as startup_<side>_<ms>.png.
+            if os.environ.get('COMPARE_STARTUP') == 'frames':
+                side = 'filey' if exe == FILEY else 'ref'
+                previous = None
+                for t, image in grabs:
+                    if previous is None or ImageChops.difference(image, previous).getbbox():
+                        image.save(os.path.join(OUT, f'startup_{side}_{int((t - launched) * 1000):05d}.png'))
+                    previous = image
         self.fake.hwnd = self.window; self.fake.active = 1; self.fake.x, self.fake.y = -10000, -10000
         self.post(0x6, 1, 0); self.post(0x7, 0, 0)
         self.buttons = 0

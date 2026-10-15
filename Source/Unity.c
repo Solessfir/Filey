@@ -79,6 +79,8 @@ typedef struct Prog_Loop {
     u8 backdrop;
     b32 vsyncOff;
     u64 startTime;  // cleared once the first frame is presented
+    u64 launchTime;
+    b32 shown;      // a frame has been presented
     // A frame that is running; the system's modal loops can call back for a frame while one is, and that one is skipped.
     b32 inFrame;
     // FILEY_CAPTURE_DIR: each presented frame is written there as frame.bmp, or with FILEY_CAPTURE_SEQUENCE as numbered files named after their time,
@@ -224,7 +226,11 @@ function void Prog__Frame(void *user, PlatformEventList events)
         }
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;
-        ProfileScope("Render") {
+        // The first frame waits for the folder, the sidebar and their icons, for a moment at most, so that the window opens whole rather
+        // than filling in; until then it shows the theme's color.
+        loop->shown = loop->shown || Prog_ReadyToShow(state) || PlatformNowMicroseconds() - loop->launchTime > 300000;
+        if (!loop->shown) loop->needsFrame = true;
+        if (loop->shown) ProfileScope("Render") {
             if (loop->vsyncOff != state->noVSync) {
                 loop->vsyncOff = state->noVSync;
                 PlatformSetVSync(!loop->vsyncOff);
@@ -240,10 +246,10 @@ function void Prog__Frame(void *user, PlatformEventList events)
             if (loop->captureDirectory.length) Prog__CaptureFrame(loop, (u32)Max(window.width, 0), (u32)Max(window.height, 0));
         }
         // Includes the wait for vsync.
-        ProfileScope("SwapBuffers") PlatformSwapBuffers();
+        if (loop->shown) ProfileScope("SwapBuffers") PlatformSwapBuffers();
     }
     loop->inFrame = false;
-    if (loop->startTime) {
+    if (loop->startTime && loop->shown) {
         ProfileRecordSince("StartupToFirstFrame", loop->startTime);
         loop->startTime = 0;
     }
@@ -267,6 +273,7 @@ function void Prog__WriteProfile(void)
 int main(void)
 {
     Prog_Loop loop = { .running = true, .needsFrame = true, .startTime = PlatformNowMicroseconds() };
+    loop.launchTime = loop.startTime;
 #if defined(PROFILE)
     // 32 MB of events, about an hour of frames.
     if (!P_ProfileInit(UINT64_C(1) << 20)) {
