@@ -795,10 +795,21 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                 if (shown || hot) {
                     // Floating offsets start inside the padding.
                     // A hovered tab has the shown tab's shape cut off square above the strip's bottom line.
+                    // Under a clear shown tab nothing covers its sides where they curve out, so they stop where the curves start; a side that stays
+                    // straight, next to a hovered tab, is drawn on down by itself.
+                    b32 clear = shown && theme->background.a <= 0;
                     UI_SetNextFloatingOffset((UI_Vec2){ -tabInset, -tabTop });
                     UI_SetNextPrefWidth(UI_Pixels(tabWidth));
-                    UI_SetNextPrefHeight(UI_Pixels(shown ? height : height - stroke));
+                    UI_SetNextPrefHeight(UI_Pixels(clear ? height - flare : shown ? height : height - stroke));
                     UI_Block *outline = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+                    for (u32 side = 0; clear && side < 2; ++side) {
+                        if (!Prog__TabHot(state, side ? (i64)i + 1 : (i64)i - 1)) continue;
+                        UI_SetNextFloatingOffset((UI_Vec2){ side ? tabWidth - tabInset - stroke : -tabInset, height - flare - tabTop });
+                        UI_SetNextPrefWidth(UI_Pixels(stroke));
+                        UI_SetNextPrefHeight(UI_Pixels(flare));
+                        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
                     UI_Parent(outline) {
                         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                         UI_SetNextPrefWidth(UI_Pixels(tabWidth));
@@ -892,9 +903,11 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         if (shownX < 0) {
             Prog__StripLine(0, width, lineY, m);
         } else {
+            // Under a clear tab nothing covers where the line and a curve meet, so the line stops where the curve's own stroke starts.
             b32 leftFlare = !Prog__TabHot(state, (i64)state->activeTab - 1), rightFlare = !Prog__TabHot(state, (i64)state->activeTab + 1);
-            Prog__StripLine(0, leadWidth + shownX + (leftFlare ? stroke - flare : 0), lineY, m);
-            Prog__StripLine(leadWidth + shownX + tabWidth + (rightFlare ? flare - stroke : 0), width, lineY, m);
+            f32 overlap = theme->background.a > 0 ? stroke : 0;
+            Prog__StripLine(0, leadWidth + shownX + (leftFlare ? overlap - flare : 0), lineY, m);
+            Prog__StripLine(leadWidth + shownX + tabWidth + (rightFlare ? flare - overlap : 0), width, lineY, m);
         }
         Prog__Spacer(UI_Pixels(floorf(4.0f * scale + 0.5f)), UI_Pixels(height));
         UI_SetNextPrefWidth(UI_Pixels(plus));
