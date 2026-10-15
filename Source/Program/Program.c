@@ -1315,26 +1315,39 @@ global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
     S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size"), S("Date Created"), S("Date Accessed"), S("Folder Usage"), S("Volume Usage"),
 };
 
-// The panel's columns laid out for rows `room` wide: each its share of it, Name taking what is left, down to the least that still shows its value whole.
+// The panel's columns laid out for rows `room` wide, as the reference lays them out at any width: each its share of it, however narrow,
+// Name what the others leave of it rounded down, and the last column the pixels left over.
 function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room)
 {
-    // Of the slot they share, Folders takes a little more than half.
-    local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 66, 70, 70, 60, 60 };
     local_persist const Prog_ColumnId ids[Prog_ColumnKind_Count] = {
         Prog_ColumnId_Name, Prog_ColumnId_Type, Prog_ColumnId_Size, Prog_ColumnId_Folders, Prog_ColumnId_Created, Prog_ColumnId_Modified, Prog_ColumnId_Accessed,
         Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage,
     };
     if (room <= 0) room = 918.0f * scale;
+    // The shares are of the rows inside their outlines.
+    room -= floorf(1.6f * scale + 0.5f);
     Prog_ColumnSet set = Prog_PanelColumns(state);
     Prog_Columns result = { .room = room };
+    // Shares that add up to more than nine tenths shrink together, so that Name keeps a tenth.
+    f32 others = 0;
+    for (u32 i = 0; i < set.count; ++i) if (set.kinds[i] != Prog_ColumnKind_Name) others += set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare((Prog_ColumnKind)set.kinds[i]);
+    f32 shrink = others > 0.9f ? 0.9f / others : 1;
     for (u32 i = 0; i < set.count; ++i) {
         Prog_ColumnKind kind = (Prog_ColumnKind)set.kinds[i];
-        f32 share = set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind);
+        f32 share = (set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind)) * shrink;
         u32 parts = kind == Prog_ColumnKind_Items ? 2 : 1;
+        f32 slot = floorf(share * room + 0.5f);
         for (u32 part = 0; part < parts; ++part) {
             Prog_ColumnId id = (Prog_ColumnId)((u32)ids[kind] + part);
-            f32 shift = parts == 2 ? (part ? -4.8f : 4.8f) * scale : 0;
-            f32 width = id == Prog_ColumnId_Name ? 0 : MaxF32(least[id] * scale, floorf(share / (f32)parts * room + shift + 0.5f));
+            // Of the slot they share, Folders takes a little more than half and Files the rest.
+            f32 folders = floorf(slot * 0.5f + 4.8f * scale + 0.5f);
+            f32 width = id == Prog_ColumnId_Name ? floorf((1 - others * shrink) * room) : parts == 1 ? slot : part == 0 ? folders : slot - folders;
+            // The last takes what the others leave, so that the rows end where the room does.
+            if (i + 1 == set.count && part + 1 == parts) {
+                f32 used = 0;
+                for (u32 c = 0; c < result.count; ++c) used += result.v[c].width;
+                width = MaxF32(0, room - used);
+            }
             b32 right = id == Prog_ColumnId_Size || id == Prog_ColumnId_FolderUsage || id == Prog_ColumnId_VolumeUsage;
             result.v[result.count++] = (Prog_Column){ Prog_ColumnTitles[id], width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i + 1 < set.count) };
         }
@@ -1477,7 +1490,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
             UI_SetNextFloatingOffset((UI_Vec2){ ends[c] - x0 - grip * 0.5f, 0 });
             UI_SetNextPrefWidth(UI_Pixels(grip));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
-            UI_Block *edge = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "HeaderEdge/%u", place)), UI_Flag_Floating | UI_Flag_LeftMouseClickable);
+            UI_Block *edge = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "HeaderEdge/%u", c)), UI_Flag_Floating | UI_Flag_LeftMouseClickable);
             UI_Interaction drag = UI_InteractionFromBlock(edge);
             if (!drag.active || !drag.isDragging) continue;
             // The resized column's other edge stays where it is.
@@ -1829,6 +1842,43 @@ function void Prog__UsageCell(String value, f32 width, f32 height, f32 left, f32
     }
 }
 
+// The inspector's scroll bar at the right edge of `view`, a block in the current parent: a thumb as long as the share in sight, where that is,
+// between arrows that scroll three rows of `pitch`, dimmed at their end.
+function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale;
+    f32 viewHeight = view->rect.y1 - view->rect.y0, content = view->contentSize.y;
+    if (content > viewHeight && viewHeight > 0) {
+        f32 head = floorf(31.2f * s + 0.5f), foot = floorf(13.6f * s + 0.5f), track = MaxF32(0, viewHeight - head - foot);
+        f32 thumb = MaxF32(floorf(track * viewHeight / content), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
+        f32 at = floorf((track - thumb) * MinF32(1, view->scrollShown.y / (content - viewHeight)));
+        f32 x = view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), y = view->rect.y0 - UI->parent->rect.y0;
+        UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + at });
+        UI_SetNextPrefWidth(UI_Pixels(thick));
+        UI_SetNextPrefHeight(UI_Pixels(thumb));
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        f32 size = floorf(16.0f * s + 0.5f);
+        for (u32 down = 0; down < 2; ++down) {
+            b32 end = down ? view->scrollOffset.y >= content - viewHeight - 0.5f : view->scrollOffset.y <= 0.5f;
+            UI_Key key = UI_KeyFromStr(0, StrFormat(UI->frameArena, down ? "%S/ScrollDown" : "%S/ScrollUp", name));
+            UI_SetNextFloatingOffset((UI_Vec2){ x + floorf((thick - size) * 0.5f), down ? y + viewHeight - floorf(10.4f * s + 0.5f) - floorf(size * 0.5f) : y + floorf(20.0f * s + 0.5f) - floorf(size * 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(size));
+            UI_SetNextPrefHeight(UI_Pixels(size));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextFont(m->iconsSmall);
+            UI_SetNextColors((UI_Colors){ .text = end ? theme->tabBorder : UI->hotKey == key ? theme->text : theme->icon });
+            UI_SetNextText(down ? Icon_ChevronDown : Icon_ChevronUp);
+            UI_Block *arrow = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
+            if (UI_InteractionFromBlock(arrow).clicked) view->scrollOffset.y = MinF32(MaxF32(view->scrollOffset.y + (down ? 3 : -3) * pitch, 0), content - viewHeight);
+        }
+    }
+}
+
+// The room on the right of a list that scrolls, for its scroll bar.
+function f32 Prog__ScrollGutter(const Prog_Metrics *m) { return floorf(12.8f * m->scale + 0.5f); }
+
 // A Details or List row; List shows only the icon and the name.
 function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Columns *columns, b32 nameOnly, const Prog_Metrics *m)
 {
@@ -1858,7 +1908,9 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
         for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
             const Prog_Column *column = &columns->v[c];
             u32 i = nameOnly ? (u32)Prog_ColumnId_Name : column->id;
-            UI_Size width = column->width > 0 && !nameOnly ? UI_Pixels(column->width) : UI_Flex();
+            // The icon before the name is inside Name's width, as the header counts it.
+            f32 columnWidth = i == Prog_ColumnId_Name ? MaxF32(0, column->width - (m->iconSlot - m->gap)) : column->width;
+            UI_Size width = column->width > 0 && !nameOnly ? UI_Pixels(columnWidth) : UI_Flex();
             if (i == Prog_ColumnId_Name && renaming) {
                 Prog__RenameBox(state, width, m);
                 continue;
@@ -1876,7 +1928,12 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m);
             // Right-aligned values may run into the space before them.
             if (column->alignX > 0) left = m->gap;
-            String value = column->width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->detail, values[i], column->width - left - right) : values[i];
+            String value = values[i];
+            // A date too wide for its column drops its time before it is cut, as the reference's do.
+            b32 date = i == Prog_ColumnId_Modified || i == Prog_ColumnId_Created || i == Prog_ColumnId_Accessed;
+            Index space = StrIndexChar(value, ' ', SSF_None);
+            if (date && column->width > 0 && space.exists && R_TextWidth(m->detail, value) > columnWidth - left - right) value = StrFromTo(value, 0, (i64)space.value);
+            if (column->width > 0 && !nameOnly) value = Prog__Ellipsize(&state->frameArena, i == Prog_ColumnId_Name ? m->font : m->detail, value, columnWidth - left - right);
             if (i != Prog_ColumnId_Name) UI_SetNextFont(m->detail);
             // A usage is a bar filled to its share, before the percent.
             if (i == Prog_ColumnId_FolderUsage || i == Prog_ColumnId_VolumeUsage) {
@@ -2042,7 +2099,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     }
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
-    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+    // While the items run past the bottom, the rows leave room on the right for the scroll bar, as the reference's do.
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset + (state->listScrolls ? Prog__ScrollGutter(m) : 0), 0 });
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
                                         (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
@@ -2063,7 +2121,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
 
     // The grid: one item per line in Details and List, and as many cells as fit across in Columns and the icon views, stretched to fill the line.
     Prog_View view = Prog_ZoomView(state->zoom);
-    f32 width = MaxF32(1, list->rect.x1 - list->rect.x0), inner = MaxF32(1, width - 2 * m->inset);
+    f32 width = MaxF32(1, list->rect.x1 - list->rect.x0), inner = MaxF32(1, width - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
     u64 perLine = 1;
     UI_Vec2 pitch = { width, m->row };
     R_Rect item = { 0, 0, width, m->row };
@@ -2160,6 +2218,9 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             Prog__Label(empty, UI_Flex(), m->row, m->iconSlot, theme->textDim, 0);
         }
     }
+    // The scroll bar sits in the window's coordinates, since the boxes around the list have no layout of their own yet.
+    state->listScrolls = list->contentSize.y > list->rect.y1 - list->rect.y0 + 0.5f && list->rect.y1 > list->rect.y0;
+    UI_Parent(UI->root) Prog__ScrollBar(list, pitch.y, S("Files"), m);
 }
 
 function String Prog__FormatCount(Arena *arena, u64 count);
@@ -4187,39 +4248,6 @@ function void Prog__InspectorRow(Prog_State *state, String text, const u8 *match
     }
 }
 
-// The inspector's scroll bar at the right edge of `view`, a block in the current parent: a thumb as long as the share in sight, where that is,
-// between arrows that scroll three rows of `pitch`, dimmed at their end.
-function void Prog__InspectorScrollBar(UI_Block *view, f32 pitch, const Prog_Metrics *m)
-{
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 s = m->scale;
-    f32 viewHeight = view->rect.y1 - view->rect.y0, content = view->contentSize.y;
-    if (content > viewHeight && viewHeight > 0) {
-        f32 head = floorf(31.2f * s + 0.5f), foot = floorf(13.6f * s + 0.5f), track = MaxF32(0, viewHeight - head - foot);
-        f32 thumb = MaxF32(floorf(track * viewHeight / content), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
-        f32 at = floorf((track - thumb) * MinF32(1, view->scrollShown.y / (content - viewHeight)));
-        f32 x = view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), y = view->rect.y0 - UI->parent->rect.y0;
-        UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + at });
-        UI_SetNextPrefWidth(UI_Pixels(thick));
-        UI_SetNextPrefHeight(UI_Pixels(thumb));
-        UI_SetNextColors((UI_Colors){ .background = theme->track });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-        f32 size = floorf(16.0f * s + 0.5f);
-        for (u32 down = 0; down < 2; ++down) {
-            b32 end = down ? view->scrollOffset.y >= content - viewHeight - 0.5f : view->scrollOffset.y <= 0.5f;
-            UI_Key key = UI_KeyFromStr(0, down ? S("InspectorScrollDown") : S("InspectorScrollUp"));
-            UI_SetNextFloatingOffset((UI_Vec2){ x + floorf((thick - size) * 0.5f), down ? y + viewHeight - floorf(10.4f * s + 0.5f) - floorf(size * 0.5f) : y + floorf(20.0f * s + 0.5f) - floorf(size * 0.5f) });
-            UI_SetNextPrefWidth(UI_Pixels(size));
-            UI_SetNextPrefHeight(UI_Pixels(size));
-            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-            UI_SetNextFont(m->iconsSmall);
-            UI_SetNextColors((UI_Colors){ .text = end ? theme->tabBorder : UI->hotKey == key ? theme->text : theme->icon });
-            UI_SetNextText(down ? Icon_ChevronDown : Icon_ChevronUp);
-            UI_Block *arrow = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
-            if (UI_InteractionFromBlock(arrow).clicked) view->scrollOffset.y = MinF32(MaxF32(view->scrollOffset.y + (down ? 3 : -3) * pitch, 0), content - viewHeight);
-        }
-    }
-}
 
 // The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked.
 // Only the rows in sight get blocks, with spacers for the rest.
@@ -4323,7 +4351,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
     }
-    Prog__InspectorScrollBar(view, pitch, m);
+    Prog__ScrollBar(view, pitch, S("InspectorText"), m);
 }
 
 // A dashed outline with round corners, `width` by `height` at `x`, `y` in the parent: the corners are cut from a rounded outline,
@@ -4469,7 +4497,7 @@ function void Prog__InspectorList(Prog_State *state, const Prog_Metrics *m)
     {
         state->panelRect = rect;
         if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[inner].id;
-        Prog_Columns columns = Prog__Columns(state, m->scale, rect.x1 - rect.x0 - 2 * m->inset);
+        Prog_Columns columns = Prog__Columns(state, m->scale, rect.x1 - rect.x0 - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
         UI_Parent(body) {
             UI_Block *column = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
             UI_Parent(column) {
@@ -4859,7 +4887,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 previewWidth = inspecting && !below ? floorf((width - m->separator) * 0.5f) : 0;
     f32 previewHeight = inspecting && below ? floorf((mainHeight - m->separator) * 0.5f) : 0;
     f32 listWidth = width - previewWidth;
-    Prog_Columns columns = Prog__Columns(state, scale, listWidth - 2 * m->inset);
+    Prog_Columns columns = Prog__Columns(state, scale, listWidth - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
     // A panel a split just made zooms in from 60% of its size about its middle, easing with a 38 ms time constant, as the reference's do.
     u64 split = state->panels[index].splitMicroseconds;
     if (split && UI->animate) {

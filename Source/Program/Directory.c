@@ -1852,7 +1852,7 @@ function f32 Prog_ColumnShare(Prog_ColumnKind kind)
 {
     switch (kind) {
         case Prog_ColumnKind_Name: return 0;
-        case Prog_ColumnKind_Size: return 0.099f;
+        case Prog_ColumnKind_Size:
         case Prog_ColumnKind_VolumeUsage:
         case Prog_ColumnKind_FolderUsage: return 0.1f;
         default: return 0.15f;

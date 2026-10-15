@@ -551,7 +551,7 @@ typedef struct Prog_Tab {
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
 //   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
 //   statusRight: how wide the status bar's counts, view and zoom were in the last layout, which the filter box leaves room for
-//   columnSet: the details columns, see Prog_PanelColumns
+//   columnSet: the details columns, see Prog_PanelColumns; listScrolls: its items ran past the bottom in the last layout
 //   inspectorView: how its inspector lists folders, kept while the inspector's panel is closed
 //   ownView, ownSettings: while a folder's kept view applies, the panel's own, which the next folder without one gets back
 #define Prog_PanelFields(X) \
@@ -562,7 +562,7 @@ typedef struct Prog_Tab {
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
-    X(f32, statusRight) X(Prog_ColumnSet, columnSet) \
+    X(f32, statusRight) X(Prog_ColumnSet, columnSet) X(b32, listScrolls) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView)
 
 #define Prog__PanelField(type, name) type name;
