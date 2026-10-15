@@ -54,6 +54,22 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved)
         fake = (Fake *)MapViewOfFile(map, FILE_MAP_READ, 0, 0, sizeof(Fake));
         RealTranslateMessage = (BOOL (WINAPI *)(const MSG *))GetProcAddress(GetModuleHandleA("user32.dll"), "TranslateMessage");
         if (fake) Patch(GetModuleHandleA(NULL));
+        // FAKE_INPUT_SYSTEM=1 makes the system's own callers, such as the drag loop, see the fake pointer and buttons too.
+        if (fake && GetEnvironmentVariableA("FAKE_INPUT_SYSTEM", name, sizeof(name))) {
+            HMODULE user32 = GetModuleHandleA("user32.dll");
+            const char *names[] = { "GetCursorPos", "GetPhysicalCursorPos", "GetKeyState", "GetAsyncKeyState" };
+            void *fakes[] = { (void *)FakeGetCursorPos, (void *)FakeGetCursorPos, (void *)FakeGetKeyState, (void *)FakeGetKeyState };
+            for (int i = 0; i < 4; ++i) {
+                BYTE *at = (BYTE *)GetProcAddress(user32, names[i]);
+                DWORD old;
+                if (!at) continue;
+                // mov rax, fake; jmp rax
+                VirtualProtect(at, 12, PAGE_EXECUTE_READWRITE, &old);
+                at[0] = 0x48; at[1] = 0xB8; *(void **)(at + 2) = fakes[i]; at[10] = 0xFF; at[11] = 0xE0;
+                VirtualProtect(at, 12, old, &old);
+                FlushInstructionCache(GetCurrentProcess(), at, 12);
+            }
+        }
     }
     return TRUE;
 }

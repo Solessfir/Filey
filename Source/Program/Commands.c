@@ -1485,6 +1485,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->kind == Prog_CommandKind_SidebarOpenInTab) Prog_OpenTab(state, path, state->activeTab + 1, false);
                 else if (!StrIsEqual(path, state->directory.path)) Prog_RequestDirectory(state, path, true, 0);
             } break;
+            case Prog_CommandKind_MoveBookmark: {
+                if (command->row >= state->bookmarks.header.count) break;
+                ArrayStr moved = {0};
+                ArrayPush(&state->frameArena, moved, StrCopy(&state->frameArena, state->bookmarks.v[command->row]));
+                Prog_PinBookmarks(state, &moved, command->target);
+                changed = true;
+            } break;
             case Prog_CommandKind_SidebarMenu: {
                 String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
                 if (!path.length) break;

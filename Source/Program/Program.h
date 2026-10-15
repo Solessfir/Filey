@@ -1031,6 +1031,8 @@ typedef struct Prog_State {
     // The build shows it; the drop, which arrives before the next build, uses the one committed after the last.
     u64 bookmarkDropShown;
     u64 bookmarkDrop;
+    u64 bookmarkDrag;         // the bookmark being dragged among the others, plus one
+    b32 bookmarkDragHeld;     // its row still held in this build
     Arena recentArena;
     ArrayStr recents;
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.

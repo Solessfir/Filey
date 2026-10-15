@@ -531,6 +531,10 @@ command SidebarOpen {
 command SidebarOpenInTab {
 }
 
+// A bookmark dragged to another place among them; carries its index and, as the target, the index it goes before.
+command MoveBookmark {
+}
+
 // Sidebar item right click; carries the Prog_Group and the item, whose folder's system menu opens at the pointer.
 command SidebarMenu {
 }

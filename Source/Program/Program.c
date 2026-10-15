@@ -3042,7 +3042,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
     UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
-    b32 hot = UI->hotKey == key || UI->hotKey == removeKey;
+    // Not lit under a drag, which would hide the line where it goes.
+    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !state->bookmarkDrag && !P_DropPending();
     // Lit while it is shown, or while its menu is open.
     b32 current = StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget));
     UI_SetNextPrefWidth(UI_Flex());
@@ -3060,7 +3061,13 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
     // Ctrl opens it in a new tab, as the middle button does.
     b32 inTab = interaction.button == MouseButton_Middle || (interaction.button == MouseButton_Left && (UI->mods & KeyMod_Control));
-    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab) {
+    // A bookmark dragged along the others moves among them instead of opening.
+    b32 moving = group == Prog_Group_Bookmarks && state->bookmarkDrag;
+    if (group == Prog_Group_Bookmarks && interaction.active && interaction.button == MouseButton_Left && (interaction.isDragging || state->bookmarkDrag == index + 1)) {
+        state->bookmarkDrag = index + 1;
+        state->bookmarkDragHeld = true;
+    }
+    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab && !moving) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
@@ -3069,7 +3076,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         state->tooltipRect = row->rect;
         state->tooltipPath = path;
     }
-    if (interaction.clicked && inTab) {
+    if (interaction.clicked && inTab && !moving) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpenInTab, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
@@ -3192,6 +3199,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         R_Rect title = sidebar->last->rect, zone = title;
         u64 count = state->bookmarks.header.count, before = count;
         f32 lineY = title.y1;
+        state->bookmarkDragHeld = false;
         body = Prog__GroupBody(state, Prog_Group_Bookmarks, m);
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
@@ -3207,14 +3215,22 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                 }
             }
         }
-        if (P_DropPending() && UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1) {
-            state->bookmarkDropShown = before + 1;
+        b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1;
+        // A moved bookmark goes where it is let go, or stays where it was outside the section.
+        if (state->bookmarkDrag && !state->bookmarkDragHeld) {
+            if (inZone) Prog_QueueCommand(state, Prog_CommandKind_MoveBookmark, state->bookmarkDrag - 1, 0, 0)->target = before;
+            state->bookmarkDrag = 0;
+        }
+        if ((state->bookmarkDrag || P_DropPending()) && inZone) {
             f32 thickness = MaxF32(2, floorf(2 * m->scale));
             UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf(lineY - thickness * 0.5f) - sidebar->rect.y0 });
             UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - 2 * floorf(m->gap * 0.75f)));
             UI_SetNextPrefHeight(UI_Pixels(thickness));
             UI_SetNextColors((UI_Colors){ .background = theme->accent });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+        if (P_DropPending() && inZone) {
+            state->bookmarkDropShown = before + 1;
             // What letting go does, beside the pointer; the drag image covers the pointer itself.
             String hint = S("Pin to Bookmarks");
             f32 hintWidth = R_TextWidth(m->font, hint) + 2 * m->inset, hintHeight = m->row;
