@@ -1391,7 +1391,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_InspectorScaleImageDown: Prog__ScaleImage(state, command->kind == Prog_CommandKind_InspectorScaleImageUp); break;
             case Prog_CommandKind_InspectorIncreaseContentsSize:
             case Prog_CommandKind_InspectorDecreaseContentsSize: {
-                // An image zooms instead of the text growing.
+                // An image zooms instead of the text growing, and a folder's list zooms as a panel's does.
+                u64 owner = state->panels[state->currentPanel].inspectorOf ? state->panels[state->currentPanel].inspectorOf : state->panels[state->currentPanel].id;
+                u32 inner = state->previewFolder ? Prog_InspectorPanel(state, owner, false) : UINT32_MAX;
+                if (inner != UINT32_MAX) {
+                    b32 up = command->kind == Prog_CommandKind_InspectorIncreaseContentsSize;
+                    u32 back = state->currentPanel;
+                    Prog__UsePanel(state, inner);
+                    if (up && state->zoom + 1 < Prog_ZoomLevels) ++state->zoom;
+                    if (!up && state->zoom > 0) --state->zoom;
+                    state->revealFocus = true;
+                    Prog__UsePanel(state, back);
+                    break;
+                }
                 if (state->previewImage) {
                     Prog__ScaleImage(state, command->kind == Prog_CommandKind_InspectorIncreaseContentsSize);
                     break;

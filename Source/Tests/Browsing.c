@@ -1375,6 +1375,11 @@ function void TestPanels(TestFileFixture *fixture)
         }
         Check(inner != UINT32_MAX && state.panels[inner].directory.count == 1 && TestEndsWith(state.panels[inner].directory.path, S("/Folder2")));
         if (inner != UINT32_MAX) {
+            // Its contents size is its zoom.
+            TestBrowsingCommand(&state, Prog_CommandKind_InspectorIncreaseContentsSize, 0);
+            Check(state.panels[inner].zoom == 1 && state.zoom == 0);
+            TestBrowsingCommand(&state, Prog_CommandKind_InspectorDecreaseContentsSize, 0);
+            Check(state.panels[inner].zoom == 0);
             ArenaClear(&state.frameArena);
             Prog_QueueCommand(&state, Prog_CommandKind_FocusFirst, 0, 0, 0)->panel = state.panels[inner].id;
             Prog_ProcessCommands(&state);
