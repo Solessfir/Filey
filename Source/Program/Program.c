@@ -179,6 +179,13 @@ global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
 function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
 
+// The title strip's color, which dims to the panels' while another window has the focus, as the reference's does; a see-through strip stays as it is.
+function R_Color Prog__CaptionColor(const Prog_State *state)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    return state->windowInactive && theme->caption.a >= 1 ? theme->panel : theme->caption;
+}
+
 // The custom theme with the settings' colors.
 global Prog_Theme Prog_ThemeUser = Prog_ThemeCustom;
 
@@ -1170,7 +1177,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     // Children start at the top, so that tabs taller than the strip hang below it.
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
-    UI_SetNextColors((UI_Colors){ .background = theme->caption });
+    UI_SetNextColors((UI_Colors){ .background = Prog__CaptionColor(state) });
     // Keyed, so that its last layout tells whether a dragged tab is over it.
     UI_Block *strip = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TabStrip")), UI_Flag_DrawBackground);
     UI_Parent(strip) {
@@ -1310,7 +1317,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                             UI_SetNextCornerRadius(flare);
                             UI_SetNextBorderThickness(stroke);
                             // Under a clear tab there is nothing to cut away, and the strip's color drawn again would show.
-                            UI_SetNextColors((UI_Colors){ .background = theme->background.a > 0 ? theme->caption : (R_Color){0}, .border = theme->tabBorder });
+                            UI_SetNextColors((UI_Colors){ .background = theme->background.a > 0 ? Prog__CaptionColor(state) : (R_Color){0}, .border = theme->tabBorder });
                             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
                         }
                     }
@@ -5740,7 +5747,7 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
             UI_SetNextFloatingOffset((UI_Vec2){ 0, line });
             UI_SetNextPrefWidth(UI_Pixels(line));
             UI_SetNextPrefHeight(UI_Pixels(Prog__TitleStripHeight(m) - line));
-            UI_SetNextColors((UI_Colors){ .background = theme->caption });
+            UI_SetNextColors((UI_Colors){ .background = Prog__CaptionColor(state) });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
         UI_Interaction drag = UI_InteractionFromBlock(divider);
@@ -5769,7 +5776,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         Prog__Box(UI_Pixels(width), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
         f32 strip = Prog__TitleStripHeight(m);
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, MaxF32(0, m->inset - floorf(6.0f * scale + 0.5f)), 0 });
-        UI_Block *bar = Prog__Box(UI_Pixels(width), UI_Pixels(strip), UI_Layout_Horizontal, theme->caption, 0);
+        UI_Block *bar = Prog__Box(UI_Pixels(width), UI_Pixels(strip), UI_Layout_Horizontal, Prog__CaptionColor(state), 0);
         bar->props.childrenAlignment = (UI_Vec2){ 0, 0.5f };
         UI_Parent(bar) {
             Prog__Caption(state, S("SidebarCaption"), width, strip, 0);

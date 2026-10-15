@@ -1012,6 +1012,7 @@ typedef struct Prog_State {
     u64 sidebarToggled;       // when it was last shown or hidden, for its slide
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
     b32 placesWanted;         // the sidebar was built, so its places are kept current
+    b32 windowInactive;       // another window has the focus, which dims the title strip
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for
     Arena placesArena;        // the latest places listing
     P_ArrayPlace places;

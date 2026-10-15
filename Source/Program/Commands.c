@@ -1974,6 +1974,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
         if (event->kind == PlatformEventKind_DrivesChanged) state->drivesChanged = true;
+        if (event->kind == PlatformEventKind_FocusChanged) state->windowInactive = !event->focused;
         // A key that ran a command does not also type its character, such as Shift+F's F or Space's space.
         if (event->kind == PlatformEventKind_Text && state->swallowText) {
             state->swallowText = false;
