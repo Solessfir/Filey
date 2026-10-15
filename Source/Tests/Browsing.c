@@ -715,6 +715,14 @@ function void TestFileIcons(TestFileFixture *fixture)
     opened = P_ContextMenuOpen(&arena, fixture->path, NULL, 0, &menu);
     Check(opened && menu.rootCount);
     P_ContextMenuClose(&menu);
+    // A drive named by its path gets its own menu, with Properties, instead of its root's background.
+    String drive = P_TrashFolder(&arena);
+    drive.length = 3;
+    opened = P_ContextMenuOpen(&arena, (String){0}, &drive, 1, &menu);
+    b32 hasProperties = false;
+    for (u32 i = 0; opened && i < menu.count; ++i) hasProperties |= StrIsEqual(menu.items[i].verb, S("properties"));
+    Check(opened && hasProperties);
+    P_ContextMenuClose(&menu);
 #endif
     ArenaRelease(&arena);
 }

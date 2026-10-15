@@ -274,6 +274,7 @@ typedef struct P_ContextMenu {
 } P_ContextMenu;
 
 // Menu for `names` inside `directory`, or for the directory background when `count` is 0.
+// With an empty `directory`, `names` are full paths that share a folder, such as drives.
 // Main thread only: shell menus belong to the thread that built them, and their verbs may need its message loop (clipboard, dialogs).
 // Loading shell extensions can take a moment.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu);

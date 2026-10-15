@@ -124,26 +124,53 @@ function b32 P__ShellChildren(IShellFolder *folder, const String *names, u64 cou
     return ok;
 }
 
+// The folder that holds `paths`, which all share it, and their ids in it, for items such as drives whose folder has no path.
+function IShellFolder *P__ShellParent(Arena *arena, const String *paths, u64 count, PIDLIST_ABSOLUTE *lists, PCUITEMID_CHILD *children)
+{
+    IShellFolder *result = NULL;
+    b32 ok = count > 0;
+    for (u64 i = 0; i < count && ok; ++i) {
+        wchar *path = P__FilePathWide(arena, paths[i]);
+        ok = path && SUCCEEDED(SHParseDisplayName(path, NULL, &lists[i], 0, NULL));
+        if (ok) children[i] = ILFindLastID(lists[i]);
+    }
+    if (ok && FAILED(SHBindToParent(lists[0], &P__IID_IShellFolder, (void **)&result, NULL))) result = NULL;
+    return result;
+}
+
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
     P__EnsureCom();
     P__ShellMenu *shell = ArenaPushStruct(arena, P__ShellMenu);
-    shell->directory = P__FilePathWide(arena, directory);
-    IShellFolder *folder = P__ShellFolder(shell->directory);
-    b32 ok = folder != NULL;
-    if (ok && count == 0) {
-        ok = SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
-    } else if (ok) {
-        ok = P__ShellChildren(folder, names, count, &P__IID_IContextMenu, (void **)&shell->menu);
+    b32 ok = false;
+    if (!directory.length) {
+        // The items' own menus, with what their folder's background lacks, such as a drive's Eject and Format.
+        Scratch scratch = GetScratchEx(arena);
+        PIDLIST_ABSOLUTE *lists = ArenaPushArray(scratch.arena, Max(count, (u64)1), PIDLIST_ABSOLUTE);
+        PCUITEMID_CHILD *children = ArenaPushArray(scratch.arena, Max(count, (u64)1), PCUITEMID_CHILD);
+        IShellFolder *parent = P__ShellParent(scratch.arena, names, count, lists, children);
+        ok = parent && SUCCEEDED(parent->lpVtbl->GetUIObjectOf(parent, P__shellOwner, (UINT)count, children, &P__IID_IContextMenu, NULL, (void **)&shell->menu));
+        if (parent) parent->lpVtbl->Release(parent);
+        for (u64 i = 0; i < count; ++i) ILFree(lists[i]);
+        ReleaseScratch(scratch);
+    } else {
+        shell->directory = P__FilePathWide(arena, directory);
+        IShellFolder *folder = P__ShellFolder(shell->directory);
+        ok = folder != NULL;
+        if (ok && count == 0) {
+            ok = SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
+        } else if (ok) {
+            ok = P__ShellChildren(folder, names, count, &P__IID_IContextMenu, (void **)&shell->menu);
+        }
+        if (folder) folder->lpVtbl->Release(folder);
     }
-    if (folder) folder->lpVtbl->Release(folder);
 
     if (ok) {
         shell->popup = CreatePopupMenu();
-        // Rename is offered for items, which the program then edits in place.
+        // Rename is offered for items in a folder, which the program then edits in place; a drive's label is not edited that way.
         ok = shell->popup && SUCCEEDED(shell->menu->lpVtbl->QueryContextMenu(shell->menu, shell->popup, 0, P__MenuFirstId, P__MenuLastId,
-                                                                             CMF_NORMAL | (count ? CMF_CANRENAME : 0)));
+                                                                             CMF_NORMAL | (count && directory.length ? CMF_CANRENAME : 0)));
     }
     if (ok) {
         shell->menu->lpVtbl->QueryInterface(shell->menu, &P__IID_IContextMenu3, (void **)&shell->menu3);

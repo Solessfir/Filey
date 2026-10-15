@@ -129,6 +129,11 @@ function void Prog__MenuEnter(Prog_State *state)
 // Fills `names` with the rows' names inside that folder and returns its path.
 function String Prog__RowsFolder(Prog_State *state, Arena *arena, u64 *rows, u64 *count, String *names)
 {
+    // This PC's drives are named by their paths, which their menus take whole.
+    if (StrIsEqual(state->directory.path, Prog_ThisPC)) {
+        for (u64 i = 0; i < *count; ++i) names[i] = state->directory.entries[rows[i]].file.name;
+        return (String){0};
+    }
     String parent = *count ? Prog_EntryParent(state->directory.entries[rows[0]].file.name) : (String){0};
     u64 kept = 0;
     for (u64 i = 0; i < *count; ++i) {
@@ -1483,10 +1488,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!path.length) break;
                 Prog_CloseMenu(state);
                 state->menuTarget = StrCopy(&state->menuArena, path);
-                // A drive's root has no folder above it, so its own background menu stands in.
+                // A drive's root has no folder path above it, so it is named by its own path.
                 String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
                 b32 root = StrIsEqual(parent, path) || !parent.length;
-                state->menuOpen = P_ContextMenuOpen(&state->menuArena, root ? path : parent, &name, root ? 0 : 1, &state->menu);
+                if (root) name = path;
+                state->menuOpen = P_ContextMenuOpen(&state->menuArena, root ? (String){0} : parent, &name, 1, &state->menu);
                 if (!state->menuOpen) {
                     Prog_CloseMenu(state);
                     break;

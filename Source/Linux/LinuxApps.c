@@ -322,7 +322,10 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     data->directory = StrCopy(arena, directory);
     data->count = count ? count : 1;
     data->paths = ArenaPushArray(arena, data->count, String);
-    for (u64 i = 0; i < count; ++i) data->paths[i] = StrFormat(arena, "%S%s%S", directory, directory.length && directory.value[directory.length - 1] == '/' ? "" : "/", names[i]);
+    for (u64 i = 0; i < count; ++i) {
+        data->paths[i] = !directory.length ? StrCopy(arena, names[i])
+                       : StrFormat(arena, "%S%s%S", directory, directory.value[directory.length - 1] == '/' ? "" : "/", names[i]);
+    }
     if (!count) data->paths[0] = data->directory;
     // Folders open in Filey itself, so Open With and the terminal are offered for one folder or for files.
     Scratch scratch = GetScratchEx(arena);
