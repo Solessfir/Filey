@@ -43,8 +43,8 @@ function f32 UI__DistanceSquared(UI_Vec2 a, UI_Vec2 b)
     return x * x + y * y;
 }
 
-// The reference eases everything at about this rate, closing a quarter of the distance every 10 ms.
-#define UI_AnimationRate 30.0f
+// The reference eases everything at about this rate, leaving 56% of the distance after each 60 Hz frame.
+#define UI_AnimationRate 34.0f
 
 function f32 UI_Approach(f32 value, f32 target, f32 epsilon)
 {

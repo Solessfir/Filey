@@ -2798,7 +2798,10 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
         // A narrow panel narrows the box, down to its icon, to keep the counts, the view and the zoom in sight, as the reference's does.
         b32 active = state->filtering || state->filter.length;
         f32 inset = floorf(2.4f * m->scale + 0.5f);
-        f32 want = floorf(m->line * 15.3f) + floorf(6.4f * m->scale + 0.5f) + radius + (active ? 4 * Prog__ToolbarButtonWidth(m) : 0);
+        // The buttons' room opens and shuts easing, and snaps the last few pixels, as the reference's does.
+        f32 extra = active ? 4 * Prog__ToolbarButtonWidth(m) : 0, grown = UI_Animate(UI_KeyFromStr(0, S("FilterGrow")), extra, extra);
+        if (fabsf(grown - extra) < floorf(20.0f * m->scale + 0.5f)) grown = extra;
+        f32 want = floorf(m->line * 15.3f) + floorf(6.4f * m->scale + 0.5f) + radius + floorf(grown + 0.5f);
         f32 room = bar->rect.x1 - bar->rect.x0 + 2 * radius - state->statusRight;
         if (bar->rect.x1 > bar->rect.x0 && state->statusRight > 0) want = MinF32(want, MaxF32(radius + m->iconSlot + m->gap, room));
         UI_SetNextPrefWidth(UI_Pixels(want));
