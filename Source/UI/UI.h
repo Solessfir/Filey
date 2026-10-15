@@ -18,6 +18,7 @@ typedef u64 UI_Flags;
 #define UI_Flag_Clip                 BBit(7)
 #define UI_Flag_Scrollable           BBit(8)
 #define UI_Flag_DrawImage            BBit(9)
+#define UI_Flag_TakesWheel           BBit(10)  // the wheel over it is the program's, and scrolls nothing under it
 
 typedef struct UI_Vec2 { f32 x, y; } UI_Vec2;
 typedef struct UI_Padding { f32 left, top, right, bottom; } UI_Padding;

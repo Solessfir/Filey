@@ -884,6 +884,14 @@ function f32 Prog__TitleStripHeight(const Prog_Metrics *m) { return Prog__StripH
 function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
 function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
 
+// The wheel's turn this frame over `block`, in whole notches and at least one, or 0 when it is not under the pointer; Ctrl+wheel zooms instead.
+function i32 Prog__WheelNotches(const UI_Block *block)
+{
+    if (UI->hotKey != block->key || UI->wheel.y == 0 || (UI->mods & KeyMod_Control)) return 0;
+    i32 notches = (i32)roundf(UI->wheel.y);
+    return notches ? notches : UI->wheel.y > 0 ? 1 : -1;
+}
+
 // How far a popup has faded in under `key`: evenly over 135 ms.
 function f32 Prog__FadeIn(UI_Key key)
 {
@@ -4234,8 +4242,11 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             f32 range = (f32)Max(desc->most - desc->least, 1), at = (f32)(value - desc->least) / range;
             UI_SetNextPrefWidth(UI_Pixels(width));
             UI_SetNextPrefHeight(UI_Pixels(knob));
-            UI_Block *slider = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSlider/%u", (u32)option)), UI_Flag_LeftMouseClickable);
+            UI_Block *slider = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSlider/%u", (u32)option)), UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
             UI_Interaction drag = UI_InteractionFromBlock(slider);
+            // The wheel over it steps it, a notch a step.
+            i32 notches = Prog__WheelNotches(slider);
+            if (notches) Prog__QueueOption(state, option, Max(desc->least, Min(desc->most, value + notches)), 0, false);
             if (drag.pressed || (drag.active && drag.isDragging)) {
                 f32 along = UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / MaxF32(1, wide - knob), 0, 1);
                 i32 wanted = desc->least + (i32)floorf(along * range + 0.5f);
@@ -4463,8 +4474,12 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextPrefWidth(UI_Pixels(knob + 2 * floorf(4.0f * s + 0.5f)));
         UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop + knob));
         UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f) - floorf(4.0f * s + 0.5f), trackTop - floorf(knob * 0.5f) });
-        UI_Block *slider = UI_AddBlockFromKey(sliderKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable);
+        UI_Block *slider = UI_AddBlockFromKey(sliderKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
         UI_Interaction drag = UI_InteractionFromBlock(slider);
+        // The wheel over it zooms, as Ctrl+wheel does anywhere.
+        i32 notches = Prog__WheelNotches(slider);
+        if (notches) state->zoomWheelTime = UI->nowMicroseconds;
+        for (i32 i = 0; i < (notches < 0 ? -notches : notches); ++i) Prog_QueueCommand(state, notches > 0 ? Prog_CommandKind_ZoomIn : Prog_CommandKind_ZoomOut, 0, 0, 0);
         if (drag.pressed || (drag.active && drag.isDragging)) {
             f32 at = UI->mouse.y - box->rect.y0;
             u32 wanted = Prog_ZoomIcons;
