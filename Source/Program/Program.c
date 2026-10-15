@@ -121,7 +121,7 @@ global const Prog_Theme Prog_ThemeDebug = {
 
 #define Prog_Hex(v) { (((v) >> 16) & 255) / 255.0f, (((v) >> 8) & 255) / 255.0f, ((v) & 255) / 255.0f, 1 }
 
-// The reference's built-in "Fullmoon" scheme, for comparing the two side by side.
+// The reference's built-in dark scheme, for comparing the two side by side.
 global const Prog_Theme Prog_ThemeFullmoon = {
     .window       = Prog_Hex(0x151515),
     .background   = Prog_Hex(0x191B1C),

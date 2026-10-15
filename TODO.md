@@ -80,6 +80,7 @@ Planned there, worth doing here first:
 ## Filey's own
 
 - Git: detect a repository around the shown folder and show in the path bar how far its branch is from the remote (↑ commits to push, ↓ to pull). Read `.git` directly or run `git` in a background job; never block the UI on it.
+- A hex view in the inspector for binary files, in the spirit of ImHex (https://github.com/WerWolv/ImHex): offsets, hex bytes and their characters side by side, read in pages from the file so that big files open at once.
 - Syntax highlighting, at least basic (keywords, strings, comments, numbers), in the inspector's text view for code files.
 - Localization, low priority: the interface in other languages. Until then, keep user-facing strings in few places (Commands.txt labels, the option table) so they can be translated later.
 
