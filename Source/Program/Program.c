@@ -4251,7 +4251,9 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         // The slider: a track from XL Icons down to Details, filled below the thumb.
         f32 track = floorf(12.8f * s + 0.5f), knob = floorf(20.0f * s + 0.5f);
         f32 trackX = width - floorf(10.4f * s + 0.5f) - track, trackTop = topRow + floorf(1.6f * s + 0.5f), trackBottom = bottomRow - floorf(0.8f * s + 0.5f);
-        f32 thumb = floorf(Prog__ZoomY(Prog__ZoomFraction(state->zoom)) + 0.5f);
+        // The thumb eases to a new zoom, as the reference's does; it starts where the zoom is when the popup shows.
+        f32 target = Prog__ZoomY(Prog__ZoomFraction(state->zoom));
+        f32 thumb = floorf(UI_Animate(UI_KeyFromStr(0, S("ZoomPopupThumb")), target, target) + 0.5f);
         // Pressing or dragging along the slider sets the icon size it points at, or the nearest view below M Icons.
         UI_SetNextPrefWidth(UI_Pixels(knob + 2 * floorf(4.0f * s + 0.5f)));
         UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop + knob));
