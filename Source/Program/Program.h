@@ -19,6 +19,17 @@ typedef enum Prog_Sort {
 
 static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Folders == (i32)P_FileOrderKey_Count);
 
+// Where folders go among the files, whatever the sort: before them, after them, or mixed in.
+typedef enum Prog_FolderSort {
+    Prog_FolderSort_First,
+    Prog_FolderSort_Last,
+    Prog_FolderSort_Mixed,
+    Prog_FolderSort_Count,
+} Prog_FolderSort;
+
+// What a panel shows a folder with, as a folder view keeps it.
+typedef struct Prog_ViewSettings Prog_ViewSettings;
+
 // What a details column shows, one value of an entry each.
 typedef enum Prog_ColumnId {
     Prog_ColumnId_Name,
@@ -54,6 +65,14 @@ typedef struct Prog_ColumnSet {
     u8 kinds[Prog_ColumnKind_Count];
     f32 shares[Prog_ColumnKind_Count];
 } Prog_ColumnSet;
+
+struct Prog_ViewSettings {
+    u32 zoom;
+    enum8(Prog_Sort) sort;
+    b32 descending;
+    enum8(Prog_FolderSort) folders;
+    Prog_ColumnSet columns;
+};
 
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
@@ -219,6 +238,7 @@ typedef struct Prog_JobInput {
     u64 generation;
     enum8(Prog_Sort) sort;
     b32 descending;
+    enum8(Prog_FolderSort) folderSort;
     b32 showHidden;
     b32 expanded;
     b32 addHistory;
@@ -485,6 +505,7 @@ typedef struct Prog_Directory {
     b32 cancelled;
     enum8(Prog_Sort) sort;
     b32 descending;
+    enum8(Prog_FolderSort) folderSort;
     b32 showHidden;
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
@@ -499,7 +520,7 @@ typedef struct Prog_Directory {
 #define Prog_TabFields(X) \
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
-    X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) \
+    X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) \
     X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) \
     X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll)
 
@@ -531,7 +552,8 @@ typedef struct Prog_Tab {
 //   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
 //   statusRight: how wide the status bar's counts, view and zoom were in the last layout, which the filter box leaves room for
 //   columnSet: the details columns, see Prog_PanelColumns
-//   ownView, ownZoom, ownSort, ownDescending: while a folder's kept view applies, the panel's own, which the next folder without one gets back
+//   inspectorView: how its inspector lists folders, kept while the inspector's panel is closed
+//   ownView, ownSettings: while a folder's kept view applies, the panel's own, which the next folder without one gets back
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -541,7 +563,7 @@ typedef struct Prog_Tab {
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(Prog_ColumnSet, columnSet) \
-    X(b32, ownView) X(u32, ownZoom) X(enum8(Prog_Sort), ownSort) X(b32, ownDescending)
+    X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
@@ -898,7 +920,10 @@ function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
 function void Prog_LoadSettings(Prog_State *state, String configDirectory);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
-function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Prog_Sort *sort, b32 *descending);
+function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);
+function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
+function String Prog_ColumnsText(Arena *arena, Prog_ColumnSet set);
+function b32 Prog_ParseColumns(String word, Prog_ColumnSet *set);
 function void Prog_ToggleFolderView(Prog_State *state);
 function void Prog_ClearFolderViews(Prog_State *state);
 function void Prog_KeepFolderView(Prog_State *state);

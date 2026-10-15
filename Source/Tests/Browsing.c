@@ -465,25 +465,47 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     {
         Arena kept = {0};
         String here = StrCopy(&kept, state.directory.path);
-        u32 ownZoom = state.zoom, zoom = 0;
-        Prog_Sort ownSort = state.sort, sort = 0;
-        b32 ownDescending = state.descending, descending = false;
+        u32 ownZoom = state.zoom;
+        Prog_Sort ownSort = state.sort;
+        b32 ownDescending = state.descending;
+        Prog_ViewSettings view = {0};
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
-        Check(Prog_FolderView(&state, here, &zoom, &sort, &descending) && zoom == ownZoom && sort == ownSort && descending == ownDescending);
+        Check(Prog_FolderView(&state, here, &view) && view.zoom == ownZoom && view.sort == ownSort && view.descending == ownDescending);
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
         TestBrowsingCommand(&state, Prog_CommandKind_Sort, ownSort == Prog_Sort_Size ? Prog_Sort_Name : Prog_Sort_Size);
         Check(TestWaitDirectory(&state));
         Prog_Sort changed = state.sort;
-        Check(Prog_FolderView(&state, here, &zoom, &sort, &descending) && zoom == ownZoom + 1 && sort == changed);
+        // Its columns too.
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created);
+        Check(Prog_FolderView(&state, here, &view) && view.zoom == ownZoom + 1 && view.sort == changed && view.columns.count == 6);
         Prog_RequestDirectory(&state, Prog_JoinPath(&kept, here, S("Empty")), true, 0);
-        Check(TestWaitDirectory(&state) && state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending);
+        Check(TestWaitDirectory(&state) && state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
-        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && state.zoom == ownZoom + 1 && state.sort == changed);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && state.zoom == ownZoom + 1 && state.sort == changed && state.columnSet.count == 6);
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
-        Check(TestWaitDirectory(&state) && !Prog_FolderView(&state, here, &zoom, &sort, &descending));
-        Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending);
+        Check(TestWaitDirectory(&state) && !Prog_FolderView(&state, here, &view));
+        Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
+        // The columns read back as written; a line from before the columns keeps the defaults.
+        Prog_ColumnSet written = { .count = 3, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size, Prog_ColumnKind_Created }, .shares = { 0, 0.125f, 0 } }, read = {0};
+        Check(Prog_ParseColumns(Prog_ColumnsText(&kept, written), &read) && read.count == 3 && read.kinds[2] == Prog_ColumnKind_Created && read.shares[1] == 0.125f);
+        Check(!Prog_ParseColumns(S("size,type"), &read) && !Prog_ParseColumns(S("name,bogus"), &read));
+        String old = S("2 3 1 C:/Old Folder");
+        Prog__SetList(&state.folderViewArena, &state.folderViews, &old, 1);
+        Check(Prog_FolderView(&state, S("C:/Old Folder"), &view) && view.zoom == 2 && view.columns.count == 0);
+        Prog__SetList(&state.folderViewArena, &state.folderViews, NULL, 0);
         ArenaRelease(&kept);
         // Going away and back left nothing selected.
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
+    }
+    // Folders go first, then last, then in among the files, and first again.
+    {
+        TestBrowsingCommand(&state, Prog_CommandKind_CycleFolderSort, 0);
+        Check(TestWaitDirectory(&state) && state.folderSort == Prog_FolderSort_Last && state.directory.entries[0].file.kind != P_FileKind_Directory);
+        Check(state.directory.entries[state.directory.count - 1].file.kind == P_FileKind_Directory);
+        TestBrowsingCommand(&state, Prog_CommandKind_CycleFolderSort, 0);
+        Check(TestWaitDirectory(&state) && state.folderSort == Prog_FolderSort_Mixed);
+        TestBrowsingCommand(&state, Prog_CommandKind_CycleFolderSort, 0);
+        Check(TestWaitDirectory(&state) && state.folderSort == Prog_FolderSort_First && state.directory.entries[0].file.kind == P_FileKind_Directory);
         Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
     }
     // The header's menu shows and hides columns, moves them, resizes them and puts the defaults back; Name stays.
@@ -1561,6 +1583,10 @@ function void TestPanels(TestFileFixture *fixture)
     // The session records the layout and tabs, and a fresh state rebuilds them; broken text changes nothing.
     {
         Arena sessionArena = {0};
+        // With a panel's columns, its folders after its files and its inspector's own view, which come back too.
+        Prog_EditColumns(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created, 0);
+        state.folderSort = Prog_FolderSort_Last;
+        state.inspectorView = (Prog_ViewSettings){ .zoom = 2, .sort = Prog_Sort_Size, .descending = true, .columns = { .count = 2, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size } } };
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
@@ -1568,6 +1594,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(Prog_RestoreSession(&restored, text) && TestWaitDirectory(&restored));
         Check(restored.panelCount == state.panelCount && restored.activePanel == state.activePanel && restored.splits[0].kind == state.splits[0].kind);
         Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
+        Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == 2 && restored.inspectorView.columns.count == 2);
         Prog_Release(&restored);
         ArenaRelease(&sessionArena);
     }

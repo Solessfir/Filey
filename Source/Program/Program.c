@@ -1240,9 +1240,8 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String path = state->directory.path;
-    u32 zoom;
-    Prog_Sort sort;
-    b32 descending, kept = Prog_FolderView(state, path, &zoom, &sort, &descending);
+    Prog_ViewSettings view;
+    b32 kept = Prog_FolderView(state, path, &view);
     // A little narrower than the other toolbar buttons and further apart, as the reference's are.
     f32 width = floorf(25.6f * m->scale + 0.5f), height = Prog__ToolbarButtonHeight(m);
     UI_Interaction lock = Prog__TextButton(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,

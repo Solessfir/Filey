@@ -481,11 +481,11 @@ function i32 Prog_CompareNames(String a, String b)
 
 // Folders first, then by `sort`, then by name: in an expanded listing by the item's own name and then its place, as the reference sorts it.
 // Folders sort by their totals once measured, and by zero until then.
-function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending)
+function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending, Prog_FolderSort folders)
 {
     b32 ad = a->file.kind == P_FileKind_Directory;
     b32 bd = b->file.kind == P_FileKind_Directory;
-    if (ad != bd) return ad ? -1 : 1;
+    if (ad != bd && folders != Prog_FolderSort_Mixed) return ad == (folders == Prog_FolderSort_First) ? -1 : 1;
     i32 result = 0;
     switch (sort) {
         case Prog_Sort_Name: break;
@@ -510,7 +510,8 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
 
 // One stable bottom-up merge sort of `order` from `start` to `end`, runs of `width` already sorted, using `spare` beside it; the result ends in `order`.
 // Returns false when cancelled.
-function b32 Prog__SortRun(const Prog_Entry *entries, u32 *order, u32 *spare, u64 start, u64 end, u64 width, Prog_Sort sort, b32 descending, const P_CancelToken *cancel)
+function b32 Prog__SortRun(const Prog_Entry *entries, u32 *order, u32 *spare, u64 start, u64 end, u64 width, Prog_Sort sort, b32 descending, Prog_FolderSort folders,
+                           const P_CancelToken *cancel)
 {
     u32 *from = order, *to = spare;
     for (; width < end - start; width *= 2) {
@@ -519,7 +520,7 @@ function b32 Prog__SortRun(const Prog_Entry *entries, u32 *order, u32 *spare, u6
             u64 left = run, right = middle;
             for (u64 out = run; out < stop; ++out) {
                 if (cancel && (out & 1023) == 0 && P_IsCancelled(cancel)) return false;
-                b32 takeLeft = right == stop || (left < middle && Prog__CompareEntries(&entries[from[left]], &entries[from[right]], sort, descending) <= 0);
+                b32 takeLeft = right == stop || (left < middle && Prog__CompareEntries(&entries[from[left]], &entries[from[right]], sort, descending, folders) <= 0);
                 to[out] = from[takeLeft ? left++ : right++];
             }
         }
@@ -537,6 +538,7 @@ typedef struct Prog__Sort {
     u64 count, slice;
     Prog_Sort sort;
     b32 descending;
+    Prog_FolderSort folders;
     const P_CancelToken *cancel;
 } Prog__Sort;
 
@@ -544,21 +546,22 @@ function void Prog__SortLane(void *user, u32 lane)
 {
     Prog__Sort *job = user;
     u64 start = Min((u64)lane * job->slice, job->count), end = Min(start + job->slice, job->count);
-    if (start < end) Prog__SortRun(job->entries, job->order, job->spare, start, end, 1, job->sort, job->descending, job->cancel);
+    if (start < end) Prog__SortRun(job->entries, job->order, job->spare, start, end, 1, job->sort, job->descending, job->folders, job->cancel);
 }
 
 // Stable merge sort into `buffer`, which it returns, or NULL when cancelled.
 // It sorts the entries' places rather than the entries, so that each entry moves once; a big listing is sorted in slices on several
 // threads at once, which are then merged.
-function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, u64 count, Prog_Sort sort, b32 descending, const P_CancelToken *cancel)
+function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, u64 count, Prog_Sort sort, b32 descending, Prog_FolderSort folders,
+                                       const P_CancelToken *cancel)
 {
     Scratch scratch = GetScratch();
     u32 *order = ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), u32), *spare = ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), u32);
     for (u64 i = 0; i < count; ++i) order[i] = (u32)i;
     u32 lanes = count >= 65536 ? Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)) : 1;
-    Prog__Sort job = { entries, order, spare, count, (count + lanes - 1) / lanes, sort, descending, cancel };
+    Prog__Sort job = { entries, order, spare, count, (count + lanes - 1) / lanes, sort, descending, folders, cancel };
     if (lanes > 1) P_RunLanes(lanes, Prog__SortLane, &job);
-    b32 done = !(cancel && P_IsCancelled(cancel)) && Prog__SortRun(entries, order, spare, 0, count, lanes > 1 ? job.slice : 1, sort, descending, cancel);
+    b32 done = !(cancel && P_IsCancelled(cancel)) && Prog__SortRun(entries, order, spare, 0, count, lanes > 1 ? job.slice : 1, sort, descending, folders, cancel);
     if (done) for (u64 i = 0; i < count; ++i) buffer[i] = entries[order[i]];
     ReleaseScratch(scratch);
     return done ? buffer : NULL;
@@ -579,14 +582,14 @@ function void Prog__SortByTotals(Prog_State *state)
     state->sortPending = false;
     b32 sorted = true;
     for (u64 i = 1; i < directory->count && sorted; ++i) {
-        sorted = Prog__CompareEntries(&directory->entries[i - 1], &directory->entries[i], sort, directory->descending) <= 0;
+        sorted = Prog__CompareEntries(&directory->entries[i - 1], &directory->entries[i], sort, directory->descending, directory->folderSort) <= 0;
     }
     if (sorted) return;
     String focus = state->hasFocus ? directory->entries[state->focusedRow].file.name : (String){0};
     String anchor = state->hasAnchor ? directory->entries[state->anchorRow].file.name : (String){0};
     Scratch scratch = GetScratch();
     Prog_Entry *buffer = ArenaPushArrayNoZero(scratch.arena, directory->count, Prog_Entry);
-    Prog_Entry *result = Prog__SortEntries(directory->entries, buffer, directory->count, sort, directory->descending, NULL);
+    Prog_Entry *result = Prog__SortEntries(directory->entries, buffer, directory->count, sort, directory->descending, directory->folderSort, NULL);
     if (result != directory->entries) MemCopy(directory->entries, result, directory->count * sizeof(Prog_Entry));
     ReleaseScratch(scratch);
     for (u64 i = 0; i < directory->count; ++i) {
@@ -1020,6 +1023,7 @@ function void Prog__DirectoryJob(P_Job *job)
     result->path = input->path;
     result->sort = input->sort;
     result->descending = input->descending;
+    result->folderSort = input->folderSort;
     result->showHidden = input->showHidden;
     result->expanded = input->expanded;
     P_DirectoryResult listing = {0};
@@ -1135,7 +1139,7 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     Prog_Entry *buffer = ArenaPushArray(&job->arena, result->count, Prog_Entry);
     Prog_Entry *sorted = NULL;
-    ProfileScope("SortEntries") sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, &job->cancelToken);
+    ProfileScope("SortEntries") sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, input->folderSort, &job->cancelToken);
     if (sorted) result->entries = sorted;
     else result->cancelled = true;
 }
@@ -1203,6 +1207,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->generation = ++state->generation;
     input->sort = state->sort;
     input->descending = state->descending;
+    input->folderSort = state->folderSort;
     // Another folder starts flat unless the filter is pinned.
     if (!StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
     input->showHidden = state->showHidden;
@@ -1588,6 +1593,8 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
         .splitMicroseconds = PlatformNowMicroseconds(),
         .sort = current ? state->sort : state->panels[index].sort,
         .descending = current ? state->descending : state->panels[index].descending,
+        .folderSort = current ? state->folderSort : state->panels[index].folderSort,
+        .columnSet = current ? state->columnSet : state->panels[index].columnSet,
         .showHidden = current ? state->showHidden : state->panels[index].showHidden,
         .zoom = current ? state->zoom : state->panels[index].zoom,
     };
@@ -1609,12 +1616,12 @@ function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make)
     u32 from = Prog_PanelIndex(state, owner);
     if (!make || from == UINT32_MAX || state->panelCount >= Prog_MaxPanels) return UINT32_MAX;
     b32 current = from == state->currentPanel;
+    Prog_ViewSettings view = current ? state->inspectorView : state->panels[from].inspectorView;
     u32 at = state->panelCount++;
     state->panels[at] = (Prog_Panel){
         .id = ++state->nextPanelId,
         .inspectorOf = owner,
-        .sort = current ? state->sort : state->panels[from].sort,
-        .descending = current ? state->descending : state->panels[from].descending,
+        .zoom = view.zoom, .sort = view.sort, .descending = view.descending, .folderSort = view.folders, .columnSet = view.columns,
         .showHidden = current ? state->showHidden : state->panels[from].showHidden,
     };
     return at;
@@ -1644,6 +1651,11 @@ function void Prog_DropInspectorPanel(Prog_State *state, u64 owner)
         active = owner;
     }
     if (current == state->panels[index].id) current = owner;
+    Prog__UsePanel(state, index);
+    // The owner keeps how it listed folders, for the next time.
+    Prog_ViewSettings view = Prog_CurrentView(state);
+    Prog__UsePanel(state, Prog_PanelIndex(state, owner));
+    state->inspectorView = view;
     Prog__UsePanel(state, index);
     Prog__ReleaseCurrentPanel(state);
     Prog__UsePanel(state, Prog_PanelIndex(state, current));
@@ -1889,17 +1901,109 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
     state->columnSet = set;
 }
 
+// The columns' names in the files that keep them.
+global const String Prog_ColumnWords[Prog_ColumnKind_Count] = {
+    S("name"), S("type"), S("size"), S("items"), S("created"), S("modified"), S("accessed"), S("volume"), S("folder"),
+};
+
+// `set` as one word: its columns' names, those resized with their share of the row after a colon, between commas; "-" for the defaults.
+function String Prog_ColumnsText(Arena *arena, Prog_ColumnSet set)
+{
+    if (!set.count) return S("-");
+    StrBuilder text = {0};
+    for (u32 i = 0; i < set.count; ++i) {
+        if (i) StrBuildChar(arena, &text, ',');
+        StrBuildStr(arena, &text, Prog_ColumnWords[set.kinds[i]]);
+        if (set.shares[i] > 0) StrBuildStr(arena, &text, StrFormat(arena, ":%u", (u32)(set.shares[i] * 1e6f + 0.5f)));
+    }
+    return text.buffer;
+}
+
+// The columns of a word Prog_ColumnsText wrote; false, leaving `set` alone, when it is not one.
+function b32 Prog_ParseColumns(String word, Prog_ColumnSet *set)
+{
+    Prog_ColumnSet result = {0};
+    if (StrIsEqual(word, S("-"))) {
+        *set = result;
+        return true;
+    }
+    for (u64 at = 0; at < word.length;) {
+        Index comma = StrIndexChar(StrFrom(word, at), ',', SSF_CountOnFail);
+        String part = StrFromTo(word, at, (i64)(at + comma.value));
+        at += comma.value + 1;
+        Index colon = StrIndexChar(part, ':', SSF_CountOnFail);
+        String name = StrFromTo(part, 0, (i64)colon.value), share = StrFrom(part, Min(colon.value + 1, part.length));
+        u32 kind = Prog_ColumnKind_Count;
+        for (u32 k = 0; k < Prog_ColumnKind_Count; ++k) if (StrIsEqual(name, Prog_ColumnWords[k])) kind = k;
+        u64 millionths = 0;
+        if (kind == Prog_ColumnKind_Count || result.count >= Prog_ColumnKind_Count || (colon.exists && !Prog__TakeNumber(&share, &millionths))) return false;
+        for (u32 i = 0; i < result.count; ++i) if (result.kinds[i] == kind) return false;
+        result.kinds[result.count] = (u8)kind;
+        result.shares[result.count++] = UI__Clamp((f32)millionths / 1e6f, 0, 0.8f);
+    }
+    // Name is always there.
+    b32 name = false;
+    for (u32 i = 0; i < result.count; ++i) name |= result.kinds[i] == Prog_ColumnKind_Name;
+    if (!name) return false;
+    *set = result;
+    return true;
+}
+
+function b32 Prog__SameColumns(Prog_ColumnSet a, Prog_ColumnSet b)
+{
+    if (a.count != b.count) return false;
+    for (u32 i = 0; i < a.count; ++i) if (a.kinds[i] != b.kinds[i] || a.shares[i] != b.shares[i]) return false;
+    return true;
+}
+
+// What the current panel shows a folder with.
+function Prog_ViewSettings Prog_CurrentView(const Prog_State *state)
+{
+    return (Prog_ViewSettings){ state->zoom, state->sort, state->descending, state->folderSort, state->columnSet };
+}
+
+function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b)
+{
+    return a.zoom == b.zoom && a.sort == b.sort && a.descending == b.descending && a.folders == b.folders && Prog__SameColumns(a.columns, b.columns);
+}
+
+function void Prog__SetCurrentView(Prog_State *state, Prog_ViewSettings view)
+{
+    state->zoom = view.zoom;
+    state->sort = view.sort;
+    state->descending = view.descending;
+    state->folderSort = view.folders;
+    state->columnSet = view.columns;
+}
+
+// A FolderViews.txt line: its zoom, sort, whether that is descending, the folder sort and the columns, then the path, which may hold spaces;
+// lines from before the folder sort and the columns have only the first three. False when `line` is not one.
+function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String *path)
+{
+    u64 a = 0, b = 0, c = 0, d = 0;
+    if (!Prog__TakeNumber(&line, &a) || !Prog__TakeNumber(&line, &b) || !Prog__TakeNumber(&line, &c)) return false;
+    *view = (Prog_ViewSettings){ (u32)Min(a, (u64)Prog_ZoomLevels - 1), (u8)Min(b, (u64)Prog_Sort_Count - 1), c != 0, Prog_FolderSort_First, {0} };
+    String rest = line;
+    if (Prog__TakeNumber(&rest, &d)) {
+        Index space = StrIndexChar(rest, ' ', SSF_None);
+        if (!space.exists || !Prog_ParseColumns(StrFromTo(rest, 0, (i64)space.value), &view->columns)) return false;
+        view->folders = (u8)Min(d, (u64)Prog_FolderSort_Count - 1);
+        line = StrFrom(rest, space.value + 1);
+    }
+    *path = line;
+    return true;
+}
+
 // The kept view of folder `path`, false when it has none.
-function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Prog_Sort *sort, b32 *descending)
+function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view)
 {
     for (u64 i = 0; path.length && i < state->folderViews.header.count; ++i) {
-        String rest = state->folderViews.v[i];
-        u64 a = 0, b = 0, c = 0;
-        if (!Prog__TakeNumber(&rest, &a) || !Prog__TakeNumber(&rest, &b) || !Prog__TakeNumber(&rest, &c) || !StrIsEqual(rest, path)) continue;
-        *zoom = (u32)Min(a, (u64)Prog_ZoomLevels - 1);
-        *sort = (Prog_Sort)Min(b, (u64)Prog_Sort_Count - 1);
-        *descending = c != 0;
-        return true;
+        String at;
+        Prog_ViewSettings found;
+        if (Prog__ParseFolderView(state->folderViews.v[i], &found, &at) && StrIsEqual(at, path)) {
+            *view = found;
+            return true;
+        }
     }
     return false;
 }
@@ -1911,12 +2015,14 @@ function void Prog__SetFolderView(Prog_State *state, String path, b32 keep)
     u64 count = state->folderViews.header.count, kept = 0;
     String *lines = ArenaPushArray(scratch.arena, count + 1, String);
     for (u64 i = 0; i < count; ++i) {
-        String rest = state->folderViews.v[i];
-        u64 number;
-        b32 parsed = Prog__TakeNumber(&rest, &number) && Prog__TakeNumber(&rest, &number) && Prog__TakeNumber(&rest, &number);
-        if (!parsed || !StrIsEqual(rest, path)) lines[kept++] = state->folderViews.v[i];
+        String at;
+        Prog_ViewSettings view;
+        if (!Prog__ParseFolderView(state->folderViews.v[i], &view, &at) || !StrIsEqual(at, path)) lines[kept++] = state->folderViews.v[i];
     }
-    if (keep) lines[kept++] = StrFormat(scratch.arena, "%u %u %u %S", state->zoom, (u32)state->sort, state->descending ? 1u : 0u, path);
+    if (keep) {
+        lines[kept++] = StrFormat(scratch.arena, "%u %u %u %u %S %S", state->zoom, (u32)state->sort, state->descending ? 1u : 0u, (u32)state->folderSort,
+                                  Prog_ColumnsText(scratch.arena, state->columnSet), path);
+    }
     Prog__SetList(&state->folderViewArena, &state->folderViews, lines, kept);
     Prog__SaveList(state, Prog_FolderViewsFile, state->folderViews);
     ReleaseScratch(scratch);
@@ -1924,70 +2030,60 @@ function void Prog__SetFolderView(Prog_State *state, String path, b32 keep)
 
 function void Prog__ApplyFolderView(Prog_State *state, String path)
 {
-    u32 zoom;
-    Prog_Sort sort;
-    b32 descending;
-    if (Prog_FolderView(state, path, &zoom, &sort, &descending)) {
+    Prog_ViewSettings view;
+    if (Prog_FolderView(state, path, &view)) {
         if (!state->ownView) {
             state->ownView = true;
-            state->ownZoom = state->zoom;
-            state->ownSort = state->sort;
-            state->ownDescending = state->descending;
+            state->ownSettings = Prog_CurrentView(state);
         }
-        state->zoom = zoom;
-        state->sort = (u8)sort;
-        state->descending = descending;
+        Prog__SetCurrentView(state, view);
     } else if (state->ownView) {
         state->ownView = false;
-        state->zoom = state->ownZoom;
-        state->sort = state->ownSort;
-        state->descending = state->ownDescending;
+        Prog__SetCurrentView(state, state->ownSettings);
     }
+}
+
+// Back to the panel's own view after the shown folder's lets go of its, listed again when its order changes.
+function void Prog__RestoreOwnView(Prog_State *state)
+{
+    if (!state->ownView) return;
+    Prog_ViewSettings own = state->ownSettings;
+    b32 resort = state->sort != own.sort || state->descending != own.descending || state->folderSort != own.folders;
+    Prog__ApplyFolderView(state, state->directory.path);
+    if (resort) Prog_Reload(state);
 }
 
 // Keeps the shown folder's view, or lets it go back to the panel's own.
 function void Prog_ToggleFolderView(Prog_State *state)
 {
     String path = state->directory.path;
-    u32 zoom;
-    Prog_Sort sort;
-    b32 descending;
+    Prog_ViewSettings view;
     if (!path.length) return;
-    if (!Prog_FolderView(state, path, &zoom, &sort, &descending)) {
+    if (!Prog_FolderView(state, path, &view)) {
         // What the panel shows now is its own too, which folders without a kept view go on with.
         Prog__SetFolderView(state, path, true);
         Prog__ApplyFolderView(state, path);
         return;
     }
     Prog__SetFolderView(state, path, false);
-    if (state->ownView) {
-        b32 resort = state->sort != state->ownSort || state->descending != state->ownDescending;
-        Prog__ApplyFolderView(state, path);
-        if (resort) Prog_Reload(state);
-    }
+    Prog__RestoreOwnView(state);
 }
 
 function void Prog_ClearFolderViews(Prog_State *state)
 {
     Prog__SetList(&state->folderViewArena, &state->folderViews, NULL, 0);
     Prog__SaveList(state, Prog_FolderViewsFile, state->folderViews);
-    if (state->ownView) {
-        b32 resort = state->sort != state->ownSort || state->descending != state->ownDescending;
-        Prog__ApplyFolderView(state, state->directory.path);
-        if (resort) Prog_Reload(state);
-    }
+    Prog__RestoreOwnView(state);
 }
 
 // A folder with a kept view keeps what the panel changes of it.
 function void Prog_KeepFolderView(Prog_State *state)
 {
-    u32 zoom;
-    Prog_Sort sort;
-    b32 descending;
+    Prog_ViewSettings view;
     // Not while another folder is on its way, whose view the panel already has.
     if (state->directoryJob && !StrIsEqual(((Prog_JobInput *)state->directoryJob->input)->path, state->directory.path)) return;
-    if (!Prog_FolderView(state, state->directory.path, &zoom, &sort, &descending)) return;
-    if (zoom != state->zoom || sort != state->sort || descending != state->descending) Prog__SetFolderView(state, state->directory.path, true);
+    if (!Prog_FolderView(state, state->directory.path, &view)) return;
+    if (!Prog__SameView(view, Prog_CurrentView(state))) Prog__SetFolderView(state, state->directory.path, true);
 }
 
 // The window's panels and their tabs, kept in the config folder between runs.
@@ -2027,6 +2123,18 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
         if (numbers[p] == UINT32_MAX) continue;
         Prog__UsePanel(state, p);
         StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", numbers[p], state->zoom, state->activeTab));
+        StrBuildStr(arena, &text, StrFormat(arena, "order %u %u %u %u\n", numbers[p], (u32)state->sort, state->descending ? 1u : 0u, (u32)state->folderSort));
+        StrBuildStr(arena, &text, StrFormat(arena, "columns %u %S\n", numbers[p], Prog_ColumnsText(arena, state->columnSet)));
+        // Its inspector's, from the inspector's panel while it is open.
+        Prog_ViewSettings inspector = state->inspectorView;
+        u32 inner = Prog_InspectorPanel(state, state->panels[p].id, false);
+        if (inner != UINT32_MAX) {
+            Prog__UsePanel(state, inner);
+            inspector = Prog_CurrentView(state);
+            Prog__UsePanel(state, p);
+        }
+        StrBuildStr(arena, &text, StrFormat(arena, "inspector %u %u %u %u %u %S\n", numbers[p], inspector.zoom, (u32)inspector.sort, inspector.descending ? 1u : 0u,
+                                            (u32)inspector.folders, Prog_ColumnsText(arena, inspector.columns)));
         for (u32 t = 0; t < state->tabCount; ++t) StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", numbers[p], Prog_TabPath(state, t)));
     }
     Prog__UsePanel(state, active);
@@ -2041,7 +2149,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     Scratch scratch = GetScratch();
     Prog_Split splits[Prog_MaxSplits] = {0};
     u32 splitPanel[Prog_MaxSplits] = {0};
-    struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
+    struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
     u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0;
     b32 valid = false;
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
@@ -2065,6 +2173,23 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
         } else if (StrIsEqual(word, S("panel"))) {
             if (!(Prog__TakeNumber(&rest, &a) && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c)) || a != panelCount || a >= Prog_MaxPanels) valid = false;
             else panels[panelCount++] = (typeof(*panels)){ .zoom = (u32)Min(b, (u64)Prog_ZoomLevels - 1), .activeTab = (u32)c };
+        } else if (StrIsEqual(word, S("order"))) {
+            // A panel's sort, its direction and where its folders go; older sessions have none and keep the defaults.
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d)) {
+                panels[a].view.sort = (u8)Min(b, (u64)Prog_Sort_Count - 1);
+                panels[a].view.descending = c != 0;
+                panels[a].view.folders = (u8)Min(d, (u64)Prog_FolderSort_Count - 1);
+            }
+        } else if (StrIsEqual(word, S("columns"))) {
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount) Prog_ParseColumns(rest, &panels[a].view.columns);
+        } else if (StrIsEqual(word, S("inspector"))) {
+            u64 g = 0;
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) &&
+                Prog__TakeNumber(&rest, &g)) {
+                Prog_ViewSettings *view = &panels[a].inspector;
+                *view = (Prog_ViewSettings){ (u32)Min(b, (u64)Prog_ZoomLevels - 1), (u8)Min(c, (u64)Prog_Sort_Count - 1), d != 0, (u8)Min(g, (u64)Prog_FolderSort_Count - 1), {0} };
+                Prog_ParseColumns(rest, &view->columns);
+            }
         } else if (StrIsEqual(word, S("tab"))) {
             if (!Prog__TakeNumber(&rest, &a) || a + 1 != panelCount) valid = false;
             else if (rest.length && panels[a].tabCount < Prog_MaxTabs) panels[a].tabs[panels[a].tabCount++] = rest;
@@ -2098,6 +2223,11 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             Prog__ActivatePanel(state, p);
             Prog__EnsureTab(state);
             state->zoom = panels[p].zoom;
+            state->sort = panels[p].view.sort;
+            state->descending = panels[p].view.descending;
+            state->folderSort = panels[p].view.folders;
+            state->columnSet = panels[p].view.columns;
+            state->inspectorView = panels[p].inspector;
             // The first tab drops whatever it was about to list and starts over in its folder.
             ArenaClear(&state->directoryArena);
             state->directory = (Prog_Directory){0};
@@ -2172,7 +2302,7 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     ++state->tabCount;
     if (at <= state->activeTab) ++state->activeTab;
     Prog_Tab *tab = &state->tabs[at];
-    *tab = (Prog_Tab){ .id = ++state->nextTabId, .sort = state->sort, .descending = state->descending, .showHidden = state->showHidden };
+    *tab = (Prog_Tab){ .id = ++state->nextTabId, .sort = state->sort, .descending = state->descending, .folderSort = state->folderSort, .showHidden = state->showHidden };
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);
@@ -2596,6 +2726,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->error = StrFormat(&state->errorArena, "%S: %S", input->path, result->error.message);
                     state->sort = state->directory.sort;
                     state->descending = state->directory.descending;
+                    state->folderSort = state->directory.folderSort;
                     state->showHidden = state->directory.showHidden;
                 } else {
                     b32 samePath = StrIsEqual(state->directory.path, result->path);

@@ -300,7 +300,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_SizeAllColumnsToFit,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
-    Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
+    Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
@@ -1524,6 +1524,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->sort = (u8)command->row;
                     Prog_Reload(state);
                 }
+            } break;
+            case Prog_CommandKind_CycleFolderSort: {
+                state->folderSort = (u8)((state->folderSort + 1) % Prog_FolderSort_Count);
+                Prog_Reload(state);
             } break;
             case Prog_CommandKind_NavigatePrefix: {
                 String path = state->directory.path;

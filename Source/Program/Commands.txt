@@ -484,6 +484,11 @@ command ColumnToggle {
 command ColumnResize {
 }
 
+command CycleFolderSort {
+    label   = "Cycle Folders Sort Order^directory,toggle"
+    tooltip = "Cycle how folders and files are sorted: folders first, files first or mixed together."
+}
+
 command SizeAllColumnsToFit {
     label   = "Size All Columns To Fit^resize"
     tooltip = "Size all header columns to fit their contents."
