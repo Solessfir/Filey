@@ -241,7 +241,7 @@ typedef struct Prog_IconAtlas {
 
 // Zoom levels, smallest first: Details, List, Columns, then icon grids that grow a step at a time.
 // Zoom in tenths of a percent: Details at 0, List at 100 and Columns at 200, then the icon views from M Icons at 300 through L Icons from 650 to
-// XL Icons at 1000, which a zoom step moves through 55 at a time, as the reference's do.
+// XL Icons at 1000, which a zoom step moves through 55 at a time.
 #define Prog_ZoomList    100
 #define Prog_ZoomColumns 200
 #define Prog_ZoomIcons   300
@@ -488,7 +488,7 @@ typedef enum Prog_InspectorLayout {
     Prog_InspectorLayout_Count,
 } Prog_InspectorLayout;
 
-// The groups the command palette files its commands under, in the reference's order.
+// The groups the command palette files its commands under.
 typedef enum Prog_CommandGroup {
     Prog_CommandGroup_Quick,
     Prog_CommandGroup_Folder,
@@ -872,7 +872,7 @@ typedef struct Prog_State {
     u8 settingInspectorLayout;  // its value + 1, 0 before any
     u8 scheme;                  // the settings' Color Scheme, by its place in Prog_OptionSchemes
     b32 systemScheme;           // the system's light or dark choice picks the light scheme or that one
-    // How the lists look: the space between their items and how much inactive panels show, as offsets from the reference's 4 and 60 so that
+    // How the lists look: the space between their items and how much inactive panels show, as offsets from the default 4 and 60 so that
     // {0} has them, square corners and every other row tinted.
     i32 spacingShift;
     i32 inactiveShift;

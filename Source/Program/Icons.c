@@ -286,7 +286,7 @@ function void Prog__DrawSpinners(Prog_State *state)
     i32 size = state->iconSize;
     Scratch scratch = GetScratch();
     u32 *pixels = ArenaPushArray(scratch.arena, (u64)size * (u64)size, u32);
-    // Centered on a pixel, as the reference's, so that the straight rays are one sharp column wide with soft edges.
+    // Centered on a pixel, so that the straight rays are one sharp column wide with soft edges.
     f32 radius = (f32)size * 0.5f, center = floorf(radius) + 0.5f, inner = radius * 0.42f, outer = radius * 0.78f, half = MaxF32(0.6f, radius * 0.1f);
     f32 pi = 3.14159265f;
     for (u32 frame = 0; frame < Prog_SpinnerFrames; ++frame) {

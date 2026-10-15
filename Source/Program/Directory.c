@@ -38,12 +38,12 @@ function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
     return Prog__IndexPathTo(ArenaPushArray(arena, Max(length, (u64)1), char), Max(length, (u64)1), index, entry);
 }
 
-// 1024-based with one decimal, cut rather than rounded as the reference does, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".
+// 1024-based with one decimal, cut rather than rounded, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".
 function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
     local_persist const char *units[] = { "kB", "MB", "GB", "TB" };
     if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " B", bytes);
-    // As the reference counts it, in whole numbers: the whole units, then the tenths the rest holds.
+    // In whole numbers: the whole units, then the tenths the rest holds.
     // A tenth is the unit over ten cut to a whole byte, which makes the rest of a nearly full unit ten tenths, shown as nine.
     u32 unit = 0, shift = 10;
     while (unit + 1 < CArrayCount(units) && bytes >> (shift + 10)) {
@@ -128,7 +128,7 @@ typedef struct Prog__Fuzzy {
     u32 termCount, count, calls;
 } Prog__Fuzzy;
 
-// The reference's score for the letters of a term placed at `at` in `text`: placed letters that follow one another, start the text,
+// The score for the letters of a term placed at `at` in `text`: placed letters that follow one another, start the text,
 // follow a lowercase letter as an uppercase one or follow "_" or a space score; letters before the first, letters left over and gaps cost.
 function i32 Prog__FuzzyScore(const Prog__Fuzzy *f, const u32 *at)
 {
@@ -152,10 +152,10 @@ function i32 Prog__FuzzyScore(const Prog__Fuzzy *f, const u32 *at)
     return score;
 }
 
-// Places the term's letters from `placed` on in the text from `from` on, the best of the ways the reference tries.
+// Places the term's letters from `placed` on in the text from `from` on, the best of the ways tried.
 function b32 Prog__FuzzyPlace(Prog__Fuzzy *f, u32 placed, u32 from, u32 *at, i32 *score)
 {
-    // The reference gives up after ten tries.
+    // It gives up after ten tries.
     if (++f->calls >= 10) return false;
     u32 own[Prog_FuzzyTerm], other[Prog_FuzzyTerm], best[Prog_FuzzyTerm];
     MemCopy(own, at, placed * sizeof(u32));
@@ -217,7 +217,7 @@ function i32 Prog__FuzzyTerm(Prog__FuzzyText *t, const rune *term, u32 termCount
     return score;
 }
 
-// The reference's score of a name and its path for `typed`: for each of its space-separated terms, the name's score and three quarters
+// The score of a name and its path for `typed`: for each of its space-separated terms, the name's score and three quarters
 // of the path's, rounded half away from zero, where a text that does not hold the term's letters in order, ignoring case, scores 0.
 // `nameMarks` and `pathMarks`, when not NULL, flag the bytes of the letters placed.
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks)
@@ -341,7 +341,7 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
         state->viewCount = state->viewFolders = 0;
         state->selectedCount = 0;
         Scratch scratch = GetScratch();
-        // What matches comes best first, as the reference ranks it, folders still before files and in the listing's order within a score;
+        // What matches comes best first, folders still before files and in the listing's order within a score;
         // a big listing is ranked on several lanes.
         Prog__FilterLook look = { .state = state, .filter = filter, .ranks = ArenaPushArrayNoZero(scratch.arena, Max(state->directory.count, (u64)1), u16) };
         look.parentScores = ArenaPushArrayNoZero(scratch.arena, Max(state->directory.parentCount, 1u), atomic_int);
@@ -490,7 +490,7 @@ function i32 Prog_CompareNames(String a, String b)
 
 #define Prog__Order(a, b) ((a) == (b) ? 0 : (a) < (b) ? -1 : 1)
 
-// Folders first, then by `sort`, then by name: in an expanded listing by the item's own name and then its place, as the reference sorts it.
+// Folders first, then by `sort`, then by name: in an expanded listing by the item's own name and then its place.
 // Folders sort by their totals once measured, and by zero until then.
 function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending, Prog_FolderSort folders)
 {
@@ -1318,7 +1318,7 @@ function b32 Prog__IsUnder(String path, String root)
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
     Prog__FollowTrail(state, path);
-    // Going to a folder that holds the shown one, by Up, Back or the path, selects the folder it came from, as the reference does; This PC
+    // Going to a folder that holds the shown one, by Up, Back or the path, selects the folder it came from; This PC
     // selects the drive.
     String from = state->directory.path, child = {0};
     if (StrIsEqual(path, Prog_ThisPC) && StrIsEqual(Prog_UpPath(from), Prog_ThisPC)) child = from;
@@ -2010,7 +2010,7 @@ function void Prog_UndoLast(Prog_State *state)
     P_JobSubmit(job);
 }
 
-// The panel's columns: its own once it changes them, else the reference's; This PC has its own, for drives.
+// The panel's columns: its own once it changes them, else the defaults; This PC has its own, for drives.
 function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state)
 {
     if (StrIsEqual(state->directory.path, Prog_ThisPC)) {
@@ -2025,7 +2025,7 @@ function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state)
     return (Prog_ColumnSet){ .count = 5, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Type, Prog_ColumnKind_Modified, Prog_ColumnKind_Items, Prog_ColumnKind_Size } };
 }
 
-// A kind's share of the row until it is resized, as the reference starts them; Name takes what the others leave.
+// A kind's share of the row until it is resized; Name takes what the others leave.
 function f32 Prog_ColumnShare(Prog_ColumnKind kind)
 {
     switch (kind) {
@@ -2054,7 +2054,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
             set.kinds[other] = k, set.shares[other] = share;
         } break;
         case Prog_CommandKind_ColumnClose: {
-            // Name stays, as the reference's does.
+            // Name stays.
             if (column >= set.count || set.kinds[column] == Prog_ColumnKind_Name) return;
             for (u32 i = (u32)column; i + 1 < set.count; ++i) set.kinds[i] = set.kinds[i + 1], set.shares[i] = set.shares[i + 1];
             --set.count;
@@ -2938,7 +2938,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArenaRelease(&state->placesArena);
                 state->placesArena = job->arena;
                 job->arena = (Arena){0};
-                // This PC leads the places, as in the reference.
+                // This PC leads the places.
                 state->places = (P_ArrayPlace){0};
                 ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = Prog_ThisPC, .path = Prog_ThisPC }));
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);

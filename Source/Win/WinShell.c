@@ -620,7 +620,7 @@ function P_ArrayPlace P_Drives(Arena *arena)
         P__DriveAnswer *answer = answers[i];
         u64 now = PlatformNowMicroseconds();
         b32 answered = WaitForSingleObject(answer->done, now < deadline ? (DWORD)((deadline - now) / 1000) : 0) == WAIT_OBJECT_0;
-        // A fixed disk without a file system to read, such as one being formatted, is left out as the reference does; removable ones without a medium stay.
+        // A fixed disk without a file system to read, such as one being formatted, is left out; removable ones without a medium stay.
         if (answered && types[i] == DRIVE_FIXED && !answer->formatted) {
             P__DriveAnswerRelease(answer);
             continue;

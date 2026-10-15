@@ -165,7 +165,7 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     state->menu.count = state->menu.rootCount = count;
     state->menuOpen = true;
     state->menuAt = at;
-    // The keyboard starts on the first item, as the reference's menus do.
+    // The keyboard starts on the first item.
     state->menuHighlight = UINT32_MAX;
     for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator && !state->menu.items[i].disabled) state->menuHighlight = i;
 }
@@ -288,7 +288,7 @@ function b32 Prog__ContainsFolded(String text, String needle)
     return false;
 }
 
-// The palette's groups and their commands, in the reference's order. Quick holds the most used commands, which their own groups then leave out.
+// The palette's groups and their commands. Quick holds the most used commands, which their own groups then leave out.
 #define Prog__PaletteGroup(name) ((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_##name)
 global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Quick),
@@ -331,7 +331,7 @@ global const u16 Prog_PaletteTree[] = {
 static_assert(Prog_CommandKind_Count < 256, "commands fit Prog_PaletteRow");
 
 // The palette's rows: with nothing typed, each group's title and the commands of the groups open;
-// otherwise the commands the text finds by the reference's score of their label and description, best first, then those only their search words find.
+// otherwise the commands the text finds by the score of their label and description, best first, then those only their search words find.
 // `out` has room for Prog_MaxPaletteRows; returns how many it holds.
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 {
@@ -532,7 +532,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         const Prog_Index *index = state->indexDone || !state->savedIndex.names.header.count ? &state->index : &state->savedIndex;
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
         u64 nearby = recents + bookmarks + known;
-        // Ranked by the reference's score of the name and the shown path; within a score the walk's order keeps shallower entries first.
+        // Ranked by the score of the name and the shown path; within a score the walk's order keeps shallower entries first.
         // The few close at hand and what is right inside them match by their path too, the rest of the index by their name only.
         Arena *arena = &state->gotoFoundArena;
         String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
@@ -609,7 +609,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         return result;
     }
     if (cut < 0) {
-        // The reference keeps the ten most recent.
+        // The ten most recent.
         u64 recents = Min(state->recents.header.count, (u64)10);
         Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + state->drives.header.count + state->places.header.count + 1, Prog_GoToItem);
         for (u32 section = 0; section < Prog_GoToSection_Folder; ++section) {
@@ -745,7 +745,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .icon = Icon_Blend, .toggle = true, .checked = state->transparent);
             Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .icon = Icon_Palette, .toggle = true, .checked = state->debugTheme);
         } break;
-        // In the reference's order: the panel's views, its splits, its tabs, the app, then what the listing shows.
+        // The panel's views, its splits, its tabs, the app, then what the listing shows.
         case Prog_CommandKind_PanelMenu: {
             // Ctrl+E starts a search through the expanded folder, which is what expands it.
             Prog__Item(.kind = Prog_CommandKind_ToggleExpandFolder, .icon = Icon_FolderTree, .toggle = true, .checked = state->directory.expanded,
@@ -765,11 +765,11 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .icon = Icon_PanelLeft, .toggle = true, .checked = !state->sidebarHidden);
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .icon = Icon_Bookmark, .toggle = true, .checked = Prog_IsBookmarked(state, state->directory.path));
         } break;
-        // The header's, for the column right-clicked, in the reference's order: moving it, its width, then which columns there are.
+        // The header's, for the column right-clicked: moving it, its width, then which columns there are.
         case Prog_CommandKind_ColumnMenu: {
             Prog_ColumnSet set = Prog_PanelColumns(state);
             u64 at = command->row;
-            // Name stays first and cannot be closed, and the last column has nowhere to go right, as in the reference.
+            // Name stays first and cannot be closed, and the last column has nowhere to go right.
             b32 name = at < set.count && set.kinds[at] == Prog_ColumnKind_Name;
             Prog__Item(.kind = Prog_CommandKind_ColumnShiftLeft, .row = at, .label = S("Shift Column Left"), .icon = Icon_ChevronsLeft);
             Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = S("Shift Column Right"), .icon = Icon_ChevronsRight, .disabled = (b8)(name || at + 1 >= set.count));
@@ -834,7 +834,7 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     state->menuAt = mouse ? state->ui.mouse
                   : state->menuRowCount ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 }
                   : state->ui.mouse;
-    // It starts on its first item, as the reference's does, from the mouse too.
+    // It starts on its first item, from the mouse too.
     state->menuHighlight = UINT32_MAX;
     Prog__MenuMove(state, 1);
 }
@@ -957,7 +957,7 @@ function u32 Prog__EditWordStep(const Prog_TextEdit *edit, u32 at, i32 step)
     return at;
 }
 
-// Ctrl moves and deletes by word, as the reference's text fields do.
+// Ctrl moves and deletes by word.
 function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
 {
     b32 shift = (event->mods & KeyMod_Shift) != 0, word = (event->mods & KeyMod_Control) != 0;
@@ -1502,7 +1502,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
                 for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
                 // Filey's own cut, copy and delete act on the list's selection, so for a sidebar folder they are shown disabled, and its rename,
-                // which edits a list row, is left out, as the reference does.
+                // which edits a list row, is left out.
                 for (u32 i = 0; i < state->menu.count; ++i) {
                     P_MenuItem *item = &state->menu.items[i];
                     if (StrIsEqual(item->verb, S("rename"))) item->label = (String){0};
@@ -1888,7 +1888,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_ToggleExpandFolder:
             case Prog_CommandKind_StartExpandedSearch: {
-                // Both toggle: the search ends as it started, back to the folder's own items with the filter kept, as the reference does.
+                // Both toggle: the search ends as it started, back to the folder's own items with the filter kept.
                 b32 expand = !state->expanded;
                 state->expanded = expand;
                 Prog_Reload(state);
@@ -2054,7 +2054,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 }
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = event->mods;
-                // The command list wraps around; Go To stops at its ends, as the reference's does.
+                // The command list wraps around; Go To stops at its ends.
                 else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count && !goTo ? count - 1 : 0);
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);

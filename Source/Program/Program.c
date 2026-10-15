@@ -1,5 +1,5 @@
 // Browser UI.
-// Sizes derive from the font's line height so the layout keeps its proportions at any font size and display scale; the ratios come from the reference screenshots.
+// Sizes derive from the font's line height so the layout keeps its proportions at any font size and display scale.
 
 #include <math.h>
 
@@ -34,7 +34,7 @@ typedef struct Prog_Theme {
     R_Color iconDisabled;
 } Prog_Theme;
 
-// The neutral "custom" scheme from the reference screenshots.
+// The neutral "custom" scheme.
 global const Prog_Theme Prog_ThemeCustom = {
     .window       = Prog_Gray(25),
     .background   = Prog_Gray(25),
@@ -179,7 +179,7 @@ global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
 function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
 
-// The title strip's color, which dims to the panels' while another window has the focus, as the reference's does; a see-through strip stays as it is.
+// The title strip's color, which dims to the panels' while another window has the focus; a see-through strip stays as it is.
 function R_Color Prog__CaptionColor(const Prog_State *state)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -840,8 +840,8 @@ function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 
     Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
 }
 
-// A button's wash: the selection color, faint under the pointer and fading out after it, and solid while pressed, easing both ways,
-// as the reference's buttons do. Its animations are kept only while there is something to show.
+// A button's wash: the selection color, faint under the pointer and fading out after it, and solid while pressed, easing both ways.
+// Its animations are kept only while there is something to show.
 function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed)
 {
     R_Color wash = Prog_CurrentTheme()->selection;
@@ -877,14 +877,14 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
 
 function f32 Prog__StripHeight(const Prog_Metrics *m) { return m->bar - floorf(0.8f * m->scale + 0.5f); }
 
-// A strip along the window's top: a little shorter while the window is maximized, as the reference's, whose tabs then reach the top edge.
+// A strip along the window's top: a little shorter while the window is maximized, so that the tabs reach the top edge.
 function f32 Prog__TitleStripHeight(const Prog_Metrics *m) { return Prog__StripHeight(m) - (PlatformWindowIsMaximized() ? floorf(1.6f * m->scale + 0.5f) : 0); }
 
-// The reference's toolbar buttons are a little wider than tall.
+// Toolbar buttons are a little wider than tall.
 function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
 function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
 
-// How far a popup has faded in under `key`: evenly over 135 ms, as the reference's do.
+// How far a popup has faded in under `key`: evenly over 135 ms.
 function f32 Prog__FadeIn(UI_Key key)
 {
     if (!UI->animate) return 1;
@@ -893,7 +893,7 @@ function f32 Prog__FadeIn(UI_Key key)
     return shown;
 }
 
-// How far from its place a slide starts at most, as the reference's do, whatever the distance.
+// How far from its place a slide starts at most, whatever the distance.
 function f32 Prog__SlideCap(const Prog_Metrics *m) { return floorf(30.0f * m->scale + 0.5f); }
 
 // Notes the button just added as the one under the pointer, for Prog__Tooltip.
@@ -944,7 +944,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
     R_Color wash = Prog__ButtonWash(key, hot, pressed);
     // The tab list's, in the title bar, is taller and rounder than the toolbar's, and the main menu's wider and as round; in a maximized
-    // window both fill the title bar under its border, square, as the reference's do.
+    // window both fill the title bar under its border, square.
     b32 main = kind == Prog_CommandKind_MainMenu, title = (tabs || main) && PlatformWindowIsMaximized();
     f32 height = title ? Prog__TitleStripHeight(m) - m->separator : tabs ? floorf(26.4f * m->scale + 0.5f) : Prog__ToolbarButtonHeight(m);
     UI_SetNextPrefWidth(UI_Pixels(main ? floorf(36.0f * m->scale + 0.5f) : Prog__ToolbarButtonWidth(m)));
@@ -981,14 +981,14 @@ function void Prog__PillButton(Prog_State *state, String identity, String icon, 
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
-// The expand button's glyph, two folders each with a dash at its side, as the reference draws it; no icon in the font has its shape.
+// The expand button's glyph, two folders each with a dash at its side; no icon in the font has its shape.
 function void Prog__ExpandButton(Prog_State *state, b32 on, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 width = Prog__ToolbarButtonWidth(m);
     Prog__PillButton(state, S("FilterExpand"), S(""), Prog_CommandKind_ToggleExpandFolder, on, m);
     UI_Block *button = UI->parent->last;
-    // The reference's pixels at 125%: "#" is ink, and "+" and "-" the softer pixels of its smoothed edges.
+    // Its pixels at 125%: "#" is ink, and "+" and "-" the softer pixels of its smoothed edges.
     local_persist const char *const pixels[] = {
         ".......+++++........",
         "......+######-......",
@@ -1060,7 +1060,7 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
-    // The glyphs sit a little above the middle, as the reference's.
+    // The glyphs sit a little above the middle.
     UI_SetNextChildrenPadding((UI_Padding){ 0, 0, 0, floorf(1.6f * scale + 0.5f) });
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
     UI_SetNextColors((UI_Colors){ .background = background, .text = ink });
@@ -1129,7 +1129,7 @@ function b32 Prog__TabHot(Prog_State *state, i64 slot)
     return UI->hotKey == key || UI->hotKey == UI_KeyFromStr(key, S("Close"));
 }
 
-// The tab strip's and the toolbar's height, a pixel under the bar's as the reference's; the title bar's strip has the window's top border over it too.
+// The tab strip's and the toolbar's height, a pixel under the bar's; the title bar's strip has the window's top border over it too.
 
 // The strip's line under it from `x0` to `x1`, which the shown tab opens into the toolbar; it is as thick as the sidebar's edge it meets.
 function void Prog__StripLine(f32 x0, f32 x1, f32 y, const Prog_Metrics *m)
@@ -1269,7 +1269,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             f32 tabInset = floorf(14.0f * scale);
-            // The reference sets the tab's contents a little below its middle.
+            // The tab's contents sit a little below its middle.
             f32 tabTop = floorf(0.8f * scale + 0.5f);
             UI_SetNextChildrenPadding((UI_Padding){ tabInset, tabTop, floorf(2.4f * scale + 0.5f), 0 });
             UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
@@ -1306,7 +1306,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         UI_SetNextPrefHeight(UI_Pixels(height + hang));
                         UI_SetNextCornerRadius(tabRadius);
                         UI_SetNextBorderThickness(stroke);
-                        // The shown tab is not washed, as the reference's is not, which also keeps its curved sides the same color as it.
+                        // The shown tab is not washed, which also keeps its curved sides the same color as it.
                         b32 washed = hot && !shown && UI->hotKey != closeKey;
                         UI_SetNextColors((UI_Colors){ .background = shown || washed ? theme->background : (R_Color){0}, .border = theme->tabBorder });
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
@@ -1483,7 +1483,7 @@ function String Prog__CrumbPath(Prog_State *state, String path)
     return P_NativePath(&state->frameArena, text);
 }
 
-// Go To writes a folder outside the path roots from its drive letter, "C:\Program Files", as the reference does.
+// Go To writes a folder outside the path roots from its drive letter, "C:\Program Files".
 function String Prog__GoToWhere(Prog_State *state, String path)
 {
     b32 drive;
@@ -1501,7 +1501,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     const Prog_Theme *theme = Prog_CurrentTheme();
     String shown = state->directory.path;
     b32 thisPC = StrIsEqual(shown, Prog_ThisPC);
-    // The trail of folders visited below the shown one goes on past it, as the reference's address bar does.
+    // The trail of folders visited below the shown one goes on past it.
     String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
     String path = trail.length ? trail : thisPC ? (String){0} : shown;
     u64 shownEnd = thisPC ? 0 : shown.length;
@@ -1540,7 +1540,7 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     String path = state->directory.path;
     Prog_ViewSettings view;
     b32 kept = Prog_FolderView(state, path, &view);
-    // A little narrower than the other toolbar buttons and further apart, as the reference's are.
+    // A little narrower than the other toolbar buttons and further apart.
     f32 width = floorf(25.6f * m->scale + 0.5f), height = Prog__ToolbarButtonHeight(m);
     UI_Interaction lock = Prog__TextButton(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,
                                            theme->icon, theme->text, theme->iconDisabled, path.length != 0, m);
@@ -1616,7 +1616,7 @@ global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
     S("File System"), S("Free Space"), S("Percent Full"), S("Original Location"), S("Date Deleted"),
 };
 
-// The panel's columns laid out for rows `room` wide, as the reference lays them out at any width: each its share of it, however narrow,
+// The panel's columns laid out for rows `room` wide: each its share of it, however narrow,
 // Name what the others leave of it rounded down, and the last column the pixels left over.
 // The column before the rows' icons that marks the recents, there only while the folder holds any.
 function f32 Prog__RecentGutter(f32 scale) { return floorf(19.2f * scale + 0.5f); }
@@ -1732,8 +1732,8 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
             if (c == 0) x0 = cell->rect.x0;
             UI_Interaction interaction = UI_InteractionFromBlock(cell);
             if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
-            // A right click opens the header's menu for the column; a middle click closes it, as the reference's do.
-            // It opens at the pointer across, and down from the header's top whatever the pointer's height, as the reference's does.
+            // A right click opens the header's menu for the column; a middle click closes it.
+            // It opens at the pointer across, and down from the header's top whatever the pointer's height.
             if (interaction.pressed && interaction.button == MouseButton_Right) {
                 Prog_QueueCommand(state, Prog_CommandKind_ColumnMenu, column->place, 0, interaction.pressOrder)->at = (UI_Vec2){ UI->mouse.x, cell->rect.y0 + floorf(4.8f * m->scale + 0.5f) };
             }
@@ -1744,7 +1744,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
                 if (name) {
                     Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 }
-                // A box over the icons' column selects everything, and is checked once everything is; the inspector's list has none, as the reference's.
+                // A box over the icons' column selects everything, and is checked once everything is; the inspector's list has none.
                 if (name && !state->panels[state->currentPanel].inspectorOf) {
                     f32 box = floorf(16.0f * m->scale + 0.5f);
                     b32 all = state->viewCount && state->selectedCount == state->viewCount;
@@ -1824,7 +1824,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
     }
 }
 
-// The caret blinks once every 1.05 s, as the reference's: lit for 325 ms, fading from 90% to almost nothing over 340 ms and back over 385 ms.
+// The caret blinks once every 1.05 s: lit for 325 ms, fading from 90% to almost nothing over 340 ms and back over 385 ms.
 // A change starts it 150 ms into the lit part, so that it stays lit a moment after every keystroke.
 function f32 Prog__CaretOpacity(const Prog_TextEdit *edit)
 {
@@ -2238,7 +2238,7 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog
 // The room on the right of a list that scrolls, for its scroll bar.
 function f32 Prog__ScrollGutter(const Prog_Metrics *m) { return floorf(12.8f * m->scale + 0.5f); }
 
-// A drive's fullness as the reference draws it in This PC: an outlined bar as wide as the column, filled to the percent `value` holds,
+// A drive's fullness in This PC: an outlined bar as wide as the column, filled to the percent `value` holds,
 // with the percent at the fill's end.
 function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, const Prog_Metrics *m)
 {
@@ -2365,7 +2365,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             // Right-aligned values may run into the space before them.
             if (column->alignX > 0) left = m->gap;
             String value = values[i];
-            // A date too wide for its column drops its time before it is cut, as the reference's do.
+            // A date too wide for its column drops its time before it is cut.
             b32 date = i == Prog_ColumnId_Modified || i == Prog_ColumnId_Created || i == Prog_ColumnId_Accessed;
             Index space = StrIndexChar(value, ' ', SSF_None);
             if (date && column->width > 0 && space.exists && R_TextWidth(m->detail, value) > columnWidth - left - right) value = StrFromTo(value, 0, (i64)space.value);
@@ -2600,7 +2600,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     }
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
-    // While the items run past the bottom, the rows leave room on the right for the scroll bar, as the reference's do.
+    // While the items run past the bottom, the rows leave room on the right for the scroll bar.
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset + (state->listScrolls ? Prog__ScrollGutter(m) : 0), 0 });
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
@@ -2641,7 +2641,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         // This PC's drives are taller, for their fullness bars.
         f32 extra = StrIsEqual(state->directory.path, Prog_ThisPC) ? Prog__DriveCellExtra(iconSize, m) : 0;
         pitch = (UI_Vec2){ floorf(inner / (f32)perLine), iconSize + floorf(77.0f * m->scale) + extra };
-        // Each cell starts at its slot's left edge, as the reference's do.
+        // Each cell starts at its slot's left edge.
         f32 gap = floorf(7.0f * m->scale), top = floorf(4.8f * m->scale + 0.5f);
         item = (R_Rect){ m->inset, top, m->inset + pitch.x - 2 * gap, floorf(8.0f * m->scale) + iconSize + floorf(53.0f * m->scale) + extra };
     }
@@ -2689,7 +2689,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
                     u64 row = state->view[at];
                     Prog_Entry *entry = &state->directory.entries[row];
                     UI_Key key = UI_KeyFromStr(directoryKey, entry->file.name);
-                    // An item drawn in the last frame eases from where it was to its place in a new layout, as the reference's do; others
+                    // An item drawn in the last frame eases from where it was to its place in a new layout; others
                     // start in place.
                     f32 placeX = (f32)(at - line * perLine) * pitch.x, placeY = (f32)line * pitch.y;
                     if (gliding && entry->shownFrame + 1 == UI->frameIndex) {
@@ -2743,7 +2743,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         f32 viewHeight = list->rect.y1 - list->rect.y0;
         if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(viewHeight - pitch.y));
         if (!state->viewCount && !state->loading) {
-            // Centered a little below the top, as the reference's.
+            // Centered a little below the top.
             String empty = state->directory.count ? S("No items match the filter.") : S("This folder is empty.");
             Prog__Spacer(UI_Flex(), UI_Pixels(floorf(m->row * 0.65f)));
             Prog__Label(empty, UI_Flex(), m->row, 0, theme->textDim, 0.5f);
@@ -2795,10 +2795,10 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     UI_Block *bar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("StatusBar")), UI_Flag_DrawBackground);
     UI_Parent(bar) {
         // While filtering, the text sits in a darker field and the box grows to the right for the buttons that work the filter.
-        // A narrow panel narrows the box, down to its icon, to keep the counts, the view and the zoom in sight, as the reference's does.
+        // A narrow panel narrows the box, down to its icon, to keep the counts, the view and the zoom in sight.
         b32 active = state->filtering || state->filter.length;
         f32 inset = floorf(2.4f * m->scale + 0.5f);
-        // The buttons' room opens and shuts easing, and snaps the last few pixels, as the reference's does.
+        // The buttons' room opens and shuts easing, and snaps the last few pixels.
         f32 extra = active ? 4 * Prog__ToolbarButtonWidth(m) : 0, grown = UI_Animate(UI_KeyFromStr(0, S("FilterGrow")), extra, extra);
         if (fabsf(grown - extra) < floorf(20.0f * m->scale + 0.5f)) grown = extra;
         f32 want = floorf(m->line * 15.3f) + floorf(6.4f * m->scale + 0.5f) + radius + floorf(grown + 0.5f);
@@ -2856,7 +2856,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
         Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
 
         String status = state->error;
-        // While a listing walks, what it has found so far, as the reference counts up through a big tree.
+        // While a listing walks, what it has found so far.
         Prog_JobInput *walking = state->directoryJob ? state->directoryJob->input : NULL;
         u64 found = walking ? atomic_load(&walking->foundFolders) + atomic_load(&walking->foundFiles) : 0;
         if (!status.length && state->loading && !found) {
@@ -2925,7 +2925,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 if (sortClick.clicked) Prog_QueueCommand(state, Prog_CommandKind_CycleFolderSort, 0, 0, sortClick.clickOrder);
                 UI_Parent(sortButton) Prog__FolderSortIcon(state->folderSort, UI->hotKey == sortButton->key ? theme->text : theme->icon, theme->panel, m);
                 Prog__Spacer(UI_Pixels(floorf(12.8f * m->scale + 0.5f)), UI_Pixels(m->pill));
-                // Centered on the icons' line, as the reference's.
+                // Centered on the icons' line.
                 UI_SetNextPrefWidth(UI_Pixels(floorf(1.6f * m->scale + 0.5f)));
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
@@ -3096,7 +3096,6 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_Block *stack = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(stack) {
                 f32 bar = MaxF32(2.0f, floorf(4.0f * m->scale + 0.5f));
-                // Every drive's bar is as long, whatever its name or the sidebar's width, as the reference's.
                 f32 width = floorf(76.8f * m->scale);
                 f32 used = floorf(width * (f32)(drive->totalBytes - Min(drive->freeBytes, drive->totalBytes)) / (f32)drive->totalBytes);
                 f32 top = floorf((m->row - m->line - bar * 2) * 0.5f);
@@ -3278,7 +3277,7 @@ typedef struct Prog_MenuPlace {
     f32 openerWidth;  // width of the panel that opened this one; 0 for the top level
 } Prog_MenuPlace;
 
-// The shadow of menus, the palette and Go To, as the reference's: only to the right and below, a fifth dark at the box's edge and fading out over 10.4 logical pixels.
+// The shadow of menus, the palette and Go To: only to the right and below, a fifth dark at the box's edge and fading out over 10.4 logical pixels.
 // Offsets are from the root.
 function void Prog__DropShadow(f32 x, f32 y, f32 width, f32 height, f32 radius, f32 opacity, const Prog_Metrics *m)
 {
@@ -3316,7 +3315,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 search = level == 0 && !state->menuCommands;
     if (!shown && !search) return false;
     // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators that lie on the boundary
-    // between two rows rather than taking room of their own, as the reference's do.
+    // between two rows rather than taking room of their own.
     f32 itemHeight = m->row, line = m->separator, separatorHeight = 0, pad = floorf(6.0f * m->scale + 0.5f);
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
     f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f);
@@ -3357,8 +3356,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     if (y + height > view.y1) y = view.y1 - height;
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
-    // A new panel of Filey's own fades in while its rows spread from a little closer together to their place; a system menu shows at once,
-    // as the reference's do.
+    // A new panel of Filey's own fades in while its rows spread from a little closer together to their place; a system menu shows at once.
     UI_Key revealKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first));
     b32 own = state->menuCommands != NULL;
     f32 reveal = own ? UI_Animate(revealKey, 1, 0) : 1;
@@ -3615,7 +3613,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     ArrayStr lines = detail.length ? StrSplit(&state->frameArena, detail, '\n') : (ArrayStr){0};
     f32 pad = floorf(9.6f * s + 0.5f), gap = floorf(4.8f * s + 0.5f), chipGap = floorf(8.0f * s + 0.5f), lineHeight = floorf(37.6f * s + 0.5f);
     f32 margin = floorf(6.4f * s + 0.5f);
-    // Measured on the reference: the rows of a described tip, and of the others its words and its command, as tall as each other.
+    // The rows of a described tip, and of the others its words and its command, as tall as each other.
     f32 top = described ? floorf(8.0f * s + 0.5f) : 0, pitch = described ? floorf(18.4f * s + 0.5f) : floorf(m->line * 1.6f + 0.5f);
     f32 commandRow = plain ? 0 : described ? floorf(32.0f * s + 0.5f) : detail.length ? pitch : lineHeight;
     f32 bottom = described ? floorf((plain ? 8.8f : 4.8f) * s + 0.5f) : 0;
@@ -3666,9 +3664,9 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// The command palette under the toolbar, as the reference draws it: the text typed in a field at the top, the commands it finds in two-line rows with what
+// The command palette under the toolbar: the text typed in a field at the top, the commands it finds in two-line rows with what
 // each does and its hotkeys, and the keys that work it at the bottom.
-// The palette's tab mode, as the reference's Search Tabs: a box hanging from the tab list button with the text typed at the top and under it the
+// The palette's tab mode, Search Tabs: a box hanging from the tab list button with the text typed at the top and under it the
 // panel's tabs it finds, each with its folder's icon, name and path.
 function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
 {
@@ -3692,14 +3690,14 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     u32 first = state->paletteHighlight >= shownMax ? state->paletteHighlight - shownMax + 1 : 0;
     u32 shown = Min(count - first, shownMax);
     // As wide as the longest name or path, within the window.
-    // "tabs" even for one, as the reference words it.
+    // "tabs" even for one.
     String hint = StrFormat(&state->frameArena, "Search %u tabs...", state->tabCount);
     f32 textWidth = R_TextWidth(m->font, hint) + floorf(16.0f * s + 0.5f);
     for (u32 i = 0; i < count; ++i) {
         String path = Prog_TabPath(state, matches[i]);
         textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog__FolderName(path)), R_TextWidth(m->detail, Prog__CrumbPath(state, path))));
     }
-    // No narrower than the reference's box for a short name.
+    // No narrower than this for a short name.
     f32 width = floorf(MinF32(MaxF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, 187.2f * s), view.x1 - view.x0 - 2 * m->gap));
     f32 height = field + line + 2 * pad + (f32)shown * rowHeight;
     f32 x = floorf(MaxF32(view.x0 + m->gap, button.x1 - width));
@@ -3811,7 +3809,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// The width of the palette, Go To and the Options popup in a window `view` wide: half of it, from 720 to 960 units, as the reference's,
+// The width of the palette, Go To and the Options popup in a window `view` wide: half of it, from 720 to 960 units,
 // inside the margins.
 function f32 Prog__PaletteWidth(f32 view, f32 margin, f32 s)
 {
@@ -3887,7 +3885,7 @@ function void Prog__MarkedLabel(Prog_State *state, String text, String search, c
     }
 }
 
-// The palette's Go To mode, as the reference's: the path typed in a field with buttons that step back, forward and up through what was typed,
+// The palette's Go To mode: the path typed in a field with buttons that step back, forward and up through what was typed,
 // then the recent folders and the bookmarks under titles that fold them, or what is inside the folder typed, and the keys that work it.
 function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
 {
@@ -3990,7 +3988,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(text) {
                 if (!state->palette.length) {
-                    // A little past the caret, as the reference sets it.
+                    // A little past the caret.
                     UI_SetNextFloatingOffset((UI_Vec2){ floorf(3.2f * s + 0.5f), floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
@@ -4149,7 +4147,7 @@ function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value
     Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, preview ? 1 : 0, order)->target = (u64)(i64)value;
 }
 
-// A choice's name as the popup shows it: the reference's words where Settings.txt has shorter ones, else with a capital first letter.
+// A choice's name as the popup shows it: longer words where Settings.txt has shorter ones, else with a capital first letter.
 function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
 {
     if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return S("Local Disks");
@@ -4161,7 +4159,7 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     return result;
 }
 
-// The control at the right of `option`'s row, as the reference draws them: a switch, a stepper with its value between - and +,
+// The control at the right of `option`'s row: a switch, a stepper with its value between - and +,
 // a slider dragged along its track, or a choice that moves on to its next value.
 function void Prog__OptionControl(Prog_State *state, Prog_Option option, const Prog_Metrics *m)
 {
@@ -4182,7 +4180,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                                                   UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (value ? 0 : UI_Flag_DrawBorder));
             UI_Interaction interaction = UI_InteractionFromBlock(toggle);
             if (interaction.clicked) Prog__QueueOption(state, option, !value, interaction.clickOrder, false);
-            // The knob slides across, easing, as the reference's does; the color changes at once.
+            // The knob slides across, easing; the color changes at once.
             f32 knobX = UI_Animate(UI_KeyFromStr(toggle->key, S("Knob")), value ? wide - inset - knob : inset, value ? wide - inset - knob : inset);
             UI_Parent(toggle) {
                 UI_SetNextFloatingOffset((UI_Vec2){ floorf(knobX + 0.5f), inset });
@@ -4278,7 +4276,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
     }
 }
 
-// An option's row in the Options popup: its name over its description, and its control at the right; the highlight is an outline, as the reference's.
+// An option's row in the Options popup: its name over its description, and its control at the right; the highlight is an outline.
 function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, b32 highlighted, f32 face, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -4328,7 +4326,7 @@ function void Prog__IconRect(f32 x, f32 y, f32 width, f32 height, R_Color color,
     UI_AddBlock(UI_Flag_Floating | (border > 0 ? UI_Flag_DrawBorder : UI_Flag_DrawBackground));
 }
 
-// The folder sort's icon in the block being built, as the reference draws it: the top of a folder over a bar for folders first, of a file for files
+// The folder sort's icon in the block being built: the top of a folder over a bar for folders first, of a file for files
 // first, and a folder in front of a file for both mixed. `behind` is what it is drawn on, which hides the file behind the folder.
 function void Prog__FolderSortIcon(Prog_FolderSort sort, R_Color color, R_Color behind, const Prog_Metrics *m)
 {
@@ -4373,7 +4371,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     R_Rect anchor = state->zoomAnchor;
     UI_Key sliderKey = UI_KeyFromStr(0, S("ZoomPopupSlider"));
     // Up while the pointer is over the view button or the popup, while the slider is dragged, and for a moment after each Ctrl+wheel step, Ctrl
-    // held or not; then it fades out, as the reference's does.
+    // held or not; then it fades out.
     b32 over = UI__Contains(anchor, UI->mouse) || (state->zoomShown && UI__Contains(state->zoomBox, UI->mouse));
     u64 sinceWheel = UI->nowMicroseconds - Min(state->zoomWheelTime, UI->nowMicroseconds);
     b32 wheeled = state->zoomWheelTime && sinceWheel < 450000;
@@ -4432,7 +4430,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
                 Prog__Icon(icons[i], floorf(30.4f * s + 0.5f), rowHeight, i == lit ? theme->text : theme->icon, 0.6f, m);
                 Prog__Label(names[i], UI_Flex(), rowHeight, 0, theme->text, 0);
             }
-            // A line under every row but the last, as the reference's.
+            // A line under every row but the last.
             if (i > 0) {
                 UI_SetNextPrefWidth(UI_Pixels(rowWidth));
                 UI_SetNextPrefHeight(UI_Pixels(m->separator));
@@ -4444,7 +4442,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         // The slider: a track from XL Icons down to Details, filled below the thumb.
         f32 track = floorf(12.8f * s + 0.5f), knob = floorf(20.0f * s + 0.5f);
         f32 trackX = width - floorf(10.4f * s + 0.5f) - track, trackTop = topRow + floorf(1.6f * s + 0.5f), trackBottom = bottomRow - floorf(0.8f * s + 0.5f);
-        // The thumb eases to a new zoom, as the reference's does; it starts where the zoom is when the popup shows.
+        // The thumb eases to a new zoom; it starts where the zoom is when the popup shows.
         f32 target = Prog__ZoomY(Prog__ZoomFraction(state->zoom));
         f32 thumb = floorf(UI_Animate(UI_KeyFromStr(0, S("ZoomPopupThumb")), target, target) + 0.5f);
         // Pressing or dragging along the slider sets the icon size it points at, or the nearest view below M Icons.
@@ -4484,7 +4482,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
 
 function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m);
 
-// The palette, Go To, Search Tabs or Options while open, and for a moment after they close as they fade out, as the reference's do.
+// The palette, Go To, Search Tabs or Options while open, and for a moment after they close as they fade out.
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
     if (state->paletteOpen) {
@@ -5522,7 +5520,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     UI_Parent(pane) {
         UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(toolbar) {
-            // Spaced as the reference's: the groups sit a little closer to the lines between them than the list toolbar's buttons do.
+            // The groups sit a little closer to the lines between them than the list toolbar's buttons do.
             f32 tight = m->gap - floorf(1.6f * s + 0.5f);
             Prog__Spacer(UI_Pixels(floorf(3.2f * s + 0.5f)), UI_Pixels(bar));
             Prog__ToolbarButton(state, S("InspectorClose"), Icon_X, Prog_CommandKind_TogglePreview, true, m);
@@ -5697,7 +5695,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 previewHeight = inspecting && below ? floorf((mainHeight - m->separator) * 0.5f) : 0;
     f32 listWidth = width - previewWidth;
     Prog_Columns columns = Prog__Columns(state, scale, listWidth - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
-    // A panel a split just made zooms in from 60% of its size about its middle, easing with a 38 ms time constant, as the reference's do.
+    // A panel a split just made zooms in from 60% of its size about its middle, easing with a 38 ms time constant.
     u64 split = state->panels[index].splitMicroseconds;
     if (split && UI->animate) {
         f32 grown = 1 - expf(-(f32)(UI->nowMicroseconds - Min(split, UI->nowMicroseconds)) / 38000.0f);
@@ -5719,7 +5717,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), below ? UI_Layout_Vertical : UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(main) {
             // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more
-            // slowly, as the reference's; the one that stops being it fades to dim, while the new one brightens at once.
+            // slowly; the one that stops being it fades to dim, while the new one brightens at once.
             Prog_Panel *own = &state->panels[index];
             if (!own->drawn || own->wasActive != active) {
                 // A panel's first frame shows it settled, so the window does not open with a slide.
@@ -5879,7 +5877,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (state->tabDragCancelled && UI->activeKey != state->tabDragKey) state->tabDragCancelled = false;
     state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
-    // Spacing moves the rows apart or together from the reference's 4, two pixels a step at 125%.
+    // Spacing moves the rows apart or together from the default 4, two pixels a step at 125%.
     metrics.row = MaxF32(metrics.line + 2, metrics.row + (f32)state->spacingShift * floorf(1.6f * scale + 0.5f));
     UI->squareCorners = state->squareCorners;
     UI->reverseScroll = state->reverseScroll;

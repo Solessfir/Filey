@@ -1715,7 +1715,7 @@ function void TestSettings(void)
         Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
         Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 2 && Prog_ThemeUser.background.r == Prog_ThemeLight.background.r);
-        // The pointer's options, on by default where the reference's are.
+        // The pointer's options and their defaults.
         Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
         Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));
         Check(look.actOnRelease && look.singleClick && look.underlineAlways && look.noOverscroll && look.reverseScroll && look.doubleClickToParent && !look.hoverToSelect);

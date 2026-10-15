@@ -644,8 +644,8 @@ function void TestProgramCommands(void)
     ArenaRelease(&state.viewArena);
 }
 
-// The reference's Go To scores, worked out by hand from its rules.
-// The inspector wraps as the reference does: a space that does not fit starts the next row, a word that does not moves down whole,
+// Go To scores, worked out by hand from its rules.
+// The inspector wraps: a space that does not fit starts the next row, a word that does not moves down whole,
 // and a word longer than the row is cut; tabs count to their stops.
 function void TestInspectorWrap(void)
 {
@@ -667,7 +667,7 @@ function void TestGoToScore(void)
     Check(Prog_FuzzyScore(S("That"), (String){0}, S("down"), NULL, NULL) == 0);
     // Each word scores on its own, and the later "n" right after the space beats the earlier one.
     Check(Prog_FuzzyScore(S("Windows NT"), (String){0}, S("win nt"), NULL, NULL) == 529 + 293);
-    // The filter's cases from the reference, in its order: the best place of the letters, and its folder in a listing of the subfolders.
+    // The filter's cases, in order: the best place of the letters, and its folder in a listing of the subfolders.
     u8 marks[16];
     Check(Prog_EntryScore(S("abc.txt"), S("abc"), NULL) == 538);
     Check(Prog_EntryScore(S("aXbXc_abc.txt"), S("abc"), marks) == 489 && !marks[0] && marks[6] && marks[7] && marks[8] && !marks[9]);

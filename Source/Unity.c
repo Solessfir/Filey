@@ -104,7 +104,7 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     R_Font font = {0}, detailFont = {0}, icons = {0}, smallIcons = {0};
     const Prog_FontName *name = &loop->state.font;
     String family = name->length ? StrMake(name->text, name->length) : S("Segoe UI");
-    // Icons are a little smaller than the text's line height, which gives their strokes the reference's weight.
+    // Icons are a little smaller than the text's line height, which gives their strokes the right weight.
     b32 ok = R_FontCreate(&arena, family, fontPixelSize * scale, &font) &&
              R_FontCreate(&arena, family, (fontPixelSize - 96.0f / 72.0f) * scale, &detailFont) &&
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f + 0.5f),
