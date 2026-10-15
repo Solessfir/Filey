@@ -1031,8 +1031,10 @@ typedef struct Prog_State {
     // The build shows it; the drop, which arrives before the next build, uses the one committed after the last.
     u64 bookmarkDropShown;
     u64 bookmarkDrop;
-    u64 bookmarkDrag;         // the bookmark being dragged among the others, plus one
-    b32 bookmarkDragHeld;     // its row still held in this build
+    // The sidebar folder the last build found a drag over would go into, and the bookmark being dragged, both in dropPlaceArena.
+    Arena dropPlaceArena;
+    String dropPlace;
+    String dragPlace;
     u64 bookmarkGap;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
     Arena recentArena;
     ArrayStr recents;

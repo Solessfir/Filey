@@ -1313,6 +1313,18 @@ function void Prog__OpenInTabs(Prog_State *state, u64 row)
 function void Prog_DragSelection(Prog_State *state)
 {
     state->dragRequested = false;
+    // A bookmark's folder, from the sidebar.
+    if (state->dragPlace.length) {
+        Scratch scratch = GetScratch();
+        String path = StrCopy(scratch.arena, state->dragPlace), name = Prog__FolderName(path);
+        state->dragPlace = (String){0};
+        state->dragging = true;
+        P_DragFiles(Prog_ParentPath(path), &name, 1);
+        state->dragging = false;
+        UI_CancelActive();
+        ReleaseScratch(scratch);
+        return;
+    }
     if (state->loading || !state->selectedCount) return;
     Scratch scratch = GetScratch();
     String *names = ArenaPushArray(scratch.arena, state->selectedCount, String);
@@ -1484,13 +1496,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!path.length) break;
                 if (command->kind == Prog_CommandKind_SidebarOpenInTab) Prog_OpenTab(state, path, state->activeTab + 1, false);
                 else if (!StrIsEqual(path, state->directory.path)) Prog_RequestDirectory(state, path, true, 0);
-            } break;
-            case Prog_CommandKind_MoveBookmark: {
-                if (command->row >= state->bookmarks.header.count) break;
-                ArrayStr moved = {0};
-                ArrayPush(&state->frameArena, moved, StrCopy(&state->frameArena, state->bookmarks.v[command->row]));
-                Prog_PinBookmarks(state, &moved, command->target);
-                changed = true;
             } break;
             case Prog_CommandKind_SidebarMenu: {
                 String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
@@ -1955,6 +1960,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         }
     }
     Prog__UsePanel(state, state->activePanel);
+    if (state->dropPlace.length) drop = state->dropPlace;
     P_SetDropDirectory(drop);
     // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);

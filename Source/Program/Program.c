@@ -3043,7 +3043,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
     UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
     // Not lit under a drag, which would hide the line where it goes.
-    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !state->bookmarkDrag && !P_DropPending();
+    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending();
     // Lit while it is shown, or while its menu is open.
     b32 current = StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget));
     UI_SetNextPrefWidth(UI_Flex());
@@ -3063,19 +3063,26 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_SetNextColors((UI_Colors){ .background = theme->selection });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_RightMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    // Under a drag the middle of a row takes it into its folder, lit; a bookmark's edges put it between the bookmarks instead.
+    if (P_DropPending() && path.length && !StrIsEqual(path, Prog_ThisPC) && UI__Contains(row->rect, UI->mouse)) {
+        f32 edge = group == Prog_Group_Bookmarks ? (row->rect.y1 - row->rect.y0) * 0.25f : 0;
+        if (UI->mouse.y >= row->rect.y0 + edge && UI->mouse.y < row->rect.y1 - edge) {
+            state->dropPlace = StrCopy(&state->dropPlaceArena, path);
+            row->flags |= UI_Flag_DrawBackground;
+        }
+    }
+    // A bookmark dragged away is dragged as its folder, which the bookmarks' edges take to move it among them.
+    if (group == Prog_Group_Bookmarks && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->dragging && !state->dragRequested) {
+        state->dragPlace = StrCopy(&state->dropPlaceArena, path);
+        state->dragRequested = true;
+    }
     if (interaction.pressed && interaction.button == MouseButton_Right) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarMenu, (u64)group, 0, interaction.pressOrder);
         command->target = index;
     }
     // Ctrl opens it in a new tab, as the middle button does.
     b32 inTab = interaction.button == MouseButton_Middle || (interaction.button == MouseButton_Left && (UI->mods & KeyMod_Control));
-    // A bookmark dragged along the others moves among them instead of opening.
-    b32 moving = group == Prog_Group_Bookmarks && state->bookmarkDrag;
-    if (group == Prog_Group_Bookmarks && interaction.active && interaction.button == MouseButton_Left && (interaction.isDragging || state->bookmarkDrag == index + 1)) {
-        state->bookmarkDrag = index + 1;
-        state->bookmarkDragHeld = true;
-    }
-    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab && !moving) {
+    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
@@ -3084,7 +3091,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         state->tooltipRect = row->rect;
         state->tooltipPath = path;
     }
-    if (interaction.clicked && inTab && !moving) {
+    if (interaction.clicked && inTab) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpenInTab, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
@@ -3207,7 +3214,6 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         R_Rect title = sidebar->last->rect, zone = title;
         u64 count = state->bookmarks.header.count, before = count;
         f32 lineY = title.y1;
-        state->bookmarkDragHeld = false;
         body = Prog__GroupBody(state, Prog_Group_Bookmarks, m);
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
@@ -3224,22 +3230,17 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             }
         }
         b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1;
-        // A moved bookmark goes where it is let go, or stays where it was outside the section.
-        if (state->bookmarkDrag && !state->bookmarkDragHeld) {
-            if (inZone) Prog_QueueCommand(state, Prog_CommandKind_MoveBookmark, state->bookmarkDrag - 1, 0, 0)->target = before;
-            state->bookmarkDrag = 0;
-        }
-        state->bookmarkGap = (state->bookmarkDrag || P_DropPending()) && inZone ? before + 1 : 0;
+        state->bookmarkGap = P_DropPending() && inZone && !state->dropPlace.length ? before + 1 : 0;
         if (state->bookmarkGap) {
             f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
             // Floating offsets start inside the sidebar's padding.
-            UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY - thickness * 0.5f) - sidebar->rect.y0 });
+            UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
             UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
             UI_SetNextPrefHeight(UI_Pixels(thickness));
             UI_SetNextColors((UI_Colors){ .background = theme->accent });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
-        if (P_DropPending() && inZone) state->bookmarkDropShown = before + 1;
+        state->bookmarkDropShown = state->bookmarkGap;
         Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
         body = Prog__GroupBody(state, Prog_Group_Storage, m);
         if (body) UI_Parent(body) {
@@ -3604,7 +3605,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->tooltipKey || state->menuOpen || state->paletteOpen) return;
     // None while something is dragged.
-    if (state->bookmarkDrag || state->tabDrag || state->dragging || P_DropPending()) return;
+    if (state->tabDrag || state->dragging || P_DropPending()) return;
     if (UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait"))) < 700000) {
         UI_KeepAnimating();
         return;
@@ -5878,6 +5879,8 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tooltipPath = (String){0};
     state->inspectorRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
+    ArenaClear(&state->dropPlaceArena);
+    state->dropPlace = (String){0};
     state->pointerPanel = 0;
     Prog__EnsureTab(state);
     // A dragged tab is let go where the last build found it would go; Ctrl, held now, copies it.
