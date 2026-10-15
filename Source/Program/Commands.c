@@ -1333,7 +1333,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelect7:
             case Prog_CommandKind_TabSelect8: Prog_SelectTab(state, (u32)(command->kind - Prog_CommandKind_TabSelect1)); break;
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
-            case Prog_CommandKind_ToggleQuickAccess: state->sidebarHidden = !state->sidebarHidden; break;
+            case Prog_CommandKind_ToggleQuickAccess: {
+                state->sidebarHidden = !state->sidebarHidden;
+                state->sidebarToggled = PlatformNowMicroseconds();
+            } break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
             case Prog_CommandKind_InspectorToggleWordWrap: state->inspectorWrap = !state->inspectorWrap; break;
             case Prog_CommandKind_InspectorToggleDetails: state->inspectorDetails = !state->inspectorDetails; break;

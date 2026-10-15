@@ -399,7 +399,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_7, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelect7 },
     { .key = Key_8, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelect8 },
     { .key = Key_9, .mods = KeyMod_Control, .command = Prog_CommandKind_TabSelectLast },
-    { .key = Key_B, .mods = KeyMod_Control, .command = Prog_CommandKind_BookmarksToggle },
+    { .key = Key_B, .mods = KeyMod_Control, .command = Prog_CommandKind_ToggleQuickAccess },
     { .key = Key_Space, .mods = 0, .command = Prog_CommandKind_TogglePreview },
     { .key = Key_P, .mods = KeyMod_Alt, .command = Prog_CommandKind_TogglePreview },
     { .key = Key_Z, .mods = KeyMod_Control, .command = Prog_CommandKind_Undo },

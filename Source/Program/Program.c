@@ -4442,8 +4442,26 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     UI->root->props.childrenPadding = (UI_Padding){0};
     UI->root->props.childrenLayout = UI_Layout_Horizontal;
     R_Rect view = UI->root->rect;
-    f32 sidebar = state->sidebarHidden ? 0 : m->sidebar + m->separator;
-    if (sidebar > 0) Prog__SidebarColumn(state, sidebar, view.y1 - view.y0, scale, m);
+    // The sidebar slides in and out from the left edge, its contents moving with it rather than squeezing, easing with a 15 ms time constant.
+    f32 full = m->sidebar + m->separator, shown = state->sidebarHidden ? 0 : 1;
+    if (state->sidebarToggled && UI->animate) {
+        f32 eased = 1 - expf(-(f32)(UI->nowMicroseconds - Min(state->sidebarToggled, UI->nowMicroseconds)) / 15000.0f);
+        if (eased < 0.995f) {
+            shown = state->sidebarHidden ? 1 - eased : eased;
+            UI_KeepAnimating();
+        } else {
+            state->sidebarToggled = 0;
+        }
+    }
+    f32 sidebar = floorf(full * shown + 0.5f);
+    if (sidebar > 0) {
+        UI_SetNextPrefWidth(UI_Pixels(sidebar));
+        UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenPadding((UI_Padding){ sidebar - full, 0, 0, 0 });
+        UI_Block *slide = UI_AddBlock(UI_Flag_Clip);
+        UI_Parent(slide) Prog__SidebarColumn(state, full, view.y1 - view.y0, scale, m);
+    }
     R_Rect area = { view.x0 + sidebar, view.y0, view.x1, view.y1 };
     Prog__Layout(state, 0, area, area, columns, scale, m);
     UI->keySeed = 0;
