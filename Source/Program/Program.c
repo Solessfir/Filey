@@ -816,10 +816,11 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         UI_SetNextPrefHeight(UI_Pixels(height + hang));
                         UI_SetNextCornerRadius(tabRadius);
                         UI_SetNextBorderThickness(stroke);
-                        b32 washed = hot && UI->hotKey != closeKey;
+                        // The shown tab is not washed, as the reference's is not, which also keeps its curved sides the same color as it.
+                        b32 washed = hot && !shown && UI->hotKey != closeKey;
                         UI_SetNextColors((UI_Colors){ .background = shown || washed ? theme->background : (R_Color){0}, .border = theme->tabBorder });
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-                        // Under the pointer it is washed in the selection color, unless the pointer is on its close button.
+                        // Under the pointer another tab is washed in the selection color, unless the pointer is on its close button.
                         if (washed) {
                             R_Color wash = theme->selection;
                             wash.a *= 0.35f;
