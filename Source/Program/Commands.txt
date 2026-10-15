@@ -39,12 +39,14 @@ command Back {
     label   = "Go Back^previous,history"
     tooltip = "Go to the previous folder in the history."
     hotkey  = "Alt+Left"
+    hotkey  = "MouseX1"
 }
 
 command Forward {
     label   = "Go Forward^next,history"
     tooltip = "Go to the next folder in the history."
     hotkey  = "Alt+Right"
+    hotkey  = "MouseX2"
 }
 
 command Up {

@@ -58,6 +58,8 @@ enum {
     Key_ContextMenu,  // the Menu/Application key
     Key_Comma,
     Key_Equals,
+    Key_MouseX1,      // the mouse's side buttons, back and forward, which bind like keys
+    Key_MouseX2,
 
     Key_Count,
 };

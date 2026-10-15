@@ -388,6 +388,12 @@ function void PointerButton(void *data, struct wl_pointer *pointer, u32 serial, 
         case BTN_LEFT:   mouseButton = MouseButton_Left; break;
         case BTN_RIGHT:  mouseButton = MouseButton_Right; break;
         case BTN_MIDDLE: mouseButton = MouseButton_Middle; break;
+        case BTN_SIDE:
+        case BTN_EXTRA: {
+            PlatformEvent *event = PlatformPushEvent(state == WL_POINTER_BUTTON_STATE_PRESSED ? PlatformEventKind_KeyDown : PlatformEventKind_KeyUp);
+            event->key = button == BTN_SIDE ? Key_MouseX1 : Key_MouseX2;
+            event->mods = Wl.mods;
+        } return;
         default:         return;
     }
 

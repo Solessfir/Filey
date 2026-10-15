@@ -175,13 +175,13 @@ global const char *Prog_KeyNames[Key_Count] = {
     [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PageUp", [Key_PageDown] = "PageDown", [Key_ContextMenu] = "ContextMenu", [Key_Comma] = "Comma",
-    [Key_Equals] = "Equals",
+    [Key_Equals] = "Equals", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
 };
 global const char *Prog_KeyShortNames[Key_Count] = {
     [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
-    [Key_Equals] = "=",
+    [Key_Equals] = "=", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
 };
 
 function b32 Prog__EqualFolded(String a, String b)

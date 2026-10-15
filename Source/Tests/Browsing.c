@@ -1741,6 +1741,11 @@ function void TestSettings(void)
     Check(Prog_SettingsTemplate(&arena, &state).length > 0);
     Prog_ApplySettings(&state, (String){0});
     Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == Prog_ThemeCustom.accent.r && Prog_FindHotkey(&state, Key_F5, 0));
+    // The mouse's side buttons go back and forward.
+    hotkey = Prog_FindHotkey(&state, Key_MouseX1, 0);
+    Check(hotkey && hotkey->command == Prog_CommandKind_Back);
+    hotkey = Prog_FindHotkey(&state, Key_MouseX2, 0);
+    Check(hotkey && hotkey->command == Prog_CommandKind_Forward);
     Check(Prog_ThemeGlassUser.menu.a == Prog_ThemeGlass.menu.a && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
     ArenaRelease(&arena);
 }

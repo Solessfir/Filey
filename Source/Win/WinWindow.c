@@ -330,6 +330,12 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         case WM_RBUTTONUP:   WinMouseButton(PlatformEventKind_MouseUp, wParam, lParam, MouseButton_Right); return 0;
         case WM_MBUTTONDOWN: WinMouseButton(PlatformEventKind_MouseDown, wParam, lParam, MouseButton_Middle); return 0;
         case WM_MBUTTONUP:   WinMouseButton(PlatformEventKind_MouseUp, wParam, lParam, MouseButton_Middle); return 0;
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONUP: {
+            PlatformEvent *event = PlatformPushEvent(message == WM_XBUTTONDOWN ? PlatformEventKind_KeyDown : PlatformEventKind_KeyUp);
+            event->key = GET_XBUTTON_WPARAM(wParam) == XBUTTON1 ? Key_MouseX1 : Key_MouseX2;
+            event->mods = WinCurrentMods();
+        } return TRUE;
 
         case WM_MOUSEWHEEL:
         case WM_MOUSEHWHEEL: {
