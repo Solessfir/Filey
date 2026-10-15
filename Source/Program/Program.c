@@ -68,7 +68,8 @@ global const Prog_Theme Prog_ThemeGlass = {
     .window       = { 25 / 255.0f, 25 / 255.0f, 25 / 255.0f, 0.55f },
     .background   = { 0, 0, 0, 0 },
     .inner        = Prog_White(0.02f),
-    .caption      = Prog_White(0.025f),
+    // Clear like the panels, as the shown tab cannot hide a tint under it the way an opaque tab does, and would show lighter than its panel.
+    .caption      = { 0, 0, 0, 0 },
     .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.97f },
     .panel        = Prog_White(0.025f),
     .alternateRow = Prog_White(0.012f),
