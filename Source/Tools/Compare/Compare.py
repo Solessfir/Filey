@@ -15,6 +15,7 @@
 # COMPARE_REFERENCE names the reference executable and COMPARE_REFERENCE_STATE its settings files, ';' separated, which are copied before every
 # run and put back after it. COMPARE_OUT is the output folder (%TEMP%/filey-compare); Filey's settings live in its Config folder, which starts
 # with "theme = fullmoon". COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window.
+# COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times.
 import ctypes, ctypes.wintypes as wt, os, re, shutil, subprocess, sys, time
 from PIL import Image, ImageChops
 
@@ -89,6 +90,7 @@ class App:
             e['FILEY_CAPTURE_DIR'] = self.frames; e['FILEY_CAPTURE_SEQUENCE'] = '1'
         # Shown without being activated; the runs also lock the foreground, so the window being worked in keeps the keyboard.
         startup = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=4)
+        launched = time.perf_counter()
         self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
         self.mapping, self.fake = inject(self.process.pid)
         self.window = None
@@ -103,6 +105,13 @@ class App:
         # The reference draws at the size it opened with and only stretches to a size set from outside, so it opens at its size from the session
         # file instead; Filey takes a new size at once.
         if exe == FILEY: u32.MoveWindow(self.window, x, y, w, h, True)
+        # COMPARE_STARTUP grabs the window for a while and reports when it first looked as it does at the end, in ms from the launch.
+        if os.environ.get('COMPARE_STARTUP'):
+            grabs = []
+            while time.perf_counter() - launched < 3.0: grabs.append((time.perf_counter(), self.grab_screen()))
+            final = grabs[-1][1]
+            settled = next(t for t, image in grabs if not ImageChops.difference(image, final).point(lambda v: 255 if v > 24 else 0).getbbox())
+            self.startup = int((settled - launched) * 1000)
         self.fake.hwnd = self.window; self.fake.active = 1; self.fake.x, self.fake.y = -10000, -10000
         self.post(0x6, 1, 0); self.post(0x7, 0, 0)
         self.buttons = 0
@@ -268,6 +277,7 @@ def run(side, name, text, tags):
             with open(p, 'w', encoding='utf-8') as f: f.write(session)
     u32.LockSetForegroundWindow(1)
     app = App(exe, [path], env, *geometry)
+    if hasattr(app, 'startup'): print(f'{side} settled {app.startup} ms after launch')
     time.sleep(1.5)
     try: steps(app, text, side, name, tags)
     finally:
