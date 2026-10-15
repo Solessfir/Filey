@@ -153,6 +153,9 @@ typedef struct Prog_Entry {
     // Among the recents, and sorted before the rest for it.
     b8 recent;
     b8 recentFirst;
+    // Where a grid view last drew it, in the list's content, and in which UI frame, so that it can glide to where a new layout puts it.
+    f32 shownX, shownY;
+    u64 shownFrame;
 } Prog_Entry;
 
 // The folder that lists the drives, as Explorer's This PC does; no real path looks like it.
@@ -775,11 +778,15 @@ typedef struct Prog_State {
     i32 iconSize;
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
     Prog_IconAtlas iconAtlas;
-    // Thumbnails for the icon views, keyed by P_FileThumbnailKey, at the one size the zoom draws them.
-    // A new size, or a full atlas, drops them all; the items still shown ask again.
+    // Thumbnails for the icon views, keyed by P_FileThumbnailKey, loaded at the tier of sizes at or above what the zoom draws and scaled down
+    // to it, so that most zoom steps load nothing. A new tier keeps the last one's, which are drawn until the new ones come; a full atlas
+    // drops them all, and the items still shown ask again.
     Arena thumbnailArena;
     Prog_IconMap thumbnails;
     Prog_IconAtlas thumbnailAtlas;
+    Arena thumbnailBeforeArena;
+    Prog_IconMap thumbnailsBefore;
+    Prog_IconAtlas thumbnailBeforeAtlas;
     // The busy spinner's frames in the icon atlas; its eight rays repeat every eighth of a turn, so the frames cover that much.
     Prog_Icon spinner[Prog_SpinnerFrames];
     i32 spinnerSize;          // iconSize the frames were drawn at; 0 before they are
@@ -821,6 +828,7 @@ typedef struct Prog_State {
     b32 moveRequested;
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
+    u64 gridMoveTime;         // when the grid's layout last changed, which its items glide from for a moment
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
     // The views on a slider over the active panel's view button: shown while the pointer is over the button or the popup, and for a moment
     // after each Ctrl+wheel step.

@@ -2546,6 +2546,9 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         f32 gap = floorf(7.0f * m->scale), top = floorf(8.0f * m->scale);
         item = (R_Rect){ m->inset + gap, top, m->inset + pitch.x - gap, top + iconSize + floorf(53.0f * m->scale) };
     }
+    // A new layout, from a zoom step or a narrower panel, lets the items glide from where they were for a moment.
+    if (perLine != state->gridColumns || pitch.x != state->gridPitch.x || pitch.y != state->gridPitch.y) state->gridMoveTime = UI->nowMicroseconds;
+    b32 gliding = UI->animate && UI->nowMicroseconds - Min(state->gridMoveTime, UI->nowMicroseconds) < 500000;
     state->gridColumns = perLine;
     state->gridPitch = pitch;
     state->gridItem = item;
@@ -2584,11 +2587,23 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             UI_Parent(cells) {
                 for (u64 at = line * perLine; at < Min(state->viewCount, (line + 1) * perLine); ++at) {
                     u64 row = state->view[at];
-                    UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
+                    Prog_Entry *entry = &state->directory.entries[row];
+                    UI_Key key = UI_KeyFromStr(directoryKey, entry->file.name);
+                    // An item drawn in the last frame eases from where it was to its place in a new layout, as the reference's do; others
+                    // start in place.
+                    f32 placeX = (f32)(at - line * perLine) * pitch.x, placeY = (f32)line * pitch.y;
+                    if (gliding && entry->shownFrame + 1 == UI->frameIndex) {
+                        entry->shownX = UI_Approach(entry->shownX, placeX, 0.5f);
+                        entry->shownY = UI_Approach(entry->shownY, placeY, 0.5f);
+                    } else {
+                        entry->shownX = placeX;
+                        entry->shownY = placeY;
+                    }
+                    entry->shownFrame = UI->frameIndex;
                     // Each cell is a slot of the pitch, with the item inside it where the grid puts it.
                     UI_SetNextPrefWidth(UI_Pixels(pitch.x));
                     UI_SetNextPrefHeight(UI_Pixels(pitch.y));
-                    UI_SetNextChildrenPadding((UI_Padding){ item.x0 - m->inset, item.y0, 0, 0 });
+                    UI_SetNextChildrenPadding((UI_Padding){ item.x0 - m->inset + floorf(entry->shownX - placeX + 0.5f), item.y0 + floorf(entry->shownY - placeY + 0.5f), 0, 0 });
                     UI_Block *slot = UI_AddBlock(0);
                     UI_Parent(slot) {
                         if (view == Prog_View_Columns) {
