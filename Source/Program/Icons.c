@@ -203,13 +203,14 @@ function void Prog__DrawSpinners(Prog_State *state)
     i32 size = state->iconSize;
     Scratch scratch = GetScratch();
     u32 *pixels = ArenaPushArray(scratch.arena, (u64)size * (u64)size, u32);
-    f32 radius = (f32)size * 0.5f, inner = radius * 0.45f, outer = radius * 0.82f, half = MaxF32(0.75f, radius * 0.15f);
+    // Centered on a pixel, as the reference's, so that the straight rays are one sharp column wide with soft edges.
+    f32 radius = (f32)size * 0.5f, center = floorf(radius) + 0.5f, inner = radius * 0.42f, outer = radius * 0.78f, half = MaxF32(0.6f, radius * 0.1f);
     f32 pi = 3.14159265f;
     for (u32 frame = 0; frame < Prog_SpinnerFrames; ++frame) {
         f32 turn = (f32)frame / Prog_SpinnerFrames * (pi / 4);
         for (i32 y = 0; y < size; ++y) {
             for (i32 x = 0; x < size; ++x) {
-                f32 px = (f32)x + 0.5f - radius, py = (f32)y + 0.5f - radius;
+                f32 px = (f32)x + 0.5f - center, py = (f32)y + 0.5f - center;
                 f32 nearest = 1e9f;
                 for (u32 ray = 0; ray < 8; ++ray) {
                     f32 angle = turn + (f32)ray * (pi / 4), dx = cosf(angle), dy = sinf(angle);
