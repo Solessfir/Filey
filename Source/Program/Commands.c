@@ -284,7 +284,7 @@ function b32 Prog__ContainsFolded(String text, String needle)
 global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Quick),
     Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_TogglePreview, Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_TabNew,
-    Prog_CommandKind_TabClose, Prog_CommandKind_OpenSettings, Prog_CommandKind_ToggleHidden,
+    Prog_CommandKind_TabClose, Prog_CommandKind_OpenOptions, Prog_CommandKind_ToggleHidden,
     Prog__PaletteGroup(Folder),
     Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Rename,
@@ -313,7 +313,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TabSelect2, Prog_CommandKind_TabSelect3, Prog_CommandKind_TabSelect4, Prog_CommandKind_TabSelect5, Prog_CommandKind_TabSelect6,
     Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
     Prog__PaletteGroup(Misc),
-    Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
+    Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Scroll),
     Prog_CommandKind_SelectAll,
@@ -730,7 +730,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_CommandPalette, .icon = Icon_Terminal);
             Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow);
             Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_OpenSettings, .icon = Icon_Settings);
+            Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .icon = Icon_Blend, .toggle = true, .checked = state->transparent);
             Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .icon = Icon_Palette, .toggle = true, .checked = state->debugTheme);
@@ -746,7 +746,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_TabNew, .icon = Icon_SquarePlus);
             Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX);
             Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_OpenSettings, .icon = Icon_Settings);
+            Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             Prog__Item(.kind = Prog_CommandKind_CopyAsPath, .icon = Icon_Copy);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .icon = Icon_Eye, .toggle = true, .checked = state->showHidden);
@@ -1723,6 +1723,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     }
                     break;
                 }
+                if (state->paletteMode == Prog_PaletteMode_Options) {
+                    // Enter turns a switch over and moves a choice on; steppers and sliders change with Left and Right.
+                    u8 found[Prog_Option_Count];
+                    u32 count = Prog_OptionMatches(state, found);
+                    u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                    if (chosen >= count) break;
+                    state->paletteHighlight = (u32)chosen;
+                    Prog_Option option = (Prog_Option)found[chosen];
+                    const Prog_OptionDesc *desc = &Prog_Options[option];
+                    i32 value = Prog_OptionValue(state, option);
+                    if (desc->control == Prog_OptionControl_Switch) Prog_SetOption(state, option, !value);
+                    if (desc->control == Prog_OptionControl_Choice) Prog_SetOption(state, option, (value + 1) % (i32)desc->choiceCount);
+                    break;
+                }
                 if (state->paletteMode == Prog_PaletteMode_Tabs) {
                     u32 tabs[Prog_MaxTabs];
                     u32 count = Prog_TabMatches(state, tabs);
@@ -1758,7 +1772,16 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
                 }
             } break;
-            case Prog_CommandKind_ToggleTransparency: Prog_SetTransparent(state, !state->transparent); break;
+            case Prog_CommandKind_ToggleTransparency: Prog_SetOption(state, Prog_Option_Transparency, !state->transparent); break;
+            case Prog_CommandKind_OpenOptions: {
+                Prog_CloseMenu(state);
+                state->paletteOpen = !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_Options);
+                state->paletteMode = Prog_PaletteMode_Options;
+                state->palette = (Prog_TextEdit){0};
+                state->paletteHighlight = 0;
+                state->paletteScroll = 0;
+            } break;
+            case Prog_CommandKind_OptionSet: Prog_SetOption(state, (Prog_Option)command->row, (i32)(i64)command->target); break;
             case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
             case Prog_CommandKind_WindowMove: state->moveRequested = true; break;
             case Prog_CommandKind_WindowMinimize: PlatformWindowMinimize(); break;
@@ -1887,7 +1910,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 Prog_PaletteRow rows[Prog_MaxPaletteRows];
                 u32 count;
                 String folder;
+                u8 found[Prog_Option_Count];
                 if (state->paletteMode == Prog_PaletteMode_GoTo) Prog_GoToMatches(state, &count, &folder);
+                else if (state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, found);
                 else count = Prog_PaletteMatches(state, rows);
                 i64 at = (state->paletteHighlight == UINT32_MAX ? -1 : (i64)state->paletteHighlight) - (i64)(event->wheelY * 3);
                 state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
@@ -1903,7 +1928,20 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 u32 count = 0;
                 String folder = {0};
                 Prog_GoToItem *found = goTo ? Prog_GoToMatches(state, &count, &folder) : NULL;
-                if (!goTo) count = state->paletteMode == Prog_PaletteMode_Tabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
+                u8 options[Prog_Option_Count];
+                if (!goTo && state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, options);
+                else if (!goTo) count = state->paletteMode == Prog_PaletteMode_Tabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
+                // In Options, Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
+                if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && (event->key == Key_Left || event->key == Key_Right)) {
+                    Prog_Option option = (Prog_Option)options[state->paletteHighlight];
+                    const Prog_OptionDesc *desc = &Prog_Options[option];
+                    i32 step = desc->control == Prog_OptionControl_Slider ? Max((desc->most - desc->least) / 20, 1) : 1, value = Prog_OptionValue(state, option);
+                    if (event->key == Key_Left) step = -step;
+                    if (desc->control == Prog_OptionControl_Choice) value = (value + step + (i32)desc->choiceCount) % (i32)desc->choiceCount;
+                    else value += step;
+                    Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, 0, order)->target = (u64)(i64)value;
+                    continue;
+                }
                 u32 version = state->palette.version;
                 // Tab in Go To puts the highlighted folder in the box, to go on into it.
                 if (goTo && event->key == Key_Tab) {

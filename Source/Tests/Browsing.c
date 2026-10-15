@@ -1356,6 +1356,37 @@ function void TestTabs(TestFileFixture *fixture)
         Check(StrIsEqual(loaded->names[i], state.index.names.v[i]) && loaded->parents[i] == state.index.parents.v[i] && loaded->flags[i] == state.index.flags.v[i]);
     }
     ArenaRelease(&load.arena);
+    // The options write their lines into Settings.txt, over the commented-out defaults, and apply at once; each keeps the others.
+    {
+        Prog_SetOption(&state, Prog_Option_FontSize, 10);
+        Prog_SetOption(&state, Prog_Option_Animations, 0);
+        Prog_SetOption(&state, Prog_Option_InspectorLayout, Prog_InspectorLayout_Below);
+        Prog_SetOption(&state, Prog_Option_PopupBlur, 500);
+        Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 10 && state.uiScale > 1.1f && state.animationsOff);
+        Check(state.inspectorLayout == Prog_InspectorLayout_Below && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 100);
+        String settings = {0};
+        Check(P_ReadFile(&driveArena, Prog_JoinPath(&driveArena, cache, S("Settings.txt")), &settings));
+        ArrayStr lines = StrSplit(&driveArena, settings, '\n');
+        u32 animations = 0, layouts = 0;
+        for (u64 i = 0; i < lines.header.count; ++i) {
+            animations += StrIsEqual(lines.v[i], S("animations = off")) ? 1 : 0;
+            layouts += StrIsEqual(lines.v[i], S("inspector.layout = below")) ? 1 : 0;
+        }
+        Check(animations == 1 && layouts == 1);
+        // The inspector's own layout buttons hold until the file changes the layout again.
+        state.inspectorLayout = Prog_InspectorLayout_Right;
+        Prog_SetOption(&state, Prog_Option_Animations, 1);
+        Check(state.inspectorLayout == Prog_InspectorLayout_Right && !state.animationsOff && state.uiScale > 1.1f);
+        // Options are a mode of the palette, found by their words.
+        TestBrowsingCommand(&state, Prog_CommandKind_OpenOptions, 0);
+        Prog__EditReplace(&state.palette, (const u8 *)"anim", 4);
+        u8 options[Prog_Option_Count];
+        Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_Options && Prog_OptionMatches(&state, options) == 1 && options[0] == Prog_Option_Animations);
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
+        Check(state.animationsOff && state.paletteOpen);
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteClose, 0);
+        Prog_ApplySettings(&state, S(""));
+    }
     state.configDirectory = (String){0};
     state.drives = (P_ArrayPlace){0};
     Prog_Release(&state);

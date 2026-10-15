@@ -291,8 +291,40 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_Commands,
     Prog_PaletteMode_Tabs,
     Prog_PaletteMode_GoTo,
+    Prog_PaletteMode_Options,
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
+
+// The options the Options popup lists, each kept in Settings.txt.
+typedef enum Prog_Option {
+    Prog_Option_FontSize,
+    Prog_Option_InspectorFontSize,
+    Prog_Option_InspectorLayout,
+    Prog_Option_Animations,
+    Prog_Option_ColorScheme,
+    Prog_Option_Transparency,
+    Prog_Option_PopupBlur,
+    Prog_Option_Backdrop,
+    Prog_Option_Count,
+} Prog_Option;
+
+typedef enum Prog_OptionControl {
+    Prog_OptionControl_Switch,
+    Prog_OptionControl_Stepper,
+    Prog_OptionControl_Slider,
+    Prog_OptionControl_Choice,
+    Prog_OptionControl_Count,
+} Prog_OptionControl;
+
+typedef struct Prog_OptionDesc {
+    String label;
+    String tooltip;
+    enum8(Prog_OptionControl) control;
+    i32 least, most;         // a stepper's or slider's values; a choice's are its names, from 0
+    const String *choices;   // the names, as Settings.txt has them, of a choice's values
+    u32 choiceCount;
+    String setting;          // its name in Settings.txt
+} Prog_OptionDesc;
 
 // Where the inspector goes: to the right of the list or below it, by the panel's shape for Auto.
 typedef enum Prog_InspectorLayout {
@@ -643,6 +675,10 @@ typedef struct Prog_State {
     u32 paletteScroll;        // the first command row shown
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
+    // What Settings.txt last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.
+    u32 settingInspectorFontSize;
+    u8 settingInspectorLayout;  // its value + 1, 0 before any
+    b32 themeFullmoon;          // the settings chose the reference's scheme
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;
@@ -837,6 +873,10 @@ function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Pr
 function void Prog_ToggleFolderView(Prog_State *state);
 function void Prog_ClearFolderViews(Prog_State *state);
 function void Prog_KeepFolderView(Prog_State *state);
+global const Prog_OptionDesc Prog_Options[Prog_Option_Count];
+function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
+function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
+function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
 function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
 function u32 Prog_PanelIndex(const Prog_State *state, u64 id);
 function u64 Prog__PanelId(const Prog_State *state);

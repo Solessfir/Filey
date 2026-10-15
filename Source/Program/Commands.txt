@@ -530,11 +530,21 @@ command Undo {
     hotkey  = "Ctrl+Z"
 }
 
-command OpenSettings {
-    label   = "Settings^preferences,options,config,theme,colors,hotkeys,keys,scale"
-    tooltip = "Open the settings file, whose saved changes apply at once."
+command OpenOptions {
+    label   = "Options^preferences,settings,config,theme,scale,animations"
+    tooltip = "Open the options popup to customize the application behavior."
     hotkey  = "Ctrl+Comma"
     repeat  = "false"
+}
+
+command OpenSettings {
+    label   = "Edit Settings File^preferences,options,config,theme,colors,hotkeys,keys,scale"
+    tooltip = "Open the settings file, whose saved changes apply at once."
+    repeat  = "false"
+}
+
+// An option's control; carries the Prog_Option and, as its target, the value it gets.
+command OptionSet {
 }
 
 // Go To with the shown folder's path in its box, selected, over what is in the folder, none of it highlighted.

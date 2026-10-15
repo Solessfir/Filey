@@ -102,6 +102,15 @@ function void TestHotkeyDispatch(void)
         ArenaRelease(&typing.frameArena);
     }
 
+    // Ctrl+Comma opens the options.
+    {
+        Prog_State options = {0};
+        PlatformEvent keys[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Comma, .mods = KeyMod_Control }, { .kind = PlatformEventKind_Text, .codepoint = ',' } };
+        Prog_HandleInput(&options, TestUIEvents(keys, CArrayCount(keys)));
+        Check(options.commandFirst && options.commandFirst->kind == Prog_CommandKind_OpenOptions && !options.filter.length);
+        ArenaRelease(&options.frameArena);
+    }
+
     // Ctrl+wheel over the inspector sizes its contents, and elsewhere zooms the list.
     {
         Prog_State wheel = { .inspectorRect = { 100, 0, 200, 100 } };

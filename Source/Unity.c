@@ -305,7 +305,7 @@ int main(void)
     }
 
     loop.state.ui.defaultFont = &loop.font;
-    Prog_SetTransparent(&loop.state, false);
+    Prog_SetTransparent(&loop.state, loop.state.transparent);
     PlatformDoubleClick doubleClick = PlatformDoubleClickSettings();
     loop.state.ui.doubleClickMicroseconds = doubleClick.intervalMicroseconds;
     loop.state.ui.doubleClickDistance = doubleClick.distance;

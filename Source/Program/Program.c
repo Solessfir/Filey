@@ -214,6 +214,8 @@ function f32 Prog__ParseNumber(String value)
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
+//   transparent = on              the transparent theme
+//   inspector.fontSize = 10       the inspector's text size in points, and inspector.layout = auto, right or below where it sits
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
@@ -223,6 +225,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->glassBackdrop = PlatformBackdrop_Acrylic;
     state->uiScale = 1;
     state->animationsOff = false;
+    state->transparent = false;
+    state->themeFullmoon = false;
+    u32 inspectorFontSize = Prog_InspectorFontSize;
+    u8 inspectorLayout = Prog_InspectorLayout_Auto;
     state->userHotkeyCount = 0;
     MemZero(state->hotkeyOverridden, sizeof(state->hotkeyOverridden));
     Scratch scratch = GetScratch();
@@ -252,6 +258,14 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
             if (Prog__EqualFolded(value, S("fullmoon"))) Prog_ThemeUser = Prog_ThemeFullmoon;
+            state->themeFullmoon = Prog__EqualFolded(value, S("fullmoon"));
+        } else if (StrIsEqual(name, S("transparent"))) {
+            state->transparent = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
+        } else if (StrIsEqual(name, S("inspector.fontSize"))) {
+            if (number >= Prog_InspectorFontMin && number <= Prog_InspectorFontMax) inspectorFontSize = (u32)number;
+        } else if (StrIsEqual(name, S("inspector.layout"))) {
+            local_persist const String layouts[Prog_InspectorLayout_Count] = { S("auto"), S("right"), S("below") };
+            for (u32 i = 0; i < Prog_InspectorLayout_Count; ++i) if (Prog__EqualFolded(value, layouts[i])) inspectorLayout = (u8)i;
         } else if (StrIsEqual(name, S("animations"))) {
             state->animationsOff = Prog__EqualFolded(value, S("off")) || Prog__EqualFolded(value, S("false")) || StrIsEqual(value, S("0"));
         } else if (name.length > 6 && StrIsEqual(StrFromTo(name, 0, 6), S("color."))) {
@@ -278,6 +292,12 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         }
     }
     ReleaseScratch(scratch);
+    // The inspector's text size and layout change with the file, and keep what its controls set otherwise.
+    if (inspectorFontSize != state->settingInspectorFontSize) state->inspectorFontSize = state->settingInspectorFontSize = inspectorFontSize;
+    if (inspectorLayout + 1u != state->settingInspectorLayout) {
+        state->inspectorLayout = inspectorLayout;
+        state->settingInspectorLayout = (u8)(inspectorLayout + 1);
+    }
     Prog__ApplyTheme(state);
 }
 
@@ -290,6 +310,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
                                 "# \"fullmoon\" starts from the reference's scheme; colors set before this line are replaced.\n# theme = default\n\n"
                                 "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
+                                "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
     for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
         R_Color c = *(const R_Color *)((const u8 *)&Prog_ThemeCustom + Prog_ThemeColors[i].offset);
@@ -308,7 +329,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                                "# glass.window tints what is behind the window, glass.popup the blur under menus, the palette and the other floating boxes,\n"
                                                "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
                                                "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
-                                               "# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
+                                               "# transparent = off\n# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
@@ -318,6 +339,114 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, StrFormat(arena, "# hotkey.%S = %S\n", Prog_Commands[k].name, hotkey.length ? hotkey : S("none")));
     }
     return text.buffer;
+}
+
+// The options of the Options popup, in its order.
+global const String Prog_OptionSwitch[] = { S("off"), S("on") };
+global const String Prog_OptionSchemes[] = { S("default"), S("fullmoon") };
+global const String Prog_OptionLayouts[] = { S("auto"), S("right"), S("below") };
+global const String Prog_OptionBackdrops[] = { S("acrylic"), S("mica"), S("tabbed"), S("none") };
+global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
+    [Prog_Option_FontSize] = { S("Font Size"), S("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, S("scale") },
+    [Prog_Option_InspectorFontSize] = { S("Inspector Font Size"), S("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
+                                        Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, S("inspector.fontSize") },
+    [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
+                                      Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
+    [Prog_Option_Animations] = { S("Animations"), S("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
+                                 Prog_OptionSwitch, 2, S("animations") },
+    [Prog_Option_ColorScheme] = { S("Color Scheme"), S("Applies a color palette to all UI elements."), Prog_OptionControl_Choice, 0, 0,
+                                  Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), S("theme") },
+    [Prog_Option_Transparency] = { S("Transparency"), S("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
+                                   Prog_OptionSwitch, 2, S("transparent") },
+    [Prog_Option_PopupBlur] = { S("Popup Blur"), S("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
+                                NULL, 0, S("glass.blur") },
+    [Prog_Option_Backdrop] = { S("Backdrop"), S("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
+                               Prog_OptionBackdrops, CArrayCount(Prog_OptionBackdrops), S("glass.backdrop") },
+};
+
+// The options whose name or description holds what is typed into the popup, in their order, into `found`; returns how many.
+function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
+{
+    String typed = Prog_EditText(&state->palette);
+    u32 count = 0;
+    for (u32 i = 0; i < Prog_Option_Count; ++i) {
+        if (!typed.length || Prog_FuzzyScore(Prog_Options[i].label, Prog_Options[i].tooltip, typed, NULL, NULL) > 0) found[count++] = (u8)i;
+    }
+    return count;
+}
+
+// What `option` is set to: a switch's 0 or 1, a stepper's or slider's number, a choice's place among its names.
+function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
+{
+    switch (option) {
+        case Prog_Option_FontSize: return (i32)floorf((state->uiScale > 0 ? state->uiScale : 1) * 9.0f + 0.5f);
+        case Prog_Option_InspectorFontSize: return (i32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
+        case Prog_Option_InspectorLayout: return state->inspectorLayout;
+        case Prog_Option_Animations: return !state->animationsOff;
+        case Prog_Option_ColorScheme: return state->themeFullmoon;
+        case Prog_Option_Transparency: return state->transparent != 0;
+        case Prog_Option_PopupBlur: return (i32)floorf(Prog_GlassBlur + 0.5f);
+        case Prog_Option_Backdrop: return state->glassBackdrop;
+        default: return 0;
+    }
+}
+
+// Sets `name = value` in Settings.txt, over the line that sets it or that names it commented out, else at its end, and applies the file.
+function void Prog__WriteSetting(Prog_State *state, String name, String value)
+{
+    if (!state->configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    String path = Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.txt"));
+    String text = {0};
+    if (!P_ReadFile(scratch.arena, path, &text)) text = Prog_SettingsTemplate(scratch.arena, state);
+    ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+    u64 set = UINT64_MAX, commented = UINT64_MAX;
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        String line = lines.v[i];
+        b32 comment = line.length && line.value[0] == '#';
+        while (line.length && (line.value[0] == '#' || line.value[0] == ' ')) line = StrFrom(line, 1);
+        Index equals = StrIndexChar(line, '=', SSF_None);
+        if (!equals.exists) continue;
+        String key = StrFromTo(line, 0, (i64)equals.value);
+        while (key.length && key.value[key.length - 1] == ' ') --key.length;
+        if (!StrIsEqual(key, name)) continue;
+        if (!comment) set = i;
+        else if (commented == UINT64_MAX) commented = i;
+    }
+    String entry = StrFormat(scratch.arena, "%S = %S", name, value);
+    u64 at = set != UINT64_MAX ? set : commented;
+    StrBuilder out = {0};
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        // The text's own last newline leaves an empty last piece.
+        if (i + 1 == lines.header.count && !lines.v[i].length) break;
+        StrBuildStr(scratch.arena, &out, i == at ? entry : lines.v[i]);
+        StrBuildChar(scratch.arena, &out, '\n');
+    }
+    if (at == UINT64_MAX) {
+        StrBuildStr(scratch.arena, &out, entry);
+        StrBuildChar(scratch.arena, &out, '\n');
+    }
+    P_WriteFile(scratch.arena, path, out.buffer);
+    ReleaseScratch(scratch);
+    Prog_ReloadSettingsFile(state);
+}
+
+// Sets `option` to `value`, kept within what it takes, in Settings.txt; without a config folder only for this run.
+function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
+{
+    if (option >= Prog_Option_Count) return;
+    const Prog_OptionDesc *desc = &Prog_Options[option];
+    i32 least = desc->choices ? 0 : desc->least, most = desc->choices ? (i32)desc->choiceCount - 1 : desc->most;
+    value = Min(Max(value, least), most);
+    Scratch scratch = GetScratch();
+    String text = desc->choices ? desc->choices[value] : option == Prog_Option_FontSize ? StrFormat(scratch.arena, "%.4f", (f64)value / 9.0) : StrFormat(scratch.arena, "%d", value);
+    if (state->configDirectory.length) {
+        Prog__WriteSetting(state, desc->setting, text);
+    } else {
+        String line = StrFormat(scratch.arena, "%S = %S", desc->setting, text);
+        Prog_ApplySettings(state, line);
+    }
+    ReleaseScratch(scratch);
 }
 
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
@@ -3170,6 +3299,171 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
+// Queues `option` set to `value`, as its controls do.
+function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value, u64 order)
+{
+    Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, 0, order)->target = (u64)(i64)value;
+}
+
+// A choice's name as the popup shows it, with a capital first letter.
+function String Prog__OptionName(Arena *arena, String name)
+{
+    String result = StrCopy(arena, name);
+    if (result.length && result.value[0] >= 'a' && result.value[0] <= 'z') ((char *)result.value)[0] = (char)(result.value[0] - 'a' + 'A');
+    return result;
+}
+
+// The control at the right of `option`'s row, as the reference draws them: a switch, a stepper with its value between - and +,
+// a slider dragged along its track, or a choice that moves on to its next value.
+function void Prog__OptionControl(Prog_State *state, Prog_Option option, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    const Prog_OptionDesc *desc = &Prog_Options[option];
+    Arena *frame = &state->frameArena;
+    f32 s = m->scale, width = floorf(162.4f * s + 0.5f), height = floorf(21.6f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f)), radius = floorf(4.0f * s + 0.5f);
+    i32 value = Prog_OptionValue(state, option);
+    switch (desc->control) {
+        case Prog_OptionControl_Switch: {
+            f32 wide = floorf(40.8f * s + 0.5f), tall = floorf(22.4f * s + 0.5f), inset = floorf(2.4f * s + 0.5f), knob = tall - 2 * inset;
+            UI_SetNextPrefWidth(UI_Pixels(wide));
+            UI_SetNextPrefHeight(UI_Pixels(tall));
+            UI_SetNextCornerRadius(tall * 0.5f);
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .background = value ? theme->selection : theme->track, .border = theme->outline });
+            UI_Block *toggle = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSwitch/%u", (u32)option)),
+                                                  UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (value ? 0 : UI_Flag_DrawBorder));
+            UI_Interaction interaction = UI_InteractionFromBlock(toggle);
+            if (interaction.clicked) Prog__QueueOption(state, option, !value, interaction.clickOrder);
+            UI_Parent(toggle) {
+                UI_SetNextFloatingOffset((UI_Vec2){ value ? wide - inset - knob : inset, inset });
+                UI_SetNextPrefWidth(UI_Pixels(knob));
+                UI_SetNextPrefHeight(UI_Pixels(knob));
+                UI_SetNextCornerRadius(knob * 0.5f);
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextFont(m->iconsSmall);
+                UI_SetNextText(value ? Icon_Check : Icon_X);
+                UI_SetNextColors((UI_Colors){ .background = value ? theme->text : theme->textDim, .text = value ? theme->textDim : theme->text });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawText);
+            }
+        } break;
+        case Prog_OptionControl_Stepper: {
+            f32 cell = floorf(28.8f * s + 0.5f);
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .border = theme->outline });
+            UI_Block *box = UI_AddBlock(UI_Flag_DrawBorder | UI_Flag_Clip);
+            UI_Parent(box) {
+                for (u32 side = 0; side < 2; ++side) {
+                    if (side) Prog__Label(StrFormat(frame, "%d", value), UI_Flex(), height, 0, theme->text, 0.5f);
+                    b32 up = side == 1, enabled = up ? value < desc->most : value > desc->least;
+                    UI_Interaction step = Prog__TextButton(StrFormat(frame, "OptionStep/%u/%u", (u32)option, side), up ? Icon_Plus : Icon_Minus, m->icons, UI_Pixels(cell), height,
+                                                           0, theme->icon, theme->text, theme->iconDisabled, enabled, m);
+                    UI->parent->last->props.colors.background = theme->track;
+                    UI->parent->last->flags |= UI_Flag_DrawBackground;
+                    if (step.clicked) Prog__QueueOption(state, option, value + (up ? 1 : -1), step.clickOrder);
+                }
+            }
+        } break;
+        case Prog_OptionControl_Slider: {
+            f32 wide = floorf(155.2f * s + 0.5f), track = floorf(12.8f * s + 0.5f), knob = floorf(20.8f * s + 0.5f);
+            f32 range = (f32)Max(desc->most - desc->least, 1), at = (f32)(value - desc->least) / range;
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(knob));
+            UI_Block *slider = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSlider/%u", (u32)option)), UI_Flag_LeftMouseClickable);
+            UI_Interaction drag = UI_InteractionFromBlock(slider);
+            if (drag.pressed || (drag.active && drag.isDragging)) {
+                f32 along = UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / MaxF32(1, wide - knob), 0, 1);
+                i32 wanted = desc->least + (i32)floorf(along * range + 0.5f);
+                if (wanted != value) Prog__QueueOption(state, option, wanted, drag.pressOrder);
+            }
+            UI_Parent(slider) {
+                f32 middle = floorf((knob - track) * 0.5f), knobX = floorf(at * (wide - knob));
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
+                UI_SetNextPrefWidth(UI_Pixels(wide));
+                UI_SetNextPrefHeight(UI_Pixels(track));
+                UI_SetNextCornerRadius(track * 0.5f);
+                UI_SetNextBorderThickness(line);
+                UI_SetNextColors((UI_Colors){ .background = theme->track, .border = theme->outline });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
+                UI_SetNextPrefWidth(UI_Pixels(knobX + knob * 0.5f));
+                UI_SetNextPrefHeight(UI_Pixels(track));
+                UI_SetNextCornerRadius(track * 0.5f);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                UI_SetNextFloatingOffset((UI_Vec2){ knobX, 0 });
+                UI_SetNextPrefWidth(UI_Pixels(knob));
+                UI_SetNextPrefHeight(UI_Pixels(knob));
+                UI_SetNextCornerRadius(knob * 0.5f);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        } break;
+        case Prog_OptionControl_Choice: {
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
+            b32 hot = UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->textDim : theme->outline });
+            UI_Block *choice = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
+            UI_Interaction interaction = UI_InteractionFromBlock(choice);
+            if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)desc->choiceCount, interaction.clickOrder);
+            UI_Parent(choice) {
+                f32 chevron = floorf(20.8f * s + 0.5f);
+                Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
+                Prog__Label(Prog__OptionName(frame, desc->choices[Min((u32)value, desc->choiceCount - 1)]), UI_Flex(), height, 0, theme->text, 0.5f);
+                Prog__Icon(Icon_ChevronRight, chevron, height, theme->icon, 0.5f, m);
+            }
+        } break;
+        default: break;
+    }
+}
+
+// An option's row in the Options popup: its name over its description, and its control at the right; the highlight is an outline, as the reference's.
+function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, b32 highlighted, f32 face, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    const Prog_OptionDesc *desc = &Prog_Options[option];
+    f32 s = m->scale;
+    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Option/%u", (u32)option));
+    b32 hot = UI->hotKey == key && !highlighted;
+    R_Color washed = theme->selection;
+    washed.a *= 0.35f;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(face));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(6.4f * s + 0.5f), 0 });
+    UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextColors((UI_Colors){ .background = washed, .border = theme->selection });
+    UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (hot ? UI_Flag_DrawBackground : 0) | (highlighted || hot ? UI_Flag_DrawBorder : 0));
+    UI_Interaction interaction = UI_InteractionFromBlock(entry);
+    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, index, 0, interaction.clickOrder);
+    UI_Parent(entry) {
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(face));
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ 0, state->paletteCompact ? floorf((face - m->line) * 0.5f) : floorf(4.8f * s + 0.5f), 0, 0 });
+        UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
+        UI_Parent(texts) {
+            Prog__MarkedText(desc->label, NULL, m->font, m->line, theme->text);
+            if (!state->paletteCompact) {
+                Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
+                Prog__MarkedText(desc->tooltip, NULL, m->detail, m->detail->lineHeight, theme->textDim);
+            }
+        }
+        Prog__OptionControl(state, option, m);
+    }
+}
+
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->paletteOpen) return;
@@ -3188,8 +3482,11 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
+    // The Options popup is the palette with options in its rows.
+    b32 options = state->paletteMode == Prog_PaletteMode_Options;
     Prog_PaletteRow rows[Prog_MaxPaletteRows];
-    u32 count = Prog_PaletteMatches(state, rows);
+    u8 found[Prog_Option_Count];
+    u32 count = options ? Prog_OptionMatches(state, found) : Prog_PaletteMatches(state, rows);
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     String typed = Prog_EditText(&state->palette);
     b32 searching = typed.length > 0;
@@ -3235,7 +3532,7 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(S("Select a command..."));
+                    UI_SetNextText(options ? S("Select an option...") : S("Select a command..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
@@ -3276,6 +3573,11 @@ function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
             for (u32 i = first; i < first + shown; ++i) {
+                if (options) {
+                    Prog__OptionRow(state, (Prog_Option)found[i], i, i == state->paletteHighlight, row - line, m);
+                    if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+                    continue;
+                }
                 Prog_PaletteRow at = rows[i];
                 UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Palette/%u/%u", (u32)at.group, (u32)at.kind));
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
