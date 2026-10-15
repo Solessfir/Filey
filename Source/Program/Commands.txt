@@ -457,6 +457,39 @@ command FolderViewToggle {
     tooltip = "Toggle preserving folder view settings: icons, sort order, folders first, and list columns."
 }
 
+// The column header's menu, opened by a right click on a title; carries the column's place among the panel's columns.
+command ColumnMenu {
+}
+
+// The header menu's items; each carries the column's place, ColumnToggle a Prog_ColumnKind.
+command ColumnShiftLeft {
+}
+
+command ColumnShiftRight {
+}
+
+command ColumnFit {
+}
+
+command ColumnClose {
+}
+
+command ColumnsRestore {
+}
+
+command ColumnToggle {
+}
+
+// A title's edge dragged; carries the column's place and, as its target, its share of the row in millionths.
+command ColumnResize {
+}
+
+command SizeAllColumnsToFit {
+    label   = "Size All Columns To Fit^resize"
+    tooltip = "Size all header columns to fit their contents."
+    hotkey  = "Ctrl+Equals"
+}
+
 command FolderViewsClear {
     label   = "Clear Folders Views^directory,delete,remove"
     tooltip = "Clear view settings for all folders."

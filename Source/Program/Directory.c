@@ -1828,6 +1828,67 @@ function void Prog_UndoLast(Prog_State *state)
     P_JobSubmit(job);
 }
 
+// The panel's columns: its own once it changes them, else the reference's.
+function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state)
+{
+    if (state->columnSet.count) return state->columnSet;
+    return (Prog_ColumnSet){ .count = 5, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Type, Prog_ColumnKind_Modified, Prog_ColumnKind_Items, Prog_ColumnKind_Size } };
+}
+
+// A kind's share of the row until it is resized, as the reference starts them; Name takes what the others leave.
+function f32 Prog_ColumnShare(Prog_ColumnKind kind)
+{
+    switch (kind) {
+        case Prog_ColumnKind_Name: return 0;
+        case Prog_ColumnKind_Size: return 0.099f;
+        case Prog_ColumnKind_VolumeUsage:
+        case Prog_ColumnKind_FolderUsage: return 0.1f;
+        default: return 0.15f;
+    }
+}
+
+// The header menu's changes to the panel's columns: `column` is a place among them, or for ColumnToggle a Prog_ColumnKind;
+// a resize carries the new share of the row in millionths as `value`, and a shift its direction.
+function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 column, u64 value)
+{
+    Prog_ColumnSet set = Prog_PanelColumns(state);
+    switch (kind) {
+        case Prog_CommandKind_ColumnShiftLeft:
+        case Prog_CommandKind_ColumnShiftRight: {
+            u64 other = kind == Prog_CommandKind_ColumnShiftLeft ? column - 1 : column + 1;
+            if (column >= set.count || other >= set.count) return;
+            u8 k = set.kinds[column];
+            f32 share = set.shares[column];
+            set.kinds[column] = set.kinds[other], set.shares[column] = set.shares[other];
+            set.kinds[other] = k, set.shares[other] = share;
+        } break;
+        case Prog_CommandKind_ColumnClose: {
+            // Name stays, as the reference's does.
+            if (column >= set.count || set.kinds[column] == Prog_ColumnKind_Name) return;
+            for (u32 i = (u32)column; i + 1 < set.count; ++i) set.kinds[i] = set.kinds[i + 1], set.shares[i] = set.shares[i + 1];
+            --set.count;
+        } break;
+        case Prog_CommandKind_ColumnToggle: {
+            if (column >= Prog_ColumnKind_Count || column == Prog_ColumnKind_Name) return;
+            u32 at = set.count;
+            for (u32 i = 0; i < set.count; ++i) if (set.kinds[i] == column) at = i;
+            if (at < set.count) {
+                Prog_EditColumns(state, Prog_CommandKind_ColumnClose, at, 0);
+                return;
+            }
+            set.kinds[set.count] = (u8)column;
+            set.shares[set.count++] = 0;
+        } break;
+        case Prog_CommandKind_ColumnResize: {
+            if (column >= set.count) return;
+            set.shares[column] = UI__Clamp((f32)value / 1e6f, 0.02f, 0.8f);
+        } break;
+        case Prog_CommandKind_ColumnsRestore: set = (Prog_ColumnSet){0}; break;
+        default: return;
+    }
+    state->columnSet = set;
+}
+
 // The kept view of folder `path`, false when it has none.
 function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Prog_Sort *sort, b32 *descending)
 {

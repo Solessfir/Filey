@@ -486,6 +486,29 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         // Going away and back left nothing selected.
         Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
     }
+    // The header's menu shows and hides columns, moves them, resizes them and puts the defaults back; Name stays.
+    {
+        Prog_ColumnSet set = Prog_PanelColumns(&state);
+        Check(set.count == 5 && set.kinds[0] == Prog_ColumnKind_Name && set.kinds[3] == Prog_ColumnKind_Items);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created);
+        set = Prog_PanelColumns(&state);
+        Check(set.count == 6 && set.kinds[5] == Prog_ColumnKind_Created);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnShiftLeft, 5);
+        set = Prog_PanelColumns(&state);
+        Check(set.kinds[4] == Prog_ColumnKind_Created && set.kinds[5] == Prog_ColumnKind_Size);
+        ArenaClear(&state.frameArena);
+        Prog_QueueCommand(&state, Prog_CommandKind_ColumnResize, 4, 0, 0)->target = 250000;
+        Prog_ProcessCommands(&state);
+        Check(Prog_PanelColumns(&state).shares[4] == 0.25f);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnClose, 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnClose, 1);
+        set = Prog_PanelColumns(&state);
+        Check(set.count == 5 && set.kinds[0] == Prog_ColumnKind_Name && set.kinds[1] == Prog_ColumnKind_Modified);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created);
+        Check(Prog_PanelColumns(&state).count == 4);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnsRestore, 0);
+        Check(state.columnSet.count == 0 && Prog_PanelColumns(&state).count == 5);
+    }
     Check(P__TestWriteFile(fixture, S("refresh.txt"), 4, false));
     Check(P__TestRemovePath(fixture, S("file2.txt"), false));
     TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);

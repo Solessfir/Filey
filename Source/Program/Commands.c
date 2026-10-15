@@ -168,11 +168,13 @@ global const char *Prog_KeyNames[Key_Count] = {
     [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PageUp", [Key_PageDown] = "PageDown", [Key_ContextMenu] = "ContextMenu", [Key_Comma] = "Comma",
+    [Key_Equals] = "Equals",
 };
 global const char *Prog_KeyShortNames[Key_Count] = {
     [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Del", [Key_Insert] = "Ins",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
+    [Key_Equals] = "=",
 };
 
 function b32 Prog__EqualFolded(String a, String b)
@@ -295,6 +297,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
     Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_FolderViewToggle,
+    Prog_CommandKind_SizeAllColumnsToFit,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
@@ -752,6 +755,27 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .icon = Icon_Eye, .toggle = true, .checked = state->showHidden);
             Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .icon = Icon_PanelLeft, .toggle = true, .checked = !state->sidebarHidden);
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .icon = Icon_Bookmark, .toggle = true, .checked = Prog_IsBookmarked(state, state->directory.path));
+        } break;
+        // The header's, for the column right-clicked, in the reference's order: moving it, its width, then which columns there are.
+        case Prog_CommandKind_ColumnMenu: {
+            Prog_ColumnSet set = Prog_PanelColumns(state);
+            u64 at = command->row;
+            Prog__Item(.kind = Prog_CommandKind_ColumnShiftLeft, .row = at, .label = S("Shift Column Left"), .icon = Icon_ChevronsLeft);
+            Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = S("Shift Column Right"), .icon = Icon_ChevronsRight);
+            Prog__Item(.kind = Prog_CommandKind_ColumnFit, .row = at, .label = S("Size Column To Fit"), .icon = Icon_MoveHorizontal);
+            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = S("Close Column"), .icon = Icon_X);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_SizeAllColumnsToFit, .icon = Icon_MoveHorizontal);
+            Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = S("Restore Default Columns"), .icon = Icon_RotateCcw);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            local_persist const String names[Prog_ColumnKind_Count] = {
+                S("Name"), S("Type"), S("Size"), S("Total Items"), S("Date Created"), S("Date Modified"), S("Date Accessed"), S("Volume Usage"), S("Folder Usage"),
+            };
+            for (u32 kind = 0; kind < Prog_ColumnKind_Count; ++kind) {
+                b32 shown = false;
+                for (u32 i = 0; i < set.count; ++i) shown |= set.kinds[i] == kind;
+                Prog__Item(.kind = Prog_CommandKind_ColumnToggle, .row = kind, .label = names[kind], .toggle = true, .checked = shown);
+            }
         } break;
         default: break;
     }
@@ -1758,6 +1782,16 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteOpen = false;
                 Prog_QueueCommand(state, rows[chosen].kind, 0, 0, UINT64_MAX);
             } break;
+            case Prog_CommandKind_ColumnShiftLeft:
+            case Prog_CommandKind_ColumnShiftRight:
+            case Prog_CommandKind_ColumnClose:
+            case Prog_CommandKind_ColumnToggle:
+            case Prog_CommandKind_ColumnResize:
+            case Prog_CommandKind_ColumnsRestore: Prog_EditColumns(state, command->kind, command->row, command->target); break;
+            // Fitting measures the values, which the next build of the header does.
+            case Prog_CommandKind_ColumnFit: state->fitColumn = (u32)command->row + 1; break;
+            case Prog_CommandKind_SizeAllColumnsToFit: state->fitColumn = UINT32_MAX; break;
+            case Prog_CommandKind_ColumnMenu:
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
             case Prog_CommandKind_MainMenu:

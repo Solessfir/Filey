@@ -1291,30 +1291,56 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// A column as the header and the rows lay it out: what it shows, how wide it is (0 takes the room left) and where its values sit.
 typedef struct Prog_Column {
     String title;
-    f32 width;   // 0 takes the remaining width
+    f32 width;
     f32 alignX;
+    enum8(Prog_ColumnId) id;
+    u8 place;      // its place among the panel's columns, which the Folders and Files of Items share
+    b8 lineAfter;  // a line parts it from the next; Folders and Files share their slot, and the last has none
 } Prog_Column;
 
-// The sort a column header selects.
+typedef struct Prog_Columns {
+    u32 count;
+    f32 room;      // the rows' width the shares are of
+    Prog_Column v[Prog_ColumnKind_Count + 1];
+} Prog_Columns;
+
+// The sort a column's title selects.
 global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
-    Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size,
+    Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Accessed, Prog_Sort_Size, Prog_Sort_Size,
 };
 
-// The columns of a list whose rows are `room` wide: shares of it as the reference measures them, Name taking what is left, down to the least that still shows a size or a count whole.
-function void Prog__Columns(Prog_Column *columns, f32 scale, f32 room)
+global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
+    S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size"), S("Date Created"), S("Date Accessed"), S("Folder Usage"), S("Volume Usage"),
+};
+
+// The panel's columns laid out for rows `room` wide: each its share of it, Name taking what is left, down to the least that still shows its value whole.
+function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room)
 {
-    local_persist const f32 shares[Prog_ColumnId_Count] = { 0, 0.15f, 0.15f, 0.075f, 0.075f, 0.099f };
     // Of the slot they share, Folders takes a little more than half.
-    local_persist const f32 shift[Prog_ColumnId_Count] = { 0, 0, 0, 4.8f, -4.8f, 0 };
-    local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 66 };
+    local_persist const f32 least[Prog_ColumnId_Count] = { 0, 50, 70, 45, 45, 66, 70, 70, 60, 60 };
+    local_persist const Prog_ColumnId ids[Prog_ColumnKind_Count] = {
+        Prog_ColumnId_Name, Prog_ColumnId_Type, Prog_ColumnId_Size, Prog_ColumnId_Folders, Prog_ColumnId_Created, Prog_ColumnId_Modified, Prog_ColumnId_Accessed,
+        Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage,
+    };
     if (room <= 0) room = 918.0f * scale;
-    local_persist const String titles[Prog_ColumnId_Count] = { S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size") };
-    for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
-        f32 width = i == Prog_ColumnId_Name ? 0 : MaxF32(least[i] * scale, floorf(shares[i] * room + shift[i] * scale + 0.5f));
-        columns[i] = (Prog_Column){ titles[i], width, i == Prog_ColumnId_Size ? 1.0f : 0 };
+    Prog_ColumnSet set = Prog_PanelColumns(state);
+    Prog_Columns result = { .room = room };
+    for (u32 i = 0; i < set.count; ++i) {
+        Prog_ColumnKind kind = (Prog_ColumnKind)set.kinds[i];
+        f32 share = set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind);
+        u32 parts = kind == Prog_ColumnKind_Items ? 2 : 1;
+        for (u32 part = 0; part < parts; ++part) {
+            Prog_ColumnId id = (Prog_ColumnId)((u32)ids[kind] + part);
+            f32 shift = parts == 2 ? (part ? -4.8f : 4.8f) * scale : 0;
+            f32 width = id == Prog_ColumnId_Name ? 0 : MaxF32(least[id] * scale, floorf(share / (f32)parts * room + shift + 0.5f));
+            b32 right = id == Prog_ColumnId_Size || id == Prog_ColumnId_FolderUsage || id == Prog_ColumnId_VolumeUsage;
+            result.v[result.count++] = (Prog_Column){ Prog_ColumnTitles[id], width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i + 1 < set.count) };
+        }
     }
+    return result;
 }
 
 // The space inside a details column before and after its title and values; Files sits close after Folders, and sizes keep clear of the row's end.
@@ -1328,33 +1354,68 @@ function f32 Prog__ColumnRight(u32 column, const Prog_Metrics *m)
     return column == Prog_ColumnId_Size ? floorf(16.0f * m->scale + 0.5f) : column == Prog_ColumnId_Folders ? 0 : m->gap;
 }
 
-// Folders and Files share one slot, so no line parts them.
-function b32 Prog__ColumnLineAfter(u32 column) { return column + 1 < Prog_ColumnId_Count && column != Prog_ColumnId_Folders; }
-
 function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f32 width);
+function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, String *values);
 
-function void Prog__Header(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
+// Sizes the panel's columns marked by fitColumn to their widest value among the items shown and their title, at most 5000 items in.
+// ponytail: the first 5000 items only; measure in a job if huge folders need every one.
+function void Prog__FitColumns(Prog_State *state, const Prog_Columns *columns, const Prog_Metrics *m)
+{
+    u32 fit = state->fitColumn;
+    state->fitColumn = 0;
+    if (!fit || columns->room <= 0) return;
+    f32 widths[Prog_ColumnKind_Count] = {0};
+    u64 rows = Min(state->viewCount, (u64)5000);
+    for (u32 c = 0; c < columns->count; ++c) {
+        const Prog_Column *column = &columns->v[c];
+        if (fit != UINT32_MAX && column->place + 1u != fit) continue;
+        f32 widest = R_TextWidth(m->font, column->title) + floorf(m->line * 0.6f);
+        for (u64 r = 0; r < rows; ++r) {
+            String values[Prog_ColumnId_Count];
+            Prog__EntryValues(state, &state->directory.entries[state->view[r]], values);
+            widest = MaxF32(widest, R_TextWidth(m->detail, values[column->id]));
+        }
+        widths[column->place] += widest + Prog__ColumnLeft(column->id, m) + Prog__ColumnRight(column->id, m) + (column->lineAfter ? m->separator : 0);
+    }
+    Prog_ColumnSet set = Prog_PanelColumns(state);
+    for (u32 i = 0; i < set.count; ++i) {
+        if (widths[i] <= 0 || set.kinds[i] == Prog_ColumnKind_Name) continue;
+        Prog_QueueCommand(state, Prog_CommandKind_ColumnResize, i, 0, 0)->target = (u64)(widths[i] / columns->room * 1e6f);
+    }
+}
+
+function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
+    Prog__FitColumns(state, columns, m);
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
     UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->background, 0);
+    // Where each column ends in the last layout, for the edges that resize them, from where the first starts.
+    f32 ends[Prog_ColumnKind_Count + 1] = {0}, x0 = 0;
     UI_Parent(header) {
-        for (u32 i = 0; i < Prog_ColumnId_Count; ++i) {
-            Prog_Sort sort = Prog_ColumnSort[i];
-            b32 sorted = sort < Prog_Sort_Count && state->sort == sort;
-            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", columns[i].title));
+        for (u32 c = 0; c < columns->count; ++c) {
+            const Prog_Column *column = &columns->v[c];
+            u32 id = column->id;
+            Prog_Sort sort = Prog_ColumnSort[id];
+            b32 sorted = sort < Prog_Sort_Count && state->sort == sort && (id < Prog_ColumnId_FolderUsage);
+            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", column->title));
             b32 sortable = sort < Prog_Sort_Count && !state->loading;
             b32 hot = UI->hotKey == key && sortable;
-            UI_SetNextPrefWidth(columns[i].width > 0 ? UI_Pixels(columns[i].width) : UI_Flex());
+            UI_SetNextPrefWidth(column->width > 0 ? UI_Pixels(column->width) : UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_Block *cell = UI_AddBlockFromKey(key, sortable ? UI_Flag_LeftMouseClickable : 0);
+            UI_Block *cell = UI_AddBlockFromKey(key, UI_Flag_RightMouseClickable | UI_Flag_MiddleMouseClickable | (sortable ? UI_Flag_LeftMouseClickable : 0));
+            ends[c] = cell->rect.x1;
+            if (c == 0) x0 = cell->rect.x0;
             UI_Interaction interaction = UI_InteractionFromBlock(cell);
-            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
+            if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
+            // A right click opens the header's menu for the column; a middle click closes it, as the reference's do.
+            if (interaction.pressed && interaction.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_ColumnMenu, column->place, 0, interaction.pressOrder)->at = UI->mouse;
+            if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_ColumnClose, column->place, 0, interaction.clickOrder);
             UI_Parent(cell) {
-                b32 name = i == Prog_ColumnId_Name;
-                f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m), line = Prog__ColumnLineAfter(i) ? m->separator : 0;
+                b32 name = id == Prog_ColumnId_Name;
+                f32 left = Prog__ColumnLeft(id, m), right = Prog__ColumnRight(id, m), line = column->lineAfter ? m->separator : 0;
                 if (name) {
                     Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
                 }
@@ -1380,14 +1441,14 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
                 // Titles start at the left even over right-aligned values, and end in an ellipsis where the column is too narrow; the sort arrow sits at the column's end.
                 f32 arrow = sorted ? floorf(m->line * 0.6f) : 0;
-                f32 room = columns[i].width > 0 ? columns[i].width - left - right - line - arrow : 0;
-                Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, columns[i].title, room) : columns[i].title, UI_Flex(), m->row, left, sorted ? 0 : right, color, 0);
+                f32 room = column->width > 0 ? column->width - left - right - line - arrow : 0;
+                Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, column->title, room) : column->title, UI_Flex(), m->row, left, sorted ? 0 : right, color, 0);
                 if (sorted) Prog__Icon(state->descending ? Icon_MoveDown : Icon_MoveUp, arrow, m->row, theme->textDim, 0.5f, m);
                 if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, floorf(15.2f * m->scale + 0.5f))), UI_Pixels(m->row));
                 // The line starts the next column, so that it sits on the boundary.
                 if (line > 0) {
                     f32 tall = floorf(m->line * 1.15f + 0.5f);
-                    UI_SetNextFloatingOffset((UI_Vec2){ columns[i].width > 0 ? columns[i].width : cell->rect.x1 - cell->rect.x0, floorf((m->row - tall) * 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ column->width > 0 ? column->width : cell->rect.x1 - cell->rect.x0, floorf((m->row - tall) * 0.5f) });
                     UI_SetNextPrefWidth(UI_Pixels(line));
                     UI_SetNextPrefHeight(UI_Pixels(tall));
                     UI_SetNextCornerRadius(line * 0.5f);
@@ -1395,10 +1456,10 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 }
                 // While folder totals are being counted, the columns they fill show a spinner at their right end.
-                const Prog_Icon *spinner = state->measureJob && (i == Prog_ColumnId_Files || i == Prog_ColumnId_Size) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+                const Prog_Icon *spinner = state->measureJob && (id == Prog_ColumnId_Files || id == Prog_ColumnId_Size) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
                 if (spinner) {
                     f32 slot = m->line + m->gap;
-                    UI_SetNextFloatingOffset((UI_Vec2){ cell->rect.x1 - cell->rect.x0 - slot - (Prog__ColumnLineAfter(i) ? m->separator + m->gap : 0), 0 });
+                    UI_SetNextFloatingOffset((UI_Vec2){ cell->rect.x1 - cell->rect.x0 - slot - (column->lineAfter ? m->separator + m->gap : 0), 0 });
                     UI_SetNextPrefWidth(UI_Pixels(slot));
                     UI_SetNextPrefHeight(UI_Pixels(m->row));
                     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
@@ -1406,6 +1467,34 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
                 }
             }
+        }
+        // The edges between columns drag to resize: the column before an edge, or after it where the one before is Name, which takes what is left.
+        f32 grip = floorf(8.0f * m->scale + 0.5f);
+        for (u32 c = 0; c + 1 < columns->count; ++c) {
+            const Prog_Column *column = &columns->v[c];
+            if (!column->lineAfter || ends[c] <= x0) continue;
+            b32 afterName = column->id == Prog_ColumnId_Name;
+            u32 place = afterName ? column->place + 1u : column->place;
+            UI_SetNextFloatingOffset((UI_Vec2){ ends[c] - x0 - grip * 0.5f, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(grip));
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_Block *edge = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "HeaderEdge/%u", place)), UI_Flag_Floating | UI_Flag_LeftMouseClickable);
+            UI_Interaction drag = UI_InteractionFromBlock(edge);
+            if (!drag.active || !drag.isDragging) continue;
+            // The resized column's other edge stays where it is.
+            f32 from = 0, to = 0;
+            for (u32 k = 0; k < columns->count; ++k) {
+                if (columns->v[k].place != place) continue;
+                to = ends[k];
+                if (from == 0) from = ends[k] - columns->v[k].width;
+            }
+            f32 width = afterName ? to - UI->mouse.x : UI->mouse.x - from;
+            // Name keeps room for a name; the others' widths are what they are now.
+            f32 others = 0;
+            for (u32 k = 0; k < columns->count; ++k) if (columns->v[k].place != place) others += columns->v[k].width;
+            width = MinF32(width, columns->room - others - floorf(160.0f * m->scale + 0.5f));
+            Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_ColumnResize, place, 0, 0);
+            command->target = (u64)(MaxF32(width, 1) / columns->room * 1e6f);
         }
     }
 }
@@ -1574,7 +1663,14 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     } else if (entry->file.metadataValid) {
         size = Prog_FormatSize(frame, entry->file.size);
     }
-    String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, Prog_EntryModified(frame, entry), folders, files, size };
+    // The share of the folder's or the drive's bytes, as a whole percent.
+    u64 bytes = entry->file.kind == P_FileKind_Directory ? (entry->measured ? entry->bytes : 0) : entry->file.size;
+    String folderUsage = {0}, volumeUsage = {0};
+    if (state->listBytes && (entry->file.kind != P_FileKind_Directory || entry->measured)) folderUsage = StrFormat(frame, "%u%%", (u32)((f64)bytes * 100.0 / (f64)state->listBytes + 0.5));
+    if (state->volumeBytes && (entry->file.kind != P_FileKind_Directory || entry->measured)) volumeUsage = StrFormat(frame, "%u%%", (u32)((f64)bytes * 100.0 / (f64)state->volumeBytes + 0.5));
+    String created = entry->file.metadataValid && entry->file.createdTimeUnix ? P_FormatFileTime(frame, entry->file.createdTimeUnix) : (String){0};
+    String accessed = entry->file.metadataValid && entry->file.accessedTimeUnix ? P_FormatFileTime(frame, entry->file.accessedTimeUnix) : (String){0};
+    String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, Prog_EntryModified(frame, entry), folders, files, size, created, accessed, folderUsage, volumeUsage };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = result[i];
 }
 
@@ -1698,8 +1794,44 @@ function b32 Prog__ItemRenaming(const Prog_State *state, const Prog_Entry *entry
     return state->renaming && StrIsEqual(entry->file.name, StrMake((const char *)state->renameFrom, state->renameFromLength));
 }
 
+// A usage column's cell: a thin bar filled to the percent `value` holds, and the percent after it.
+function void Prog__UsageCell(String value, f32 width, f32 height, f32 left, f32 right, R_Color color, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 percent = 0;
+    for (u64 i = 0; i < value.length && value.value[i] >= '0' && value.value[i] <= '9'; ++i) percent = percent * 10 + (f32)(value.value[i] - '0');
+    f32 text = R_TextWidth(m->detail, S("100%")), gap = floorf(4.8f * m->scale + 0.5f);
+    f32 bar = MaxF32(0, width - left - right - text - gap), thick = floorf(4.0f * m->scale + 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
+    UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
+    UI_Parent(cell) {
+        if (value.length && bar > 0) {
+            UI_SetNextPrefWidth(UI_Pixels(bar));
+            UI_SetNextPrefHeight(UI_Pixels(thick));
+            UI_SetNextCornerRadius(thick * 0.5f);
+            UI_SetNextColors((UI_Colors){ .background = theme->track });
+            UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground);
+            UI_Parent(track) {
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                UI_SetNextPrefWidth(UI_Pixels(MaxF32(thick, floorf(bar * MinF32(percent, 100) / 100.0f))));
+                UI_SetNextPrefHeight(UI_Pixels(thick));
+                UI_SetNextCornerRadius(thick * 0.5f);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                if (percent > 0) UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            Prog__Spacer(UI_Pixels(gap), UI_Pixels(height));
+        }
+        UI_SetNextFont(m->detail);
+        Prog__LabelPadded(value, UI_Flex(), height, 0, 0, color, 1);
+    }
+}
+
 // A Details or List row; List shows only the icon and the name.
-function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Column *columns, b32 nameOnly, const Prog_Metrics *m)
+function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Columns *columns, b32 nameOnly, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_Entry *entry = &state->directory.entries[index];
@@ -1724,8 +1856,10 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
         Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
-        for (u32 i = 0; i < (nameOnly ? 1u : (u32)Prog_ColumnId_Count); ++i) {
-            UI_Size width = columns[i].width > 0 && !nameOnly ? UI_Pixels(columns[i].width) : UI_Flex();
+        for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
+            const Prog_Column *column = &columns->v[c];
+            u32 i = nameOnly ? (u32)Prog_ColumnId_Name : column->id;
+            UI_Size width = column->width > 0 && !nameOnly ? UI_Pixels(column->width) : UI_Flex();
             if (i == Prog_ColumnId_Name && renaming) {
                 Prog__RenameBox(state, width, m);
                 continue;
@@ -1742,17 +1876,23 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             // Values too wide for a fixed column end in an ellipsis.
             f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m);
             // Right-aligned values may run into the space before them.
-            if (columns[i].alignX > 0) left = m->gap;
-            String value = columns[i].width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->detail, values[i], columns[i].width - left - right) : values[i];
+            if (column->alignX > 0) left = m->gap;
+            String value = column->width > 0 && !nameOnly ? Prog__Ellipsize(&state->frameArena, m->detail, values[i], column->width - left - right) : values[i];
             if (i != Prog_ColumnId_Name) UI_SetNextFont(m->detail);
-            Prog__LabelPadded(value, width, height, left, right, color, columns[i].alignX);
+            // A usage is a bar filled to its share, before the percent.
+            if (i == Prog_ColumnId_FolderUsage || i == Prog_ColumnId_VolumeUsage) {
+                Prog__UsageCell(value, column->width, height, left, right, color, m);
+                continue;
+            }
+            Prog__LabelPadded(value, width, height, left, right, color, column->alignX);
             // Totals still being counted are underlined.
-            if (counting && i >= Prog_ColumnId_Folders && value.length && !StrIsEqual(value, S("--"))) {
+            b32 total = i == Prog_ColumnId_Folders || i == Prog_ColumnId_Files || i == Prog_ColumnId_Size;
+            if (counting && total && value.length && !StrIsEqual(value, S("--"))) {
                 UI_Block *cell = UI->parent->last;
-                f32 textWidth = R_TextWidth(m->detail, value), cellWidth = columns[i].width, thick = MaxF32(1, floorf(0.8f * m->scale + 0.5f));
+                f32 textWidth = R_TextWidth(m->detail, value), cellWidth = column->width, thick = MaxF32(1, floorf(0.8f * m->scale + 0.5f));
                 UI_Parent(cell) {
                     // Offsets count from inside the cell's padding.
-                    UI_SetNextFloatingOffset((UI_Vec2){ columns[i].alignX > 0 ? cellWidth - left - right - textWidth : 0, floorf((height + m->detail->lineHeight) * 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ column->alignX > 0 ? cellWidth - left - right - textWidth : 0, floorf((height + m->detail->lineHeight) * 0.5f) });
                     UI_SetNextPrefWidth(UI_Pixels(textWidth));
                     UI_SetNextPrefHeight(UI_Pixels(thick));
                     UI_SetNextColors((UI_Colors){ .background = color });
@@ -1879,9 +2019,28 @@ function f32 Prog__ZoomIconSize(u32 zoom, f32 scale)
     return floorf((48.0f + t * (204.8f - 48.0f)) * scale + 0.5f);
 }
 
-function void Prog__List(Prog_State *state, const Prog_Column *columns, const Prog_Metrics *m)
+function void Prog__List(Prog_State *state, const Prog_Columns *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
+    // The usage columns' totals, while one of them shows: the measured items' bytes, and the size of the drive the folder is on.
+    state->listBytes = state->volumeBytes = 0;
+    b32 usage = false;
+    for (u32 c = 0; c < columns->count; ++c) usage |= columns->v[c].id == Prog_ColumnId_FolderUsage || columns->v[c].id == Prog_ColumnId_VolumeUsage;
+    if (usage) {
+        for (u64 i = 0; i < state->directory.count; ++i) {
+            const Prog_Entry *entry = &state->directory.entries[i];
+            state->listBytes += entry->file.kind == P_FileKind_Directory ? (entry->measured ? entry->bytes : 0) : entry->file.size;
+        }
+        String path = state->directory.path;
+        u64 longest = 0;
+        for (u64 i = 0; i < state->drives.header.count; ++i) {
+            String root = state->drives.v[i].path;
+            if (root.length > longest && root.length <= path.length && Prog__EqualFolded(StrFromTo(path, 0, (i64)root.length), root)) {
+                longest = root.length;
+                state->volumeBytes = state->drives.v[i].totalBytes;
+            }
+        }
+    }
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
@@ -4311,16 +4470,15 @@ function void Prog__InspectorList(Prog_State *state, const Prog_Metrics *m)
     {
         state->panelRect = rect;
         if (UI__Contains(rect, UI->mouse)) state->pointerPanel = state->panels[inner].id;
-        Prog_Column columns[Prog_ColumnId_Count];
-        Prog__Columns(columns, m->scale, rect.x1 - rect.x0 - 2 * m->inset);
+        Prog_Columns columns = Prog__Columns(state, m->scale, rect.x1 - rect.x0 - 2 * m->inset);
         UI_Parent(body) {
             UI_Block *column = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
             UI_Parent(column) {
                 if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
-                    Prog__Header(state, columns, m);
+                    Prog__Header(state, &columns, m);
                     Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
                 }
-                Prog__List(state, columns, m);
+                Prog__List(state, &columns, m);
             }
             Prog__StatusBar(state, m);
         }
@@ -4682,7 +4840,7 @@ function UI_Key Prog_PanelKeySeed(u64 id)
 }
 
 // One panel at `rect`: its tab strip over its toolbar, column header and list; only the active panel has the filter and status bar, and the others are dimmed.
-function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect area, const Prog_Column *columns, f32 scale, const Prog_Metrics *m)
+function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect area, f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog__UsePanel(state, index);
@@ -4702,9 +4860,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 previewWidth = inspecting && !below ? floorf((width - m->separator) * 0.5f) : 0;
     f32 previewHeight = inspecting && below ? floorf((mainHeight - m->separator) * 0.5f) : 0;
     f32 listWidth = width - previewWidth;
-    Prog_Column panelColumns[Prog_ColumnId_Count];
-    Prog__Columns(panelColumns, scale, listWidth - 2 * m->inset);
-    columns = panelColumns;
+    Prog_Columns columns = Prog__Columns(state, scale, listWidth - 2 * m->inset);
     // A panel a split just made zooms in from 60% of its size about its middle, easing with a 38 ms time constant, as the reference's do.
     u64 split = state->panels[index].splitMicroseconds;
     if (split && UI->animate) {
@@ -4749,10 +4905,10 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 UI_Block *listColumn = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
                 UI_Parent(listColumn) {
                     if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
-                        Prog__Header(state, columns, m);
+                        Prog__Header(state, &columns, m);
                         Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
                     }
-                    Prog__List(state, columns, m);
+                    Prog__List(state, &columns, m);
                 }
                 if (shown > 0.01f) {
                     UI_SetNextPrefWidth(UI_Flex());
@@ -4779,13 +4935,13 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
 }
 
 // The layout tree below `node` filling `rect`, its splits parted by dividers that drag to resize; `area` is the whole tree's rect.
-function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area, const Prog_Column *columns, f32 scale, const Prog_Metrics *m)
+function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area, f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     const Prog_Split *split = &state->splits[node];
     if (split->kind == Prog_SplitKind_Panel) {
         u32 index = Prog_PanelIndex(state, split->panel);
-        if (index != UINT32_MAX) Prog__PanelUI(state, index, rect, area, columns, scale, m);
+        if (index != UINT32_MAX) Prog__PanelUI(state, index, rect, area, scale, m);
         return;
     }
     if (split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) return;
@@ -4800,7 +4956,7 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
     UI_SetNextChildrenLayout(across ? UI_Layout_Horizontal : UI_Layout_Vertical);
     UI_Block *box = UI_AddBlock(0);
     UI_Parent(box) {
-        Prog__Layout(state, split->first, a, area, columns, scale, m);
+        Prog__Layout(state, split->first, a, area, scale, m);
         // Keys here are the window's, not the last built panel's.
         UI->keySeed = 0;
         UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Divider/%u", node));
@@ -4823,7 +4979,7 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
             command->target = (u64)(UI__Clamp(at, 0, 1) * 1e6f);
             command->panel = 0;
         }
-        Prog__Layout(state, split->second, b, area, columns, scale, m);
+        Prog__Layout(state, split->second, b, area, scale, m);
     }
 }
 
@@ -4884,8 +5040,6 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
     const Prog_Metrics *m = &metrics;
-    Prog_Column columns[Prog_ColumnId_Count];
-    Prog__Columns(columns, scale, 0);
 
     UI->root->props.childrenPadding = (UI_Padding){0};
     UI->root->props.childrenLayout = UI_Layout_Horizontal;
@@ -4911,7 +5065,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         UI_Parent(slide) Prog__SidebarColumn(state, full, view.y1 - view.y0, scale, m);
     }
     R_Rect area = { view.x0 + sidebar, view.y0, view.x1, view.y1 };
-    Prog__Layout(state, 0, area, area, columns, scale, m);
+    Prog__Layout(state, 0, area, area, scale, m);
     UI->keySeed = 0;
     Prog__UsePanel(state, state->activePanel);
     if (state->tabDrag) {

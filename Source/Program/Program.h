@@ -11,7 +11,7 @@ typedef enum Prog_Sort {
     Prog_Sort_Size,
     Prog_Sort_Folders,
     Prog_Sort_Files,
-    Prog_Sort_Created,   // these have no column
+    Prog_Sort_Created,
     Prog_Sort_Accessed,
     Prog_Sort_Items,     // folders and files inside, together
     Prog_Sort_Count,
@@ -19,6 +19,7 @@ typedef enum Prog_Sort {
 
 static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Folders == (i32)P_FileOrderKey_Count);
 
+// What a details column shows, one value of an entry each.
 typedef enum Prog_ColumnId {
     Prog_ColumnId_Name,
     Prog_ColumnId_Type,
@@ -26,8 +27,33 @@ typedef enum Prog_ColumnId {
     Prog_ColumnId_Folders,
     Prog_ColumnId_Files,
     Prog_ColumnId_Size,
+    Prog_ColumnId_Created,
+    Prog_ColumnId_Accessed,
+    Prog_ColumnId_FolderUsage,
+    Prog_ColumnId_VolumeUsage,
     Prog_ColumnId_Count,
 } Prog_ColumnId;
+
+// The columns a details list can have, in the order the header's menu lists them; Items is the Folders and Files pair.
+typedef enum Prog_ColumnKind {
+    Prog_ColumnKind_Name,
+    Prog_ColumnKind_Type,
+    Prog_ColumnKind_Size,
+    Prog_ColumnKind_Items,
+    Prog_ColumnKind_Created,
+    Prog_ColumnKind_Modified,
+    Prog_ColumnKind_Accessed,
+    Prog_ColumnKind_VolumeUsage,
+    Prog_ColumnKind_FolderUsage,
+    Prog_ColumnKind_Count,
+} Prog_ColumnKind;
+
+// A panel's columns in their order, each with its share of the row; a share of 0 is the kind's own, and no columns at all are the defaults.
+typedef struct Prog_ColumnSet {
+    u32 count;
+    u8 kinds[Prog_ColumnKind_Count];
+    f32 shares[Prog_ColumnKind_Count];
+} Prog_ColumnSet;
 
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
@@ -504,6 +530,7 @@ typedef struct Prog_Tab {
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
 //   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
 //   statusRight: how wide the status bar's counts, view and zoom were in the last layout, which the filter box leaves room for
+//   columnSet: the details columns, see Prog_PanelColumns
 //   ownView, ownZoom, ownSort, ownDescending: while a folder's kept view applies, the panel's own, which the next folder without one gets back
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
@@ -513,7 +540,7 @@ typedef struct Prog_Tab {
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
-    X(f32, statusRight) \
+    X(f32, statusRight) X(Prog_ColumnSet, columnSet) \
     X(b32, ownView) X(u32, ownZoom) X(enum8(Prog_Sort), ownSort) X(b32, ownDescending)
 
 #define Prog__PanelField(type, name) type name;
@@ -675,6 +702,8 @@ typedef struct Prog_State {
     u32 paletteScroll;        // the first command row shown
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
+    u32 fitColumn;            // the active panel's column, by its place + 1, that the next build sizes to its values; UINT32_MAX all of them
+    u64 listBytes, volumeBytes;  // what the usage columns of the list being built are shares of: its items' bytes and its drive's
     // What Settings.txt last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.
     u32 settingInspectorFontSize;
     u8 settingInspectorLayout;  // its value + 1, 0 before any
@@ -873,6 +902,9 @@ function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Pr
 function void Prog_ToggleFolderView(Prog_State *state);
 function void Prog_ClearFolderViews(Prog_State *state);
 function void Prog_KeepFolderView(Prog_State *state);
+function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state);
+function f32 Prog_ColumnShare(Prog_ColumnKind kind);
+function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 column, u64 value);
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count];
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);

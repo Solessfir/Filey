@@ -57,6 +57,7 @@ enum {
     Key_Super,
     Key_ContextMenu,  // the Menu/Application key
     Key_Comma,
+    Key_Equals,
 
     Key_Count,
 };

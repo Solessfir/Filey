@@ -70,3 +70,7 @@ file-text
 file-x
 lock-keyhole
 lock-keyhole-open
+chevrons-left
+chevrons-right
+move-horizontal
+rotate-ccw
