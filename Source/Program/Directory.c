@@ -2482,8 +2482,8 @@ function b32 Prog__IsUnder(String path, String root)
     return path.length == root.length || root.value[root.length - 1] == '/' || path.value[root.length] == '/';
 }
 
-// A drive with a medium to read: its size, or its file system, which an audio CD shows without one.
-function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length; }
+// A drive with a medium to read: its size, or its file system, which an audio CD shows without one; a busy drive is taken to have one.
+function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length || drive->busy; }
 
 // Tabs on drives that went away or have no medium, such as an ejected disc, go where a new tab would; there is nothing to show there.
 function void Prog__LeaveLostDrives(Prog_State *state, P_ArrayPlace before, P_ArrayPlace after)

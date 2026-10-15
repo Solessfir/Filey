@@ -549,38 +549,94 @@ function ArrayStr P_PathRoots(Arena *arena)
     return result;
 }
 
+// What a drive says about itself, asked on a thread of its own, since a drive spinning up a disc answers only once it has.
+// The asker and the thread share it, and the last one done frees it.
+typedef struct P__DriveAnswer {
+    atomic_int users;
+    HANDLE done;
+    wchar drive[4];
+    wchar name[MAX_PATH], type[80], system[MAX_PATH + 1];
+    ULARGE_INTEGER available, total;
+    b32 sized, formatted;
+} P__DriveAnswer;
+
+function void P__DriveAnswerRelease(P__DriveAnswer *answer)
+{
+    if (atomic_fetch_sub(&answer->users, 1) != 1) return;
+    CloseHandle(answer->done);
+    HeapFree(GetProcessHeap(), 0, answer);
+}
+
+function DWORD WINAPI P__DriveAnswerThread(void *user)
+{
+    P__DriveAnswer *answer = user;
+    // Drives without a medium fail quietly instead of asking for one.
+    SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, NULL);
+    b32 com = SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED));
+    // "Local Disk (C:)", as Explorer names it.
+    SHFILEINFOW info = {0};
+    if (SHGetFileInfoW(answer->drive, 0, &info, sizeof(info), SHGFI_DISPLAYNAME)) lstrcpynW(answer->name, info.szDisplayName, (i32)CArrayCount(answer->name));
+    if (SHGetFileInfoW(answer->drive, 0, &info, sizeof(info), SHGFI_TYPENAME)) lstrcpynW(answer->type, info.szTypeName, (i32)CArrayCount(answer->type));
+    answer->sized = GetDiskFreeSpaceExW(answer->drive, &answer->available, &answer->total, NULL);
+    answer->formatted = GetVolumeInformationW(answer->drive, NULL, 0, NULL, NULL, NULL, answer->system, (u32)CArrayCount(answer->system));
+    if (com) CoUninitialize();
+    SetEvent(answer->done);
+    P__DriveAnswerRelease(answer);
+    return 0;
+}
+
 function P_ArrayPlace P_Drives(Arena *arena)
 {
-    P__EnsureCom();
     P_ArrayPlace result = {0};
     wchar drives[512];
     u32 length = GetLogicalDriveStringsW((u32)CArrayCount(drives) - 1, drives);
     if (!length || length >= CArrayCount(drives)) return result;
-    // Drives without a medium fail quietly instead of asking for one.
-    u32 errorMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
-    Scratch scratch = GetScratchEx(arena);
-    for (wchar *drive = drives; *drive; drive += lstrlenW(drive) + 1) {
+    // Every drive is asked at once, and one that has not answered in a moment is listed as busy, so a disc spinning up holds nothing up.
+    P__DriveAnswer *answers[26] = {0};
+    u32 types[26] = {0}, count = 0;
+    for (wchar *drive = drives; *drive && count < CArrayCount(answers); drive += lstrlenW(drive) + 1) {
         u32 type = GetDriveTypeW(drive);
-        if (type == DRIVE_NO_ROOT_DIR || type == DRIVE_UNKNOWN) continue;
-        // A fixed disk without a file system to read, such as one being formatted, is left out as the reference does; removable ones without a medium stay.
-        if (type == DRIVE_FIXED && !GetVolumeInformationW(drive, NULL, 0, NULL, NULL, NULL, NULL, 0)) continue;
-        P_Place place = { .path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, drive, lstrlenW(drive))) };
-        // "Local Disk (C:)", as Explorer names it.
-        SHFILEINFOW info = {0};
-        place.name = SHGetFileInfoW(drive, 0, &info, sizeof(info), SHGFI_DISPLAYNAME) && info.szDisplayName[0]
-                   ? P__FileStringWide(arena, info.szDisplayName, lstrlenW(info.szDisplayName)) : place.path;
-        ULARGE_INTEGER available = {0}, total = {0};
-        if (GetDiskFreeSpaceExW(drive, &available, &total, NULL)) {
-            place.totalBytes = total.QuadPart;
-            place.freeBytes = available.QuadPart;
+        if (type == DRIVE_NO_ROOT_DIR || type == DRIVE_UNKNOWN || lstrlenW(drive) >= 4) continue;
+        P__DriveAnswer *answer = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(P__DriveAnswer));
+        if (!answer) continue;
+        lstrcpynW(answer->drive, drive, 4);
+        answer->done = CreateEventW(NULL, TRUE, FALSE, NULL);
+        atomic_store(&answer->users, 2);
+        HANDLE thread = answer->done ? CreateThread(NULL, 0, P__DriveAnswerThread, answer, 0, NULL) : NULL;
+        if (!thread) {
+            if (answer->done) CloseHandle(answer->done);
+            HeapFree(GetProcessHeap(), 0, answer);
+            continue;
         }
-        if (SHGetFileInfoW(drive, 0, &info, sizeof(info), SHGFI_TYPENAME) && info.szTypeName[0]) place.type = P__FileStringWide(arena, info.szTypeName, lstrlenW(info.szTypeName));
-        wchar system[MAX_PATH + 1];
-        if (GetVolumeInformationW(drive, NULL, 0, NULL, NULL, NULL, system, (u32)CArrayCount(system))) place.fileSystem = P__FileStringWide(arena, system, lstrlenW(system));
+        CloseHandle(thread);
+        types[count] = type;
+        answers[count++] = answer;
+    }
+    u64 deadline = PlatformNowMicroseconds() + 300000;
+    Scratch scratch = GetScratchEx(arena);
+    for (u32 i = 0; i < count; ++i) {
+        P__DriveAnswer *answer = answers[i];
+        u64 now = PlatformNowMicroseconds();
+        b32 answered = WaitForSingleObject(answer->done, now < deadline ? (DWORD)((deadline - now) / 1000) : 0) == WAIT_OBJECT_0;
+        // A fixed disk without a file system to read, such as one being formatted, is left out as the reference does; removable ones without a medium stay.
+        if (answered && types[i] == DRIVE_FIXED && !answer->formatted) {
+            P__DriveAnswerRelease(answer);
+            continue;
+        }
+        P_Place place = { .path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, answer->drive, lstrlenW(answer->drive))), .busy = (b8)!answered };
+        place.name = answered && answer->name[0] ? P__FileStringWide(arena, answer->name, lstrlenW(answer->name)) : place.path;
+        if (answered) {
+            if (answer->sized) {
+                place.totalBytes = answer->total.QuadPart;
+                place.freeBytes = answer->available.QuadPart;
+            }
+            if (answer->type[0]) place.type = P__FileStringWide(arena, answer->type, lstrlenW(answer->type));
+            if (answer->formatted) place.fileSystem = P__FileStringWide(arena, answer->system, lstrlenW(answer->system));
+        }
         ArrayPush(arena, result, place);
+        P__DriveAnswerRelease(answer);
     }
     ReleaseScratch(scratch);
-    SetErrorMode(errorMode);
     return result;
 }
 

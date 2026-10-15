@@ -182,6 +182,7 @@ typedef struct P_Place {
     u64 freeBytes;
     String type;        // drives only: what kind of drive it is, as "Local Disk"
     String fileSystem;  // drives only: as "NTFS" or "ext4"; empty without a medium
+    b8 busy;            // drives only: did not answer in time, such as one spinning up a disc, so its details come with a later listing
 } P_Place;
 
 typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
