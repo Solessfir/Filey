@@ -617,6 +617,8 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(state.directory.count == 1 && state.historyAt == 1);
     TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
     Check(StrIsEqual(state.directory.path, fixture->path) && state.history.header.count == 3 && state.historyAt == 2);
+    // Going up selects the folder it came from.
+    Check(state.hasFocus && state.focusedRow == folder && state.directory.entries[folder].selected && TestSelectionCount(&state) == 1);
     TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
     String empty = Prog_JoinPath(&state.frameArena, fixture->path, S("Empty"));
     Prog_RequestDirectory(&state, empty, true, 0);

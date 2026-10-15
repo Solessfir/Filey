@@ -1308,9 +1308,29 @@ function void Prog__FollowTrail(Prog_State *state, String path)
     state->trail.length = (u32)path.length;
 }
 
+// Whether `path` is `root` or inside it.
+function b32 Prog__IsUnder(String path, String root)
+{
+    if (!root.length || path.length < root.length || !StrIsEqual(StrFromTo(path, 0, (i64)root.length), root)) return false;
+    return path.length == root.length || root.value[root.length - 1] == '/' || path.value[root.length] == '/';
+}
+
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
     Prog__FollowTrail(state, path);
+    // Going to a folder that holds the shown one, by Up, Back or the path, selects the folder it came from, as the reference does; This PC
+    // selects the drive.
+    String from = state->directory.path, child = {0};
+    if (StrIsEqual(path, Prog_ThisPC) && StrIsEqual(Prog_UpPath(from), Prog_ThisPC)) child = from;
+    else if (!StrIsEqual(from, path) && Prog__IsUnder(from, path)) {
+        child = StrFrom(from, path.length + (path.value[path.length - 1] == '/' ? 0 : 1));
+        Index slash = StrIndexChar(child, '/', SSF_None);
+        if (slash.exists) child = StrFromTo(child, 0, (i64)slash.value);
+    }
+    if (child.length && !state->selectLength && child.length <= sizeof(state->selectText)) {
+        MemCopy(state->selectText, child.value, child.length);
+        state->selectLength = (u32)child.length;
+    }
     // Another folder brings its kept view, or the panel's own back; a reload keeps what is shown.
     if (!StrIsEqual(path, state->directory.path)) Prog__ApplyFolderView(state, path);
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
@@ -2475,12 +2495,6 @@ function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current)
     return home.length ? home : current;
 }
 
-// Whether `path` is `root` or inside it.
-function b32 Prog__IsUnder(String path, String root)
-{
-    if (!root.length || path.length < root.length || !StrIsEqual(StrFromTo(path, 0, (i64)root.length), root)) return false;
-    return path.length == root.length || root.value[root.length - 1] == '/' || path.value[root.length] == '/';
-}
 
 // A drive with a medium to read: its size, or its file system, which an audio CD shows without one; a busy drive is taken to have one.
 function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length || drive->busy; }
