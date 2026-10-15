@@ -496,6 +496,9 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
         case Prog_Sort_Size: result = ad ? Prog__Order(a->bytes, b->bytes) : Prog__Order(a->file.size, b->file.size); break;
         case Prog_Sort_Folders: result = Prog__Order(a->folders, b->folders); break;
         case Prog_Sort_Files: result = Prog__Order(a->files, b->files); break;
+        case Prog_Sort_Created: result = Prog__Order(a->file.createdTimeUnix, b->file.createdTimeUnix); break;
+        case Prog_Sort_Accessed: result = Prog__Order(a->file.accessedTimeUnix, b->file.accessedTimeUnix); break;
+        case Prog_Sort_Items: result = Prog__Order(a->folders + a->files, b->folders + b->files); break;
         default: InvalidPath;
     }
     if (!result) result = Prog_CompareNames(Prog_EntryLeaf(a->file.name), Prog_EntryLeaf(b->file.name));
@@ -567,7 +570,7 @@ function void Prog__SortByTotals(Prog_State *state)
 {
     Prog_Directory *directory = &state->directory;
     Prog_Sort sort = directory->sort;
-    if (sort != Prog_Sort_Size && sort != Prog_Sort_Folders && sort != Prog_Sort_Files) return;
+    if (sort != Prog_Sort_Size && sort != Prog_Sort_Folders && sort != Prog_Sort_Files && sort != Prog_Sort_Items) return;
     // An open menu or a drag refers to rows by index.
     if (state->menuOpen || state->dragging) {
         state->sortPending = true;

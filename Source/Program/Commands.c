@@ -295,6 +295,9 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
     Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons,
+    Prog__PaletteGroup(Sort),
+    Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
+    Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
     Prog__PaletteGroup(Panels),
     Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
@@ -1376,9 +1379,23 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String parent = Prog_ParentPath(state->directory.path);
                 if (parent.length && !StrIsEqual(parent, state->directory.path)) Prog_RequestDirectory(state, parent, true, 0);
             } break;
+            case Prog_CommandKind_SortByName:
+            case Prog_CommandKind_SortBySize:
+            case Prog_CommandKind_SortByDateCreated:
+            case Prog_CommandKind_SortByDateModified:
+            case Prog_CommandKind_SortByDateAccessed:
+            case Prog_CommandKind_SortByItemCount:
+            case Prog_CommandKind_SortByType: {
+                local_persist const Prog_Sort sorts[] = { Prog_Sort_Name, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Modified, Prog_Sort_Accessed, Prog_Sort_Items, Prog_Sort_Type };
+                static_assert(Prog_CommandKind_SortByType - Prog_CommandKind_SortByName + 1 == CArrayCount(sorts), "a sort for every Sort By command");
+                command->row = (u64)sorts[command->kind - Prog_CommandKind_SortByName];
+            }
+                [[fallthrough]];
             case Prog_CommandKind_Sort: {
+                // A new sort starts with the biggest and newest first, names and types from A; the same sort again turns it around.
                 if (command->row < Prog_Sort_Count) {
-                    state->descending = state->sort == command->row ? !state->descending : false;
+                    b32 alphabetic = command->row == Prog_Sort_Name || command->row == Prog_Sort_Type;
+                    state->descending = state->sort == command->row ? !state->descending : !alphabetic;
                     state->sort = (u8)command->row;
                     Prog_Reload(state);
                 }

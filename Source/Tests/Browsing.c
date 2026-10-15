@@ -58,7 +58,7 @@ function void TestDirectoryFiles(TestFileFixture *fixture)
             Check(file->kind == (entry.directory ? P_FileKind_Directory : P_FileKind_File));
             Check(file->hidden == entry.hidden);
             if (!entry.directory) Check(file->size == entry.size);
-            Check(file->modifiedTimeUnix > 0);
+            Check(file->modifiedTimeUnix > 0 && file->accessedTimeUnix > 0);
         }
     }
     Check(!TestFindFile(result.files, S(".")) && !TestFindFile(result.files, S("..")));
@@ -924,11 +924,15 @@ function void TestMeasure(TestFileFixture *fixture)
             Check(folder != UINT64_MAX && state.directory.entries[folder].measured && !state.measureJob);
             // Size, Files and Folders sort folders by their totals, keeping the focus on the same item.
             Prog_SelectRow(&state, folder, 0);
+            // A new sort by size starts with the biggest.
             TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Size);
-            Check(TestEntryIndex(&state, S("Folder2")) == 2 && TestEntryIndex(&state, S("Empty")) == 0);
+            Check(state.descending && TestEntryIndex(&state, S("Folder2")) == 0 && state.focusedRow == 0 && state.directory.entries[0].selected);
+            TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Size);
+            Check(!state.descending && TestEntryIndex(&state, S("Folder2")) == 2 && TestEntryIndex(&state, S("Empty")) == 0);
             Check(state.hasFocus && state.focusedRow == 2 && state.directory.entries[2].selected);
-            TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Size);
-            Check(state.descending && TestEntryIndex(&state, S("Folder2")) == 0 && state.focusedRow == 0);
+            TestBrowsingCommand(&state, Prog_CommandKind_SortByItemCount, 0);
+            Check(state.sort == Prog_Sort_Items && state.descending && TestEntryIndex(&state, S("Folder2")) == 0);
+            TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Files);
             TestBrowsingCommand(&state, Prog_CommandKind_Sort, Prog_Sort_Files);
             Check(!state.descending && TestEntryIndex(&state, S("Folder2")) == 2);
             // A folder measured after the listing moves into place.

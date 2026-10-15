@@ -30,7 +30,7 @@ Missing, by the reference's group:
 - Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick), MenuOpen.
 - Folder: ToggleCursorSelection, OpenInRightSplit, OpenInBottomSplit, OpenInWindow, SelectionPasteLink, SelectionCopy/MovePrev/NextPanel, SelectionInspect, SelectionRestore, SelectionCopyAsPathSmart, OpenRelativePath(InTab), OpenContainingPath(InTab), CalcDirsContents, TrashDeleteAll, TrashRestoreAll, FolderViewToggle, FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - View: ToggleSepFilesFolders, SizeAllHeaderColumnsFit, HeaderColumnsOpenOptions, Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles, ToggleRecents, ToggleSortRecents.
-- Sort: SortBy Name, Size, DateCreated, DateModified, DateAccessed, DateDeleted, ItemCount, Type, OriginalLocation, FreeSpace, FileSystem, PercentFull, VolumeUsage, FolderUsage.
+- Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: ToggleDetails, ChangeLayout, Increase/DecreaseContentsSize, ToggleWordWrap, ToggleLineNumbers, ToggleWhitespace, StartFilter, ToggleImageGrid, ToggleImageMinimap, ToggleImageScale, ScaleImageUp/Down.
 - Panels: PanelEvenSiblings, PanelEvenAll.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow, TabCloseAll, TabMenu.

@@ -11,6 +11,9 @@ typedef enum Prog_Sort {
     Prog_Sort_Size,
     Prog_Sort_Folders,
     Prog_Sort_Files,
+    Prog_Sort_Created,   // these have no column
+    Prog_Sort_Accessed,
+    Prog_Sort_Items,     // folders and files inside, together
     Prog_Sort_Count,
 } Prog_Sort;
 

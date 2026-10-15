@@ -144,10 +144,14 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
             i32 nameLength = 0;
             while (data.cFileName[nameLength]) ++nameLength;
             u64 time = ((u64)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+            u64 created = ((u64)data.ftCreationTime.dwHighDateTime << 32) | data.ftCreationTime.dwLowDateTime;
+            u64 accessed = ((u64)data.ftLastAccessTime.dwHighDateTime << 32) | data.ftLastAccessTime.dwLowDateTime;
             P_File file = {
                 .name = P__FileStringWide(arena, data.cFileName, nameLength),
                 .size = ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow,
                 .modifiedTimeUnix = (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600),
+                .createdTimeUnix = created ? (i64)(created / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
+                .accessedTimeUnix = accessed ? (i64)(accessed / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
                 .kind = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? P_FileKind_Directory : (data.dwFileAttributes & FILE_ATTRIBUTE_DEVICE) ? P_FileKind_Other : P_FileKind_File,
                 .hidden = (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0,
                 .metadataValid = true,

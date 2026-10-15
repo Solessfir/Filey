@@ -711,6 +711,41 @@ command ViewXLIcons {
     hotkey  = "Ctrl+Shift+6"
 }
 
+command SortByName {
+    label   = "Sort By Name^order"
+    tooltip = "Sort folder contents by name, treating neighbor digits as numbers."
+}
+
+command SortBySize {
+    label   = "Sort By Size^order"
+    tooltip = "Sort folder contents by size, using the size of the children contents for folders."
+}
+
+command SortByDateCreated {
+    label   = "Sort By Date Created^order,day,month,year"
+    tooltip = "Sort folder contents by file creation date."
+}
+
+command SortByDateModified {
+    label   = "Sort By Date Modified^order,day,month,year"
+    tooltip = "Sort folder contents by file last modified date."
+}
+
+command SortByDateAccessed {
+    label   = "Sort By Date Accessed^order,day,month,year"
+    tooltip = "Sort folder contents by file last access date."
+}
+
+command SortByItemCount {
+    label   = "Sort By Total Items^order,entries"
+    tooltip = "Sort folder contents by children item count."
+}
+
+command SortByType {
+    label   = "Sort By Type^order"
+    tooltip = "Sort folder contents by file type."
+}
+
 command ToggleDebugTheme {
     label   = "Debug Colors^theme,debug"
     tooltip = "Draw every UI surface in its own loud color."

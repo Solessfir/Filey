@@ -118,14 +118,18 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                 .kind = P_FileKind_Other,
                 .hidden = entry->d_name[0] == '.',
             };
-            struct stat metadata = {0};
-            if (fstatat(dirfd(stream), entry->d_name, &metadata, AT_SYMLINK_NOFOLLOW) == 0) {
-                file.symbolicLink = S_ISLNK(metadata.st_mode);
-                file.metadataValid = !file.symbolicLink || fstatat(dirfd(stream), entry->d_name, &metadata, 0) == 0;
+            // statx, unlike stat, also says when the item was created.
+            struct statx metadata = {0};
+            u32 wanted = STATX_BASIC_STATS | STATX_BTIME;
+            if (statx(dirfd(stream), entry->d_name, AT_SYMLINK_NOFOLLOW, wanted, &metadata) == 0) {
+                file.symbolicLink = S_ISLNK(metadata.stx_mode);
+                file.metadataValid = !file.symbolicLink || statx(dirfd(stream), entry->d_name, 0, wanted, &metadata) == 0;
                 if (file.metadataValid) {
-                    file.kind = S_ISDIR(metadata.st_mode) ? P_FileKind_Directory : S_ISREG(metadata.st_mode) ? P_FileKind_File : P_FileKind_Other;
-                    file.size = metadata.st_size > 0 ? (u64)metadata.st_size : 0;
-                    file.modifiedTimeUnix = (i64)metadata.st_mtime;
+                    file.kind = S_ISDIR(metadata.stx_mode) ? P_FileKind_Directory : S_ISREG(metadata.stx_mode) ? P_FileKind_File : P_FileKind_Other;
+                    file.size = metadata.stx_size;
+                    file.modifiedTimeUnix = (i64)metadata.stx_mtime.tv_sec;
+                    file.accessedTimeUnix = (i64)metadata.stx_atime.tv_sec;
+                    file.createdTimeUnix = (metadata.stx_mask & STATX_BTIME) ? (i64)metadata.stx_btime.tv_sec : 0;
                 }
             }
             ArrayPush(arena, result.files, file);

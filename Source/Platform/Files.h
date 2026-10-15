@@ -14,6 +14,8 @@ typedef struct P_File {
     String name;
     u64 size;
     i64 modifiedTimeUnix; // Seconds since the Unix epoch.
+    i64 createdTimeUnix;  // 0 when the file system does not say
+    i64 accessedTimeUnix;
     enum8(P_FileKind) kind;
     b8 hidden;
     b8 metadataValid;
