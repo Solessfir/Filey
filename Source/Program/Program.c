@@ -2410,7 +2410,20 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     return result;
 }
 
+// The height of a drive's fullness bar in an icon view, which grows a little with the icons.
+function f32 Prog__DriveBarHeight(f32 iconSize, const Prog_Metrics *m)
+{
+    return floorf((15.2f + 0.045f * (iconSize / m->scale - 48.0f)) * m->scale + 0.5f);
+}
+
+// How much taller a drive's icon view cell is than a file's, for the bar between its name and its free space.
+function f32 Prog__DriveCellExtra(f32 iconSize, const Prog_Metrics *m)
+{
+    return floorf(10.4f * m->scale + 0.5f) + Prog__DriveBarHeight(iconSize, m);
+}
+
 // An icon view cell: the icon over the name and the size, centered, on a rounded box that shows only when selected, hovered or focused.
+// A drive's shows how full it is instead of its size, as a bar over its free space.
 function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width, f32 height, f32 iconSize, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -2422,7 +2435,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
-    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(9.0f * m->scale), 0, 0 });
+    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(9.0f * m->scale) + floorf(8.0f * m->scale) - floorf(4.8f * m->scale + 0.5f), 0, 0 });
     UI_SetNextCornerRadius(m->radius * 2);
     Prog_ItemLook look = Prog__ItemLook(entry->selected, hot, focused);
     UI_SetNextBorderThickness(1.2f * m->scale);
@@ -2438,6 +2451,34 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
         Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, highlighted, m);
         if (renaming) {
             Prog__RenameBox(state, UI_Pixels(width), m);
+        } else if (entry->drive) {
+            u64 total = entry->file.size;
+            Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(5.6f * m->scale + 0.5f)));
+            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text), UI_Pixels(width), m->line, 0, theme->text, 0.5f);
+            if (total) {
+                Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
+                f32 bar = MaxF32(0, width - 2 * floorf(12.8f * m->scale + 0.5f)), tall = Prog__DriveBarHeight(iconSize, m);
+                UI_SetNextPrefWidth(UI_Pixels(bar));
+                UI_SetNextPrefHeight(UI_Pixels(tall));
+                UI_SetNextBorderThickness(1.2f * m->scale);
+                UI_SetNextCornerRadius(floorf(1.6f * m->scale + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = theme->track, .border = theme->outline });
+                UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
+                UI_Parent(track) {
+                    u64 used = total - Min(entry->freeBytes, total);
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                    UI_SetNextPrefWidth(UI_Pixels(floorf(bar * (f32)((f64)used / (f64)total))));
+                    UI_SetNextPrefHeight(UI_Pixels(tall));
+                    UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
+                Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(3.2f * m->scale + 0.5f)));
+                String free = values[Prog_ColumnId_FileSystem].length
+                            ? StrFormat(&state->frameArena, "%S free of %S (%S)", values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size], values[Prog_ColumnId_FileSystem])
+                            : StrFormat(&state->frameArena, "%S free of %S", values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size]);
+                UI_SetNextFont(m->detail);
+                Prog__Label(Prog__Ellipsize(&state->frameArena, m->detail, free, text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
+            }
         } else {
             String name = Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text);
             Prog__Label(name, UI_Pixels(width), m->line, 0, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0.5f);
@@ -2561,13 +2602,17 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     if (view == Prog_View_Columns) {
         perLine = Max((u64)1, (u64)(inner / floorf(m->line * 25.0f)));
         pitch.x = floorf(inner / (f32)perLine);
-        item = (R_Rect){ m->inset, 0, m->inset + pitch.x - floorf(27.0f * m->scale), m->row };
+        f32 top = floorf(4.8f * m->scale + 0.5f);
+        item = (R_Rect){ m->inset, top, m->inset + pitch.x - floorf(21.6f * m->scale + 0.5f), top + m->row };
     } else if (view == Prog_View_Icons) {
         iconSize = Prog__ZoomIconSize(state->zoom, m->scale);
         perLine = Max((u64)1, (u64)(inner / (iconSize + floorf(30.0f * m->scale))));
-        pitch = (UI_Vec2){ floorf(inner / (f32)perLine), iconSize + floorf(77.0f * m->scale) };
-        f32 gap = floorf(7.0f * m->scale), top = floorf(8.0f * m->scale);
-        item = (R_Rect){ m->inset + gap, top, m->inset + pitch.x - gap, top + iconSize + floorf(53.0f * m->scale) };
+        // This PC's drives are taller, for their fullness bars.
+        f32 extra = StrIsEqual(state->directory.path, Prog_ThisPC) ? Prog__DriveCellExtra(iconSize, m) : 0;
+        pitch = (UI_Vec2){ floorf(inner / (f32)perLine), iconSize + floorf(77.0f * m->scale) + extra };
+        // Each cell starts at its slot's left edge, as the reference's do.
+        f32 gap = floorf(7.0f * m->scale), top = floorf(4.8f * m->scale + 0.5f);
+        item = (R_Rect){ m->inset, top, m->inset + pitch.x - 2 * gap, floorf(8.0f * m->scale) + iconSize + floorf(53.0f * m->scale) + extra };
     }
     // A new layout, from a zoom step or a narrower panel, lets the items glide from where they were for a moment.
     if (perLine != state->gridColumns || pitch.x != state->gridPitch.x || pitch.y != state->gridPitch.y) state->gridMoveTime = UI->nowMicroseconds;
@@ -2600,7 +2645,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path);
         UI_Key marqueeFrom = 0;
         for (u64 line = first; line < end; ++line) {
-            if (perLine == 1) {
+            // Columns keeps its cells when only one fits across.
+            if (perLine == 1 && view != Prog_View_Columns) {
                 u64 row = state->view[line];
                 UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
                 if (Prog__Row(state, row, line, key, columns, view == Prog_View_List, m)) marqueeFrom = key;
@@ -2660,6 +2706,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollShown.y, box.x1 - m->inset, box.y1 - list->scrollShown.y }, m);
         }
         if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
+        // Cells that sit lower in their slot, as Columns' do, reach past the last one.
+        if (lines && item.y1 > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(item.y1 - pitch.y));
         // A list longer than its view scrolls on until its last line is at the top.
         f32 viewHeight = list->rect.y1 - list->rect.y0;
         if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(viewHeight - pitch.y));
