@@ -378,6 +378,14 @@ typedef enum Prog_Option {
     Prog_Option_ColorScheme,
     Prog_Option_AlternatingRows,
     Prog_Option_InactiveOpacity,
+    Prog_Option_ActOnPress,
+    Prog_Option_SingleClick,
+    Prog_Option_SingleClickFoldersOnly,
+    Prog_Option_HoverToSelect,
+    Prog_Option_UnderlineOnHover,
+    Prog_Option_DoubleClickToParent,
+    Prog_Option_Overscroll,
+    Prog_Option_ReverseScroll,
     Prog_Option_InspectorLayout,
     Prog_Option_Transparency,
     Prog_Option_PopupBlur,
@@ -768,6 +776,14 @@ typedef struct Prog_State {
     i32 inactiveShift;
     b32 squareCorners;
     b32 alternatingRows;
+    // How the pointer works the lists; those on by default are kept the other way round, so that {0} has them.
+    b32 actOnRelease;
+    b32 singleClick, singleClickFoldersOnly;
+    b32 hoverToSelect;
+    b32 underlineAlways;      // in single-click mode, every name is underlined, not only the pointed one
+    b32 doubleClickToParent;
+    b32 noOverscroll;
+    b32 reverseScroll;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;

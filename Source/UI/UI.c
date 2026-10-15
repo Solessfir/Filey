@@ -187,8 +187,9 @@ function void UI__Input(PlatformEventList events)
             // Ctrl+wheel is left to the program, which zooms with it.
             UI_Block *block = (event->mods & KeyMod_Control) ? NULL : UI__Hit(UI_Flag_Scrollable);
             if (block) {
-                block->scrollOffset.x += event->wheelX * block->scrollStep;
-                block->scrollOffset.y -= event->wheelY * block->scrollStep;
+                f32 turn = UI->reverseScroll ? -1.0f : 1.0f;
+                block->scrollOffset.x += event->wheelX * block->scrollStep * turn;
+                block->scrollOffset.y -= event->wheelY * block->scrollStep * turn;
             }
         }
     }

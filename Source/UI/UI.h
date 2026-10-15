@@ -109,6 +109,7 @@ typedef struct UI_Context {
     UI_Vec2 mouse, pressOrigin, lastPressPosition, wheel;
     b32 drawingLayer;  // a fading block is being drawn into a layer, inside which its parts draw unfaded
     b32 squareCorners; // every corner is drawn square
+    b32 reverseScroll; // the wheel scrolls the other way
     u64 lastPressTime;
     u32 pressCount;
     // Native double-click limits from the platform; zero selects 500 ms and 4 px.

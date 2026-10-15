@@ -218,6 +218,10 @@ function b32 Prog__ParseColor(String text, R_Color *color)
     return true;
 }
 
+// A switch setting's words: on, true or 1, and off, false or 0.
+function b32 Prog__SettingOn(String value) { return Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1")); }
+function b32 Prog__SettingOff(String value) { return Prog__EqualFolded(value, S("off")) || Prog__EqualFolded(value, S("false")) || StrIsEqual(value, S("0")); }
+
 // A setting's number, such as "1.25"; -1 when it is not one.
 function f32 Prog__ParseNumber(String value)
 {
@@ -259,6 +263,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->squareCorners = false;
     state->alternatingRows = false;
     state->inactiveShift = 0;
+    state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
+    state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
     u8 inspectorLayout = Prog_InspectorLayout_Auto;
     state->userHotkeyCount = 0;
@@ -300,6 +306,22 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->squareCorners = Prog__EqualFolded(value, S("square"));
         } else if (StrIsEqual(name, S("rows.alternate"))) {
             state->alternatingRows = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
+        } else if (StrIsEqual(name, S("click.onPress"))) {
+            state->actOnRelease = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("click.single"))) {
+            state->singleClick = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("click.singleFoldersOnly"))) {
+            state->singleClickFoldersOnly = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("hover.select"))) {
+            state->hoverToSelect = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("hover.underline"))) {
+            state->underlineAlways = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("click.doubleToParent"))) {
+            state->doubleClickToParent = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("scroll.over"))) {
+            state->noOverscroll = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("scroll.reverse"))) {
+            state->reverseScroll = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("inactive.opacity"))) {
             if (number >= 0 && number <= 100) state->inactiveShift = (i32)number - 60;
         } else if (StrIsEqual(name, S("transparent"))) {
@@ -357,6 +379,11 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# With theme.system on, the system's light mode brings the light scheme instead.\n# theme.system = off\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = off\n# inactive.opacity = 60\n\n"
+                                "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
+                                "# underline only the pointed name in single-click mode, go up with a double click on the background,\n"
+                                "# scroll past the last item, and turn the wheel around.\n"
+                                "# click.onPress = on\n# click.single = off\n# click.singleFoldersOnly = off\n# hover.select = off\n# hover.underline = on\n"
+                                "# click.doubleToParent = off\n# scroll.over = on\n# scroll.reverse = off\n\n"
                                 "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
                                 "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
@@ -412,6 +439,19 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("rows.alternate") },
     [Prog_Option_InactiveOpacity] = { S("Inactive Opacity"), S("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
                                       0, 100, NULL, 0, S("inactive.opacity") },
+    [Prog_Option_ActOnPress] = { S("Act On Press"), S("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
+                                 Prog_OptionSwitch, 2, S("click.onPress") },
+    [Prog_Option_SingleClick] = { S("Single Click"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
+    [Prog_Option_SingleClickFoldersOnly] = { S("Single Click Folders Only"), S("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
+                                             Prog_OptionSwitch, 2, S("click.singleFoldersOnly") },
+    [Prog_Option_HoverToSelect] = { S("Hover To Select"), S("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("hover.select") },
+    [Prog_Option_UnderlineOnHover] = { S("Underline On Hover"), S("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
+                                       Prog_OptionSwitch, 2, S("hover.underline") },
+    [Prog_Option_DoubleClickToParent] = { S("Double Click To Parent"), S("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
+                                          Prog_OptionSwitch, 2, S("click.doubleToParent") },
+    [Prog_Option_Overscroll] = { S("Overscroll"), S("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("scroll.over") },
+    [Prog_Option_ReverseScroll] = { S("Reverse Scroll"), S("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
+                                    Prog_OptionSwitch, 2, S("scroll.reverse") },
     [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
     [Prog_Option_Transparency] = { S("Transparency"), S("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
@@ -447,6 +487,14 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_SystemScheme: return state->systemScheme;
         case Prog_Option_AlternatingRows: return state->alternatingRows;
         case Prog_Option_InactiveOpacity: return 60 + state->inactiveShift;
+        case Prog_Option_ActOnPress: return !state->actOnRelease;
+        case Prog_Option_SingleClick: return state->singleClick;
+        case Prog_Option_SingleClickFoldersOnly: return state->singleClickFoldersOnly;
+        case Prog_Option_HoverToSelect: return state->hoverToSelect;
+        case Prog_Option_UnderlineOnHover: return !state->underlineAlways;
+        case Prog_Option_DoubleClickToParent: return state->doubleClickToParent;
+        case Prog_Option_Overscroll: return !state->noOverscroll;
+        case Prog_Option_ReverseScroll: return state->reverseScroll;
         case Prog_Option_Transparency: return state->transparent != 0;
         case Prog_Option_PopupBlur: return (i32)floorf(Prog_GlassBlur + 0.5f);
         case Prog_Option_Backdrop: return state->glassBackdrop;
@@ -1877,11 +1925,17 @@ function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_K
     if (renaming && UI__Contains(state->renameRect, UI->mouse)) {
     } else if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, index, interaction.pressCount, interaction.pressOrder);
-    } else if (!state->loading && ((interaction.pressed && !keepSelection) ||
+    } else if (!state->loading && state->singleClick && interaction.clicked && interaction.button == MouseButton_Left && !interaction.mods &&
+               state->marqueeKey != key && (!state->singleClickFoldersOnly || entry->file.kind == P_FileKind_Directory)) {
+        // A single click opens it, as a double click would.
+        Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, 2, interaction.clickOrder);
+    } else if (!state->loading && (((state->actOnRelease ? interaction.clicked : interaction.pressed) && !keepSelection) ||
                                    (interaction.clicked && keepSelection && interaction.button == MouseButton_Left && state->marqueeKey != key))) {
-        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount,
-                                                  interaction.pressed ? interaction.pressOrder : interaction.clickOrder);
+        b32 onPress = interaction.pressed && !state->actOnRelease;
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, interaction.pressCount, onPress ? interaction.pressOrder : interaction.clickOrder);
         command->mods = interaction.mods;
+    } else if (!state->loading && state->hoverToSelect && UI->hotKey == key && !UI->activeKey && !entry->selected && !state->marquee) {
+        Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, 1, 0);
     }
     if (!state->loading && !renaming && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
         if (!onName) result = !state->marquee;
@@ -2082,6 +2136,19 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 continue;
             }
             Prog__LabelPadded(value, width, height, left, right, color, column->alignX);
+            // In single-click mode names are links: underlined under the pointer, or all of them when asked.
+            if (i == Prog_ColumnId_Name && state->singleClick && (hot || state->underlineAlways) &&
+                (!state->singleClickFoldersOnly || entry->file.kind == P_FileKind_Directory)) {
+                UI_Block *cell = UI->parent->last;
+                f32 thick = MaxF32(1, floorf(0.8f * m->scale + 0.5f));
+                UI_Parent(cell) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((height + m->font->lineHeight) * 0.5f) });
+                    UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->font, value)));
+                    UI_SetNextPrefHeight(UI_Pixels(thick));
+                    UI_SetNextColors((UI_Colors){ .background = color });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
+            }
             // Totals still being counted are underlined.
             b32 total = i == Prog_ColumnId_Folders || i == Prog_ColumnId_Files || i == Prog_ColumnId_Size;
             if (counting && total && value.length && !StrIsEqual(value, S("--"))) {
@@ -2252,6 +2319,9 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, listInteraction.pressCount, listInteraction.pressOrder);
     }
     // A plain click on the empty space around the items clears the selection.
+    if (state->doubleClickToParent && listInteraction.clicked && listInteraction.button == MouseButton_Left && listInteraction.pressCount == 2) {
+        Prog_QueueCommand(state, Prog_CommandKind_Up, 0, 0, listInteraction.clickOrder);
+    }
     if (listInteraction.clicked && listInteraction.button == MouseButton_Left && !listInteraction.mods && state->marqueeKey != list->key) {
         state->marqueeBox = (R_Rect){0};
         Prog_QueueCommand(state, Prog_CommandKind_MarqueeStart, 0, 0, listInteraction.clickOrder);
@@ -2356,6 +2426,9 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollShown.y, box.x1 - m->inset, box.y1 - list->scrollShown.y }, m);
         }
         if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
+        // A list longer than its view scrolls on until its last line is at the top.
+        f32 viewHeight = list->rect.y1 - list->rect.y0;
+        if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(viewHeight - pitch.y));
         if (!state->viewCount && !state->loading) {
             // Centered a little below the top, as the reference's.
             String empty = state->directory.count ? S("No items match the filter.") : S("This folder is empty.");
@@ -5210,6 +5283,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     // Spacing moves the rows apart or together from the reference's 4, two pixels a step at 125%.
     metrics.row = MaxF32(metrics.line + 2, metrics.row + (f32)state->spacingShift * floorf(1.6f * scale + 0.5f));
     UI->squareCorners = state->squareCorners;
+    UI->reverseScroll = state->reverseScroll;
     metrics.detail = state->smallFont ? state->smallFont : font;
     metrics.iconsSmall = state->smallIcons ? state->smallIcons : icons;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
