@@ -1344,7 +1344,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->folderSort = state->folderSort;
     input->showSystem = state->showSystem;
     // Another folder starts flat unless the filter is pinned.
-    if (!StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
+    if (state->directory.path.length && !StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
     input->showHidden = state->showHidden;
     input->expanded = state->expanded;
     input->addHistory = addHistory;
@@ -2330,7 +2330,18 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
         }
         StrBuildStr(arena, &text, StrFormat(arena, "inspector %u %u %u %u %u %S\n", numbers[p], inspector.zoom, (u32)inspector.sort, inspector.descending ? 1u : 0u,
                                             (u32)inspector.folders, Prog_ColumnsText(arena, inspector.columns)));
-        for (u32 t = 0; t < state->tabCount; ++t) StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", numbers[p], Prog_TabPath(state, t)));
+        for (u32 t = 0; t < state->tabCount; ++t) {
+            StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", numbers[p], Prog_TabPath(state, t)));
+            // Its filter and what it hides, which the tab opens with again.
+            b32 shown = t == state->activeTab;
+            const Prog_TextEdit *filter = shown ? &state->filter : &state->tabs[t].filter;
+            b32 sticky = shown ? state->filterSticky : state->tabs[t].filterSticky, expanded = shown ? state->expanded : state->tabs[t].expanded;
+            b32 hideFolders = shown ? state->hideFolders : state->tabs[t].hideFolders, hideFiles = shown ? state->hideFiles : state->tabs[t].hideFiles;
+            if (filter->length || sticky || expanded || hideFolders || hideFiles) {
+                StrBuildStr(arena, &text, StrFormat(arena, "filter %u %u %u %u %u %S\n", numbers[p], sticky ? 1u : 0u, expanded ? 1u : 0u, hideFolders ? 1u : 0u,
+                                                    hideFiles ? 1u : 0u, Prog_EditText(filter)));
+            }
+        }
     }
     Prog__UsePanel(state, active);
     return text.buffer;
@@ -2344,7 +2355,8 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     Scratch scratch = GetScratch();
     Prog_Split splits[Prog_MaxSplits] = {0};
     u32 splitPanel[Prog_MaxSplits] = {0};
-    struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
+    typedef struct { b32 sticky, expanded, hideFolders, hideFiles; String text; } Filter;
+    struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
     u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0;
     b32 valid = false;
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
@@ -2388,6 +2400,12 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
         } else if (StrIsEqual(word, S("tab"))) {
             if (!Prog__TakeNumber(&rest, &a) || a + 1 != panelCount) valid = false;
             else if (rest.length && panels[a].tabCount < Prog_MaxTabs) panels[a].tabs[panels[a].tabCount++] = rest;
+        } else if (StrIsEqual(word, S("filter"))) {
+            // The last tab's; older sessions have none.
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && panels[a].tabCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) &&
+                Prog__TakeNumber(&rest, &d) && Prog__TakeNumber(&rest, &e)) {
+                panels[a].filters[panels[a].tabCount - 1] = (Filter){ b != 0, c != 0, d != 0, e != 0, rest };
+            }
         }
     }
     // The tree from the root must reach every panel once, each with a tab.
@@ -2430,8 +2448,20 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             state->history = (ArrayStr){0};
             ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, panels[p].tabs[0]));
             state->historyAt = 0;
-            Prog_RequestDirectory(state, panels[p].tabs[0], false, 0);
             for (u32 t = 1; t < panels[p].tabCount; ++t) Prog_OpenTab(state, panels[p].tabs[t], t, false);
+            for (u32 t = 0; t < panels[p].tabCount; ++t) {
+                const Filter *saved = &panels[p].filters[t];
+                Prog_Tab *tab = &state->tabs[t];
+                Prog_TextEdit *filter = t ? &tab->filter : &state->filter;
+                filter->length = filter->cursor = filter->anchor = (u32)Min(saved->text.length, (u64)sizeof(filter->text) - 1);
+                MemCopy(filter->text, saved->text.value, filter->length);
+                ++filter->version;
+                *(t ? &tab->filterSticky : &state->filterSticky) = saved->sticky;
+                *(t ? &tab->expanded : &state->expanded) = saved->expanded;
+                *(t ? &tab->hideFolders : &state->hideFolders) = saved->hideFolders;
+                *(t ? &tab->hideFiles : &state->hideFiles) = saved->hideFiles;
+            }
+            Prog_RequestDirectory(state, panels[p].tabs[0], false, 0);
             if (panels[p].activeTab < state->tabCount) Prog_SelectTab(state, panels[p].activeTab);
         }
         for (u32 i = 0; i < Prog_MaxSplits; ++i) {
@@ -3070,8 +3100,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         }
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
-                    // The filter resets in another folder unless pinned, and gives way to an item that was just created or renamed.
-                    if ((!samePath && !state->filterSticky) || (pickRow < result->count && Prog_EntryScore(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL) <= 0)) {
+                    // The filter resets in another folder unless pinned, though not on a tab's first listing, and gives way to an item that was just created or renamed.
+                    if ((!samePath && state->directory.path.length && !state->filterSticky) || (pickRow < result->count && Prog_EntryScore(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL) <= 0)) {
                         Prog_ClearFilter(state);
                     }
                     b32 renamePicked = (renameCreated && created == 1 && !pick.length) || (state->selectRename && pick.length && pickRow < result->count);

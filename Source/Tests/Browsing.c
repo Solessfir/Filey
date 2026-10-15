@@ -1680,6 +1680,10 @@ function void TestPanels(TestFileFixture *fixture)
         Prog_EditColumns(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created, 0);
         state.folderSort = Prog_FolderSort_Last;
         state.inspectorView = (Prog_ViewSettings){ .zoom = Prog_ZoomColumns, .sort = Prog_Sort_Size, .descending = true, .columns = { .count = 2, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size } } };
+        // And its tabs' filters, which their first listings keep.
+        MemCopy(state.filter.text, "al pha", 6);
+        state.filter.length = 6;
+        state.hideFiles = true;
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
@@ -1687,6 +1691,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(Prog_RestoreSession(&restored, text) && TestWaitDirectory(&restored));
         Check(restored.panelCount == state.panelCount && restored.activePanel == state.activePanel && restored.splits[0].kind == state.splits[0].kind);
         Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
+        Check(StrIsEqual(Prog_EditText(&restored.filter), S("al pha")) && restored.hideFiles && !restored.filterSticky);
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
         Prog_Release(&restored);
         ArenaRelease(&sessionArena);
