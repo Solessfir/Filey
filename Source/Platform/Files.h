@@ -226,8 +226,9 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
 // May touch the disk, so run it in a job.
 // `exact` asks for the icon of this very item, as for special folders such as the desktop, rather than the one of its type.
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image);
-// A large picture for icon views, fitting a size x size square: the system's thumbnail where it makes one (an image's contents, a folder's preview), else the icon.
-function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image);
+// A large picture for icon views, fitting a size x size square: the system's thumbnail where it makes one (an image's contents, a folder's preview),
+// else the icon unless `thumbnailOnly`, which then fails.
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image);
 // The picture in an image file at its own size, or scaled down to fit a `maxSide` square when larger.
 // `sourceWidth` and `sourceHeight` get the size it has. False for files that are not pictures the system can read.
 // Reads the whole file, so run it in a job.

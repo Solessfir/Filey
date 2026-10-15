@@ -197,7 +197,7 @@ function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
 }
 
 // The shell's image factory gives a thumbnail where the file has one and its icon otherwise, at any size.
-function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
@@ -207,7 +207,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         IShellItemImageFactory *factory = NULL;
         if (SUCCEEDED(SHCreateItemFromParsingName(wide, NULL, &P__IID_IShellItemImageFactory, (void **)&factory))) {
             HBITMAP bitmap = NULL;
-            if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT, &bitmap)) && bitmap) {
+            if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT | (thumbnailOnly ? SIIGBF_THUMBNAILONLY : 0), &bitmap)) && bitmap) {
                 result = P__BitmapPixels(arena, bitmap, image);
                 DeleteObject(bitmap);
             }
@@ -215,7 +215,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || P_LoadFileIcon(arena, path, kind, size, false, image);
+    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, false, image));
 }
 
 // The Windows Imaging Component's, defined here so that windowscodecs.lib need not be linked.

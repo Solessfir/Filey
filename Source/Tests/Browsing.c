@@ -693,11 +693,22 @@ function void TestFileIcons(TestFileFixture *fixture)
     String picture = Prog_JoinPath(&arena, fixture->path, S("pixel.png"));
     Check(!P_WriteFile(&arena, picture, StrMake(pixel, sizeof(pixel) - 1)).code);
     image = (P_Image){0};
-    Check(P_LoadFileThumbnail(&arena, picture, P_FileKind_File, 64, &image) && image.pixels != NULL);
+    Check(P_LoadFileThumbnail(&arena, picture, P_FileKind_File, 64, false, &image) && image.pixels != NULL);
 #if defined(__linux__)
     Check(image.width == 1 && image.height == 1 && StrIsEqual(P_FileThumbnailKey(&arena, picture, P_FileKind_File), picture));
 #endif
+    // Without a thumbnail of its own, a file gets none rather than its icon when only a thumbnail will do.
+    String plain = Prog_JoinPath(&arena, fixture->path, S("plain.bin"));
+    Check(!P_WriteFile(&arena, plain, S("\x01\x02")).code);
+    image = (P_Image){0};
+    Check(!P_LoadFileThumbnail(&arena, plain, P_FileKind_File, 64, true, &image));
+    // Its bytes then show as a hex dump: offset, hex in two groups of eight, characters; a cut one ends with "...".
+    String dump = Prog_HexDump(&arena, S("AB\x00"), false);
+    Check(StrIsEqual(StrFromTo(dump, 0, 18), S("0000  41 42 00    ")) && TestEndsWith(dump, S("    AB.\n")) && dump.length == 4 + 2 + 49 + 1 + 3 + 1);
+    String sixteen = Prog_HexDump(&arena, S("0123456789abcdefg"), true);
+    Check(StrIsEqual(StrFromTo(sixteen, 0, 82), S("0000  30 31 32 33 34 35 36 37  38 39 61 62 63 64 65 66  0123456789abcdef\n0010  67 ")) && TestEndsWith(sixteen, S(" g\n...\n")));
     Check(P__TestRemovePath(fixture, S("pixel.png"), false));
+    Check(P__TestRemovePath(fixture, S("plain.bin"), false));
 
     // Menus are only built and read here, never invoked.
     String names[] = { S("plain.txt") };

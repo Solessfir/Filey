@@ -618,6 +618,43 @@ function void Prog__SortByTotals(Prog_State *state)
 }
 
 // Whether the start of a file reads as text: no NUL bytes, and nearly all of it UTF-8; the end may cut a character.
+// `bytes` as lines of 16: the offset, in as few hex digits as the last one needs but at least four, the bytes in hex in two groups of eight, and the printable ones as characters, others as dots;
+// `cut` adds a last line saying the file goes on.
+function String Prog_HexDump(Arena *arena, String bytes, b32 cut)
+{
+    local_persist const char digits[] = "0123456789ABCDEF";
+    u64 lines = (bytes.length + 15) / 16;
+    i32 places = 4;
+    while (places < 16 && (lines * 16) >> (4 * places)) ++places;
+    u64 width = (u64)places + 2 + 16 * 3 + 1 + 1 + 16 + 1;
+    String more = S("...\n");
+    char *text = ArenaPushArrayNoZero(arena, lines * width + more.length, char), *at = text;
+    for (u64 line = 0; line < lines; ++line) {
+        u64 offset = line * 16, count = Min((u64)16, bytes.length - offset);
+        for (i32 shift = 4 * (places - 1); shift >= 0; shift -= 4) *at++ = digits[(offset >> shift) & 15];
+        *at++ = ' ';
+        *at++ = ' ';
+        for (u64 i = 0; i < 16; ++i) {
+            u8 byte = (u8)bytes.value[offset + Min(i, count - 1)];
+            *at++ = i < count ? digits[byte >> 4] : ' ';
+            *at++ = i < count ? digits[byte & 15] : ' ';
+            *at++ = ' ';
+            if (i == 7) *at++ = ' ';
+        }
+        *at++ = ' ';
+        for (u64 i = 0; i < count; ++i) {
+            u8 byte = (u8)bytes.value[offset + i];
+            *at++ = byte >= 0x20 && byte < 0x7F ? (char)byte : '.';
+        }
+        *at++ = '\n';
+    }
+    if (cut) {
+        MemCopy(at, more.value, more.length);
+        at += more.length;
+    }
+    return StrMake(text, (u64)(at - text));
+}
+
 function b32 Prog__LooksLikeText(String start)
 {
     if (!start.length) return false;
@@ -996,8 +1033,13 @@ function void Prog__DirectoryJob(P_Job *job)
             result->height = image.height;
             result->image = true;
         } else if (!P_IsCancelled(&job->cancelToken)) {
+            // A file without a picture of its own, such as a program or an archive, shows its bytes.
             Scratch scratch = GetScratchEx(&job->arena);
-            if (P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, &image)) {
+            b32 hex = !input->folder && !P_LoadFileThumbnail(scratch.arena, input->path, P_FileKind_File, Prog_PreviewSize, true, &image);
+            if (hex) {
+                result->text = Prog_HexDump(&job->arena, start, start.length == Prog_PreviewBytes);
+                result->hex = true;
+            } else if (image.pixels || P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, false, &image)) {
                 result->pixels = Prog_ResizeIcon(&job->arena, image, Prog_PreviewSize);
                 result->width = result->height = Prog_PreviewSize;
             }
@@ -2812,6 +2854,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
+                state->previewHex = preview->hex;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
                 u32 lines = 0;

@@ -473,7 +473,7 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
 }
 
 // ponytail: decodes the whole picture every time; read the freedesktop cache (~/.cache/thumbnails, md5 of the file URI) first if big photo folders feel slow.
-function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
     b32 result = false;
@@ -497,7 +497,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || P_LoadFileIcon(arena, path, kind, size, false, image);
+    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, false, image));
 }
 
 // ponytail: `exact` is ignored, so the user's folders show the plain folder icon; map them to the theme's folder-download and kin when that matters.
