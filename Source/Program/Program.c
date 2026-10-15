@@ -4171,7 +4171,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
     i32 value = Prog_OptionValue(state, option);
     switch (desc->control) {
         case Prog_OptionControl_Switch: {
-            f32 wide = floorf(40.8f * s + 0.5f), tall = floorf(22.4f * s + 0.5f), inset = floorf(2.4f * s + 0.5f), knob = tall - 2 * inset;
+            f32 wide = floorf(41.6f * s + 0.5f), tall = floorf(22.4f * s + 0.5f), inset = floorf(1.6f * s + 0.5f), knob = tall - 2 * inset;
             UI_SetNextPrefWidth(UI_Pixels(wide));
             UI_SetNextPrefHeight(UI_Pixels(tall));
             UI_SetNextCornerRadius(tall * 0.5f);
@@ -4181,8 +4181,10 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                                                   UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (value ? 0 : UI_Flag_DrawBorder));
             UI_Interaction interaction = UI_InteractionFromBlock(toggle);
             if (interaction.clicked) Prog__QueueOption(state, option, !value, interaction.clickOrder, false);
+            // The knob slides across, easing, as the reference's does; the color changes at once.
+            f32 knobX = UI_Animate(UI_KeyFromStr(toggle->key, S("Knob")), value ? wide - inset - knob : inset, value ? wide - inset - knob : inset);
             UI_Parent(toggle) {
-                UI_SetNextFloatingOffset((UI_Vec2){ value ? wide - inset - knob : inset, inset });
+                UI_SetNextFloatingOffset((UI_Vec2){ floorf(knobX + 0.5f), inset });
                 UI_SetNextPrefWidth(UI_Pixels(knob));
                 UI_SetNextPrefHeight(UI_Pixels(knob));
                 UI_SetNextCornerRadius(knob * 0.5f);
