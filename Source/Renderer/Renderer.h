@@ -77,6 +77,10 @@ function void R_PopClip(void);
 // Everything drawn until the matching pop is scaled by `scale` around (x, y), clips included, as for a block that zooms in.
 function void R_PushScale(f32 x, f32 y, f32 scale);
 function void R_PopScale(void);
+// Everything drawn until the matching pop goes into a layer, which is then laid over what is under `rect` at `opacity`,
+// so that a fading group shows what is under it evenly instead of through each of its parts. Layers do not nest, and nothing blurs inside one.
+function void R_PushLayer(R_Rect rect);
+function void R_PopLayer(f32 opacity);
 
 // Text (Renderer/Font.c). `y` is the top of the line box.
 function b32  R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font);

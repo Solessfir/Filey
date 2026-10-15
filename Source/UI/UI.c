@@ -483,12 +483,20 @@ function void UI__DrawBlock(UI_Block *block, f32 opacity)
 
 function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
 {
-    opacity *= 1.0f - UI__Clamp(block->props.fade, 0, 1);
+    f32 own = 1.0f - UI__Clamp(block->props.fade, 0, 1);
+    opacity *= own;
     if (opacity <= 0) return;
     b32 visible = block->clipRect.x1 > block->clipRect.x0 && block->clipRect.y1 > block->clipRect.y0;
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
+    // A fading block that keeps what is inside it within its bounds fades as one layer, so that its parts do not show through one another.
+    b32 layer = own < 1 && clipsChildren && block->first && visible && !UI->drawingLayer;
+    if (visible && block->props.blur > 0) R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity);
+    if (layer) {
+        R_PushLayer(block->clipRect);
+        UI->drawingLayer = true;
+        opacity /= own;
+    }
     if (visible) {
-        if (block->props.blur > 0) R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity);
         if (FlagExists(block->flags, UI_Flag_DrawBackground)) {
             R_Color background = UI__Faded(block->props.colors.background, opacity);
             if (block->props.softness > 0) R_DrawSoftRect(block->rect, background, block->props.cornerRadius, block->props.softness);
@@ -522,6 +530,10 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     if (clipsChildren && block->first) R_PushClip(block->clipRect);
     for (UI_Block *child = block->first; child; child = child->next) UI__DrawBlock(child, opacity);
     if (clipsChildren && block->first) R_PopClip();
+    if (layer) {
+        UI->drawingLayer = false;
+        R_PopLayer(own);
+    }
 }
 
 function void UI_Draw(void) { Assert(UI && UI->root); UI__DrawBlock(UI->root, 1); }

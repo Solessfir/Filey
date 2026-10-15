@@ -153,6 +153,14 @@ function void R_PopScale(void)
     if (TestUIScaleDepth) --TestUIScaleDepth;
 }
 
+global u32 TestUILayerDepth;
+function void R_PushLayer(R_Rect rect) { ++TestUILayerDepth; }
+function void R_PopLayer(f32 opacity)
+{
+    Check(TestUILayerDepth != 0);
+    if (TestUILayerDepth) --TestUILayerDepth;
+}
+
 function void TestUIBegin(UI_Context *context, Arena *frame, PlatformEventList events, u64 now)
 {
     ArenaClear(frame);

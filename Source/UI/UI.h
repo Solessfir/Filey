@@ -107,6 +107,7 @@ typedef struct UI_Context {
     KeyMods activeMods;
     KeyMods mods;  // held by the last mouse or key event
     UI_Vec2 mouse, pressOrigin, lastPressPosition, wheel;
+    b32 drawingLayer;  // a fading block is being drawn into a layer, inside which its parts draw unfaded
     u64 lastPressTime;
     u32 pressCount;
     // Native double-click limits from the platform; zero selects 500 ms and 4 px.

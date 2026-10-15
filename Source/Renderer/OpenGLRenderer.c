@@ -127,6 +127,8 @@ typedef struct GL_Batch {
     b32    blur;
     i32    region[4];
     f32    radius;
+    // 1 starts drawing into the layer texture, cleared under `region`; 2 lays it back into the frame through its one instance.
+    u8     layer;
 } GL_Batch;
 
 typedef struct GL_ArrayInstance { ArrayHeader header; GL_Instance *v; } GL_ArrayInstance;
@@ -162,7 +164,9 @@ typedef struct GL_State {
     GLuint           blurVertexArray;
     GLuint           framebuffer;
     GLuint           blurLevels[GL_BlurLevels + 1];  // the copy, then each level about half the one before
-    i32              blurWidth, blurHeight;          // the window's size they were made for
+    i32              blurWidth, blurHeight;          // the window's size they were made for, as the layer texture is
+    GLuint           layerTexture;
+    b32              inLayer;
 } GL_State;
 
 global GL_State GL;
@@ -425,6 +429,8 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     // The blur levels follow the window's size.
     if (GL.blurWidth != width || GL.blurHeight != height) {
         if (GL.blurLevels[0]) GL.DeleteTextures(GL_BlurLevels + 1, GL.blurLevels);
+        if (GL.layerTexture) GL.DeleteTextures(1, &GL.layerTexture);
+        GL.layerTexture = GL__BlurTexture(width, height);
         i32 levelWidth = width, levelHeight = height;
         for (u32 level = 0; level <= GL_BlurLevels; ++level) {
             GL.blurLevels[level] = GL__BlurTexture(levelWidth, levelHeight);
@@ -453,7 +459,7 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
     b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
     b32 compatibleTexture = batch != NULL && (texture == 0 || batch->texture == 0 || batch->texture == texture);
-    if (!sameClip || !compatibleTexture || batch->blur) {
+    if (!sameClip || !compatibleTexture || batch->blur || batch->layer) {
         batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
         batch->clip = clip;
         batch->first = (u32)GL.instances.header.count;
@@ -481,7 +487,8 @@ function GLuint GL__BlurTexture(i32 width, i32 height)
 
 function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity)
 {
-    if (opacity <= 0 || radius <= 0) return;
+    // A layer's texture is not the frame, which the blur reads.
+    if (opacity <= 0 || radius <= 0 || GL.inLayer) return;
     if (GL.scale != 1) {
         rect = GL__Scaled(rect);
         cornerRadius *= GL.scale;
@@ -640,6 +647,40 @@ function void R_PopScale(void)
     GL.offsetY = GL.scales[GL.scaleDepth].y;
 }
 
+function void R_PushLayer(R_Rect rect)
+{
+    Assert(!GL.inLayer);
+    rect = GL__Scaled(rect);
+    R_Rect clip = GL__CurrentClip();
+    i32 region[4] = {
+        (i32)MaxF32(0, floorf(MaxF32(rect.x0, clip.x0))), (i32)MaxF32(0, floorf(MaxF32(rect.y0, clip.y0))),
+        (i32)MinF32((f32)GL.width, ceilf(MinF32(rect.x1, clip.x1))), (i32)MinF32((f32)GL.height, ceilf(MinF32(rect.y1, clip.y1))),
+    };
+    region[2] = Max(region[2], region[0]);
+    region[3] = Max(region[3], region[1]);
+    GL_Batch *batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
+    *batch = (GL_Batch){ .clip = clip, .first = (u32)GL.instances.header.count, .layer = 1, .region = { region[0], region[1], region[2], region[3] } };
+    GL.inLayer = true;
+}
+
+function void R_PopLayer(f32 opacity)
+{
+    Assert(GL.inLayer);
+    GL.inLayer = false;
+    const GL_Batch *start = NULL;
+    for (u64 i = GL.batches.header.count; i-- > 0 && !start;) {
+        if (GL.batches.v[i].layer == 1) start = &GL.batches.v[i];
+    }
+    if (!start) return;
+    R_Rect rect = { (f32)start->region[0], (f32)start->region[1], (f32)start->region[2], (f32)start->region[3] };
+    f32 width = (f32)GL.width, height = (f32)GL.height;
+    R_Rect uv = { rect.x0 / width, (height - rect.y0) / height, rect.x1 / width, (height - rect.y1) / height };
+    R_Rect clip = start->clip;
+    GL_Batch *batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
+    *batch = (GL_Batch){ .clip = clip, .first = (u32)GL.instances.header.count, .count = 1, .layer = 2 };
+    ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .uv = uv, .color = { 1, 1, 1, opacity }, .textured = 3.0f }));
+}
+
 function void R_ReadPixels(u32 width, u32 height, void *bgra)
 {
     GL.ReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, bgra);
@@ -662,6 +703,24 @@ function void R_EndFrame(void)
         GL_Batch *batch = &GL.batches.v[i];
         if (batch->blur) {
             GL__Blur(batch);
+            continue;
+        }
+        if (batch->layer == 1) {
+            GL.BindFramebuffer(GL_FRAMEBUFFER, GL.framebuffer);
+            GL.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL.layerTexture, 0);
+            GL.Scissor(batch->region[0], GL.height - batch->region[3], batch->region[2] - batch->region[0], batch->region[3] - batch->region[1]);
+            GL.ClearColor(0, 0, 0, 0);
+            GL.Clear(GL_COLOR_BUFFER_BIT);
+            continue;
+        }
+        if (batch->layer == 2) {
+            // The layer holds premultiplied colors, as drawing over clear leaves them.
+            GL.BindFramebuffer(GL_FRAMEBUFFER, 0);
+            i32 cx0 = (i32)floorf(batch->clip.x0), cy0 = (i32)floorf(batch->clip.y0), cx1 = (i32)ceilf(batch->clip.x1), cy1 = (i32)ceilf(batch->clip.y1);
+            GL.Scissor(cx0, GL.height - cy1, cx1 - cx0, cy1 - cy0);
+            GL.BlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            GL__DrawInstance(batch->first, GL.layerTexture);
+            GL.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
             continue;
         }
         // GL 3.3 has no base-instance draw, so the attributes are rebased instead.
