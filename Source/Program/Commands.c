@@ -1350,9 +1350,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabDuplicate: {
                 // A new tab shows what the settings say, and a duplicate the current tab's folder.
                 String path = Prog_TabPath(state, state->activeTab);
-                if (command->kind == Prog_CommandKind_TabNew && state->newTab == Prog_NewTab_Root) path = Prog_ThisPC;
-                String home = command->kind == Prog_CommandKind_TabNew && state->newTab == Prog_NewTab_Home ? Prog_HomePath(&state->frameArena) : (String){0};
-                if (home.length) path = home;
+                if (command->kind == Prog_CommandKind_TabNew) path = Prog_NewTabPath(state, &state->frameArena, path);
                 Prog_OpenTab(state, path, state->activeTab + 1, true);
             } break;
             case Prog_CommandKind_TabShiftLeft: if (state->activeTab) Prog_MoveTab(state, state->activeTab, state->activeTab - 1); break;
@@ -1970,6 +1968,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
+        if (event->kind == PlatformEventKind_DrivesChanged) state->drivesChanged = true;
         // A key that ran a command does not also type its character, such as Shift+F's F or Space's space.
         if (event->kind == PlatformEventKind_Text && state->swallowText) {
             state->swallowText = false;

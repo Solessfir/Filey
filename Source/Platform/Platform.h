@@ -92,6 +92,7 @@ typedef enum PlatformEventKind {
     PlatformEventKind_MouseUp,
     PlatformEventKind_MouseWheel,
     PlatformEventKind_MouseLeave,  // the pointer left the window
+    PlatformEventKind_DrivesChanged,  // a drive or its medium came or went
 
     PlatformEventKind_Count,
 } PlatformEventKind;

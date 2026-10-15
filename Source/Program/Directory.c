@@ -2467,6 +2467,50 @@ function String Prog_TabPath(const Prog_State *state, u32 index)
     return at < history->header.count ? history->v[at] : (String){0};
 }
 
+// Where a new tab opens, by the settings; `current` stands in for the shown folder.
+function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current)
+{
+    if (state->newTab == Prog_NewTab_Root) return Prog_ThisPC;
+    String home = state->newTab == Prog_NewTab_Home ? Prog_HomePath(arena) : (String){0};
+    return home.length ? home : current;
+}
+
+// Whether `path` is `root` or inside it.
+function b32 Prog__IsUnder(String path, String root)
+{
+    if (!root.length || path.length < root.length || !StrIsEqual(StrFromTo(path, 0, (i64)root.length), root)) return false;
+    return path.length == root.length || root.value[root.length - 1] == '/' || path.value[root.length] == '/';
+}
+
+// Tabs on drives that went away or lost their medium, such as an ejected disc, go where a new tab would.
+function void Prog__LeaveLostDrives(Prog_State *state, P_ArrayPlace before, P_ArrayPlace after)
+{
+    u32 panel = state->currentPanel;
+    for (u64 d = 0; d < before.header.count; ++d) {
+        String root = before.v[d].path;
+        if (!before.v[d].totalBytes) continue;
+        b32 kept = false;
+        for (u64 i = 0; i < after.header.count && !kept; ++i) kept = StrIsEqual(after.v[i].path, root) && after.v[i].totalBytes;
+        if (kept) continue;
+        for (u32 p = 0; p < state->panelCount; ++p) {
+            Prog__UsePanel(state, p);
+            for (u32 t = 0; t < state->tabCount; ++t) {
+                if (!Prog__IsUnder(Prog_TabPath(state, t), root)) continue;
+                String path = Prog_NewTabPath(state, &state->frameArena, Prog_ThisPC);
+                if (Prog__IsUnder(path, root)) path = Prog_ThisPC;
+                if (t == state->activeTab) {
+                    Prog_RequestDirectory(state, path, true, 0);
+                } else {
+                    // A hidden tab is put back in its slot with the new folder.
+                    Prog_CloseTab(state, t);
+                    Prog_OpenTab(state, path, t, false);
+                }
+            }
+        }
+    }
+    Prog__UsePanel(state, panel);
+}
+
 // Opens `path` in a new tab at slot `at`.
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
 {
@@ -2590,8 +2634,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         changed |= state->watchDirty;
     }
     Prog__UsePanel(state, active);
-    // ponytail: drives that come and go show at the next refresh after some input; watch device changes if that feels slow.
-    if (state->placesWanted && !state->placesJob && (!state->placesTime || now - state->placesTime >= Millions(5))) {
+    // Drives are listed again every few seconds while the sidebar shows them, and at once when the system tells of one coming or going.
+    if ((state->placesWanted || state->drivesChanged) && !state->placesJob && (state->drivesChanged || !state->placesTime || now - state->placesTime >= Millions(5))) {
+        state->drivesChanged = false;
         state->placesTime = now;
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
@@ -2832,6 +2877,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (state->placesJob == job) state->placesJob = NULL;
             if (job->result) {
                 Prog_Places *result = job->result;
+                Prog__LeaveLostDrives(state, state->drives, result->drives);
                 ArenaRelease(&state->placesArena);
                 state->placesArena = job->arena;
                 job->arena = (Arena){0};

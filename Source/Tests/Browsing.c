@@ -1401,6 +1401,15 @@ function void TestTabs(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     state.newTab = Prog_NewTab_Root;
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
+    // Tabs on a drive whose medium went away, such as an ejected disc, go where a new tab would, the hidden one in its slot.
+    {
+        P_Place lost = { .path = fixture->path, .totalBytes = 1 };
+        Prog__LeaveLostDrives(&state, (P_ArrayPlace){ .header.count = 1, .v = &lost }, (P_ArrayPlace){0});
+        Check(state.tabCount == 2 && state.activeTab == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
+        Check(StrIsEqual(Prog_TabPath(&state, 0), Prog_ThisPC));
+        Prog_RequestDirectory(&state, fixture->path, true, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
+    }
     // Edit Path starts Go To on the shown folder, its path selected and nothing highlighted.
     TestBrowsingCommand(&state, Prog_CommandKind_EditPath, 0);
     String shownPath = P_NativePath(&state.frameArena, Prog_JoinPath(&state.frameArena, state.directory.path, S("")));

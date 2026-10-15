@@ -3,6 +3,7 @@
 #pragma push_macro("function")
 #undef function
 #include <dwmapi.h>
+#include <dbt.h>
 #pragma pop_macro("function")
 
 #define WGL_CONTEXT_MAJOR_VERSION_ARB    0x2091
@@ -311,6 +312,11 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             }
             WinPushMouseEvent(PlatformEventKind_MouseMove, lParam, 0);
             return 0;
+        }
+        // Volumes and media that come and go are told to every top-level window.
+        case WM_DEVICECHANGE: {
+            if (wParam == DBT_DEVICEARRIVAL || wParam == DBT_DEVICEREMOVECOMPLETE) PlatformPushEvent(PlatformEventKind_DrivesChanged);
+            return TRUE;
         }
         case WM_MOUSELEAVE: {
             Win.trackingLeave = false;
