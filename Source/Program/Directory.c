@@ -39,17 +39,17 @@ function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
 // 1024-based with one decimal, cut rather than rounded as the reference does, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".
 function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
-    local_persist const char *units[] = { "kB", "MB", "GB", "TB", "PB" };
+    local_persist const char *units[] = { "kB", "MB", "GB", "TB" };
     if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " B", bytes);
-    // In single precision, which lands a value a hair under a tenth on the tenth before it is cut.
-    f32 value = (f32)bytes / 1024.0f;
-    u32 unit = 0;
-    while (value >= 1024.0f && unit + 1 < CArrayCount(units)) {
-        value /= 1024.0f;
+    // As the reference counts it, in whole numbers: the whole units, then the tenths the rest holds, a tenth being the unit over ten cut to a
+    // whole byte, which makes the rest of a nearly full unit ten tenths, shown as nine.
+    u32 unit = 0, shift = 10;
+    while (unit + 1 < CArrayCount(units) && bytes >> (shift + 10)) {
+        shift += 10;
         ++unit;
     }
-    f64 rounded = floor((f64)(value * 10.0f)) / 10.0;
-    return rounded == floor(rounded) ? StrFormat(arena, "%.0f %s", rounded, units[unit]) : StrFormat(arena, "%.1f %s", rounded, units[unit]);
+    u64 whole = bytes >> shift, tenths = Min((bytes & ((UINT64_C(1) << shift) - 1)) / ((UINT64_C(1) << shift) / 10), UINT64_C(9));
+    return tenths ? StrFormat(arena, "%" PRIu64 ".%" PRIu64 " %s", whole, tenths, units[unit]) : StrFormat(arena, "%" PRIu64 " %s", whole, units[unit]);
 }
 
 function u8 Prog__FoldAscii(u8 c)
