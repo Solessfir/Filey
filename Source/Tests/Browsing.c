@@ -707,6 +707,22 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(StrIsEqual(StrFromTo(dump, 0, 18), S("0000  41 42 00    ")) && TestEndsWith(dump, S("    AB.\n")) && dump.length == 4 + 2 + 49 + 1 + 3 + 1);
     String sixteen = Prog_HexDump(&arena, S("0123456789abcdefg"), true);
     Check(StrIsEqual(StrFromTo(sixteen, 0, 82), S("0000  30 31 32 33 34 35 36 37  38 39 61 62 63 64 65 66  0123456789abcdef\n0010  67 ")) && TestEndsWith(sixteen, S(" g\n...\n")));
+    // An archive lists its folders and files with their paths inside it; one made by Python's zipfile, a folder "docs" holding "a.txt".
+    local_persist const char zipped[] = "\x50\x4b\x03\x04\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x64\x6f\x63\x73\x2f\x50\x4b\x03\x04\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\xac\x2a\x93\xd8\x02\x00\x00\x00\x02\x00\x00\x00\x0a\x00\x00\x00\x64\x6f\x63\x73\x2f\x61\x2e\x74\x78\x74\x68\x69\x50\x4b\x01\x02\x14\x00\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\xfd\x41\x00\x00\x00\x00\x64\x6f\x63\x73\x2f\x50\x4b\x01\x02\x14\x00\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\xac\x2a\x93\xd8\x02\x00\x00\x00\x02\x00\x00\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x01\x23\x00\x00\x00\x64\x6f\x63\x73\x2f\x61\x2e\x74\x78\x74\x50\x4b\x05\x06\x00\x00\x00\x00\x02\x00\x02\x00\x6b\x00\x00\x00\x4d\x00\x00\x00\x00\x00";
+    String archive = Prog_JoinPath(&arena, fixture->path, S("pack.zip"));
+    Check(!P_WriteFile(&arena, archive, StrMake(zipped, sizeof(zipped) - 1)).code);
+    P_FileArray items = {0};
+    Check(P_ListArchive(&arena, archive, 100, NULL, &items));
+    b32 sawFolder = false, sawFile = false;
+    for (u64 i = 0; i < items.header.count; ++i) {
+        sawFolder |= items.v[i].kind == P_FileKind_Directory && StrIsEqual(items.v[i].name, S("docs"));
+        sawFile |= items.v[i].kind == P_FileKind_File && StrIsEqual(items.v[i].name, S("docs/a.txt")) && items.v[i].size == 2;
+    }
+    Check(sawFolder && sawFile);
+    String listing = Prog_ArchiveListing(&arena, &items, false);
+    Check(StrIsEqual(StrFromTo(listing, 0, 23), S("1 folder, 1 file, 2 B\n\n")) && TestEndsWith(listing, S("       2 B  docs/a.txt\n")));
+    Check(!P_ListArchive(&arena, plain, 100, NULL, &items) && !items.header.count);
+    Check(P__TestRemovePath(fixture, S("pack.zip"), false));
     Check(P__TestRemovePath(fixture, S("pixel.png"), false));
     Check(P__TestRemovePath(fixture, S("plain.bin"), false));
 

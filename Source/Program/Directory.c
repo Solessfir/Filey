@@ -618,6 +618,43 @@ function void Prog__SortByTotals(Prog_State *state)
 }
 
 // Whether the start of a file reads as text: no NUL bytes, and nearly all of it UTF-8; the end may cut a character.
+// The archives the inspector lists by their extension; the system is asked only for these, since it is slow to say no.
+#define Prog_PreviewArchiveItems 50000
+function b32 Prog__EqualFolded(String a, String b);
+
+function b32 Prog__IsArchive(String path)
+{
+    local_persist const String extensions[] = { S(".zip"), S(".7z"), S(".rar"), S(".tar"), S(".tgz"), S(".gz"), S(".bz2"), S(".xz"), S(".zst"), S(".cab"), S(".jar") };
+    for (u32 i = 0; i < CArrayCount(extensions); ++i) {
+        String tail = path.length >= extensions[i].length ? StrFrom(path, path.length - extensions[i].length) : (String){0};
+        if (Prog__EqualFolded(tail, extensions[i])) return true;
+    }
+    return false;
+}
+
+// What an archive holds, a line each in its order: the size right aligned, then the path inside it, a folder's ending in '/'; first a line
+// with the counts and the total size, and `cut` adds a last line saying there is more.
+function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 cut)
+{
+    u64 folders = 0, files = 0, bytes = 0;
+    for (u64 i = 0; i < items->header.count; ++i) {
+        if (items->v[i].kind == P_FileKind_Directory) ++folders;
+        else ++files, bytes += items->v[i].size;
+    }
+    StrBuilder text = {0};
+    StrBuildStr(arena, &text, StrFormat(arena, "%" PRIu64 " %s, %" PRIu64 " %s, %S\n\n", folders, folders == 1 ? "folder" : "folders", files,
+                                        files == 1 ? "file" : "files", Prog_FormatSize(arena, bytes)));
+    for (u64 i = 0; i < items->header.count; ++i) {
+        const P_File *item = &items->v[i];
+        b32 folder = item->kind == P_FileKind_Directory;
+        String size = folder ? (String){0} : Prog_FormatSize(arena, item->size);
+        for (u64 pad = size.length; pad < 10; ++pad) StrBuildChar(arena, &text, ' ');
+        StrBuildStr(arena, &text, StrFormat(arena, "%S  %S%s\n", size, item->name, folder ? "/" : ""));
+    }
+    if (cut) StrBuildStr(arena, &text, S("...\n"));
+    return text.buffer;
+}
+
 // `bytes` as lines of 16: the offset, in as few hex digits as the last one needs but at least four, the bytes in hex in two groups of eight, and the printable ones as characters, others as dots;
 // `cut` adds a last line saying the file goes on.
 function String Prog_HexDump(Arena *arena, String bytes, b32 cut)
@@ -1024,7 +1061,11 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         String start = {0};
         P_Image image = {0};
-        if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
+        P_FileArray items = {0};
+        if (!input->folder && Prog__IsArchive(input->path) && P_ListArchive(&job->arena, input->path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
+            result->text = Prog_ArchiveListing(&job->arena, &items, items.header.count >= Prog_PreviewArchiveItems);
+            result->archive = true;
+        } else if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
                    P_LoadImageFile(&job->arena, input->path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
@@ -2855,6 +2896,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
                 state->previewHex = preview->hex;
+                state->previewArchive = preview->archive;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
                 u32 lines = 0;

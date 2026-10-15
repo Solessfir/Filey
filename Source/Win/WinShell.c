@@ -5,6 +5,7 @@
 #pragma push_macro("function")
 #undef function
 #include <shlobj.h>
+#include <shlwapi.h>
 #include <winioctl.h>
 #pragma pop_macro("function")
 
@@ -104,6 +105,62 @@ function IShellFolder *P__ShellFolder(const wchar *path)
         if (FAILED(SHBindToObject(NULL, list, NULL, &P__IID_IShellFolder, (void **)&result))) result = NULL;
         ILFree(list);
     }
+    return result;
+}
+
+global const IID P__IID_IShellFolder2 = { 0x93F2F68C, 0x1D1B, 0x11D3, { 0xA3, 0x0E, 0x00, 0xC0, 0x4F, 0x79, 0xAB, 0xD1 } };
+global const SHCOLUMNID P__KeySize = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 12 };
+
+// What `folder` holds, inside an archive the shell opens as a folder, below `prefix`, and then inside each of its folders.
+function void P__ListArchiveFolder(Arena *arena, IShellFolder2 *folder, String prefix, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
+{
+    IEnumIDList *items = NULL;
+    if (FAILED(folder->lpVtbl->EnumObjects(folder, NULL, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN, &items)) || !items) return;
+    PITEMID_CHILD child = NULL;
+    while (files->header.count < limit && !P_IsCancelled(cancel) && items->lpVtbl->Next(items, 1, &child, NULL) == S_OK) {
+        STRRET text = {0};
+        wchar *wide = NULL;
+        if (SUCCEEDED(folder->lpVtbl->GetDisplayNameOf(folder, child, SHGDN_INFOLDER | SHGDN_FORPARSING, &text)) && SUCCEEDED(StrRetToStrW(&text, child, &wide))) {
+            // An archive inside the archive is a folder to the shell too, but listed as the file it is.
+            SFGAOF attributes = SFGAO_FOLDER | SFGAO_STREAM;
+            folder->lpVtbl->GetAttributesOf(folder, 1, (PCUITEMID_CHILD_ARRAY)&child, &attributes);
+            b32 isFolder = (attributes & SFGAO_FOLDER) && !(attributes & SFGAO_STREAM);
+            VARIANT size = {0};
+            u64 bytes = 0;
+            if (!isFolder && SUCCEEDED(folder->lpVtbl->GetDetailsEx(folder, child, &P__KeySize, &size))) {
+                if (size.vt == VT_UI8) bytes = size.ullVal;
+                else if (size.vt == VT_UI4) bytes = size.ulVal;
+                else if (size.vt == VT_I8) bytes = (u64)Max(size.llVal, (i64)0);
+            }
+            String name = StrFormat(arena, "%S%S", prefix, P__FileStringWide(arena, wide, lstrlenW(wide)));
+            ArrayPush(arena, *files, ((P_File){ .name = name, .size = bytes, .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            CoTaskMemFree(wide);
+            IShellFolder2 *inner = NULL;
+            if (isFolder && SUCCEEDED(folder->lpVtbl->BindToObject(folder, child, NULL, &P__IID_IShellFolder2, (void **)&inner))) {
+                P__ListArchiveFolder(arena, inner, StrFormat(arena, "%S/", name), limit, cancel, files);
+                inner->lpVtbl->Release(inner);
+            }
+        }
+        ILFree(child);
+    }
+    items->lpVtbl->Release(items);
+}
+
+function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
+{
+    *files = (P_FileArray){0};
+    P__EnsureCom();
+    Scratch scratch = GetScratchEx(arena);
+    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, path));
+    IShellFolder2 *archive = NULL;
+    b32 result = folder && SUCCEEDED(folder->lpVtbl->QueryInterface(folder, &P__IID_IShellFolder2, (void **)&archive));
+    if (result) {
+        P__ListArchiveFolder(arena, archive, (String){0}, limit, cancel, files);
+        archive->lpVtbl->Release(archive);
+        result = files->header.count != 0;
+    }
+    if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
     return result;
 }
 

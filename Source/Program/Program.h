@@ -353,6 +353,7 @@ typedef struct Prog_Preview {
     b32 image;
     String text;
     b32 hex;                        // the text is a hex dump of a file that is neither text nor a picture
+    b32 archive;                    // the text lists what an archive holds
 } Prog_Preview;
 
 // How the inspector sizes an image: shrunk to fit its view, at its own size, or at a scale set with the zoom commands.
@@ -975,6 +976,7 @@ typedef struct Prog_State {
     i32 previewImageWidth, previewImageHeight;
     b32 previewFolder;        // previewPath is a folder, which the inspector's panel lists
     b32 previewHex;           // previewText is a hex dump, shown without line numbers or wrapping
+    b32 previewArchive;       // previewText lists an archive's contents, shown the same way
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
     // The view is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;
@@ -1105,6 +1107,7 @@ function String Prog_EntryLeaf(String name);
 function String Prog_EntryParent(String name);
 function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function String Prog_HexDump(Arena *arena, String bytes, b32 cut);
+function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 cut);
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks);
 function i32 Prog_EntryScore(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);

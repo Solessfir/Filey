@@ -1,4 +1,5 @@
 #include <dirent.h>
+#include <dlfcn.h>
 #include <limits.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -88,6 +89,76 @@ function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix)
     struct tm local = {0};
     if (!localtime_r(&time, &local) || local.tm_year < -1899 || local.tm_year > 8099) return (String){0};
     return StrFormat(arena, "%04d-%02d-%02d %02d:%02d", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min);
+}
+
+// libarchive, loaded when first needed so that it is not a build dependency; every Arch system has it, as pacman uses it.
+typedef struct P__Archive {
+    b32 tried, loaded;
+    void *(*readNew)(void);
+    i32 (*supportFilterAll)(void *);
+    i32 (*supportFormatAll)(void *);
+    i32 (*openFilename)(void *, const char *, u64);
+    i32 (*nextHeader)(void *, void **);
+    const char *(*pathname)(void *);
+    i64 (*size)(void *);
+    u32 (*filetype)(void *);
+    i32 (*free)(void *);
+} P__Archive;
+global P__Archive P__archive;
+
+function b32 P__LoadArchive(void)
+{
+    P__Archive *a = &P__archive;
+    if (a->tried) return a->loaded;
+    a->tried = true;
+    void *library = dlopen("libarchive.so.13", RTLD_NOW | RTLD_LOCAL);
+    if (!library) return false;
+    *(void **)&a->readNew = dlsym(library, "archive_read_new");
+    *(void **)&a->supportFilterAll = dlsym(library, "archive_read_support_filter_all");
+    *(void **)&a->supportFormatAll = dlsym(library, "archive_read_support_format_all");
+    *(void **)&a->openFilename = dlsym(library, "archive_read_open_filename");
+    *(void **)&a->nextHeader = dlsym(library, "archive_read_next_header");
+    *(void **)&a->pathname = dlsym(library, "archive_entry_pathname_utf8");
+    *(void **)&a->size = dlsym(library, "archive_entry_size");
+    *(void **)&a->filetype = dlsym(library, "archive_entry_filetype");
+    *(void **)&a->free = dlsym(library, "archive_read_free");
+    a->loaded = a->readNew && a->supportFilterAll && a->supportFormatAll && a->openFilename && a->nextHeader && a->pathname && a->size && a->filetype && a->free;
+    return a->loaded;
+}
+
+function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
+{
+    *files = (P_FileArray){0};
+    if (!P__LoadArchive()) return false;
+    P__Archive *a = &P__archive;
+    Scratch scratch = GetScratchEx(arena);
+    char *cpath = P__FilePathCString(scratch.arena, path);
+    void *archive = cpath ? a->readNew() : NULL;
+    b32 result = false;
+    if (archive) {
+        a->supportFilterAll(archive);
+        a->supportFormatAll(archive);
+        // ARCHIVE_OK is 0 and ARCHIVE_WARN -20, which still gives the entry; the data of each entry is skipped by the next header.
+        if (a->openFilename(archive, cpath, 65536) == 0) {
+            void *entry = NULL;
+            i32 status = 0;
+            while (files->header.count < limit && !P_IsCancelled(cancel) && ((status = a->nextHeader(archive, &entry)) == 0 || status == -20)) {
+                const char *name = a->pathname(entry);
+                if (!name) continue;
+                String inner = StrMake(name, strlen(name));
+                if (inner.length >= 2 && inner.value[0] == '.' && inner.value[1] == '/') inner = StrFrom(inner, 2);
+                b32 folder = (a->filetype(entry) & 0170000) == 0040000;
+                while (inner.length && inner.value[inner.length - 1] == '/') --inner.length;
+                if (!inner.length) continue;
+                ArrayPush(arena, *files, ((P_File){ .name = StrCopy(arena, inner), .size = folder ? 0 : (u64)Max(a->size(entry), (i64)0),
+                                                     .kind = folder ? P_FileKind_Directory : P_FileKind_File }));
+            }
+        }
+        a->free(archive);
+    }
+    ReleaseScratch(scratch);
+    result = files->header.count != 0;
+    return result;
 }
 
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel)

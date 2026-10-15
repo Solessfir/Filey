@@ -1164,7 +1164,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewText = (String){0};
     state->previewPicture = state->previewImage = false;
     state->previewFolder = folder;
-    state->previewHex = false;
+    state->previewHex = state->previewArchive = false;
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineCount = state->previewRowColumns = 0;

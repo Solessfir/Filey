@@ -5127,11 +5127,11 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     u32 digits = 1;
     for (u32 n = lineCount; n >= 10; n /= 10) ++digits;
     f32 digitWidth = R_TextWidth(m->detail, S("0")), numbers = (f32)digits * digitWidth;
-    // A hex dump has its offsets for numbers, and its lines are not wrapped.
-    b32 numbered = !state->inspectorHideNumbers && !state->previewHex;
+    // A hex dump has its offsets for numbers and an archive's listing its sizes, and their lines are not wrapped.
+    b32 numbered = !state->inspectorHideNumbers && !state->previewHex && !state->previewArchive;
     f32 gap = floorf(10.4f * s + 0.5f), left = !numbered ? floorf(9.6f * s + 0.5f) : MaxF32(floorf(52.0f * s + 0.5f), floorf(26.4f * s + 0.5f) + numbers + gap);
     f32 room = MaxF32(cell, view->rect.x1 - view->rect.x0 - left - margin);
-    u32 columns = state->inspectorWrap && !state->previewHex ? Max((u32)(room / cell), 1u) : 0;
+    u32 columns = state->inspectorWrap && !state->previewHex && !state->previewArchive ? Max((u32)(room / cell), 1u) : 0;
     // Each line's first row, worked out again when the width in characters changes.
     if (columns && state->previewRowColumns != columns) {
         state->previewRows = ArenaPushArray(&state->previewArena, shownCount + 1, u32);
@@ -5683,7 +5683,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 facts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
                 UI_Parent(facts) {
                     f32 before = floorf(7.2f * s + 0.5f);
-                    Prog__LabelPadded(state->previewHex ? S("Hex") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
+                    Prog__LabelPadded(state->previewHex ? S("Hex") : state->previewArchive ? S("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
                     Prog__Icon(Icon_TextAlignStart, 0, m->pill, theme->icon, 0.5f, m);
                     // The lines the filter keeps out of all of them.
                     String lines = state->inspectorFilter.length ? StrFormat(&state->frameArena, "%u/%u", state->previewKeptCount, state->previewLineCount)

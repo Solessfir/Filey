@@ -42,6 +42,9 @@ typedef struct P_FileError {
 
 // Results belong to arena. Cancellation and directory errors discard partial listings.
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel);
+// Up to `limit` items inside an archive (zip, 7z, rar, tar and the like), each named by its path inside it with '/' between folders, folders
+// as P_FileKind_Directory; false, with none, when the system cannot read it as an archive or finds nothing in it. Slow; run it in a job.
+function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files);
 
 typedef struct P_DirectoryTotals {
     u64 folders;
