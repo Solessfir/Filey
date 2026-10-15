@@ -68,3 +68,5 @@ locate-off
 chevron-up
 file-text
 file-x
+lock-keyhole
+lock-keyhole-open

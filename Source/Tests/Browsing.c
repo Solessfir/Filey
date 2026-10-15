@@ -461,6 +461,31 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             }
         }
     }
+    // A folder keeps its view: it opens with it and follows what changes in it, while a folder without one gets the panel's own back.
+    {
+        Arena kept = {0};
+        String here = StrCopy(&kept, state.directory.path);
+        u32 ownZoom = state.zoom, zoom = 0;
+        Prog_Sort ownSort = state.sort, sort = 0;
+        b32 ownDescending = state.descending, descending = false;
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
+        Check(Prog_FolderView(&state, here, &zoom, &sort, &descending) && zoom == ownZoom && sort == ownSort && descending == ownDescending);
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_Sort, ownSort == Prog_Sort_Size ? Prog_Sort_Name : Prog_Sort_Size);
+        Check(TestWaitDirectory(&state));
+        Prog_Sort changed = state.sort;
+        Check(Prog_FolderView(&state, here, &zoom, &sort, &descending) && zoom == ownZoom + 1 && sort == changed);
+        Prog_RequestDirectory(&state, Prog_JoinPath(&kept, here, S("Empty")), true, 0);
+        Check(TestWaitDirectory(&state) && state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending);
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && state.zoom == ownZoom + 1 && state.sort == changed);
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
+        Check(TestWaitDirectory(&state) && !Prog_FolderView(&state, here, &zoom, &sort, &descending));
+        Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending);
+        ArenaRelease(&kept);
+        // Going away and back left nothing selected.
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
+    }
     Check(P__TestWriteFile(fixture, S("refresh.txt"), 4, false));
     Check(P__TestRemovePath(fixture, S("file2.txt"), false));
     TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);

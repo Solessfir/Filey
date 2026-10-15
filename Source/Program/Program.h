@@ -472,6 +472,7 @@ typedef struct Prog_Tab {
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
 //   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
 //   statusRight: how wide the status bar's counts, view and zoom were in the last layout, which the filter box leaves room for
+//   ownView, ownZoom, ownSort, ownDescending: while a folder's kept view applies, the panel's own, which the next folder without one gets back
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -480,7 +481,8 @@ typedef struct Prog_Tab {
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
-    X(f32, statusRight)
+    X(f32, statusRight) \
+    X(b32, ownView) X(u32, ownZoom) X(enum8(Prog_Sort), ownSort) X(b32, ownDescending)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
@@ -766,8 +768,11 @@ typedef struct Prog_State {
     Arena recentArena;
     ArrayStr recents;
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[2];            // bookmarks, recents
-    b32 saveAgain[2];
+    b32 saving[3];            // bookmarks, recents, folder views
+    b32 saveAgain[3];
+    // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.txt.
+    Arena folderViewArena;
+    ArrayStr folderViews;
     // See-through window with the glass theme, and what Windows draws behind it; the app applies both to the window.
     b32 transparent;
     enum8(PlatformBackdrop) glassBackdrop;
@@ -828,6 +833,10 @@ function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
 function void Prog_LoadSettings(Prog_State *state, String configDirectory);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
+function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Prog_Sort *sort, b32 *descending);
+function void Prog_ToggleFolderView(Prog_State *state);
+function void Prog_ClearFolderViews(Prog_State *state);
+function void Prog_KeepFolderView(Prog_State *state);
 function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
 function u32 Prog_PanelIndex(const Prog_State *state, u64 id);
 function u64 Prog__PanelId(const Prog_State *state);

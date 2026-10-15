@@ -294,7 +294,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
-    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons,
+    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_FolderViewToggle,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
@@ -313,7 +313,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TabSelect2, Prog_CommandKind_TabSelect3, Prog_CommandKind_TabSelect4, Prog_CommandKind_TabSelect5, Prog_CommandKind_TabSelect6,
     Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
     Prog__PaletteGroup(Misc),
-    Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_BookmarksClear,
+    Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Scroll),
     Prog_CommandKind_SelectAll,
@@ -1428,6 +1428,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_Undo: if (!state->renaming) Prog_UndoLast(state); break;
             case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
+            case Prog_CommandKind_FolderViewToggle: Prog_ToggleFolderView(state); break;
+            case Prog_CommandKind_FolderViewsClear: Prog_ClearFolderViews(state); break;
             case Prog_CommandKind_BookmarksClear: {
                 Prog__SetList(&state->bookmarkArena, &state->bookmarks, NULL, 0);
                 Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
@@ -1853,6 +1855,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->bookmarkDrop = state->bookmarkDropShown;
     P_SetDropTakesFolders(state->bookmarkDrop != 0);
     Prog_SubmitIconRequests(state);
+    Prog_KeepFolderView(state);
     // The header spinner turns while folders are being measured.
     Prog__UpdatePreview(state);
     // Transfers redraw while they run, for their progress and questions.

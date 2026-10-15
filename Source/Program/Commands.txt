@@ -451,6 +451,17 @@ command BookmarksToggle {
     repeat  = "false"
 }
 
+// Keeps the shown folder's view (its zoom and its order), which it then opens with, or lets it go back to the panel's.
+command FolderViewToggle {
+    label   = "Toggle Folder View^save,store,directory"
+    tooltip = "Toggle preserving folder view settings: icons, sort order, folders first, and list columns."
+}
+
+command FolderViewsClear {
+    label   = "Clear Folders Views^directory,delete,remove"
+    tooltip = "Clear view settings for all folders."
+}
+
 command BookmarksClear {
     label   = "Clear Bookmarks^delete,remove"
     tooltip = "Clear all bookmarked file paths."

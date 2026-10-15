@@ -495,6 +495,16 @@ function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String
     state->tooltipDescribes = false;
 }
 
+// Gives the tip of the button just added, when it is under the pointer, `words` over its command `kind`, a line each; with kind None only the words.
+function void Prog__DescribeTooltip(Prog_State *state, Prog_CommandKind kind, String words)
+{
+    Prog__NoteTooltip(state, kind, (String){0});
+    UI_Block *button = UI->parent->last;
+    if (!button || state->tooltipKey != button->key) return;
+    state->tooltipDetail = words;
+    state->tooltipDescribes = true;
+}
+
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1085,6 +1095,30 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// The buttons that keep the shown folder's view and bookmark it, `apart` from each other, each lit while it is so.
+function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    String path = state->directory.path;
+    u32 zoom;
+    Prog_Sort sort;
+    b32 descending, kept = Prog_FolderView(state, path, &zoom, &sort, &descending);
+    // A little narrower than the other toolbar buttons and further apart, as the reference's are.
+    f32 width = floorf(25.6f * m->scale + 0.5f), height = Prog__ToolbarButtonHeight(m);
+    UI_Interaction lock = Prog__TextButton(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,
+                                           theme->icon, theme->text, theme->iconDisabled, path.length != 0, m);
+    if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_FolderViewToggle, kept ? S("Folder view settings saved and applied.\nIcons, sort, folders first, list columns.")
+                                                                                        : S("No folder view settings saved.\nUsing panel's view settings."));
+    if (lock.clicked) Prog_QueueCommand(state, Prog_CommandKind_FolderViewToggle, 0, 0, lock.clickOrder);
+    Prog__Spacer(UI_Pixels(apart), UI_Pixels(Prog__StripHeight(m)));
+    b32 bookmarked = Prog_IsBookmarked(state, path);
+    UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(width), height, 0,
+                                               bookmarked ? theme->textMatch : theme->icon, bookmarked ? theme->textMatch : theme->text, theme->iconDisabled,
+                                               path.length != 0, m);
+    if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_BookmarksToggle, bookmarked ? S("This path is bookmarked.") : S("This path is not bookmarked."));
+    if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
+}
+
 function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1100,12 +1134,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
-        // Lit while the folder is bookmarked.
-        b32 bookmarked = Prog_IsBookmarked(state, state->directory.path);
-        UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                   bookmarked ? theme->textMatch : theme->icon, bookmarked ? theme->textMatch : theme->text, theme->iconDisabled,
-                                                   state->directory.path.length != 0, m);
-        if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
+        Prog__FolderButtons(state, floorf(5.6f * m->scale + 0.5f), m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
@@ -1188,7 +1217,9 @@ function void Prog__Header(Prog_State *state, const Prog_Column *columns, const 
                 f32 left = Prog__ColumnLeft(i, m), right = Prog__ColumnRight(i, m), line = Prog__ColumnLineAfter(i) ? m->separator : 0;
                 if (name) {
                     Prog__Spacer(UI_Pixels(m->iconSlot - m->gap), UI_Pixels(m->row));
-                    // A box over the icons' column selects everything, and is checked once everything is.
+                }
+                // A box over the icons' column selects everything, and is checked once everything is; the inspector's list has none, as the reference's.
+                if (name && !state->panels[state->currentPanel].inspectorOf) {
                     f32 box = floorf(16.0f * m->scale + 0.5f);
                     b32 all = state->viewCount && state->selectedCount == state->viewCount;
                     UI_Key boxKey = UI_KeyFromStr(0, S("Header/SelectAll"));
@@ -2614,50 +2645,61 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     }
     String label = state->tooltipLabel.length ? state->tooltipLabel : Prog_Commands[state->tooltipKind].label;
     // A tip with a place to go shows it over the command and leaves the hotkeys out.
+    // A described button's words go over its command a line each, with its hotkeys or "Blank"; a tip of no command is only its words.
     String detail = state->tooltipDetail;
+    b32 plain = state->tooltipKind == Prog_CommandKind_None, described = state->tooltipDescribes || plain;
     String hotkeys[3];
-    u32 hotkeyCount = detail.length && !state->tooltipDescribes ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, 3);
-    // A described button's command without a hotkey says so.
-    if (state->tooltipDescribes && !hotkeyCount) hotkeys[hotkeyCount++] = S("Blank");
+    u32 hotkeyCount = plain || (detail.length && !described) ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, 3);
+    if (described && !plain && !hotkeyCount) hotkeys[hotkeyCount++] = S("Blank");
+    ArrayStr lines = detail.length ? StrSplit(&state->frameArena, detail, '\n') : (ArrayStr){0};
     f32 pad = floorf(9.6f * s + 0.5f), gap = floorf(4.8f * s + 0.5f), chipGap = floorf(8.0f * s + 0.5f), lineHeight = floorf(37.6f * s + 0.5f);
-    f32 height = detail.length ? 2 * floorf(m->line * 1.6f + 0.5f) : lineHeight, margin = floorf(6.4f * s + 0.5f);
+    f32 margin = floorf(6.4f * s + 0.5f);
+    // Measured on the reference: the rows of a described tip, and of the others its words and its command, as tall as each other.
+    f32 top = described ? floorf(8.0f * s + 0.5f) : 0, pitch = described ? floorf(18.4f * s + 0.5f) : floorf(m->line * 1.6f + 0.5f);
+    f32 commandRow = plain ? 0 : described ? floorf(32.0f * s + 0.5f) : detail.length ? pitch : lineHeight;
+    f32 bottom = described ? floorf((plain ? 8.8f : 4.8f) * s + 0.5f) : 0;
+    f32 height = top + (f32)lines.header.count * pitch + commandRow + bottom;
     String lead = S("Cmd:");
-    f32 width = R_TextWidth(m->font, lead) + gap + R_TextWidth(m->font, label);
+    f32 width = plain ? 0 : R_TextWidth(m->font, lead) + gap + R_TextWidth(m->font, label);
     for (u32 i = 0; i < hotkeyCount; ++i) width += chipGap + R_TextWidth(m->detail, hotkeys[i]) + 2 * floorf(4.8f * s + 0.5f);
-    width = 2 * pad + MaxF32(width, R_TextWidth(m->font, detail));
+    for (u64 i = 0; i < lines.header.count; ++i) width = MaxF32(width, R_TextWidth(m->font, lines.v[i]));
+    width += 2 * pad;
     R_Rect view = UI->root->rect, button = state->tooltipRect;
     // Centered under the button and kept a little inside the window.
     f32 x = floorf((button.x0 + button.x1 - width) * 0.5f);
     f32 y = button.y1 + margin;
     if (y + height > view.y1) y = button.y0 - height - margin;
     x = floorf(MaxF32(view.x0 + margin, MinF32(x, view.x1 - margin - width)));
+    f32 radius = floorf(8.0f * s + 0.5f);
+    Prog__DropShadow(x - view.x0, floorf(y) - view.y0, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, floorf(y) - view.y0 });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
-    UI_SetNextCornerRadius(floorf(8.0f * s + 0.5f));
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
+    UI_SetNextChildrenPadding((UI_Padding){ pad, top, pad, bottom });
+    UI_SetNextCornerRadius(radius);
     UI_SetNextBorderThickness(1.2f * s);
     UI_SetNextOpacity(opacity);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *tip = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
     UI_Parent(tip) {
-        f32 row = detail.length ? height * 0.5f : height;
-        if (detail.length) Prog__Label(detail, UI_TextContent(), row, 0, theme->text, 0.5f);
-        UI_SetNextPrefWidth(UI_Fill());
-        UI_SetNextPrefHeight(UI_Pixels(row));
-        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-        UI_Block *command = UI_AddBlock(0);
-        UI_Parent(command) {
-            Prog__Label(lead, UI_TextContent(), row, 0, theme->text, 0);
-            Prog__Spacer(UI_Pixels(gap), UI_Pixels(row));
-            Prog__Label(label, UI_TextContent(), row, 0, theme->textDim, 0);
-            for (u32 i = 0; i < hotkeyCount; ++i) {
-                Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(row));
-                Prog__Chip(hotkeys[i], row, false, m);
+        for (u64 i = 0; i < lines.header.count; ++i) Prog__Label(lines.v[i], UI_TextContent(), pitch, 0, theme->text, 0.5f);
+        if (!plain) {
+            UI_SetNextPrefWidth(UI_Fill());
+            UI_SetNextPrefHeight(UI_Pixels(commandRow));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_Block *command = UI_AddBlock(0);
+            UI_Parent(command) {
+                Prog__Label(lead, UI_TextContent(), commandRow, 0, theme->text, 0);
+                Prog__Spacer(UI_Pixels(gap), UI_Pixels(commandRow));
+                Prog__Label(label, UI_TextContent(), commandRow, 0, theme->textDim, 0);
+                for (u32 i = 0; i < hotkeyCount; ++i) {
+                    Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(commandRow));
+                    Prog__Chip(hotkeys[i], commandRow, false, m);
+                }
             }
         }
     }
@@ -4044,11 +4086,7 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
             UI_SetNextFont(fonts && fonts[i] ? fonts[i] : m->icons);
             UI_SetNextText(labels[i]);
             UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
-            Prog__NoteTooltip(state, tipKind, (String){0});
-            if (state->tooltipKey == key) {
-                state->tooltipDetail = tips[i];
-                state->tooltipDescribes = true;
-            }
+            Prog__DescribeTooltip(state, tipKind, tips[i]);
             UI_Interaction interaction = UI_InteractionFromBlock(button);
             if (interaction.clicked) Prog_QueueCommand(state, kind, i, 0, interaction.clickOrder);
         }
@@ -4220,6 +4258,14 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 Prog__ToolbarButton(state, S("InspectorNumbers"), state->inspectorHideNumbers ? Icon_ListX : Icon_ListOrdered, Prog_CommandKind_InspectorToggleLineNumbers, true, m);
                 Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorWhitespace"), state->inspectorWhitespace ? Icon_Minus : Icon_Space, Prog_CommandKind_InspectorToggleWhitespace, true, m);
+            }
+            if (folder) {
+                u64 owner = state->panels[state->currentPanel].id;
+                if (Prog__EnterInspectorPanel(state, owner) != UINT32_MAX) {
+                    Prog__Spacer(UI_Pixels(floorf(14.4f * s + 0.5f)), UI_Pixels(bar));
+                    Prog__FolderButtons(state, floorf(10.4f * s + 0.5f), m);
+                    Prog__LeaveInspectorPanel(state, owner);
+                }
             }
             Prog__Spacer(UI_Flex(), UI_Pixels(bar));
             // The item's name, and beside it the button for the card of its details.

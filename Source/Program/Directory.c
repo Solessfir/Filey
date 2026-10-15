@@ -1188,8 +1188,13 @@ function void Prog_InspectFolder(Prog_State *state, String path)
     P_JobSubmit(job);
 }
 
+function b32 Prog__TakeNumber(String *text, u64 *value);
+function void Prog__ApplyFolderView(Prog_State *state, String path);
+
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
+    // Another folder brings its kept view, or the panel's own back; a reload keeps what is shown.
+    if (!StrIsEqual(path, state->directory.path)) Prog__ApplyFolderView(state, path);
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
@@ -1226,7 +1231,15 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 // Bookmarks and recents, one path per line in the config folder.
 #define Prog_BookmarksFile S("Bookmarks.txt")
 #define Prog_RecentsFile   S("Recents.txt")
+#define Prog_FolderViewsFile S("FolderViews.txt")
 #define Prog_MaxRecents    20
+
+
+// The save slot of each list file.
+function u32 Prog__SaveSlot(String file)
+{
+    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : 0;
+}
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
 function void Prog__SetList(Arena *arena, ArrayStr *list, const String *items, u64 count)
@@ -1252,7 +1265,7 @@ function String Prog__ListText(Arena *arena, ArrayStr list)
 function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
 {
     if (!state->configDirectory.length) return;
-    u32 which = StrIsEqual(file, Prog_RecentsFile) ? 1 : 0;
+    u32 which = Prog__SaveSlot(file);
     if (state->saving[which]) {
         state->saveAgain[which] = true;
         return;
@@ -1306,6 +1319,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
         ReleaseScratch(scratch);
     }
     Prog__LoadList(state, Prog_RecentsFile, &state->recentArena, &state->recents, &found);
+    Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog_ReloadSettingsFile(state);
     P_DirectoryWatchStop(&state->configWatch);
     P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
@@ -1812,6 +1826,107 @@ function void Prog_UndoLast(Prog_State *state)
     }
     job->input = input;
     P_JobSubmit(job);
+}
+
+// The kept view of folder `path`, false when it has none.
+function b32 Prog_FolderView(const Prog_State *state, String path, u32 *zoom, Prog_Sort *sort, b32 *descending)
+{
+    for (u64 i = 0; path.length && i < state->folderViews.header.count; ++i) {
+        String rest = state->folderViews.v[i];
+        u64 a = 0, b = 0, c = 0;
+        if (!Prog__TakeNumber(&rest, &a) || !Prog__TakeNumber(&rest, &b) || !Prog__TakeNumber(&rest, &c) || !StrIsEqual(rest, path)) continue;
+        *zoom = (u32)Min(a, (u64)Prog_ZoomLevels - 1);
+        *sort = (Prog_Sort)Min(b, (u64)Prog_Sort_Count - 1);
+        *descending = c != 0;
+        return true;
+    }
+    return false;
+}
+
+// Keeps `path`'s view as the current panel shows it, or with `keep` false lets it go, and saves the list.
+function void Prog__SetFolderView(Prog_State *state, String path, b32 keep)
+{
+    Scratch scratch = GetScratch();
+    u64 count = state->folderViews.header.count, kept = 0;
+    String *lines = ArenaPushArray(scratch.arena, count + 1, String);
+    for (u64 i = 0; i < count; ++i) {
+        String rest = state->folderViews.v[i];
+        u64 number;
+        b32 parsed = Prog__TakeNumber(&rest, &number) && Prog__TakeNumber(&rest, &number) && Prog__TakeNumber(&rest, &number);
+        if (!parsed || !StrIsEqual(rest, path)) lines[kept++] = state->folderViews.v[i];
+    }
+    if (keep) lines[kept++] = StrFormat(scratch.arena, "%u %u %u %S", state->zoom, (u32)state->sort, state->descending ? 1u : 0u, path);
+    Prog__SetList(&state->folderViewArena, &state->folderViews, lines, kept);
+    Prog__SaveList(state, Prog_FolderViewsFile, state->folderViews);
+    ReleaseScratch(scratch);
+}
+
+function void Prog__ApplyFolderView(Prog_State *state, String path)
+{
+    u32 zoom;
+    Prog_Sort sort;
+    b32 descending;
+    if (Prog_FolderView(state, path, &zoom, &sort, &descending)) {
+        if (!state->ownView) {
+            state->ownView = true;
+            state->ownZoom = state->zoom;
+            state->ownSort = state->sort;
+            state->ownDescending = state->descending;
+        }
+        state->zoom = zoom;
+        state->sort = (u8)sort;
+        state->descending = descending;
+    } else if (state->ownView) {
+        state->ownView = false;
+        state->zoom = state->ownZoom;
+        state->sort = state->ownSort;
+        state->descending = state->ownDescending;
+    }
+}
+
+// Keeps the shown folder's view, or lets it go back to the panel's own.
+function void Prog_ToggleFolderView(Prog_State *state)
+{
+    String path = state->directory.path;
+    u32 zoom;
+    Prog_Sort sort;
+    b32 descending;
+    if (!path.length) return;
+    if (!Prog_FolderView(state, path, &zoom, &sort, &descending)) {
+        // What the panel shows now is its own too, which folders without a kept view go on with.
+        Prog__SetFolderView(state, path, true);
+        Prog__ApplyFolderView(state, path);
+        return;
+    }
+    Prog__SetFolderView(state, path, false);
+    if (state->ownView) {
+        b32 resort = state->sort != state->ownSort || state->descending != state->ownDescending;
+        Prog__ApplyFolderView(state, path);
+        if (resort) Prog_Reload(state);
+    }
+}
+
+function void Prog_ClearFolderViews(Prog_State *state)
+{
+    Prog__SetList(&state->folderViewArena, &state->folderViews, NULL, 0);
+    Prog__SaveList(state, Prog_FolderViewsFile, state->folderViews);
+    if (state->ownView) {
+        b32 resort = state->sort != state->ownSort || state->descending != state->ownDescending;
+        Prog__ApplyFolderView(state, state->directory.path);
+        if (resort) Prog_Reload(state);
+    }
+}
+
+// A folder with a kept view keeps what the panel changes of it.
+function void Prog_KeepFolderView(Prog_State *state)
+{
+    u32 zoom;
+    Prog_Sort sort;
+    b32 descending;
+    // Not while another folder is on its way, whose view the panel already has.
+    if (state->directoryJob && !StrIsEqual(((Prog_JobInput *)state->directoryJob->input)->path, state->directory.path)) return;
+    if (!Prog_FolderView(state, state->directory.path, &zoom, &sort, &descending)) return;
+    if (zoom != state->zoom || sort != state->sort || descending != state->descending) Prog__SetFolderView(state, state->directory.path, true);
 }
 
 // The window's panels and their tabs, kept in the config folder between runs.
@@ -2366,11 +2481,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Save %S: %S", input->path, error->message);
                 changed = true;
             }
-            b32 recents = StrIsEqual(Prog_EntryLeaf(input->path), Prog_RecentsFile);
-            state->saving[recents] = false;
-            if (state->saveAgain[recents]) {
-                state->saveAgain[recents] = false;
-                Prog__SaveList(state, recents ? Prog_RecentsFile : Prog_BookmarksFile, recents ? state->recents : state->bookmarks);
+            local_persist const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile };
+            u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
+            state->saving[slot] = false;
+            if (state->saveAgain[slot]) {
+                state->saveAgain[slot] = false;
+                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
