@@ -1,5 +1,19 @@
 # TODO
 
+## Next, in order
+
+1. View toggles: Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles.
+2. Recents record the items opened from a list, as the reference's do, not every folder shown.
+3. Recursive listing (below).
+4. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents, TrashRestoreAll/DeleteAll.
+5. Go To index: packed names and a parallel walk (below).
+6. Rename inserts and RenamePrev/Next.
+7. Command palette parity (below).
+8. LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen, ConsoleOpen, ToggleFullscreen.
+9. Font pickers, with the system's font families listed on both platforms.
+10. Look nits (below).
+11. Rebindable text and scroll commands.
+
 ## Go To and the drive index
 
 - List several folders at once during the walk. The first walk is limited by listing one folder at a time; parallel slices need their writes to `Index.bin.walk` kept in the order the entries join the index.
