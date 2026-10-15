@@ -1617,6 +1617,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ZoomIn: if (state->zoom + 1 < Prog_ZoomLevels) { ++state->zoom; state->revealFocus = true; } break;
             case Prog_CommandKind_ZoomOut: if (state->zoom) { --state->zoom; state->revealFocus = true; } break;
             case Prog_CommandKind_ViewDetails: state->zoom = 0; state->revealFocus = true; break;
+            case Prog_CommandKind_ZoomSet: if (command->row < Prog_ZoomLevels) { state->zoom = (u32)command->row; state->revealFocus = true; } break;
             case Prog_CommandKind_ViewList: state->zoom = 1; state->revealFocus = true; break;
             case Prog_CommandKind_ViewColumns: state->zoom = 2; state->revealFocus = true; break;
             case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomFirstIcon; state->revealFocus = true; break;
@@ -2100,6 +2101,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             Prog_CommandKind in = inspector ? Prog_CommandKind_InspectorIncreaseContentsSize : Prog_CommandKind_ZoomIn;
             Prog_CommandKind out = inspector ? Prog_CommandKind_InspectorDecreaseContentsSize : Prog_CommandKind_ZoomOut;
             state->zoomWheel += event->wheelY;
+            if (!inspector) state->zoomWheelTime = PlatformNowMicroseconds();
             for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, in, 0, 0, order);
             for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, out, 0, 0, order);
             continue;

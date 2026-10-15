@@ -816,6 +816,12 @@ typedef struct Prog_State {
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
+    // The views on a slider over the active panel's view button: shown while the pointer is over the button or the popup, and for a moment
+    // after each Ctrl+wheel step.
+    u64 zoomWheelTime;        // when Ctrl+wheel last zoomed the list, in microseconds
+    b32 zoomShown;
+    R_Rect zoomAnchor;        // the active panel's view button in the last layout
+    R_Rect zoomBox;           // the popup in the last layout
     b32 hasHoverRow;
     // Inline rename of the entry named renameFrom.
     b32 renaming;

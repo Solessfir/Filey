@@ -5,7 +5,8 @@
 # since an off-screen GL window keeps none of what it draws. Steps post input to the two windows only, and only the started processes are closed.
 #
 #   python Source/Tools/Compare/Compare.py run <name> "<steps>" [ref|filey|both]
-#       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | key VK | mods VK... | wait s | shot [tag] | frames n interval tag
+#       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | wheel x y notches | key VK | mods VK... | wait s | shot [tag]
+#       | frames n interval tag
 #       | keyframes VK n interval tag (presses VK and records from then)
 #       writes <out>/<name><tag>_{ref,filey}.png and a stacked <name><tag>.png; frames also write <name><tag>_<side>.times in milliseconds
 #   python Source/Tools/Compare/Compare.py zoom <name> x0 y0 x1 y1 scale      the same crop of both shots, enlarged, to zoom.png
@@ -131,6 +132,12 @@ class App:
         p = wt.POINT(x, y); u32.ClientToScreen(self.window, ctypes.byref(p))
         self.fake.x, self.fake.y = p.x, p.y
         self.post(0x200, self.buttons, (y << 16) | x); time.sleep(wait)
+    def wheel(self, x, y, notches):
+        # Wheel messages carry screen coordinates, and Ctrl in their key state when mods holds it.
+        p = wt.POINT(x, y); u32.ClientToScreen(self.window, ctypes.byref(p))
+        self.fake.x, self.fake.y = p.x, p.y
+        keys = 0x0008 if self.fake.keys[17] else 0
+        self.post(0x20A, ((notches * 120) & 0xFFFF) << 16 | keys, ((p.y & 0xFFFF) << 16) | (p.x & 0xFFFF)); time.sleep(0.05)
     def press(self, x, y, button, down):
         message = {('l', True): 0x201, ('l', False): 0x202, ('r', True): 0x204, ('r', False): 0x205}[(button, down)]
         bit = 1 if button == 'l' else 2
@@ -220,6 +227,7 @@ def steps(app, text, side, name, tags):
         elif op == 'down': app.mouse(n[0], n[1]); app.press(n[0], n[1], 'l', True)
         elif op == 'up': app.mouse(n[0], n[1]); app.press(n[0], n[1], 'l', False)
         elif op == 'key': app.key(n[0])
+        elif op == 'wheel': app.wheel(n[0], n[1], n[2])
         elif op == 'mods': app.mods(*n)
         elif op == 'wait': time.sleep(float(words[1]))
         elif op == 'shot':

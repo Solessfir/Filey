@@ -461,6 +461,15 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             }
         }
     }
+    // The zoom popup sets a level, and leaves one out of range alone.
+    {
+        u32 before = state.zoom;
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomFirstIcon + 7);
+        Check(state.zoom == Prog_ZoomFirstIcon + 7);
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomLevels);
+        Check(state.zoom == Prog_ZoomFirstIcon + 7);
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, before);
+    }
     // A folder keeps its view: it opens with it and follows what changes in it, while a folder without one gets the panel's own back.
     {
         Arena kept = {0};

@@ -595,6 +595,10 @@ command OpenSettings {
 command OptionSet {
 }
 
+// The zoom popup's slider and rows: `row` is the zoom level.
+command ZoomSet {
+}
+
 // Go To with the shown folder's path in its box, selected, over what is in the folder, none of it highlighted.
 command EditPath {
     label   = "Edit Path^location,address,path,type"

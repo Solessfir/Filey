@@ -2638,7 +2638,7 @@ function String Prog__FormatCount(Arena *arena, u64 count);
 function void Prog__FillBar(String label, f32 fraction, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 barWidth = floorf(m->line * 2.4f), barHeight = floorf(m->line * 1.2f);
+    f32 barWidth = floorf(40.8f * m->scale + 0.5f), barHeight = floorf(m->line * 1.2f);
     UI_SetNextPrefWidth(UI_Pixels(barWidth));
     UI_SetNextPrefHeight(UI_Pixels(barHeight));
     UI_SetNextCornerRadius(m->radius * 0.5f);
@@ -2656,6 +2656,8 @@ function void Prog__FillBar(String label, f32 fraction, const Prog_Metrics *m)
         Prog__Label(label, UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
     }
 }
+
+function void Prog__FolderSortIcon(Prog_FolderSort sort, R_Color color, R_Color behind, const Prog_Metrics *m);
 
 function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
@@ -2750,7 +2752,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             String icons[2] = { Icon_Folder, Icon_File };
             String keys[2] = { S("ToggleFolders"), S("ToggleFiles") };
             Prog_CommandKind kinds[2] = { Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles };
-            UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap + radius, 0 });
+            UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, floorf(4.8f * m->scale + 0.5f) + radius, 0 });
             UI_SetNextCornerRadius(radius);
             UI_SetNextBorderThickness(1.2f * m->scale);
             UI_SetNextPrefWidth(UI_Fill());
@@ -2787,7 +2789,23 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                         Prog__LabelPadded(text, UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), hidden[i] ? theme->textDim : theme->text, 0);
                     }
                 }
-                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->pill));
+                // Where folders go among the files, which a click cycles, then a line before the view.
+                Prog__Spacer(UI_Pixels(floorf(6.4f * m->scale + 0.5f)), UI_Pixels(m->pill));
+                UI_SetNextPrefWidth(UI_Pixels(floorf(14.4f * m->scale + 0.5f)));
+                UI_SetNextPrefHeight(UI_Pixels(m->pill));
+                UI_Block *sortButton = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FolderSort")), UI_Flag_LeftMouseClickable);
+                local_persist const String sortTips[Prog_FolderSort_Count] = { S("Folders first, then files."), S("Files first, then folders."), S("Folders and files mixed.") };
+                Prog__DescribeTooltip(state, Prog_CommandKind_CycleFolderSort, sortTips[state->folderSort]);
+                UI_Interaction sortClick = UI_InteractionFromBlock(sortButton);
+                if (sortClick.clicked) Prog_QueueCommand(state, Prog_CommandKind_CycleFolderSort, 0, 0, sortClick.clickOrder);
+                UI_Parent(sortButton) Prog__FolderSortIcon(state->folderSort, UI->hotKey == sortButton->key ? theme->text : theme->icon, theme->panel, m);
+                Prog__Spacer(UI_Pixels(floorf(12.8f * m->scale + 0.5f)), UI_Pixels(m->pill));
+                // Centered on the icons' line, as the reference's.
+                UI_SetNextPrefWidth(UI_Pixels(floorf(1.6f * m->scale + 0.5f)));
+                UI_SetNextPrefHeight(UI_Pixels(m->pill));
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Parent(UI_AddBlock(0)) Prog__Box(UI_Pixels(floorf(1.6f * m->scale + 0.5f)), UI_Pixels(floorf(19.2f * m->scale + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+                Prog__Spacer(UI_Pixels(floorf(8.8f * m->scale + 0.5f)), UI_Pixels(m->pill));
                 // The view and how far it is zoomed, as a bar filled to the zoom's percentage.
                 Prog_View view = Prog_ZoomView(state->zoom);
                 local_persist const String viewIcons[Prog_View_Count] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image };
@@ -2795,20 +2813,16 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 u32 step = state->zoom - Prog_ZoomFirstIcon;
                 String name = view != Prog_View_Icons ? viewNames[view] : step < 7 ? S("M Icons") : state->zoom + 1 < Prog_ZoomLevels ? S("L Icons") : S("XL Icons");
                 f32 zoom = Prog__ZoomFraction(state->zoom);
-                f32 barWidth = floorf(m->line * 2.4f);
-                // The view and its zoom open the view menu above them.
+                f32 barWidth = floorf(40.8f * m->scale + 0.5f);
+                // The pointer over the view and its zoom shows the zoom popup.
                 f32 nameGap = floorf(8.0f * m->scale + 0.5f), barGap = floorf(13.6f * m->scale + 0.5f);
                 UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->icons, viewIcons[view]) + R_TextWidth(m->font, name) + nameGap + barGap + barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_Block *viewButton = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ViewMenu")), UI_Flag_LeftMouseClickable);
-                UI_Interaction viewClick = UI_InteractionFromBlock(viewButton);
-                if (viewClick.clicked) {
-                    f32 menuHeight = m->row * 9 + floorf(13.0f * m->scale);
-                    Prog_QueueCommand(state, Prog_CommandKind_ViewMenu, 0, 0, viewClick.clickOrder)->at = (UI_Vec2){ viewButton->rect.x0, viewButton->rect.y0 - menuHeight };
-                }
-                b32 viewHot = UI->hotKey == viewButton->key;
+                if (state->currentPanel == state->activePanel) state->zoomAnchor = viewButton->rect;
+                b32 viewHot = UI->hotKey == viewButton->key || (state->zoomShown && state->currentPanel == state->activePanel);
                 UI_Parent(viewButton) {
                 Prog__Icon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, 0.5f, m);
                 Prog__LabelPadded(name, UI_TextContent(), m->pill, nameGap, 0, theme->text, 0);
@@ -4104,6 +4118,173 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
         }
         Prog__OptionControl(state, option, m);
     }
+}
+
+// A rectangle of an icon drawn from them, filled, or outlined `border` thick.
+function void Prog__IconRect(f32 x, f32 y, f32 width, f32 height, R_Color color, f32 border, f32 radius)
+{
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextCornerRadius(radius);
+    if (border > 0) UI_SetNextBorderThickness(border);
+    UI_SetNextColors((UI_Colors){ .background = color, .border = color });
+    UI_AddBlock(UI_Flag_Floating | (border > 0 ? UI_Flag_DrawBorder : UI_Flag_DrawBackground));
+}
+
+// The folder sort's icon in the block being built, as the reference draws it: the top of a folder over a bar for folders first, of a file for files
+// first, and a folder in front of a file for both mixed. `behind` is what it is drawn on, which hides the file behind the folder.
+function void Prog__FolderSortIcon(Prog_FolderSort sort, R_Color color, R_Color behind, const Prog_Metrics *m)
+{
+    f32 s = m->scale, size = floorf(14.4f * s + 0.5f), t = MaxF32(1, floorf(1.6f * s + 0.5f)), radius = floorf(1.6f * s + 0.5f);
+    f32 top = floorf((m->pill - size) * 0.5f);
+    if (sort == Prog_FolderSort_Mixed) {
+        // The file, up and to the right, with its corner folded.
+        f32 fileX = floorf(2.8f * s + 0.5f), fileWidth = size - fileX, fileHeight = floorf(13.6f * s + 0.5f), ear = floorf(4.0f * s + 0.5f);
+        Prog__IconRect(fileX, top, fileWidth, fileHeight, color, t, radius);
+        Prog__IconRect(size - ear, top, ear, ear, behind, 0, 0);
+        Prog__IconRect(size - ear, top, t, ear, color, 0, 0);
+        Prog__IconRect(size - ear, top + ear - t, ear, t, color, 0, 0);
+        // The folder in front of it, down and to the left.
+        f32 folderY = top + floorf(5.0f * s + 0.5f), folderWidth = floorf(11.6f * s + 0.5f), folderHeight = size - (folderY - top), tab = floorf(4.8f * s + 0.5f);
+        Prog__IconRect(0, folderY, folderWidth, folderHeight, behind, 0, radius);
+        Prog__IconRect(0, folderY, tab, t, color, 0, 0);
+        Prog__IconRect(0, folderY + t, folderWidth, folderHeight - t, color, t, radius);
+        return;
+    }
+    // The top of a folder or a file, open at the bottom, over a bar.
+    f32 walls = floorf(7.6f * s + 0.5f), barY = floorf(8.4f * s + 0.5f);
+    Prog__IconRect(0, top, t, walls, color, 0, 0);
+    if (sort == Prog_FolderSort_First) {
+        f32 tab = floorf(5.6f * s + 0.5f);
+        Prog__IconRect(0, top, tab, t, color, 0, 0);
+        Prog__IconRect(tab, top + t, size - tab, t, color, 0, 0);
+        Prog__IconRect(size - t, top + t, t, walls - t, color, 0, 0);
+    } else {
+        f32 ear = floorf(4.0f * s + 0.5f);
+        Prog__IconRect(0, top, size - ear, t, color, 0, 0);
+        Prog__IconRect(size - ear, top, t, ear, color, 0, 0);
+        Prog__IconRect(size - ear, top + ear - t, ear, t, color, 0, 0);
+        Prog__IconRect(size - t, top + ear - t, t, walls - ear + t, color, 0, 0);
+    }
+    Prog__IconRect(0, top + barY, size, size - barY, color, t, radius);
+}
+
+// Ctrl+wheel's popup over the view button: the views from Details up to XL Icons beside a slider at the zoom, the shown view's row lit.
+// Details, List, Columns and M Icons are a row apart; the icon sizes above them spread along the slider by their percentage.
+function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
+{
+    R_Rect anchor = state->zoomAnchor;
+    UI_Key sliderKey = UI_KeyFromStr(0, S("ZoomPopupSlider"));
+    // Up while the pointer is over the view button or the popup, while the slider is dragged, and for a moment after each Ctrl+wheel step, Ctrl
+    // held or not; then it fades out, as the reference's does.
+    b32 over = UI__Contains(anchor, UI->mouse) || (state->zoomShown && UI__Contains(state->zoomBox, UI->mouse));
+    u64 sinceWheel = UI->nowMicroseconds - Min(state->zoomWheelTime, UI->nowMicroseconds);
+    b32 wheeled = state->zoomWheelTime && sinceWheel < 450000;
+    // A timer rather than an animation, so it runs with animations off too.
+    if (wheeled) UI->animating = true;
+    b32 wanted = anchor.x1 > anchor.x0 && !state->paletteOpen && !state->menuOpen && (wheeled || over || UI->activeKey == sliderKey);
+    f32 shown = UI_Animate(UI_KeyFromStr(0, S("ZoomPopupFade")), wanted ? 1.0f : 0.0f, 0);
+    state->zoomShown = wanted || shown > 0.01f;
+    if (!state->zoomShown) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale;
+    f32 width = floorf(166.4f * s + 0.5f), height = floorf(237.6f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
+    f32 x = anchor.x1 - width, y = anchor.y0 - floorf(1.6f * s + 0.5f) - height;
+    // The gap down to the button counts as the popup, so that the pointer can cross it.
+    state->zoomBox = (R_Rect){ x, y, x + width, anchor.y0 };
+    // Where a zoom's row or thumb sits from the box's top: a row's pitch apart up to M Icons at 30%, then evenly up to XL Icons at 100%.
+    f32 pitch = floorf(20.0f * s + 0.5f), bottomRow = height - floorf(21.6f * s + 0.5f), topRow = floorf(20.0f * s + 0.5f);
+    f32 iconsRow = bottomRow - 3 * pitch;
+    #define Prog__ZoomY(fraction) ((fraction) <= 0.3f ? bottomRow - (fraction) * 10 * pitch : iconsRow - ((fraction) - 0.3f) / 0.7f * (iconsRow - topRow))
+    f32 opacity = wanted ? MaxF32(shown, 0.3f) : shown;
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextOpacity(opacity);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
+    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ZoomPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    Prog_View view = Prog_ZoomView(state->zoom);
+    u32 step = state->zoom - Prog_ZoomFirstIcon;
+    u32 lit = view != Prog_View_Icons ? (u32)view : step < 7 ? 3u : state->zoom + 1 < Prog_ZoomLevels ? 4u : 5u;
+    local_persist const String names[] = { S("Details"), S("List"), S("Columns"), S("M Icons"), S("L Icons"), S("XL Icons") };
+    local_persist const String icons[] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image, Icon_Image, Icon_Image };
+    f32 places[] = { 0, 0.1f, 0.2f, 0.3f, 0.65f, 1 };
+    u32 levels[] = { 0, 1, 2, Prog_ZoomFirstIcon, Prog_ZoomFirstIcon + 7, Prog_ZoomLevels - 1 };
+    f32 inset = floorf(11.2f * s + 0.5f), rowWidth = floorf(120.0f * s + 0.5f), rowHeight = floorf(17.6f * s + 0.5f);
+    UI_Parent(box) {
+        for (u32 i = 0; i < CArrayCount(names); ++i) {
+            f32 center = floorf(Prog__ZoomY(places[i]) + 0.5f);
+            UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+            UI_SetNextPrefHeight(UI_Pixels(rowHeight));
+            UI_SetNextFloatingOffset((UI_Vec2){ inset, center - floorf(rowHeight * 0.5f) });
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+            // A row picks its view, and is washed under the pointer.
+            UI_Key rowKey = UI_KeyFromStr(0, names[i]);
+            R_Color fill = theme->selection;
+            if (i != lit) fill.a *= 0.35f;
+            UI_SetNextColors((UI_Colors){ .background = fill });
+            UI_Block *row = UI_AddBlockFromKey(UI_KeyFromStr(rowKey, S("ZoomPopupRow")),
+                                               UI_Flag_Floating | UI_Flag_LeftMouseClickable | (i == lit || UI->hotKey == UI_KeyFromStr(rowKey, S("ZoomPopupRow")) ? UI_Flag_DrawBackground : 0));
+            UI_Interaction pick = UI_InteractionFromBlock(row);
+            if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_ZoomSet, levels[i], 0, pick.clickOrder);
+            UI_Parent(row) {
+                Prog__Icon(icons[i], floorf(30.4f * s + 0.5f), rowHeight, i == lit ? theme->text : theme->icon, 0.6f, m);
+                Prog__Label(names[i], UI_Flex(), rowHeight, 0, theme->text, 0);
+            }
+            // A line under every row but the last, as the reference's.
+            if (i > 0) {
+                UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+                UI_SetNextPrefHeight(UI_Pixels(m->separator));
+                UI_SetNextFloatingOffset((UI_Vec2){ inset, center + floorf(rowHeight * 0.5f) + floorf(0.8f * s) });
+                UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        }
+        // The slider: a track from XL Icons down to Details, filled below the thumb.
+        f32 track = floorf(12.8f * s + 0.5f), knob = floorf(20.0f * s + 0.5f);
+        f32 trackX = width - floorf(10.4f * s + 0.5f) - track, trackTop = topRow + floorf(1.6f * s + 0.5f), trackBottom = bottomRow - floorf(0.8f * s + 0.5f);
+        f32 thumb = floorf(Prog__ZoomY(Prog__ZoomFraction(state->zoom)) + 0.5f);
+        // Pressing or dragging along the slider moves it to the nearest zoom level.
+        UI_SetNextPrefWidth(UI_Pixels(knob + 2 * floorf(4.0f * s + 0.5f)));
+        UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop + knob));
+        UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f) - floorf(4.0f * s + 0.5f), trackTop - floorf(knob * 0.5f) });
+        UI_Block *slider = UI_AddBlockFromKey(sliderKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable);
+        UI_Interaction drag = UI_InteractionFromBlock(slider);
+        if (drag.pressed || (drag.active && drag.isDragging)) {
+            f32 at = UI->mouse.y - box->rect.y0, best = 1e9f;
+            u32 wanted = state->zoom;
+            for (u32 level = 0; level < Prog_ZoomLevels; ++level) {
+                f32 apart = fabsf(Prog__ZoomY(Prog__ZoomFraction(level)) - at);
+                if (apart < best) { best = apart; wanted = level; }
+            }
+            if (wanted != state->zoom) Prog_QueueCommand(state, Prog_CommandKind_ZoomSet, wanted, 0, drag.pressOrder);
+        }
+        UI_SetNextPrefWidth(UI_Pixels(track));
+        UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop));
+        UI_SetNextFloatingOffset((UI_Vec2){ trackX, trackTop });
+        UI_SetNextCornerRadius(track * 0.5f);
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        UI_SetNextPrefWidth(UI_Pixels(track));
+        UI_SetNextPrefHeight(UI_Pixels(MaxF32(trackBottom - thumb, track)));
+        UI_SetNextFloatingOffset((UI_Vec2){ trackX, MinF32(thumb, trackBottom - track) });
+        UI_SetNextCornerRadius(track * 0.5f);
+        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        UI_SetNextPrefWidth(UI_Pixels(knob));
+        UI_SetNextPrefHeight(UI_Pixels(knob));
+        UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f), thumb - floorf(knob * 0.5f) });
+        UI_SetNextCornerRadius(knob * 0.5f);
+        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+    #undef Prog__ZoomY
 }
 
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
@@ -5514,6 +5695,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     Prog__Transfers(state, m);
     Prog__ContextMenu(state, m);
+    Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
     Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);
