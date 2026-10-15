@@ -1781,7 +1781,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
             } break;
-            case Prog_CommandKind_OptionSet: Prog_SetOption(state, (Prog_Option)command->row, (i32)(i64)command->target); break;
+            case Prog_CommandKind_OptionSet: {
+                if (command->pressCount) Prog_PreviewOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
+                else Prog_SetOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
+            } break;
             case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
             case Prog_CommandKind_WindowMove: state->moveRequested = true; break;
             case Prog_CommandKind_WindowMinimize: PlatformWindowMinimize(); break;

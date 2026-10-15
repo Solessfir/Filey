@@ -432,6 +432,17 @@ function void Prog__WriteSetting(Prog_State *state, String name, String value)
 }
 
 // Sets `option` to `value`, kept within what it takes, in Settings.txt; without a config folder only for this run.
+// Shows `option` at `value` for now, without saving it, as while a slider is dragged; only the numbers have this.
+function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 value)
+{
+    const Prog_OptionDesc *desc = option < Prog_Option_Count ? &Prog_Options[option] : NULL;
+    if (!desc || desc->choices) return;
+    value = Min(Max(value, desc->least), desc->most);
+    if (option == Prog_Option_FontSize) state->uiScale = (f32)value / 9.0f;
+    if (option == Prog_Option_InspectorFontSize) state->inspectorFontSize = (u32)value;
+    if (option == Prog_Option_PopupBlur) Prog_GlassBlur = (f32)value;
+}
+
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
 {
     if (option >= Prog_Option_Count) return;
@@ -3300,9 +3311,10 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
 }
 
 // Queues `option` set to `value`, as its controls do.
-function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value, u64 order)
+// Queues `option` set to `value`, as its controls do; `preview` shows it without saving it yet.
+function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value, u64 order, b32 preview)
 {
-    Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, 0, order)->target = (u64)(i64)value;
+    Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, preview ? 1 : 0, order)->target = (u64)(i64)value;
 }
 
 // A choice's name as the popup shows it, with a capital first letter.
@@ -3333,7 +3345,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_Block *toggle = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSwitch/%u", (u32)option)),
                                                   UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (value ? 0 : UI_Flag_DrawBorder));
             UI_Interaction interaction = UI_InteractionFromBlock(toggle);
-            if (interaction.clicked) Prog__QueueOption(state, option, !value, interaction.clickOrder);
+            if (interaction.clicked) Prog__QueueOption(state, option, !value, interaction.clickOrder, false);
             UI_Parent(toggle) {
                 UI_SetNextFloatingOffset((UI_Vec2){ value ? wide - inset - knob : inset, inset });
                 UI_SetNextPrefWidth(UI_Pixels(knob));
@@ -3363,7 +3375,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                                                            0, theme->icon, theme->text, theme->iconDisabled, enabled, m);
                     UI->parent->last->props.colors.background = theme->track;
                     UI->parent->last->flags |= UI_Flag_DrawBackground;
-                    if (step.clicked) Prog__QueueOption(state, option, value + (up ? 1 : -1), step.clickOrder);
+                    if (step.clicked) Prog__QueueOption(state, option, value + (up ? 1 : -1), step.clickOrder, false);
                 }
             }
         } break;
@@ -3377,8 +3389,10 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             if (drag.pressed || (drag.active && drag.isDragging)) {
                 f32 along = UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / MaxF32(1, wide - knob), 0, 1);
                 i32 wanted = desc->least + (i32)floorf(along * range + 0.5f);
-                if (wanted != value) Prog__QueueOption(state, option, wanted, drag.pressOrder);
+                if (wanted != value) Prog__QueueOption(state, option, wanted, drag.pressOrder, true);
             }
+            // Saved once, where it is let go.
+            if (drag.released) Prog__QueueOption(state, option, value, drag.pressOrder, false);
             UI_Parent(slider) {
                 f32 middle = floorf((knob - track) * 0.5f), knobX = floorf(at * (wide - knob));
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
@@ -3414,7 +3428,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->textDim : theme->outline });
             UI_Block *choice = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
             UI_Interaction interaction = UI_InteractionFromBlock(choice);
-            if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)desc->choiceCount, interaction.clickOrder);
+            if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)desc->choiceCount, interaction.clickOrder, false);
             UI_Parent(choice) {
                 f32 chevron = floorf(20.8f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));

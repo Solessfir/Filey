@@ -877,6 +877,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count];
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
+function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 value);
 function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
 function u32 Prog_PanelIndex(const Prog_State *state, u64 id);
 function u64 Prog__PanelId(const Prog_State *state);

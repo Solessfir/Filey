@@ -1362,6 +1362,11 @@ function void TestTabs(TestFileFixture *fixture)
         Prog_SetOption(&state, Prog_Option_Animations, 0);
         Prog_SetOption(&state, Prog_Option_InspectorLayout, Prog_InspectorLayout_Below);
         Prog_SetOption(&state, Prog_Option_PopupBlur, 500);
+        // A slider being dragged shows its value without saving it, until it is let go.
+        Prog_PreviewOption(&state, Prog_Option_FontSize, 12);
+        Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 12);
+        Prog_ReloadSettingsFile(&state);
+        Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 10);
         Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 10 && state.uiScale > 1.1f && state.animationsOff);
         Check(state.inspectorLayout == Prog_InspectorLayout_Below && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 100);
         String settings = {0};
