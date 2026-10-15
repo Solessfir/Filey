@@ -747,6 +747,39 @@ command SortByType {
     tooltip = "Sort folder contents by file type."
 }
 
+command InspectorToggleDetails {
+    label   = "Toggle Inspector Details^properties,stats,preview,show,hide"
+    tooltip = "Toggle display of extra file metadata details in the inspector."
+    hotkey  = "Ctrl+I"
+}
+
+command InspectorChangeLayout {
+    label   = "Toggle Inspector Layout^change,switch,flip"
+    tooltip = "Toggle inspector layout between horizontal and vertical."
+    hotkey  = "Shift+Space"
+}
+
+// Inspector layout button; carries the Prog_InspectorLayout.
+command InspectorSetLayout {
+}
+
+command InspectorStartFilter {
+    label   = "Filter Inspector Content"
+    tooltip = "Start filtering contents in the inspector. Applicable to text and folder previews."
+    hotkey  = "Shift+F"
+}
+
+// Details card button that folds it to its title.
+command InspectorFoldDetails {
+}
+
+// Inspector filter buttons.
+command InspectorApplyFilter {
+}
+
+command InspectorRemoveFilter {
+}
+
 command InspectorIncreaseContentsSize {
     label   = "Increase Contents Size^large,big,scale"
     tooltip = "Increase contents size in the inspector; font size for text, zoom for images, etc."

@@ -84,6 +84,24 @@ function void TestHotkeyDispatch(void)
     Check(command && command->kind == Prog_CommandKind_Up && command->inputOrder == 5);
     Check(command && command->next == NULL);
 
+    // A key that runs a command does not also type its character, and the inspector's filter box takes what is typed while it is open.
+    {
+        Prog_State typing = {0};
+        PlatformEvent keys[] = {
+            { .kind = PlatformEventKind_KeyDown, .key = Key_Space },
+            { .kind = PlatformEventKind_Text, .codepoint = ' ' },
+            { .kind = PlatformEventKind_KeyDown, .key = Key_A },
+            { .kind = PlatformEventKind_Text, .codepoint = 'a' },
+        };
+        Prog_HandleInput(&typing, TestUIEvents(keys, CArrayCount(keys)));
+        Check(typing.commandFirst && typing.commandFirst->kind == Prog_CommandKind_TogglePreview && StrIsEqual(Prog_EditText(&typing.filter), S("a")));
+        typing.inspectorFiltering = true;
+        PlatformEvent more[] = { { .kind = PlatformEventKind_Text, .codepoint = 'x' }, { .kind = PlatformEventKind_KeyDown, .key = Key_Space }, { .kind = PlatformEventKind_Text, .codepoint = ' ' } };
+        Prog_HandleInput(&typing, TestUIEvents(more, CArrayCount(more)));
+        Check(StrIsEqual(Prog_EditText(&typing.inspectorFilter), S("x ")) && StrIsEqual(Prog_EditText(&typing.filter), S("a")));
+        ArenaRelease(&typing.frameArena);
+    }
+
     // Every generated table entry names a real command and binds a key.
     for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
         Check(Prog_DefaultHotkeys[i].command > Prog_CommandKind_None && Prog_DefaultHotkeys[i].command < Prog_CommandKind_Count);

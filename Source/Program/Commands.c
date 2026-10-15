@@ -299,8 +299,9 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
     Prog__PaletteGroup(Inspector),
-    Prog_CommandKind_InspectorIncreaseContentsSize, Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap,
-    Prog_CommandKind_InspectorToggleLineNumbers, Prog_CommandKind_InspectorToggleWhitespace,
+    Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
+    Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorStartFilter,
     Prog__PaletteGroup(Panels),
     Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
@@ -1110,7 +1111,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
     state->previewPicture = false;
-    state->previewLines = state->previewRows = NULL;
+    state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineCount = state->previewRowColumns = 0;
     state->inspectorResetScroll = true;
     if (!want.length) return;
@@ -1320,6 +1321,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ToggleQuickAccess: state->sidebarHidden = !state->sidebarHidden; break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
             case Prog_CommandKind_InspectorToggleWordWrap: state->inspectorWrap = !state->inspectorWrap; break;
+            case Prog_CommandKind_InspectorToggleDetails: state->inspectorDetails = !state->inspectorDetails; break;
+            case Prog_CommandKind_InspectorFoldDetails: state->inspectorDetailsFolded = !state->inspectorDetailsFolded; break;
+            case Prog_CommandKind_InspectorChangeLayout: state->inspectorLayout = state->inspectorBelow ? Prog_InspectorLayout_Right : Prog_InspectorLayout_Below; break;
+            case Prog_CommandKind_InspectorSetLayout: if (command->row < Prog_InspectorLayout_Count) state->inspectorLayout = (u8)command->row; break;
+            case Prog_CommandKind_InspectorStartFilter: {
+                state->inspectorFiltering = true;
+                state->inspectorFilter.anchor = 0;
+                state->inspectorFilter.cursor = state->inspectorFilter.length;
+            } break;
+            case Prog_CommandKind_InspectorApplyFilter: state->inspectorFiltering = false; break;
+            case Prog_CommandKind_InspectorRemoveFilter: {
+                state->inspectorFilter = (Prog_TextEdit){ .version = state->inspectorFilter.version + 1 };
+                state->inspectorFiltering = false;
+            } break;
             case Prog_CommandKind_InspectorToggleLineNumbers: state->inspectorHideNumbers = !state->inspectorHideNumbers; break;
             case Prog_CommandKind_InspectorToggleWhitespace: state->inspectorWhitespace = !state->inspectorWhitespace; break;
             case Prog_CommandKind_InspectorIncreaseContentsSize:
@@ -1781,6 +1796,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
+        // A key that ran a command does not also type its character, such as Shift+F's F or Space's space.
+        if (event->kind == PlatformEventKind_Text && state->swallowText) {
+            state->swallowText = false;
+            continue;
+        }
+        if (event->kind == PlatformEventKind_KeyDown) state->swallowText = false;
         if (state->tabDrag && event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) {
             state->tabDrag = false;
             state->tabDragCancelled = true;
@@ -1886,10 +1907,23 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             }
             continue;
         }
+        // The inspector's filter box takes the keyboard while it is in it: Enter keeps what it holds, Escape clears it.
+        if (state->inspectorFiltering && !state->menuOpen) {
+            if (event->kind == PlatformEventKind_Text) {
+                Prog__EditInsert(&state->inspectorFilter, event->codepoint);
+                continue;
+            }
+            if (event->kind == PlatformEventKind_KeyDown) {
+                // Keys the box does not use, such as Up and Down, still reach the list; a space is typed.
+                b32 used = true;
+                if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_InspectorApplyFilter, 0, 0, order);
+                else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_InspectorRemoveFilter, 0, 0, order);
+                else used = Prog__EditKey(&state->inspectorFilter, event) || (event->key == Key_Space && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super)));
+                if (used) continue;
+            }
+        }
         // Typing anywhere in the browser filters it.
         if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
-            // A space outside the box is the key's command, such as toggling the inspector, rather than the start of a filter.
-            if (!state->filtering && event->codepoint == ' ' && Prog_FindHotkey(state, Key_Space, 0)) continue;
             u32 version = state->filter.version;
             // '/' outside the box only puts the keyboard in it, like Ctrl+F.
             b32 opens = !state->filtering && event->codepoint == '/';
@@ -1952,6 +1986,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         // While filtering, a space is typed.
         if (state->filtering && event->key == Key_Space && !mods) continue;
         const Prog_Hotkey *hotkey = Prog_FindHotkey(state, event->key, mods);
+        if (hotkey) state->swallowText = true;
         if (hotkey && (!event->isRepeat || !Prog_Commands[hotkey->command].noRepeat)) {
             Prog_Command *command = Prog_QueueCommand(state, hotkey->command, 0, 0, order);
             command->mods = event->mods;

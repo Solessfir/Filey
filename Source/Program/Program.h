@@ -269,6 +269,14 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
 
+// Where the inspector goes: to the right of the list or below it, by the panel's shape for Auto.
+typedef enum Prog_InspectorLayout {
+    Prog_InspectorLayout_Auto,
+    Prog_InspectorLayout_Right,
+    Prog_InspectorLayout_Below,
+    Prog_InspectorLayout_Count,
+} Prog_InspectorLayout;
+
 // The groups the command palette files its commands under, in the reference's order.
 typedef enum Prog_CommandGroup {
     Prog_CommandGroup_Quick,
@@ -673,6 +681,17 @@ typedef struct Prog_State {
     b32 inspectorWhitespace;
     u32 inspectorFontSize;
     b32 inspectorResetScroll; // a new file starts at its top
+    enum8(Prog_InspectorLayout) inspectorLayout;
+    b32 inspectorBelow;       // where the last frame put it, which Toggle Inspector Layout turns around
+    b32 inspectorDetails;     // the card of the item's details under its name
+    b32 inspectorDetailsFolded; // showing only its title
+    b32 swallowText;          // the next character comes from a key that ran a command
+    // Its filter keeps the lines holding the letters typed, in order; the keyboard is in its box while inspectorFiltering.
+    Prog_TextEdit inspectorFilter;
+    b32 inspectorFiltering;
+    u32 *previewKept;         // the lines the filter keeps, by number
+    u32 previewKeptCount;
+    u32 previewKeptVersion;   // the filter's version they were picked for
     const R_Font *monoFont;   // the inspector's, at its size; NULL until made
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
