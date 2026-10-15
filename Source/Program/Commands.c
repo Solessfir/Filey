@@ -315,7 +315,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
-    Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
+    Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
     Prog__PaletteGroup(Tabs),
     Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
@@ -754,6 +754,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_SplitRight, .icon = Icon_UnfoldHorizontal);
             Prog__Item(.kind = Prog_CommandKind_SplitBottom, .icon = Icon_UnfoldVertical);
+            Prog__Item(.kind = Prog_CommandKind_TogglePanelZoom, .icon = Icon_Maximize2, .toggle = true, .checked = state->zoomedPanel != 0);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabNew, .icon = Icon_SquarePlus);
             Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
@@ -1633,6 +1634,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_SplitBottom: {
                 String path = Prog_TabPath(state, state->activeTab);
                 Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_SplitRight ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, path);
+            } break;
+            case Prog_CommandKind_TogglePanelZoom: {
+                // The panel the keyboard is in, or the one whose inspector it is in.
+                u64 owner = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
+                state->zoomedPanel = state->zoomedPanel ? 0 : owner;
             } break;
             case Prog_CommandKind_TabDrop: Prog_DropTab(state, state->tabDropped); break;
             case Prog_CommandKind_PanelSelectNext:

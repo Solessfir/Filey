@@ -5806,6 +5806,12 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
     const Prog_Theme *theme = Prog_CurrentTheme();
     const Prog_Split *split = &state->splits[node];
     if (split->kind == Prog_SplitKind_Panel) {
+        // The zoomed panel is drawn over the others; its place here stays empty.
+        if (split->panel == state->zoomShownPanel) {
+            state->zoomFrom = rect;
+            Prog__Spacer(UI_Pixels(rect.x1 - rect.x0), UI_Pixels(rect.y1 - rect.y0));
+            return;
+        }
         u32 index = Prog_PanelIndex(state, split->panel);
         if (index != UINT32_MAX) Prog__PanelUI(state, index, rect, area, scale, m);
         return;
@@ -5937,7 +5943,30 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         UI_Parent(slide) Prog__SidebarColumn(state, full, view.y1 - view.y0, scale, m);
     }
     R_Rect area = { view.x0 + sidebar, view.y0, view.x1, view.y1 };
-    Prog__Layout(state, 0, area, area, scale, m);
+    // A zoomed panel grows from its place to the whole area, easing, and shrinks back when unzoomed; the others are not built while it
+    // covers them. Moving the keyboard to another panel unzooms it.
+    u64 owner = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
+    if (state->zoomedPanel && (owner != state->zoomedPanel || Prog_PanelIndex(state, state->zoomedPanel) == UINT32_MAX)) state->zoomedPanel = 0;
+    if (state->zoomedPanel) state->zoomShownPanel = state->zoomedPanel;
+    f32 zoomed = UI_Animate(UI_KeyFromStr(0, S("PanelZoom")), state->zoomedPanel ? 1.0f : 0.0f, 0);
+    u32 zoomIndex = state->zoomShownPanel ? Prog_PanelIndex(state, state->zoomShownPanel) : UINT32_MAX;
+    if (zoomIndex == UINT32_MAX || (!state->zoomedPanel && zoomed < 0.001f)) {
+        state->zoomShownPanel = 0;
+        zoomIndex = UINT32_MAX;
+    }
+    if (zoomIndex == UINT32_MAX || zoomed < 0.999f) Prog__Layout(state, 0, area, area, scale, m);
+    if (zoomIndex != UINT32_MAX) {
+        R_Rect from = state->zoomFrom, rect = {
+            floorf(from.x0 + (area.x0 - from.x0) * zoomed + 0.5f), floorf(from.y0 + (area.y0 - from.y0) * zoomed + 0.5f),
+            floorf(from.x1 + (area.x1 - from.x1) * zoomed + 0.5f), floorf(from.y1 + (area.y1 - from.y1) * zoomed + 0.5f),
+        };
+        UI->keySeed = 0;
+        UI_SetNextFloatingOffset((UI_Vec2){ rect.x0 - view.x0, rect.y0 - view.y0 });
+        UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
+        UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
+        UI_Block *holder = UI_AddBlock(UI_Flag_Floating);
+        UI_Parent(holder) Prog__PanelUI(state, zoomIndex, rect, area, scale, m);
+    }
     UI->keySeed = 0;
     Prog__UsePanel(state, state->activePanel);
     if (state->tabDrag) {

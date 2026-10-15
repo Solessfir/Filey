@@ -1035,7 +1035,12 @@ typedef struct Prog_State {
     Arena dropPlaceArena;
     String dropPlace;
     String dragPlace;
-    u64 bookmarkGap;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
+    u64 bookmarkGap;
+    // The panel zoomed to fill the panels' area (an id, 0 for none), the one shown zoomed while it grows or shrinks back, and its place in
+    // the layout, which it grows from.
+    u64 zoomedPanel;
+    u64 zoomShownPanel;
+    R_Rect zoomFrom;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
     Arena recentArena;
     ArrayStr recents;
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.

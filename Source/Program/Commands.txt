@@ -699,6 +699,13 @@ command SplitBottom {
     repeat  = "false"
 }
 
+command TogglePanelZoom {
+    label   = "Toggle Panel Zoom^maximize,fullscreen,focus,split,pane"
+    tooltip = "Zoom the panel to fill the window, or unzoom it if already zoomed."
+    hotkey  = "Ctrl+Shift+Enter"
+    repeat  = "false"
+}
+
 command PanelSelectNext {
     label   = "Next Panel^focus,switch,cycle"
     tooltip = "Move to the next panel."
