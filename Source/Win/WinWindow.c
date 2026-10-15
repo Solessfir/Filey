@@ -542,7 +542,9 @@ function PlatformDoubleClick PlatformDoubleClickSettings(void)
 function void PlatformWindowSetTransparent(b32 transparent)
 {
     // The client area becomes glass, and the frame's backdrop fills it wherever the alpha is below one.
-    MARGINS margins = transparent ? (MARGINS){ -1, -1, -1, -1 } : (MARGINS){0};
+    // The glass grows up from the bottom edge over the whole window rather than in from every edge: extended from the top, the system draws its
+    // own caption buttons there over Filey's.
+    MARGINS margins = transparent ? (MARGINS){ 0, 0, 0, 32767 } : (MARGINS){0};
     DwmExtendFrameIntoClientArea(Win.window, &margins);
     i32 backdrop = transparent ? DWMSBT_TRANSIENTWINDOW : DWMSBT_AUTO;
     DwmSetWindowAttribute(Win.window, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
