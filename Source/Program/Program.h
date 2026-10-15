@@ -234,8 +234,14 @@ typedef struct Prog_IconAtlas {
 } Prog_IconAtlas;
 
 // Zoom levels, smallest first: Details, List, Columns, then icon grids that grow a step at a time.
-#define Prog_ZoomLevels    17
-#define Prog_ZoomFirstIcon 3
+// Zoom in tenths of a percent: Details at 0, List at 100 and Columns at 200, then the icon views from M Icons at 300 through L Icons from 650 to
+// XL Icons at 1000, which a zoom step moves through 55 at a time, as the reference's do.
+#define Prog_ZoomList    100
+#define Prog_ZoomColumns 200
+#define Prog_ZoomIcons   300
+#define Prog_ZoomLarge   650
+#define Prog_ZoomMax     1000
+#define Prog_ZoomStep    55
 
 typedef enum Prog_View {
     Prog_View_Details,
@@ -649,7 +655,7 @@ typedef struct Prog_Tab {
 //   error: the last failure, in errorArena; directoryJob, generation, loading: the listing on its way
 //   revealFocus, resetScroll, restoreScroll: scroll changes the next build makes; pageRows: lines visible in the last layout, for Page Up/Down
 //   tabs, tabCount, activeTab: the panel's Prog_MaxTabs tab slots, in tabArena from the first use; the shown one's slot holds nothing while it is shown
-//   zoom: the view's zoom level, below Prog_ZoomLevels
+//   zoom: the view's zoom, up to Prog_ZoomMax
 //   gridColumns, gridPitch, gridItem: the list's last layout, in its coordinates (x from its left edge, y from the top of its content):
 //     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
@@ -1116,6 +1122,8 @@ function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);
 function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds);
 function Prog_View Prog_ZoomView(u32 zoom);
+function u32 Prog_ZoomStepped(u32 zoom, b32 up);
+function u32 Prog_ZoomFromSaved(u64 value);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
 function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind);
 function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Key key, KeyMods mods);

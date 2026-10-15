@@ -2460,13 +2460,18 @@ function void Prog__Marquee(R_Rect box, const Prog_Metrics *m)
 
 function Prog_View Prog_ZoomView(u32 zoom)
 {
-    return zoom < Prog_ZoomFirstIcon ? (Prog_View)zoom : Prog_View_Icons;
+    return zoom < Prog_ZoomIcons ? (Prog_View)Min(zoom / Prog_ZoomList, (u32)Prog_View_Columns) : Prog_View_Icons;
 }
 
-// Zoom as a fraction: 0 for Details, a tenth a step to Columns, then icons from 0.3 in steps of 0.055 up to 1.
-function f32 Prog__ZoomFraction(u32 zoom)
+// Zoom as a fraction: 0 for Details up to 1 for XL Icons.
+function f32 Prog__ZoomFraction(u32 zoom) { return MinF32(1, (f32)zoom / (f32)Prog_ZoomMax); }
+
+// The view's name, as the status bar and the zoom popup call it.
+function String Prog__ZoomName(u32 zoom)
 {
-    return zoom < Prog_ZoomFirstIcon ? (f32)zoom * 0.1f : MinF32(1, 0.3f + (f32)(zoom - Prog_ZoomFirstIcon) * 0.055f);
+    local_persist const String names[Prog_View_Count] = { S("Details"), S("List"), S("Columns"), {0} };
+    Prog_View view = Prog_ZoomView(zoom);
+    return view != Prog_View_Icons ? names[view] : zoom < Prog_ZoomLarge ? S("M Icons") : zoom < Prog_ZoomMax ? S("L Icons") : S("XL Icons");
 }
 
 // Icon views draw their icons from 48 logical pixels at 30% to 205 at 100%, in physical pixels.
@@ -2809,9 +2814,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 // The view and how far it is zoomed, as a bar filled to the zoom's percentage.
                 Prog_View view = Prog_ZoomView(state->zoom);
                 local_persist const String viewIcons[Prog_View_Count] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image };
-                local_persist const String viewNames[Prog_View_Count] = { S("Details"), S("List"), S("Columns"), {0} };
-                u32 step = state->zoom - Prog_ZoomFirstIcon;
-                String name = view != Prog_View_Icons ? viewNames[view] : step < 7 ? S("M Icons") : state->zoom + 1 < Prog_ZoomLevels ? S("L Icons") : S("XL Icons");
+                String name = Prog__ZoomName(state->zoom);
                 f32 zoom = Prog__ZoomFraction(state->zoom);
                 f32 barWidth = floorf(40.8f * m->scale + 0.5f);
                 // The pointer over the view and its zoom shows the zoom popup.
@@ -2827,7 +2830,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 Prog__Icon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, 0.5f, m);
                 Prog__LabelPadded(name, UI_TextContent(), m->pill, nameGap, 0, theme->text, 0);
                 Prog__Spacer(UI_Pixels(barGap), UI_Pixels(m->pill));
-                Prog__FillBar(StrFormat(&state->frameArena, "%u%%", (u32)(zoom * 100.0f + 0.001f)), zoom, m);
+                Prog__FillBar(StrFormat(&state->frameArena, "%u%%", state->zoom / 10), zoom, m);
                 }
             }
         } else {
@@ -4209,12 +4212,11 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ZoomPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     Prog_View view = Prog_ZoomView(state->zoom);
-    u32 step = state->zoom - Prog_ZoomFirstIcon;
-    u32 lit = view != Prog_View_Icons ? (u32)view : step < 7 ? 3u : state->zoom + 1 < Prog_ZoomLevels ? 4u : 5u;
+    u32 lit = view != Prog_View_Icons ? (u32)view : state->zoom < Prog_ZoomLarge ? 3u : state->zoom < Prog_ZoomMax ? 4u : 5u;
     local_persist const String names[] = { S("Details"), S("List"), S("Columns"), S("M Icons"), S("L Icons"), S("XL Icons") };
     local_persist const String icons[] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image, Icon_Image, Icon_Image };
     f32 places[] = { 0, 0.1f, 0.2f, 0.3f, 0.65f, 1 };
-    u32 levels[] = { 0, 1, 2, Prog_ZoomFirstIcon, Prog_ZoomFirstIcon + 7, Prog_ZoomLevels - 1 };
+    u32 levels[] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
     f32 inset = floorf(11.2f * s + 0.5f), rowWidth = floorf(120.0f * s + 0.5f), rowHeight = floorf(17.6f * s + 0.5f);
     UI_Parent(box) {
         for (u32 i = 0; i < CArrayCount(names); ++i) {
@@ -4250,19 +4252,17 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         f32 track = floorf(12.8f * s + 0.5f), knob = floorf(20.0f * s + 0.5f);
         f32 trackX = width - floorf(10.4f * s + 0.5f) - track, trackTop = topRow + floorf(1.6f * s + 0.5f), trackBottom = bottomRow - floorf(0.8f * s + 0.5f);
         f32 thumb = floorf(Prog__ZoomY(Prog__ZoomFraction(state->zoom)) + 0.5f);
-        // Pressing or dragging along the slider moves it to the nearest zoom level.
+        // Pressing or dragging along the slider sets the icon size it points at, or the nearest view below M Icons.
         UI_SetNextPrefWidth(UI_Pixels(knob + 2 * floorf(4.0f * s + 0.5f)));
         UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop + knob));
         UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f) - floorf(4.0f * s + 0.5f), trackTop - floorf(knob * 0.5f) });
         UI_Block *slider = UI_AddBlockFromKey(sliderKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable);
         UI_Interaction drag = UI_InteractionFromBlock(slider);
         if (drag.pressed || (drag.active && drag.isDragging)) {
-            f32 at = UI->mouse.y - box->rect.y0, best = 1e9f;
-            u32 wanted = state->zoom;
-            for (u32 level = 0; level < Prog_ZoomLevels; ++level) {
-                f32 apart = fabsf(Prog__ZoomY(Prog__ZoomFraction(level)) - at);
-                if (apart < best) { best = apart; wanted = level; }
-            }
+            f32 at = UI->mouse.y - box->rect.y0;
+            u32 wanted = Prog_ZoomIcons;
+            if (at <= iconsRow) wanted = (u32)MinF32((f32)Prog_ZoomMax, (f32)Prog_ZoomIcons + floorf((iconsRow - at) / MaxF32(1, iconsRow - topRow) * 700.0f + 0.5f));
+            else wanted = (u32)MaxF32(0, (f32)Prog_ZoomIcons - floorf((at - iconsRow) / pitch + 0.5f) * Prog_ZoomList);
             if (wanted != state->zoom) Prog_QueueCommand(state, Prog_CommandKind_ZoomSet, wanted, 0, drag.pressOrder);
         }
         UI_SetNextPrefWidth(UI_Pixels(track));

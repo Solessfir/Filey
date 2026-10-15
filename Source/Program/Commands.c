@@ -716,11 +716,11 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         case Prog_CommandKind_ViewMenu: {
             u32 zoom = state->zoom;
             Prog__Item(.kind = Prog_CommandKind_ViewDetails, .checked = zoom == 0);
-            Prog__Item(.kind = Prog_CommandKind_ViewList, .checked = zoom == 1);
-            Prog__Item(.kind = Prog_CommandKind_ViewColumns, .checked = zoom == 2);
-            Prog__Item(.kind = Prog_CommandKind_ViewMediumIcons, .checked = zoom >= Prog_ZoomFirstIcon && zoom < Prog_ZoomFirstIcon + 7);
-            Prog__Item(.kind = Prog_CommandKind_ViewLargeIcons, .checked = zoom >= Prog_ZoomFirstIcon + 7 && zoom + 1 < Prog_ZoomLevels);
-            Prog__Item(.kind = Prog_CommandKind_ViewXLIcons, .checked = zoom + 1 == Prog_ZoomLevels);
+            Prog__Item(.kind = Prog_CommandKind_ViewList, .checked = zoom == Prog_ZoomList);
+            Prog__Item(.kind = Prog_CommandKind_ViewColumns, .checked = zoom == Prog_ZoomColumns);
+            Prog__Item(.kind = Prog_CommandKind_ViewMediumIcons, .checked = zoom >= Prog_ZoomIcons && zoom < Prog_ZoomLarge);
+            Prog__Item(.kind = Prog_CommandKind_ViewLargeIcons, .checked = zoom >= Prog_ZoomLarge && zoom < Prog_ZoomMax);
+            Prog__Item(.kind = Prog_CommandKind_ViewXLIcons, .checked = zoom >= Prog_ZoomMax);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ZoomIn);
             Prog__Item(.kind = Prog_CommandKind_ZoomOut);
@@ -1425,8 +1425,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     b32 up = command->kind == Prog_CommandKind_InspectorIncreaseContentsSize;
                     u32 back = state->currentPanel;
                     Prog__UsePanel(state, inner);
-                    if (up && state->zoom + 1 < Prog_ZoomLevels) ++state->zoom;
-                    if (!up && state->zoom > 0) --state->zoom;
+                    state->zoom = Prog_ZoomStepped(state->zoom, up);
                     state->revealFocus = true;
                     Prog__UsePanel(state, back);
                     break;
@@ -1614,15 +1613,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ResizeSplit: {
                 if (command->row < Prog_MaxSplits) state->splits[command->row].ratio = UI__Clamp((f32)command->target / 1e6f, 0.1f, 0.9f);
             } break;
-            case Prog_CommandKind_ZoomIn: if (state->zoom + 1 < Prog_ZoomLevels) { ++state->zoom; state->revealFocus = true; } break;
-            case Prog_CommandKind_ZoomOut: if (state->zoom) { --state->zoom; state->revealFocus = true; } break;
+            case Prog_CommandKind_ZoomIn:
+            case Prog_CommandKind_ZoomOut: {
+                u32 zoom = Prog_ZoomStepped(state->zoom, command->kind == Prog_CommandKind_ZoomIn);
+                if (zoom != state->zoom) { state->zoom = zoom; state->revealFocus = true; }
+            } break;
             case Prog_CommandKind_ViewDetails: state->zoom = 0; state->revealFocus = true; break;
-            case Prog_CommandKind_ZoomSet: if (command->row < Prog_ZoomLevels) { state->zoom = (u32)command->row; state->revealFocus = true; } break;
-            case Prog_CommandKind_ViewList: state->zoom = 1; state->revealFocus = true; break;
-            case Prog_CommandKind_ViewColumns: state->zoom = 2; state->revealFocus = true; break;
-            case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomFirstIcon; state->revealFocus = true; break;
-            case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomFirstIcon + 7; state->revealFocus = true; break;
-            case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomLevels - 1; state->revealFocus = true; break;
+            case Prog_CommandKind_ZoomSet: if (command->row <= Prog_ZoomMax) { state->zoom = (u32)command->row; state->revealFocus = true; } break;
+            case Prog_CommandKind_ViewList: state->zoom = Prog_ZoomList; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewColumns: state->zoom = Prog_ZoomColumns; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomIcons; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomLarge; state->revealFocus = true; break;
+            case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomMax; state->revealFocus = true; break;
             case Prog_CommandKind_SelectAll:
             case Prog_CommandKind_ToggleSelectAll: {
                 if (!state->loading) {

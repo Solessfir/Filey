@@ -464,10 +464,14 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     // The zoom popup sets a level, and leaves one out of range alone.
     {
         u32 before = state.zoom;
-        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomFirstIcon + 7);
-        Check(state.zoom == Prog_ZoomFirstIcon + 7);
-        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomLevels);
-        Check(state.zoom == Prog_ZoomFirstIcon + 7);
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomLarge);
+        Check(state.zoom == Prog_ZoomLarge);
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, Prog_ZoomMax + 1);
+        Check(state.zoom == Prog_ZoomLarge);
+        // Steps of 5.5% through the icon sizes, a view at a time below them, and old files' levels read as zoom.
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomOut, 0);
+        Check(state.zoom == 595 && Prog_ZoomStepped(1000, true) == 1000 && Prog_ZoomStepped(330, false) == 300 && Prog_ZoomStepped(300, false) == 200);
+        Check(Prog_ZoomStepped(200, true) == 300 && Prog_ZoomFromSaved(2) == 200 && Prog_ZoomFromSaved(10) == 685 && Prog_ZoomFromSaved(16) == 1000 && Prog_ZoomFromSaved(650) == 650);
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, before);
     }
     // A folder keeps its view: it opens with it and follows what changes in it, while a folder without one gets the panel's own back.
@@ -486,11 +490,11 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_Sort changed = state.sort;
         // Its columns too.
         TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created);
-        Check(Prog_FolderView(&state, here, &view) && view.zoom == ownZoom + 1 && view.sort == changed && view.columns.count == 6);
+        Check(Prog_FolderView(&state, here, &view) && view.zoom == Prog_ZoomStepped(ownZoom, true) && view.sort == changed && view.columns.count == 6);
         Prog_RequestDirectory(&state, Prog_JoinPath(&kept, here, S("Empty")), true, 0);
         Check(TestWaitDirectory(&state) && state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
-        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && state.zoom == ownZoom + 1 && state.sort == changed && state.columnSet.count == 6);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && state.zoom == Prog_ZoomStepped(ownZoom, true) && state.sort == changed && state.columnSet.count == 6);
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
         Check(TestWaitDirectory(&state) && !Prog_FolderView(&state, here, &view));
         Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
@@ -500,7 +504,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(!Prog_ParseColumns(S("size,type"), &read) && !Prog_ParseColumns(S("name,bogus"), &read));
         String old = S("2 3 1 C:/Old Folder");
         Prog__SetList(&state.folderViewArena, &state.folderViews, &old, 1);
-        Check(Prog_FolderView(&state, S("C:/Old Folder"), &view) && view.zoom == 2 && view.columns.count == 0);
+        Check(Prog_FolderView(&state, S("C:/Old Folder"), &view) && view.zoom == Prog_ZoomColumns && view.columns.count == 0);
         Prog__SetList(&state.folderViewArena, &state.folderViews, NULL, 0);
         ArenaRelease(&kept);
         // Going away and back left nothing selected.
@@ -1546,7 +1550,7 @@ function void TestPanels(TestFileFixture *fixture)
         if (inner != UINT32_MAX) {
             // Its contents size is its zoom.
             TestBrowsingCommand(&state, Prog_CommandKind_InspectorIncreaseContentsSize, 0);
-            Check(state.panels[inner].zoom == 1 && state.zoom == 0);
+            Check(state.panels[inner].zoom == Prog_ZoomList && state.zoom == 0);
             TestBrowsingCommand(&state, Prog_CommandKind_InspectorDecreaseContentsSize, 0);
             Check(state.panels[inner].zoom == 0);
             ArenaClear(&state.frameArena);
@@ -1649,7 +1653,7 @@ function void TestPanels(TestFileFixture *fixture)
         // With a panel's columns, its folders after its files and its inspector's own view, which come back too.
         Prog_EditColumns(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created, 0);
         state.folderSort = Prog_FolderSort_Last;
-        state.inspectorView = (Prog_ViewSettings){ .zoom = 2, .sort = Prog_Sort_Size, .descending = true, .columns = { .count = 2, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size } } };
+        state.inspectorView = (Prog_ViewSettings){ .zoom = Prog_ZoomColumns, .sort = Prog_Sort_Size, .descending = true, .columns = { .count = 2, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size } } };
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
@@ -1657,7 +1661,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(Prog_RestoreSession(&restored, text) && TestWaitDirectory(&restored));
         Check(restored.panelCount == state.panelCount && restored.activePanel == state.activePanel && restored.splits[0].kind == state.splits[0].kind);
         Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
-        Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == 2 && restored.inspectorView.columns.count == 2);
+        Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
         Prog_Release(&restored);
         ArenaRelease(&sessionArena);
     }

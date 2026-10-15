@@ -2129,13 +2129,29 @@ function void Prog__SetCurrentView(Prog_State *state, Prog_ViewSettings view)
     state->columnSet = view.columns;
 }
 
+// One zoom step in or out: a view at a time up to M Icons, then the icon sizes a step apart up to XL Icons.
+function u32 Prog_ZoomStepped(u32 zoom, b32 up)
+{
+    if (up) return zoom < Prog_ZoomIcons ? Min(zoom + Prog_ZoomList, (u32)Prog_ZoomIcons) : Min(zoom + Prog_ZoomStep, (u32)Prog_ZoomMax);
+    if (zoom > Prog_ZoomIcons) return Max(zoom - Prog_ZoomStep, (u32)Prog_ZoomIcons);
+    return zoom >= Prog_ZoomList ? zoom - Prog_ZoomList : 0;
+}
+
+// A zoom read from Session.txt or FolderViews.txt; files from before zoom counted tenths of a percent hold a level from 0 to 16.
+function u32 Prog_ZoomFromSaved(u64 value)
+{
+    if (value < 3) return (u32)value * Prog_ZoomList;
+    if (value <= 16) return (u32)Min((u64)Prog_ZoomIcons + (value - 3) * Prog_ZoomStep, (u64)Prog_ZoomMax);
+    return (u32)Min(value, (u64)Prog_ZoomMax);
+}
+
 // A FolderViews.txt line: its zoom, sort, whether that is descending, the folder sort and the columns, then the path, which may hold spaces;
 // lines from before the folder sort and the columns have only the first three. False when `line` is not one.
 function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String *path)
 {
     u64 a = 0, b = 0, c = 0, d = 0;
     if (!Prog__TakeNumber(&line, &a) || !Prog__TakeNumber(&line, &b) || !Prog__TakeNumber(&line, &c)) return false;
-    *view = (Prog_ViewSettings){ (u32)Min(a, (u64)Prog_ZoomLevels - 1), (u8)Min(b, (u64)Prog_Sort_Count - 1), c != 0, Prog_FolderSort_First, {0} };
+    *view = (Prog_ViewSettings){ Prog_ZoomFromSaved(a), (u8)Min(b, (u64)Prog_Sort_Count - 1), c != 0, Prog_FolderSort_First, {0} };
     String rest = line;
     if (Prog__TakeNumber(&rest, &d)) {
         Index space = StrIndexChar(rest, ' ', SSF_None);
@@ -2325,7 +2341,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             }
         } else if (StrIsEqual(word, S("panel"))) {
             if (!(Prog__TakeNumber(&rest, &a) && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c)) || a != panelCount || a >= Prog_MaxPanels) valid = false;
-            else panels[panelCount++] = (typeof(*panels)){ .zoom = (u32)Min(b, (u64)Prog_ZoomLevels - 1), .activeTab = (u32)c };
+            else panels[panelCount++] = (typeof(*panels)){ .zoom = Prog_ZoomFromSaved(b), .activeTab = (u32)c };
         } else if (StrIsEqual(word, S("order"))) {
             // A panel's sort, its direction and where its folders go; older sessions have none and keep the defaults.
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d)) {
@@ -2340,7 +2356,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) &&
                 Prog__TakeNumber(&rest, &g)) {
                 Prog_ViewSettings *view = &panels[a].inspector;
-                *view = (Prog_ViewSettings){ (u32)Min(b, (u64)Prog_ZoomLevels - 1), (u8)Min(c, (u64)Prog_Sort_Count - 1), d != 0, (u8)Min(g, (u64)Prog_FolderSort_Count - 1), {0} };
+                *view = (Prog_ViewSettings){ Prog_ZoomFromSaved(b), (u8)Min(c, (u64)Prog_Sort_Count - 1), d != 0, (u8)Min(g, (u64)Prog_FolderSort_Count - 1), {0} };
                 Prog_ParseColumns(rest, &view->columns);
             }
         } else if (StrIsEqual(word, S("tab"))) {
