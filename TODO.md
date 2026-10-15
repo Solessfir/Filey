@@ -77,6 +77,12 @@ Planned there, worth doing here first:
 - Names in any script: check font fallback for CJK, Arabic, Hebrew and emoji on both platforms.
 - Indexing the drives from the NTFS file table (Windows) for a faster Go To walk.
 
+## Filey's own
+
+- Git: detect a repository around the shown folder and show in the path bar how far its branch is from the remote (↑ commits to push, ↓ to pull). Read `.git` directly or run `git` in a background job; never block the UI on it.
+- Syntax highlighting, at least basic (keywords, strings, comments, numbers), in the inspector's text view for code files.
+- Localization, low priority: the interface in other languages. Until then, keep user-facing strings in few places (Commands.txt labels, the option table) so they can be translated later.
+
 ## Checks
 
 - Compare rename, the context menu, drag and drop, the preview pane and the settings page side by side.
