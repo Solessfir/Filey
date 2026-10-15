@@ -790,6 +790,10 @@ typedef struct Prog_State {
     Arena thumbnailBeforeArena;
     Prog_IconMap thumbnailsBefore;
     Prog_IconAtlas thumbnailBeforeAtlas;
+    // The tab list's folder pictures, at their one size.
+    Arena folderPictureArena;
+    Prog_IconMap folderPictures;
+    Prog_IconAtlas folderPictureAtlas;
     // The busy spinner's frames in the icon atlas; its eight rays repeat every eighth of a turn, so the frames cover that much.
     Prog_Icon spinner[Prog_SpinnerFrames];
     i32 spinnerSize;          // iconSize the frames were drawn at; 0 before they are
@@ -1072,6 +1076,7 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
+function const Prog_Icon *Prog_FolderPicture(Prog_State *state, String path, i32 size);
 function void Prog_SubmitIconRequests(Prog_State *state);
 function void Prog_CloseMenu(Prog_State *state);
 function void Prog_DragSelection(Prog_State *state);

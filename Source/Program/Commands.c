@@ -173,7 +173,7 @@ global const char *Prog_KeyNames[Key_Count] = {
     [Key_Equals] = "Equals",
 };
 global const char *Prog_KeyShortNames[Key_Count] = {
-    [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Del", [Key_Insert] = "Ins",
+    [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
     [Key_Equals] = "=",
@@ -829,8 +829,9 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     state->menuAt = mouse ? state->ui.mouse
                   : state->menuRowCount ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 }
                   : state->ui.mouse;
+    // It starts on its first item, as the reference's does, from the mouse too.
     state->menuHighlight = UINT32_MAX;
-    if (!mouse) Prog__MenuMove(state, 1);
+    Prog__MenuMove(state, 1);
 }
 
 function String Prog_EditText(const Prog_TextEdit *edit)
@@ -1492,7 +1493,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
                 for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
+                // Filey's own cut, copy and delete act on the list's selection, so for a sidebar folder they are shown disabled, and its rename,
+                // which edits a list row, is left out, as the reference does.
+                for (u32 i = 0; i < state->menu.count; ++i) {
+                    P_MenuItem *item = &state->menu.items[i];
+                    if (StrIsEqual(item->verb, S("rename"))) item->label = (String){0};
+                    b32 selection = StrIsEqual(item->verb, S("cut")) || StrIsEqual(item->verb, S("copy")) || StrIsEqual(item->verb, S("delete")) ||
+                                    item->action == P_MenuAction_Cut || item->action == P_MenuAction_Copy || item->action == P_MenuAction_Trash ||
+                                    item->action == P_MenuAction_Delete;
+                    if (selection) item->disabled = true;
+                }
                 state->menuAt = state->ui.mouse;
+                state->menuHighlight = UINT32_MAX;
+                Prog__MenuMove(state, 1);
             } break;
             case Prog_CommandKind_ToggleGroup: if (command->row < Prog_Group_Count) state->groupToggled[command->row] = !state->groupToggled[command->row]; break;
             case Prog_CommandKind_RemoveBookmark: {

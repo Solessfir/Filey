@@ -513,18 +513,18 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                   Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), S("theme") },
     [Prog_Option_AlternatingRows] = { S("Alternating Row Colors"), S("Applies alternating row colors to improve readability and distinguish adjacent rows."),
                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("rows.alternate") },
-    [Prog_Option_InactiveOpacity] = { S("Inactive Opacity"), S("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
+    [Prog_Option_InactiveOpacity] = { S("Inactive Panel Contents Opacity"), S("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
                                       0, 100, NULL, 0, S("inactive.opacity") },
     [Prog_Option_ShowFileExtension] = { S("Show File Extension"), S("Toggle the visibility of file extensions."), Prog_OptionControl_Switch, 0, 1,
                                         Prog_OptionSwitch, 2, S("files.extensions") },
     [Prog_Option_ShowHiddenFiles] = { S("Show Hidden Files"), S("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
                                       Prog_OptionSwitch, 2, S("files.hidden") },
     [Prog_Option_ShowSystemFiles] = { S("Show System Files"), S("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("files.system") },
-    [Prog_Option_ShortenedPaths] = { S("Show Shortened Paths"), S("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShortenedPaths] = { S("Display Compact Paths"), S("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, S("paths.short") },
-    [Prog_Option_Breadcrumbs] = { S("Show Breadcrumbs"), S("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_Breadcrumbs] = { S("Display Path Breadcrumbs"), S("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, S("paths.trail") },
-    [Prog_Option_ShowCheckboxes] = { S("Show Checkboxes"), S("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShowCheckboxes] = { S("Show Selection Boxes"), S("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, S("checkboxes") },
     [Prog_Option_StoreRecents] = { S("Store Recents"), S("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), S("recents.store") },
@@ -536,24 +536,24 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), S("thumbnails") },
     [Prog_Option_CalcFolderSizes] = { S("Calculate Folder Sizes"), S("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
                                       Prog_OptionSwitch, 2, S("folders.size") },
-    [Prog_Option_CalcFolderSizesSSD] = { S("Calculate Folder Sizes SSD"), S("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_CalcFolderSizesSSD] = { S("SSDs"), S("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
                                          Prog_OptionSwitch, 2, S("folders.size.ssd") },
-    [Prog_Option_CalcFolderSizesHDD] = { S("Calculate Folder Sizes HDD"), S("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_CalcFolderSizesHDD] = { S("HDDs"), S("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
                                          Prog_OptionSwitch, 2, S("folders.size.hdd") },
-    [Prog_Option_CalcFolderSizesNetwork] = { S("Calculate Folder Sizes Network"), S("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
+    [Prog_Option_CalcFolderSizesNetwork] = { S("Network Locations"), S("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
                                              0, 1, Prog_OptionSwitch, 2, S("folders.size.network") },
     [Prog_Option_ActOnPress] = { S("Act On Press"), S("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, S("click.onPress") },
-    [Prog_Option_SingleClick] = { S("Single Click"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
-    [Prog_Option_SingleClickFoldersOnly] = { S("Single Click Folders Only"), S("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_SingleClick] = { S("Single-click To Open"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
+    [Prog_Option_SingleClickFoldersOnly] = { S("Folders Only"), S("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
                                              Prog_OptionSwitch, 2, S("click.singleFoldersOnly") },
-    [Prog_Option_HoverToSelect] = { S("Hover To Select"), S("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("hover.select") },
-    [Prog_Option_UnderlineOnHover] = { S("Underline On Hover"), S("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_HoverToSelect] = { S("Point To Select"), S("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("hover.select") },
+    [Prog_Option_UnderlineOnHover] = { S("Underline On Point"), S("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
                                        Prog_OptionSwitch, 2, S("hover.underline") },
-    [Prog_Option_DoubleClickToParent] = { S("Double Click To Parent"), S("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_DoubleClickToParent] = { S("Double-click To Parent"), S("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
                                           Prog_OptionSwitch, 2, S("click.doubleToParent") },
-    [Prog_Option_Overscroll] = { S("Overscroll"), S("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("scroll.over") },
-    [Prog_Option_ReverseScroll] = { S("Reverse Scroll"), S("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_Overscroll] = { S("Scroll Beyond Last Item"), S("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("scroll.over") },
+    [Prog_Option_ReverseScroll] = { S("Reverse Scroll Direction"), S("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
                                     Prog_OptionSwitch, 2, S("scroll.reverse") },
     [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
@@ -3200,6 +3200,17 @@ function void Prog__DropShadow(f32 x, f32 y, f32 width, f32 height, f32 radius, 
 
 // One menu level as a floating panel, kept inside the window.
 // Sets `child` when one of its items has its submenu open.
+// The Filey command that does what a system menu's verb does, whose hotkeys its row shows; None for the rest.
+function Prog_CommandKind Prog__VerbCommand(String verb)
+{
+    if (StrIsEqual(verb, S("cut"))) return Prog_CommandKind_CutSelection;
+    if (StrIsEqual(verb, S("copy"))) return Prog_CommandKind_CopySelection;
+    if (StrIsEqual(verb, S("paste"))) return Prog_CommandKind_Paste;
+    if (StrIsEqual(verb, S("delete"))) return Prog_CommandKind_Trash;
+    if (StrIsEqual(verb, S("rename"))) return Prog_CommandKind_Rename;
+    return Prog_CommandKind_None;
+}
+
 function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3215,23 +3226,28 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
     f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f);
     f32 box = floorf(16.0f * m->scale + 0.5f);
-    String *chips = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String) : NULL;
-    u32 *chipCounts = state->menuCommands ? ArenaPushArray(&state->frameArena, Max(shown, 1u), u32) : NULL;
+    String *chips = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String);
+    u32 *chipCounts = ArenaPushArray(&state->frameArena, Max(shown, 1u), u32);
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
+    // The search field is a band across the top in the inner color, over a line and a little room before the items.
+    f32 fieldInset = floorf(2.4f * m->scale + 0.5f), fieldHeight = floorf(30.4f * m->scale + 0.5f);
+    f32 searchHeight = search ? fieldInset + fieldHeight + line + floorf(4.0f * m->scale + 0.5f) - pad : 0;
     // The widest row's label and its chips together, rather than the longest label and the most chips of any rows.
-    f32 rowWidth = 0, height = 2 * pad;
+    f32 rowWidth = 0, height = 2 * pad + searchHeight;
     b32 anySubmenu = false;
     for (u32 i = 0; i < shown; ++i) {
         const P_MenuItem *item = &state->menu.items[visible[i]];
         height += item->separator ? separatorHeight : itemHeight;
         f32 labelWidth = R_TextWidth(m->font, item->label), hotkeyWidth = 0;
         anySubmenu |= item->childCount != 0;
-        if (state->menuCommands && !item->separator) {
-            const Prog_MenuCommand *command = &state->menuCommands[visible[i]];
-            u32 mouse = command->mouse.length ? 1 : 0;
+        if (!item->separator) {
+            // A system item shows the hotkeys of the Filey command that does the same.
+            const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[visible[i]] : NULL;
+            u32 mouse = command && command->mouse.length ? 1 : 0;
             if (mouse) chips[i * 3] = command->mouse;
-            chipCounts[i] = mouse + Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind), chips + i * 3 + mouse, 3 - mouse);
-            f32 end = command->toggle ? box + m->gap : 0;
+            Prog_CommandKind kind = command ? (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind) : Prog__VerbCommand(item->verb);
+            chipCounts[i] = mouse + (kind ? Prog_HotkeyTexts(&state->frameArena, state, kind, chips + i * 3 + mouse, 3 - mouse) : 0);
+            f32 end = command && command->toggle ? box + m->gap : 0;
             for (u32 c = 0; c < chipCounts[i]; ++c) end += R_TextWidth(m->detail, chips[i * 3 + c]) + 2 * chipPad + chipGap;
             if (end > 0) hotkeyWidth = end + m->inset - floorf(5.6f * m->scale + 0.5f);
         }
@@ -3249,7 +3265,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // A new panel fades in while its rows spread from a little closer together to their place.
     f32 reveal = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first)), 1, 0);
     itemHeight *= 0.9f + 0.1f * reveal;
-    height = 2 * pad + (search ? itemHeight + separatorHeight : 0);
+    height = 2 * pad + searchHeight;
     for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
     f32 opacity = 0.3f + 0.7f * reveal;
 
@@ -3272,30 +3288,49 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 itemY = y + pad;
     UI_Parent(panel) {
         if (search) {
-            UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(itemHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
+            // Inside the border, round at the top along the box's corners and square where it meets the line.
+            f32 bandX = fieldInset - pad, bandY = fieldInset - pad, bandWidth = width - 2 * fieldInset;
+            UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY + floorf(fieldHeight * 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(bandWidth));
+            UI_SetNextPrefHeight(UI_Pixels(fieldHeight - floorf(fieldHeight * 0.5f)));
+            UI_SetNextColors((UI_Colors){ .background = theme->inner });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY });
+            UI_SetNextPrefWidth(UI_Pixels(bandWidth));
+            UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenPadding((UI_Padding){ pad - fieldInset, 0, pad - fieldInset, 0 });
+            UI_SetNextCornerRadius(MaxF32(0, radius - fieldInset));
+            UI_SetNextColors((UI_Colors){ .background = theme->inner });
+            UI_Block *field = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             UI_Parent(field) {
-                Prog__Spacer(UI_Pixels(iconLeft), UI_Pixels(itemHeight));
-                Prog__Icon(Icon_Search, iconColumn, itemHeight, theme->textDim, 0, m);
+                Prog__Spacer(UI_Pixels(iconLeft), UI_Pixels(fieldHeight));
+                Prog__Icon(Icon_Search, iconColumn, fieldHeight, theme->textDim, 0, m);
                 UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(itemHeight));
+                UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
                 UI_Block *text = UI_AddBlock(UI_Flag_Clip);
                 UI_Parent(text) {
                     if (!state->menuSearch.length) {
-                        UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((itemHeight - m->line) * 0.5f) });
+                        UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((fieldHeight - m->line) * 0.5f) });
                         UI_SetNextPrefHeight(UI_Pixels(m->line));
                         UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                        UI_SetNextText(S("Select..."));
+                        UI_SetNextText(S("Select a system command..."));
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                     }
-                    Prog__EditContents(&state->menuSearch, 0, floorf((itemHeight - m->line) * 0.5f), true, 0, m);
+                    Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, 0, m);
                 }
+                // A button at its end closes the menu.
+                UI_Interaction close = Prog__TextButton(S("MenuSearchClose"), Icon_X, m->icons, UI_Pixels(floorf(28.8f * m->scale + 0.5f)), fieldHeight, 0,
+                                                        theme->textDim, theme->text, theme->iconDisabled, true, m);
+                if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, close.clickOrder);
             }
-            UI_SetNextFloatingOffset((UI_Vec2){ 0, itemY + itemHeight - y - pad - floorf(line * 0.5f) });
-            UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad));
+            UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY + fieldHeight });
+            UI_SetNextPrefWidth(UI_Pixels(bandWidth));
             UI_SetNextPrefHeight(UI_Pixels(line));
             UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-            itemY += itemHeight;
+            Prog__Spacer(UI_Flex(), UI_Pixels(searchHeight));
+            itemY += searchHeight;
         }
         for (u32 i = 0; i < shown; ++i) {
             u32 index = visible[i];
@@ -3350,7 +3385,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 }
                 UI_AddBlock(icon ? UI_Flag_DrawImage : glyph.length ? UI_Flag_DrawText : 0);
                 Prog__Label(item->label, UI_Flex(), itemHeight, 0, color, 0);
-                for (u32 c = 0; command && c < chipCounts[i]; ++c) {
+                for (u32 c = 0; c < chipCounts[i]; ++c) {
                     Prog__Chip(chips[i * 3 + c], itemHeight, highlighted, m);
                     Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(itemHeight));
                 }
@@ -3376,7 +3411,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_AddBlock(item->isDefault ? UI_Flag_DrawBackground | UI_Flag_DrawText | (highlighted ? UI_Flag_DrawBorder : 0) : UI_Flag_DrawBorder);
                     }
                 }
-                if (command) Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(itemHeight));
+                if (command || chipCounts[i]) Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(itemHeight));
                 if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
@@ -3559,13 +3594,15 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     u32 first = state->paletteHighlight >= shownMax ? state->paletteHighlight - shownMax + 1 : 0;
     u32 shown = Min(count - first, shownMax);
     // As wide as the longest name or path, within the window.
-    String hint = StrFormat(&state->frameArena, "Search %u tab%s...", state->tabCount, state->tabCount == 1 ? "" : "s");
+    // "tabs" even for one, as the reference words it.
+    String hint = StrFormat(&state->frameArena, "Search %u tabs...", state->tabCount);
     f32 textWidth = R_TextWidth(m->font, hint) + floorf(16.0f * s + 0.5f);
     for (u32 i = 0; i < count; ++i) {
         String path = Prog_TabPath(state, matches[i]);
         textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog__FolderName(path)), R_TextWidth(m->detail, Prog__CrumbPath(state, path))));
     }
-    f32 width = floorf(MinF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, view.x1 - view.x0 - 2 * m->gap));
+    // No narrower than the reference's box for a short name.
+    f32 width = floorf(MinF32(MaxF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, 187.2f * s), view.x1 - view.x0 - 2 * m->gap));
     f32 height = field + line + 2 * pad + (f32)shown * rowHeight;
     f32 x = floorf(MaxF32(view.x0 + m->gap, button.x1 - width));
     f32 opacity = 0.3f + 0.7f * UI_Animate(UI_KeyFromStr(0, S("TabSearchReveal")), 1, 0);
@@ -3593,7 +3630,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextColors((UI_Colors){ .background = theme->inner });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
-        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.0f * s + 0.5f), 0, floorf(9.6f * s + 0.5f), 0 });
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.0f * s + 0.5f), 0, floorf(5.6f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(box) {
             Prog__Icon(Icon_Search, floorf(23.2f * s + 0.5f), field, theme->textDim, 0, m);
@@ -3633,13 +3670,15 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             UI_Interaction interaction = UI_InteractionFromBlock(row);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
             UI_Parent(row) {
-                // ponytail: the list's icon size centered in a larger slot; a large-icon atlas would match the reference's bigger pictures.
-                const Prog_Icon *icon = path.length ? Prog_FolderIcon(state, path) : NULL;
+                // The folder's own picture filling the slot, as the icon views draw it, or its list icon while that loads.
+                const Prog_Icon *picture = path.length ? Prog_FolderPicture(state, path, (i32)floorf(32.0f * s + 0.5f)) : NULL;
+                const Prog_Icon *icon = picture ? picture : path.length ? Prog_FolderIcon(state, path) : NULL;
+                f32 drawn = picture ? floorf(32.0f * s + 0.5f) : (f32)state->iconSize;
                 UI_SetNextPrefWidth(UI_Pixels(iconSlot));
                 UI_SetNextPrefHeight(UI_Pixels(rowHeight));
                 UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                 if (icon) {
-                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ drawn, drawn }, (R_Color){ 1, 1, 1, 1 });
                     UI_AddBlock(UI_Flag_DrawImage);
                 } else {
                     UI_SetNextFont(m->icons);
@@ -4012,9 +4051,13 @@ function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value
     Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, preview ? 1 : 0, order)->target = (u64)(i64)value;
 }
 
-// A choice's name as the popup shows it, with a capital first letter.
-function String Prog__OptionName(Arena *arena, String name)
+// A choice's name as the popup shows it: the reference's words where Settings.txt has shorter ones, else with a capital first letter.
+function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
 {
+    if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return S("Local Disks");
+    if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return S("Horizontal");
+    if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return S("Vertical");
+    if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return S("Last Session");
     String result = StrCopy(arena, name);
     if (result.length && result.value[0] >= 'a' && result.value[0] <= 'z') ((char *)result.value)[0] = (char)(result.value[0] - 'a' + 'A');
     return result;
@@ -4127,7 +4170,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_Parent(choice) {
                 f32 chevron = floorf(20.8f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
-                Prog__Label(Prog__OptionName(frame, desc->choices[Min((u32)value, desc->choiceCount - 1)]), UI_Flex(), height, 0, theme->text, 0.5f);
+                Prog__Label(Prog__OptionName(frame, option, desc->choices[Min((u32)value, desc->choiceCount - 1)]), UI_Flex(), height, 0, theme->text, 0.5f);
                 Prog__Icon(Icon_ChevronRight, chevron, height, theme->icon, 0.5f, m);
             }
         } break;

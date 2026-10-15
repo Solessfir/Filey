@@ -160,6 +160,9 @@ function void Prog__ResetIcons(Prog_State *state, i32 size)
     Prog__ResetThumbnails(state, 0);
     state->thumbnailsBefore = (Prog_IconMap){0};
     ArenaClear(&state->thumbnailBeforeArena);
+    state->folderPictures = (Prog_IconMap){0};
+    ArenaClear(&state->folderPictureArena);
+    state->folderPictureAtlas.size = 0;
 }
 
 // The icon views' picture of `entry` for drawing at `size`, loaded at its tier; the last tier's while this one's loads.
@@ -173,6 +176,19 @@ function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory
     String key = P_FileThumbnailKey(&state->frameArena, path, kind);
     const Prog_Icon *icon = Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, kind, tier, false, false);
     return icon ? icon : Prog__ThumbnailBefore(state, key);
+}
+
+// The picture of the folder at `path`, as its thumbnail shows it, at `size` squared, for the tab list.
+function const Prog_Icon *Prog_FolderPicture(Prog_State *state, String path, i32 size)
+{
+    if (state->iconSize <= 0 || size <= 0 || size == state->iconSize) return NULL;
+    if (size != state->folderPictureAtlas.size) {
+        state->folderPictures = (Prog_IconMap){0};
+        ArenaClear(&state->folderPictureArena);
+        Prog__ResetAtlas(&state->folderPictureAtlas, size, Prog_IconPageSize, 1);
+    }
+    String key = StrFormat(&state->frameArena, "picture:%S", P_FileThumbnailKey(&state->frameArena, path, P_FileKind_Directory));
+    return Prog__LookUpIcon(state, &state->folderPictureArena, &state->folderPictures, key, path, P_FileKind_Directory, size, false, false);
 }
 
 // The icon of `entry`'s type at its thumbnail's tier, shared by every item of that type, for the icon views to show until the thumbnail comes.
@@ -313,6 +329,12 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_IconRequest *request = &input->icons[i];
         b32 thumbnail = request->size != state->iconSize;
+        // The tab list's folder pictures have their own atlas.
+        Prog_Icon *picture = thumbnail && request->size == state->folderPictureAtlas.size ? MapsGetPtrNull(state->folderPictures, request->key) : NULL;
+        if (picture) {
+            if (!pixels[i] || !Prog__PlaceIcon(&state->folderPictureAtlas, picture, pixels[i])) picture->state = Prog_IconState_Failed;
+            continue;
+        }
         // Thumbnails and their stand-ins of a size the zoom has left are dropped; the items ask again at the new size.
         if (thumbnail && request->size != state->thumbnailAtlas.size) continue;
         Prog_IconMap *map = thumbnail ? &state->thumbnails : &state->icons;

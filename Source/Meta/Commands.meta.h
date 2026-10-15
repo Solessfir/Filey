@@ -409,6 +409,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_F3, .mods = 0, .command = Prog_CommandKind_StartFilter },
     { .key = Key_E, .mods = KeyMod_Control, .command = Prog_CommandKind_StartExpandedSearch },
     { .key = Key_C, .mods = KeyMod_Control, .command = Prog_CommandKind_CopySelection },
+    { .key = Key_Insert, .mods = KeyMod_Control, .command = Prog_CommandKind_CopySelection },
     { .key = Key_X, .mods = KeyMod_Control, .command = Prog_CommandKind_CutSelection },
     { .key = Key_V, .mods = KeyMod_Control, .command = Prog_CommandKind_Paste },
     { .key = Key_Delete, .mods = 0, .command = Prog_CommandKind_Trash },

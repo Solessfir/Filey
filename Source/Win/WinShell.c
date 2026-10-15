@@ -141,7 +141,9 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
 
     if (ok) {
         shell->popup = CreatePopupMenu();
-        ok = shell->popup && SUCCEEDED(shell->menu->lpVtbl->QueryContextMenu(shell->menu, shell->popup, 0, P__MenuFirstId, P__MenuLastId, CMF_NORMAL));
+        // Rename is offered for items, which the program then edits in place.
+        ok = shell->popup && SUCCEEDED(shell->menu->lpVtbl->QueryContextMenu(shell->menu, shell->popup, 0, P__MenuFirstId, P__MenuLastId,
+                                                                             CMF_NORMAL | (count ? CMF_CANRENAME : 0)));
     }
     if (ok) {
         shell->menu->lpVtbl->QueryInterface(shell->menu, &P__IID_IContextMenu3, (void **)&shell->menu3);
