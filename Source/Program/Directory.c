@@ -2485,6 +2485,38 @@ function b32 Prog__IsUnder(String path, String root)
 // A drive with a medium to read: its size, or its file system, which an audio CD shows without one; a busy drive is taken to have one.
 function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length || drive->busy; }
 
+// The listed drive `path` is on, or NULL.
+function const P_Place *Prog_PathDrive(const Prog_State *state, String path)
+{
+    for (u64 i = 0; i < state->drives.header.count; ++i) if (Prog__IsUnder(path, state->drives.v[i].path)) return &state->drives.v[i];
+    return NULL;
+}
+
+// What a tab calls `path`: a drive's root by the drive's name, as "DVD RW Drive (E:)", and other folders by their own.
+function String Prog_PathName(const Prog_State *state, String path)
+{
+    const P_Place *drive = Prog_PathDrive(state, path);
+    return drive && drive->name.length && StrIsEqual(drive->path, path) ? drive->name : Prog__FolderName(path);
+}
+
+// This PC is listed again in the panels that show it once a drive comes, goes, or changes its name, medium or state; free space alone, which changes all the time, waits for a reload.
+function void Prog__RelistDrives(Prog_State *state, P_ArrayPlace before, P_ArrayPlace after)
+{
+    b32 same = before.header.count == after.header.count;
+    for (u64 i = 0; i < before.header.count && same; ++i) {
+        const P_Place *a = &before.v[i], *b = &after.v[i];
+        same = StrIsEqual(a->path, b->path) && StrIsEqual(a->name, b->name) && StrIsEqual(a->fileSystem, b->fileSystem) && a->busy == b->busy &&
+               a->totalBytes == b->totalBytes;
+    }
+    if (same) return;
+    u32 panel = state->currentPanel;
+    for (u32 p = 0; p < state->panelCount; ++p) {
+        Prog__UsePanel(state, p);
+        if (StrIsEqual(state->directory.path, Prog_ThisPC) && !state->directoryJob) Prog_Reload(state);
+    }
+    Prog__UsePanel(state, panel);
+}
+
 // Tabs on drives that went away or have no medium, such as an ejected disc, go where a new tab would; there is nothing to show there.
 function void Prog__LeaveLostDrives(Prog_State *state, P_ArrayPlace before, P_ArrayPlace after)
 {
@@ -2882,6 +2914,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job->result) {
                 Prog_Places *result = job->result;
                 Prog__LeaveLostDrives(state, state->drives, result->drives);
+                Prog__RelistDrives(state, state->drives, result->drives);
+                // A busy drive keeps the name it last had, which it may give only once it answers.
+                for (u64 i = 0; i < result->drives.header.count; ++i) {
+                    P_Place *drive = &result->drives.v[i];
+                    const P_Place *known = drive->busy ? Prog_PathDrive(state, drive->path) : NULL;
+                    if (known && StrIsEqual(known->path, drive->path)) drive->name = StrCopy(&job->arena, known->name);
+                }
                 ArenaRelease(&state->placesArena);
                 state->placesArena = job->arena;
                 job->arena = (Arena){0};

@@ -1225,7 +1225,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             if (i == state->tabCount) break;
             b32 shown = i == state->activeTab;
             String path = Prog_TabPath(state, i);
-            String name = Prog__FolderName(path);
+            String name = Prog_PathName(state, path);
             UI_Key key = Prog__TabKey(state, i);
             UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
             b32 hot = Prog__TabHot(state, i);
@@ -1315,8 +1315,9 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         }
                     }
                 }
-                // A spinner stands in for the folder while the shown tab's listing is on its way.
-                const Prog_Icon *spinner = shown && state->directoryJob ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+                // A spinner stands in for the folder while the shown tab's listing is on its way, or while its drive spins up a disc.
+                const P_Place *drive = Prog_PathDrive(state, path);
+                const Prog_Icon *spinner = (shown && state->directoryJob) || (drive && drive->busy) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
                 if (spinner) UI_KeepAnimating();
                 const Prog_Icon *icon = spinner ? spinner : path.length ? Prog_FolderIcon(state, path) : NULL;
                 if (icon) {
@@ -1939,6 +1940,9 @@ function b32 Prog__LiveTotals(const Prog_State *state, const Prog_Entry *entry, 
 // The name an entry shows: a drive's or a binned item's own, and a file's without its extension when the settings ask.
 function String Prog_EntryName(const Prog_State *state, const Prog_Entry *entry)
 {
+    // A drive goes by the sidebar's name for it, which is the latest, and which a drive spinning up a disc keeps from before.
+    const P_Place *drive = entry->drive ? Prog_PathDrive(state, entry->file.name) : NULL;
+    if (drive && drive->name.length && StrIsEqual(drive->path, entry->file.name)) return drive->name;
     if (entry->label.length) return entry->label;
     String name = entry->file.name;
     if (state->hideExtensions && entry->file.kind != P_FileKind_Directory) {
@@ -1956,7 +1960,7 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     if (entry->drive) {
         for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = (String){0};
         u64 total = entry->file.size, used = total - Min(entry->freeBytes, total);
-        values[Prog_ColumnId_Name] = entry->label.length ? entry->label : entry->file.name;
+        values[Prog_ColumnId_Name] = Prog_EntryName(state, entry);
         values[Prog_ColumnId_Type] = entry->type;
         values[Prog_ColumnId_FileSystem] = entry->fileSystem;
         if (total) {
@@ -2065,7 +2069,11 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 faded = Prog__EntryFaded(entry);
     b32 thumbnail = size > (f32)state->iconSize;
-    const Prog_Icon *icon = !thumbnail ? Prog_FileIcon(state, state->directory.path, entry)
+    // A drive spinning up a disc shows a spinner until it answers.
+    const P_Place *drive = entry->drive ? Prog_PathDrive(state, entry->file.name) : NULL;
+    const Prog_Icon *spinner = drive && drive->busy ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+    if (spinner) UI_KeepAnimating();
+    const Prog_Icon *icon = spinner ? spinner : !thumbnail ? Prog_FileIcon(state, state->directory.path, entry)
                           : Prog_ShowsThumbnails(state) ? Prog_ThumbnailIcon(state, state->directory.path, entry, (i32)size) : NULL;
     if (thumbnail && !icon) icon = Prog_ThumbnailStandIn(state, state->directory.path, entry, (i32)size);
     if (thumbnail && !icon) {
@@ -2074,7 +2082,7 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
-        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
         UI_AddBlock(UI_Flag_DrawImage);
     } else {
         Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, width, height,
@@ -2985,12 +2993,15 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
     UI_Parent(row) {
         f32 slot = (f32)state->iconSize + floorf(7.2f * m->scale + 0.5f);
-        const Prog_Icon *icon = drive ? Prog_PathIcon(state, path, P_FileKind_Drive) : Prog_FolderIcon(state, path);
+        // A drive spinning up a disc shows a spinner until it answers.
+        const Prog_Icon *spinner = drive && drive->busy ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+        if (spinner) UI_KeepAnimating();
+        const Prog_Icon *icon = spinner ? spinner : drive ? Prog_PathIcon(state, path, P_FileKind_Drive) : Prog_FolderIcon(state, path);
         if (icon) {
             UI_SetNextPrefWidth(UI_Pixels(slot));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_DrawImage);
         } else {
             Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, theme->icon, 0, m);
@@ -4837,7 +4848,7 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
             } else {
                 Prog__Icon(Icon_Folder, (f32)state->iconSize + m->gap, height, theme->icon, 0, m);
             }
-            Prog__Label(Prog__FolderName(path), UI_Flex(), height, 0, theme->text, 0);
+            Prog__Label(Prog_PathName(state, path), UI_Flex(), height, 0, theme->text, 0);
         }
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(m->row));

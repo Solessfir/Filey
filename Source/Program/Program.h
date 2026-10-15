@@ -1135,6 +1135,8 @@ function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
 function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current);
+function const P_Place *Prog_PathDrive(const Prog_State *state, String path);
+function String Prog_PathName(const Prog_State *state, String path);
 function void Prog_SelectTab(Prog_State *state, u32 index);
 function void Prog_CloseTab(Prog_State *state, u32 index);
 function void Prog_MoveTab(Prog_State *state, u32 from, u32 to);

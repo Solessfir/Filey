@@ -374,7 +374,7 @@ function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
     u32 count = 0;
     for (u32 tier = 0; tier < 3; ++tier) {
         for (u32 i = 0; i < state->tabCount && i < Prog_MaxTabs; ++i) {
-            String path = Prog_TabPath(state, i), name = Prog__FolderName(path);
+            String path = Prog_TabPath(state, i), name = Prog_PathName(state, path);
             b32 named = Prog__ContainsFolded(name, text);
             b32 within = !named && Prog__ContainsFolded(path, text);
             b32 letters = !named && !within && Prog_FilterMatch(name, text, NULL);

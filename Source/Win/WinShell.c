@@ -553,6 +553,7 @@ function ArrayStr P_PathRoots(Arena *arena)
 // The asker and the thread share it, and the last one done frees it.
 typedef struct P__DriveAnswer {
     atomic_int users;
+    atomic_int named;  // the name and type are in, which may come before the rest
     HANDLE done;
     wchar drive[4];
     wchar name[MAX_PATH], type[80], system[MAX_PATH + 1];
@@ -577,6 +578,7 @@ function DWORD WINAPI P__DriveAnswerThread(void *user)
     SHFILEINFOW info = {0};
     if (SHGetFileInfoW(answer->drive, 0, &info, sizeof(info), SHGFI_DISPLAYNAME)) lstrcpynW(answer->name, info.szDisplayName, (i32)CArrayCount(answer->name));
     if (SHGetFileInfoW(answer->drive, 0, &info, sizeof(info), SHGFI_TYPENAME)) lstrcpynW(answer->type, info.szTypeName, (i32)CArrayCount(answer->type));
+    atomic_store(&answer->named, 1);
     answer->sized = GetDiskFreeSpaceExW(answer->drive, &answer->available, &answer->total, NULL);
     answer->formatted = GetVolumeInformationW(answer->drive, NULL, 0, NULL, NULL, NULL, answer->system, (u32)CArrayCount(answer->system));
     if (com) CoUninitialize();
@@ -624,13 +626,21 @@ function P_ArrayPlace P_Drives(Arena *arena)
             continue;
         }
         P_Place place = { .path = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, answer->drive, lstrlenW(answer->drive))), .busy = (b8)!answered };
-        place.name = answered && answer->name[0] ? P__FileStringWide(arena, answer->name, lstrlenW(answer->name)) : place.path;
+        // A busy drive's name may be in already; without it, the kind of drive names it, as "CD Drive (E:)".
+        b32 named = answered || atomic_load(&answer->named);
+        if (named && answer->name[0]) {
+            place.name = P__FileStringWide(arena, answer->name, lstrlenW(answer->name));
+        } else {
+            local_persist const char *kinds[] = { [DRIVE_REMOVABLE] = "USB Drive", [DRIVE_FIXED] = "Local Disk", [DRIVE_REMOTE] = "Network Drive", [DRIVE_CDROM] = "CD Drive" };
+            const char *kind = types[i] < CArrayCount(kinds) ? kinds[types[i]] : NULL;
+            place.name = kind ? StrFormat(arena, "%s (%c:)", kind, (char)answer->drive[0]) : place.path;
+        }
+        if (named && answer->type[0]) place.type = P__FileStringWide(arena, answer->type, lstrlenW(answer->type));
         if (answered) {
             if (answer->sized) {
                 place.totalBytes = answer->total.QuadPart;
                 place.freeBytes = answer->available.QuadPart;
             }
-            if (answer->type[0]) place.type = P__FileStringWide(arena, answer->type, lstrlenW(answer->type));
             if (answer->formatted) place.fileSystem = P__FileStringWide(arena, answer->system, lstrlenW(answer->system));
         }
         ArrayPush(arena, result, place);
