@@ -773,10 +773,6 @@ command InspectorStartFilter {
     hotkey  = "Shift+F"
 }
 
-// Double click on an item the inspector lists of a folder; carries its row.
-command InspectorOpenItem {
-}
-
 // Details card button that folds it to its title.
 command InspectorFoldDetails {
 }

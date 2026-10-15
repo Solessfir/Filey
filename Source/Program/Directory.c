@@ -970,34 +970,6 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         String start = {0};
         P_Image image = {0};
-        if (input->folder) {
-            // A folder's items, with their types asked of the system once per type.
-            P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
-            Prog_Entry *entries = ArenaPushArray(&job->arena, Max(listing.files.header.count, (u64)1), Prog_Entry);
-            struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
-            u64 count = 0;
-            for (u64 i = 0; i < listing.files.header.count && !P_IsCancelled(&job->cancelToken); ++i) {
-                P_File file = listing.files.v[i];
-                if (file.kind == P_FileKind_Directory) ++result->totalFolders;
-                else ++result->totalFiles;
-                if (file.hidden && !input->showHidden) continue;
-                Prog_Entry *entry = &entries[count++];
-                entry->file = file;
-                String key = P_FileTypeKey(&job->arena, file.name, file.kind);
-                String *type = MapsGetPtrNull(types, key);
-                if (type) {
-                    entry->type = *type;
-                } else {
-                    entry->type = P_FileTypeName(&job->arena, file.name, file.kind);
-                    MapsPut(&job->arena, types, key, entry->type);
-                }
-                if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
-            }
-            Prog_Entry *buffer = ArenaPushArray(&job->arena, Max(count, (u64)1), Prog_Entry);
-            result->entries = Prog__SortEntries(entries, buffer, count, Prog_Sort_Name, false, &job->cancelToken);
-            result->entryCount = result->entries ? count : 0;
-            result->listed = !listing.errorCode && result->entries != NULL;
-        }
         if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
@@ -1613,6 +1585,61 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
     return at;
 }
 
+// The panel the inspector of panel `owner` (an id) lists folders in, made when `make` asks and there is room; UINT32_MAX without one.
+// It starts with the owner's order and hidden-item choice, in Details.
+function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make)
+{
+    for (u32 i = 0; i < state->panelCount; ++i) {
+        if (state->panels[i].inspectorOf == owner) return i;
+    }
+    u32 from = Prog_PanelIndex(state, owner);
+    if (!make || from == UINT32_MAX || state->panelCount >= Prog_MaxPanels) return UINT32_MAX;
+    b32 current = from == state->currentPanel;
+    u32 at = state->panelCount++;
+    state->panels[at] = (Prog_Panel){
+        .id = ++state->nextPanelId,
+        .inspectorOf = owner,
+        .sort = current ? state->sort : state->panels[from].sort,
+        .descending = current ? state->descending : state->panels[from].descending,
+        .showHidden = current ? state->showHidden : state->panels[from].showHidden,
+    };
+    return at;
+}
+
+// Lists `path`, a folder in the current panel, in its inspector's panel.
+function void Prog_ListInInspector(Prog_State *state, String path)
+{
+    u64 owner = state->panels[state->currentPanel].id;
+    u32 inner = Prog_InspectorPanel(state, owner, true);
+    if (inner == UINT32_MAX) return;
+    Prog__UsePanel(state, inner);
+    Prog__EnsureTab(state);
+    Prog_RequestDirectory(state, path, true, 0);
+    Prog__UsePanel(state, Prog_PanelIndex(state, owner));
+}
+
+// Closes the inspector's panel of panel `owner` (an id), if it has one; the keyboard goes back to the owner from it.
+function void Prog_DropInspectorPanel(Prog_State *state, u64 owner)
+{
+    u32 index = Prog_InspectorPanel(state, owner, false);
+    if (index == UINT32_MAX) return;
+    u64 active = state->panels[state->activePanel].id, current = state->panels[state->currentPanel].id;
+    if (active == state->panels[index].id) {
+        if (state->renaming) Prog__EndRename(state, false);
+        Prog_CloseMenu(state);
+        active = owner;
+    }
+    if (current == state->panels[index].id) current = owner;
+    Prog__UsePanel(state, index);
+    Prog__ReleaseCurrentPanel(state);
+    Prog__UsePanel(state, Prog_PanelIndex(state, current));
+    MemMove(&state->panels[index], &state->panels[index + 1], (state->panelCount - index - 1) * sizeof(Prog_Panel));
+    --state->panelCount;
+    state->panels[state->panelCount] = (Prog_Panel){0};
+    state->currentPanel = Prog_PanelIndex(state, current);
+    state->activePanel = Prog_PanelIndex(state, active);
+}
+
 // Closes panel `index`, whose neighbor in the layout takes its space; the last panel stays.
 function void Prog_ClosePanel(Prog_State *state, u32 index)
 {
@@ -1625,6 +1652,8 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
         if ((split->kind == Prog_SplitKind_Horizontal || split->kind == Prog_SplitKind_Vertical) && (split->first == leaf || split->second == leaf)) parent = i;
     }
     if (parent == UINT32_MAX) return;
+    Prog_DropInspectorPanel(state, id);
+    index = Prog_PanelIndex(state, id);
     // The sibling's subtree moves up into the parent's node.
     u32 sibling = state->splits[parent].first == leaf ? state->splits[parent].second : state->splits[parent].first;
     state->splits[parent] = state->splits[sibling];
@@ -1726,7 +1755,7 @@ function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy)
     u32 best = UINT32_MAX;
     f32 bestGap = 0, bestOverlap = 0;
     for (u32 i = 0; i < state->panelCount; ++i) {
-        if (i == state->currentPanel) continue;
+        if (i == state->currentPanel || state->panels[i].inspectorOf) continue;
         R_Rect r = state->panels[i].panelRect;
         f32 gap = dx > 0 ? r.x0 - from.x1 : dx < 0 ? from.x0 - r.x1 : dy > 0 ? r.y0 - from.y1 : from.y0 - r.y1;
         f32 overlap = dx ? MinF32(r.y1, from.y1) - MaxF32(r.y0, from.y0) : MinF32(r.x1, from.x1) - MaxF32(r.x0, from.x0);
@@ -1805,17 +1834,24 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     Prog__EnsureTab(state);
     StrBuilder text = {0};
     u32 active = state->activePanel;
-    StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\npreview %u\n", active, state->sidebarHidden ? 1u : 0u, state->previewShown ? 1u : 0u));
+    // The inspectors' panels are left out, and the others numbered among themselves.
+    u32 numbers[Prog_MaxPanels] = {0}, count = 0;
+    for (u32 p = 0; p < state->panelCount; ++p) numbers[p] = state->panels[p].inspectorOf ? UINT32_MAX : count++;
+    u32 shown = state->panels[active].inspectorOf ? Prog_PanelIndex(state, state->panels[active].inspectorOf) : active;
+    StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\npreview %u\n", shown < state->panelCount ? numbers[shown] : 0,
+                                        state->sidebarHidden ? 1u : 0u, state->previewShown ? 1u : 0u));
     for (u32 i = 0; i < Prog_MaxSplits; ++i) {
         const Prog_Split *split = &state->splits[i];
         if (split->kind == Prog_SplitKind_None) continue;
-        u32 panel = split->kind == Prog_SplitKind_Panel ? Prog_PanelIndex(state, split->panel) : 0;
-        StrBuildStr(arena, &text, StrFormat(arena, "split %u %u %u %u %u %u\n", i, (u32)split->kind, (u32)split->first, (u32)split->second, panel, (u32)(split->ratio * 1e6f)));
+        u32 panel = split->kind == Prog_SplitKind_Panel ? Prog_PanelIndex(state, split->panel) : UINT32_MAX;
+        StrBuildStr(arena, &text, StrFormat(arena, "split %u %u %u %u %u %u\n", i, (u32)split->kind, (u32)split->first, (u32)split->second,
+                                            panel < state->panelCount ? numbers[panel] : 0, (u32)(split->ratio * 1e6f)));
     }
     for (u32 p = 0; p < state->panelCount; ++p) {
+        if (numbers[p] == UINT32_MAX) continue;
         Prog__UsePanel(state, p);
-        StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", p, state->zoom, state->activeTab));
-        for (u32 t = 0; t < state->tabCount; ++t) StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", p, Prog_TabPath(state, t)));
+        StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", numbers[p], state->zoom, state->activeTab));
+        for (u32 t = 0; t < state->tabCount; ++t) StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", numbers[p], Prog_TabPath(state, t)));
     }
     Prog__UsePanel(state, active);
     return text.buffer;
@@ -2170,17 +2206,6 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
-                state->previewListed = preview->listed;
-                state->previewEntryCount = preview->entryCount;
-                state->previewFolders = preview->totalFolders;
-                state->previewFiles = preview->totalFiles;
-                state->previewEntries = ArenaPushArray(&state->previewArena, Max(preview->entryCount, (u64)1), Prog_Entry);
-                for (u64 i = 0; i < preview->entryCount; ++i) {
-                    Prog_Entry entry = preview->entries[i];
-                    entry.file.name = StrCopy(&state->previewArena, entry.file.name);
-                    entry.type = StrCopy(&state->previewArena, entry.type);
-                    state->previewEntries[i] = entry;
-                }
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
                 u32 lines = 0;

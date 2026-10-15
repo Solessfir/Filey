@@ -260,11 +260,6 @@ typedef struct Prog_Preview {
     i32 sourceWidth, sourceHeight;  // the image's own size, for an image
     b32 image;
     String text;
-    // A folder's items, folders first and by name, with its totals before hidden items are left out.
-    Prog_Entry *entries;
-    u64 entryCount;
-    u64 totalFolders, totalFiles;
-    b32 listed;
 } Prog_Preview;
 
 // How the inspector sizes an image: shrunk to fit its view, at its own size, or at a scale set with the zoom commands.
@@ -476,6 +471,7 @@ typedef struct Prog_Tab {
 //   renameCreatedUntil: until then, rename the one item a listing of this folder adds
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
 //   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
+//   statusRight: how wide the status bar's counts, view and zoom were in the last layout, which the filter box leaves room for
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -483,13 +479,16 @@ typedef struct Prog_Tab {
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
-    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook)
+    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
+    X(f32, statusRight)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
     u64 id;  // 0 for a free slot; keys the panel's blocks and tags its commands and jobs
     u64 splitMicroseconds;  // when a split made it, which it zooms in from; 0 for the panels the window starts with
     u64 focusMicroseconds;  // when it last became or stopped being the active panel, which its status bar slides and its dimming fades from; 0 while settled
+    // The panel whose inspector lists a folder in this one, which no split holds; 0 for the layout's panels.
+    u64 inspectorOf;
     b8 wasActive, drawn;
     Prog_TabFields(Prog__PanelField)
     Prog_PanelFields(Prog__PanelField)
@@ -706,11 +705,7 @@ typedef struct Prog_State {
     i32 previewTextureWidth, previewTextureHeight;
     b32 previewImage;         // the picture is the image file's own, previewImageWidth by previewImageHeight
     i32 previewImageWidth, previewImageHeight;
-    // A folder in the inspector lists its items.
-    Prog_Entry *previewEntries;
-    u64 previewEntryCount;
-    u64 previewFolders, previewFiles;
-    b32 previewListed;
+    b32 previewFolder;        // previewPath is a folder, which the inspector's panel lists
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
     // The view is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;
@@ -839,6 +834,9 @@ function u64 Prog__PanelId(const Prog_State *state);
 function UI_Key Prog_PanelKeySeed(u64 id);
 function void Prog__ReleaseTab(Prog_Tab *tab);
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
+function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
+function void Prog_ListInInspector(Prog_State *state, String path);
+function void Prog_DropInspectorPanel(Prog_State *state, u64 owner);
 function void Prog_ClosePanel(Prog_State *state, u32 index);
 function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop);
 function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy);

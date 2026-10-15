@@ -1095,10 +1095,23 @@ function u64 Prog__SelectedPaths(Prog_State *state, Arena *arena, String **paths
     return at;
 }
 
-// Starts loading the preview of the active panel's focused item when it is another than the one shown.
+// Starts loading the preview of the active panel's focused item when it is another than the one shown; a folder is listed in the inspector's panel.
+// While the keyboard is in that panel, the item is still its owner's; once the inspector no longer lists a folder, the keyboard goes back to the owner.
 function void Prog__UpdatePreview(Prog_State *state)
 {
-    if (!state->previewShown) return;
+    u64 inner = state->panels[state->currentPanel].inspectorOf ? state->panels[state->currentPanel].id : 0;
+    if (inner) {
+        Prog__UsePanel(state, Prog_PanelIndex(state, state->panels[state->currentPanel].inspectorOf));
+        Prog__UpdatePreview(state);
+        u32 at = Prog_PanelIndex(state, inner);
+        if (at != UINT32_MAX && state->previewFolder) Prog__UsePanel(state, at);
+        else if (at != UINT32_MAX) Prog__ActivatePanel(state, state->currentPanel);
+        return;
+    }
+    if (!state->previewShown) {
+        Prog_DropInspectorPanel(state, state->panels[state->currentPanel].id);
+        return;
+    }
     String want = {0};
     b32 folder = false;
     if (!state->loading && state->hasFocus && state->focusedRow < state->directory.count) {
@@ -1112,13 +1125,14 @@ function void Prog__UpdatePreview(Prog_State *state)
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
-    state->previewPicture = state->previewImage = state->previewListed = false;
-    state->previewEntryCount = 0;
+    state->previewPicture = state->previewImage = false;
+    state->previewFolder = folder;
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineCount = state->previewRowColumns = 0;
     state->inspectorResetScroll = true;
     if (!want.length) return;
+    if (folder) Prog_ListInInspector(state, want);
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Preview;
@@ -1344,18 +1358,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_InspectorChangeLayout: state->inspectorLayout = state->inspectorBelow ? Prog_InspectorLayout_Right : Prog_InspectorLayout_Below; break;
             case Prog_CommandKind_InspectorSetLayout: if (command->row < Prog_InspectorLayout_Count) state->inspectorLayout = (u8)command->row; break;
             case Prog_CommandKind_InspectorStartFilter: {
+                // A folder's list filters as the panel's does, with the keyboard in it.
+                u32 inner = state->previewFolder ? Prog_InspectorPanel(state, state->panels[state->currentPanel].id, false) : UINT32_MAX;
+                if (inner != UINT32_MAX) {
+                    Prog__ActivatePanel(state, inner);
+                    state->filtering = true;
+                    break;
+                }
                 state->inspectorFiltering = true;
                 state->inspectorFilter.anchor = 0;
                 state->inspectorFilter.cursor = state->inspectorFilter.length;
             } break;
             case Prog_CommandKind_InspectorApplyFilter: state->inspectorFiltering = false; break;
-            case Prog_CommandKind_InspectorOpenItem: {
-                if (command->row < state->previewEntryCount) {
-                    const Prog_Entry *entry = &state->previewEntries[command->row];
-                    Prog__GoToOpen(state, (Prog_GoToItem){ Prog_JoinPath(&state->frameArena, state->previewPath, entry->file.name), Prog_GoToSection_Folder,
-                                                           entry->file.kind != P_FileKind_Directory, entry->file.hidden, {0}, NULL });
-                }
-            } break;
             case Prog_CommandKind_InspectorRemoveFilter: {
                 state->inspectorFilter = (Prog_TextEdit){ .version = state->inspectorFilter.version + 1 };
                 state->inspectorFiltering = false;
