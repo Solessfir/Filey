@@ -282,7 +282,7 @@ command Duplicate {
 
 command CopyAsPath {
     label   = "Copy As Path"
-    tooltip = "Copy selected file paths to the clipboard."
+    tooltip = "Copy selected file paths to the clipboard, or the folder's path when nothing is selected."
     hotkey  = "Ctrl+Shift+C"
     repeat  = "false"
 }

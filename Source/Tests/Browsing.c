@@ -1293,6 +1293,11 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Prog_SelectRow(&state, 0, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_CopyAsPath, 0);
     Check(StrIsEqual(TestClipboard, P_NativePath(&arena, Prog_JoinPath(&arena, Prog_JoinPath(&arena, root, S("New folder")), S("a.txt")))));
+    // With nothing selected it copies the shown folder's path.
+    for (u64 i = 0; i < state.directory.count; ++i) state.directory.entries[i].selected = false;
+    state.selectedCount = 0;
+    TestBrowsingCommand(&state, Prog_CommandKind_CopyAsPath, 0);
+    Check(StrIsEqual(TestClipboard, P_NativePath(&arena, state.directory.path)));
 
     // Pasting with nothing selected or on the clipboard does nothing.
     PlatformClipboardSetText(S("not files"));

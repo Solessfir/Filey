@@ -233,7 +233,7 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_DeleteConfirm] = { .name = { "DeleteConfirm", 13 } },
     [Prog_CommandKind_DeleteCancel] = { .name = { "DeleteCancel", 12 } },
     [Prog_CommandKind_Duplicate] = { .name = { "Duplicate", 9 }, .label = { "Duplicate", 9 }, .tooltip = { "Duplicate selected files into the same folder.", 46 }, .noRepeat = true },
-    [Prog_CommandKind_CopyAsPath] = { .name = { "CopyAsPath", 10 }, .label = { "Copy As Path", 12 }, .tooltip = { "Copy selected file paths to the clipboard.", 42 }, .noRepeat = true },
+    [Prog_CommandKind_CopyAsPath] = { .name = { "CopyAsPath", 10 }, .label = { "Copy As Path", 12 }, .tooltip = { "Copy selected file paths to the clipboard, or the folder's path when nothing is selected.", 89 }, .noRepeat = true },
     [Prog_CommandKind_CreateFolder] = { .name = { "CreateFolder", 12 }, .label = { "Create Folder", 13 }, .aliases = { "new,directory", 13 }, .tooltip = { "Create an empty folder in the current folder and enter rename mode.", 67 }, .noRepeat = true },
     [Prog_CommandKind_CreateFile] = { .name = { "CreateFile", 10 }, .label = { "Create File", 11 }, .aliases = { "new", 3 }, .tooltip = { "Create a file in the current folder and enter rename mode.", 58 }, .noRepeat = true },
     [Prog_CommandKind_OpenInTab] = { .name = { "OpenInTab", 9 }, .label = { "Open In Tab", 11 }, .aliases = { "new", 3 }, .tooltip = { "Open selected folders in new tabs. For files, opens containing folders.", 71 }, .noRepeat = true },

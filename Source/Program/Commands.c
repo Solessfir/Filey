@@ -1260,6 +1260,11 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             Prog__FileJob(state, Prog_JobKind_Transfer, paths, rowCount, folder, false, (String){0});
         } break;
         case Prog_CommandKind_CopyAsPath: {
+            // Without a selection, the shown folder's path.
+            if (!state->selectedCount) {
+                if (state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC)) PlatformClipboardSetText(P_NativePath(frame, state->directory.path));
+                break;
+            }
             StrBuilder text = {0};
             for (u64 i = 0; i < count; ++i) {
                 if (i) StrBuildChar(frame, &text, '\n');
