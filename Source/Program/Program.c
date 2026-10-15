@@ -278,6 +278,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
     state->showRecents = state->sortRecents = state->noVSync = false;
+    state->font.length = state->inspectorFont.length = 0;
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
@@ -339,6 +340,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->showRecents = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("recents.sort"))) {
             state->sortRecents = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("font")) || StrIsEqual(name, S("inspector.font"))) {
+            Prog_FontName *font = StrIsEqual(name, S("font")) ? &state->font : &state->inspectorFont;
+            font->length = (u32)Min(value.length, (u64)sizeof(font->text));
+            MemCopy(font->text, value.value, font->length);
         } else if (StrIsEqual(name, S("vsync"))) {
             state->noVSync = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("checkboxes"))) {
@@ -454,6 +459,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# folders.size = on\n# folders.size.ssd = on\n# folders.size.hdd = off\n# folders.size.network = off\n\n"
                                 "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
                                 "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
+                                "# The font families of the UI and of the inspector's text, by name; a family the system lacks falls back to its default.\n"
+                                "# font = Segoe UI\n# inspector.font = Consolas\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
     for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
         R_Color c = *(const R_Color *)((const u8 *)&Prog_ThemeCustom + Prog_ThemeColors[i].offset);

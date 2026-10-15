@@ -1695,6 +1695,8 @@ function void TestSettings(void)
         Check(Prog_ShowsThumbnails(&look) && Prog_MeasuresFolders(&look) && Prog_OptionValue(&look, Prog_Option_LoadThumbnails) == 2);
         look.directory.driveKind = P_DriveKind_SolidState;
         Check(!Prog_MeasuresFolders(&look));
+        Prog_ApplySettings(&look, S("font = Consolas\ninspector.font = Cascadia Mono\n"));
+        Check(StrIsEqual(StrMake(look.font.text, look.font.length), S("Consolas")) && StrIsEqual(StrMake(look.inspectorFont.text, look.inspectorFont.length), S("Cascadia Mono")));
         Prog_ApplySettings(&look, S(""));
     }
     const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);

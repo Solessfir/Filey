@@ -587,6 +587,12 @@ typedef struct Prog_Trail {
     char text[1024];
 } Prog_Trail;
 
+// A font family's name from the settings, empty for the default.
+typedef struct Prog_FontName {
+    u32 length;
+    char text[64];
+} Prog_FontName;
+
 typedef struct Prog_TextEdit {
     u8 text[1024];
     u32 length;
@@ -867,6 +873,8 @@ typedef struct Prog_State {
     enum8(Prog_StoreRecents) storeRecents;
     b32 showRecents, sortRecents;
     b32 noVSync;
+    // The families of the UI's text and of the inspector's, by name.
+    Prog_FontName font, inspectorFont;
     b32 noFolderSizes;
     b32 noFolderSizesSolidState, folderSizesSpinning, folderSizesNetwork;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.

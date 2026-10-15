@@ -71,6 +71,8 @@ typedef struct Prog_Loop {
     Arena monoArena;
     R_Font mono;
     f32 monoPixels;
+    // The families the fonts were last made from.
+    Prog_FontName fontName, monoName;
     b32 running;
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
@@ -97,9 +99,11 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
 #endif
     Arena arena = {0};
     R_Font font = {0}, detailFont = {0}, icons = {0}, smallIcons = {0};
+    const Prog_FontName *name = &loop->state.font;
+    String family = name->length ? StrMake(name->text, name->length) : S("Segoe UI");
     // Icons are a little smaller than the text's line height, which gives their strokes the reference's weight.
-    b32 ok = R_FontCreate(&arena, S("Segoe UI"), fontPixelSize * scale, &font) &&
-             R_FontCreate(&arena, S("Segoe UI"), (fontPixelSize - 96.0f / 72.0f) * scale, &detailFont) &&
+    b32 ok = R_FontCreate(&arena, family, fontPixelSize * scale, &font) &&
+             R_FontCreate(&arena, family, (fontPixelSize - 96.0f / 72.0f) * scale, &detailFont) &&
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f + 0.5f),
                                     Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &icons) &&
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f * 0.7f + 0.5f),
@@ -124,6 +128,7 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     loop->smallIcons = smallIcons;
     loop->state.smallIcons = &loop->smallIcons;
     loop->fontScale = scale;
+    loop->fontName = *name;
     return true;
 }
 
@@ -178,19 +183,23 @@ function void Prog__Frame(void *user, PlatformEventList events)
         PlatformWindowInfo window = PlatformWindowGetInfo();
         // The settings' scale multiplies the display's.
         f32 scale = window.scale * (state->uiScale > 0 ? state->uiScale : 1);
-        if (scale != loop->fontScale) {
+        b32 fontChanged = !StrIsEqual(StrMake(loop->fontName.text, loop->fontName.length), StrMake(state->font.text, state->font.length));
+        if (scale != loop->fontScale || fontChanged) {
             ProfileScope("LoadFonts") Prog__LoadFonts(loop, scale);
             state->ui.doubleClickDistance = PlatformDoubleClickSettings().distance;
         }
         if (state->previewShown) {
             f32 points = (f32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
             f32 pixels = points * (96.0f / 72.0f) * scale;
-            if (pixels != loop->monoPixels) {
+            const Prog_FontName *name = &state->inspectorFont;
+            b32 monoChanged = !StrIsEqual(StrMake(loop->monoName.text, loop->monoName.length), StrMake(name->text, name->length));
+            if (pixels != loop->monoPixels || monoChanged) {
                 loop->monoPixels = pixels;
+                loop->monoName = *name;
 #if defined(_WIN32)
-                String family = S("Consolas");
+                String family = name->length ? StrMake(name->text, name->length) : S("Consolas");
 #else
-                String family = S("monospace");
+                String family = name->length ? StrMake(name->text, name->length) : S("monospace");
 #endif
                 Arena arena = {0};
                 R_Font mono = {0};
