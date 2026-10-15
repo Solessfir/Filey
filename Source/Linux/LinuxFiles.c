@@ -11,6 +11,8 @@
 #include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/sysmacros.h>
+#include <sys/vfs.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -902,6 +904,38 @@ function u32 P__TrashInto(Arena *arena, const char *trash, const char *source, S
 }
 
 // GTK_THEME's ":dark" or a dark theme name, else the GTK settings' preference or theme name.
+function P_DriveKind P_PathDriveKind(String path)
+{
+    Scratch scratch = GetScratch();
+    const char *native = P__FilePathCString(scratch.arena, path);
+    struct statfs system;
+    struct stat info;
+    P_DriveKind result = P_DriveKind_SolidState;
+    if (statfs(native, &system) == 0) {
+        // NFS, SMB, CIFS, SMB2 and 9p (which WSL mounts Windows drives with).
+        local_persist const u64 remote[] = { 0x6969, 0x517B, 0xFF534D42, 0xFE534D42, 0x01021997 };
+        for (u64 i = 0; i < CArrayCount(remote); ++i) if ((u64)(u32)system.f_type == remote[i]) result = P_DriveKind_Network;
+    }
+    // The block device's queue says whether it spins; a partition's is its disk's, one folder up.
+    if (result != P_DriveKind_Network && stat(native, &info) == 0 && major(info.st_dev)) {
+        for (u32 up = 0; up < 2; ++up) {
+            char name[96];
+            snprintf(name, sizeof(name), "/sys/dev/block/%u:%u/%squeue/rotational", major(info.st_dev), minor(info.st_dev), up ? "../" : "");
+            i32 file = open(name, O_RDONLY | O_CLOEXEC);
+            if (file < 0) continue;
+            char value = 0;
+            b32 read1 = read(file, &value, 1) == 1;
+            close(file);
+            if (read1) {
+                if (value == '1') result = P_DriveKind_Spinning;
+                break;
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_PrefersDarkColors(void)
 {
     const char *theme = getenv("GTK_THEME");

@@ -1039,6 +1039,7 @@ function void Prog__DirectoryJob(P_Job *job)
     result->folderSort = input->folderSort;
     result->showHidden = input->showHidden;
     result->expanded = input->expanded;
+    result->driveKind = StrIsEqual(input->path, Prog_ThisPC) ? P_DriveKind_SolidState : (u8)P_PathDriveKind(input->path);
     P_DirectoryResult listing = {0};
     // This PC lists the drives, in the system's order.
     if (StrIsEqual(input->path, Prog_ThisPC)) {
@@ -1201,9 +1202,28 @@ function void Prog__DirectoryJob(P_Job *job)
     else result->cancelled = true;
 }
 
+// Whether the settings have the shown folder's subfolders measured, on its kind of drive.
+function b32 Prog_MeasuresFolders(const Prog_State *state)
+{
+    if (state->noFolderSizes) return false;
+    switch (state->directory.driveKind) {
+        case P_DriveKind_Spinning: return state->folderSizesSpinning;
+        case P_DriveKind_Network: return state->folderSizesNetwork;
+        default: return !state->noFolderSizesSolidState;
+    }
+}
+
+// Whether the settings have the shown folder's icon views draw its files' thumbnails.
+function b32 Prog_ShowsThumbnails(const Prog_State *state)
+{
+    if (state->thumbnailMode == Prog_Thumbnails_LocalDisk) return state->directory.driveKind != P_DriveKind_Network;
+    return state->thumbnailMode == Prog_Thumbnails_Always;
+}
+
 // Measures the shown folder's subfolders that have no totals yet, one job at a time.
 function void Prog__MeasureFolders(Prog_State *state)
 {
+    if (!Prog_MeasuresFolders(state)) return;
     // Drives are not walked to be measured, and the bin knows its folders' sizes.
     if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path)) return;
     // Not while a walk through the whole tree is on its way, which counts them itself.

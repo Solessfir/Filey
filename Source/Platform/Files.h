@@ -148,6 +148,17 @@ typedef struct P_Trashed {
 
 typedef struct P_ArrayTrashed { ArrayHeader header; P_Trashed *v; } P_ArrayTrashed;
 
+// The kind of drive a folder is on, for work that is cheap on some and slow on others; a local drive that cannot be told apart counts as a solid-state one.
+typedef enum P_DriveKind {
+    P_DriveKind_SolidState,
+    P_DriveKind_Spinning,
+    P_DriveKind_Network,
+    P_DriveKind_Count,
+} P_DriveKind;
+
+// The kind of drive `path` is on; it asks the system each time, so it belongs in background jobs.
+function P_DriveKind P_PathDriveKind(String path);
+
 // Whether the system asks apps for dark colors: Windows' app mode, or on Linux the GTK theme; dark without a word either way.
 function b32 P_PrefersDarkColors(void);
 

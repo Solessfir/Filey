@@ -384,6 +384,11 @@ typedef enum Prog_Option {
     Prog_Option_ShowSystemFiles,
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
+    Prog_Option_LoadThumbnails,
+    Prog_Option_CalcFolderSizes,
+    Prog_Option_CalcFolderSizesSSD,
+    Prog_Option_CalcFolderSizesHDD,
+    Prog_Option_CalcFolderSizesNetwork,
     Prog_Option_ActOnPress,
     Prog_Option_SingleClick,
     Prog_Option_SingleClickFoldersOnly,
@@ -416,6 +421,14 @@ typedef struct Prog_OptionDesc {
     u32 choiceCount;
     String setting;          // its name in Settings.txt
 } Prog_OptionDesc;
+
+// Which folders' icon views show their files' thumbnails; those that do not show the files' type icons.
+typedef enum Prog_Thumbnails {
+    Prog_Thumbnails_LocalDisk,
+    Prog_Thumbnails_Never,
+    Prog_Thumbnails_Always,
+    Prog_Thumbnails_Count,
+} Prog_Thumbnails;
 
 // Where the inspector goes: to the right of the list or below it, by the panel's shape for Auto.
 typedef enum Prog_InspectorLayout {
@@ -558,6 +571,7 @@ typedef struct Prog_Directory {
     b32 descending;
     enum8(Prog_FolderSort) folderSort;
     b32 showHidden;
+    enum8(P_DriveKind) driveKind;
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
@@ -804,6 +818,10 @@ typedef struct Prog_State {
     // The breadcrumbs: from the drive rather than from the first known folder, and without the trail of visited folders.
     b32 fullPaths;
     b32 noTrail;
+    // Which folders get their files' thumbnails, and which have their subfolders measured, by the kind of drive they are on.
+    enum8(Prog_Thumbnails) thumbnailMode;
+    b32 noFolderSizes;
+    b32 noFolderSizesSolidState, folderSizesSpinning, folderSizesNetwork;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;
@@ -1018,6 +1036,8 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
 function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
 function String Prog_UpPath(String path);
 function String Prog_TrailText(const Prog_State *state);
+function b32 Prog_MeasuresFolders(const Prog_State *state);
+function b32 Prog_ShowsThumbnails(const Prog_State *state);
 function void Prog_ListInInspector(Prog_State *state, String path);
 function void Prog_DropInspectorPanel(Prog_State *state, u64 owner);
 function void Prog_ClosePanel(Prog_State *state, u32 index);

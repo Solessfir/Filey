@@ -5,6 +5,7 @@
 #pragma push_macro("function")
 #undef function
 #include <shlobj.h>
+#include <winioctl.h>
 #pragma pop_macro("function")
 
 // Set by WinWindow.c; dialogs that verbs open are owned by it.
@@ -392,6 +393,23 @@ function String P__KnownFolder(Arena *arena, const GUID *id)
     }
     CoTaskMemFree(wide);
     return result;
+}
+
+function P_DriveKind P_PathDriveKind(String path)
+{
+    if (path.length >= 2 && path.value[0] == '/' && path.value[1] == '/') return P_DriveKind_Network;
+    if (path.length < 2 || path.value[1] != ':') return P_DriveKind_SolidState;
+    wchar root[] = { (wchar)path.value[0], L':', L'\\', 0 }, volume[] = { L'\\', L'\\', L'.', L'\\', (wchar)path.value[0], L':', 0 };
+    if (GetDriveTypeW(root) == DRIVE_REMOTE) return P_DriveKind_Network;
+    // The volume opened without access rights still answers whether it seeks, without elevation.
+    HANDLE handle = CreateFileW(volume, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (handle == INVALID_HANDLE_VALUE) return P_DriveKind_SolidState;
+    STORAGE_PROPERTY_QUERY query = { .PropertyId = StorageDeviceSeekPenaltyProperty, .QueryType = PropertyStandardQuery };
+    DEVICE_SEEK_PENALTY_DESCRIPTOR seek = {0};
+    DWORD returned = 0;
+    b32 answered = DeviceIoControl(handle, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query), &seek, sizeof(seek), &returned, NULL) && returned >= sizeof(seek);
+    CloseHandle(handle);
+    return answered && seek.IncursSeekPenalty ? P_DriveKind_Spinning : P_DriveKind_SolidState;
 }
 
 function b32 P_PrefersDarkColors(void)

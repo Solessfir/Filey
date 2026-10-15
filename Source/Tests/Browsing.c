@@ -1655,6 +1655,14 @@ function void TestSettings(void)
         Prog_Entry dot = { .file = { .name = S(".gitignore"), .kind = P_FileKind_File } };
         Check(StrIsEqual(Prog_EntryName(&look, &file), S("Report.final")) && StrIsEqual(Prog_EntryName(&look, &folder), S("v1.2")) && StrIsEqual(Prog_EntryName(&look, &dot), S(".gitignore")));
         Check(look.showHidden && Prog_OptionValue(&look, Prog_Option_ShowHiddenFiles));
+        // Thumbnails and folder sizes by the kind of drive: by default local thumbnails, and sizes on solid-state drives only.
+        Check(Prog_ShowsThumbnails(&look) && Prog_MeasuresFolders(&look) && Prog_OptionValue(&look, Prog_Option_LoadThumbnails) == 1);
+        look.directory.driveKind = P_DriveKind_Network;
+        Check(!Prog_ShowsThumbnails(&look) && !Prog_MeasuresFolders(&look));
+        Prog_ApplySettings(&look, S("thumbnails = always\nfolders.size.network = on\nfolders.size.ssd = off\n"));
+        Check(Prog_ShowsThumbnails(&look) && Prog_MeasuresFolders(&look) && Prog_OptionValue(&look, Prog_Option_LoadThumbnails) == 2);
+        look.directory.driveKind = P_DriveKind_SolidState;
+        Check(!Prog_MeasuresFolders(&look));
         Prog_ApplySettings(&look, S(""));
     }
     const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);

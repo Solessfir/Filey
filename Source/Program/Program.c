@@ -267,6 +267,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
+    state->thumbnailMode = Prog_Thumbnails_LocalDisk;
+    state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
     u8 inspectorLayout = Prog_InspectorLayout_Auto;
@@ -317,6 +319,17 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->fullPaths = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("paths.trail"))) {
             state->noTrail = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("thumbnails"))) {
+            if (Prog__EqualFolded(value, S("never"))) state->thumbnailMode = Prog_Thumbnails_Never;
+            if (Prog__EqualFolded(value, S("always"))) state->thumbnailMode = Prog_Thumbnails_Always;
+        } else if (StrIsEqual(name, S("folders.size"))) {
+            state->noFolderSizes = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("folders.size.ssd"))) {
+            state->noFolderSizesSolidState = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("folders.size.hdd"))) {
+            state->folderSizesSpinning = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("folders.size.network"))) {
+            state->folderSizesNetwork = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("files.system"))) {
             state->showSystem = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("click.onPress"))) {
@@ -402,6 +415,13 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# scroll past the last item, and turn the wheel around.\n"
                                 "# click.onPress = on\n# click.single = off\n# click.singleFoldersOnly = off\n# hover.select = off\n# hover.underline = on\n"
                                 "# click.doubleToParent = off\n# scroll.over = on\n# scroll.reverse = off\n\n"
+                                "# What the lists show: file extensions, hidden and dot files, and the system's own files.\n"
+                                "# files.extensions = on\n# files.hidden = off\n# files.system = off\n\n"
+                                "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
+                                "# paths.short = on\n# paths.trail = on\n\n"
+                                "# Thumbnails in the icon views: never, local (not on network drives) or always.\n# thumbnails = local\n\n"
+                                "# Subfolder sizes, measured by walking them, and on which drives: solid-state, spinning and network.\n"
+                                "# folders.size = on\n# folders.size.ssd = on\n# folders.size.hdd = off\n# folders.size.network = off\n\n"
                                 "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
                                 "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
@@ -439,6 +459,7 @@ global const String Prog_OptionSwitch[] = { S("off"), S("on") };
 global const String Prog_OptionSchemes[] = { S("default"), S("fullmoon"), S("light") };
 global const String Prog_OptionCorners[] = { S("square"), S("round") };
 global const String Prog_OptionLayouts[] = { S("auto"), S("right"), S("below") };
+global const String Prog_OptionThumbnails[] = { S("never"), S("local"), S("always") };
 global const String Prog_OptionBackdrops[] = { S("acrylic"), S("mica"), S("tabbed"), S("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_FontSize] = { S("Font Size"), S("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, S("scale") },
@@ -466,6 +487,16 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionSwitch, 2, S("paths.short") },
     [Prog_Option_Breadcrumbs] = { S("Show Breadcrumbs"), S("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, S("paths.trail") },
+    [Prog_Option_LoadThumbnails] = { S("Load Thumbnails"), S("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
+                                     Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), S("thumbnails") },
+    [Prog_Option_CalcFolderSizes] = { S("Calculate Folder Sizes"), S("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
+                                      Prog_OptionSwitch, 2, S("folders.size") },
+    [Prog_Option_CalcFolderSizesSSD] = { S("Calculate Folder Sizes SSD"), S("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
+                                         Prog_OptionSwitch, 2, S("folders.size.ssd") },
+    [Prog_Option_CalcFolderSizesHDD] = { S("Calculate Folder Sizes HDD"), S("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
+                                         Prog_OptionSwitch, 2, S("folders.size.hdd") },
+    [Prog_Option_CalcFolderSizesNetwork] = { S("Calculate Folder Sizes Network"), S("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
+                                             0, 1, Prog_OptionSwitch, 2, S("folders.size.network") },
     [Prog_Option_ActOnPress] = { S("Act On Press"), S("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, S("click.onPress") },
     [Prog_Option_SingleClick] = { S("Single Click"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
@@ -519,6 +550,11 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShowSystemFiles: return state->showSystem;
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
+        case Prog_Option_LoadThumbnails: return state->thumbnailMode == Prog_Thumbnails_Never ? 0 : state->thumbnailMode == Prog_Thumbnails_Always ? 2 : 1;
+        case Prog_Option_CalcFolderSizes: return !state->noFolderSizes;
+        case Prog_Option_CalcFolderSizesSSD: return !state->noFolderSizesSolidState;
+        case Prog_Option_CalcFolderSizesHDD: return state->folderSizesSpinning;
+        case Prog_Option_CalcFolderSizesNetwork: return state->folderSizesNetwork;
         case Prog_Option_ActOnPress: return !state->actOnRelease;
         case Prog_Option_SingleClick: return state->singleClick;
         case Prog_Option_SingleClickFoldersOnly: return state->singleClickFoldersOnly;
@@ -1946,7 +1982,8 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 faded = Prog__EntryFaded(entry);
     b32 thumbnail = size > (f32)state->iconSize;
-    const Prog_Icon *icon = thumbnail ? Prog_ThumbnailIcon(state, state->directory.path, entry, (i32)size) : Prog_FileIcon(state, state->directory.path, entry);
+    const Prog_Icon *icon = !thumbnail ? Prog_FileIcon(state, state->directory.path, entry)
+                          : Prog_ShowsThumbnails(state) ? Prog_ThumbnailIcon(state, state->directory.path, entry, (i32)size) : NULL;
     if (thumbnail && !icon) icon = Prog_ThumbnailStandIn(state, state->directory.path, entry, (i32)size);
     if (thumbnail && !icon) {
         Prog__Spacer(UI_Pixels(width), UI_Pixels(height));
