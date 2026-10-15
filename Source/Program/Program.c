@@ -268,6 +268,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
+    state->showCheckboxes = false;
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
@@ -319,6 +320,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->fullPaths = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("paths.trail"))) {
             state->noTrail = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("checkboxes"))) {
+            state->showCheckboxes = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("thumbnails"))) {
             if (Prog__EqualFolded(value, S("never"))) state->thumbnailMode = Prog_Thumbnails_Never;
             if (Prog__EqualFolded(value, S("always"))) state->thumbnailMode = Prog_Thumbnails_Always;
@@ -419,6 +422,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# files.extensions = on\n# files.hidden = off\n# files.system = off\n\n"
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
                                 "# paths.short = on\n# paths.trail = on\n\n"
+                                "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = off\n\n"
                                 "# Thumbnails in the icon views: never, local (not on network drives) or always.\n# thumbnails = local\n\n"
                                 "# Subfolder sizes, measured by walking them, and on which drives: solid-state, spinning and network.\n"
                                 "# folders.size = on\n# folders.size.ssd = on\n# folders.size.hdd = off\n# folders.size.network = off\n\n"
@@ -487,6 +491,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionSwitch, 2, S("paths.short") },
     [Prog_Option_Breadcrumbs] = { S("Show Breadcrumbs"), S("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, S("paths.trail") },
+    [Prog_Option_ShowCheckboxes] = { S("Show Checkboxes"), S("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
+                                     Prog_OptionSwitch, 2, S("checkboxes") },
     [Prog_Option_LoadThumbnails] = { S("Load Thumbnails"), S("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
                                      Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), S("thumbnails") },
     [Prog_Option_CalcFolderSizes] = { S("Calculate Folder Sizes"), S("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
@@ -550,6 +556,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShowSystemFiles: return state->showSystem;
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
+        case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_LoadThumbnails: return state->thumbnailMode == Prog_Thumbnails_Never ? 0 : state->thumbnailMode == Prog_Thumbnails_Always ? 2 : 1;
         case Prog_Option_CalcFolderSizes: return !state->noFolderSizes;
         case Prog_Option_CalcFolderSizesSSD: return !state->noFolderSizesSolidState;
@@ -1642,10 +1649,10 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
                     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                     UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
                     UI_SetNextBorderThickness(1.2f * m->scale);
-                    UI_SetNextFont(m->iconsSmall);
-                    UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = boxHot ? theme->textDim : theme->tabBorder, .text = theme->text });
+                    UI_SetNextFont(m->icons);
+                    UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = all ? theme->text : boxHot ? theme->textDim : theme->tabBorder, .text = theme->text });
                     UI_SetNextText(Icon_Check);
-                    UI_Block *selectAll = UI_AddBlockFromKey(boxKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (all ? UI_Flag_DrawBackground | UI_Flag_DrawText : UI_Flag_DrawBorder));
+                    UI_Block *selectAll = UI_AddBlockFromKey(boxKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_DrawBorder | (all ? UI_Flag_DrawBackground | UI_Flag_DrawText : 0));
                     UI_Interaction toggle = UI_InteractionFromBlock(selectAll);
                     if (toggle.clicked && !state->loading) Prog_QueueCommand(state, Prog_CommandKind_ToggleSelectAll, 0, 0, toggle.clickOrder);
                 }
@@ -1933,7 +1940,7 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
     return StrFormat(arena, "%S%S", StrMake(text.value, fit), dots);
 }
 
-// How an item's box shows: filled with the selection color when selected and the keyboard's item, washed with it when selected otherwise or under the pointer,
+// How an item's box shows: filled with the selection color when selected and the keyboard's item or pointed at, washed with it when selected otherwise or under the pointer,
 // outlined under the pointer, and outlined as the keyboard's item.
 typedef struct Prog_ItemLook { R_Color fill, border; UI_Flags flags; } Prog_ItemLook;
 
@@ -1941,7 +1948,7 @@ function Prog_ItemLook Prog__ItemLook(b32 selected, b32 hot, b32 focused)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_ItemLook result = { .fill = theme->selection, .border = hot ? theme->selection : theme->focus };
-    if (!selected || !focused) result.fill.a *= 0.35f;
+    if (!selected || !(focused || hot)) result.fill.a *= 0.35f;
     if (selected || hot) result.flags |= UI_Flag_DrawBackground;
     if (!selected && (hot || focused)) result.flags |= UI_Flag_DrawBorder;
     return result;
@@ -2162,6 +2169,33 @@ function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, 
     }
 }
 
+// In place of a selected item's icon while several are selected, when asked: a checked box that takes it out of the selection.
+function b32 Prog__ItemCheckbox(Prog_State *state, u64 index, f32 width, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Entry *entry = &state->directory.entries[index];
+    if (!state->showCheckboxes || !entry->selected || state->selectedCount < 2 || state->panels[state->currentPanel].inspectorOf) return false;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 box = floorf(16.0f * m->scale + 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenAlignment((UI_Vec2){ 1, 0.5f });
+    UI_Parent(UI_AddBlock(0)) {
+        UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Check/%S", entry->file.name));
+        UI_SetNextPrefWidth(UI_Pixels(box));
+        UI_SetNextPrefHeight(UI_Pixels(box));
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
+        UI_SetNextBorderThickness(1.2f * m->scale);
+        UI_SetNextFont(m->icons);
+        UI_SetNextColors((UI_Colors){ .border = theme->text, .text = theme->text });
+        UI_SetNextText(Icon_Check);
+        UI_Block *check = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_DrawBorder | UI_Flag_DrawText);
+        UI_Interaction toggle = UI_InteractionFromBlock(check);
+        if (toggle.clicked && !state->loading) Prog_QueueCommand(state, Prog_CommandKind_SelectRow, index, 1, toggle.clickOrder)->mods = KeyMod_Control;
+    }
+    return true;
+}
+
 // A Details or List row; List shows only the icon and the name.
 function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Columns *columns, b32 nameOnly, const Prog_Metrics *m)
 {
@@ -2190,7 +2224,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live) && !live.complete;
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
-        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
+        if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
             const Prog_Column *column = &columns->v[c];
             u32 i = nameOnly ? (u32)Prog_ColumnId_Name : column->id;
@@ -2284,7 +2318,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
     UI_Parent(cell) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
-        Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
+        if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), m);
         else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
     }

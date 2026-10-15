@@ -1659,7 +1659,8 @@ function void TestSettings(void)
         Check(Prog_ShowsThumbnails(&look) && Prog_MeasuresFolders(&look) && Prog_OptionValue(&look, Prog_Option_LoadThumbnails) == 1);
         look.directory.driveKind = P_DriveKind_Network;
         Check(!Prog_ShowsThumbnails(&look) && !Prog_MeasuresFolders(&look));
-        Prog_ApplySettings(&look, S("thumbnails = always\nfolders.size.network = on\nfolders.size.ssd = off\n"));
+        Prog_ApplySettings(&look, S("thumbnails = always\nfolders.size.network = on\nfolders.size.ssd = off\ncheckboxes = on\n"));
+        Check(look.showCheckboxes && Prog_OptionValue(&look, Prog_Option_ShowCheckboxes));
         Check(Prog_ShowsThumbnails(&look) && Prog_MeasuresFolders(&look) && Prog_OptionValue(&look, Prog_Option_LoadThumbnails) == 2);
         look.directory.driveKind = P_DriveKind_SolidState;
         Check(!Prog_MeasuresFolders(&look));

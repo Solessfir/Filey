@@ -384,6 +384,7 @@ typedef enum Prog_Option {
     Prog_Option_ShowSystemFiles,
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
+    Prog_Option_ShowCheckboxes,
     Prog_Option_LoadThumbnails,
     Prog_Option_CalcFolderSizes,
     Prog_Option_CalcFolderSizesSSD,
@@ -820,6 +821,8 @@ typedef struct Prog_State {
     b32 noTrail;
     // Which folders get their files' thumbnails, and which have their subfolders measured, by the kind of drive they are on.
     enum8(Prog_Thumbnails) thumbnailMode;
+    // While several items are selected, the rows show boxes that check them in place of their icons.
+    b32 showCheckboxes;
     b32 noFolderSizes;
     b32 noFolderSizesSolidState, folderSizesSpinning, folderSizesNetwork;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
