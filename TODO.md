@@ -54,6 +54,29 @@ Missing, by the reference's group:
 - Rename: InsertIncrementalID, InsertCurrentDate, InsertCreateDate, InsertModifiedDate, RenamePrev, RenameNext.
 - Text and Scroll: Filey handles these keys inside its text boxes and lists without commands; the reference lists each (move/extend by letter, word, home, end, delete, case, undo/redo, autocomplete; select/extend/scroll/cursor moves, center camera) so they can be rebound.
 
+## From the reference's roadmap
+
+Shipped there, missing here:
+
+- Tree view: folders as a classic expandable hierarchy.
+- Group by: folder items in groups by date, type or size.
+- Hierarchical folder views: a locked view that applies to a whole folder tree, not one folder.
+- Drag and drop from ZIP archives and browsers (virtual files, `CFSTR_FILEDESCRIPTOR`/`CFSTR_FILECONTENTS`), and drops onto executables and scripts that run them with the files.
+- Bookmarks and recents on offline drives kept and shown until the drive is back.
+- Network shares listed in the sidebar.
+
+Planned there, worth doing here first:
+
+- Redo, beside the existing Undo.
+- Miller columns: each opened folder adds a column to the right.
+- Multiline names in the icon views, and larger thumbnails that use the grid's room.
+- Command-line arguments beyond folders (open in a new tab of the running window).
+- Virtual folders (Recycle Bin, Control Panel and other shell namespaces) listed like real ones, and MTP devices (phones, cameras) on both platforms.
+- Custom Quick Access groups: created, renamed and ordered by the user.
+- Rebindable mouse buttons and actions, with the hotkeys.
+- Names in any script: check font fallback for CJK, Arabic, Hebrew and emoji on both platforms.
+- Indexing the drives from the NTFS file table (Windows) for a faster Go To walk.
+
 ## Checks
 
 - Compare rename, the context menu, drag and drop, the preview pane and the settings page side by side.
