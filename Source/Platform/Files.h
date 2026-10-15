@@ -147,6 +147,9 @@ typedef struct P_Trashed {
 
 typedef struct P_ArrayTrashed { ArrayHeader header; P_Trashed *v; } P_ArrayTrashed;
 
+// Whether the system asks apps for dark colors: Windows' app mode, or on Linux the GTK theme; dark without a word either way.
+function b32 P_PrefersDarkColors(void);
+
 // The folder the user's deleted items are listed in: the system drive's $Recycle.Bin, or the home Trash; P_UserPlaces lists it too.
 function String P_TrashFolder(Arena *arena);
 // True when `path` is a bin P_ListTrash reads: a drive's $Recycle.Bin, or the home Trash.

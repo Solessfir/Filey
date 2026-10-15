@@ -148,6 +148,33 @@ global const Prog_Theme Prog_ThemeFullmoon = {
     .iconDisabled = Prog_Hex(0x595959),
 };
 
+// A light scheme, for the system's light mode.
+global const Prog_Theme Prog_ThemeLight = {
+    .window       = Prog_Hex(0xE9EBED),
+    .background   = Prog_Hex(0xF7F8F9),
+    .inner        = Prog_Hex(0xEEF0F2),
+    .caption      = Prog_Hex(0xE4E6E9),
+    .menu         = Prog_Hex(0xFFFFFF),
+    .panel        = Prog_Hex(0xEDEFF1),
+    .alternateRow = Prog_Hex(0xEFF1F3),
+    .separator    = Prog_Hex(0xE3E5E8),
+    .hover        = Prog_Hex(0xC9CED4),
+    .selection    = Prog_Hex(0xC7E3F2),
+    .focus        = Prog_Hex(0x0079A6),
+    .tabBorder    = Prog_Hex(0xCDD1D6),
+    .text         = Prog_Hex(0x1C1E21),
+    .textDim      = Prog_Hex(0x6B7078),
+    .textHeading  = Prog_Hex(0x50555C),
+    .textMatch    = Prog_Hex(0x0079A6),
+    .marquee      = Prog_Hex(0x0079A6),
+    .accent       = Prog_Hex(0x0079A6),
+    .track        = Prog_Hex(0xD5D9DD),
+    .outline      = Prog_Hex(0xBFC4CA),
+    .danger       = Prog_Hex(0xD9342B),
+    .icon         = Prog_Hex(0x5B6068),
+    .iconDisabled = Prog_Hex(0xA7ACB2),
+};
+
 global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
 function const Prog_Theme *Prog_CurrentTheme(void) { return Prog_Theme_; }
@@ -226,7 +253,12 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->uiScale = 1;
     state->animationsOff = false;
     state->transparent = false;
-    state->themeFullmoon = false;
+    state->scheme = 0;
+    state->systemScheme = false;
+    state->spacingShift = 0;
+    state->squareCorners = false;
+    state->alternatingRows = false;
+    state->inactiveShift = 0;
     u32 inspectorFontSize = Prog_InspectorFontSize;
     u8 inspectorLayout = Prog_InspectorLayout_Auto;
     state->userHotkeyCount = 0;
@@ -258,7 +290,18 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
             if (Prog__EqualFolded(value, S("fullmoon"))) Prog_ThemeUser = Prog_ThemeFullmoon;
-            state->themeFullmoon = Prog__EqualFolded(value, S("fullmoon"));
+            if (Prog__EqualFolded(value, S("light"))) Prog_ThemeUser = Prog_ThemeLight;
+            state->scheme = Prog__EqualFolded(value, S("fullmoon")) ? 1 : Prog__EqualFolded(value, S("light")) ? 2 : 0;
+        } else if (StrIsEqual(name, S("theme.system"))) {
+            state->systemScheme = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
+        } else if (StrIsEqual(name, S("spacing"))) {
+            if (number >= 0 && number <= 13) state->spacingShift = (i32)number - 4;
+        } else if (StrIsEqual(name, S("corners"))) {
+            state->squareCorners = Prog__EqualFolded(value, S("square"));
+        } else if (StrIsEqual(name, S("rows.alternate"))) {
+            state->alternatingRows = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
+        } else if (StrIsEqual(name, S("inactive.opacity"))) {
+            if (number >= 0 && number <= 100) state->inactiveShift = (i32)number - 60;
         } else if (StrIsEqual(name, S("transparent"))) {
             state->transparent = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
         } else if (StrIsEqual(name, S("inspector.fontSize"))) {
@@ -292,6 +335,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         }
     }
     ReleaseScratch(scratch);
+    // The system's light mode brings the light scheme, its dark mode the one chosen.
+    if (state->systemScheme && !P_PrefersDarkColors()) Prog_ThemeUser = Prog_ThemeLight;
     // The inspector's text size and layout change with the file, and keep what its controls set otherwise.
     if (inspectorFontSize != state->settingInspectorFontSize) state->inspectorFontSize = state->settingInspectorFontSize = inspectorFontSize;
     if (inspectorLayout + 1u != state->settingInspectorLayout) {
@@ -308,7 +353,10 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\"; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
-                                "# \"fullmoon\" starts from the reference's scheme; colors set before this line are replaced.\n# theme = default\n\n"
+                                "# \"fullmoon\" starts from the reference's scheme and \"light\" from a light one; colors set before this line are replaced.\n# theme = default\n"
+                                "# With theme.system on, the system's light mode brings the light scheme instead.\n# theme.system = off\n\n"
+                                "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
+                                "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = off\n# inactive.opacity = 60\n\n"
                                 "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
                                 "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
@@ -343,19 +391,29 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 
 // The options of the Options popup, in its order.
 global const String Prog_OptionSwitch[] = { S("off"), S("on") };
-global const String Prog_OptionSchemes[] = { S("default"), S("fullmoon") };
+global const String Prog_OptionSchemes[] = { S("default"), S("fullmoon"), S("light") };
+global const String Prog_OptionCorners[] = { S("square"), S("round") };
 global const String Prog_OptionLayouts[] = { S("auto"), S("right"), S("below") };
 global const String Prog_OptionBackdrops[] = { S("acrylic"), S("mica"), S("tabbed"), S("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_FontSize] = { S("Font Size"), S("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, S("scale") },
     [Prog_Option_InspectorFontSize] = { S("Inspector Font Size"), S("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
                                         Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, S("inspector.fontSize") },
-    [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
-                                      Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
+    [Prog_Option_Spacing] = { S("Spacing"), S("Defines the space between items in a list."), Prog_OptionControl_Slider, 0, 13, NULL, 0, S("spacing") },
     [Prog_Option_Animations] = { S("Animations"), S("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, S("animations") },
+    [Prog_Option_RoundCorners] = { S("Round Corners"), S("Applies rounding to the corners of UI elements such as popups, buttons, and selections."), Prog_OptionControl_Switch,
+                                   0, 1, Prog_OptionCorners, 2, S("corners") },
+    [Prog_Option_SystemScheme] = { S("System Light / Dark Scheme"), S("Automatically adapt between light and dark color schemes based on system settings."),
+                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("theme.system") },
     [Prog_Option_ColorScheme] = { S("Color Scheme"), S("Applies a color palette to all UI elements."), Prog_OptionControl_Choice, 0, 0,
                                   Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), S("theme") },
+    [Prog_Option_AlternatingRows] = { S("Alternating Row Colors"), S("Applies alternating row colors to improve readability and distinguish adjacent rows."),
+                                      Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("rows.alternate") },
+    [Prog_Option_InactiveOpacity] = { S("Inactive Opacity"), S("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
+                                      0, 100, NULL, 0, S("inactive.opacity") },
+    [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
+                                      Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
     [Prog_Option_Transparency] = { S("Transparency"), S("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
                                    Prog_OptionSwitch, 2, S("transparent") },
     [Prog_Option_PopupBlur] = { S("Popup Blur"), S("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
@@ -383,7 +441,12 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_InspectorFontSize: return (i32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
         case Prog_Option_InspectorLayout: return state->inspectorLayout;
         case Prog_Option_Animations: return !state->animationsOff;
-        case Prog_Option_ColorScheme: return state->themeFullmoon;
+        case Prog_Option_ColorScheme: return state->scheme;
+        case Prog_Option_Spacing: return 4 + state->spacingShift;
+        case Prog_Option_RoundCorners: return !state->squareCorners;
+        case Prog_Option_SystemScheme: return state->systemScheme;
+        case Prog_Option_AlternatingRows: return state->alternatingRows;
+        case Prog_Option_InactiveOpacity: return 60 + state->inactiveShift;
         case Prog_Option_Transparency: return state->transparent != 0;
         case Prog_Option_PopupBlur: return (i32)floorf(Prog_GlassBlur + 0.5f);
         case Prog_Option_Backdrop: return state->glassBackdrop;
@@ -441,6 +504,8 @@ function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 valu
     if (option == Prog_Option_FontSize) state->uiScale = (f32)value / 9.0f;
     if (option == Prog_Option_InspectorFontSize) state->inspectorFontSize = (u32)value;
     if (option == Prog_Option_PopupBlur) Prog_GlassBlur = (f32)value;
+    if (option == Prog_Option_Spacing) state->spacingShift = value - 4;
+    if (option == Prog_Option_InactiveOpacity) state->inactiveShift = value - 60;
 }
 
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
@@ -1955,14 +2020,17 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
-    (void)position;
     b32 highlighted = entry->selected || hot;
     b32 faded = Prog__EntryFaded(entry);
     f32 height = m->row - Prog__RowLine(m);
+    // Every other row tinted, when asked.
+    b32 tinted = state->alternatingRows && (position & 1);
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_Block *row = UI_AddBlockFromKey(key, !state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0);
+    UI_SetNextCornerRadius(m->radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    UI_Block *row = UI_AddBlockFromKey(key, (tinted ? UI_Flag_DrawBackground : 0) | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
     // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
     b32 onName = UI->pressOrigin.x < row->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
@@ -2040,13 +2108,15 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     Prog_Entry *entry = &state->directory.entries[index];
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
-    (void)line;
     b32 highlighted = entry->selected || hot;
     f32 height = m->row - Prog__RowLine(m);
+    b32 tinted = state->alternatingRows && (line & 1);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_Block *cell = UI_AddBlockFromKey(key, !state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0);
+    UI_SetNextCornerRadius(m->radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    UI_Block *cell = UI_AddBlockFromKey(key, (tinted ? UI_Flag_DrawBackground : 0) | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
     b32 onName = UI->pressOrigin.x < cell->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
     b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
@@ -5026,7 +5096,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 UI_SetNextPrefWidth(UI_Pixels(width));
                 UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - m->bar)));
                 R_Color dim = theme->background;
-                dim.a = 0.4f * dimmed;
+                dim.a = (1.0f - (f32)(60 + state->inactiveShift) / 100.0f) * dimmed;
                 UI_SetNextColors((UI_Colors){ .background = dim });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
@@ -5137,6 +5207,9 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (state->tabDragCancelled && UI->activeKey != state->tabDragKey) state->tabDragCancelled = false;
     state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
+    // Spacing moves the rows apart or together from the reference's 4, two pixels a step at 125%.
+    metrics.row = MaxF32(metrics.line + 2, metrics.row + (f32)state->spacingShift * floorf(1.6f * scale + 0.5f));
+    UI->squareCorners = state->squareCorners;
     metrics.detail = state->smallFont ? state->smallFont : font;
     metrics.iconsSmall = state->smallIcons ? state->smallIcons : icons;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);

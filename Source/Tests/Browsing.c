@@ -1632,6 +1632,15 @@ function void TestSettings(void)
     Check(Prog_ThemeGlassUser.menu.b > 0.18f && Prog_ThemeGlassUser.menu.a > 0.5f && Prog_ThemeGlassUser.menu.a < 0.51f && Prog_GlassBlur == 12.5f);
     Check(Prog_ThemeGlassUser.window.a == Prog_ThemeGlass.window.a && state.glassBackdrop == PlatformBackdrop_Mica);
     Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
+    // How the lists look, read back as the options show them; the defaults are {0}'s.
+    {
+        Prog_State look = {0};
+        Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 4 && Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 60 && Prog_OptionValue(&look, Prog_Option_RoundCorners));
+        Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
+        Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
+        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 2 && Prog_ThemeUser.background.r == Prog_ThemeLight.background.r);
+        Prog_ApplySettings(&look, S(""));
+    }
     const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);
     Check(hotkey && hotkey->command == Prog_CommandKind_SplitRight);
     hotkey = Prog_FindHotkey(&state, Key_F6, 0);

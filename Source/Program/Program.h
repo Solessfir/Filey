@@ -371,9 +371,14 @@ typedef enum Prog_PaletteMode {
 typedef enum Prog_Option {
     Prog_Option_FontSize,
     Prog_Option_InspectorFontSize,
-    Prog_Option_InspectorLayout,
+    Prog_Option_Spacing,
     Prog_Option_Animations,
+    Prog_Option_RoundCorners,
+    Prog_Option_SystemScheme,
     Prog_Option_ColorScheme,
+    Prog_Option_AlternatingRows,
+    Prog_Option_InactiveOpacity,
+    Prog_Option_InspectorLayout,
     Prog_Option_Transparency,
     Prog_Option_PopupBlur,
     Prog_Option_Backdrop,
@@ -755,7 +760,14 @@ typedef struct Prog_State {
     // What Settings.txt last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.
     u32 settingInspectorFontSize;
     u8 settingInspectorLayout;  // its value + 1, 0 before any
-    b32 themeFullmoon;          // the settings chose the reference's scheme
+    u8 scheme;                  // the settings' Color Scheme, by its place in Prog_OptionSchemes
+    b32 systemScheme;           // the system's light or dark choice picks the light scheme or that one
+    // How the lists look: the space between their items and how much inactive panels show, as offsets from the reference's 4 and 60 so that
+    // {0} has them, square corners and every other row tinted.
+    i32 spacingShift;
+    i32 inactiveShift;
+    b32 squareCorners;
+    b32 alternatingRows;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;

@@ -901,6 +901,32 @@ function u32 P__TrashInto(Arena *arena, const char *trash, const char *source, S
     return error;
 }
 
+// GTK_THEME's ":dark" or a dark theme name, else the GTK settings' preference or theme name.
+function b32 P_PrefersDarkColors(void)
+{
+    const char *theme = getenv("GTK_THEME");
+    if (theme && theme[0]) return strstr(theme, "dark") != NULL || strstr(theme, "Dark") != NULL;
+    Scratch scratch = GetScratch();
+    const char *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    String folder = config && config[0] == '/' ? StrFromCStr(config) : home ? StrFormat(scratch.arena, "%s/.config", home) : (String){0};
+    String text = {0};
+    b32 result = true;
+    if (folder.length && P_ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/gtk-3.0/settings.ini", folder), &text)) {
+        ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+        for (u64 i = 0; i < lines.header.count; ++i) {
+            String line = lines.v[i];
+            Index equals = StrIndexChar(line, '=', SSF_None);
+            if (!equals.exists) continue;
+            String key = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+            while (key.length && key.value[key.length - 1] == ' ') --key.length;
+            while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+            if (StrIsEqual(key, S("gtk-application-prefer-dark-theme"))) result = StrIsEqual(value, S("1")) || StrIsEqual(value, S("true"));
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function String P_TrashFolder(Arena *arena)
 {
     const char *data = getenv("XDG_DATA_HOME"), *home = getenv("HOME");

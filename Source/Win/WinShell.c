@@ -394,6 +394,14 @@ function String P__KnownFolder(Arena *arena, const GUID *id)
     return result;
 }
 
+function b32 P_PrefersDarkColors(void)
+{
+    DWORD light = 0, size = sizeof(light);
+    LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme",
+                                  RRF_RT_REG_DWORD, NULL, &light, &size);
+    return status != ERROR_SUCCESS || light == 0;
+}
+
 function String P_TrashFolder(Arena *arena)
 {
     wchar drive[8] = {0};
