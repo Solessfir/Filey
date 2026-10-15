@@ -1643,6 +1643,12 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
         Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));
         Check(look.actOnRelease && look.singleClick && look.underlineAlways && look.noOverscroll && look.reverseScroll && look.doubleClickToParent && !look.hoverToSelect);
+        // Names without their extensions, a folder's kept whole, and a dot file's too.
+        Prog_ApplySettings(&look, S("files.extensions = off\nfiles.hidden = on\n"));
+        Prog_Entry file = { .file = { .name = S("Report.final.pdf"), .kind = P_FileKind_File } }, folder = { .file = { .name = S("v1.2"), .kind = P_FileKind_Directory } };
+        Prog_Entry dot = { .file = { .name = S(".gitignore"), .kind = P_FileKind_File } };
+        Check(StrIsEqual(Prog_EntryName(&look, &file), S("Report.final")) && StrIsEqual(Prog_EntryName(&look, &folder), S("v1.2")) && StrIsEqual(Prog_EntryName(&look, &dot), S(".gitignore")));
+        Check(look.showHidden && Prog_OptionValue(&look, Prog_Option_ShowHiddenFiles));
         Prog_ApplySettings(&look, S(""));
     }
     const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);

@@ -266,6 +266,7 @@ typedef struct Prog_JobInput {
     b32 descending;
     enum8(Prog_FolderSort) folderSort;
     b32 showHidden;
+    b32 showSystem;
     b32 expanded;
     b32 addHistory;
     u64 historyAt;
@@ -378,6 +379,9 @@ typedef enum Prog_Option {
     Prog_Option_ColorScheme,
     Prog_Option_AlternatingRows,
     Prog_Option_InactiveOpacity,
+    Prog_Option_ShowFileExtension,
+    Prog_Option_ShowHiddenFiles,
+    Prog_Option_ShowSystemFiles,
     Prog_Option_ActOnPress,
     Prog_Option_SingleClick,
     Prog_Option_SingleClickFoldersOnly,
@@ -784,6 +788,11 @@ typedef struct Prog_State {
     b32 doubleClickToParent;
     b32 noOverscroll;
     b32 reverseScroll;
+    // What the lists show: names without their extensions, and the system's own files; settingHidden is what Settings.txt last set the
+    // hidden items to, + 1, which the shown tab then takes.
+    b32 hideExtensions;
+    b32 showSystem;
+    u8 settingHidden;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;

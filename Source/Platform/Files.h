@@ -17,7 +17,8 @@ typedef struct P_File {
     i64 createdTimeUnix;  // 0 when the file system does not say
     i64 accessedTimeUnix;
     enum8(P_FileKind) kind;
-    b8 hidden;
+    b8 hidden;          // marked hidden, or named with a dot first
+    b8 system;          // marked as the system's own, on Windows
     b8 metadataValid;
     b8 symbolicLink;
 } P_File;

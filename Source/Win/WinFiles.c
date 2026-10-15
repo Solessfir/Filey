@@ -153,7 +153,8 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                 .createdTimeUnix = created ? (i64)(created / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
                 .accessedTimeUnix = accessed ? (i64)(accessed / UINT64_C(10000000)) - INT64_C(11644473600) : 0,
                 .kind = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? P_FileKind_Directory : (data.dwFileAttributes & FILE_ATTRIBUTE_DEVICE) ? P_FileKind_Other : P_FileKind_File,
-                .hidden = (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0,
+                .hidden = (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0 || data.cFileName[0] == L'.',
+                .system = (data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0,
                 .metadataValid = true,
                 .symbolicLink = (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0,
             };

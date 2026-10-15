@@ -265,6 +265,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->inactiveShift = 0;
     state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
     state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
+    state->hideExtensions = state->showSystem = false;
+    b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
     u8 inspectorLayout = Prog_InspectorLayout_Auto;
     state->userHotkeyCount = 0;
@@ -306,6 +308,12 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->squareCorners = Prog__EqualFolded(value, S("square"));
         } else if (StrIsEqual(name, S("rows.alternate"))) {
             state->alternatingRows = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
+        } else if (StrIsEqual(name, S("files.extensions"))) {
+            state->hideExtensions = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("files.hidden"))) {
+            showHidden = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("files.system"))) {
+            state->showSystem = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("click.onPress"))) {
             state->actOnRelease = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("click.single"))) {
@@ -361,6 +369,11 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     if (state->systemScheme && !P_PrefersDarkColors()) Prog_ThemeUser = Prog_ThemeLight;
     // The inspector's text size and layout change with the file, and keep what its controls set otherwise.
     if (inspectorFontSize != state->settingInspectorFontSize) state->inspectorFontSize = state->settingInspectorFontSize = inspectorFontSize;
+    // Hidden items too, which the shown tab takes when the file changes them.
+    if ((showHidden ? 2u : 1u) != state->settingHidden) {
+        state->settingHidden = showHidden ? 2 : 1;
+        state->showHidden = showHidden;
+    }
     if (inspectorLayout + 1u != state->settingInspectorLayout) {
         state->inspectorLayout = inspectorLayout;
         state->settingInspectorLayout = (u8)(inspectorLayout + 1);
@@ -439,6 +452,11 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("rows.alternate") },
     [Prog_Option_InactiveOpacity] = { S("Inactive Opacity"), S("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
                                       0, 100, NULL, 0, S("inactive.opacity") },
+    [Prog_Option_ShowFileExtension] = { S("Show File Extension"), S("Toggle the visibility of file extensions."), Prog_OptionControl_Switch, 0, 1,
+                                        Prog_OptionSwitch, 2, S("files.extensions") },
+    [Prog_Option_ShowHiddenFiles] = { S("Show Hidden Files"), S("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
+                                      Prog_OptionSwitch, 2, S("files.hidden") },
+    [Prog_Option_ShowSystemFiles] = { S("Show System Files"), S("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("files.system") },
     [Prog_Option_ActOnPress] = { S("Act On Press"), S("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, S("click.onPress") },
     [Prog_Option_SingleClick] = { S("Single Click"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
@@ -487,6 +505,9 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_SystemScheme: return state->systemScheme;
         case Prog_Option_AlternatingRows: return state->alternatingRows;
         case Prog_Option_InactiveOpacity: return 60 + state->inactiveShift;
+        case Prog_Option_ShowFileExtension: return !state->hideExtensions;
+        case Prog_Option_ShowHiddenFiles: return state->showHidden;
+        case Prog_Option_ShowSystemFiles: return state->showSystem;
         case Prog_Option_ActOnPress: return !state->actOnRelease;
         case Prog_Option_SingleClick: return state->singleClick;
         case Prog_Option_SingleClickFoldersOnly: return state->singleClickFoldersOnly;
@@ -571,6 +592,8 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
         Prog_ApplySettings(state, line);
     }
     ReleaseScratch(scratch);
+    // What the folder lists changes with these, so it is listed again.
+    if (option == Prog_Option_ShowHiddenFiles || option == Prog_Option_ShowSystemFiles) Prog_Reload(state);
 }
 
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
@@ -1775,6 +1798,20 @@ function b32 Prog__LiveTotals(const Prog_State *state, const Prog_Entry *entry, 
     return true;
 }
 
+// The name an entry shows: a drive's or a binned item's own, and a file's without its extension when the settings ask.
+function String Prog_EntryName(const Prog_State *state, const Prog_Entry *entry)
+{
+    if (entry->label.length) return entry->label;
+    String name = entry->file.name;
+    if (state->hideExtensions && entry->file.kind != P_FileKind_Directory) {
+        Index dot = StrIndexChar(name, '.', SSF_SearchBackwards);
+        Index slash = StrIndexChar(name, '/', SSF_SearchBackwards);
+        u64 start = slash.exists ? slash.value + 1 : 0;
+        if (dot.exists && dot.value > start) name = StrFromTo(name, 0, (i64)dot.value);
+    }
+    return name;
+}
+
 function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, String *values)
 {
     Arena *frame = &state->frameArena;
@@ -1817,8 +1854,8 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     String accessed = entry->file.metadataValid && entry->file.accessedTimeUnix ? P_FormatFileTime(frame, entry->file.accessedTimeUnix) : (String){0};
     String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, Prog_EntryModified(frame, entry), folders, files, size, created, accessed, folderUsage, volumeUsage };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = result[i];
-    // A binned item shows its own name, where it came from and when it went.
-    if (entry->label.length) values[Prog_ColumnId_Name] = entry->label;
+    values[Prog_ColumnId_Name] = Prog_EntryName(state, entry);
+    // A binned item shows where it came from and when it went.
     if (entry->original.length) values[Prog_ColumnId_OriginalLocation] = P_NativePath(frame, entry->original);
     if (entry->deletedTimeUnix) values[Prog_ColumnId_DateDeleted] = P_FormatFileTime(frame, entry->deletedTimeUnix);
 }
@@ -2191,7 +2228,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
         Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), m);
-        else Prog__Label(entry->file.name, UI_Flex(), height, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
+        else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
     }
     return result;
 }
@@ -2225,7 +2262,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
         if (renaming) {
             Prog__RenameBox(state, UI_Pixels(width), m);
         } else {
-            String name = Prog__Ellipsize(&state->frameArena, m->font, entry->file.name, text);
+            String name = Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text);
             Prog__Label(name, UI_Pixels(width), m->line, 0, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0.5f);
             Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
         }

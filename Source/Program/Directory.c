@@ -1147,7 +1147,7 @@ function void Prog__DirectoryJob(P_Job *job)
         P_File file = files.v[i];
         if (file.kind == P_FileKind_Directory) ++result->totalFolders;
         else ++result->totalFiles;
-        if (file.hidden && !input->showHidden) continue;
+        if ((file.hidden && !input->showHidden) || (file.system && !input->showSystem)) continue;
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
         result->folderCount += file.kind == P_FileKind_Directory;
@@ -1267,6 +1267,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->sort = state->sort;
     input->descending = state->descending;
     input->folderSort = state->folderSort;
+    input->showSystem = state->showSystem;
     // Another folder starts flat unless the filter is pinned.
     if (!StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
     input->showHidden = state->showHidden;
