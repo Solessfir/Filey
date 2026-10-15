@@ -1933,14 +1933,15 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
     return StrFormat(arena, "%S%S", StrMake(text.value, fit), dots);
 }
 
-// How an item's box shows: filled with the selection color when selected, washed with it and outlined under the pointer, and outlined as the keyboard's item.
+// How an item's box shows: filled with the selection color when selected and the keyboard's item, washed with it when selected otherwise or under the pointer,
+// outlined under the pointer, and outlined as the keyboard's item.
 typedef struct Prog_ItemLook { R_Color fill, border; UI_Flags flags; } Prog_ItemLook;
 
 function Prog_ItemLook Prog__ItemLook(b32 selected, b32 hot, b32 focused)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_ItemLook result = { .fill = theme->selection, .border = hot ? theme->selection : theme->focus };
-    if (!selected) result.fill.a *= 0.35f;
+    if (!selected || !focused) result.fill.a *= 0.35f;
     if (selected || hot) result.flags |= UI_Flag_DrawBackground;
     if (!selected && (hot || focused)) result.flags |= UI_Flag_DrawBorder;
     return result;
