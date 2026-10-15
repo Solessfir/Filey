@@ -139,6 +139,12 @@ function void UI__Input(PlatformEventList events)
             UI->lastPressKey = 0;
             continue;
         }
+        // A pointer that left the window is over nothing, unless it is dragging, which keeps following it.
+        if (event->kind == PlatformEventKind_MouseLeave && !UI->activeKey) {
+            UI->mouseKnown = false;
+            UI->mouse = (UI_Vec2){ -1e9f, -1e9f };
+            continue;
+        }
         if (event->kind == PlatformEventKind_MouseMove || event->kind == PlatformEventKind_MouseDown ||
             event->kind == PlatformEventKind_MouseUp || event->kind == PlatformEventKind_MouseWheel) {
             UI->mouse = (UI_Vec2){event->x, event->y};

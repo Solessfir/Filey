@@ -366,6 +366,8 @@ function void PointerEnter(void *data, struct wl_pointer *pointer, u32 serial, s
 
 function void PointerLeave(void *data, struct wl_pointer *pointer, u32 serial, struct wl_surface *surface)
 {
+    PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseLeave);
+    event->mods = Wl.mods;
 }
 
 function void PointerMotion(void *data, struct wl_pointer *pointer, u32 time, wl_fixed_t x, wl_fixed_t y)

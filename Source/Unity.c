@@ -48,7 +48,7 @@ function void LogEvent(const PlatformEvent *event)
 {
     static const char *names[] = {
         "None", "CloseRequested", "Resized", "FocusChanged", "KeyDown", "KeyUp",
-        "Text", "MouseMove", "MouseDown", "MouseUp", "MouseWheel",
+        "Text", "MouseMove", "MouseDown", "MouseUp", "MouseWheel", "MouseLeave",
     };
     static_assert(CArrayCount(names) == PlatformEventKind_Count);
 

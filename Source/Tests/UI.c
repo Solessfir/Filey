@@ -368,6 +368,15 @@ function void TestUIInteractions(void)
     TestUIBlock(2, UI_Flag_LeftMouseClickable, UI_Pixels(100), UI_Pixels(50));
     UI_EndFrame();
 
+    // The pointer leaving the window is over nothing.
+    PlatformEvent leave[] = { {.kind = PlatformEventKind_MouseLeave} };
+    Check(context.hotKey == 1);
+    TestUIBegin(&context, &frame, TestUIEvents(leave, CArrayCount(leave)), 1250000);
+    Check(context.hotKey == 0 && !context.mouseKnown);
+    TestUIBlock(1, UI_Flag_LeftMouseClickable, UI_Pixels(100), UI_Pixels(50));
+    TestUIBlock(2, UI_Flag_LeftMouseClickable, UI_Pixels(100), UI_Pixels(50));
+    UI_EndFrame();
+
     PlatformEvent twoClicks[] = {
         click[0], click[1],
         {.kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = 20, .y = 60, .mods = KeyMod_Shift},

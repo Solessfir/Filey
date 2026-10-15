@@ -28,6 +28,7 @@ typedef struct WinWindowState {
 
     wchar highSurrogate;
     b32 mouseCaptured;
+    b32 trackingLeave;  // asked to be told when the pointer leaves the window
     b32 sizing;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
     HICON icons[2];     // the app icon at the window's size and at the small size, for its DPI
@@ -302,7 +303,21 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             }
         } return 0;
 
-        case WM_MOUSEMOVE:   WinPushMouseEvent(PlatformEventKind_MouseMove, lParam, 0); return 0;
+        case WM_MOUSEMOVE: {
+            // Windows tells of the pointer leaving only once asked, and asks again after each time.
+            if (!Win.trackingLeave) {
+                TRACKMOUSEEVENT track = { .cbSize = sizeof(track), .dwFlags = TME_LEAVE, .hwndTrack = window };
+                Win.trackingLeave = TrackMouseEvent(&track);
+            }
+            WinPushMouseEvent(PlatformEventKind_MouseMove, lParam, 0);
+            return 0;
+        }
+        case WM_MOUSELEAVE: {
+            Win.trackingLeave = false;
+            PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseLeave);
+            event->mods = WinCurrentMods();
+            return 0;
+        }
         case WM_LBUTTONDOWN: WinMouseButton(PlatformEventKind_MouseDown, wParam, lParam, MouseButton_Left); return 0;
         case WM_LBUTTONUP:   WinMouseButton(PlatformEventKind_MouseUp, wParam, lParam, MouseButton_Left); return 0;
         case WM_RBUTTONDOWN: WinMouseButton(PlatformEventKind_MouseDown, wParam, lParam, MouseButton_Right); return 0;
