@@ -75,6 +75,22 @@ function f32 UI_Animate(UI_Key key, f32 target, f32 initial)
     return animation->value;
 }
 
+function f32 UI_Slide(UI_Key key, f32 target, f32 cap)
+{
+    UI_Animation *animation = UI__Animation(key, target);
+    if (!animation) return target;
+    animation->value = UI_Approach(UI__Clamp(animation->value, target - cap, target + cap), target, cap * (1.0f / 64.0f));
+    return animation->value;
+}
+
+function f32 UI_Fall(UI_Key key, f32 target)
+{
+    UI_Animation *animation = UI__Animation(key, target);
+    if (!animation) return target;
+    animation->value = target >= animation->value ? target : UI_Approach(animation->value, target, 0.001f);
+    return animation->value;
+}
+
 function u64 UI_TimeSince(UI_Key key)
 {
     UI_Animation *animation = UI__Animation(key, 0);

@@ -1009,7 +1009,6 @@ typedef struct Prog_State {
     u64 confirmCount;
     // Sidebar.
     b32 sidebarHidden;
-    u64 sidebarToggled;       // when it was last shown or hidden, for its slide
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
     b32 placesWanted;         // the sidebar was built, so its places are kept current
     b32 windowInactive;       // another window has the focus, which dims the title strip

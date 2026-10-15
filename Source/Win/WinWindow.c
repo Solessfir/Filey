@@ -30,6 +30,7 @@ typedef struct WinWindowState {
     wchar highSurrogate;
     b32 mouseCaptured;
     b32 trackingLeave;  // asked to be told when the pointer leaves the window
+    b32 postedPointer;  // FILEY_POSTED_POINTER: the pointer comes from posted messages while the real one is elsewhere, so it never leaves
     b32 sizing;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
     HICON icons[2];     // the app icon at the window's size and at the small size, for its DPI
@@ -313,7 +314,7 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
 
         case WM_MOUSEMOVE: {
             // Windows tells of the pointer leaving only once asked, and asks again after each time.
-            if (!Win.trackingLeave) {
+            if (!Win.trackingLeave && !Win.postedPointer) {
                 TRACKMOUSEEVENT track = { .cbSize = sizeof(track), .dwFlags = TME_LEAVE, .hwndTrack = window };
                 Win.trackingLeave = TrackMouseEvent(&track);
             }
@@ -477,6 +478,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     wchar title[256] = {0};
     MultiByteToWideChar(CP_UTF8, 0, desc.title.value, (int)Min(desc.title.length, (u64)200), title, (int)CArrayCount(title) - 1);
 
+    Win.postedPointer = GetEnvironmentVariableW(L"FILEY_POSTED_POINTER", NULL, 0) > 0;
     Win.window = CreateWindowExW(0, windowClass.lpszClassName, title, WS_OVERLAPPEDWINDOW,
                                  CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
                                  NULL, NULL, instance, NULL);

@@ -8,6 +8,8 @@
 #       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | wheel x y notches | key VK | mods VK... | wait s | shot [tag]
 #       | frames n interval tag
 #       | keyframes VK n interval tag (presses VK and records from then)
+#       | moveframes x y n interval tag, downframes, upframes, clickframes, rclickframes (the same for the pointer: moves, presses, releases or clicks at x y)
+#       | wheelframes x y notches n interval tag
 #       writes <out>/<name><tag>_{ref,filey}.png and a stacked <name><tag>.png; frames also write <name><tag>_<side>.times in milliseconds
 #   python Source/Tools/Compare/Compare.py zoom <name> x0 y0 x1 y1 scale      the same crop of both shots, enlarged, to zoom.png
 #   python Source/Tools/Compare/Compare.py runs <png> y0 y1 x0 x1 threshold   column runs brighter than threshold in a band, for measuring positions
@@ -243,15 +245,25 @@ def steps(app, text, side, name, tags):
         elif op == 'shot':
             tag = words[1] if len(words) > 1 else ''
             app.shot().save(os.path.join(OUT, f'{name}{tag}_{side}.png')); tags.add(tag)
-        elif op in ('frames', 'keyframes'):
-            # keyframes presses a key and records from that moment, so that an animation's first frames are not lost.
+        elif op in ('frames', 'keyframes', 'moveframes', 'downframes', 'upframes', 'clickframes', 'rclickframes', 'wheelframes'):
+            # keyframes presses a key and records from that moment, so that an animation's first frames are not lost; the pointer ones do the same.
+            pointer = op not in ('frames', 'keyframes')
             if op == 'keyframes': vk, words = n[0], words[1:]
+            if pointer: px, py, words = n[0], n[1], words[2:]
+            if op == 'wheelframes': notches, words = n[2], words[1:]
             count, interval, tag = int(words[1]), float(words[2]), words[3]
             times = []
             before = {p for _, p in app.captured()} if app.frames else set()
             # Held while the frames are taken, for apps that ask whether it is down.
             pressed = time.perf_counter()
             if op == 'keyframes': app.fake.keys[vk] = 1; app.post(0x100, vk, 1)
+            if pointer and op != 'wheelframes': app.mouse(px, py, 0)
+            if op == 'wheelframes': app.wheel(px, py, notches)
+            if op in ('downframes', 'clickframes'): app.press(px, py, 'l', True)
+            # A click is held for a moment, as apps that read the buttons once a frame would miss a release in the same instant.
+            if op == 'clickframes': time.sleep(0.05)
+            if op in ('upframes', 'clickframes'): app.press(px, py, 'l', False)
+            if op == 'rclickframes': app.press(px, py, 'r', True); time.sleep(0.05); app.press(px, py, 'r', False)
             if app.frames:
                 time.sleep(count * max(interval, 0.012))
                 fresh = [(t, p) for t, p in app.captured() if p not in before][:count]
@@ -278,7 +290,8 @@ def run(side, name, text, tags):
     x, y = (u32.GetSystemMetrics(0) - w) // 2, (u32.GetSystemMetrics(1) - h) // 2
     geometry = [w, h, int(os.environ.get('COMPARE_X', x)), int(os.environ.get('COMPARE_Y', y))]
     if side == 'filey':
-        exe, env, saved = FILEY, {'FILEY_CONFIG_DIR': config}, []
+        # Its pointer comes from posted moves while the real one is elsewhere, which would otherwise count as leaving the window.
+        exe, env, saved = FILEY, {'FILEY_CONFIG_DIR': config, 'FILEY_POSTED_POINTER': '1'}, []
     else:
         if not REFERENCE: raise SystemExit('COMPARE_REFERENCE is not set')
         exe, env = REFERENCE, {}

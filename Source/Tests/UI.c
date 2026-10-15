@@ -522,6 +522,25 @@ function void TestUIScrolling(void)
     ArenaRelease(&frame);
 }
 
+// A slide starts no further than its cap from where it goes, and a fall rises at once and eases down.
+function void TestUISlides(void)
+{
+    UI_Context context = { .animate = true };
+    Arena frame = {0};
+    UI_Key slide = UI_KeyFromStr(0, S("Slide")), fall = UI_KeyFromStr(0, S("Fall"));
+    f32 values[4] = {0};
+    for (u32 i = 0; i < 4; ++i) {
+        TestUIBegin(&context, &frame, (PlatformEventList){0}, 1000000 + (u64)i * 16667);
+        values[i] = UI_Slide(slide, i ? 300.0f : 0.0f, 30);
+        f32 washed = UI_Fall(fall, i == 1 || i == 3 ? 1.0f : 0.0f);
+        Check(i == 2 ? washed > 0 && washed < 1 : washed == (i ? 1.0f : 0.0f));
+        UI_EndFrame();
+    }
+    Check(values[0] == 0 && values[1] > 270 && values[1] < 300 && values[2] > values[1] && values[3] > values[2]);
+    UI_Release(&context);
+    ArenaRelease(&frame);
+}
+
 function void TestUIFrameFontLifetime(void)
 {
     UI_Context context = {0};

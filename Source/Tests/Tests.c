@@ -513,6 +513,7 @@ int main(void)
     TestUIInteractions();
     TestUIClippingAndDrawOrder();
     TestUIScrolling();
+    TestUISlides();
     TestUIFrameFontLifetime();
     TestUICommandEventOrder();
     TestProgramCommands();

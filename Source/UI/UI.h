@@ -177,6 +177,10 @@ function void UI_SetNextScale(f32 scale);
 function f32 UI_Approach(f32 value, f32 target, f32 epsilon);
 // The value kept under `key`, starting at `initial` the first frame it is asked for, eased toward `target`.
 function f32 UI_Animate(UI_Key key, f32 target, f32 initial);
+// A position or size kept under `key`: a change starts at most `cap` from `target` and eases the rest, as the reference's slides do.
+function f32 UI_Slide(UI_Key key, f32 target, f32 cap);
+// The value kept under `key`, which rises to `target` at once and eases only on the way down, as hover washes fade.
+function f32 UI_Fall(UI_Key key, f32 target);
 // Microseconds since `key` was first asked for in an unbroken run of frames.
 function u64 UI_TimeSince(UI_Key key);
 // Asks for another frame, for animations that are not eased values.

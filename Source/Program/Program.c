@@ -873,6 +873,9 @@ function f32 Prog__TitleStripHeight(const Prog_Metrics *m) { return Prog__StripH
 function f32 Prog__ToolbarButtonWidth(const Prog_Metrics *m) { return floorf(28.8f * m->scale + 0.5f); }
 function f32 Prog__ToolbarButtonHeight(const Prog_Metrics *m) { return floorf(24.8f * m->scale + 0.5f); }
 
+// How far from its place a slide starts at most, as the reference's do, whatever the distance.
+function f32 Prog__SlideCap(const Prog_Metrics *m) { return floorf(30.0f * m->scale + 0.5f); }
+
 // Notes the button just added as the one under the pointer, for Prog__Tooltip.
 function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String label)
 {
@@ -1211,7 +1214,9 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         }
         UI_Key stripKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "TabStrip/%" PRIu64, panelId));
         f32 slots = (f32)(state->tabCount + (placeholder ? 1 : 0));
-        f32 slot = floorf(UI_Animate(UI_KeyFromStr(stripKey, S("Slot")), MinF32(m->line * 12.25f, room / slots), MinF32(m->line * 12.25f, room / slots)));
+        f32 slide = Prog__SlideCap(m);
+        f32 slot = floorf(UI_Slide(UI_KeyFromStr(stripKey, S("Slot")), MinF32(m->line * 12.25f, room / slots), slide));
+        f32 slotSlide = slide / MaxF32(slot, 1);
         f32 tabWidth = MaxF32(0, slot - m->separator);
         f32 height = bar - top;
         // The shown tab is cut off at the strip's bottom, with its lower corners and border past it.
@@ -1219,13 +1224,13 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         f32 hang = tabRadius + stroke + 1;
         f32 flare = floorf(m->radius + 0.5f) + stroke;
         // Tabs sit at eased slot positions, so that they slide aside for a dragged tab and close up after one leaves.
-        UI_SetNextPrefWidth(UI_Pixels(floorf(UI_Animate(UI_KeyFromStr(stripKey, S("Slots")), slots, slots) * slot)));
+        UI_SetNextPrefWidth(UI_Pixels(floorf(UI_Slide(UI_KeyFromStr(stripKey, S("Slots")), slots, slotSlide) * slot)));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_Block *tabs = UI_AddBlock(0);
         f32 shownX = -1;
         UI_Parent(tabs) for (u32 i = 0; i <= state->tabCount; ++i) {
             if (placeholder && i == dropSlot) {
-                f32 at = UI_Animate(UI_KeyFromStr(stripKey, S("Placeholder")), (f32)dropSlot, (f32)dropSlot);
+                f32 at = UI_Slide(UI_KeyFromStr(stripKey, S("Placeholder")), (f32)dropSlot, slotSlide);
                 UI_SetNextFloatingOffset((UI_Vec2){ floorf(at * slot), 0 });
                 Prog__TabPlaceholder(tabWidth, height, tabRadius, stroke, m);
             }
@@ -1237,7 +1242,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
             b32 hot = Prog__TabHot(state, i);
             f32 at = (f32)(i + (placeholder && i >= dropSlot ? 1 : 0));
-            f32 x = floorf(UI_Animate(UI_KeyFromStr(key, S("Slot")), at, at) * slot);
+            f32 x = floorf(UI_Slide(UI_KeyFromStr(key, S("Slot")), at, slotSlide) * slot);
             if (shown) shownX = x;
             UI_SetNextFloatingOffset((UI_Vec2){ x, 0 });
             UI_SetNextPrefWidth(UI_Pixels(tabWidth));
@@ -3108,15 +3113,16 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
 }
 
-// The box for a group's items, which eases open and shut to the height its items took last frame (none on the first frame it opens); null while it is shut, when the items need no blocks.
-function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group)
+// The box for a group's items, which slides open and shut to the height its items took last frame (none on the first frame it opens, which
+// shows them at once); null while it is shut, when the items need no blocks.
+function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Prog_Metrics *m)
 {
     b32 open = Prog_GroupOpen(state, group);
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupBody/%u", (u32)group));
-    f32 shown = UI_Animate(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
-    if (!open && shown <= 0) return NULL;
     UI_Block *last = UI__Find(key);
     f32 full = last ? last->contentSize.y : 0;
+    f32 shown = UI_Slide(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, Prog__SlideCap(m) / MaxF32(full, 1));
+    if (!open && shown <= 0) return NULL;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(shown >= 1 ? UI_Fill() : UI_Pixels(floorf(full * shown + 0.5f)));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -3152,7 +3158,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
         Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
-        UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents);
+        UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents, m);
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->recents.header.count; ++i) {
                 String path = state->recents.v[i];
@@ -3164,7 +3170,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         R_Rect title = sidebar->last->rect, zone = title;
         u64 count = state->bookmarks.header.count, before = count;
         f32 lineY = title.y1;
-        body = Prog__GroupBody(state, Prog_Group_Bookmarks);
+        body = Prog__GroupBody(state, Prog_Group_Bookmarks, m);
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
@@ -3202,7 +3208,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
         }
         Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
-        body = Prog__GroupBody(state, Prog_Group_Storage);
+        body = Prog__GroupBody(state, Prog_Group_Storage, m);
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
                 const P_Place *drive = &state->drives.v[i];
@@ -3210,7 +3216,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             }
         }
         Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
-        body = Prog__GroupBody(state, Prog_Group_Places);
+        body = Prog__GroupBody(state, Prog_Group_Places, m);
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->places.header.count; ++i) {
                 const P_Place *place = &state->places.v[i];
@@ -5834,17 +5840,9 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     UI->root->props.childrenPadding = (UI_Padding){0};
     UI->root->props.childrenLayout = UI_Layout_Horizontal;
     R_Rect view = UI->root->rect;
-    // The sidebar slides in and out from the left edge, its contents moving with it rather than squeezing, easing with a 15 ms time constant.
-    f32 full = m->sidebar + m->separator, shown = state->sidebarHidden ? 0 : 1;
-    if (state->sidebarToggled && UI->animate) {
-        f32 eased = 1 - expf(-(f32)(UI->nowMicroseconds - Min(state->sidebarToggled, UI->nowMicroseconds)) / 15000.0f);
-        if (eased < 0.995f) {
-            shown = state->sidebarHidden ? 1 - eased : eased;
-            UI_KeepAnimating();
-        } else {
-            state->sidebarToggled = 0;
-        }
-    }
+    // The sidebar slides in and out from the left edge, its contents moving with it rather than squeezing.
+    f32 full = m->sidebar + m->separator;
+    f32 shown = UI_Slide(UI_KeyFromStr(0, S("SidebarSlide")), state->sidebarHidden ? 0.0f : 1.0f, Prog__SlideCap(m) / MaxF32(full, 1));
     f32 sidebar = floorf(full * shown + 0.5f);
     if (sidebar > 0) {
         UI_SetNextPrefWidth(UI_Pixels(sidebar));
