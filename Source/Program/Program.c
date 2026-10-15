@@ -630,7 +630,7 @@ function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String
     String to = {0};
     if (kind == Prog_CommandKind_Back && state->historyAt > 0) to = state->history.v[state->historyAt - 1];
     if (kind == Prog_CommandKind_Forward && state->historyAt + 1 < state->history.header.count) to = state->history.v[state->historyAt + 1];
-    if (kind == Prog_CommandKind_Up) to = Prog_ParentPath(state->directory.path);
+    if (kind == Prog_CommandKind_Up) to = Prog_UpPath(state->directory.path);
     state->tooltipDetail = to.length ? P_NativePath(&state->frameArena, to) : (String){0};
     state->tooltipDescribes = false;
 }
@@ -1072,7 +1072,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                     UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, 1 });
                     UI_AddBlock(UI_Flag_DrawImage);
                 } else {
-                    Prog__Icon(Icon_Folder, (f32)state->iconSize + floorf(4.8f * scale + 0.5f), height, theme->icon, 0, m);
+                    Prog__Icon(StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, (f32)state->iconSize + floorf(4.8f * scale + 0.5f), height, theme->icon, 0, m);
                 }
                 Prog__Label(name, UI_Flex(), height, 0, theme->text, 0);
                 // The close button shows on the shown and the hovered tab.
@@ -1214,7 +1214,8 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     b32 drive;
     u64 start = Prog__CrumbStart(state, path, &drive);
     if (drive) {
-        Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, false, m);
+        UI_Interaction thisPC = Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, true, m);
+        if (thisPC.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, 0, 0, thisPC.clickOrder);
     } else if (start == 1) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
     }
@@ -1265,10 +1266,10 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
     UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
     UI_Parent(toolbar) {
         Prog__Spacer(UI_Pixels(floorf(4.8f * m->scale + 0.5f)), UI_Pixels(bar));
-        String parent = Prog_ParentPath(state->directory.path);
+        String up = Prog_UpPath(state->directory.path);
         Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
         Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
-        Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, parent.length && !StrIsEqual(parent, state->directory.path), m);
+        Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, up.length != 0, m);
         Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -1307,12 +1308,15 @@ typedef struct Prog_Columns {
 } Prog_Columns;
 
 // The sort a column's title selects.
+// This PC's drives are not sorted, so its own columns sort nothing (Prog_Sort_Count).
 global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
     Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Accessed, Prog_Sort_Size, Prog_Sort_Size,
+    Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count,
 };
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
     S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size"), S("Date Created"), S("Date Accessed"), S("Folder Usage"), S("Volume Usage"),
+    S("File System"), S("Free Space"), S("Percent Full"),
 };
 
 // The panel's columns laid out for rows `room` wide, as the reference lays them out at any width: each its share of it, however narrow,
@@ -1321,8 +1325,10 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
 {
     local_persist const Prog_ColumnId ids[Prog_ColumnKind_Count] = {
         Prog_ColumnId_Name, Prog_ColumnId_Type, Prog_ColumnId_Size, Prog_ColumnId_Folders, Prog_ColumnId_Created, Prog_ColumnId_Modified, Prog_ColumnId_Accessed,
-        Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage,
+        Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage, Prog_ColumnId_FileSystem, Prog_ColumnId_FreeSpace, Prog_ColumnId_PercentFull,
     };
+    // This PC's values read from the left, its size too.
+    b32 drives = StrIsEqual(state->directory.path, Prog_ThisPC);
     if (room <= 0) room = 918.0f * scale;
     // The shares are of the rows inside their outlines.
     room -= floorf(1.6f * scale + 0.5f);
@@ -1348,7 +1354,7 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
                 for (u32 c = 0; c < result.count; ++c) used += result.v[c].width;
                 width = MaxF32(0, room - used);
             }
-            b32 right = id == Prog_ColumnId_Size || id == Prog_ColumnId_FolderUsage || id == Prog_ColumnId_VolumeUsage;
+            b32 right = (id == Prog_ColumnId_Size && !drives) || id == Prog_ColumnId_FolderUsage || id == Prog_ColumnId_VolumeUsage;
             result.v[result.count++] = (Prog_Column){ Prog_ColumnTitles[id], width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i + 1 < set.count) };
         }
     }
@@ -1658,6 +1664,19 @@ function b32 Prog__LiveTotals(const Prog_State *state, const Prog_Entry *entry, 
 function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, String *values)
 {
     Arena *frame = &state->frameArena;
+    if (entry->drive) {
+        for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = (String){0};
+        u64 total = entry->file.size, used = total - Min(entry->freeBytes, total);
+        values[Prog_ColumnId_Name] = entry->label.length ? entry->label : entry->file.name;
+        values[Prog_ColumnId_Type] = entry->type;
+        values[Prog_ColumnId_FileSystem] = entry->fileSystem;
+        if (total) {
+            values[Prog_ColumnId_Size] = Prog_FormatSize(frame, total);
+            values[Prog_ColumnId_FreeSpace] = Prog_FormatSize(frame, entry->freeBytes);
+            values[Prog_ColumnId_PercentFull] = StrFormat(frame, "%.1f%%", (f64)used * 100.0 / (f64)total);
+        }
+        return;
+    }
     String none = S("--");
     String folders = none, files = none, size = {0};
     P_DirectoryTotals live = {0};
@@ -1879,6 +1898,51 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog
 // The room on the right of a list that scrolls, for its scroll bar.
 function f32 Prog__ScrollGutter(const Prog_Metrics *m) { return floorf(12.8f * m->scale + 0.5f); }
 
+// A drive's fullness as the reference draws it in This PC: an outlined bar as wide as the column, filled to the percent `value` holds,
+// with the percent at the fill's end.
+function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 percent = 0, fraction = 0;
+    for (u64 i = 0; i < value.length; ++i) {
+        char c = value.value[i];
+        if (c == '.') fraction = 0.1f;
+        else if (c < '0' || c > '9') break;
+        else if (fraction > 0) { percent += (f32)(c - '0') * fraction; fraction *= 0.1f; }
+        else percent = percent * 10 + (f32)(c - '0');
+    }
+    f32 tall = floorf(17.6f * m->scale + 0.5f), bar = MaxF32(0, width - left - floorf(8.0f * m->scale + 0.5f));
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ left, 0, 0, 0 });
+    UI_Block *cell = UI_AddBlock(0);
+    if (!value.length) return;
+    UI_Parent(cell) {
+        UI_SetNextPrefWidth(UI_Pixels(bar));
+        UI_SetNextPrefHeight(UI_Pixels(tall));
+        UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * m->scale + 0.5f)));
+        UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->outline });
+        UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
+        UI_Parent(track) {
+            f32 fill = floorf(bar * MinF32(percent, 100) / 100.0f);
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(fill));
+            UI_SetNextPrefHeight(UI_Pixels(tall));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 1, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ 0, 0, floorf(6.4f * m->scale + 0.5f), 0 });
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_Block *filled = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            UI_Parent(filled) {
+                UI_SetNextFont(m->detail);
+                Prog__LabelPadded(value, UI_TextContent(), tall, 0, 0, theme->text, 1);
+            }
+        }
+    }
+}
+
 // A Details or List row; List shows only the icon and the name.
 function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, const Prog_Columns *columns, b32 nameOnly, const Prog_Metrics *m)
 {
@@ -1935,9 +1999,13 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             if (date && column->width > 0 && space.exists && R_TextWidth(m->detail, value) > columnWidth - left - right) value = StrFromTo(value, 0, (i64)space.value);
             if (column->width > 0 && !nameOnly) value = Prog__Ellipsize(&state->frameArena, i == Prog_ColumnId_Name ? m->font : m->detail, value, columnWidth - left - right);
             if (i != Prog_ColumnId_Name) UI_SetNextFont(m->detail);
-            // A usage is a bar filled to its share, before the percent.
+            // A usage is a bar filled to its share, before the percent; a drive's fullness is a tall bar with the percent in it.
             if (i == Prog_ColumnId_FolderUsage || i == Prog_ColumnId_VolumeUsage) {
                 Prog__UsageCell(value, column->width, height, left, right, color, m);
+                continue;
+            }
+            if (i == Prog_ColumnId_PercentFull) {
+                Prog__FullnessCell(values[i], column->width, height, Prog__ColumnLeft(i, m), m);
                 continue;
             }
             Prog__LabelPadded(value, width, height, left, right, color, column->alignX);
@@ -2518,7 +2586,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
-    if (UI->hotKey == key && !UI->activeKey && path.length) {
+    if (UI->hotKey == key && !UI->activeKey && path.length && !StrIsEqual(path, Prog_ThisPC)) {
         state->tooltipKey = key;
         state->tooltipRect = row->rect;
         state->tooltipPath = path;
@@ -2537,7 +2605,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_DrawImage);
         } else {
-            Prog__Icon(drive ? Icon_HardDrive : Icon_Folder, slot, m->row, theme->icon, 0, m);
+            Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, theme->icon, 0, m);
         }
         R_Color color = theme->text;
         if (drive && drive->totalBytes) {

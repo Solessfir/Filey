@@ -497,6 +497,20 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         // Going away and back left nothing selected.
         Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
     }
+    // This PC lists the drives with their own columns; Up from a drive's root leads there and goes no further.
+    {
+        Arena kept = {0};
+        String here = StrCopy(&kept, state.directory.path);
+        Prog_RequestDirectory(&state, Prog_ThisPC, true, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC) && state.directory.count >= 1);
+        Check(state.directory.count && state.directory.entries[0].drive && Prog_PanelColumns(&state).kinds[5] == Prog_ColumnKind_PercentFull);
+        Check(!Prog_UpPath(Prog_ThisPC).length && StrIsEqual(Prog_UpPath(state.directory.entries[0].file.name), Prog_ThisPC));
+        Check(StrIsEqual(Prog_JoinPath(&kept, Prog_ThisPC, state.directory.entries[0].file.name), state.directory.entries[0].file.name));
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here));
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
+        ArenaRelease(&kept);
+    }
     // Folders go first, then last, then in among the files, and first again.
     {
         TestBrowsingCommand(&state, Prog_CommandKind_CycleFolderSort, 0);

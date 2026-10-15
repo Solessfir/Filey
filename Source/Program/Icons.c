@@ -63,7 +63,7 @@ function void Prog__IconJob(P_Job *job)
 // NULL until the icon is loaded; failed and pending icons both return NULL.
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry)
 {
-    return Prog_PathIcon(state, Prog_JoinPath(&state->frameArena, directory, entry->file.name), entry->file.kind);
+    return Prog_PathIcon(state, Prog_JoinPath(&state->frameArena, directory, entry->file.name), entry->drive ? P_FileKind_Drive : entry->file.kind);
 }
 
 // The cached icon for `key` in `map`, or NULL after queueing a load of `path` at `size` when it is new.
@@ -91,7 +91,7 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 // The folder's own icon, as the shell shows the desktop or downloads, for the few folders named in the sidebar and the tabs.
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path)
 {
-    if (state->iconSize <= 0) return NULL;
+    if (state->iconSize <= 0 || StrIsEqual(path, Prog_ThisPC)) return NULL;
     String key = StrFormat(&state->frameArena, "exact:%S", path);
     return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true, false);
 }
@@ -134,8 +134,9 @@ function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory
     if (state->iconSize <= 0 || size <= 0) return NULL;
     if (size != state->thumbnailAtlas.size) Prog__ResetThumbnails(state, size);
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
-    String key = P_FileThumbnailKey(&state->frameArena, path, entry->file.kind);
-    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size, false, false);
+    P_FileKind kind = entry->drive ? P_FileKind_Drive : entry->file.kind;
+    String key = P_FileThumbnailKey(&state->frameArena, path, kind);
+    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, kind, size, false, false);
 }
 
 // The icon of `entry`'s type at its thumbnail's size, shared by every item of that type, for the icon views to show until the thumbnail comes.
@@ -143,8 +144,9 @@ function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String direct
 {
     if (state->iconSize <= 0 || size <= 0 || size != state->thumbnailAtlas.size) return NULL;
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
-    String key = StrFormat(&state->frameArena, "type:%S", P_FileIconKey(&state->frameArena, path, entry->file.kind));
-    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size, false, true);
+    P_FileKind kind = entry->drive ? P_FileKind_Drive : entry->file.kind;
+    String key = StrFormat(&state->frameArena, "type:%S", P_FileIconKey(&state->frameArena, path, kind));
+    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, kind, size, false, true);
 }
 
 // A job for `count` of the queued requests that are thumbnails, or that are not, from the `skip`th of those on.

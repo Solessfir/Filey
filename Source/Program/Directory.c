@@ -3,6 +3,8 @@
 
 function String Prog_JoinPath(Arena *arena, String path, String name)
 {
+    // This PC's items are named by their whole paths.
+    if (StrIsEqual(path, Prog_ThisPC)) return StrCopy(arena, name);
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
@@ -410,6 +412,15 @@ function String Prog__FolderName(String path)
     while (trimmed.length > 1 && trimmed.value[trimmed.length - 1] == '/' && trimmed.value[trimmed.length - 2] != ':') --trimmed.length;
     Index slash = StrIndexChar(trimmed, '/', SSF_SearchBackwards);
     return slash.exists && slash.value + 1 < trimmed.length ? StrFrom(trimmed, slash.value + 1) : trimmed;
+}
+
+// Where Up goes from `path`: its parent, This PC from a drive's root, and nowhere from This PC.
+function String Prog_UpPath(String path)
+{
+    if (StrIsEqual(path, Prog_ThisPC)) return (String){0};
+    String parent = Prog_ParentPath(path);
+    if (!parent.length || StrIsEqual(parent, path)) return path.length ? Prog_ThisPC : (String){0};
+    return parent;
 }
 
 function String Prog_ParentPath(String path)
@@ -1027,6 +1038,24 @@ function void Prog__DirectoryJob(P_Job *job)
     result->showHidden = input->showHidden;
     result->expanded = input->expanded;
     P_DirectoryResult listing = {0};
+    // This PC lists the drives, in the system's order.
+    if (StrIsEqual(input->path, Prog_ThisPC)) {
+        P_ArrayPlace drives = P_Drives(&job->arena);
+        result->entries = ArenaPushArray(&job->arena, Max(drives.header.count, (u64)1), Prog_Entry);
+        for (u64 i = 0; i < drives.header.count; ++i) {
+            const P_Place *drive = &drives.v[i];
+            Prog_Entry *entry = &result->entries[result->count++];
+            entry->file = (P_File){ .name = drive->path, .kind = P_FileKind_Directory, .size = drive->totalBytes, .metadataValid = drive->totalBytes != 0 };
+            entry->drive = true;
+            entry->label = drive->name;
+            entry->type = drive->type;
+            entry->fileSystem = drive->fileSystem;
+            entry->freeBytes = drive->freeBytes;
+            entry->measured = true;
+        }
+        result->totalFolders = result->folderCount = result->count;
+        return;
+    }
     ProfileScope("EnumerateDirectory") listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
@@ -1147,6 +1176,8 @@ function void Prog__DirectoryJob(P_Job *job)
 // Measures the shown folder's subfolders that have no totals yet, one job at a time.
 function void Prog__MeasureFolders(Prog_State *state)
 {
+    // Drives are not walked to be measured.
+    if (StrIsEqual(state->directory.path, Prog_ThisPC)) return;
     // Not while a walk through the whole tree is on its way, which counts them itself.
     if (state->measureJob || (state->directoryJob && ((Prog_JobInput *)state->directoryJob->input)->expanded)) return;
     u64 count = 0;
@@ -1840,9 +1871,13 @@ function void Prog_UndoLast(Prog_State *state)
     P_JobSubmit(job);
 }
 
-// The panel's columns: its own once it changes them, else the reference's.
+// The panel's columns: its own once it changes them, else the reference's; This PC has its own, for drives.
 function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state)
 {
+    if (StrIsEqual(state->directory.path, Prog_ThisPC)) {
+        return (Prog_ColumnSet){ .count = 6, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Type, Prog_ColumnKind_FileSystem, Prog_ColumnKind_FreeSpace, Prog_ColumnKind_Size,
+                                                        Prog_ColumnKind_PercentFull }, .shares = { 0, 0.09f, 0.09f, 0.09f, 0.09f, 0.36f } };
+    }
     if (state->columnSet.count) return state->columnSet;
     return (Prog_ColumnSet){ .count = 5, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Type, Prog_ColumnKind_Modified, Prog_ColumnKind_Items, Prog_ColumnKind_Size } };
 }
@@ -1863,6 +1898,7 @@ function f32 Prog_ColumnShare(Prog_ColumnKind kind)
 // a resize carries the new share of the row in millionths as `value`, and a shift its direction.
 function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 column, u64 value)
 {
+    if (StrIsEqual(state->directory.path, Prog_ThisPC)) return;
     Prog_ColumnSet set = Prog_PanelColumns(state);
     switch (kind) {
         case Prog_CommandKind_ColumnShiftLeft:
@@ -1881,7 +1917,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
             --set.count;
         } break;
         case Prog_CommandKind_ColumnToggle: {
-            if (column >= Prog_ColumnKind_Count || column == Prog_ColumnKind_Name) return;
+            if (column >= Prog_FolderColumnKinds || column == Prog_ColumnKind_Name) return;
             u32 at = set.count;
             for (u32 i = 0; i < set.count; ++i) if (set.kinds[i] == column) at = i;
             if (at < set.count) {
@@ -1903,7 +1939,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
 
 // The columns' names in the files that keep them.
 global const String Prog_ColumnWords[Prog_ColumnKind_Count] = {
-    S("name"), S("type"), S("size"), S("items"), S("created"), S("modified"), S("accessed"), S("volume"), S("folder"),
+    S("name"), S("type"), S("size"), S("items"), S("created"), S("modified"), S("accessed"), S("volume"), S("folder"), S("filesystem"), S("free"), S("full"),
 };
 
 // `set` as one word: its columns' names, those resized with their share of the row after a colon, between commas; "-" for the defaults.
@@ -2660,7 +2696,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArenaRelease(&state->placesArena);
                 state->placesArena = job->arena;
                 job->arena = (Arena){0};
-                state->places = result->places;
+                // This PC leads the places, as in the reference.
+                state->places = (P_ArrayPlace){0};
+                ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = Prog_ThisPC, .path = Prog_ThisPC }));
+                for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
                 state->drives = result->drives;
                 state->pathRoots = result->roots;
                 changed = true;

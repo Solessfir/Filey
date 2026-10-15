@@ -42,6 +42,9 @@ typedef enum Prog_ColumnId {
     Prog_ColumnId_Accessed,
     Prog_ColumnId_FolderUsage,
     Prog_ColumnId_VolumeUsage,
+    Prog_ColumnId_FileSystem,
+    Prog_ColumnId_FreeSpace,
+    Prog_ColumnId_PercentFull,
     Prog_ColumnId_Count,
 } Prog_ColumnId;
 
@@ -56,8 +59,15 @@ typedef enum Prog_ColumnKind {
     Prog_ColumnKind_Accessed,
     Prog_ColumnKind_VolumeUsage,
     Prog_ColumnKind_FolderUsage,
+    // This PC's, for its drives.
+    Prog_ColumnKind_FileSystem,
+    Prog_ColumnKind_FreeSpace,
+    Prog_ColumnKind_PercentFull,
     Prog_ColumnKind_Count,
 } Prog_ColumnKind;
+
+// The kinds a folder's columns can be, which the header's menu offers.
+#define Prog_FolderColumnKinds (Prog_ColumnKind_FolderUsage + 1)
 
 // A panel's columns in their order, each with its share of the row; a share of 0 is the kind's own, and no columns at all are the defaults.
 typedef struct Prog_ColumnSet {
@@ -127,7 +137,15 @@ typedef struct Prog_Entry {
     u64 files;
     u64 bytes;
     u32 parent;       // in a listing of the subfolders, the folder it is in, by its place in `parents`
+    // A drive in This PC: its name is its root's path, and these what it shows.
+    b32 drive;
+    String label;
+    String fileSystem;
+    u64 freeBytes;
 } Prog_Entry;
+
+// The folder that lists the drives, as Explorer's This PC does; no real path looks like it.
+#define Prog_ThisPC S("This PC")
 
 typedef enum Prog_JobKind {
     Prog_JobKind_Directory,
@@ -942,6 +960,7 @@ function UI_Key Prog_PanelKeySeed(u64 id);
 function void Prog__ReleaseTab(Prog_Tab *tab);
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
 function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
+function String Prog_UpPath(String path);
 function void Prog_ListInInspector(Prog_State *state, String path);
 function void Prog_DropInspectorPanel(Prog_State *state, u64 owner);
 function void Prog_ClosePanel(Prog_State *state, u32 index);

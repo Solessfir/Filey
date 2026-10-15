@@ -74,3 +74,4 @@ chevrons-left
 chevrons-right
 move-horizontal
 rotate-ccw
+monitor

@@ -1051,9 +1051,12 @@ function P_ArrayPlace P_Drives(Arena *arena)
         b32 seen = false;
         for (u64 j = 0; j < result.header.count; ++j) seen |= StrIsEqual(result.v[j].path, path);
         if (!wanted || seen) continue;
-        P_Place place = { .path = StrCopy(arena, path) };
+        P_Place place = { .path = StrCopy(arena, path), .fileSystem = StrCopy(arena, fields.v[2]) };
         Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
         place.name = root ? S("File System") : StrCopy(arena, StrFrom(path, slash.value + 1));
+        // Mounts under /run/media and /media are removable ones, as file managers there call them.
+        b32 removable = StrIsEqual(StrFromTo(path, 0, 7), S("/media/")) || StrIsEqual(StrFromTo(path, 0, 11), S("/run/media/"));
+        place.type = removable ? S("Removable Disk") : S("Local Disk");
         struct statvfs info;
         char *native = P__FilePathCString(scratch.arena, path);
         if (native && statvfs(native, &info) == 0) {

@@ -444,6 +444,9 @@ function P_ArrayPlace P_Drives(Arena *arena)
             place.totalBytes = total.QuadPart;
             place.freeBytes = available.QuadPart;
         }
+        if (SHGetFileInfoW(drive, 0, &info, sizeof(info), SHGFI_TYPENAME) && info.szTypeName[0]) place.type = P__FileStringWide(arena, info.szTypeName, lstrlenW(info.szTypeName));
+        wchar system[MAX_PATH + 1];
+        if (GetVolumeInformationW(drive, NULL, 0, NULL, NULL, NULL, system, (u32)CArrayCount(system))) place.fileSystem = P__FileStringWide(arena, system, lstrlenW(system));
         ArrayPush(arena, result, place);
     }
     ReleaseScratch(scratch);

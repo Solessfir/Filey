@@ -768,10 +768,10 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_SizeAllColumnsToFit, .icon = Icon_MoveHorizontal);
             Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = S("Restore Default Columns"), .icon = Icon_RotateCcw);
             Prog__Item(.kind = Prog_CommandKind_None);
-            local_persist const String names[Prog_ColumnKind_Count] = {
+            local_persist const String names[Prog_FolderColumnKinds] = {
                 S("Name"), S("Type"), S("Size"), S("Total Items"), S("Date Created"), S("Date Modified"), S("Date Accessed"), S("Volume Usage"), S("Folder Usage"),
             };
-            for (u32 kind = 0; kind < Prog_ColumnKind_Count; ++kind) {
+            for (u32 kind = 0; kind < Prog_FolderColumnKinds; ++kind) {
                 b32 shown = false;
                 for (u32 i = 0; i < set.count; ++i) shown |= set.kinds[i] == kind;
                 Prog__Item(.kind = Prog_CommandKind_ColumnToggle, .row = kind, .label = names[kind], .toggle = true, .checked = shown);
@@ -1501,8 +1501,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->historyAt + 1 < state->history.header.count) Prog_RequestDirectory(state, state->history.v[state->historyAt + 1], false, state->historyAt + 1);
             } break;
             case Prog_CommandKind_Up: {
-                String parent = Prog_ParentPath(state->directory.path);
-                if (parent.length && !StrIsEqual(parent, state->directory.path)) Prog_RequestDirectory(state, parent, true, 0);
+                String up = Prog_UpPath(state->directory.path);
+                if (up.length) Prog_RequestDirectory(state, up, true, 0);
             } break;
             case Prog_CommandKind_SortByName:
             case Prog_CommandKind_SortBySize:
@@ -1531,6 +1531,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_NavigatePrefix: {
                 String path = state->directory.path;
+                // Before a drive's name, This PC.
+                if (command->row == 0 && !StrIsEqual(path, Prog_ThisPC)) Prog_RequestDirectory(state, Prog_ThisPC, true, 0);
                 if (command->row > 0 && command->row < path.length) {
                     // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
                     u64 length = path.value[command->row - 1] == ':' ? command->row + 1 : command->row;

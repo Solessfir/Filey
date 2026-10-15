@@ -147,6 +147,8 @@ typedef struct P_Place {
     String path;
     u64 totalBytes;  // drives only; 0 when the drive has no medium or does not say
     u64 freeBytes;
+    String type;        // drives only: what kind of drive it is, as "Local Disk"
+    String fileSystem;  // drives only: as "NTFS" or "ext4"; empty without a medium
 } P_Place;
 
 typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
