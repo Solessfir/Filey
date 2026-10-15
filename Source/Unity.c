@@ -75,6 +75,7 @@ typedef struct Prog_Loop {
     b32 needsFrame;
     b32 transparent;  // what the window was last set to
     u8 backdrop;
+    b32 vsyncOff;
     u64 startTime;  // cleared once the first frame is presented
     // A frame that is running; the system's modal loops can call back for a frame while one is, and that one is skipped.
     b32 inFrame;
@@ -215,6 +216,10 @@ function void Prog__Frame(void *user, PlatformEventList events)
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;
         ProfileScope("Render") {
+            if (loop->vsyncOff != state->noVSync) {
+                loop->vsyncOff = state->noVSync;
+                PlatformSetVSync(!loop->vsyncOff);
+            }
             if (loop->transparent != state->transparent || loop->backdrop != state->glassBackdrop) {
                 loop->transparent = state->transparent;
                 loop->backdrop = state->glassBackdrop;
@@ -273,8 +278,8 @@ int main(void)
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     if (ok) Prog_LoadSettings(&loop.state, P_ConfigDirectory(startup.arena));
-    // Without folders to open, the last run's panels and tabs come back.
-    if (ok && !startPaths.header.count) Prog_LoadSession(&loop.state);
+    // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
+    if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
     if (ok && getenv("FILEY_DEBUG_THEME")) Prog_SetDebugTheme(&loop.state, true);
     const char *capture = getenv("FILEY_CAPTURE_DIR");
     if (capture && capture[0]) {

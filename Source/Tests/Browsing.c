@@ -520,6 +520,31 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
         ArenaRelease(&kept);
     }
+    // A start set to the root shows This PC.
+    {
+        state.startup = Prog_Startup_Root;
+        Prog_StartUp(&state);
+        state.startup = Prog_Startup_LastSession;
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
+    }
+    // A recently visited folder is marked, and sorted before the rest when asked.
+    {
+        state.showRecents = state.sortRecents = true;
+        Prog_RequestDirectory(&state, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2")), true, 0);
+        Check(TestWaitDirectory(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path) && state.directory.count);
+        // Every recent before the rest.
+        b32 ordered = true;
+        for (u64 i = 1; i < state.directory.count; ++i) ordered &= state.directory.entries[i - 1].recent || !state.directory.entries[i].recent;
+        Check(ordered && state.directory.entries[TestEntryIndex(&state, S("Folder2"))].recent && !state.directory.entries[TestEntryIndex(&state, S("plain.txt"))].recent);
+        state.showRecents = state.sortRecents = false;
+        Prog_Reload(&state);
+        Check(TestWaitDirectory(&state) && !state.directory.entries[TestEntryIndex(&state, S("Folder2"))].recent);
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
+    }
     // Folders go first, then last, then in among the files, and first again.
     {
         TestBrowsingCommand(&state, Prog_CommandKind_CycleFolderSort, 0);
@@ -1347,7 +1372,13 @@ function void TestTabs(TestFileFixture *fixture)
     u32 closes = TestWindowCalls[2];
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
     Check(state.tabCount == 1 && TestWindowCalls[2] == closes + 1);
+    // A new tab shows This PC by default, or the current folder when the settings say so.
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+    Check(state.tabCount == 2 && state.activeTab == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    state.newTab = Prog_NewTab_Current;
+    TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+    state.newTab = Prog_NewTab_Root;
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
     // Edit Path starts Go To on the shown folder, its path selected and nothing highlighted.
     TestBrowsingCommand(&state, Prog_CommandKind_EditPath, 0);

@@ -1025,6 +1025,9 @@ global const struct wl_callback_listener FrameListener = {
     .done = FrameDone,
 };
 
+// The compositor's frame callbacks pace the frames either way, and a swap that does not wait for them would only draw frames that are never shown.
+function void PlatformSetVSync(b32 on) { (void)on; }
+
 function void PlatformSwapBuffers(void)
 {
     // The request rides on the commit the swap makes.

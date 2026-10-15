@@ -494,6 +494,7 @@ function i32 Prog_CompareNames(String a, String b)
 // Folders sort by their totals once measured, and by zero until then.
 function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending, Prog_FolderSort folders)
 {
+    if (a->recentFirst != b->recentFirst) return a->recentFirst ? -1 : 1;
     b32 ad = a->file.kind == P_FileKind_Directory;
     b32 bd = b->file.kind == P_FileKind_Directory;
     if (ad != bd && folders != Prog_FolderSort_Mixed) return ad == (folders == Prog_FolderSort_First) ? -1 : 1;
@@ -1151,6 +1152,9 @@ function void Prog__DirectoryJob(P_Job *job)
         if ((file.hidden && !input->showHidden) || (file.system && !input->showSystem)) continue;
         Prog_Entry *entry = &result->entries[result->count++];
         entry->file = file;
+        for (u32 r = 0; r < input->recentCount && !entry->recent; ++r) entry->recent = (b8)StrIsEqual(file.name, input->recentNames[r]);
+        entry->recentFirst = (b8)(entry->recent && input->sortRecents);
+        result->recentCount += entry->recent ? 1 : 0;
         result->folderCount += file.kind == P_FileKind_Directory;
         if (result->parents) {
             String parent = Prog_EntryParent(file.name);
@@ -1319,6 +1323,15 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->expanded = state->expanded;
     input->addHistory = addHistory;
     input->historyAt = historyAt;
+    // The recents inside the folder, by name, for the listing to mark and sort first.
+    if (state->showRecents || state->sortRecents) {
+        input->recentNames = ArenaPushArray(&job->arena, Max(state->recents.header.count, (u64)1), String);
+        for (u64 i = 0; i < state->recents.header.count; ++i) {
+            String recent = state->recents.v[i];
+            if (StrIsEqual(Prog_UpPath(recent), path)) input->recentNames[input->recentCount++] = StrCopy(&job->arena, Prog_EntryLeaf(recent));
+        }
+        input->sortRecents = state->sortRecents;
+    }
     job->input = input;
     state->directoryJob = job;
     state->listStarted = PlatformNowMicroseconds();
@@ -1431,6 +1444,8 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
     Prog__LoadList(state, Prog_RecentsFile, &state->recentArena, &state->recents, &found);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog_ReloadSettingsFile(state);
+    // Recents kept only for a run start empty.
+    if (state->storeRecents != Prog_StoreRecents_Persistent) Prog__SetList(&state->recentArena, &state->recents, NULL, 0);
     P_DirectoryWatchStop(&state->configWatch);
     P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
 }
@@ -1493,7 +1508,6 @@ function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at
     Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
 }
 
-// Puts `path` first among the recents.
 // Adds `path` and the folders listed in it to the folders Go To searches.
 #define Prog_MaxKnownFolders 50000
 function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry *entries, u64 count)
@@ -1515,8 +1529,10 @@ function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry
     }
 }
 
+// Puts `path` first among the recents, and saves them when they are kept across runs.
 function void Prog__AddRecent(Prog_State *state, String path)
 {
+    if (state->storeRecents == Prog_StoreRecents_Never) return;
     if (state->recents.header.count && StrIsEqual(state->recents.v[0], path)) return;
     Scratch scratch = GetScratch();
     String *paths = ArenaPushArray(scratch.arena, Prog_MaxRecents, String);
@@ -1527,7 +1543,30 @@ function void Prog__AddRecent(Prog_State *state, String path)
     }
     Prog__SetList(&state->recentArena, &state->recents, paths, count);
     ReleaseScratch(scratch);
-    Prog__SaveList(state, Prog_RecentsFile, state->recents);
+    if (state->storeRecents == Prog_StoreRecents_Persistent) Prog__SaveList(state, Prog_RecentsFile, state->recents);
+}
+
+// The user's home folder; empty when there is none.
+function String Prog_HomePath(Arena *arena)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P_ArrayPlace places = P_UserPlaces(scratch.arena);
+    String result = places.header.count && StrIsEqual(places.v[0].name, S("Home")) ? StrCopy(arena, places.v[0].path) : (String){0};
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// A start without folders to open: the last run's panels and tabs, or the place the settings name.
+function void Prog_StartUp(Prog_State *state)
+{
+    if (state->startup == Prog_Startup_LastSession) {
+        Prog_LoadSession(state);
+        return;
+    }
+    Scratch scratch = GetScratch();
+    String home = state->startup == Prog_Startup_Home ? Prog_HomePath(scratch.arena) : (String){0};
+    Prog_RequestDirectory(state, home.length ? home : Prog_ThisPC, true, 0);
+    ReleaseScratch(scratch);
 }
 
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group)

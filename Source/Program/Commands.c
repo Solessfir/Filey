@@ -317,7 +317,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
-    Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_ToggleRecents, Prog_CommandKind_ToggleSortRecents, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Scroll),
     Prog_CommandKind_SelectAll,
 };
@@ -1336,8 +1336,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_MoveTab: Prog_MoveTab(state, (u32)command->row, (u32)command->target); break;
             case Prog_CommandKind_TabNew:
             case Prog_CommandKind_TabDuplicate: {
-                // ponytail: new tabs show the current folder; a setting for other starting places can come later.
+                // A new tab shows what the settings say, and a duplicate the current tab's folder.
                 String path = Prog_TabPath(state, state->activeTab);
+                if (command->kind == Prog_CommandKind_TabNew && state->newTab == Prog_NewTab_Root) path = Prog_ThisPC;
+                String home = command->kind == Prog_CommandKind_TabNew && state->newTab == Prog_NewTab_Home ? Prog_HomePath(&state->frameArena) : (String){0};
+                if (home.length) path = home;
                 Prog_OpenTab(state, path, state->activeTab + 1, true);
             } break;
             case Prog_CommandKind_TabShiftLeft: if (state->activeTab) Prog_MoveTab(state, state->activeTab, state->activeTab - 1); break;
@@ -1525,6 +1528,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog_Reload(state);
                 }
             } break;
+            case Prog_CommandKind_ToggleRecents: Prog_SetOption(state, Prog_Option_ShowRecents, !state->showRecents); break;
+            case Prog_CommandKind_ToggleSortRecents: Prog_SetOption(state, Prog_Option_SortRecents, !state->sortRecents); break;
             case Prog_CommandKind_CycleFolderSort: {
                 state->folderSort = (u8)((state->folderSort + 1) % Prog_FolderSort_Count);
                 Prog_Reload(state);

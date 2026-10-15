@@ -236,6 +236,11 @@ function f32 Prog__ParseNumber(String value)
     return value.length ? number : -1;
 }
 
+// The words Settings.txt has for the choices of the start, new tabs and recents.
+global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { S("persistent"), S("session"), S("never") };
+global const String Prog_OptionStartups[Prog_Startup_Count] = { S("session"), S("root"), S("home") };
+global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { S("root"), S("home"), S("current") };
+
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
 //   theme = fullmoon              the reference's scheme under the colors below, for side-by-side checks
@@ -269,6 +274,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
     state->showCheckboxes = false;
+    state->startup = Prog_Startup_LastSession;
+    state->newTab = Prog_NewTab_Root;
+    state->storeRecents = Prog_StoreRecents_Persistent;
+    state->showRecents = state->sortRecents = state->noVSync = false;
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
@@ -320,6 +329,18 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->fullPaths = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("paths.trail"))) {
             state->noTrail = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("startup"))) {
+            for (u32 i = 0; i < Prog_Startup_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStartups[i])) state->startup = (u8)i;
+        } else if (StrIsEqual(name, S("newtab"))) {
+            for (u32 i = 0; i < Prog_NewTab_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabs[i])) state->newTab = (u8)i;
+        } else if (StrIsEqual(name, S("recents.store"))) {
+            for (u32 i = 0; i < Prog_StoreRecents_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStoreRecents[i])) state->storeRecents = (u8)i;
+        } else if (StrIsEqual(name, S("recents.highlight"))) {
+            state->showRecents = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("recents.sort"))) {
+            state->sortRecents = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("vsync"))) {
+            state->noVSync = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("checkboxes"))) {
             state->showCheckboxes = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("thumbnails"))) {
@@ -423,6 +444,11 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
                                 "# paths.short = on\n# paths.trail = on\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = off\n\n"
+                                "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
+                                "# startup = session\n# newtab = root\n\n"
+                                "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
+                                "# recents.store = persistent\n# recents.highlight = off\n# recents.sort = off\n\n"
+                                "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = on\n\n"
                                 "# Thumbnails in the icon views: never, local (not on network drives) or always.\n# thumbnails = local\n\n"
                                 "# Subfolder sizes, measured by walking them, and on which drives: solid-state, spinning and network.\n"
                                 "# folders.size = on\n# folders.size.ssd = on\n# folders.size.hdd = off\n# folders.size.network = off\n\n"
@@ -493,6 +519,12 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                   Prog_OptionSwitch, 2, S("paths.trail") },
     [Prog_Option_ShowCheckboxes] = { S("Show Checkboxes"), S("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, S("checkboxes") },
+    [Prog_Option_StoreRecents] = { S("Store Recents"), S("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
+                                   Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), S("recents.store") },
+    [Prog_Option_ShowRecents] = { S("Highlight Recents"), S("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
+                                  Prog_OptionSwitch, 2, S("recents.highlight") },
+    [Prog_Option_SortRecents] = { S("Sort Recents On Top"), S("Sort recently accessed files and directories to the top."), Prog_OptionControl_Switch, 0, 1,
+                                  Prog_OptionSwitch, 2, S("recents.sort") },
     [Prog_Option_LoadThumbnails] = { S("Load Thumbnails"), S("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
                                      Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), S("thumbnails") },
     [Prog_Option_CalcFolderSizes] = { S("Calculate Folder Sizes"), S("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
@@ -518,6 +550,12 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                     Prog_OptionSwitch, 2, S("scroll.reverse") },
     [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
+    [Prog_Option_LoadOnStartup] = { S("Load On Startup"), S("Previous session or location to load on startup."), Prog_OptionControl_Choice, 0, 0,
+                                    Prog_OptionStartups, CArrayCount(Prog_OptionStartups), S("startup") },
+    [Prog_Option_NewTabShow] = { S("New Tab Show"), S("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
+                                 Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), S("newtab") },
+    [Prog_Option_VSync] = { S("VSync"), S("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
+                            Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("vsync") },
     [Prog_Option_Transparency] = { S("Transparency"), S("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
                                    Prog_OptionSwitch, 2, S("transparent") },
     [Prog_Option_PopupBlur] = { S("Popup Blur"), S("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
@@ -557,6 +595,12 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
+        case Prog_Option_StoreRecents: return state->storeRecents;
+        case Prog_Option_ShowRecents: return state->showRecents;
+        case Prog_Option_SortRecents: return state->sortRecents;
+        case Prog_Option_LoadOnStartup: return state->startup;
+        case Prog_Option_NewTabShow: return state->newTab;
+        case Prog_Option_VSync: return !state->noVSync;
         case Prog_Option_LoadThumbnails: return state->thumbnailMode == Prog_Thumbnails_Never ? 0 : state->thumbnailMode == Prog_Thumbnails_Always ? 2 : 1;
         case Prog_Option_CalcFolderSizes: return !state->noFolderSizes;
         case Prog_Option_CalcFolderSizesSSD: return !state->noFolderSizesSolidState;
@@ -646,8 +690,11 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
         Prog_ApplySettings(state, line);
     }
     ReleaseScratch(scratch);
-    // What the folder lists changes with these, so it is listed again.
-    if (option == Prog_Option_ShowHiddenFiles || option == Prog_Option_ShowSystemFiles) Prog_Reload(state);
+    // What the folder lists, marks or measures changes with these, so it is listed again.
+    if (option == Prog_Option_ShowHiddenFiles || option == Prog_Option_ShowSystemFiles || option == Prog_Option_ShowRecents || option == Prog_Option_SortRecents ||
+        (option >= Prog_Option_CalcFolderSizes && option <= Prog_Option_CalcFolderSizesNetwork)) {
+        Prog_Reload(state);
+    }
 }
 
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
@@ -1520,6 +1567,10 @@ global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
 
 // The panel's columns laid out for rows `room` wide, as the reference lays them out at any width: each its share of it, however narrow,
 // Name what the others leave of it rounded down, and the last column the pixels left over.
+// The column before the rows' icons that marks the recents, there only while the folder holds any.
+function f32 Prog__RecentGutter(f32 scale) { return floorf(19.2f * scale + 0.5f); }
+function b32 Prog__MarksRecents(const Prog_State *state) { return state->showRecents && state->directory.recentCount; }
+
 function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room)
 {
     local_persist const Prog_ColumnId ids[Prog_ColumnKind_Count] = {
@@ -1532,6 +1583,7 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
     if (room <= 0) room = 918.0f * scale;
     // The shares are of the rows inside their outlines.
     room -= floorf(1.6f * scale + 0.5f);
+    if (Prog__MarksRecents(state)) room -= Prog__RecentGutter(scale);
     Prog_ColumnSet set = Prog_PanelColumns(state);
     Prog_Columns result = { .room = room };
     // Shares that add up to more than nine tenths shrink together, so that Name keeps a tenth.
@@ -1611,6 +1663,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
     // Where each column ends in the last layout, for the edges that resize them, from where the first starts.
     f32 ends[Prog_ColumnKind_Count + 1] = {0}, x0 = 0;
     UI_Parent(header) {
+        if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(m->row));
         for (u32 c = 0; c < columns->count; ++c) {
             const Prog_Column *column = &columns->v[c];
             u32 id = column->id;
@@ -2216,7 +2269,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     UI_Block *row = UI_AddBlockFromKey(key, (tinted ? UI_Flag_DrawBackground : 0) | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
     // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
-    b32 onName = UI->pressOrigin.x < row->rect.x0 + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
+    b32 onName = UI->pressOrigin.x < row->rect.x0 + (Prog__MarksRecents(state) ? Prog__RecentGutter(m->scale) : 0) + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
     b32 result = Prog__ItemInput(state, index, row, key, onName, renaming);
     String values[Prog_ColumnId_Count];
     Prog__EntryValues(state, entry, values);
@@ -2224,6 +2277,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live) && !live.complete;
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
+        if (Prog__MarksRecents(state) && entry->recent) Prog__Icon(Icon_Clock, Prog__RecentGutter(m->scale), height, theme->text, 0.5f, m);
+        else if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(height));
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
             const Prog_Column *column = &columns->v[c];

@@ -150,6 +150,9 @@ typedef struct Prog_Entry {
     u64 freeBytes;
     String original;     // a binned item's folder before it was deleted
     i64 deletedTimeUnix;
+    // Among the recents, and sorted before the rest for it.
+    b8 recent;
+    b8 recentFirst;
 } Prog_Entry;
 
 // The folder that lists the drives, as Explorer's This PC does; no real path looks like it.
@@ -270,6 +273,10 @@ typedef struct Prog_JobInput {
     b32 expanded;
     b32 addHistory;
     u64 historyAt;
+    // The names of the recents inside `path`, which are marked, and sorted first with sortRecents.
+    String *recentNames;
+    u32 recentCount;
+    b32 sortRecents;
     // Rename `name` to `newName` inside `path`, which is `prefix` below the shown folder; WarmMenu uses `path` and `name`.
     String name;
     String newName;
@@ -385,6 +392,9 @@ typedef enum Prog_Option {
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
     Prog_Option_ShowCheckboxes,
+    Prog_Option_StoreRecents,
+    Prog_Option_ShowRecents,
+    Prog_Option_SortRecents,
     Prog_Option_LoadThumbnails,
     Prog_Option_CalcFolderSizes,
     Prog_Option_CalcFolderSizesSSD,
@@ -399,6 +409,9 @@ typedef enum Prog_Option {
     Prog_Option_Overscroll,
     Prog_Option_ReverseScroll,
     Prog_Option_InspectorLayout,
+    Prog_Option_LoadOnStartup,
+    Prog_Option_NewTabShow,
+    Prog_Option_VSync,
     Prog_Option_Transparency,
     Prog_Option_PopupBlur,
     Prog_Option_Backdrop,
@@ -422,6 +435,30 @@ typedef struct Prog_OptionDesc {
     u32 choiceCount;
     String setting;          // its name in Settings.txt
 } Prog_OptionDesc;
+
+// What a start without folders to open shows: the last run's panels and tabs, This PC or the home folder.
+typedef enum Prog_Startup {
+    Prog_Startup_LastSession,
+    Prog_Startup_Root,
+    Prog_Startup_Home,
+    Prog_Startup_Count,
+} Prog_Startup;
+
+// What a new tab shows: This PC, the home folder or the folder the current tab shows.
+typedef enum Prog_NewTab {
+    Prog_NewTab_Root,
+    Prog_NewTab_Home,
+    Prog_NewTab_Current,
+    Prog_NewTab_Count,
+} Prog_NewTab;
+
+// How long the recents are kept: across runs, until the app closes, or not at all.
+typedef enum Prog_StoreRecents {
+    Prog_StoreRecents_Persistent,
+    Prog_StoreRecents_Session,
+    Prog_StoreRecents_Never,
+    Prog_StoreRecents_Count,
+} Prog_StoreRecents;
 
 // Which folders' icon views show their files' thumbnails; those that do not show the files' type icons.
 typedef enum Prog_Thumbnails {
@@ -573,6 +610,7 @@ typedef struct Prog_Directory {
     enum8(Prog_FolderSort) folderSort;
     b32 showHidden;
     enum8(P_DriveKind) driveKind;
+    u64 recentCount;  // entries among the recents
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
@@ -823,6 +861,12 @@ typedef struct Prog_State {
     enum8(Prog_Thumbnails) thumbnailMode;
     // While several items are selected, the rows show boxes that check them in place of their icons.
     b32 showCheckboxes;
+    // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
+    enum8(Prog_Startup) startup;
+    enum8(Prog_NewTab) newTab;
+    enum8(Prog_StoreRecents) storeRecents;
+    b32 showRecents, sortRecents;
+    b32 noVSync;
     b32 noFolderSizes;
     b32 noFolderSizesSolidState, folderSizesSpinning, folderSizesNetwork;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
@@ -1040,6 +1084,8 @@ function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
 function String Prog_UpPath(String path);
 function String Prog_TrailText(const Prog_State *state);
 function b32 Prog_MeasuresFolders(const Prog_State *state);
+function void Prog_StartUp(Prog_State *state);
+function String Prog_HomePath(Arena *arena);
 function b32 Prog_ShowsThumbnails(const Prog_State *state);
 function void Prog_ListInInspector(Prog_State *state, String path);
 function void Prog_DropInspectorPanel(Prog_State *state, u64 owner);

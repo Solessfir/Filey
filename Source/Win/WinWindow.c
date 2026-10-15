@@ -20,6 +20,7 @@ typedef struct WinWindowState {
     HDC dc;
     HGLRC glContext;
     HMODULE openGL;
+    WglSwapIntervalFn *swapInterval;
 
     i32 width;
     i32 height;
@@ -395,6 +396,7 @@ function b32 WinCreateGLContext(void)
     if (swapInterval != NULL) {
         swapInterval(1);
     }
+    Win.swapInterval = swapInterval;
 
     Win.openGL = GetModuleHandleW(L"opengl32.dll");
     return true;
@@ -509,6 +511,11 @@ function void P_WakeWindow(void)
 
 function void P_ReleaseWindowWake(void)
 {
+}
+
+function void PlatformSetVSync(b32 on)
+{
+    if (Win.swapInterval) Win.swapInterval(on ? 1 : 0);
 }
 
 function void PlatformSwapBuffers(void)

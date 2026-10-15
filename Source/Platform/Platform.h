@@ -202,6 +202,8 @@ function void PlatformSetModalFrameCallback(PlatformFrameCallback *callback, voi
 typedef void PlatformProc(void);
 
 function void          PlatformSwapBuffers(void);
+// Whether swapping waits for the display's refresh; on by default.
+function void          PlatformSetVSync(b32 on);
 function PlatformProc *PlatformGLGetProc(const char *name);
 
 // -----------------------------------------------------------------------------

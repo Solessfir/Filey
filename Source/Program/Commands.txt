@@ -484,6 +484,16 @@ command ColumnToggle {
 command ColumnResize {
 }
 
+command ToggleRecents {
+    label   = "Toggle Highlight Recents^set,show,hide"
+    tooltip = "Toggle marking recently accessed files and directories."
+}
+
+command ToggleSortRecents {
+    label   = "Toggle Sort Recents^show,hide,highlight"
+    tooltip = "Toggle sorting of recently accessed files and directories to the top."
+}
+
 command CycleFolderSort {
     label   = "Cycle Folders Sort Order^directory,toggle"
     tooltip = "Cycle how folders and files are sorted: folders first, files first or mixed together."
