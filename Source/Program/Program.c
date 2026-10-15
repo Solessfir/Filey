@@ -3096,7 +3096,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_Block *stack = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(stack) {
                 f32 bar = MaxF32(2.0f, floorf(4.0f * m->scale + 0.5f));
-                f32 width = floorf(MinF32(R_TextWidth(m->font, name), m->sidebar * 0.55f));
+                // Every drive's bar is as long, whatever its name or the sidebar's width, as the reference's.
+                f32 width = floorf(76.8f * m->scale);
                 f32 used = floorf(width * (f32)(drive->totalBytes - Min(drive->freeBytes, drive->totalBytes)) / (f32)drive->totalBytes);
                 f32 top = floorf((m->row - m->line - bar * 2) * 0.5f);
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
