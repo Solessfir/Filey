@@ -1467,13 +1467,14 @@ function b32 Prog__EntryFaded(const Prog_Entry *entry)
 }
 
 // The item's system icon drawn at `size` in a `width` x `height` slot, or a glyph while it loads or when it has none.
-// Above the list icon size it is the item's thumbnail, and nothing shows while that loads, since a stretched list icon would only blur.
+// Above the list icon size it is the item's thumbnail, with its type's icon at that size while the thumbnail loads, since a stretched list icon would blur.
 function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 size, f32 width, f32 height, f32 alignX, b32 highlighted, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 faded = Prog__EntryFaded(entry);
     b32 thumbnail = size > (f32)state->iconSize;
     const Prog_Icon *icon = thumbnail ? Prog_ThumbnailIcon(state, state->directory.path, entry, (i32)size) : Prog_FileIcon(state, state->directory.path, entry);
+    if (thumbnail && !icon) icon = Prog_ThumbnailStandIn(state, state->directory.path, entry, (i32)size);
     if (thumbnail && !icon) {
         Prog__Spacer(UI_Pixels(width), UI_Pixels(height));
     } else if (icon) {

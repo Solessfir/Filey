@@ -1,5 +1,6 @@
 // File icon cache.
-// Rows look icons up by key while building UI; unknown keys are queued and loaded by one background job per frame, then packed into RGBA atlas pages on the main thread.
+// Rows look icons up by key while building UI; unknown keys are queued and loaded by background jobs, then packed into RGBA atlas pages on the main thread.
+// Each frame's icons load in one job, and its thumbnails, which the shell makes slowly, in a few more that run side by side.
 
 #define Prog_IconPageSize 512
 
@@ -50,7 +51,7 @@ function void Prog__IconJob(P_Job *job)
         Prog_IconRequest *request = &input->icons[i];
         Scratch scratch = GetScratchEx(&job->arena);
         P_Image image = {0};
-        b32 thumbnail = request->size != input->iconSize;
+        b32 thumbnail = request->size != input->iconSize && !request->plain;
         if (thumbnail ? P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, &image)
                       : P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, request->exact, &image)) {
             pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
@@ -66,13 +67,14 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
 }
 
 // The cached icon for `key` in `map`, or NULL after queueing a load of `path` at `size` when it is new.
-function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog_IconMap *map, String key, String path, P_FileKind kind, i32 size, b32 exact)
+function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog_IconMap *map, String key, String path, P_FileKind kind, i32 size, b32 exact, b32 plain)
 {
     Prog_Icon *icon = MapsGetPtrNull(*map, key);
     if (icon == NULL) {
         MapsPut(arena, *map, StrCopy(arena, key), (Prog_Icon){ .state = Prog_IconState_Pending });
         // Requests outlive the frame when nothing submits them before the next one.
-        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size, .exact = (b8)(exact != 0) };
+        Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size,
+                                     .exact = (b8)(exact != 0), .plain = (b8)(plain != 0) };
         ArrayPush(&state->iconArena, state->iconRequests, request);
         return NULL;
     }
@@ -83,7 +85,7 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 {
     if (state->iconSize <= 0) return NULL;
     String key = P_FileIconKey(&state->frameArena, path, kind);
-    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, kind, state->iconSize, false);
+    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, kind, state->iconSize, false, false);
 }
 
 // The folder's own icon, as the shell shows the desktop or downloads, for the few folders named in the sidebar and the tabs.
@@ -91,7 +93,7 @@ function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path)
 {
     if (state->iconSize <= 0) return NULL;
     String key = StrFormat(&state->frameArena, "exact:%S", path);
-    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true);
+    return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true, false);
 }
 
 function void Prog__ResetAtlas(Prog_IconAtlas *atlas, i32 size, i32 pageSize, u32 pageLimit)
@@ -133,25 +135,48 @@ function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory
     if (size != state->thumbnailAtlas.size) Prog__ResetThumbnails(state, size);
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     String key = P_FileThumbnailKey(&state->frameArena, path, entry->file.kind);
-    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size, false);
+    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size, false, false);
 }
 
-function void Prog_SubmitIconRequests(Prog_State *state)
+// The icon of `entry`'s type at its thumbnail's size, shared by every item of that type, for the icon views to show until the thumbnail comes.
+function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size)
 {
-    if (!state->iconRequests.header.count) return;
+    if (state->iconSize <= 0 || size <= 0 || size != state->thumbnailAtlas.size) return NULL;
+    String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
+    String key = StrFormat(&state->frameArena, "type:%S", P_FileIconKey(&state->frameArena, path, entry->file.kind));
+    return Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, entry->file.kind, size, false, true);
+}
+
+// A job for `count` of the queued requests that are thumbnails, or that are not, from the `skip`th of those on.
+function void Prog__SubmitIconJob(Prog_State *state, b32 thumbnails, u64 skip, u64 count)
+{
+    if (!count) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__IconJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Icons;
     input->iconSize = state->iconSize;
-    input->iconCount = state->iconRequests.header.count;
-    input->icons = ArenaPushArray(&job->arena, input->iconCount, Prog_IconRequest);
-    for (u64 i = 0; i < input->iconCount; ++i) {
+    input->icons = ArenaPushArray(&job->arena, count, Prog_IconRequest);
+    for (u64 i = 0, seen = 0; i < state->iconRequests.header.count && input->iconCount < count; ++i) {
         Prog_IconRequest *source = &state->iconRequests.v[i];
-        input->icons[i] = (Prog_IconRequest){ StrCopy(&job->arena, source->path), StrCopy(&job->arena, source->key), source->kind, source->size, source->exact };
+        if ((source->size != state->iconSize && !source->plain) != (thumbnails != 0) || seen++ < skip) continue;
+        Prog_IconRequest *copy = &input->icons[input->iconCount++];
+        *copy = *source;
+        copy->path = StrCopy(&job->arena, source->path);
+        copy->key = StrCopy(&job->arena, source->key);
     }
     job->input = input;
-    state->iconRequests = (Prog_ArrayIconRequest){0};
     P_JobSubmit(job);
+}
+
+function void Prog_SubmitIconRequests(Prog_State *state)
+{
+    u64 total = state->iconRequests.header.count, thumbnails = 0;
+    if (!total) return;
+    for (u64 i = 0; i < total; ++i) thumbnails += state->iconRequests.v[i].size != state->iconSize && !state->iconRequests.v[i].plain;
+    Prog__SubmitIconJob(state, false, 0, total - thumbnails);
+    u64 lanes = Max((u64)1, (u64)state->jobs.threadCount), share = (thumbnails + lanes - 1) / lanes;
+    for (u64 first = 0; first < thumbnails; first += share) Prog__SubmitIconJob(state, true, first, Min(share, thumbnails - first));
+    state->iconRequests = (Prog_ArrayIconRequest){0};
 }
 
 // Copies `pixels` (the atlas's size square) into its next cell; false when it is full.
@@ -248,7 +273,7 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_IconRequest *request = &input->icons[i];
         b32 thumbnail = request->size != state->iconSize;
-        // Thumbnails of a size the zoom has left are dropped; the items ask again at the new size.
+        // Thumbnails and their stand-ins of a size the zoom has left are dropped; the items ask again at the new size.
         if (thumbnail && request->size != state->thumbnailAtlas.size) continue;
         Prog_IconMap *map = thumbnail ? &state->thumbnails : &state->icons;
         Prog_Icon *icon = MapsGetPtrNull(*map, request->key);

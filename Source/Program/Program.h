@@ -135,6 +135,7 @@ typedef struct Prog_IconRequest {
     enum8(P_FileKind) kind;
     i32 size;          // square size to load at; above the list icon size it is a thumbnail for the icon views
     b8 exact;          // the item's own icon rather than its type's
+    b8 plain;          // its type's icon at a thumbnail's size, which stands in while the thumbnail loads
 } Prog_IconRequest;
 
 typedef struct Prog_ArrayIconRequest { ArrayHeader header; Prog_IconRequest *v; } Prog_ArrayIconRequest;
@@ -812,6 +813,7 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
 function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind);
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
+function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function void Prog_SubmitIconRequests(Prog_State *state);
 function void Prog_CloseMenu(Prog_State *state);
 function void Prog_DragSelection(Prog_State *state);
