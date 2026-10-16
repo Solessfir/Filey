@@ -1627,6 +1627,12 @@ function void TestTabs(TestFileFixture *fixture)
     Prog__EditReplace(&state.palette, (const u8 *)fileName.value, (u32)fileName.length);
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 1 && found[0].file && TestEndsWith(found[0].path, fileName));
+    // A drive is found by the name it is shown by, which its folder does not have.
+    state.drives.v[0].name = S("Samsung Test Drive");
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    Prog__EditReplace(&state.palette, (const u8 *)"samsung test", 12);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 1 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[0].name, S("Samsung Test Drive")));
     // What the walk wrote reads back as the same entries, once its last step has put it in place.
     String saved = Prog_JoinPath(&driveArena, cache, Prog_IndexFile), contents = {0};
     start = PlatformNowMicroseconds();

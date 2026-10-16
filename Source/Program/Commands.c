@@ -971,12 +971,12 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         // The walk's index once it is done, and before then the last run's, unless there is none.
         const Prog_Index *index = state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
-        u64 nearby = recents + bookmarks + known;
+        u64 nearby = recents + bookmarks + known, drives = state->drives.header.count;
         // Ranked by the score of the name and the shown path; within a score the walk's order keeps shallower entries first.
         // The few close at hand and what is right inside them match by their path too, the rest of the index by their name only.
         Arena *arena = &state->gotoFoundArena;
         String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
-        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby || state->gotoIndex != index) {
+        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby + drives || state->gotoIndex != index) {
             ArenaClear(arena);
             state->gotoPool = ArenaPushArray(arena, Prog_GoToPool, Prog_GoToItem);
             state->gotoRanks = ArenaPushArray(arena, Prog_GoToPool, u16);
@@ -984,13 +984,22 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             state->gotoFloor = Prog_GoToRanks;
             state->gotoScanAt = 0;
             state->gotoScanFrame = UINT64_MAX;
-            state->gotoNearby = nearby;
+            state->gotoNearby = nearby + drives;
             state->gotoIndex = index;
             state->gotoSeen = (Prog_PathSet){0};
             state->gotoNearbyNames = (Prog_PathSet){0};
             state->gotoNearbyPaths = (Prog_PathSet){0};
             state->gotoFoundTextLength = (u32)Min(text.length, (u64)sizeof(state->gotoFoundText));
             MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
+            // The drives first, by the names they are shown by, as "Samsung SSD 990 PRO 4TB", which the index and the recents know only their folders' names for.
+            for (u64 i = 0; i < drives; ++i) {
+                const P_Place *drive = &state->drives.v[i];
+                i32 score = Prog__GoToScore(state, drive->name, drive->path, text);
+                if (score <= 0 || MapsGetPtrNull(state->gotoSeen, drive->path)) continue;
+                String path = StrCopy(arena, drive->path);
+                MapsPut(arena, state->gotoSeen, path, true);
+                Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, false, false, StrCopy(arena, drive->name), NULL }, Prog__GoToRank(score));
+            }
             // The folders close at hand first, which the index's entries are then told apart by.
             for (u64 i = 0; i < nearby; ++i) {
                 if (i < recents && (state->recentRanks[i].file || Prog_RecentLeftOut(state, i))) continue;
