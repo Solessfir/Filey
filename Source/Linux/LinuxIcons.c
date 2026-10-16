@@ -598,6 +598,39 @@ function void P__BadgeWindows(P_Image *image)
     }
 }
 
+// A small penguin over the top left corner of the root drive's icon, as Windows marks its own drive with its logo.
+function void P__BadgeTux(Arena *arena, P_Image *image)
+{
+    // Drawn here rather than taken from a theme, few of which have one in color; a light rim keeps its black body seen on dark sidebars.
+    local_persist const char tux[] =
+        "<svg width=\"16\" height=\"16\"><ellipse cx=\"8\" cy=\"8.2\" rx=\"5.2\" ry=\"6.6\" fill=\"#1a1a1a\" stroke=\"#d8d8d8\" stroke-width=\"1\"/>"
+        "<ellipse cx=\"8\" cy=\"10\" rx=\"3.5\" ry=\"4.6\" fill=\"#f2f2f2\"/>"
+        "<circle cx=\"6.4\" cy=\"4.6\" r=\"1.25\" fill=\"#f2f2f2\"/><circle cx=\"9.6\" cy=\"4.6\" r=\"1.25\" fill=\"#f2f2f2\"/>"
+        "<circle cx=\"6.6\" cy=\"4.8\" r=\"0.6\" fill=\"#1a1a1a\"/><circle cx=\"9.4\" cy=\"4.8\" r=\"0.6\" fill=\"#1a1a1a\"/>"
+        "<ellipse cx=\"8\" cy=\"6.7\" rx=\"1.8\" ry=\"1\" fill=\"#f6b40e\"/>"
+        "<ellipse cx=\"5\" cy=\"14.7\" rx=\"2.6\" ry=\"1.2\" fill=\"#f6b40e\"/><ellipse cx=\"11\" cy=\"14.7\" rx=\"2.6\" ry=\"1.2\" fill=\"#f6b40e\"/></svg>";
+    i32 size = Max(Min(image->width, image->height) * 3 / 5, 6);
+    // nanosvg parses in place.
+    char *text = ArenaPushArray(arena, sizeof(tux), char);
+    MemCopy(text, tux, sizeof(tux));
+    NSVGimage *svg = nsvgParse(text, "px", 96.0f);
+    NSVGrasterizer *rasterizer = svg ? nsvgCreateRasterizer() : NULL;
+    if (rasterizer) {
+        u32 *badge = ArenaPushArray(arena, (u64)size * (u64)size, u32);
+        nsvgRasterize(rasterizer, svg, 0, 0, (f32)size / 16.0f, (u8 *)badge, size, size, size * 4);
+        nsvgDeleteRasterizer(rasterizer);
+        for (i32 y = 0; y < size && y < image->height; ++y) {
+            for (i32 x = 0; x < size && x < image->width; ++x) {
+                u32 over = badge[(u64)y * (u64)size + (u64)x], *under = &image->pixels[(u64)y * (u64)image->width + (u64)x];
+                u32 alpha = over >> 24, keep = 255 - alpha, result = 0;
+                for (u32 shift = 0; shift < 24; shift += 8) result |= ((((over >> shift) & 0xFF) * alpha + ((*under >> shift) & 0xFF) * keep) / 255) << shift;
+                *under = result | ((alpha + ((*under >> 24) * keep) / 255) << 24);
+            }
+        }
+    }
+    if (svg) nsvgDelete(svg);
+}
+
 // Whether an icon is drawn in grays alone, as the small symbolic designs of some themes are.
 function b32 P__IsGray(const P_Image *image)
 {
@@ -659,6 +692,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         String large = result && i < places && P__IsGray(image) ? P__FindIcon(scratch.arena, names.v[i], 512, 1) : (String){0};
         if (large.length && P__DecodeIcon(arena, large, size, &colored) && !P__IsGray(&colored)) *image = colored;
         if (result && windows && i >= 2) P__BadgeWindows(image);
+        if (result && kind == P_FileKind_Drive && StrIsEqual(path, S("/"))) P__BadgeTux(scratch.arena, image);
     }
     ReleaseScratch(scratch);
     return result;

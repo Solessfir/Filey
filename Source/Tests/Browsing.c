@@ -725,6 +725,10 @@ function void TestFileIcons(TestFileFixture *fixture)
         u32 pixels[20 * 20] = {0};
         P__BadgeWindows(&(P_Image){ pixels, 20, 20 });
         Check(pixels[0] == 0xFFD47800u && pixels[19 * 20 + 19] == 0 && pixels[10 * 20 + 10] == 0);
+        // The root drive's penguin covers the top left corner and leaves the rest.
+        u32 root[20 * 20] = {0};
+        P__BadgeTux(&arena, &(P_Image){ root, 20, 20 });
+        Check((root[6 * 20 + 6] >> 24) != 0 && root[19 * 20 + 19] == 0);
         Check(!StrIsEqual(P_FileIconKey(&arena, S("/"), P_FileKind_Drive), P_FileIconKey(&arena, S("/mnt/c"), P_FileKind_Drive)));
     }
     // A gray symbol gives way to color for a place; a little tint is still gray.
