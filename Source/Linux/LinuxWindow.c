@@ -118,6 +118,10 @@ typedef struct LinuxWindowState {
     // Frame pacing: the next frame waits for the compositor's callback for the last one, or for the deadline when it never comes.
     struct wl_callback *frameCallback;
     u64 frameDeadline;
+    // A new size draws at once rather than after the callback, which comes only once the compositor has shown the old frame at the new size;
+    // one such early frame per callback keeps a resize from drawing at the pointer's rate.
+    b32 resizePending;
+    b32 earlyFrame;
     i32 wakeFd;
 } LinuxWindowState;
 
@@ -728,11 +732,14 @@ function i32 LinuxPhysical(i32 logical)
     return (i32)((f32)logical * Wl.scale + 0.5f);
 }
 
+function b32 LinuxDrawsEarly(void) { return Wl.resizePending && !Wl.earlyFrame; }
+
 function void LinuxApplySize(void)
 {
     i32 width = LinuxPhysical(Wl.width);
     i32 height = LinuxPhysical(Wl.height);
     if (Wl.viewport) wp_viewport_set_destination(Wl.viewport, Wl.width, Wl.height);
+    Wl.resizePending = true;
     if (Wl.eglWindow != NULL) {
         wl_egl_window_resize(Wl.eglWindow, width, height, 0, 0);
     }
@@ -1055,7 +1062,7 @@ function PlatformEventList PlatformPollEvents(b32 wait)
     b32 woken = false;
     for (;;) {
         u64 now = PlatformNowMicroseconds();
-        b32 holding = !Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && now < Wl.frameDeadline));
+        b32 holding = !Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && now < Wl.frameDeadline && !LinuxDrawsEarly()));
         b32 pacing = holding && !Wl.suspended;
         i32 timeout = 0;
         if (holding || (wait && EventQueue.pending.count == 0)) {
@@ -1095,7 +1102,7 @@ function PlatformEventList PlatformPollEvents(b32 wait)
             PlatformPushEvent(PlatformEventKind_CloseRequested);
         }
 
-        if (!Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && PlatformNowMicroseconds() < Wl.frameDeadline))) continue;
+        if (!Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && PlatformNowMicroseconds() < Wl.frameDeadline && !LinuxDrawsEarly()))) continue;
         if (!wait || timeout == 0 || woken || Wl.closed || EventQueue.pending.count) break;
     }
 
@@ -1117,7 +1124,10 @@ function void P_ReleaseWindowWake(void)
 function void FrameDone(void *data, struct wl_callback *callback, u32 time)
 {
     wl_callback_destroy(callback);
-    if (callback == Wl.frameCallback) Wl.frameCallback = NULL;
+    if (callback == Wl.frameCallback) {
+        Wl.frameCallback = NULL;
+        Wl.earlyFrame = false;
+    }
 }
 
 global const struct wl_callback_listener FrameListener = {
@@ -1131,6 +1141,8 @@ function void PlatformSwapBuffers(void)
 {
     // The request rides on the commit the swap makes.
     // A hidden window may never get its callback; the deadline keeps such a frame from holding up the next one for longer than a second.
+    Wl.earlyFrame = Wl.frameCallback != NULL && PlatformNowMicroseconds() < Wl.frameDeadline;
+    Wl.resizePending = false;
     if (Wl.frameCallback) wl_callback_destroy(Wl.frameCallback);
     Wl.frameCallback = wl_surface_frame(Wl.surface);
     wl_callback_add_listener(Wl.frameCallback, &FrameListener, NULL);
