@@ -2843,19 +2843,31 @@ function String Prog__FormatCount(Arena *arena, u64 count);
 function void Prog__FillBar(String label, f32 fraction, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 barWidth = floorf(40.8f * m->scale + 0.5f), barHeight = floorf(m->line * 1.2f);
+    f32 barWidth = floorf(40.8f * m->scale + 0.5f), barHeight = floorf(m->line * 1.2f), radius = floorf(4.0f * m->scale + 0.5f);
+    f32 filled = floorf(barWidth * fraction);
     UI_SetNextPrefWidth(UI_Pixels(barWidth));
     UI_SetNextPrefHeight(UI_Pixels(barHeight));
-    UI_SetNextCornerRadius(m->radius * 0.5f);
-    UI_SetNextColors((UI_Colors){ .background = theme->track });
-    UI_Block *bar = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
+    UI_Block *bar = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(bar) {
-        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-        UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * fraction)));
-        UI_SetNextPrefHeight(UI_Pixels(barHeight));
-        UI_SetNextCornerRadius(m->radius * 0.5f);
-        UI_SetNextColors((UI_Colors){ .background = theme->accent });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        // The fill and the track are each the bar's rounded shape cut off where the fill ends, so that the fill's end is straight and
+        // neither one's smoothed corners show through the other's.
+        f32 from[2] = { 0, filled }, to[2] = { filled, barWidth };
+        R_Color colors[2] = { theme->accent, theme->track };
+        for (u32 i = 0; i < 2; ++i) {
+            if (to[i] <= from[i]) continue;
+            UI_SetNextFloatingOffset((UI_Vec2){ from[i], 0 });
+            UI_SetNextPrefWidth(UI_Pixels(to[i] - from[i]));
+            UI_SetNextPrefHeight(UI_Pixels(barHeight));
+            UI_Block *cut = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+            UI_Parent(cut) {
+                UI_SetNextFloatingOffset((UI_Vec2){ -from[i], 0 });
+                UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                UI_SetNextCornerRadius(radius);
+                UI_SetNextColors((UI_Colors){ .background = colors[i] });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        }
         // A block's text draws before its children, so the label is a child after the fill.
         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
         Prog__Label(label, UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
@@ -2863,6 +2875,14 @@ function void Prog__FillBar(String label, f32 fraction, const Prog_Metrics *m)
 }
 
 function void Prog__FolderSortIcon(Prog_FolderSort sort, R_Color color, R_Color behind, const Prog_Metrics *m);
+
+// An icon glyph in a bottom bar's pill. The icon font sets its glyphs higher in their line than the text's, so it is moved down to center
+// its ink on the pill, as the text's is.
+function void Prog__StatusIcon(String icon, f32 width, f32 height, R_Color color, const Prog_Metrics *m)
+{
+    Prog__Icon(icon, width, height, color, 0.5f, m);
+    UI->parent->last->props.childrenPadding.top = 2 * floorf(0.8f * m->scale + 0.5f);
+}
 
 function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
 {
@@ -2911,7 +2931,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextColors((UI_Colors){ .background = theme->inner });
                 UI_Block *well = UI_AddBlock(UI_Flag_DrawBackground);
                 UI_Parent(well) {
-                    Prog__Icon(Icon_Search, m->iconSlot - m->gap, tall, state->filter.length ? theme->text : theme->textDim, 0.5f, m);
+                    Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, tall, state->filter.length ? theme->text : theme->textDim, m);
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(tall));
                     UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
@@ -2927,7 +2947,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     Prog__PillButton(state, S("FilterRemove"), Icon_X, Prog_CommandKind_RemoveFilter, false, m);
                 }
             } else {
-                Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
+                Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, m);
                 String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
                 // In the pill's middle, as the buttons of the filter field are in theirs.
@@ -2975,7 +2995,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 // How long the listing has taken, once that is a second or more: counting while it walks, then kept.
                 u64 now = UI->nowMicroseconds, took = walking ? now - Min(state->listStarted, now) : state->listTook;
                 if (took >= 1000000) {
-                    Prog__Icon(Icon_Clock, 0, m->pill, theme->icon, 0.5f, m);
+                    Prog__StatusIcon(Icon_Clock, 0, m->pill, theme->icon, m);
                     Prog__LabelPadded(StrFormat(&state->frameArena, "%.2f sec", (f64)took / 1e6), UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), theme->text, 0);
                 }
                 if (walking) UI_KeepAnimating();
@@ -2993,7 +3013,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     if (interaction.clicked) Prog_QueueCommand(state, kinds[i], 0, 0, interaction.clickOrder);
                     b32 hot = UI->hotKey == toggle->key;
                     UI_Parent(toggle) {
-                        Prog__Icon(icons[i], 0, m->pill, hidden[i] ? theme->iconDisabled : hot ? theme->text : theme->icon, 0.5f, m);
+                        Prog__StatusIcon(icons[i], 0, m->pill, hidden[i] ? theme->iconDisabled : hot ? theme->text : theme->icon, m);
                         Prog__LabelPadded(text, UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), hidden[i] ? theme->textDim : theme->text, 0);
                     }
                 }
@@ -3030,7 +3050,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 if (state->currentPanel == state->activePanel) state->zoomAnchor = viewButton->rect;
                 b32 viewHot = UI->hotKey == viewButton->key || (state->zoomShown && state->currentPanel == state->activePanel);
                 UI_Parent(viewButton) {
-                Prog__Icon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, 0.5f, m);
+                Prog__StatusIcon(viewIcons[view], 0, m->pill, viewHot ? theme->text : theme->icon, m);
                 Prog__LabelPadded(name, UI_TextContent(), m->pill, nameGap, 0, theme->text, 0);
                 Prog__Spacer(UI_Pixels(barGap), UI_Pixels(m->pill));
                 Prog__FillBar(StrFormat(&state->frameArena, "%u%%", state->zoom / 10), zoom, m);
@@ -6020,7 +6040,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
             UI_SetNextColors((UI_Colors){ .background = theme->inner });
             UI_Block *well = UI_AddBlock(UI_Flag_DrawBackground);
             UI_Parent(well) {
-                Prog__Icon(Icon_Search, m->iconSlot - m->gap, tall, state->inspectorFilter.length ? theme->text : theme->textDim, 0.5f, m);
+                Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, tall, state->inspectorFilter.length ? theme->text : theme->textDim, m);
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(tall));
                 UI_Block *field = UI_AddBlock(UI_Flag_Clip);
@@ -6033,7 +6053,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
                 Prog__PillButton(state, S("InspectorFilterRemove"), Icon_X, Prog_CommandKind_InspectorRemoveFilter, false, m);
             }
         } else {
-            Prog__Icon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, m);
+            Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, m);
             Prog__Label(prompt, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
         }
     }

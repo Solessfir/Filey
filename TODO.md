@@ -12,8 +12,6 @@
 - Text is 2-4 px wider over a word than the reference's.
 - The tab outline is 2 px; the reference's is about 1.5 px.
 - The tab close × comes from the icon font and is softer than the reference's.
-- The status bar's icons (folder and file counts, layout, view) sit too high next to their text. Center them optically, not by their boxes.
-- The status bar's zoom meter fills with square corners inside its rounded box. Round the fill to match.
 
 ## Command palette parity
 
