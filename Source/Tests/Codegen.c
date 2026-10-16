@@ -143,6 +143,35 @@ function void TestHotkeyDispatch(void)
         Check(StrIsEqual(Prog_HotkeyString(&state.frameArena, &(Prog_Hotkey){ .key = Key_G, .lead = Key_G }, false), S("G G")));
     }
 
+    // A chip being rebound takes the next key, which runs nothing and types nothing; a delete leaves the hotkey out, and restoring brings the
+    // defaults back.
+    {
+        Prog_State keys = { .hotkeyKind = Prog_CommandKind_CopySelection, .hotkeySlot = 2 };
+        PlatformEvent press[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Control, .mods = KeyMod_Control },
+                                  { .kind = PlatformEventKind_KeyDown, .key = Key_F7, .mods = KeyMod_Control }, { .kind = PlatformEventKind_Text, .codepoint = 'x' } };
+        Prog_HandleInput(&keys, TestUIEvents(press, CArrayCount(press)));
+        Prog_Command *bind = keys.commandFirst;
+        Check(bind && bind->kind == Prog_CommandKind_HotkeyBind && bind->row == Prog_CommandKind_CopySelection && bind->target == 2 && bind->pressCount == Key_F7);
+        Check(bind && bind->mods == KeyMod_Control && !bind->next && !keys.filter.length);
+        Prog_ProcessCommands(&keys);
+        const Prog_Hotkey *found = Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_F7, KeyMod_Control);
+        Check(found && found->command == Prog_CommandKind_CopySelection && !Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_Y, 0));
+        Check(Prog_HotkeysChanged(&keys, Prog_CommandKind_CopySelection) && !keys.hotkeyKind);
+        keys.commandFirst = keys.commandLast = NULL;
+        Prog_QueueCommand(&keys, Prog_CommandKind_HotkeyDelete, Prog_CommandKind_CopySelection, 0, 0)->target = 0;
+        Prog_ProcessCommands(&keys);
+        Check(!Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_C, KeyMod_Control) && Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_Insert, KeyMod_Control));
+        keys.commandFirst = keys.commandLast = NULL;
+        Prog_QueueCommand(&keys, Prog_CommandKind_HotkeyRestore, Prog_CommandKind_CopySelection, 0, 0);
+        Prog_ProcessCommands(&keys);
+        Check(Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_C, KeyMod_Control) && !Prog_HotkeysChanged(&keys, Prog_CommandKind_CopySelection));
+        // Ctrl+R is Refresh's too, so both chips show the conflict.
+        Prog_ApplySettings(&keys, S("hotkey.CalcDirsContents = Ctrl+R"));
+        Prog_HotkeyChip chips[3];
+        Check(Prog_HotkeyChips(&keys.frameArena, &keys, Prog_CommandKind_Refresh, chips, 3) == 2 && chips[0].conflict && !chips[1].conflict);
+        ArenaRelease(&keys.frameArena);
+    }
+
     // Ctrl+Comma opens the options.
     {
         Prog_State options = {0};

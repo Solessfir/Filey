@@ -507,19 +507,83 @@ function u32 Prog_HotkeyTexts(Arena *arena, const Prog_State *state, Prog_Comman
     return count;
 }
 
-// `kind`'s hotkeys as a hotkey.<Command> line of Settings.txt takes them, "Ctrl+Comma, F6", or "none".
-function String Prog_HotkeysSetting(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
+// `hotkeys` as a hotkey.<Command> line of Settings.txt takes them, "Ctrl+Comma, F6", or "none".
+function String Prog_HotkeyListSetting(Arena *arena, const Prog_Hotkey *hotkeys, u32 count)
 {
-    const Prog_Hotkey *hotkeys[16];
-    u32 count = Prog_CommandHotkeys(state, kind, hotkeys, CArrayCount(hotkeys));
     StrBuilder out = {0};
     for (u32 i = 0; i < count; ++i) {
-        String text = Prog_HotkeyString(arena, hotkeys[i], true);
+        String text = Prog_HotkeyString(arena, &hotkeys[i], true);
         if (!text.length) continue;
         if (out.buffer.length) StrBuildStr(arena, &out, S(", "));
         StrBuildStr(arena, &out, text);
     }
     return out.buffer.length ? out.buffer : S("none");
+}
+
+function String Prog_HotkeysSetting(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
+{
+    const Prog_Hotkey *found[16];
+    Prog_Hotkey hotkeys[16];
+    u32 count = Prog_CommandHotkeys(state, kind, found, CArrayCount(found));
+    for (u32 i = 0; i < count; ++i) hotkeys[i] = *found[i];
+    return Prog_HotkeyListSetting(arena, hotkeys, count);
+}
+
+// `kind`'s default hotkeys, up to `max` of them, in Commands.txt's order; returns how many.
+function u32 Prog_DefaultHotkeysOf(Prog_CommandKind kind, Prog_Hotkey *out, u32 max)
+{
+    u32 count = 0;
+    for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys) && count < max; ++i) {
+        if (Prog_DefaultHotkeys[i].command == kind) out[count++] = Prog_DefaultHotkeys[i];
+    }
+    return count;
+}
+
+// Whether `kind`'s hotkeys differ from its defaults, which the palette's reset button brings back.
+function b32 Prog_HotkeysChanged(const Prog_State *state, Prog_CommandKind kind)
+{
+    if (!state->hotkeyOverridden[kind]) return false;
+    const Prog_Hotkey *now[16];
+    Prog_Hotkey defaults[16];
+    u32 count = Prog_CommandHotkeys(state, kind, now, CArrayCount(now)), expected = Prog_DefaultHotkeysOf(kind, defaults, CArrayCount(defaults));
+    if (count != expected) return true;
+    for (u32 i = 0; i < count; ++i) {
+        if (now[i]->key != defaults[i].key || now[i]->mods != defaults[i].mods || now[i]->lead != defaults[i].lead) return true;
+    }
+    return false;
+}
+
+// Whether another command has `hotkey`'s key where it works, so that one of them never runs from it.
+function b32 Prog_HotkeyConflicts(const Prog_State *state, const Prog_Hotkey *hotkey)
+{
+    for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys); ++i) {
+        b32 user = i < state->userHotkeyCount;
+        const Prog_Hotkey *other = user ? &state->userHotkeys[i] : &Prog_DefaultHotkeys[i - state->userHotkeyCount];
+        if (other->command == hotkey->command || (!user && state->hotkeyOverridden[other->command])) continue;
+        if (other->key == hotkey->key && other->mods == hotkey->mods && other->lead == hotkey->lead &&
+            Prog_Commands[other->command].scope == Prog_Commands[hotkey->command].scope) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The chips of `kind`'s hotkeys, up to `max` of them: the one being rebound as "Press A Key", and a new one after them while one is being added.
+// Returns how many.
+function u32 Prog_HotkeyChips(Arena *arena, const Prog_State *state, Prog_CommandKind kind, Prog_HotkeyChip *out, u32 max)
+{
+    const Prog_Hotkey *hotkeys[16];
+    u32 found = Prog_CommandHotkeys(state, kind, hotkeys, CArrayCount(hotkeys)), count = 0;
+    b32 recording = kind && state->hotkeyKind == kind && !state->hotkeyAsking;
+    for (u32 i = 0; i < found && count < max; ++i) {
+        String text = Prog_HotkeyString(arena, hotkeys[i], false);
+        if (!text.length) continue;
+        b32 here = recording && state->hotkeySlot == i;
+        out[count++] = (Prog_HotkeyChip){ .text = here ? S("Press A Key") : text, .slot = (u8)i, .recording = (b8)here,
+                                          .idle = (b8)(!here && Prog_HotkeyIdle(state, hotkeys[i])), .conflict = (b8)(!here && Prog_HotkeyConflicts(state, hotkeys[i])) };
+    }
+    if (recording && state->hotkeySlot >= found && count < max) out[count++] = (Prog_HotkeyChip){ .text = S("Press A Key"), .slot = state->hotkeySlot, .recording = true, .adds = true };
+    return count;
 }
 
 function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
@@ -2289,6 +2353,36 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->menuHighlight = (u32)command->row;
                 }
             } break;
+            case Prog_CommandKind_HotkeyRecord:
+            case Prog_CommandKind_HotkeyDeleteAsk: {
+                if (command->row <= Prog_CommandKind_None || command->row >= Prog_CommandKind_Count) break;
+                state->hotkeyKind = (u8)command->row;
+                state->hotkeySlot = (u8)Min(command->target, (u64)UINT8_MAX);
+                state->hotkeyAsking = command->kind == Prog_CommandKind_HotkeyDeleteAsk;
+                state->hotkeyAskAt = command->at;
+            } break;
+            case Prog_CommandKind_HotkeyCancel: state->hotkeyKind = Prog_CommandKind_None, state->hotkeyAsking = false; break;
+            case Prog_CommandKind_HotkeyBind:
+            case Prog_CommandKind_HotkeyDelete:
+            case Prog_CommandKind_HotkeyRestore: {
+                state->hotkeyKind = Prog_CommandKind_None;
+                state->hotkeyAsking = false;
+                if (command->row <= Prog_CommandKind_None || command->row >= Prog_CommandKind_Count) break;
+                Prog_CommandKind kind = (Prog_CommandKind)command->row;
+                // The command's hotkeys with the one rebound in its place, or after them for a new one, or left out.
+                const Prog_Hotkey *found[16];
+                Prog_Hotkey list[CArrayCount(found) + 1];
+                u32 count = Prog_CommandHotkeys(state, kind, found, CArrayCount(found)), n = 0;
+                Prog_Hotkey bound = { .key = (Key)command->pressCount, .mods = command->mods, .command = (u8)kind };
+                b32 bind = command->kind == Prog_CommandKind_HotkeyBind;
+                for (u32 i = 0; i < count; ++i) {
+                    if (i != command->target) list[n++] = *found[i];
+                    else if (bind) list[n++] = bound;
+                }
+                if (bind && command->target >= count) list[n++] = bound;
+                if (command->kind == Prog_CommandKind_HotkeyRestore) n = Prog_DefaultHotkeysOf(kind, list, CArrayCount(list));
+                Prog_SetHotkeys(state, kind, list, n);
+            } break;
             case Prog_CommandKind_MenuPinToggle: {
                 if (state->menuOpen && command->row < state->menu.count) {
                     String label = StrCopy(&state->frameArena, state->menu.items[command->row].label);
@@ -2684,6 +2778,22 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             continue;
         }
         if (event->kind == PlatformEventKind_KeyDown) state->swallowText = false;
+        // A chip being rebound takes the next key with its modifiers, which run nothing; Escape stops it, and stops the delete question.
+        if ((state->hotkeyKind || state->hotkeyAsking) && event->kind == PlatformEventKind_KeyDown) {
+            b32 modifier = event->key == Key_Shift || event->key == Key_Control || event->key == Key_Alt || event->key == Key_Super;
+            if (event->key == Key_Escape) {
+                Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, order);
+            } else if (!modifier && !state->hotkeyAsking && !event->isRepeat) {
+                Prog_Command *bind = Prog_QueueCommand(state, Prog_CommandKind_HotkeyBind, state->hotkeyKind, 0, order);
+                bind->target = state->hotkeySlot;
+                bind->pressCount = event->key;
+                bind->mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+                // Only one key binds, however many come in this batch.
+                state->hotkeyKind = Prog_CommandKind_None;
+            }
+            if (!modifier) state->swallowText = true;
+            continue;
+        }
         // A right click outside the open menu closes it before what it is on opens its own, or anywhere without one of its own.
         if (state->menuOpen && event->kind == PlatformEventKind_MouseDown && event->button == MouseButton_Right) {
             b32 inside = false;

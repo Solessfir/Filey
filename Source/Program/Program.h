@@ -116,6 +116,19 @@ typedef struct Prog_Hotkey {
     enum8(Prog_CommandKind) command;
 } Prog_Hotkey;
 
+// A chip of a command's hotkeys as a row shows it.
+typedef struct Prog_HotkeyChip {
+    String text;
+    u8 slot;       // which of the command's hotkeys, for a click to rebind; UINT8_MAX for a mouse button's, which stays
+    b8 idle;       // a character key that types while Character Key Action is not Trigger Hotkey
+    b8 conflict;   // another command has the same key where it works
+    b8 recording;  // "Press A Key" in its place, waiting for the key to bind
+    b8 adds;       // recording a new one, past the last
+} Prog_HotkeyChip;
+
+// The slot the palette's plus records into, past any command's last hotkey; UINT8_MAX is a mouse button's chip.
+enum { Prog_NewHotkeySlot = UINT8_MAX - 1 };
+
 // What a character key without modifiers but Shift does in the browser: types into the filter, runs its hotkey, or selects the first item whose name
 // starts with what is typed. Space and '/' run their hotkeys in every case.
 typedef enum Prog_CharacterKeys {
@@ -935,6 +948,7 @@ typedef struct Prog_State {
     enum8(Prog_CommandKind) menuOpener;  // the button whose menu is open, which stays lit; None for other menus
     // The button under the pointer this frame, whose tip shows once the pointer rests on it.
     UI_Key tooltipKey;
+    b32 tooltipAbove;         // it is a button's inside a menu or the palette, whose tips show over them
     R_Rect tooltipRect;
     enum8(Prog_CommandKind) tooltipKind;
     String tooltipLabel;      // the command's label when empty
@@ -1132,6 +1146,13 @@ typedef struct Prog_State {
     b32 inspectorDetailsFolded; // showing only its title
     b32 swallowText;          // the next character comes from a key that ran a command
     Key hotkeyLead;           // the last key, when it starts a sequence such as "G G"
+    // A hotkey chip being rebound: the next key press replaces hotkey `hotkeySlot` of `hotkeyKind`, or adds one when the slot is past its last;
+    // with hotkeyAsking its delete button asked whether to delete it instead, in a box at hotkeyAskAt.
+    enum8(Prog_CommandKind) hotkeyKind;  // None while no chip is
+    u8 hotkeySlot;
+    b32 hotkeyAsking;
+    UI_Vec2 hotkeyAskAt;
+    b32 hotkeyChipShown;      // the build drew the chip, which stops recording once it is out of sight
     UI_Vec2 mainMenuAt;       // where the main menu opens from its button, for its hotkey too
     UI_Vec2 tabMenuAt;        // and the tab menu, under the active panel's shown tab
     enum8(Prog_CharacterKeys) characterKeys;
@@ -1273,6 +1294,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count];
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
+function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count);
 function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 value);
 function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
 function u32 Prog_PanelIndex(const Prog_State *state, u64 id);

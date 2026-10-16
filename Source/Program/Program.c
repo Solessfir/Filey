@@ -743,6 +743,16 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
     }
 }
 
+// Gives `kind` the hotkeys `hotkeys` in Settings.txt, in place of its defaults; without a config folder only for this run.
+function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count)
+{
+    Scratch scratch = GetScratch();
+    String name = StrFormat(scratch.arena, "hotkey.%S", Prog_Commands[kind].name), value = Prog_HotkeyListSetting(scratch.arena, hotkeys, count);
+    if (state->configDirectory.length) Prog__WriteSetting(state, name, value);
+    else Prog_ApplySettings(state, StrFormat(scratch.arena, "%S = %S", name, value));
+    ReleaseScratch(scratch);
+}
+
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
 {
     state->transparent = transparent;
@@ -962,6 +972,14 @@ function void Prog__DescribeTooltip(Prog_State *state, Prog_CommandKind kind, St
     if (!button || state->tooltipKey != button->key) return;
     state->tooltipDetail = words;
     state->tooltipDescribes = true;
+}
+
+// The same for a button inside a menu or the palette, whose tip shows over them.
+function void Prog__PopupTooltip(Prog_State *state, String words)
+{
+    Prog__DescribeTooltip(state, Prog_CommandKind_None, words);
+    UI_Block *button = UI->parent->last;
+    if (button && state->tooltipKey == button->key) state->tooltipAbove = true;
 }
 
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
@@ -3421,7 +3439,7 @@ function void Prog__Chip(String text, f32 slotHeight, b32 lit, b32 idle, const P
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 pad = floorf(4.8f * m->scale + 0.5f), height = floorf(m->line * 1.35f + 0.5f);
-    UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->detail, text) + 2 * pad));
+    UI_SetNextPrefWidth(UI_Pixels(MaxF32(R_TextWidth(m->detail, text) + 2 * pad, floorf(30.4f * m->scale + 0.5f))));
     UI_SetNextPrefHeight(UI_Pixels(slotHeight));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
@@ -3431,11 +3449,145 @@ function void Prog__Chip(String text, f32 slotHeight, b32 lit, b32 idle, const P
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
         UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-        UI_SetNextBorderThickness(0.8f * m->scale);
+        UI_SetNextBorderThickness((idle ? 1.2f : 0.8f) * m->scale);
         UI_SetNextFont(m->detail);
         UI_SetNextColors((UI_Colors){ .background = theme->track, .border = idle ? theme->danger : lit ? theme->text : theme->outline, .text = lit ? theme->text : theme->icon });
         UI_SetNextText(text);
         UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
+    }
+}
+
+// How wide Prog__HotkeyChipButton draws `chip`.
+function f32 Prog__HotkeyChipWidth(const Prog_HotkeyChip *chip, const Prog_Metrics *m)
+{
+    f32 pad = floorf(4.8f * m->scale + 0.5f), height = floorf(m->line * 1.35f + 0.5f);
+    return MaxF32(R_TextWidth(m->detail, chip->text) + 2 * pad, floorf(30.4f * m->scale + 0.5f)) + (chip->recording && !chip->adds ? height : 0);
+}
+
+// The commands other than `kind` that hotkey `slot` of `kind` also runs, a line each, after the words that say so.
+function String Prog__ConflictText(Arena *arena, const Prog_State *state, Prog_CommandKind kind, u32 slot)
+{
+    const Prog_Hotkey *hotkeys[16];
+    u32 count = Prog_CommandHotkeys(state, kind, hotkeys, CArrayCount(hotkeys));
+    StrBuilder out = {0};
+    StrBuildStr(arena, &out, S("Conflicts with commands:"));
+    if (slot >= count) return out.buffer;
+    const Prog_Hotkey *hotkey = hotkeys[slot];
+    for (u32 k = Prog_CommandKind_None + 1; k < Prog_CommandKind_Count; ++k) {
+        if (k == (u32)kind || Prog_Commands[k].scope != Prog_Commands[kind].scope) continue;
+        const Prog_Hotkey *others[16];
+        u32 found = Prog_CommandHotkeys(state, (Prog_CommandKind)k, others, CArrayCount(others));
+        for (u32 i = 0; i < found; ++i) {
+            if (others[i]->key != hotkey->key || others[i]->mods != hotkey->mods || others[i]->lead != hotkey->lead) continue;
+            StrBuildChar(arena, &out, '\n');
+            StrBuildStr(arena, &out, Prog_Commands[k].label.length ? Prog_Commands[k].label : Prog_Commands[k].name);
+            break;
+        }
+    }
+    return out.buffer;
+}
+
+// A chip of `kind`'s hotkeys, as Prog__Chip draws one, that a click rebinds: solid in the danger color while another command has its key, edged
+// in it while idle; while it is recording, "Press A Key" edged in the danger color with a button that deletes the hotkey, or for a new one filled
+// in the selection color. `identity` tells apart the rows that show the same command's chips.
+function void Prog__HotkeyChipButton(Prog_State *state, String identity, Prog_CommandKind kind, const Prog_HotkeyChip *chip, f32 slotHeight, b32 lit, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    f32 height = floorf(m->line * 1.35f + 0.5f), radius = floorf(4.0f * m->scale + 0.5f);
+    b32 mouse = chip->slot == UINT8_MAX, cross = chip->recording && !chip->adds;
+    if (kind == state->hotkeyKind && chip->slot == state->hotkeySlot) state->hotkeyChipShown = true;
+    UI_SetNextPrefWidth(UI_Pixels(Prog__HotkeyChipWidth(chip, m)));
+    UI_SetNextPrefHeight(UI_Pixels(slotHeight));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Block *slot = UI_AddBlock(0);
+    UI_Parent(slot) {
+        UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Hotkey/%S/%u/%u", identity, (u32)kind, (u32)chip->slot));
+        b32 hot = !mouse && UI->hotKey == key;
+        R_Color background = chip->conflict ? theme->danger : chip->adds ? theme->selection : theme->track;
+        R_Color border = cross || chip->idle || chip->conflict ? theme->danger : lit || hot || chip->adds ? theme->text : theme->outline;
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness((cross || chip->idle || chip->conflict ? 1.2f : 0.8f) * m->scale);
+        UI_SetNextColors((UI_Colors){ .background = background, .border = border });
+        UI_Block *face = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | (mouse ? 0 : UI_Flag_LeftMouseClickable));
+        UI_Interaction interaction = UI_InteractionFromBlock(face);
+        if (interaction.clicked && !chip->recording) Prog_QueueCommand(state, Prog_CommandKind_HotkeyRecord, (u64)kind, 0, interaction.clickOrder)->target = chip->slot;
+        UI_Parent(face) {
+            UI_SetNextFont(m->detail);
+            Prog__Label(chip->text, UI_Flex(), height, 0, lit || hot || chip->conflict || chip->recording ? theme->text : theme->icon, 0.5f);
+            if (cross) {
+                UI_Key crossKey = UI_KeyFromStr(key, S("Delete"));
+                R_Color fill = theme->danger;
+                if (UI->hotKey != crossKey) fill.a *= 0.85f;
+                UI_SetNextPrefWidth(UI_Pixels(height));
+                UI_SetNextPrefHeight(UI_Pixels(height));
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextFont(m->iconsSmall);
+                UI_SetNextColors((UI_Colors){ .background = fill, .text = theme->text });
+                UI_SetNextText(Icon_X);
+                UI_Block *remove = UI_AddBlockFromKey(crossKey, UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
+                UI_Interaction removing = UI_InteractionFromBlock(remove);
+                if (removing.clicked) {
+                    Prog_Command *ask = Prog_QueueCommand(state, Prog_CommandKind_HotkeyDeleteAsk, (u64)kind, 0, removing.clickOrder);
+                    ask->target = chip->slot;
+                    ask->at = (UI_Vec2){ remove->rect.x0, remove->rect.y1 + floorf(4.0f * m->scale + 0.5f) };
+                }
+                Prog__PopupTooltip(state, S("Delete hotkey."));
+            }
+        }
+        String tip = mouse ? S("Mouse hotkeys cannot be changed.") : chip->conflict ? Prog__ConflictText(frame, state, kind, chip->slot)
+                   : chip->idle ? S("Character Key Action not set to Trigger Hotkey.") : S("Press to set or remove hotkey.");
+        if (!chip->recording) Prog__PopupTooltip(state, tip);
+    }
+}
+
+// Asks before the delete button of a chip being rebound deletes its hotkey, in a box under the button; a click anywhere else keeps it.
+function void Prog__HotkeyQuestion(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->hotkeyAsking) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("HotkeyQuestionCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, outside.pressOrder);
+    String title = S("Delete assigned hotkey?");
+    f32 button = floorf(96.0f * m->scale + 0.5f), gap = floorf(8.0f * m->scale + 0.5f), pad = floorf(8.0f * m->scale + 0.5f);
+    f32 width = MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, 2 * button + gap + 2 * pad), height = m->row + m->bar + 3 * pad;
+    f32 x = MinF32(state->hotkeyAskAt.x, view.x1 - width - m->inset), y = MinF32(state->hotkeyAskAt.y, view.y1 - height - m->inset);
+    UI_SetNextPrefWidth(UI_Pixels(floorf(width)));
+    UI_SetNextPrefHeight(UI_Pixels(floorf(height)));
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf(MaxF32(x, view.x0) - view.x0), floorf(MaxF32(y, view.y0) - view.y0) });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+    UI_SetNextCornerRadius(m->radius * 2);
+    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("HotkeyQuestion")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(box) {
+        Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0.5f);
+        Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(buttons) for (u32 b = 0; b < 2; ++b) {
+            UI_Key key = UI_KeyFromStr(0, b ? S("HotkeyQuestionCancel") : S("HotkeyQuestionDelete"));
+            if (b) Prog__Spacer(UI_Pixels(gap), UI_Pixels(m->bar));
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(m->bar));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+            UI_SetNextBorderThickness(0.8f * m->scale);
+            UI_SetNextColors((UI_Colors){ .background = UI->hotKey == key ? theme->hover : theme->track, .border = theme->outline, .text = theme->text });
+            UI_SetNextText(b ? S("Cancel") : S("Delete"));
+            UI_Interaction pressed = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
+            if (pressed.clicked && b) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, pressed.clickOrder);
+            if (pressed.clicked && !b) Prog_QueueCommand(state, Prog_CommandKind_HotkeyDelete, state->hotkeyKind, 0, pressed.clickOrder)->target = state->hotkeySlot;
+        }
     }
 }
 
@@ -3733,11 +3885,11 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     // between two rows rather than taking room of their own.
     f32 itemHeight = m->row, line = m->separator, separatorHeight = 0, pad = floorf(6.0f * m->scale + 0.5f);
     // Filey's own menus show each hotkey in a chip and toggles as a box at the end.
-    f32 chipPad = floorf(4.8f * m->scale + 0.5f), chipGap = floorf(3.2f * m->scale + 0.5f);
+    f32 chipGap = floorf(3.2f * m->scale + 0.5f);
     f32 box = floorf(16.0f * m->scale + 0.5f);
-    String *chips = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String);
+    Prog_HotkeyChip *chips = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, Prog_HotkeyChip);
     u32 *chipCounts = ArenaPushArray(&state->frameArena, Max(shown, 1u), u32);
-    b8 *chipIdle = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, b8);
+    u8 *chipKinds = ArenaPushArray(&state->frameArena, Max(shown, 1u), u8);
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
     // The search field is a band across the top in the inner color, over a line and a little room before the items.
     f32 fieldInset = floorf(2.4f * m->scale + 0.5f), fieldHeight = floorf(30.4f * m->scale + 0.5f);
@@ -3754,11 +3906,12 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             // A system item shows the hotkeys of the Filey command that does the same.
             const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[visible[i]] : NULL;
             u32 mouse = command && command->mouse.length ? 1 : 0;
-            if (mouse) chips[i * 3] = command->mouse;
+            if (mouse) chips[i * 3] = (Prog_HotkeyChip){ .text = command->mouse, .slot = UINT8_MAX };
             Prog_CommandKind kind = command ? (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind) : Prog__VerbCommand(item->verb);
-            chipCounts[i] = mouse + (kind ? Prog_HotkeyTexts(&state->frameArena, state, kind, chips + i * 3 + mouse, chipIdle + i * 3 + mouse, 3 - mouse) : 0);
+            chipKinds[i] = (u8)kind;
+            chipCounts[i] = mouse + (kind ? Prog_HotkeyChips(&state->frameArena, state, kind, chips + i * 3 + mouse, 3 - mouse) : 0);
             f32 end = command && command->toggle ? box + m->gap : 0;
-            for (u32 c = 0; c < chipCounts[i]; ++c) end += R_TextWidth(m->detail, chips[i * 3 + c]) + 2 * chipPad + chipGap;
+            for (u32 c = 0; c < chipCounts[i]; ++c) end += Prog__HotkeyChipWidth(&chips[i * 3 + c], m) + chipGap;
             if (end > 0) hotkeyWidth = end + m->inset - floorf(5.6f * m->scale + 0.5f);
         }
         rowWidth = MaxF32(rowWidth, labelWidth + hotkeyWidth);
@@ -4059,7 +4212,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     Prog__Spacer(UI_Pixels(star), UI_Pixels(itemHeight));
                 }
                 for (u32 c = 0; c < chipCounts[i]; ++c) {
-                    Prog__Chip(chips[i * 3 + c], itemHeight, highlighted, chipIdle[i * 3 + c], m);
+                    Prog__HotkeyChipButton(state, StrFormat(&state->frameArena, "Menu/%u", index), (Prog_CommandKind)chipKinds[i], &chips[i * 3 + c], itemHeight, highlighted, m);
                     Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(itemHeight));
                 }
                 if (command && command->toggle) {
@@ -4177,7 +4330,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
 
 function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 {
-    if (!state->tooltipKey || state->menuOpen || state->paletteOpen) return;
+    if (!state->tooltipKey || ((state->menuOpen || state->paletteOpen) && !state->tooltipAbove)) return;
     // None while something is dragged.
     if (state->tabDrag || state->dragging || P_DropPending()) return;
     if (UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait"))) < 700000) {
@@ -4209,7 +4362,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     f32 height = top + (f32)lines.header.count * pitch + commandRow + bottom;
     String lead = S("Cmd:");
     f32 width = plain ? 0 : R_TextWidth(m->font, lead) + gap + R_TextWidth(m->font, label);
-    for (u32 i = 0; i < hotkeyCount; ++i) width += chipGap + R_TextWidth(m->detail, hotkeys[i]) + 2 * floorf(4.8f * s + 0.5f);
+    for (u32 i = 0; i < hotkeyCount; ++i) width += chipGap + MaxF32(R_TextWidth(m->detail, hotkeys[i]) + 2 * floorf(4.8f * s + 0.5f), floorf(30.4f * s + 0.5f));
     for (u64 i = 0; i < lines.header.count; ++i) width = MaxF32(width, R_TextWidth(m->font, lines.v[i]));
     width += 2 * pad;
     R_Rect view = UI->root->rect, button = state->tooltipRect;
@@ -5295,12 +5448,25 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                                 Prog__MarkedText(desc->tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : described);
                             }
                         }
-                        String hotkeys[3];
-                        b8 idle[3];
-                        u32 hotkeyCount = Prog_HotkeyTexts(&state->frameArena, state, at.kind, hotkeys, idle, 3);
-                        for (u32 c = 0; c < hotkeyCount; ++c) {
+                        // The highlighted row's buttons bring back its default hotkeys once they changed and add a new one; then its chips,
+                        // which a click rebinds.
+                        if (highlighted) {
+                            if (Prog_HotkeysChanged(state, (Prog_CommandKind)at.kind)) {
+                                UI_Interaction restore = Prog__TextButton(StrFormat(&state->frameArena, "PaletteRestore/%u", (u32)at.kind), Icon_RotateCcw, m->icons, UI_Pixels(slot), face, 0,
+                                                                          theme->text, theme->text, theme->iconDisabled, true, m);
+                                if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_HotkeyRestore, at.kind, 0, restore.clickOrder);
+                                Prog__PopupTooltip(state, S("Restore default hotkeys."));
+                            }
+                            UI_Interaction add = Prog__TextButton(StrFormat(&state->frameArena, "PaletteAdd/%u", (u32)at.kind), Icon_Plus, m->icons, UI_Pixels(slot), face, 0,
+                                                                  theme->text, theme->text, theme->iconDisabled, true, m);
+                            if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_HotkeyRecord, at.kind, 0, add.clickOrder)->target = Prog_NewHotkeySlot;
+                            Prog__PopupTooltip(state, S("Assign new hotkey."));
+                        }
+                        Prog_HotkeyChip chips[4];
+                        u32 chipCount = Prog_HotkeyChips(&state->frameArena, state, (Prog_CommandKind)at.kind, chips, CArrayCount(chips));
+                        for (u32 c = 0; c < chipCount; ++c) {
                             Prog__Spacer(UI_Pixels(floorf(3.2f * s + 0.5f)), UI_Pixels(face));
-                            Prog__Chip(hotkeys[c], face, highlighted, idle[c], m);
+                            Prog__HotkeyChipButton(state, S("Palette"), (Prog_CommandKind)at.kind, &chips[c], face, highlighted, m);
                         }
                     }
                 }
@@ -6621,6 +6787,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->iconsPending = 0;
     state->hasHoverRow = false;
     state->tooltipKey = 0;
+    state->tooltipAbove = false;
     state->tooltipPath = (String){0};
     state->inspectorRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
@@ -6698,6 +6865,10 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__ContextMenu(state, m);
     Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
+    Prog__HotkeyQuestion(state, m);
     Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);
+    // A chip being rebound that went out of sight, with its menu or its palette row, stops.
+    if (state->hotkeyKind && !state->hotkeyChipShown) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, 0);
+    state->hotkeyChipShown = false;
 }

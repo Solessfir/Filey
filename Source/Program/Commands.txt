@@ -241,6 +241,29 @@ command ContextMenuAt {
 command ContextMenuInvoke {
 }
 
+// Rebinding hotkeys from their chips in the menus and the palette. A clicked chip carries its command in row and which of its hotkeys in
+// target, past the last for the palette's plus; the next key press binds it, with the key in pressCount and its modifiers in mods.
+command HotkeyRecord {
+}
+
+command HotkeyBind {
+}
+
+// The recording chip's delete button, which asks first in a box at Prog_Command.at, and its answer.
+command HotkeyDeleteAsk {
+}
+
+command HotkeyDelete {
+}
+
+// Escape, the question's Cancel or a click away from it, or the chip going out of sight.
+command HotkeyCancel {
+}
+
+// The palette's reset button: the command in row gets its default hotkeys back.
+command HotkeyRestore {
+}
+
 // Escape or a click outside the menu.
 // A system menu row's star; carries the item, which it pins to the top of the system's menus, or unpins.
 command MenuPinToggle {
