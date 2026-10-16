@@ -68,6 +68,10 @@ function String P_AbsolutePath(Arena *arena, String path);
 // The paths the app was started with as arguments, made absolute.
 function ArrayStr P_StartupPaths(Arena *arena);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
+// The local date of `timeUnix` as "2026-10-16", which a file name can hold; empty when it is out of range.
+function String P_FormatFileDate(Arena *arena, i64 timeUnix);
+// Now, in seconds since the Unix epoch.
+function i64 P_NowUnix(void);
 // The order a folder is shown in, so that an app opened on one of its files can step through the rest in the same order, as from Explorer.
 typedef enum P_FileOrderKey {
     P_FileOrderKey_Name,

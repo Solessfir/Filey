@@ -65,6 +65,25 @@ function String P_AbsolutePath(Arena *arena, String path)
     return result;
 }
 
+function String P_FormatFileDate(Arena *arena, i64 timeUnix)
+{
+    i64 ticks = 0;
+    if (ckd_add(&ticks, timeUnix, INT64_C(11644473600)) || ticks < 0 || ckd_mul(&ticks, ticks, INT64_C(10000000))) return (String){0};
+    FILETIME time = {.dwLowDateTime = (u32)((u64)ticks & UINT32_MAX), .dwHighDateTime = (u32)((u64)ticks >> 32)};
+    SYSTEMTIME utc = {0};
+    SYSTEMTIME local = {0};
+    if (!FileTimeToSystemTime(&time, &utc) || !SystemTimeToTzSpecificLocalTime(NULL, &utc, &local) || local.wYear > 9999) return (String){0};
+    return StrFormat(arena, "%04u-%02u-%02u", (u32)local.wYear, (u32)local.wMonth, (u32)local.wDay);
+}
+
+function i64 P_NowUnix(void)
+{
+    FILETIME now = {0};
+    GetSystemTimeAsFileTime(&now);
+    u64 ticks = ((u64)now.dwHighDateTime << 32) | now.dwLowDateTime;
+    return (i64)(ticks / 10000000) - INT64_C(11644473600);
+}
+
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix)
 {
     i64 ticks = 0;

@@ -91,6 +91,19 @@ function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix)
     return StrFormat(arena, "%04d-%02d-%02d %02d:%02d", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min);
 }
 
+function String P_FormatFileDate(Arena *arena, i64 timeUnix)
+{
+    time_t time = (time_t)timeUnix;
+    struct tm local = {0};
+    if (!localtime_r(&time, &local) || local.tm_year < -1899 || local.tm_year > 8099) return (String){0};
+    return StrFormat(arena, "%04d-%02d-%02d", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday);
+}
+
+function i64 P_NowUnix(void)
+{
+    return (i64)time(NULL);
+}
+
 // libarchive, loaded when first needed so that it is not a build dependency; every Arch system has it, as pacman uses it.
 typedef struct P__Archive {
     b32 tried, loaded;

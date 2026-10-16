@@ -3075,7 +3075,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // Reloading now, rather than on the watch, selects the new name without waiting.
                 String listed = input->prefix.length ? StrFormat(&state->frameArena, "%S/%S", input->prefix, input->newName) : input->newName;
                 String folder = input->prefix.length ? Prog_JoinPath(&state->frameArena, state->directory.path, input->prefix) : state->directory.path;
-                if (StrIsEqual(folder, input->path) && listed.length <= sizeof(state->selectText)) {
+                // While the next item is being renamed, the selection stays with it.
+                if (StrIsEqual(folder, input->path) && state->renaming) Prog_Reload(state);
+                else if (StrIsEqual(folder, input->path) && listed.length <= sizeof(state->selectText)) {
                     MemCopy(state->selectText, listed.value, listed.length);
                     state->selectLength = (u32)listed.length;
                     Prog_Reload(state);

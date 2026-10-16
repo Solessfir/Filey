@@ -305,8 +305,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
     Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_FolderViewToggle,
-    Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize,
-    Prog_CommandKind_IncreaseSpacing, Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleSystemFiles,
+    Prog_CommandKind_SizeAllColumnsToFit,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType, Prog_CommandKind_CycleFolderSort,
@@ -326,7 +325,14 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
-    Prog_CommandKind_RecentsClear, Prog_CommandKind_ToggleRecents, Prog_CommandKind_ToggleSortRecents, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog__PaletteGroup(Options),
+    Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
+    Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
+    Prog_CommandKind_ToggleSortRecents,
+    Prog__PaletteGroup(Rename),
+    Prog_CommandKind_RenameInsertIncrementalID, Prog_CommandKind_RenameInsertCurrentDate, Prog_CommandKind_RenameInsertCreateDate,
+    Prog_CommandKind_RenameInsertModifiedDate, Prog_CommandKind_RenamePrev, Prog_CommandKind_RenameNext,
     Prog__PaletteGroup(Scroll),
     Prog_CommandKind_SelectAll,
 };
@@ -1053,6 +1059,39 @@ function void Prog__EndRename(Prog_State *state, b32 commit)
     input->newName = StrCopy(&job->arena, to);
     job->input = input;
     P_JobSubmit(job);
+}
+
+// Puts at the rename box's caret the date asked for, or the smallest number from 1 up that makes a name no other item in the folder has.
+function void Prog__RenameInsert(Prog_State *state, Prog_CommandKind kind)
+{
+    if (!state->renaming) return;
+    Arena *frame = &state->frameArena;
+    String renamed = StrMake((const char *)state->renameFrom, state->renameFromLength);
+    const Prog_Entry *entry = NULL;
+    for (u64 i = 0; i < state->directory.count && !entry; ++i) {
+        if (StrIsEqual(state->directory.entries[i].file.name, renamed)) entry = &state->directory.entries[i];
+    }
+    String text = {0};
+    if (kind == Prog_CommandKind_RenameInsertCurrentDate) text = P_FormatFileDate(frame, P_NowUnix());
+    else if (kind == Prog_CommandKind_RenameInsertCreateDate && entry && entry->file.createdTimeUnix) text = P_FormatFileDate(frame, entry->file.createdTimeUnix);
+    else if (kind == Prog_CommandKind_RenameInsertModifiedDate && entry) text = P_FormatFileDate(frame, entry->file.modifiedTimeUnix);
+    else if (kind == Prog_CommandKind_RenameInsertIncrementalID) {
+        Prog_TextEdit *edit = &state->rename;
+        u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
+        String before = StrMake((const char *)edit->text, from), after = StrMake((const char *)edit->text + to, edit->length - to);
+        String prefix = Prog_EntryParent(renamed);
+        for (u32 id = 1; !text.length; ++id) {
+            String number = StrFormat(frame, "%u", id);
+            String candidate = StrFormat(frame, "%S%S%S%S%S", prefix, prefix.length ? S("/") : S(""), before, number, after);
+            b32 taken = false;
+            for (u64 i = 0; i < state->directory.count && !taken; ++i) {
+                String name = state->directory.entries[i].file.name;
+                taken = name.length == candidate.length && Prog__EqualFolded(name, candidate) && !StrIsEqual(name, renamed);
+            }
+            if (!taken) text = number;
+        }
+    }
+    if (text.length) Prog__EditReplace(&state->rename, (const u8 *)text.value, (u32)text.length);
 }
 
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind);
@@ -1924,6 +1963,27 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_WindowClose: PlatformWindowClose(); break;
             case Prog_CommandKind_Rename: if (state->hasFocus) Prog_BeginRename(state, state->focusedRow); break;
             case Prog_CommandKind_RenameCommit: Prog__EndRename(state, true); break;
+            case Prog_CommandKind_RenamePrev:
+            case Prog_CommandKind_RenameNext: {
+                if (!state->renaming) break;
+                // The row being renamed, by its name, since a reload after the last rename may have moved it.
+                String renamed = StrMake((const char *)state->renameFrom, state->renameFromLength);
+                u64 at = UINT64_MAX;
+                for (u64 i = 0; i < state->viewCount && at == UINT64_MAX; ++i) {
+                    if (StrIsEqual(state->directory.entries[state->view[i]].file.name, renamed)) at = i;
+                }
+                Prog__EndRename(state, true);
+                if (at == UINT64_MAX) break;
+                b32 next = command->kind == Prog_CommandKind_RenameNext;
+                if (next ? at + 1 >= state->viewCount : at == 0) break;
+                u64 row = state->view[next ? at + 1 : at - 1];
+                Prog_SelectRow(state, row, 0);
+                Prog_BeginRename(state, row);
+            } break;
+            case Prog_CommandKind_RenameInsertIncrementalID:
+            case Prog_CommandKind_RenameInsertCurrentDate:
+            case Prog_CommandKind_RenameInsertCreateDate:
+            case Prog_CommandKind_RenameInsertModifiedDate: Prog__RenameInsert(state, command->kind); break;
             case Prog_CommandKind_RenameCancel: Prog__EndRename(state, false); break;
             case Prog_CommandKind_StartFilter: {
                 if (!state->renaming) {
@@ -2156,7 +2216,17 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             } else if (event->kind == PlatformEventKind_Text) {
                 Prog__EditInsert(&state->rename, event->codepoint);
             } else if (event->kind == PlatformEventKind_KeyDown) {
-                if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
+                // Of the hotkeys only the rename box's own reach it.
+                KeyMods held = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+                const Prog_Hotkey *hotkey = Prog_FindHotkey(state, event->key, held);
+                Prog_CommandKind own = hotkey ? hotkey->command : Prog_CommandKind_Count;
+                if (own < Prog_CommandKind_RenameInsertIncrementalID || own > Prog_CommandKind_RenameNext) own = Prog_CommandKind_Count;
+                if (event->key == Key_Tab && (held == 0 || held == KeyMod_Shift)) own = held ? Prog_CommandKind_RenamePrev : Prog_CommandKind_RenameNext;
+                if (own != Prog_CommandKind_Count) {
+                    Prog_QueueCommand(state, own, 0, 0, order);
+                    state->swallowText = true;
+                }
+                else if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_RenameCancel, 0, 0, order);
                 else Prog__EditKey(&state->rename, event);
             }

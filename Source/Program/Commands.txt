@@ -190,6 +190,37 @@ command StartFilter {
 command RenameCaret {
 }
 
+command RenameInsertIncrementalID {
+    label   = "Insert Incremental ID"
+    tooltip = "Insert an incremental ID at the text caret."
+}
+
+command RenameInsertCurrentDate {
+    label   = "Insert Current Date^day,month,year"
+    tooltip = "Insert the current date at the text caret."
+}
+
+command RenameInsertCreateDate {
+    label   = "Insert File Create Date^day,month,year"
+    tooltip = "Insert the file's creation date at the text caret."
+}
+
+command RenameInsertModifiedDate {
+    label   = "Insert File Last Modified Date^day,month,year"
+    tooltip = "Insert the file's last modified date at the text caret."
+}
+
+// Tab and Shift+Tab in the rename box, which Tab's other commands do not reach.
+command RenamePrev {
+    label   = "Rename Previous File"
+    tooltip = "Apply rename to the current selection and jump to the previous file."
+}
+
+command RenameNext {
+    label   = "Rename Next File"
+    tooltip = "Apply rename to the current selection and jump to the next file."
+}
+
 command FilterCaret {
 }
 

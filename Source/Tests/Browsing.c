@@ -833,6 +833,20 @@ function void TestRename(TestFileFixture *fixture)
     Check(!P_RenamePath(&arena, fixture->path, S("moved.txt"), S("plain.txt")).code);
     TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
 
+    // An incremental ID, over the selected part, is the smallest number no other item's name has; Tab leaves a name unchanged and goes on to the next item.
+    plain = TestEntryIndex(&state, S("plain.txt"));
+    Prog_BeginRename(&state, plain);
+    TestBrowsingCommand(&state, Prog_CommandKind_RenameInsertIncrementalID, 0);
+    Check(state.renaming && StrIsEqual(Prog_EditText(&state.rename), S("1.txt")));
+    TestRenameKey(&state, Key_Escape, 0);
+    Prog_BeginRename(&state, plain);
+    u64 position = Prog_ViewPosition(&state, plain);
+    TestRenameKey(&state, Key_Tab, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+    String next = position + 1 < state.viewCount ? state.directory.entries[state.view[position + 1]].file.name : (String){0};
+    Check(next.length ? state.renaming && StrIsEqual(StrMake((const char *)state.renameFrom, state.renameFromLength), next) : !state.renaming);
+    TestRenameKey(&state, Key_Escape, 0);
+
     // The one item a shell command adds goes straight into rename.
     Check(P__TestWriteFile(fixture, S("created.txt"), 1, false));
     state.renameCreatedUntil = PlatformNowMicroseconds() + Millions(5);

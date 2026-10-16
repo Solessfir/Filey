@@ -7,7 +7,6 @@ Autonomous run, in order. Each step: build release, run `Build.bat test`, check 
 Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
 
 3. Recursive listing (section below): rows appear as the walk finds them.
-4. Rename: InsertIncrementalID, InsertCurrentDate, InsertCreateDate, InsertModifiedDate, RenamePrev, RenameNext.
 5. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin.
 6. Redo beside Undo.
 7. Hex view: read further pages as it scrolls, fewer bytes per line when the inspector is narrow, colors for zero and printable bytes, and a command to show any file as hex.
@@ -54,7 +53,6 @@ Missing, by the reference's group:
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow, TabCloseAll, TabMenu.
 - Go To: GoToSelectInPanel.
 - Misc: ExplorerOpen, ConsoleOpen, MinimizeWindow, ToggleFullscreen, CloseWindow, LayoutsSave/Load, ConfigCreate/Open, the Quick Access filter, viewport and group options. Install is the reference's own setup and stays out.
-- Rename: InsertIncrementalID, InsertCurrentDate, InsertCreateDate, InsertModifiedDate, RenamePrev, RenameNext.
 - Text and Scroll: Filey handles these keys inside its text boxes and lists without commands; the reference lists each (move/extend by letter, word, home, end, delete, case, undo/redo, autocomplete; select/extend/scroll/cursor moves, center camera) so they can be rebound.
 
 ## From the reference's roadmap
