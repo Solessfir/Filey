@@ -95,11 +95,7 @@ typedef struct Prog_Loop {
 // The old fonts stay when the new ones fail.
 function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
 {
-#if defined(_WIN32)
     const f32 fontPixelSize = 9.0f * (96.0f / 72.0f);
-#else
-    const f32 fontPixelSize = 15.0f;
-#endif
     Arena arena = {0};
     R_Font font = {0}, detailFont = {0}, icons = {0}, smallIcons = {0};
     const Prog_FontName *name = &loop->state.font;
