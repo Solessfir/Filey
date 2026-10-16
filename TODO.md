@@ -12,6 +12,8 @@
 - Text is 2-4 px wider over a word than the reference's.
 - The tab outline is 2 px; the reference's is about 1.5 px.
 - The tab close × comes from the icon font and is softer than the reference's.
+- The status bar's icons (folder and file counts, layout, view) sit too high next to their text. Center them optically, not by their boxes.
+- The status bar's zoom meter fills with square corners inside its rounded box. Round the fill to match.
 
 ## Command palette parity
 
@@ -60,12 +62,45 @@ Planned there, worth doing here first:
 - Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, file states in the list, and better text and styling for what the path bar shows, which looks rough now.
 - 3D model previews in the inspector: .blend, .gltf/.glb, .fbx, .obj and other common formats, drawn by Filey itself and not by a shell handler.
 - Linux install and uninstall through a standalone `.sh` script, like https://github.com/Solessfir/razer-laptop-control's `install.sh`, documented in a README. `./Build.sh install` covers installing only, and the repository has no README yet.
-- Context menu editing: a shortcut in an open menu enters an edit mode, with a ghost panel beside the menu. Dragging an item into the panel hides it, and dragging it back shows it again. Items can be reordered in the menu, and a button restores the default. Hidden items and the order are saved with the pins.
+- Context menu editing: a shortcut in an open menu enters an edit mode, with a ghost panel beside the menu. Dragging an item into the panel hides it, and dragging it back shows it again. Items can be reordered in the menu, and a button restores the default. Hidden items and the order are saved with the pins. The sidebar's Places get the same editing.
+- Version: the only version is a hard-coded 0.1.0 in `Filey.rc`, and the app never shows it. A GitHub Actions release workflow, run on a pushed `v*` tag, passes the tag to the build through `EXTRA_CFLAGS` (`-DFILEY_VERSION=...`). Local builds fall back to `git describe --tags --always --dirty`. The same define feeds `Filey.rc` (llvm-rc takes `-D`) and the hamburger menu.
+- Windows install: Filey copies itself to `%LOCALAPPDATA%` and adds Start menu and desktop shortcuts. Optionally, it also takes over from Explorer through keys under `HKCU\Software\Classes`, as the reference does, with an undo that deletes them:
+  - `*\shell` and `Directory\shell` entries that open the item in Filey.
+  - `Directory\Background\shell` and `DesktopBackground\shell` entries that open Filey there.
+  - The `open` commands of `Directory\shell` and `Drive\shell`, so that folders and drives open in Filey.
+  - The `opennewwindow` command of `CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}`, so that Win+E opens Filey.
+- Themes, before release:
+  - Drop the debug and fullmoon themes.
+  - Ship light and dark defaults, picked on first launch from the system's scheme. `theme.system` exists but is off by default.
+  - On Linux, read the xdg-desktop-portal `org.freedesktop.appearance` `color-scheme` setting first. `GTK_THEME` and `gtk-3.0/settings.ini`, which are read now, become fallbacks, and dark stays the default.
+  - Add popular schemes: Catppuccin (Mocha and Latte), Nord, Gruvbox, Tokyo Night, One Dark, Dracula, Solarized and Rosé Pine.
 - Context menu lag: the warm-up job runs once a session, for the first item listed, so the handlers of other file types still load on the first right-click. Build the hovered or focused item's real menu ahead of time on a background STA thread, so a right-click finds it ready. The menu has to be invoked on that same thread too.
 - Archives as folders: open a zip, 7z, rar or tar like a folder, in a panel or the inspector, go into its folders, select items and drag or copy them out to extract them where they land. Windows: list and drag through the shell's archive folder, whose items' data objects carry virtual files that any drop target extracts with the system's progress and password prompts. Linux: list with libarchive and extract the dropped or pasted entries in a transfer job (progress, conflicts, cancel); a drag to other apps extracts to a temp folder first. Solid archives can be slow to pull one file from, so extraction always runs in a job. The inspector's text listing then becomes this browsable list.
 - Hex view (ImHex-like, https://github.com/WerWolv/ImHex): it reads pages as they come into sight, up to a million rows (16 MB at 16 bytes a row), since the scroll offset is a float. Still to do: past that, a selection and copy, and searching for bytes.
 - Syntax highlighting: the inspector colors keywords, strings, comments, numbers and headings by extension (Prog_SyntaxForPath). Still to do: XML/HTML, CMake, Makefiles, and colors in the theme and Settings.txt instead of the fixed dark and light ones.
 - Localization, low priority: the interface in other languages. Until then, keep user-facing strings in few places (Commands.txt labels, the option table) so they can be translated later.
+
+## From the RAD Debugger
+
+Its source (https://github.com/EpicGamesExt/raddebugger) has these ideas worth taking:
+
+- Inspector images are sampled nearest at every scale (RGBA textures are `GL_NEAREST`), so a photo of up to 4096 px shrunk to fit the inspector likely aliases. raddbg picks nearest or linear per draw. Use mipmaps with trilinear filtering when shrinking, and nearest when enlarging, for pixel inspection.
+- Text width: the reference rasterizes through the same DirectWrite GDI interop as raddbg (`src/font_provider/dwrite`), which differs from Filey in two ways:
+  - Its advances come from `GetGdiCompatibleGlyphMetrics` in GDI-natural mode, not from design metrics.
+  - Gamma 1.5 and enhanced contrast 1.0 are fixed, not the system's.
+  - For Segoe UI, GDI-natural advances make words 0-3 px wider at 15 px and 1-5 px narrower at 16.25 px. Measure the reference's label width at a known size first, then try them.
+- Hex view, from raddbg's memory view:
+  - Byte brightness follows the byte's value, with zeros at half strength, so patterns stand out.
+  - A peek bar reads the bytes at the cursor as u8 to u64 and f32/f64.
+- 3D previews: raddbg's geo3d view is the template, with an orbit camera (drag turns, wheel zooms, smoothed by `1 - 2^(-rate*dt)`) and a mesh pass with depth composited into the UI. glTF and OBJ are easy to load. A `.blend` file carries an embedded preview thumbnail, which is a cheap first step.
+- Large text files: raddbg's text layer (`src/text`) keeps a map of line offsets and checkpoints of the lexer's state. It shows any line of a huge file and highlights from the nearest checkpoint. Use the same approach to get past the inspector's first 1 MB.
+- Glyphs on demand: raddbg rasterizes each codepoint the first time it's drawn, into an atlas keyed by hash (`src/font_cache`). Filey rasterizes fixed ranges at startup. Rasterizing on demand draws any codepoint and starts faster. Font fallback is still needed separately, and raddbg has none.
+- Cache eviction: raddbg's artifact cache (`src/artifact_cache`) evicts entries untouched for a while, and serves the stale value while it recomputes, so nothing flashes blank. Filey's icon cache resets wholesale when full.
+- Maybe:
+  - Per-corner colors in the rect shader, for fades at the edges of scrolled lists such as menus, the sidebar and long tab lists.
+  - Linear-light blending into an sRGB framebuffer, but only if the reference does it too, since Filey's colors were tuned against it.
+  - Panel commands: swap panels, reset to the default layout and hide the UI.
+  - A readout of the hovered pixel's color in the image view at high zoom.
 
 ## Checks
 
