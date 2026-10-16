@@ -601,6 +601,51 @@ function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelTok
     return result;
 }
 
+function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *paths, u64 count)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P_ArrayTrashed binned = P_ListTrash(scratch.arena, bin, NULL);
+    u32 error = 0, taken = 0;
+    for (u64 i = 0; i < binned.header.count && !error; ++i) {
+        const P_Trashed *item = &binned.v[i];
+        b32 wanted = !count;
+        for (u64 p = 0; p < count && !wanted; ++p) wanted = StrIsEqual(item->file.name, paths[p]);
+        if (!wanted) continue;
+        String folder = item->original, target = StrFormat(scratch.arena, "%S/%S", folder, item->name);
+        wchar *from = P__FileExtendedPath(scratch.arena, item->file.name), *to = P__FileExtendedPath(scratch.arena, target);
+        wchar *made = P__FilePathWide(scratch.arena, folder.length == 2 ? StrFormat(scratch.arena, "%S/", folder) : folder);
+        if (!from || !to || !made) {
+            error = ERROR_INVALID_NAME;
+            break;
+        }
+        if (GetFileAttributesW(to) != INVALID_FILE_ATTRIBUTES) {
+            ++taken;
+            continue;
+        }
+        i32 status = SHCreateDirectoryExW(NULL, made, NULL);
+        if (status != ERROR_SUCCESS && status != ERROR_ALREADY_EXISTS && status != ERROR_FILE_EXISTS) {
+            error = (u32)status;
+            break;
+        }
+        if (!MoveFileExW(from, to, MOVEFILE_COPY_ALLOWED)) {
+            error = GetLastError();
+            break;
+        }
+        // The record of where it came from, $I beside the item's $R, goes too.
+        Index slash = StrIndexChar(item->file.name, '/', SSF_SearchBackwards);
+        String record = StrFormat(scratch.arena, "%S/$I%S", StrFromTo(item->file.name, 0, (i64)slash.value), StrFrom(item->file.name, slash.value + 3));
+        wchar *recordWide = P__FileExtendedPath(scratch.arena, record);
+        if (recordWide) DeleteFileW(recordWide);
+    }
+    // Explorer's Recycle Bin and its icon catch up.
+    wchar *binWide = P__FilePathWide(scratch.arena, bin);
+    if (binWide) SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_PATHW, binWide, NULL);
+    ReleaseScratch(scratch);
+    if (error) return P__FileError(arena, error);
+    if (taken) return (P_FileError){ .code = ERROR_ALREADY_EXISTS, .message = StrFormat(arena, "%u item%s stayed in the Recycle Bin, as something else is where %s came from.", taken, taken == 1 ? "" : "s", taken == 1 ? "it" : "they") };
+    return (P_FileError){0};
+}
+
 function P_ArrayPlace P_UserPlaces(Arena *arena)
 {
     local_persist const struct { const GUID *id; const char *name; } folders[] = {

@@ -298,7 +298,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Folder),
     Prog_CommandKind_ToggleCursorSelection, Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_OpenInRightSplit,
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
-    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename,
+    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_SelectionRestore, Prog_CommandKind_TrashRestoreAll,
+    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
@@ -356,6 +357,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_CopySelection: case Prog_CommandKind_CutSelection: case Prog_CommandKind_Trash: case Prog_CommandKind_SelectionDelete:
         case Prog_CommandKind_Duplicate: case Prog_CommandKind_CalcDirsContents:
             return item;
+        case Prog_CommandKind_SelectionRestore: return item && P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_Rename: case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
         case Prog_CommandKind_OpenContainingPathInTab:
             return focused;
@@ -1307,7 +1309,7 @@ function void Prog__ScaleImage(Prog_State *state, b32 up)
 
 function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name)
 {
-    if (!directory.length || (kind != Prog_JobKind_Create && !count)) return;
+    if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->panel = Prog__PanelId(state);
@@ -2178,6 +2180,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CopyAsPath:
             case Prog_CommandKind_CreateFolder:
             case Prog_CommandKind_CreateFile: Prog__FileCommand(state, command->kind); break;
+            case Prog_CommandKind_SelectionRestore: {
+                // Only the bin's items have somewhere to go back to.
+                if (state->loading || !P_IsTrashFolder(state->directory.path)) break;
+                String *paths = NULL;
+                u64 count = Prog__SelectedPaths(state, &state->frameArena, &paths);
+                if (count) Prog__FileJob(state, Prog_JobKind_Restore, paths, count, state->directory.path, false, (String){0});
+            } break;
+            case Prog_CommandKind_TrashRestoreAll: {
+                String bin = P_TrashFolder(&state->frameArena);
+                Prog__FileJob(state, Prog_JobKind_Restore, NULL, 0, bin, false, (String){0});
+            } break;
             case Prog_CommandKind_EmptyTrash: {
                 // Asked first, as a permanent delete is: by the system where it asks itself, else here.
                 if (P_EmptyTrashAsks() || state->noTrashConfirm) {

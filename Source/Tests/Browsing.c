@@ -2096,7 +2096,28 @@ function void TestTrash(TestFileFixture *fixture)
     P_ArrayTrashed items = P_ListTrash(&arena, bin, NULL);
     Check(items.header.count == 1 && items.header.count && StrIsEqual(items.v[0].name, S("note.txt")) && StrIsEqual(items.v[0].original, S("C:/Old")));
     Check(items.header.count && items.v[0].deletedTimeUnix == 1000 && TestEndsWith(items.v[0].file.name, S("/$RAB12.txt")));
-    Check(P__TestRemovePath(fixture, S("Bin/S-1/$IAB12.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1/$RAB12.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1"), true));
+    Check(P__TestRemovePath(fixture, S("Bin/S-1/$IAB12.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1/$RAB12.txt"), false));
+    // Restoring puts an item back where its record says, making its folder, and drops the record; one whose place is taken stays.
+    String back = P_NativePath(&arena, Prog_JoinPath(&arena, fixture->path, S("Gone/note.txt")));
+    for (u32 pass = 0; pass < 2; ++pass) {
+        wchar *wide = P__FilePathWide(&arena, back);
+        u64 length = 0;
+        while (wide[length]) ++length;
+        u32 count = (u32)length + 1;
+        u8 *again = ArenaPushArray(&arena, 28 + count * 2, u8);
+        MemCopy(again, &version, 8);
+        MemCopy(again + 8, &size, 8);
+        MemCopy(again + 16, &deleted, 8);
+        MemCopy(again + 24, &count, 4);
+        MemCopy(again + 28, wide, count * 2);
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, bin, S("S-1/$ICD34.txt")), StrMake((const char *)again, 28 + count * 2)).code);
+        Check(P__TestWriteFile(fixture, S("Bin/S-1/$RCD34.txt"), 5, false));
+        P_FileError restored = P_RestoreTrash(&arena, bin, NULL, 0);
+        Check(pass == 0 ? !restored.code && TestHasFile(&arena, fixture, S("Gone"), S("note.txt")) && !TestHasFile(&arena, fixture, S("Bin/S-1"), S("$ICD34.txt"))
+                        : restored.code && TestHasFile(&arena, fixture, S("Bin/S-1"), S("$RCD34.txt")));
+    }
+    Check(P__TestRemovePath(fixture, S("Bin/S-1/$ICD34.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1/$RCD34.txt"), false) && P__TestRemovePath(fixture, S("Bin/S-1"), true));
+    Check(P__TestRemovePath(fixture, S("Gone/note.txt"), false) && P__TestRemovePath(fixture, S("Gone"), true));
     Check(P_IsTrashFolder(S("D:/$RECYCLE.BIN/")) && !P_IsTrashFolder(S("D:/Recycle")));
 #elif defined(__linux__)
     Check(P__TestMakeDirectory(fixture, S("Bin/files")) && P__TestMakeDirectory(fixture, S("Bin/info")));
@@ -2106,6 +2127,17 @@ function void TestTrash(TestFileFixture *fixture)
     Check(items.header.count == 1 && items.header.count && StrIsEqual(items.v[0].name, S("note.txt")) && StrIsEqual(items.v[0].original, S("/Old Folder")));
     Check(items.header.count && items.v[0].deletedTimeUnix > 0 && TestEndsWith(items.v[0].file.name, S("/files/note.txt")));
     Check(P__TestRemovePath(fixture, S("Bin/files/note.txt"), false) && P__TestRemovePath(fixture, S("Bin/info/note.txt.trashinfo"), false));
+    // Restoring puts an item back where its info says, making its folder, and drops the info; one whose place is taken stays.
+    String back = Prog_JoinPath(&arena, fixture->path, S("Gone/note.txt"));
+    for (u32 pass = 0; pass < 2; ++pass) {
+        Check(P__TestWriteFile(fixture, S("Bin/files/note.txt"), 5, false));
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, bin, S("info/note.txt.trashinfo")), StrFormat(&arena, "[Trash Info]\nPath=%S\nDeletionDate=2026-01-02T03:04:05\n", back)).code);
+        P_FileError restored = P_RestoreTrash(&arena, bin, NULL, 0);
+        Check(pass == 0 ? !restored.code && TestHasFile(&arena, fixture, S("Gone"), S("note.txt")) && !TestHasFile(&arena, fixture, S("Bin/info"), S("note.txt.trashinfo"))
+                        : restored.code && TestHasFile(&arena, fixture, S("Bin/files"), S("note.txt")));
+    }
+    Check(P__TestRemovePath(fixture, S("Bin/files/note.txt"), false) && P__TestRemovePath(fixture, S("Bin/info/note.txt.trashinfo"), false));
+    Check(P__TestRemovePath(fixture, S("Gone/note.txt"), false) && P__TestRemovePath(fixture, S("Gone"), true));
     Check(P__TestRemovePath(fixture, S("Bin/files"), true) && P__TestRemovePath(fixture, S("Bin/info"), true));
 #endif
     Check(P__TestRemovePath(fixture, S("Bin"), true));

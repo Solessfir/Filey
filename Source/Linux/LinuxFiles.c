@@ -1140,6 +1140,49 @@ function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelTok
     return result;
 }
 
+function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *paths, u64 count)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P_ArrayTrashed binned = P_ListTrash(scratch.arena, bin, NULL);
+    u32 error = 0, taken = 0;
+    for (u64 i = 0; i < binned.header.count && !error; ++i) {
+        const P_Trashed *item = &binned.v[i];
+        b32 wanted = !count;
+        for (u64 p = 0; p < count && !wanted; ++p) wanted = StrIsEqual(item->file.name, paths[p]);
+        if (!wanted) continue;
+        String folder = item->original;
+        String target = StrIsEqual(folder, S("/")) ? StrFormat(scratch.arena, "/%S", item->name) : StrFormat(scratch.arena, "%S/%S", folder, item->name);
+        char *from = P__FilePathCString(scratch.arena, item->file.name), *to = P__FilePathCString(scratch.arena, target);
+        if (!from || !to) {
+            error = EINVAL;
+            break;
+        }
+        struct stat seen;
+        if (lstat(to, &seen) == 0) {
+            ++taken;
+            continue;
+        }
+        // Its folder, and the ones above it, may have gone since.
+        for (u64 at = 1; at <= folder.length; ++at) {
+            if (at < folder.length && folder.value[at] != '/') continue;
+            char *part = P__FilePathCString(scratch.arena, StrFromTo(folder, 0, (i64)at));
+            if (part) mkdir(part, 0777);
+        }
+        if (rename(from, to) != 0) {
+            error = (u32)errno;
+            break;
+        }
+        String parent, leaf;
+        P__SplitPath(item->file.name, &parent, &leaf);
+        char *info = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/info/%S.trashinfo", bin, leaf));
+        if (info) unlink(info);
+    }
+    ReleaseScratch(scratch);
+    if (error) return P__FileError(arena, error);
+    if (taken) return (P_FileError){ .code = EEXIST, .message = StrFormat(arena, "%u item%s stayed in the Trash, as something else is where %s came from.", taken, taken == 1 ? "" : "s", taken == 1 ? "it" : "they") };
+    return (P_FileError){0};
+}
+
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
 {
     Scratch scratch = GetScratchEx(arena);

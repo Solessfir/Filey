@@ -180,6 +180,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
     Prog_JobKind_EmptyTrash,
+    Prog_JobKind_Restore,      // `paths` from the bin `path` back where they came from, or all of it without any
     Prog_JobKind_Create,
     Prog_JobKind_Places,
     Prog_JobKind_Save,

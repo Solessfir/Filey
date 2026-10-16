@@ -2,7 +2,6 @@
 
 ## Next
 
-- TrashRestoreAll and TrashDeleteAll, checked by hand since they act on the real bin.
 - Miller columns and archives as folders, when asked.
 - LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen, ConsoleOpen, ToggleFullscreen.
 - Font pickers, with the system's font families listed on both platforms.
@@ -23,7 +22,7 @@ Already in Filey under another name: SelectionActivate (OpenFocused), SelectionC
 Missing, by the reference's group:
 
 - Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick), MenuOpen.
-- Folder: OpenInWindow, SelectionPasteLink, SelectionInspect, SelectionRestore, SelectionCopyAsPathSmart, OpenRelativePath(InTab), TrashDeleteAll, TrashRestoreAll, FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
+- Folder: OpenInWindow, SelectionPasteLink, SelectionInspect, SelectionCopyAsPathSmart, OpenRelativePath(InTab), FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - View: ToggleSepFilesFolders.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.

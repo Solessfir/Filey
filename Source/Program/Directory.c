@@ -1432,7 +1432,8 @@ function void Prog__DirectoryJob(P_Job *job)
         result->count = input->rowCount;
         return;
     }
-    if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash) {
+    if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ||
+        input->kind == Prog_JobKind_Restore) {
         Prog_Transferred *result = ArenaPushStruct(&job->arena, Prog_Transferred);
         P_FileError *error = &result->error;
         if (P_IsCancelled(&job->cancelToken)) {
@@ -1442,6 +1443,8 @@ function void Prog__DirectoryJob(P_Job *job)
             ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_EmptyTrash) {
             ProfileScope("EmptyTrash") *error = P_EmptyTrash(&job->arena, input->confirm);
+        } else if (input->kind == Prog_JobKind_Restore) {
+            ProfileScope("RestoreTrash") *error = P_RestoreTrash(&job->arena, input->path, input->paths, input->pathCount);
         } else {
             ProfileScope("TrashItems") *error = P_TrashItems(&job->arena, input->paths, input->pathCount);
         }
@@ -3659,11 +3662,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
             }
         } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_Create ||
-                   input->kind == Prog_JobKind_EmptyTrash) {
+                   input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore) {
             changed = true;
             // The bin's listing has no watcher to see it emptied, and its icon shows whether it holds anything.
-            if (input->kind == Prog_JobKind_EmptyTrash && P_IsTrashFolder(state->directory.path)) Prog_Reload(state);
-            if (input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Trash || (input->kind == Prog_JobKind_Delete && P_IsTrashFolder(input->path))) {
+            b32 binChanged = input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore;
+            if (binChanged && P_IsTrashFolder(state->directory.path)) Prog_Reload(state);
+            if (binChanged || input->kind == Prog_JobKind_Trash || (input->kind == Prog_JobKind_Delete && P_IsTrashFolder(input->path))) {
                 Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
             }
             for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
@@ -3671,7 +3675,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             P_FileError error = input->kind == Prog_JobKind_Create ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->move ? S("Move") : S("Copy");
+            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") :
+                          input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             if (error.code) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "%S: %S", verb, error.message);

@@ -700,6 +700,16 @@ command TogglePreview {
     repeat  = "false"
 }
 
+command SelectionRestore {
+    label   = "Restore^undelete,recover"
+    tooltip = "Restore selected files into their original location. Applicable in Recycle Bin."
+}
+
+command TrashRestoreAll {
+    label   = "Restore Trash Items^entry,undelete,recover,bin"
+    tooltip = "Restore all files from the Recycle Bin into their original locations."
+}
+
 command EmptyTrash {
     label   = "Empty Recycle Bin^trash,bin,empty,delete,permanently,purge"
     tooltip = "Permanently delete everything in the Recycle Bin."
