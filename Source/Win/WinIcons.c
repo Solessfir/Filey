@@ -9,6 +9,11 @@
 #include <wincodec.h>
 #pragma pop_macro("function")
 
+// Set by WinWindow.c when the shell tells of changed file associations or replaced icons, after which the icons loaded before are out of date.
+global atomic_bool P__iconsChanged;
+
+function b32 P_IconThemeChanged(void) { return atomic_exchange(&P__iconsChanged, false); }
+
 // Extensions whose files carry their own icon, so they cannot share one per type.
 global const String P__IconPerPathExtensions[] = {
     SInit("exe"), SInit("lnk"), SInit("ico"), SInit("cur"), SInit("ani"), SInit("url"), SInit("scr"), SInit("msc"), SInit("cpl"), SInit("appref-ms"),

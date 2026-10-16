@@ -42,6 +42,7 @@ typedef struct WinWindowState {
 global WinWindowState Win;
 
 #define WinWakeMessage (WM_APP + 1)
+#define WinShellChangeMessage (WM_APP + 2)
 
 // The executable's icon resource (Resources/Filey.rc), loaded at the sizes the window's DPI asks for so the title bar and taskbar get sharp images.
 function void WinSetIcons(void)
@@ -356,6 +357,16 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             return 0;
         }
         // Volumes and media that come and go are told to every top-level window.
+        // The shell's news of changed associations or icons, which the program loads its icons again for; the message itself wakes it.
+        case WinShellChangeMessage: {
+            PIDLIST_ABSOLUTE *items = NULL;
+            LONG event = 0;
+            HANDLE lock = SHChangeNotification_Lock((HANDLE)wParam, (DWORD)lParam, &items, &event);
+            if (lock) {
+                if (event & (SHCNE_ASSOCCHANGED | SHCNE_UPDATEIMAGE)) atomic_store(&P__iconsChanged, true);
+                SHChangeNotification_Unlock(lock);
+            }
+        } return 0;
         case WM_DEVICECHANGE: {
             if (wParam == DBT_DEVICEARRIVAL || wParam == DBT_DEVICEREMOVECOMPLETE) PlatformPushEvent(PlatformEventKind_DrivesChanged);
             return TRUE;
@@ -518,6 +529,13 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
                                  NULL, NULL, instance, NULL);
     if (Win.window == NULL) {
         return false;
+    }
+
+    // Installers and Open With's "always" tell the shell of changed associations, and apps of replaced icons; Explorer is told so, and so is this window.
+    PIDLIST_ABSOLUTE desktop = NULL;
+    if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &desktop))) {
+        SHChangeNotifyEntry entry = { desktop, TRUE };
+        SHChangeNotifyRegister(Win.window, SHCNRF_ShellLevel | SHCNRF_NewDelivery, SHCNE_ASSOCCHANGED | SHCNE_UPDATEIMAGE, WinShellChangeMessage, 1, &entry);
     }
 
     // Size the client area for the monitor the window landed on.
