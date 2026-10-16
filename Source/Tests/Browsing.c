@@ -1596,7 +1596,7 @@ function void TestTabs(TestFileFixture *fixture)
         ArrayStr lines = StrSplit(&driveArena, settings, '\n');
         u32 animations = 0, layouts = 0;
         for (u64 i = 0; i < lines.header.count; ++i) {
-            animations += StrIsEqual(lines.v[i], S("animations = off")) ? 1 : 0;
+            animations += StrIsEqual(lines.v[i], S("animations = false")) ? 1 : 0;
             layouts += StrIsEqual(lines.v[i], S("inspector.layout = below")) ? 1 : 0;
         }
         Check(animations == 1 && layouts == 1);

@@ -1173,7 +1173,7 @@ typedef struct Prog_State {
     P_DirectoryWatch configWatch;
     // Loud colors for telling UI surfaces apart; FILEY_DEBUG_THEME turns it on at startup.
     b32 debugTheme;
-    // "animations = off" in the settings: menus, scrolling and the caret change at once.
+    // "animations = false" in the settings: menus, scrolling and the caret change at once.
     b32 animationsOff;
     // A point smaller than the main font, for the details columns; the main font while unset.
     const R_Font *smallFont;

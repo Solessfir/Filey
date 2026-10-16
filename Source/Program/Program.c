@@ -251,13 +251,13 @@ global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { S("root"), S("home
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
 //   theme = fullmoon              the reference's scheme under the colors below, for side-by-side checks
-//   animations = off              menus, scrolling and the caret change at once
+//   animations = false            menus, scrolling and the caret change at once
 //   color.<theme field> = #rrggbb[aa]
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
-//   transparent = on              the transparent theme
+//   transparent = true            the transparent theme
 //   inspector.fontSize = 10       the inspector's text size in points, and inspector.layout = auto, right or below where it sits
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
 function void Prog_ApplySettings(Prog_State *state, String text)
@@ -444,33 +444,33 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 {
     StrBuilder text = {0};
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
-                                "# Lines are \"name = value\"; remove the # in front of a setting to change it.\n\n"
+                                "# Lines are \"name = value\", switches true or false; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
                                 "# \"fullmoon\" starts from the reference's scheme and \"light\" from a light one; colors set before this line are replaced.\n# theme = default\n"
-                                "# With theme.system on, the system's light mode brings the light scheme instead.\n# theme.system = off\n\n"
+                                "# With theme.system on, the system's light mode brings the light scheme instead.\n# theme.system = false\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
-                                "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = off\n# inactive.opacity = 60\n\n"
+                                "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
                                 "# underline only the pointed name in single-click mode, go up with a double click on the background,\n"
                                 "# scroll past the last item, and turn the wheel around.\n"
-                                "# click.onPress = on\n# click.single = off\n# click.singleFoldersOnly = off\n# hover.select = off\n# hover.underline = on\n"
-                                "# click.doubleToParent = off\n# scroll.over = on\n# scroll.reverse = off\n\n"
+                                "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.underline = true\n"
+                                "# click.doubleToParent = false\n# scroll.over = true\n# scroll.reverse = false\n\n"
                                 "# What the lists show: file extensions, hidden and dot files, and the system's own files.\n"
-                                "# files.extensions = on\n# files.hidden = off\n# files.system = off\n\n"
+                                "# files.extensions = true\n# files.hidden = false\n# files.system = false\n\n"
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
-                                "# paths.short = on\n# paths.trail = on\n\n"
-                                "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = off\n\n"
-                                "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = off\n\n"
-                                "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = on\n\n"
+                                "# paths.short = true\n# paths.trail = true\n\n"
+                                "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
+                                "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
+                                "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
                                 "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
-                                "# recents.store = persistent\n# recents.highlight = off\n# recents.sort = off\n\n"
-                                "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = on\n\n"
+                                "# recents.store = persistent\n# recents.highlight = false\n# recents.sort = false\n\n"
+                                "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = true\n\n"
                                 "# Thumbnails in the icon views: never, local (not on network drives) or always.\n# thumbnails = local\n\n"
                                 "# Subfolder sizes, measured by walking them, and on which drives: solid-state, spinning and network.\n"
-                                "# folders.size = on\n# folders.size.ssd = on\n# folders.size.hdd = off\n# folders.size.network = off\n\n"
-                                "# Easing for menus and scrolling, and the fading caret.\n# animations = on\n\n"
+                                "# folders.size = true\n# folders.size.ssd = true\n# folders.size.hdd = false\n# folders.size.network = false\n\n"
+                                "# Easing for menus and scrolling, and the fading caret.\n# animations = true\n\n"
                                 "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
                                 "# The font families of the UI and of the inspector's text, by name; a family the system lacks falls back to its default.\n"
                                 "# font = Segoe UI\n# inspector.font = Consolas\n\n"
@@ -492,7 +492,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                                "# glass.window tints what is behind the window, glass.popup the blur under menus, the palette and the other floating boxes,\n"
                                                "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
                                                "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
-                                               "# transparent = off\n# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
+                                               "# transparent = false\n# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
@@ -505,7 +505,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 }
 
 // The options of the Options popup, in its order.
-global const String Prog_OptionSwitch[] = { S("off"), S("on") };
+global const String Prog_OptionSwitch[] = { S("false"), S("true") };
 global const String Prog_OptionSchemes[] = { S("default"), S("fullmoon"), S("light") };
 global const String Prog_OptionCorners[] = { S("square"), S("round") };
 global const String Prog_OptionLayouts[] = { S("auto"), S("right"), S("below") };
