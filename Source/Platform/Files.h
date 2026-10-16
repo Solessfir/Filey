@@ -215,6 +215,8 @@ function String P_ConfigDirectory(Arena *arena);
 function b32 P_ReadFile(Arena *arena, String path, String *contents);
 // Reads at most `limit` bytes from the start of the file at `path`.
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents);
+// Up to `limit` bytes of `path` from `offset` on; fewer past its end.
+function b32 P_ReadFileAt(Arena *arena, String path, u64 offset, u64 limit, String *contents);
 // Replaces the file with `contents` in one step, so that a crash leaves the old or the new file and never half of one.
 function P_FileError P_WriteFile(Arena *arena, String path, String contents);
 // Adds `contents` to the end of the file at `path`, which `restart` empties first; the file is made when missing.

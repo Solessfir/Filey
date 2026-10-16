@@ -655,41 +655,50 @@ function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 
     return text.buffer;
 }
 
-// `bytes` as lines of 16: the offset, in as few hex digits as the last one needs but at least four, the bytes in hex in two groups of eight, and the printable ones as characters, others as dots;
-// `cut` adds a last line saying the file goes on.
-function String Prog_HexDump(Arena *arena, String bytes, b32 cut)
+// A hex row: the offset in `places` hex digits and two spaces, three characters a byte with one more space after the eighth, then the
+// bytes as characters, printable ones as they are and others as dots.
+function u64 Prog_HexByteColumn(u32 places, u64 i)
+{
+    return places + 2 + i * 3 + (i >= 8 ? 1 : 0);
+}
+
+function u64 Prog_HexCharColumn(u32 places, u32 perLine, u64 i)
+{
+    return places + 2 + (u64)perLine * 3 + Max(perLine / 8, 1u) + i;
+}
+
+// As few hex digits as the last offset of a file of `size` needs, but at least four.
+function u32 Prog_HexPlaces(u64 size)
+{
+    u32 places = 4;
+    while (places < 16 && (size ? size - 1 : 0) >> (4 * places)) ++places;
+    return places;
+}
+
+// The most bytes a row holds, 16, 8 or 4, that fit in `cells` characters.
+function u32 Prog_HexPerLine(u32 places, f32 cells)
+{
+    for (u32 perLine = 16; perLine > 4; perLine /= 2) {
+        if ((f32)Prog_HexCharColumn(places, perLine, perLine) <= cells) return perLine;
+    }
+    return 4;
+}
+
+// The row of the `count` bytes at `bytes`, which start `offset` bytes into the file.
+function String Prog_HexRowText(Arena *arena, const u8 *bytes, u64 count, u64 offset, u32 perLine, u32 places)
 {
     local_persist const char digits[] = "0123456789ABCDEF";
-    u64 lines = (bytes.length + 15) / 16;
-    i32 places = 4;
-    while (places < 16 && (lines * 16) >> (4 * places)) ++places;
-    u64 width = (u64)places + 2 + 16 * 3 + 1 + 1 + 16 + 1;
-    String more = S("...\n");
-    char *text = ArenaPushArrayNoZero(arena, lines * width + more.length, char), *at = text;
-    for (u64 line = 0; line < lines; ++line) {
-        u64 offset = line * 16, count = Min((u64)16, bytes.length - offset);
-        for (i32 shift = 4 * (places - 1); shift >= 0; shift -= 4) *at++ = digits[(offset >> shift) & 15];
-        *at++ = ' ';
-        *at++ = ' ';
-        for (u64 i = 0; i < 16; ++i) {
-            u8 byte = (u8)bytes.value[offset + Min(i, count - 1)];
-            *at++ = i < count ? digits[byte >> 4] : ' ';
-            *at++ = i < count ? digits[byte & 15] : ' ';
-            *at++ = ' ';
-            if (i == 7) *at++ = ' ';
-        }
-        *at++ = ' ';
-        for (u64 i = 0; i < count; ++i) {
-            u8 byte = (u8)bytes.value[offset + i];
-            *at++ = byte >= 0x20 && byte < 0x7F ? (char)byte : '.';
-        }
-        *at++ = '\n';
+    u64 length = Prog_HexCharColumn(places, perLine, count);
+    char *text = ArenaPushArrayNoZero(arena, Max(length, (u64)1), char);
+    for (u64 i = 0; i < length; ++i) text[i] = ' ';
+    for (u32 i = 0; i < places; ++i) text[i] = digits[(offset >> (4 * (places - 1 - i))) & 15];
+    for (u64 i = 0; i < count; ++i) {
+        u64 column = Prog_HexByteColumn(places, i);
+        text[column] = digits[bytes[i] >> 4];
+        text[column + 1] = digits[bytes[i] & 15];
+        text[Prog_HexCharColumn(places, perLine, i)] = bytes[i] >= 0x20 && bytes[i] < 0x7F ? (char)bytes[i] : '.';
     }
-    if (cut) {
-        MemCopy(at, more.value, more.length);
-        at += more.length;
-    }
-    return StrMake(text, (u64)(at - text));
+    return StrMake(text, length);
 }
 
 function b32 Prog__LooksLikeText(String start)
@@ -1058,13 +1067,21 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    if (input->kind == Prog_JobKind_HexPage) {
+        String *bytes = ArenaPushStruct(&job->arena, String);
+        if (!P_ReadFileAt(&job->arena, input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
+        job->result = bytes;
+        return;
+    }
     if (input->kind == Prog_JobKind_Preview) {
-        // Text where the start of the file reads as text, else the system's picture of it.
+        // Text where the start of the file reads as text, else the system's picture of it; with the inspector set to hex, every file's bytes.
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         String start = {0};
         P_Image image = {0};
         P_FileArray items = {0};
-        if (!input->folder && Prog__IsArchive(input->path) && P_ListArchive(&job->arena, input->path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
+        if (input->hex && !input->folder) {
+            result->hex = P_ReadFileStart(&job->arena, input->path, Prog_HexPageBytes, &result->text);
+        } else if (!input->folder && Prog__IsArchive(input->path) && P_ListArchive(&job->arena, input->path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
             result->text = Prog_ArchiveListing(&job->arena, &items, items.header.count >= Prog_PreviewArchiveItems);
             result->archive = true;
         } else if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
@@ -1080,7 +1097,7 @@ function void Prog__DirectoryJob(P_Job *job)
             Scratch scratch = GetScratchEx(&job->arena);
             b32 hex = !input->folder && !P_LoadFileThumbnail(scratch.arena, input->path, P_FileKind_File, Prog_PreviewSize, true, &image);
             if (hex) {
-                result->text = Prog_HexDump(&job->arena, start, start.length == Prog_PreviewBytes);
+                result->text = start;
                 result->hex = true;
             } else if (image.pixels || P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, false, &image)) {
                 result->pixels = Prog_ResizeIcon(&job->arena, image, Prog_PreviewSize);
@@ -3044,10 +3061,22 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Preview) {
             // Only the latest one is shown; the texture is made on first use and refilled after.
             const Prog_Preview *preview = job->result;
-            if (job == state->previewJob && preview) {
+            if (job == state->previewJob && preview && preview->hex) {
+                // Its first page, and room for the rest as they are read.
+                state->previewJob = NULL;
+                u64 shown = Min(state->hexSize, (u64)Prog_HexRows * 16);
+                state->hexPageCount = (shown + Prog_HexPageBytes - 1) / Prog_HexPageBytes;
+                state->hexPages = ArenaPushArray(&state->previewArena, Max(state->hexPageCount, (u64)1), u8 *);
+                if (state->hexPageCount) {
+                    state->hexPages[0] = ArenaPushArrayNoZero(&state->previewArena, Prog_HexPageBytes, u8);
+                    MemCopy(state->hexPages[0], preview->text.value, Min(preview->text.length, (u64)Prog_HexPageBytes));
+                }
+                state->previewHex = true;
+                changed = true;
+            } else if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
-                state->previewHex = preview->hex;
+                state->previewHex = false;
                 state->previewArchive = preview->archive;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
@@ -3077,6 +3106,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_HexPage) {
+            if (state->hexPageJob == job) state->hexPageJob = NULL;
+            const String *bytes = job->result;
+            u64 page = input->offset / Prog_HexPageBytes;
+            if (bytes && state->previewHex && StrIsEqual(input->path, state->previewPath) && page < state->hexPageCount && !state->hexPages[page]) {
+                state->hexPages[page] = ArenaPushArray(&state->previewArena, Prog_HexPageBytes, u8);
+                MemCopy(state->hexPages[page], bytes->value, Min(bytes->length, (u64)Prog_HexPageBytes));
+            }
+            changed = true;
         } else if (input->kind == Prog_JobKind_Open) {
             P_FileError *error = job->result;
             if (error && error->code) {

@@ -702,11 +702,14 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(!P_WriteFile(&arena, plain, S("\x01\x02")).code);
     image = (P_Image){0};
     Check(!P_LoadFileThumbnail(&arena, plain, P_FileKind_File, 64, true, &image));
-    // Its bytes then show as a hex dump: offset, hex in two groups of eight, characters; a cut one ends with "...".
-    String dump = Prog_HexDump(&arena, S("AB\x00"), false);
-    Check(StrIsEqual(StrFromTo(dump, 0, 18), S("0000  41 42 00    ")) && TestEndsWith(dump, S("    AB.\n")) && dump.length == 4 + 2 + 49 + 1 + 3 + 1);
-    String sixteen = Prog_HexDump(&arena, S("0123456789abcdefg"), true);
-    Check(StrIsEqual(StrFromTo(sixteen, 0, 82), S("0000  30 31 32 33 34 35 36 37  38 39 61 62 63 64 65 66  0123456789abcdef\n0010  67 ")) && TestEndsWith(sixteen, S(" g\n...\n")));
+    // Its bytes then show as hex rows: offset, hex in two groups of eight, characters; fewer to a row where the view is narrow.
+    String dump = Prog_HexRowText(&arena, (const u8 *)"AB\x00", 3, 0, 16, Prog_HexPlaces(3));
+    Check(StrIsEqual(StrFromTo(dump, 0, 18), S("0000  41 42 00    ")) && TestEndsWith(dump, S("    AB.")) && dump.length == 4 + 2 + 49 + 1 + 3);
+    String sixteen = Prog_HexRowText(&arena, (const u8 *)"0123456789abcdef", 16, 0x10, 16, Prog_HexPlaces(0x10000));
+    Check(StrIsEqual(sixteen, S("0010  30 31 32 33 34 35 36 37  38 39 61 62 63 64 65 66  0123456789abcdef")) && Prog_HexPlaces(0x10001) == 5);
+    Check(Prog_HexPerLine(4, 72) == 16 && Prog_HexPerLine(4, 71) == 8 && Prog_HexPerLine(4, 10) == 4);
+    String part = {0};
+    Check(P_ReadFileAt(&arena, plain, 1, 8, &part) && StrIsEqual(part, S("\x02")));
     // An archive lists its folders and files with their paths inside it; one made by Python's zipfile, a folder "docs" holding "a.txt".
     local_persist const char zipped[] = "\x50\x4b\x03\x04\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x64\x6f\x63\x73\x2f\x50\x4b\x03\x04\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\xac\x2a\x93\xd8\x02\x00\x00\x00\x02\x00\x00\x00\x0a\x00\x00\x00\x64\x6f\x63\x73\x2f\x61\x2e\x74\x78\x74\x68\x69\x50\x4b\x01\x02\x14\x00\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\xfd\x41\x00\x00\x00\x00\x64\x6f\x63\x73\x2f\x50\x4b\x01\x02\x14\x00\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\xac\x2a\x93\xd8\x02\x00\x00\x00\x02\x00\x00\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x01\x23\x00\x00\x00\x64\x6f\x63\x73\x2f\x61\x2e\x74\x78\x74\x50\x4b\x05\x06\x00\x00\x00\x00\x02\x00\x02\x00\x6b\x00\x00\x00\x4d\x00\x00\x00\x00\x00";
     String archive = Prog_JoinPath(&arena, fixture->path, S("pack.zip"));

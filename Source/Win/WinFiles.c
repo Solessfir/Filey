@@ -543,6 +543,11 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
 
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
 {
+    return P_ReadFileAt(arena, path, 0, limit, contents);
+}
+
+function b32 P_ReadFileAt(Arena *arena, String path, u64 offset, u64 limit, String *contents)
+{
     *contents = (String){0};
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
@@ -552,7 +557,8 @@ function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *conte
     limit = Min(limit, (u64)UINT32_MAX);
     char *bytes = ArenaPushArrayNoZero(arena, limit + 1, char);
     DWORD read = 0;
-    b32 result = ReadFile(file, bytes, (DWORD)limit, &read, NULL) != 0;
+    OVERLAPPED at = { .Offset = (u32)(offset & UINT32_MAX), .OffsetHigh = (u32)(offset >> 32) };
+    b32 result = ReadFile(file, bytes, (DWORD)limit, &read, &at) != 0 || GetLastError() == ERROR_HANDLE_EOF;
     if (result) *contents = StrMake(bytes, read);
     CloseHandle(file);
     return result;

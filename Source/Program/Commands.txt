@@ -1050,6 +1050,11 @@ command InspectorToggleLineNumbers {
     tooltip = "Toggle display of line numbers for the previewed text in the inspector."
 }
 
+command InspectorToggleHex {
+    label   = "Toggle Inspector Hex View^bytes,binary,hexadecimal"
+    tooltip = "Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are."
+}
+
 command InspectorToggleWhitespace {
     label   = "Toggle Inspector Whitespace^show,hide"
     tooltip = "Toggle display of whitespace in the previewed text in the inspector."

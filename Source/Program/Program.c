@@ -5116,6 +5116,90 @@ function void Prog__InspectorRow(Prog_State *state, String text, const u8 *match
 }
 
 
+// A file's bytes as hex rows, as many to a row as fit, zeros dimmed and bytes that are not printable characters in the match color.
+// Only the rows in sight get blocks, and the pages they are in are read when first in sight.
+function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    const R_Font *font = state->monoFont ? state->monoFont : m->font;
+    f32 s = m->scale, size = (f32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
+    f32 pitch = floorf((size + 6.8f) * s + 0.5f), cell = R_TextWidth(font, S("M"));
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    f32 margin = floorf(32.8f * s + 0.5f), left = floorf(9.6f * s + 0.5f);
+    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(13.6f * s + 0.5f), margin, floorf(4.0f * s + 0.5f) });
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText")), UI_Flag_Clip | UI_Flag_Scrollable);
+    if (state->inspectorResetScroll) {
+        view->scrollOffset = view->scrollShown = (UI_Vec2){0};
+        state->inspectorResetScroll = false;
+    }
+    if (!UI->animate) view->scrollShown = view->scrollOffset;
+    u64 shownBytes = Min(state->hexSize, state->hexPageCount * Prog_HexPageBytes);
+    u32 places = Prog_HexPlaces(state->hexSize);
+    u32 perLine = Prog_HexPerLine(places, (view->rect.x1 - view->rect.x0 - left - margin) / cell);
+    u64 rows = (shownBytes + perLine - 1) / perLine, cutRows = Min(rows, (u64)Prog_HexRows);
+    b32 cut = cutRows * perLine < state->hexSize;
+    u64 rowCount = cutRows + (cut ? 1 : 0);
+    f32 from = MinF32(view->scrollOffset.y, view->scrollShown.y), to = MaxF32(view->scrollOffset.y, view->scrollShown.y) + (view->rect.y1 - view->rect.y0);
+    u64 first = Min((u64)MaxF32(0, floorf(from / pitch)), rowCount), last = Min((u64)MaxF32(0, ceilf(to / pitch)) + 1, rowCount);
+    Arena *frame = &state->frameArena;
+    UI_Parent(view) {
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch));
+        for (u64 row = first; row < last; ++row) {
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(pitch));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_Block *rowBlock = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(rowBlock) {
+                Prog__Spacer(UI_Pixels(left), UI_Pixels(pitch));
+                if (row >= cutRows) {
+                    UI_SetNextFont(font);
+                    Prog__Label(S("..."), UI_TextContent(), pitch, 0, theme->textDim, 0);
+                    continue;
+                }
+                u64 offset = row * perLine, count = Min((u64)perLine, state->hexSize - offset);
+                const u8 *page = state->hexPages[offset / Prog_HexPageBytes];
+                // A page not read yet is asked for, one at a time, and its rows stay empty until it comes.
+                if (!page) {
+                    if (!state->hexPageJob) {
+                        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                        input->kind = Prog_JobKind_HexPage;
+                        input->path = StrCopy(&job->arena, state->previewPath);
+                        input->offset = offset / Prog_HexPageBytes * Prog_HexPageBytes;
+                        job->input = input;
+                        state->hexPageJob = job;
+                        P_JobSubmit(job);
+                    }
+                    continue;
+                }
+                const u8 *bytes = page + offset % Prog_HexPageBytes;
+                String text = Prog_HexRowText(frame, bytes, count, offset, perLine, places);
+                UI_SetNextFont(font);
+                Prog__Label(StrFromTo(text, 0, places), UI_Pixels((f32)(places + 2) * cell), pitch, 0, theme->textDim, 0);
+                // Runs of bytes of one kind share a label, in the hex columns and then in the characters.
+                for (u32 part = 0; part < 2; ++part) {
+                    for (u64 at = 0; at < count;) {
+                        u32 kind = bytes[at] == 0 ? 0 : bytes[at] >= 0x20 && bytes[at] < 0x7F ? 1 : 2;
+                        u64 end = at + 1;
+                        while (end < count && (bytes[end] == 0 ? 0u : bytes[end] >= 0x20 && bytes[end] < 0x7F ? 1u : 2u) == kind) ++end;
+                        u64 start = part ? Prog_HexCharColumn(places, perLine, at) : Prog_HexByteColumn(places, at);
+                        // The last hex run takes the spaces up to the characters, which keeps a short last row's characters under those above.
+                        u64 stop = part ? Prog_HexCharColumn(places, perLine, end) : end == count ? Prog_HexCharColumn(places, perLine, 0) : Prog_HexByteColumn(places, end);
+                        R_Color color = kind == 0 ? theme->textDim : kind == 1 ? theme->text : theme->textMatch;
+                        UI_SetNextFont(font);
+                        Prog__Label(StrFromTo(text, start, (i64)stop), UI_Pixels((f32)(stop - start) * cell), pitch, 0, color, 0);
+                        at = end;
+                    }
+                }
+            }
+        }
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
+    }
+    Prog__ScrollBar(view, pitch, S("InspectorText"), m);
+}
+
 // The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked.
 // Only the rows in sight get blocks, with spacers for the rest.
 function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
@@ -5570,7 +5654,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     Prog__Box(below ? UI_Flex() : UI_Pixels(m->separator), below ? UI_Pixels(m->separator) : UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
     f32 inner = size - m->separator;
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
-    b32 text = entry && state->previewText.length && !state->previewPicture && state->previewLines;
+    b32 text = entry && !state->previewPicture && ((state->previewText.length && state->previewLines) || state->previewHex);
     b32 image = entry && state->previewImage;
     b32 folder = entry && entry->file.kind == P_FileKind_Directory;
     UI_SetNextPrefWidth(below ? UI_Flex() : UI_Pixels(inner));
@@ -5644,7 +5728,9 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (entry) Prog__ToolbarButton(state, S("InspectorDetailsButton"), Icon_ChevronRight, Prog_CommandKind_InspectorToggleDetails, true, m);
             Prog__Spacer(UI_Pixels(floorf(m->inset * 0.4f)), UI_Pixels(bar));
         }
-        if (text) {
+        if (text && state->previewHex) {
+            Prog__InspectorHex(state, m);
+        } else if (text) {
             Prog__InspectorText(state, m);
         } else if (image) {
             Prog__InspectorImage(state, m);
@@ -5685,7 +5771,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
         UI_Block *footer = folder ? NULL : Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
         if (footer) UI_Parent(footer) {
-            if (text) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
+            if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
             if (image) {
                 // An image's scale, filled up to its own size.
@@ -5713,9 +5799,10 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                     f32 before = floorf(7.2f * s + 0.5f);
                     Prog__LabelPadded(state->previewHex ? S("Hex") : state->previewArchive ? S("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
                     Prog__Icon(Icon_TextAlignStart, 0, m->pill, theme->icon, 0.5f, m);
-                    // The lines the filter keeps out of all of them.
-                    String lines = state->inspectorFilter.length ? StrFormat(&state->frameArena, "%u/%u", state->previewKeptCount, state->previewLineCount)
-                                                                 : StrFormat(&state->frameArena, "%u", state->previewLineCount);
+                    // The lines the filter keeps out of all of them; for hex, the file's size.
+                    String lines = state->previewHex ? Prog_FormatSize(&state->frameArena, state->hexSize)
+                                 : state->inspectorFilter.length ? StrFormat(&state->frameArena, "%u/%u", state->previewKeptCount, state->previewLineCount)
+                                 : StrFormat(&state->frameArena, "%u", state->previewLineCount);
                     Prog__LabelPadded(lines, UI_TextContent(), m->pill, floorf(10.4f * s + 0.5f), floorf(12.0f * s + 0.5f), theme->text, 0);
                     // The text's size, filled from the least to the most it can be.
                     u32 points = state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize;

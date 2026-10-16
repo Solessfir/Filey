@@ -185,6 +185,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Save,
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
+    Prog_JobKind_HexPage,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -303,6 +304,8 @@ typedef struct Prog_JobInput {
     // Save writes `name` to the file `path`.
     String *paths;
     u64 pathCount;
+    u64 offset;            // HexPage: where its page starts in the file
+    b32 hex;               // Preview: the file's bytes, whatever it holds
     b32 move;
     b32 folder;
     b32 confirm;           // EmptyTrash: the system asks first
@@ -340,6 +343,10 @@ typedef struct Prog_Transfer {
 // What the preview pane shows of a file: a picture of Prog_PreviewSize squared, or the start of its text.
 #define Prog_PreviewSize 512
 #define Prog_PreviewBytes (1 << 20)
+// A file shown as hex is read a page at a time as its rows come into sight, up to Prog_HexRows rows; past that the view would need more
+// precision than its float scroll offset has.
+#define Prog_HexPageBytes (1 << 20)
+#define Prog_HexRows (1 << 20)
 // The inspector's text size in points, unless changed.
 #define Prog_InspectorFontSize 10
 #define Prog_InspectorFontMin 8
@@ -355,7 +362,7 @@ typedef struct Prog_Preview {
     i32 sourceWidth, sourceHeight;  // the image's own size, for an image
     b32 image;
     String text;
-    b32 hex;                        // the text is a hex dump of a file that is neither text nor a picture
+    b32 hex;                        // the text is the first page of a file that is neither text nor a picture, shown as hex
     b32 archive;                    // the text lists what an archive holds
 } Prog_Preview;
 
@@ -991,7 +998,12 @@ typedef struct Prog_State {
     b32 previewImage;         // the picture is the image file's own, previewImageWidth by previewImageHeight
     i32 previewImageWidth, previewImageHeight;
     b32 previewFolder;        // previewPath is a folder, which the inspector's panel lists
-    b32 previewHex;           // previewText is a hex dump, shown without line numbers or wrapping
+    b32 previewHex;           // the file shows as hex, from hexPages
+    b32 inspectorHex;         // every file shows as hex
+    u64 hexSize;              // the file's size
+    u8 **hexPages;            // its pages read so far, NULL for the rest, in previewArena
+    u64 hexPageCount;
+    P_Job *hexPageJob;        // the page on its way, one at a time
     b32 previewArchive;       // previewText lists an archive's contents, shown the same way
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
     // The view is dragged to move it.

@@ -315,7 +315,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -1198,10 +1198,12 @@ function void Prog__UpdatePreview(Prog_State *state)
     }
     String want = {0};
     b32 folder = false;
+    u64 size = 0;
     if (!state->loading && state->hasFocus && state->focusedRow < state->directory.count) {
         const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
         want = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
         folder = entry->file.kind == P_FileKind_Directory;
+        size = entry->file.size;
     }
     if (StrIsEqual(want, state->previewPath)) return;
     if (state->previewJob) P_RequestCancel(&state->previewJob->cancelToken);
@@ -1212,6 +1214,11 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPicture = state->previewImage = false;
     state->previewFolder = folder;
     state->previewHex = state->previewArchive = false;
+    state->hexPages = NULL;
+    state->hexPageCount = 0;
+    state->hexSize = 0;
+    if (state->hexPageJob) P_RequestCancel(&state->hexPageJob->cancelToken);
+    state->hexPageJob = NULL;
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineCount = state->previewRowColumns = 0;
@@ -1224,6 +1231,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     input->path = StrCopy(&job->arena, want);
     input->folder = folder;
     input->showHidden = state->showHidden;
+    input->hex = state->inspectorHex;
+    state->hexSize = size;
     job->input = input;
     state->previewJob = job;
     P_JobSubmit(job);
@@ -1524,6 +1533,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
             case Prog_CommandKind_InspectorToggleWordWrap: state->inspectorWrap = !state->inspectorWrap; break;
+            case Prog_CommandKind_InspectorToggleHex: {
+                // The file is read again, the other way.
+                state->inspectorHex = !state->inspectorHex;
+                state->previewPath = (String){0};
+            } break;
             case Prog_CommandKind_InspectorToggleDetails: state->inspectorDetails = !state->inspectorDetails; break;
             case Prog_CommandKind_InspectorFoldDetails: state->inspectorDetailsFolded = !state->inspectorDetailsFolded; break;
             case Prog_CommandKind_InspectorChangeLayout: state->inspectorLayout = state->inspectorBelow ? Prog_InspectorLayout_Right : Prog_InspectorLayout_Below; break;
