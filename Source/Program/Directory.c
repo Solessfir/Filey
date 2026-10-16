@@ -436,7 +436,7 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
             u32 *starts = ArenaPushArray(scratch.arena, 2 * Prog_FilterRanks + 1, u32);
             u64 *sorted = ArenaPushArrayNoZero(scratch.arena, state->viewCount, u64);
             for (u64 i = 0; i < state->viewCount; ++i) {
-                ranks[i] += state->directory.entries[state->view[i]].file.kind == P_FileKind_Directory ? 0 : Prog_FilterRanks;
+                ranks[i] = (u16)(ranks[i] + (state->directory.entries[state->view[i]].file.kind == P_FileKind_Directory ? 0 : Prog_FilterRanks));
                 ++starts[ranks[i] + 1];
             }
             for (u32 r = 0; r < 2 * Prog_FilterRanks; ++r) starts[r + 1] += starts[r];
@@ -2072,7 +2072,7 @@ function u32 Prog_ShownRecents(const Prog_State *state, u64 *indices)
             break;
         }
     }
-    u32 count = 0, pending = (latest[0] != UINT64_MAX) + (latest[1] != UINT64_MAX) + (latest[2] != UINT64_MAX);
+    u32 count = 0, pending = (u32)((latest[0] != UINT64_MAX) + (latest[1] != UINT64_MAX) + (latest[2] != UINT64_MAX));
     for (u64 i = 0; i < state->recents.header.count && count < Prog_ShownRecentCount; ++i) {
         if (state->recentRanks[i].file || Prog_RecentLeftOut(state, i)) continue;
         b32 last = i == latest[0] || i == latest[1] || i == latest[2];

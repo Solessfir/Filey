@@ -6286,7 +6286,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
 function void Prog__RoundDashedOutline(f32 x, f32 y, f32 width, f32 height, f32 radius, f32 thick, f32 dash, f32 gap, R_Color color)
 {
     for (u32 corner = 0; corner < 4; ++corner) {
-        b32 right = corner & 1, lower = corner >> 1;
+        b32 right = (b32)(corner & 1), lower = (b32)(corner >> 1);
         UI_SetNextFloatingOffset((UI_Vec2){ x + (right ? width - radius : 0), y + (lower ? height - radius : 0) });
         UI_SetNextPrefWidth(UI_Pixels(radius));
         UI_SetNextPrefHeight(UI_Pixels(radius));
