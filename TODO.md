@@ -1,18 +1,26 @@
 # TODO
 
-## Next, in order
+## Overnight plan
 
-1. View toggles: Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles.
-2. Recents record the items opened from a list, as the reference's do, not every folder shown.
-3. Recursive listing (below).
-4. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents, TrashRestoreAll/DeleteAll.
-5. Go To index: packed names and a parallel walk (below).
-6. Rename inserts and RenamePrev/Next.
-7. Command palette parity (below).
-8. LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen, ConsoleOpen, ToggleFullscreen.
-9. Font pickers, with the system's font families listed on both platforms.
-10. Look nits (below).
-11. Rebindable text and scroll commands.
+Autonomous run, in order. Each step: build release, run `Build.bat test`, check the UI with the Compare tool or `FILEY_CAPTURE_DIR` against the reference where it has the feature, commit with a short title, remove the done item from this file in the same commit. Run `./Build.sh asan test` in WSL after any Platform, Base or Linux change. A step that gets stuck for long is noted under "Left for the morning" below and skipped.
+
+Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
+
+1. View toggles: Increase/Decrease/ResetFontSize, Increase/DecreaseSpacing, ToggleFileExtension, ToggleSystemFiles, with their palette group and default hotkeys taken from the reference's binary.
+2. Recents record the items opened from a list, not every folder shown; Highlight Recents follows.
+3. Recursive listing (section below): rows appear as the walk finds them, "[..]" in the tab and breadcrumbs, "name › Subfolder" rows with the folder's own items first, an empty list without the "No items match" text.
+4. Rename: InsertIncrementalID, InsertCurrentDate, InsertCreateDate, InsertModifiedDate, RenamePrev, RenameNext.
+5. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin.
+6. Redo beside Undo.
+7. Hex view: read further pages as it scrolls, fewer bytes per line when the inspector is narrow, colors for zero and printable bytes, and a command to show any file as hex.
+8. Syntax highlighting in the inspector's text view: keywords, strings, comments and numbers for C/C++, C#, Python, JS/TS, Lua, Rust, Go, shell, JSON, INI/TOML and Markdown headings, from a small table, no library.
+9. Git status in the path bar: find `.git` above the shown folder in a background job, read HEAD and the upstream, show ↑/↓ counts; refresh on folder change and on the watcher.
+10. Go To index: pack names into one buffer, fix the highlighted row's typed letters, then the parallel walk if time remains.
+11. Command palette parity: dimmed rows and darker highlight for commands that cannot run now, smooth scrolling.
+
+Not tonight: Miller columns and archives as folders (start only when asked), font pickers, localization, anything that needs the real bin or drives other than fixtures.
+
+### Left for the morning
 
 ## Go To and the drive index
 
