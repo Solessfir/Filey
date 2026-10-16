@@ -1963,6 +1963,11 @@ function void TestSidebar(TestFileFixture *fixture)
     b32 sized = false;
     for (u64 i = 0; i < drives.header.count; ++i) sized |= drives.v[i].totalBytes > 0 && drives.v[i].freeBytes <= drives.v[i].totalBytes;
     Check(sized);
+#if defined(__linux__)
+    // A drive mounted under its UUID is named by its disk's size where the disk has no model; neither is made up for what is not a disk.
+    Check(StrIsEqual(P__ShortSize(&arena, UINT64_C(3960000000000)), S("3.6 TB")) && StrIsEqual(P__ShortSize(&arena, 512), S("512.0 B")));
+    Check(!P__NamedByUuid(&arena, S("not-a-uuid"), S("/dev/sda1")) && !P__DiskModel(&arena, S("/dev/not-a-disk")).length);
+#endif
 
     // Bookmarks and recents at or inside a renamed folder follow it; a name that only starts the same stays.
     {

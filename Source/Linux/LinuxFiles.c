@@ -1303,6 +1303,44 @@ function ArrayStr P_PathRoots(Arena *arena)
     return result;
 }
 
+// "3.6 TB", in the binary units disks are listed by.
+function String P__ShortSize(Arena *arena, u64 bytes)
+{
+    local_persist const char *units[] = { "B", "KB", "MB", "GB", "TB", "PB" };
+    f64 value = (f64)bytes;
+    u32 unit = 0;
+    while (value >= 1024.0 && unit + 1 < CArrayCount(units)) value /= 1024.0, ++unit;
+    return StrFormat(arena, "%.1f %s", value, units[unit]);
+}
+
+// Whether the mount folder `name` is the UUID of `device`, as /dev/disk/by-uuid lists it.
+function b32 P__NamedByUuid(Arena *arena, String name, String device)
+{
+    char target[PATH_MAX];
+    char *link = P__FilePathCString(arena, StrFormat(arena, "/dev/disk/by-uuid/%S", name));
+    i64 length = link ? readlink(link, target, sizeof(target) - 1) : -1;
+    if (length <= 0) return false;
+    String linked = StrMake(target, (u64)length);
+    Index at = StrIndexChar(linked, '/', SSF_SearchBackwards), slash = StrIndexChar(device, '/', SSF_SearchBackwards);
+    return StrIsEqual(StrFrom(linked, at.exists ? at.value + 1 : 0), StrFrom(device, slash.exists ? slash.value + 1 : 0));
+}
+
+// The model of the disk `device` is on, as sysfs gives it under the disk that holds a partition; empty where there is none.
+function String P__DiskModel(Arena *arena, String device)
+{
+    Index slash = StrIndexChar(device, '/', SSF_SearchBackwards);
+    char *block = P__FilePathCString(arena, StrFormat(arena, "/sys/class/block/%S", StrFrom(device, slash.exists ? slash.value + 1 : 0)));
+    char resolved[PATH_MAX];
+    if (!block || !realpath(block, resolved)) return (String){0};
+    String disk = StrFromCStr(resolved);
+    if (P_PathExists(StrFormat(arena, "%S/partition", disk))) disk = StrFromTo(disk, 0, (i64)StrIndexChar(disk, '/', SSF_SearchBackwards).value);
+    String model = {0};
+    P_ReadFile(arena, StrFormat(arena, "%S/device/model", disk), &model);
+    while (model.length && (model.value[model.length - 1] == ' ' || model.value[model.length - 1] == '\n')) --model.length;
+    while (model.length && model.value[0] == ' ') model = StrFrom(model, 1);
+    return model;
+}
+
 // The root and what is mounted under the usual places for disks: /run/media and /media for removable ones, /mnt for the rest.
 function P_ArrayPlace P_Drives(Arena *arena)
 {
@@ -1349,7 +1387,20 @@ function P_ArrayPlace P_Drives(Arena *arena)
             place.totalBytes = (u64)info.f_blocks * info.f_frsize;
             place.freeBytes = (u64)info.f_bavail * info.f_frsize;
         }
+        // udisks names a mount whose file system has no label by its UUID, as "FEBA1237BA11ED41".
+        // Such a drive goes by its disk's model instead, as "Samsung SSD 990 PRO 4TB", or by its size where the disk has none, as nemo names it.
+        if (!root && P__NamedByUuid(scratch.arena, place.name, fields.v[0])) {
+            String model = P__DiskModel(scratch.arena, fields.v[0]);
+            if (model.length) place.name = StrCopy(arena, model);
+            else if (place.totalBytes) place.name = StrFormat(arena, "%S Volume", P__ShortSize(scratch.arena, place.totalBytes));
+        }
         ArrayPush(arena, result, place);
+    }
+    // Two partitions of one disk would share its model, so each such name gets its size.
+    for (u64 i = 0; i < result.header.count; ++i) {
+        b32 shared = false;
+        for (u64 j = 0; j < result.header.count; ++j) shared |= i != j && StrIsEqual(result.v[i].name, result.v[j].name);
+        if (shared && result.v[i].totalBytes) result.v[i].name = StrFormat(arena, "%S (%S)", result.v[i].name, P__ShortSize(scratch.arena, result.v[i].totalBytes));
     }
     ReleaseScratch(scratch);
     return result;
