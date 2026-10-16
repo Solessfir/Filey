@@ -195,6 +195,53 @@ function IShellFolder *P__ShellParent(Arena *arena, const String *paths, u64 cou
     return result;
 }
 
+// The Recycle Bin's own items for the bin files at `paths`, or all of them when `count` is 0, as the shell lists them: their menu is the
+// bin's, with Restore, and their Restore tells every window. NULL when the shell lists none of them, as for a bin it does not know.
+function IContextMenu *P__RecycleBinMenu(Arena *arena, const String *paths, u64 count)
+{
+    PIDLIST_ABSOLUTE binList = NULL;
+    IShellFolder *bin = NULL;
+    if (FAILED(SHGetSpecialFolderLocation(NULL, CSIDL_BITBUCKET, &binList))) return NULL;
+    if (FAILED(SHBindToObject(NULL, binList, NULL, &P__IID_IShellFolder, (void **)&bin))) bin = NULL;
+    ILFree(binList);
+    if (!bin) return NULL;
+    Scratch scratch = GetScratchEx(arena);
+    wchar **wanted = ArenaPushArray(scratch.arena, Max(count, (u64)1), wchar *);
+    for (u64 i = 0; i < count; ++i) wanted[i] = P__FilePathWide(scratch.arena, paths[i]);
+    struct { ArrayHeader header; PITEMID_CHILD *v; } kept = {0};
+    IEnumIDList *items = NULL;
+    if (SUCCEEDED(bin->lpVtbl->EnumObjects(bin, P__shellOwner, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN, &items)) && items) {
+        PITEMID_CHILD child = NULL;
+        while (items->lpVtbl->Next(items, 1, &child, NULL) == S_OK) {
+            b32 take = !count;
+            STRRET text = {0};
+            wchar *name = NULL;
+            if (!take && SUCCEEDED(bin->lpVtbl->GetDisplayNameOf(bin, child, SHGDN_FORPARSING, &text)) && SUCCEEDED(StrRetToStrW(&text, child, &name))) {
+                for (u64 i = 0; i < count && !take; ++i) take = wanted[i] && CompareStringOrdinal(name, -1, wanted[i], -1, TRUE) == CSTR_EQUAL;
+                CoTaskMemFree(name);
+            }
+            if (take) ArrayPush(scratch.arena, kept, child);
+            else ILFree(child);
+        }
+        items->lpVtbl->Release(items);
+    }
+    IContextMenu *result = NULL;
+    if (kept.header.count && FAILED(bin->lpVtbl->GetUIObjectOf(bin, P__shellOwner, (UINT)kept.header.count, (PCUITEMID_CHILD_ARRAY)kept.v, &P__IID_IContextMenu, NULL, (void **)&result))) {
+        result = NULL;
+    }
+    for (u64 i = 0; i < kept.header.count; ++i) ILFree(kept.v[i]);
+    bin->lpVtbl->Release(bin);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// Whether `path` is inside a drive's $Recycle.Bin.
+function b32 P__InRecycleBin(String path)
+{
+    String bin = S("X:/$Recycle.Bin");
+    return path.length > bin.length && path.value[bin.length] == '/' && P_IsTrashFolder(StrFromTo(path, 0, (i64)bin.length));
+}
+
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
@@ -213,9 +260,18 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         ReleaseScratch(scratch);
     } else {
         shell->directory = P__FilePathWide(arena, directory);
-        IShellFolder *folder = P__ShellFolder(shell->directory);
-        ok = folder != NULL;
-        if (ok && count == 0) {
+        // A bin's items have the bin's own menu, as in Explorer, rather than their files'.
+        if (count && P__InRecycleBin(directory)) {
+            Scratch scratch = GetScratchEx(arena);
+            String *paths = ArenaPushArray(scratch.arena, count, String);
+            for (u64 i = 0; i < count; ++i) paths[i] = StrFormat(scratch.arena, "%S/%S", directory, names[i]);
+            shell->menu = P__RecycleBinMenu(arena, paths, count);
+            ReleaseScratch(scratch);
+        }
+        IShellFolder *folder = shell->menu ? NULL : P__ShellFolder(shell->directory);
+        ok = shell->menu || folder != NULL;
+        if (shell->menu) {
+        } else if (ok && count == 0) {
             ok = SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
         } else if (ok) {
             ok = P__ShellChildren(folder, names, count, &P__IID_IContextMenu, (void **)&shell->menu);
@@ -603,6 +659,23 @@ function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelTok
 
 function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *paths, u64 count)
 {
+    // The shell's Restore for the system's bins, which asks about a taken name itself and lets every window and the bin's icon know.
+    if (P_IsTrashFolder(bin)) {
+        P__EnsureCom();
+        IContextMenu *menu = P__RecycleBinMenu(arena, paths, count);
+        if (menu) {
+            HMENU popup = CreatePopupMenu();
+            HRESULT result = popup ? menu->lpVtbl->QueryContextMenu(menu, popup, 0, P__MenuFirstId, P__MenuLastId, CMF_NORMAL) : E_FAIL;
+            if (SUCCEEDED(result)) {
+                CMINVOKECOMMANDINFOEX info = { .cbSize = sizeof(info), .fMask = CMIC_MASK_UNICODE, .hwnd = P__shellOwner, .lpVerb = "undelete", .lpVerbW = L"undelete", .nShow = SW_SHOWNORMAL };
+                result = menu->lpVtbl->InvokeCommand(menu, (CMINVOKECOMMANDINFO *)&info);
+            }
+            if (popup) DestroyMenu(popup);
+            menu->lpVtbl->Release(menu);
+            if (SUCCEEDED(result) || result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return (P_FileError){0};
+            return P__FileError(arena, HRESULT_FACILITY(result) == FACILITY_WIN32 ? (u32)HRESULT_CODE(result) : (u32)result);
+        }
+    }
     Scratch scratch = GetScratchEx(arena);
     P_ArrayTrashed binned = P_ListTrash(scratch.arena, bin, NULL);
     u32 error = 0, taken = 0;

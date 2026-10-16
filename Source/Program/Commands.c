@@ -960,7 +960,9 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
         return;
     }
     // In the bin its items start with putting them back, and its background with putting everything back, as in Explorer.
-    if (P_IsTrashFolder(state->directory.path) && (state->menuRowCount || state->directory.count)) {
+    b32 restores = false;
+    for (u32 i = 0; i < state->menu.rootCount; ++i) restores |= StrIsEqual(state->menu.items[i].verb, S("undelete"));
+    if (P_IsTrashFolder(state->directory.path) && !restores && (state->menuRowCount || state->directory.count)) {
         Prog__MenuPrepend(state, state->menuRowCount ? (P_MenuItem){ .label = S("Restore"), .action = P_MenuAction_Restore }
                                                      : (P_MenuItem){ .label = S("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
     }
