@@ -2018,13 +2018,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (!was) pins[count++] = label;
                     Prog__SetList(&state->menuPinArena, &state->menuPins, pins, count);
                     Prog__SaveList(state, Prog_MenuPinsFile, state->menuPins);
-                    // The menu takes its new order at once, with the highlight kept on the item, which slides to its place.
+                    // The menu takes its new order at once, the item sliding to its place, and nothing is highlighted until the pointer moves.
                     state->menuMoved = StrCopy(&state->menuArena, label);
                     Prog__ApplyMenuPins(state);
                     state->menuHighlight = UINT32_MAX;
-                    for (u32 i = 0; i < state->menu.rootCount && state->menuHighlight == UINT32_MAX; ++i) {
-                        if (StrIsEqual(state->menu.items[i].label, label)) state->menuHighlight = i;
-                    }
                     state->menuDepth = 0;
                 }
             } break;
