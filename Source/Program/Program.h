@@ -883,6 +883,8 @@ typedef struct Prog_State {
     String menuTarget;        // the folder a sidebar item's menu acts on instead, in menuArena
     u32 menuPath[8];          // the open submenu item at each level
     R_Rect menuRects[9];      // each open level's panel in the last build, empty past the last one
+    b32 menuApart[9];         // each submenu that could not sit against its opener's panel in the last build, whose opener is then lit
+    u32 menuSquare[9];        // each level's corners that the submenu joined to it squared off in the last build, as R_Shape flags
     u32 menuSerial;           // counts the menus opened, which keys their rows' scrolling afresh
     b32 menuReveal;           // the keyboard moved the highlight, which the list scrolls to
     // The system menu commands pinned to the top of every system menu, by label, saved as MenuPins.txt; menuBase is the open menu's items

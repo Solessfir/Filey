@@ -2233,7 +2233,7 @@ function void Prog__UsageCell(String value, f32 width, f32 height, f32 left, f32
             UI_SetNextPrefWidth(UI_Pixels(bar));
             UI_SetNextPrefHeight(UI_Pixels(thick));
             UI_SetNextCornerRadius(thick * 0.5f);
-            UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
             UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground);
             UI_Parent(track) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
@@ -2252,7 +2252,7 @@ function void Prog__UsageCell(String value, f32 width, f32 height, f32 left, f32
 
 // The inspector's scroll bar at the right edge of `view`, a block in the current parent: a thumb as long as the share in sight, where that is,
 // between arrows that scroll three rows of `pitch`, dimmed at their end.
-function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog_Metrics *m)
+function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, f32 opacity, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale;
@@ -2266,6 +2266,7 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog
         UI_SetNextPrefWidth(UI_Pixels(thick));
         UI_SetNextPrefHeight(UI_Pixels(thumb));
         UI_SetNextCornerRadius(floorf(thick * 0.5f));
+        UI_SetNextOpacity(opacity);
         UI_SetNextColors((UI_Colors){ .background = theme->track });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         f32 size = floorf(16.0f * s + 0.5f);
@@ -2277,6 +2278,7 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog
             UI_SetNextPrefHeight(UI_Pixels(size));
             UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
             UI_SetNextFont(m->iconsSmall);
+            UI_SetNextOpacity(opacity);
             UI_SetNextColors((UI_Colors){ .text = end ? theme->tabBorder : UI->hotKey == key ? theme->text : theme->icon });
             UI_SetNextText(down ? Icon_ChevronDown : Icon_ChevronUp);
             UI_Block *arrow = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
@@ -2801,7 +2803,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     }
     // The scroll bar sits in the window's coordinates, since the boxes around the list have no layout of their own yet.
     state->listScrolls = list->contentSize.y > list->rect.y1 - list->rect.y0 + 0.5f && list->rect.y1 > list->rect.y0;
-    UI_Parent(UI->root) Prog__ScrollBar(list, pitch.y, S("Files"), m);
+    UI_Parent(UI->root) Prog__ScrollBar(list, pitch.y, S("Files"), 1, m);
 }
 
 function String Prog__FormatCount(Arena *arena, u64 count);
@@ -3179,7 +3181,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
                 UI_SetNextPrefWidth(UI_Pixels(width));
                 UI_SetNextPrefHeight(UI_Pixels(bar));
-                UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
                 UI_SetNextPrefWidth(UI_Pixels(used));
@@ -3339,7 +3341,244 @@ typedef struct Prog_MenuPlace {
     u32 first, count;
     f32 x, y;
     f32 openerWidth;  // width of the panel that opened this one; 0 for the top level
+    R_Rect opener;    // the row that opened this one, empty when it is out of sight
+    R_Rect openerPanel;
+    b32 leftward;     // the panel that opened this one opened to the left of its own opener
 } Prog_MenuPlace;
+
+// A submenu against its opener's panel becomes one shape with it, joined to the opener row as the shown tab is to the listing: the two sit side by side
+// with one line between them, the line curving into the row's lines where there is room. Where an end of the submenu meets the panel's edge, the edges
+// meet square. Each panel's border leaves out the whole side where they touch, which is drawn here instead as pieces of box outlines, the way the
+// borders are, each inside its own whole-pixel clip: so the lines are as thick as the borders, their corners meet as a box's do, and no pixel is drawn
+// twice, which a translucent theme would show lighter. What neither panel covers is filled as they are.
+#define Prog_MenuGapCount 8
+
+typedef struct Prog_MenuJoin {
+    f32 mirror;                  // worked out for a submenu on the right, and mirrored across this for one on the left
+    R_Rect parent, child, row;   // mirrored; the row on whole pixels
+    f32 line;                    // the x where the panels meet, the panel's edge to its left and the submenu's to its right
+    // Corners on the side where they touch that are squared off rather than rounded, because the other panel goes on past them or ends near them.
+    b32 parentSquareTop, parentSquareBottom, childSquareTop, childSquareBottom;
+    b32 rowTop;                  // the submenu starts level with the row, whose top line runs on as its own
+    f32 topFlare, bottomFlare;   // the curves of the panel's edge into the row's lines
+    u32 childShape, parentShape; // the panels' squared corners, unmirrored
+    R_Rect parentGap, childGap;  // in root coordinates
+} Prog_MenuJoin;
+
+function R_Rect Prog__Mirror(R_Rect rect, f32 mirror)
+{
+    return mirror != 0 ? (R_Rect){ mirror - rect.x1, rect.y0, mirror - rect.x0, rect.y1 } : rect;
+}
+
+// R_Shape corners seen in a mirror.
+function u32 Prog__MirrorShape(u32 shape, f32 mirror)
+{
+    if (mirror == 0) return shape;
+    u32 result = shape & R_Shape_Inverted;
+    if (shape & R_Shape_SquareTopLeft) result |= R_Shape_SquareTopRight;
+    if (shape & R_Shape_SquareTopRight) result |= R_Shape_SquareTopLeft;
+    if (shape & R_Shape_SquareBottomLeft) result |= R_Shape_SquareBottomRight;
+    if (shape & R_Shape_SquareBottomRight) result |= R_Shape_SquareBottomLeft;
+    return result;
+}
+
+// The radius of the curves into the row's lines, and with the panels' radius, how near the panel's top a submenu snaps level with it.
+function f32 Prog__MenuFlare(const Prog_Metrics *m)
+{
+    return floorf(m->radius * 2 + 0.5f);
+}
+
+function Prog_MenuJoin Prog__MenuJoinShape(R_Rect row, R_Rect parent, R_Rect child, b32 left, f32 radius, const Prog_Metrics *m)
+{
+    Prog_MenuJoin result = { .mirror = left ? child.x0 + child.x1 : 0 };
+    f32 b = 1.2f * m->scale, flare = Prog__MenuFlare(m), R = radius;
+    R_Rect P = Prog__Mirror(parent, result.mirror), C = Prog__Mirror(child, result.mirror);
+    row = Prog__Mirror(row, result.mirror);
+    // On the submenu's whole pixels, so that the row's lines run on into its edges without a step.
+    f32 rowHeight = floorf(row.y1 - row.y0 + 0.5f);
+    row.y0 = floorf(row.y0);
+    row.y1 = row.y0 + rowHeight;
+    f32 L = C.x0;
+    result.parent = P, result.child = C, result.row = row, result.line = L;
+    result.parentSquareTop = C.y0 < P.y0 + R;
+    result.parentSquareBottom = C.y1 > P.y1 - R;
+    result.childSquareTop = C.y0 > P.y0 - R;
+    result.childSquareBottom = C.y1 < P.y1 + R;
+    result.rowTop = fabsf(C.y0 - row.y0) < 0.5f;
+    // The edge is straight between the panel's corners and clear of where the submenu's top or bottom meets it.
+    f32 straightTop = result.parentSquareTop ? P.y0 + b : P.y0 + R, straightBottom = result.parentSquareBottom ? P.y1 - b : P.y1 - R;
+    if (C.y0 > P.y0 + 0.5f) straightTop = MaxF32(straightTop, C.y0 + b);
+    f32 top = result.rowTop ? 0 : floorf(MinF32(flare, row.y0 - straightTop - 1));
+    f32 bottom = floorf(MinF32(flare, straightBottom - row.y1 - 1));
+    if (C.y1 < P.y1 - 0.5f) bottom = MinF32(bottom, floorf(C.y1 - row.y1 - 2));
+    result.topFlare = top >= 2 ? top : 0;
+    result.bottomFlare = bottom >= 2 ? bottom : 0;
+    result.childShape = (result.childSquareTop ? (left ? R_Shape_SquareTopRight : R_Shape_SquareTopLeft) : 0) |
+                        (result.childSquareBottom ? (left ? R_Shape_SquareBottomRight : R_Shape_SquareBottomLeft) : 0);
+    result.parentShape = (result.parentSquareTop ? (left ? R_Shape_SquareTopLeft : R_Shape_SquareTopRight) : 0) |
+                         (result.parentSquareBottom ? (left ? R_Shape_SquareBottomLeft : R_Shape_SquareBottomRight) : 0);
+    result.parentGap = Prog__Mirror((R_Rect){ L - R, P.y0 - 1, L + 1, P.y1 + 1 }, result.mirror);
+    result.childGap = Prog__Mirror((R_Rect){ L - 1, C.y0 - 1, L + R, C.y1 + 1 }, result.mirror);
+    return result;
+}
+
+// A block at `rect` in root coordinates, mirrored across `mirror` when it is not 0, inside a parent whose contents start at `origin`.
+function UI_Block *Prog__JoinPiece(R_Rect rect, f32 mirror, UI_Vec2 origin, R_Color background, UI_Flags flags)
+{
+    rect = Prog__Mirror(rect, mirror);
+    UI_SetNextFloatingOffset((UI_Vec2){ rect.x0 - origin.x, rect.y0 - origin.y });
+    UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
+    UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
+    UI_SetNextColors((UI_Colors){ .background = background, .border = Prog_CurrentTheme()->tabBorder });
+    return UI_AddBlock(UI_Flag_Floating | flags);
+}
+
+// The part of the box `box` inside `clip`, both mirrored: its outline, or with `fill` what lies outside its rounded shape, filled as the menus are.
+// `clip` is on whole pixels, as the clips that draw it are, and is skipped when empty.
+function void Prog__JoinBox(R_Rect clip, R_Rect box, f32 radius, u32 shape, f32 mirror, UI_Vec2 origin, b32 fill, f32 opacity, const Prog_Metrics *m)
+{
+    if (clip.x1 - clip.x0 <= 0 || clip.y1 - clip.y0 <= 0) return;
+    UI_Block *holder = Prog__JoinPiece(clip, mirror, origin, (R_Color){0}, UI_Flag_Clip);
+    R_Rect shown = Prog__Mirror(clip, mirror);
+    UI_Parent(holder) {
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextOpacity(opacity);
+        UI_SetNextShape(Prog__MirrorShape(shape, mirror) | (fill ? R_Shape_Inverted : 0));
+        if (fill) {
+            UI_SetNextBlur(Prog__FloatingBlur(m));
+            Prog__JoinPiece(box, mirror, (UI_Vec2){ shown.x0, shown.y0 }, Prog_CurrentTheme()->menu, UI_Flag_DrawBackground);
+        } else {
+            UI_SetNextBorderThickness(1.2f * m->scale);
+            Prog__JoinPiece(box, mirror, (UI_Vec2){ shown.x0, shown.y0 }, (R_Color){0}, UI_Flag_DrawBorder);
+        }
+    }
+}
+
+// The opener's panel's corners squared off where it was drawn rounded, as it is for the first build after a submenu joins it. Drawn in root coordinates
+// before the submenu.
+function void Prog__MenuJoinFills(const Prog_MenuJoin *join, u32 parentShape, f32 opacity, f32 radius, const Prog_Metrics *m)
+{
+    R_Rect P = join->parent;
+    f32 L = join->line, R = radius;
+    UI_Vec2 origin = { UI->root->rect.x0, UI->root->rect.y0 };
+    if (join->parentSquareTop && !(parentShape & join->parentShape & (R_Shape_SquareTopLeft | R_Shape_SquareTopRight))) Prog__JoinBox((R_Rect){ L - R, P.y0, L, P.y0 + R }, (R_Rect){ L - 2 * R, P.y0, L, P.y0 + 2 * R }, R, 0, join->mirror, origin, true, opacity, m);
+    if (join->parentSquareBottom && !(parentShape & join->parentShape & (R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight))) Prog__JoinBox((R_Rect){ L - R, P.y1 - R, L, P.y1 }, (R_Rect){ L - 2 * R, P.y1 - 2 * R, L, P.y1 }, R, 0, join->mirror, origin, true, opacity, m);
+}
+
+// The sides where the panels touch, the line between them and the opener row's outline, as children of the submenu panel whose contents start at
+// `origin`. Each piece shows the outline of a box placed so that only the lines wanted there fall inside its clip, and no two clips overlap.
+function void Prog__MenuJoinLines(const Prog_MenuJoin *join, UI_Vec2 origin, f32 opacity, f32 radius, const Prog_Metrics *m)
+{
+    f32 b = 1.2f * m->scale, band = ceilf(b), rowRadius = m->radius * 2, mirror = join->mirror, L = join->line, R = radius, outside = 4 * R;
+    R_Rect P = join->parent, C = join->child, row = join->row;
+    UI_SetNextOpacity(opacity);
+    UI_Block *holder = Prog__JoinPiece((R_Rect){ origin.x, origin.y, origin.x, origin.y }, 0, origin, (R_Color){0}, 0);
+    UI_Parent(holder) {
+        b32 topLevel = fabsf(C.y0 - P.y0) < 0.5f, bottomLevel = fabsf(C.y1 - P.y1) < 0.5f;
+        f32 cTop = join->topFlare, cBottom = join->bottomFlare;
+        // Where the panel's edge opens for the row: at the curves, or at the row's lines, which turn into the edge as a box's corner.
+        f32 openTop = cTop >= 1 ? floorf(row.y0 + b - cTop) : row.y0, openBottom = cBottom >= 1 ? ceilf(row.y1 - b + cBottom) : row.y1;
+        // The panel's side: its corners, rounded or squared, and its edge, which is the line between the two.
+        u32 parentShape = (join->parentSquareTop ? R_Shape_SquareTopRight : 0) | (join->parentSquareBottom ? R_Shape_SquareBottomRight : 0);
+        R_Rect panelBox = { L - outside, P.y0, L, P.y1 };
+        Prog__JoinBox((R_Rect){ L - R, P.y0, L, openTop }, panelBox, R, parentShape, mirror, origin, false, 1, m);
+        Prog__JoinBox((R_Rect){ L - R, openBottom, L, P.y1 }, panelBox, R, parentShape, mirror, origin, false, 1, m);
+        // The submenu's side: its top and bottom lines from where they meet the panel's edge, and its own edge where it goes on past the panel.
+        R_Rect childBox = { L, C.y0, L + outside, C.y1 };
+        u32 childShape = (join->childSquareTop ? R_Shape_SquareTopLeft : 0) | (join->childSquareBottom ? R_Shape_SquareBottomLeft : 0);
+        if (!topLevel && C.y0 < P.y0) {
+            Prog__JoinBox((R_Rect){ L, C.y0, L + R, P.y0 + band }, childBox, R, childShape, mirror, origin, false, 1, m);
+        } else {
+            Prog__JoinBox((R_Rect){ L, C.y0, L + R, C.y0 + band }, (R_Rect){ L - outside, C.y0, L + outside, C.y0 + outside }, 0, 0, mirror, origin, false, 1, m);
+        }
+        if (!bottomLevel && C.y1 > P.y1) {
+            Prog__JoinBox((R_Rect){ L, P.y1 - band, L + R, C.y1 }, childBox, R, childShape, mirror, origin, false, 1, m);
+        } else {
+            Prog__JoinBox((R_Rect){ L, C.y1 - band, L + R, C.y1 }, (R_Rect){ L - outside, C.y1 - outside, L + outside, C.y1 }, 0, 0, mirror, origin, false, 1, m);
+        }
+        // The edge curves out of its straight part into the row's lines, as the shown tab's sides curve out into the strip's line.
+        if (cTop >= 1) {
+            Prog__JoinBox((R_Rect){ L - cTop, openTop, L, row.y0 + band }, (R_Rect){ L - 2 * cTop, row.y0 + b - 2 * cTop, L, row.y0 + b }, cTop, 0, mirror, origin, false, 1, m);
+        }
+        if (cBottom >= 1) {
+            Prog__JoinBox((R_Rect){ L - cBottom, row.y1 - band, L, openBottom }, (R_Rect){ L - 2 * cBottom, row.y1 - b, L, row.y1 - b + 2 * cBottom }, cBottom, 0, mirror, origin, false, 1, m);
+        }
+        // Without a curve, a row's line turns into the edge as a box's corner does; level with the submenu, the top line runs straight on instead.
+        b32 topCorner = cTop < 1 && !join->rowTop, bottomCorner = cBottom < 1;
+        if (topCorner) Prog__JoinBox((R_Rect){ L - band, row.y0, L, row.y0 + band }, (R_Rect){ L - outside, row.y0 + b - outside, L, row.y0 + b }, 0, 0, mirror, origin, false, 1, m);
+        if (bottomCorner) Prog__JoinBox((R_Rect){ L - band, row.y1 - band, L, row.y1 }, (R_Rect){ L - outside, row.y1 - b, L, row.y1 - b + outside }, 0, 0, mirror, origin, false, 1, m);
+        // The row's outline, rounded at its outside end, up to the curves or corners.
+        f32 topEnd = cTop >= 1 ? L - cTop : topCorner ? L - band : L, bottomEnd = cBottom >= 1 ? L - cBottom : L - band, end = MinF32(topEnd, bottomEnd);
+        R_Rect rowBox = { row.x0, row.y0, L + outside, row.y1 };
+        Prog__JoinBox((R_Rect){ row.x0, row.y0, end, row.y1 }, rowBox, rowRadius, 0, mirror, origin, false, 1, m);
+        Prog__JoinBox((R_Rect){ end, row.y0, topEnd, row.y0 + band }, rowBox, rowRadius, 0, mirror, origin, false, 1, m);
+        Prog__JoinBox((R_Rect){ end, row.y1 - band, bottomEnd, row.y1 }, rowBox, rowRadius, 0, mirror, origin, false, 1, m);
+    }
+}
+
+// A menu panel's border, drawn by itself so that a joined submenu can leave gaps in it.
+typedef struct Prog_MenuBorder {
+    R_Rect rect;
+    f32 radius, opacity;
+    u32 shape;
+    R_Rect gaps[Prog_MenuGapCount];
+    u32 gapCount;
+} Prog_MenuBorder;
+
+function void Prog__MenuBorderGap(Prog_MenuBorder *border, R_Rect gap)
+{
+    if (border->gapCount < Prog_MenuGapCount) border->gaps[border->gapCount++] = gap;
+}
+
+function void Prog__MenuBorderDraw(const Prog_MenuBorder *border, const Prog_Metrics *m)
+{
+    R_Rect view = UI->root->rect, rect = border->rect;
+    // Bands across the panel between the gaps' tops and bottoms, each drawn where no gap covers it.
+    f32 cuts[2 * Prog_MenuGapCount + 2] = { rect.y0, rect.y1 };
+    u32 cutCount = 2;
+    for (u32 g = 0; g < border->gapCount; ++g) {
+        cuts[cutCount++] = MinF32(MaxF32(border->gaps[g].y0, rect.y0), rect.y1);
+        cuts[cutCount++] = MinF32(MaxF32(border->gaps[g].y1, rect.y0), rect.y1);
+    }
+    for (u32 i = 1; i < cutCount; ++i) for (u32 j = i; j > 0 && cuts[j - 1] > cuts[j]; --j) { f32 t = cuts[j]; cuts[j] = cuts[j - 1]; cuts[j - 1] = t; }
+    for (u32 band = 0; band + 1 < cutCount; ++band) {
+        f32 y0 = cuts[band], y1 = cuts[band + 1];
+        if (y1 - y0 <= 0) continue;
+        f32 spans[4 * Prog_MenuGapCount + 2] = { rect.x0, rect.x1 };
+        u32 spanCount = 2;
+        for (u32 g = 0; g < border->gapCount; ++g) {
+            R_Rect gap = border->gaps[g];
+            if (gap.y0 > y0 || gap.y1 < y1) continue;
+            // Cut the gap's columns out of each span.
+            f32 kept[4 * Prog_MenuGapCount + 2];
+            u32 keptCount = 0;
+            for (u32 s = 0; s < spanCount && keptCount + 4 <= CArrayCount(kept); s += 2) {
+                if (gap.x0 > spans[s]) { kept[keptCount++] = spans[s]; kept[keptCount++] = MinF32(gap.x0, spans[s + 1]); }
+                if (gap.x1 < spans[s + 1]) { kept[keptCount++] = MaxF32(gap.x1, spans[s]); kept[keptCount++] = spans[s + 1]; }
+            }
+            spanCount = keptCount;
+            for (u32 k = 0; k < keptCount; ++k) spans[k] = kept[k];
+        }
+        for (u32 s = 0; s < spanCount; s += 2) {
+            if (spans[s + 1] - spans[s] <= 0) continue;
+            UI_SetNextFloatingOffset((UI_Vec2){ spans[s] - view.x0, y0 - view.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(spans[s + 1] - spans[s]));
+            UI_SetNextPrefHeight(UI_Pixels(y1 - y0));
+            UI_Block *clip = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+            UI_Parent(clip) {
+                UI_SetNextFloatingOffset((UI_Vec2){ rect.x0 - spans[s], rect.y0 - y0 });
+                UI_SetNextPrefWidth(UI_Pixels(rect.x1 - rect.x0));
+                UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
+                UI_SetNextCornerRadius(border->radius);
+                UI_SetNextShape(border->shape);
+                UI_SetNextBorderThickness(1.2f * m->scale);
+                UI_SetNextOpacity(border->opacity);
+                UI_SetNextColors((UI_Colors){ .border = Prog_CurrentTheme()->tabBorder });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+            }
+        }
+    }
+}
 
 // The shadow of menus, the palette and Go To: only to the right and below, a fifth dark at the box's edge and fading out over 10.4 logical pixels.
 // Offsets are from the root.
@@ -3369,7 +3608,8 @@ function Prog_CommandKind Prog__VerbCommand(String verb)
     return Prog_CommandKind_None;
 }
 
-function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child)
+function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child, Prog_MenuBorder *border,
+                             Prog_MenuBorder *parentBorder)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
@@ -3377,7 +3617,11 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, filter, visible);
     // The system menu's top level has its search field over the items, and stays open with nothing found.
     b32 search = level == 0 && !state->menuCommands;
-    if (!shown && !search) return false;
+    if (!shown && !search) {
+        if (parentBorder) Prog__MenuBorderDraw(parentBorder, m);
+        if (level > 0 && level - 1 < CArrayCount(state->menuSquare)) state->menuSquare[level - 1] = 0;
+        return false;
+    }
     // Rows inset from the panel edge, an icon column that every label lines up after, and hairline separators that lie on the boundary
     // between two rows rather than taking room of their own.
     f32 itemHeight = m->row, line = m->separator, separatorHeight = 0, pad = floorf(6.0f * m->scale + 0.5f);
@@ -3422,7 +3666,17 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 width = floorf(MinF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + star + 2 * pad, m->line * 12), m->line * 36)) + gutter;
     f32 x = level == 0 && state->menuRight > 0 ? state->menuRight - width : place.x, y = place.y;
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
-    if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width + 2 * pad : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
+    // A submenu sits against its opener's panel, on the side the menus have been opening to while there is room, so that it does not cover the
+    // panel before.
+    if (place.leftward && x - place.openerWidth - width >= view.x0) x -= place.openerWidth + width;
+    else if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
+    // An end of a submenu near the same end of its opener's panel goes level with it, rather than leave a step too short to curve into.
+    R_Rect parent = place.openerPanel;
+    b32 opened = level > 0 && place.opener.y1 > place.opener.y0;
+    f32 snap = floorf(10.0f * m->scale + 0.5f) + Prog__MenuFlare(m);
+    if (opened && y > parent.y0 && y - parent.y0 < snap) y = parent.y0;
+    f32 bottomStep = parent.y1 - (y + height);
+    if (opened && fabsf(bottomStep) > 0 && fabsf(bottomStep) < snap && y + bottomStep <= place.opener.y0 && y + bottomStep >= view.y0) y += bottomStep;
     if (y + height > view.y1) y = view.y1 - height;
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
@@ -3433,11 +3687,46 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     itemHeight *= 0.9f + 0.1f * reveal;
     height = 2 * pad + searchHeight;
     for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
-    height = MinF32(height, view.y1 - view.y0);
+    // On whole pixels, for a joined submenu's lines to meet its edges exactly.
+    height = floorf(MinF32(height, view.y1 - view.y0) + 0.5f);
     f32 opacity = own ? Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade"))) : 1;
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
-    Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, opacity, m);
+    b32 joinRight = opened && fabsf(x - parent.x1) < 0.5f;
+    b32 joinLeft = opened && fabsf(x + width - parent.x0) < 0.5f;
+    if (level < CArrayCount(state->menuApart)) state->menuApart[level] = !joinRight && !joinLeft;
+    Prog_MenuJoin join = {0};
+    R_Rect rect = { x, y, x + width, y + height };
+    *border = (Prog_MenuBorder){ .rect = rect, .radius = radius, .opacity = opacity };
+    // The corners a joined submenu squares off on this panel, as it found them in the last build: the panel is drawn before its submenu is placed.
+    u32 squared = level < CArrayCount(state->menuSquare) ? state->menuSquare[level] : 0;
+    if (joinRight || joinLeft) {
+        join = Prog__MenuJoinShape(place.opener, parent, rect, joinLeft, radius, m);
+        Prog__MenuBorderGap(border, join.childGap);
+        Prog__MenuBorderGap(parentBorder, join.parentGap);
+    }
+    border->shape = join.childShape | squared;
+    if (level > 0 && level - 1 < CArrayCount(state->menuSquare)) state->menuSquare[level - 1] = join.parentShape;
+    if (parentBorder && !joinRight && !joinLeft) {
+        // Apart from its opener's panel, a submenu covers that panel's border.
+        Prog__MenuBorderDraw(parentBorder, m);
+    }
+    // A submenu joined on its left casts no shadow over its opener's panel, which it is one with, but does around it: the shadow is drawn in the
+    // parts of the view beside, above and below that panel.
+    if (joinLeft) {
+        R_Rect parts[3] = { { view.x0, view.y0, parent.x0, view.y1 }, { parent.x0, view.y0, view.x1, parent.y0 }, { parent.x0, parent.y1, view.x1, view.y1 } };
+        for (u32 p = 0; p < CArrayCount(parts); ++p) {
+            if (parts[p].x1 <= parts[p].x0 || parts[p].y1 <= parts[p].y0) continue;
+            UI_SetNextFloatingOffset((UI_Vec2){ parts[p].x0 - view.x0, parts[p].y0 - view.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(parts[p].x1 - parts[p].x0));
+            UI_SetNextPrefHeight(UI_Pixels(parts[p].y1 - parts[p].y0));
+            UI_Block *shade = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+            UI_Parent(shade) Prog__DropShadow(x - parts[p].x0, y - parts[p].y0, width, height, radius, opacity, m);
+        }
+    } else {
+        Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, opacity, m);
+    }
+    if (joinRight || joinLeft) Prog__MenuJoinFills(&join, parentBorder->shape, opacity, radius, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextOpacity(opacity);
@@ -3445,13 +3734,13 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextShape(border->shape);
     UI_SetNextBlur(Prog__FloatingBlur(m));
-    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_SetNextColors((UI_Colors){ .background = theme->menu });
     // Clickable so that clicks on the padding do not reach the catcher behind it, nor right clicks what is under it.
+    // A submenu is not clipped, for its join to reach into its opener's panel. The border is drawn after whatever joins the panel.
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuPanel/%u", level)),
-                                         UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable |
-                                         UI_Flag_RightMouseClickable);
+                                         UI_Flag_Floating | UI_Flag_DrawBackground | (level ? 0 : UI_Flag_Clip) | UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable);
     if (level < CArrayCount(state->menuRects)) {
         state->menuRects[level] = panel->rect;
         if (level + 1 < CArrayCount(state->menuRects)) state->menuRects[level + 1] = (R_Rect){0};
@@ -3459,20 +3748,18 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 result = false;
     f32 itemY = y + pad;
     UI_Parent(panel) {
+        if (joinRight || joinLeft) Prog__MenuJoinLines(&join, (UI_Vec2){ x + pad, y + pad }, 1, radius, m);
         if (search) {
             // Inside the border, round at the top along the box's corners and square where it meets the line.
+            // One box, so that a translucent tint is not laid twice; its top corners follow the panel's, squared where a submenu squares those.
             f32 bandX = fieldInset - pad, bandY = fieldInset - pad, bandWidth = width - 2 * fieldInset;
-            UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY + floorf(fieldHeight * 0.5f) });
-            UI_SetNextPrefWidth(UI_Pixels(bandWidth));
-            UI_SetNextPrefHeight(UI_Pixels(fieldHeight - floorf(fieldHeight * 0.5f)));
-            UI_SetNextColors((UI_Colors){ .background = theme->inner });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY });
             UI_SetNextPrefWidth(UI_Pixels(bandWidth));
             UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenPadding((UI_Padding){ pad - fieldInset, 0, pad - fieldInset, 0 });
             UI_SetNextCornerRadius(MaxF32(0, radius - fieldInset));
+            UI_SetNextShape(R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight | (border->shape & (R_Shape_SquareTopLeft | R_Shape_SquareTopRight)));
             UI_SetNextColors((UI_Colors){ .background = theme->inner });
             UI_Block *field = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             UI_Parent(field) {
@@ -3539,7 +3826,14 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             // Rounded rather than floored, or a row easing down sits a pixel short through the tail of the ease and then jumps.
             f32 rowY = floorf(slid[i] - list->scrollShown.y + 0.5f);
             if (item->separator) {
-                // A line on the boundary of the rows around it.
+                // A line on the boundary of the rows around it, left out next to a row its submenu joins, whose outline takes its place.
+                b32 joinedNext = false;
+                for (u32 side = 0; side < 2; ++side) {
+                    if (side ? i + 1 >= shown : i == 0) continue;
+                    u32 next = visible[side ? i + 1 : i - 1];
+                    joinedNext |= level < state->menuDepth && state->menuPath[level] == next && level + 1 < CArrayCount(state->menuApart) && !state->menuApart[level + 1];
+                }
+                if (joinedNext) continue;
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY - floorf(line * 0.5f) });
                 UI_SetNextPrefWidth(UI_Pixels(rowWidth));
                 UI_SetNextPrefHeight(UI_Pixels(line));
@@ -3562,6 +3856,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             b32 open = level < state->menuDepth && state->menuPath[level] == index;
             // The row on its way covers those it passes in the menu's own color, unlit until it is in place.
             b32 highlighted = enabled && !moving && (open || state->menuHighlight == index);
+            // The row whose submenu joins it is outlined by the submenu rather than lit.
+            b32 joined = open && level + 1 < CArrayCount(state->menuApart) && !state->menuApart[level + 1];
             UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY });
             UI_SetNextPrefWidth(UI_Pixels(rowWidth));
             UI_SetNextPrefHeight(UI_Pixels(itemHeight));
@@ -3570,7 +3866,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_SetNextChildrenPadding((UI_Padding){ iconLeft, 0, 0, 0 });
             UI_SetNextCornerRadius(m->radius * 2);
             UI_SetNextColors((UI_Colors){ .background = moving ? theme->menu : theme->selection });
-            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_Floating | (highlighted || moving ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_Floating | ((highlighted && !joined) || moving ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
             // A highlight the keyboard moved scrolls into sight; the rows' places are the last layout's, in the list's content.
             // A first frame has no layout yet to go by, so it waits for the next.
             if (scrolls && state->menuReveal && state->menuHighlight == index && state->menuDepth == level && row->rect.y1 > row->rect.y0 && list->rect.y1 > list->rect.y0) {
@@ -3639,14 +3935,21 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
-                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, (row->rect.y1 > row->rect.y0 ? row->rect.y0 : itemY + placed[i]) - pad, width };
+                // The submenu starts level with its row, the row's top line running on as its own.
+                b32 laidOut = row->rect.y1 > row->rect.y0, inSight = laidOut && row->rect.y0 >= list->rect.y0 - 0.5f && row->rect.y1 <= list->rect.y1 + 0.5f;
+                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width, floorf(laidOut ? row->rect.y0 : itemY + placed[i]), width,
+                                           inSight ? row->rect : (R_Rect){0}, (R_Rect){ x, y, x + width, y + height }, opened && x + width <= parent.x0 + 0.5f };
                 result = true;
             }
         }
         // The rows float, so the list scrolls by a stand-in as tall as they are.
         UI_Parent(list) Prog__Spacer(UI_Pixels(rowWidth), UI_Pixels(rowsHeight));
-        if (scrolls) Prog__ScrollBar(list, itemHeight, listName, m);
+        // Faded out while a submenu is open, which may join the panel across it.
+        f32 bar = scrolls ? UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "%S/Bar", listName)), result ? 0.0f : 1.0f, 1) : 0;
+        if (bar > 0.01f) Prog__ScrollBar(list, itemHeight, listName, bar, m);
     }
+    // Over this panel, where the two borders lie on one another.
+    if (joinRight || joinLeft) Prog__MenuBorderDraw(parentBorder, m);
     return result;
 }
 
@@ -4254,7 +4557,8 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));
                 UI_SetNextCornerRadius(floorf(bar * 0.5f));
-                UI_SetNextColors((UI_Colors){ .background = theme->track });
+                UI_SetNextOpacity(opacity);
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         }
@@ -4602,6 +4906,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop));
         UI_SetNextFloatingOffset((UI_Vec2){ trackX, trackTop });
         UI_SetNextCornerRadius(track * 0.5f);
+        UI_SetNextOpacity(opacity);
         UI_SetNextColors((UI_Colors){ .background = theme->track });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         // Shorter than it is wide, the knob covers it, and drawn rounded at its width it would stand out above the knob.
@@ -4839,7 +5144,8 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));
                 UI_SetNextCornerRadius(floorf(bar * 0.5f));
-                UI_SetNextColors((UI_Colors){ .background = theme->track });
+                UI_SetNextOpacity(opacity);
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         }
@@ -4938,7 +5244,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextPrefWidth(UI_Pixels(barWidth));
                     UI_SetNextPrefHeight(UI_Pixels(barHeight));
                     UI_SetNextCornerRadius(barHeight * 0.5f);
-                    UI_SetNextColors((UI_Colors){ .background = theme->track });
+        UI_SetNextColors((UI_Colors){ .background = theme->track });
                     UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
                     UI_Parent(track) {
                         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
@@ -4998,22 +5304,37 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
 
 function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 {
-    if (!state->menuOpen) return;
+    if (!state->menuOpen) {
+        MemZero(state->menuSquare, sizeof(state->menuSquare));
+        return;
+    }
     // Clicks anywhere else close the menu and go no further; a right click goes on to open the menu of what it is on.
     UI_SetNextPrefWidth(UI_Pixels(UI->root->rect.x1 - UI->root->rect.x0));
     UI_SetNextPrefHeight(UI_Pixels(UI->root->rect.y1 - UI->root->rect.y0));
+    // The panels blur what is behind the menu as it was before any of them, so that joined ones read as one sheet of glass, with no panel's
+    // shadow or tint in another's blur.
+    UI_SetNextBlurSource(1);
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
     UI_Interaction interaction = UI_InteractionFromBlock(catcher);
     if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, interaction.pressOrder);
     state->menuPointerMoved = UI->mouse.x != state->menuPointer.x || UI->mouse.y != state->menuPointer.y;
     state->menuPointer = UI->mouse;
     // Each open level is its own top-level panel, so no panel clips the next.
-    Prog_MenuPlace place = { 0, state->menu.rootCount, state->menuAt.x, state->menuAt.y, 0 };
+    Prog_MenuPlace place = { .count = state->menu.rootCount, .x = state->menuAt.x, .y = state->menuAt.y };
+    // Each panel's border is drawn once the next level has had its say on it, or once nothing more opens.
+    Prog_MenuBorder borders[CArrayCount(state->menuPath) + 1] = {0};
     for (u32 level = 0; level <= CArrayCount(state->menuPath); ++level) {
         Prog_MenuPlace child = {0};
-        if (!Prog__MenuPanel(state, level, place, m, &child)) break;
+        if (!Prog__MenuPanel(state, level, place, m, &child, &borders[level], level ? &borders[level - 1] : NULL)) {
+            if (borders[level].rect.y1 > borders[level].rect.y0) Prog__MenuBorderDraw(&borders[level], m);
+            // Nothing joins the last panel.
+            for (u32 rest = level; rest < CArrayCount(state->menuSquare); ++rest) state->menuSquare[rest] = 0;
+            break;
+        }
         place = child;
     }
+    UI_SetNextBlurSource(2);
+    UI_AddBlock(UI_Flag_Floating);
     state->menuHot = UI->hotKey;
 }
 
@@ -5306,7 +5627,7 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
     }
-    Prog__ScrollBar(view, pitch, S("InspectorText"), m);
+    Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }
 
 // The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked.
@@ -5416,7 +5737,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
     }
-    Prog__ScrollBar(view, pitch, S("InspectorText"), m);
+    Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }
 
 // A dashed outline with round corners, `width` by `height` at `x`, `y` in the parent: the corners are cut from a rounded outline,

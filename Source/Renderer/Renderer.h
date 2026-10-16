@@ -60,6 +60,17 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 // A {0} handle is ignored.
 function void R_TextureRelease(R_TextureHandle texture);
 
+// How the rounded boxes drawn after it are shaped, until it is set again: corners left square, or the box's inside and outside swapped,
+// which with a radius of half its size leaves the box's corners outside its circle.
+typedef enum R_Shape {
+    R_Shape_SquareTopLeft     = 1 << 0,
+    R_Shape_SquareTopRight    = 1 << 1,
+    R_Shape_SquareBottomRight = 1 << 2,
+    R_Shape_SquareBottomLeft  = 1 << 3,
+    R_Shape_Inverted          = 1 << 4,
+} R_Shape;
+function void R_SetShape(u32 shape);
+
 // Draw calls are only valid between R_BeginFrame and R_EndFrame and are submitted in order.
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius);
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness);
@@ -71,6 +82,9 @@ function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Col
 // Blurs what has been drawn so far under `rect`, inside its rounded corners, about `radius` pixels across, faded in by `opacity`.
 // What is drawn after it lies over the blur.
 function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacity);
+// Between these, blurs read the frame as it was at the first, so that boxes drawn side by side blur what is behind them all alike.
+function void R_BeginBlurSource(void);
+function void R_EndBlurSource(void);
 // Clips intersect with the enclosing clip.
 function void R_PushClip(R_Rect rect);
 function void R_PopClip(void);

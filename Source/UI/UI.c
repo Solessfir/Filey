@@ -334,6 +334,8 @@ function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
 function void UI_SetNextOpacity(f32 opacity) { UI->next.fade = 1.0f - UI__Clamp(opacity, 0, 1); }
 function void UI_SetNextBlur(f32 radius) { UI->next.blur = radius; }
+function void UI_SetNextShape(u32 shape) { UI->next.shape = shape; }
+function void UI_SetNextBlurSource(u32 source) { UI->next.blurSource = source; }
 function void UI_SetNextSoftness(f32 softness) { UI->next.softness = softness; }
 function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
 
@@ -516,6 +518,8 @@ function void UI__DrawBlock(UI_Block *block, f32 opacity)
 function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
 {
     if (UI->squareCorners) block->props.cornerRadius = 0;
+    if (block->props.blurSource == 1) R_BeginBlurSource();
+    if (block->props.blurSource == 2) R_EndBlurSource();
     f32 own = 1.0f - UI__Clamp(block->props.fade, 0, 1);
     opacity *= own;
     if (opacity <= 0) return;
@@ -523,6 +527,7 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     b32 clipsChildren = FlagIntersects(block->flags, UI_Flag_Clip | UI_Flag_Scrollable);
     // A fading block that keeps what is inside it within its bounds fades as one layer, so that its parts do not show through one another.
     b32 layer = own < 1 && clipsChildren && block->first && visible && !UI->drawingLayer;
+    if (visible) R_SetShape(block->props.shape);
     if (visible && block->props.blur > 0) R_BlurBehind(block->rect, block->props.cornerRadius, block->props.blur, opacity);
     if (layer) {
         R_PushLayer(block->clipRect);
@@ -536,6 +541,7 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
             else R_DrawRect(block->rect, background, block->props.cornerRadius);
         }
         if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, UI__Faded(block->props.colors.border, opacity), block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
+        R_SetShape(0);
         if (FlagExists(block->flags, UI_Flag_DrawImage)) {
             UI_Padding pad = block->props.childrenPadding;
             UI_Vec2 size = block->props.imageSize;
