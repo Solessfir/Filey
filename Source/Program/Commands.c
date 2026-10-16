@@ -56,7 +56,6 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuRight = 0;
     state->menuSearch = (Prog_TextEdit){0};
     state->menuBase = (P_ContextMenu){0};
-    state->menuPinAsk = UINT32_MAX;
     ++state->menuSerial;
 }
 
@@ -2004,10 +2003,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
-            case Prog_CommandKind_MenuPinAsk: if (state->menuOpen && command->row < state->menu.count) state->menuPinAsk = (u32)command->row; break;
-            case Prog_CommandKind_MenuPinAnswer: {
-                if (command->row && state->menuOpen && state->menuPinAsk < state->menu.count) {
-                    String label = StrCopy(&state->frameArena, state->menu.items[state->menuPinAsk].label);
+            case Prog_CommandKind_MenuPinToggle: {
+                if (state->menuOpen && command->row < state->menu.count) {
+                    String label = StrCopy(&state->frameArena, state->menu.items[command->row].label);
                     String *pins = ArenaPushArray(&state->frameArena, state->menuPins.header.count + 1, String);
                     u64 count = 0;
                     b32 was = Prog_MenuPinned(state, label);
@@ -2023,7 +2021,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     }
                     state->menuDepth = 0;
                 }
-                state->menuPinAsk = UINT32_MAX;
             } break;
             case Prog_CommandKind_TransferAnswer: {
                 Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;

@@ -148,12 +148,8 @@ command ContextMenuInvoke {
 }
 
 // Escape or a click outside the menu.
-// A system menu row's star; carries the item, whose pinning it asks about.
-command MenuPinAsk {
-}
-
-// The answer to it: row 1 pins the item, or unpins it, and 0 leaves it.
-command MenuPinAnswer {
+// A system menu row's star; carries the item, which it pins to the top of the system's menus, or unpins.
+command MenuPinToggle {
 }
 
 command ContextMenuClose {

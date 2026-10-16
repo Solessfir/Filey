@@ -886,12 +886,10 @@ typedef struct Prog_State {
     u32 menuSerial;           // counts the menus opened, which keys their rows' scrolling afresh
     b32 menuReveal;           // the keyboard moved the highlight, which the list scrolls to
     // The system menu commands pinned to the top of every system menu, by label, saved as MenuPins.txt; menuBase is the open menu's items
-    // before they were put in that order, and menuPinAsk the item whose star asks whether to pin it, with the place of its row.
+    // before they were put in that order.
     Arena menuPinArena;
     ArrayStr menuPins;
     P_ContextMenu menuBase;
-    u32 menuPinAsk;
-    R_Rect menuPinRow;
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture

@@ -3583,8 +3583,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 if (pins && !item->childCount && (highlighted || pinned)) {
                     UI_Interaction pin = Prog__TextButton(StrFormat(&state->frameArena, "MenuPin/%u", index), Icon_Star, m->icons, UI_Pixels(star), itemHeight, 0,
                                                           pinned && !highlighted ? theme->textMatch : theme->text, pinned && !highlighted ? theme->textMatch : theme->text, theme->iconDisabled, true, m);
-                    if (pin.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinAsk, index, 0, pin.clickOrder);
-                    if (state->menuPinAsk == index) state->menuPinRow = row->rect;
+                    if (pin.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinToggle, index, 0, pin.clickOrder);
                 } else if (pins) {
                     Prog__Spacer(UI_Pixels(star), UI_Pixels(itemHeight));
                 }
@@ -4989,48 +4988,6 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
         Prog_MenuPlace child = {0};
         if (!Prog__MenuPanel(state, level, place, m, &child)) break;
         place = child;
-    }
-    // The question a row's star asks, beside the row.
-    if (state->menuPinAsk < state->menu.count && state->menuPinRow.y1 > state->menuPinRow.y0) {
-        const Prog_Theme *theme = Prog_CurrentTheme();
-        f32 s = m->scale, pad = floorf(8.0f * s + 0.5f), buttonWidth = floorf(96.0f * s + 0.5f), buttonHeight = floorf(24.0f * s + 0.5f);
-        f32 boxWidth = 2 * buttonWidth + 3 * pad, boxHeight = m->row + buttonHeight + 2 * pad, radius = floorf(8.0f * s + 0.5f);
-        R_Rect view = UI->root->rect;
-        f32 x = state->menuRects[0].x1 + floorf(4.0f * s + 0.5f), y = state->menuPinRow.y0;
-        if (x + boxWidth > view.x1) x = state->menuRects[0].x0 - boxWidth - floorf(4.0f * s + 0.5f);
-        y = MinF32(y, view.y1 - boxHeight);
-        Prog__DropShadow(x - view.x0, y - view.y0, boxWidth, boxHeight, radius, 1, m);
-        UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
-        UI_SetNextPrefWidth(UI_Pixels(boxWidth));
-        UI_SetNextPrefHeight(UI_Pixels(boxHeight));
-        UI_SetNextChildrenLayout(UI_Layout_Vertical);
-        UI_SetNextChildrenPadding((UI_Padding){ pad, floorf(pad * 0.5f), pad, pad });
-        UI_SetNextCornerRadius(radius);
-        UI_SetNextBorderThickness(1.2f * s);
-        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
-        UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuPinAsk")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable);
-        UI_Parent(box) {
-            b32 pinned = Prog_MenuPinned(state, state->menu.items[state->menuPinAsk].label);
-            Prog__Label(pinned ? S("Unpin command from the top.") : S("Pin command to the top."), UI_Flex(), m->row, 0, theme->text, 0.5f);
-            UI_SetNextPrefWidth(UI_Flex());
-            UI_SetNextPrefHeight(UI_Pixels(buttonHeight));
-            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_Block *buttons = UI_AddBlock(0);
-            UI_Parent(buttons) for (u32 answer = 0; answer < 2; ++answer) {
-                if (answer) Prog__Spacer(UI_Pixels(pad), UI_Pixels(buttonHeight));
-                UI_Key key = UI_KeyFromStr(0, answer ? S("MenuPinCancel") : S("MenuPinYes"));
-                UI_SetNextPrefWidth(UI_Pixels(buttonWidth));
-                UI_SetNextPrefHeight(UI_Pixels(buttonHeight));
-                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                UI_SetNextBorderThickness(1.2f * s);
-                UI_SetNextColors((UI_Colors){ .background = UI->hotKey == key ? theme->hover : theme->track, .border = theme->tabBorder, .text = theme->text });
-                UI_SetNextText(answer ? S("Cancel") : S("Yes"));
-                UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
-                UI_Interaction clicked = UI_InteractionFromBlock(button);
-                if (clicked.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinAnswer, answer ? 0 : 1, 0, clicked.clickOrder);
-            }
-        }
     }
     state->menuHot = UI->hotKey;
 }
