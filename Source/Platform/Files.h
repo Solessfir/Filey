@@ -134,6 +134,7 @@ typedef enum P_Conflict {
 typedef struct P_Progress {
     atomic_uint_fast64_t totalBytes, doneBytes, totalItems, doneItems;
     atomic_bool asking;
+    atomic_bool paused;       // set by the program, which makes the job wait before its next step until it is cleared or the operation cancelled
     atomic_uint answer;
     atomic_uint policy;       // a P_Conflict, set before the operation starts
     b32 conflictFolder;       // what is asked about: the existing item `conflictName` in the target folder

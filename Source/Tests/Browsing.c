@@ -1266,6 +1266,30 @@ function void TestRemoveTree(Arena *arena, TestFileFixture *fixture, String rela
     Check(P__TestRemovePath(fixture, relative, true));
 }
 
+#if defined(__linux__)
+// A transfer started paused on one lane, which the other lets go on once it has seen it wait.
+typedef struct TestPausedTransfer {
+    Arena *arena;
+    String path, target;
+    P_Progress progress;
+    P_CancelToken *token;
+    b32 failed, early;
+} TestPausedTransfer;
+
+function void TestPausedTransferLane(void *user, u32 lane)
+{
+    TestPausedTransfer *run = user;
+    if (lane == 1) {
+        run->failed = P_TransferItems(run->arena, &run->path, 1, run->target, false, &run->progress, NULL, run->token).code != 0;
+        return;
+    }
+    u64 start = PlatformNowMicroseconds();
+    while (PlatformNowMicroseconds() - start < 150000) P__TestPause();
+    run->early = atomic_load(&run->progress.doneItems) != 0;
+    atomic_store(&run->progress.paused, false);
+}
+#endif
+
 function void TestFileOperations(TestFileFixture *fixture)
 {
     Arena arena = {0};
@@ -1299,6 +1323,15 @@ function void TestFileOperations(TestFileFixture *fixture)
         Check(atomic_load(&progress.doneItems) == 1 && atomic_load(&progress.doneBytes) == atomic_load(&progress.totalBytes));
         // It names the file it copied last, under the source's name rather than the free one it was copied to first.
         Check(StrIsEqual(Prog__TransferName(&arena, &progress), S("plain.txt")) && !(atomic_load(&progress.nameVersion) & 1));
+        // A paused transfer starts nothing until it is let go on.
+        Check(!P_CreateItem(&arena, fixture->path, S("Parts"), true, &created).code);
+        String parts = Prog_JoinPath(&arena, fixture->path, S("Parts"));
+        TestPausedTransfer run = { .arena = &arena, .path = plain, .target = parts, .token = &token };
+        atomic_store(&run.progress.policy, P_Conflict_KeepBoth);
+        atomic_store(&run.progress.paused, true);
+        P_RunLanes(2, TestPausedTransferLane, &run);
+        Check(!run.early && !run.failed && atomic_load(&run.progress.doneItems) == 1 && TestListing(&arena, fixture, S("Parts")).header.count == 1);
+        TestRemoveTree(&arena, fixture, S("Parts"));
     }
 #endif
     Check(!P_TransferItems(&arena, &folder, 1, ops, false, NULL, NULL, &token).code);

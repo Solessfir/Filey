@@ -710,13 +710,21 @@ function void P__ProgressName(P_Progress *progress, const char *name)
     atomic_fetch_add(&progress->nameVersion, 1);
 }
 
+// Waits while the program has the operation paused; false once it is cancelled.
+function b32 P__Proceed(P_Progress *progress, const P_CancelToken *cancel)
+{
+    struct timespec pause = { 0, 50 * 1000 * 1000 };
+    while (atomic_load(&progress->paused) && !P_IsCancelled(cancel)) nanosleep(&pause, NULL);
+    return !P_IsCancelled(cancel);
+}
+
 // Copies `name` in `sourceDir` to `targetName` in `targetDir`.
 // Folders are copied with everything in them and links as links; sockets, pipes and devices are skipped.
 // Returns EEXIST without touching anything when `targetName` is taken; `created` tells whether the target was made, so that a failed copy can be removed without touching anything else.
 function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const char *targetName, b32 *created, P_Progress *progress, const P_CancelToken *cancel)
 {
     *created = false;
-    if (P_IsCancelled(cancel)) return ECANCELED;
+    if (!P__Proceed(progress, cancel)) return ECANCELED;
     struct stat info;
     if (fstatat(sourceDir, name, &info, AT_SYMLINK_NOFOLLOW) != 0) return (u32)errno;
     struct timespec times[2] = { info.st_atim, info.st_mtim };
@@ -769,7 +777,7 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
     b32 kernelCopy = true;
     char buffer[65536];
     for (;;) {
-        if (P_IsCancelled(cancel)) { error = ECANCELED; break; }
+        if (!P__Proceed(progress, cancel)) { error = ECANCELED; break; }
         ssize_t count = kernelCopy ? copy_file_range(in, NULL, out, NULL, Megabytes(8), 0) : read(in, buffer, sizeof(buffer));
         if (count < 0 && errno == EINTR) continue;
         // Some file systems cannot copy in the kernel; plain reads take over from where it stopped.
@@ -888,7 +896,7 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         }
     }
     for (u64 i = 0; i < count && !error; ++i) {
-        if (P_IsCancelled(cancel)) { error = ECANCELED; break; }
+        if (!P__Proceed(progress, cancel)) { error = ECANCELED; break; }
         String parent, leaf;
         P__SplitPath(paths[i], &parent, &leaf);
         char *parentPath = P__FilePathCString(scratch.arena, parent);

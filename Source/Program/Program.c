@@ -5758,7 +5758,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
         Prog_Transfer *transfer = &state->transfers[i];
         P_Progress *progress = &transfer->progress;
-        b32 asking = transfer->job && atomic_load(&progress->asking);
+        b32 asking = transfer->job && atomic_load(&progress->asking), paused = atomic_load(&progress->paused);
         u64 items = atomic_load(&progress->totalItems), doneItems = atomic_load(&progress->doneItems);
         u64 bytes = atomic_load(&progress->totalBytes), doneBytes = atomic_load(&progress->doneBytes);
         // Windows shows its own progress, so its transfers leave the counts at zero and never show here.
@@ -5782,6 +5782,9 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(head) {
                 String title = StrFormat(&state->frameArena, "%s %" PRIu64 " item%s to %S", transfer->move ? "Moving" : "Copying", items, items == 1 ? "" : "s", target);
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
+                UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", i), paused ? Icon_Play : Icon_Pause, m->icons, UI_Pixels(m->row), m->row, 0,
+                                                        theme->icon, theme->text, theme->iconDisabled, true, m);
+                if (pause.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferPause, i, 0, pause.clickOrder);
                 UI_Interaction cancel = Prog__TextButton(StrFormat(&state->frameArena, "TransferCancel/%u", i), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
                                                          theme->icon, theme->text, theme->iconDisabled, true, m);
                 if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, i, 0, cancel.clickOrder);
@@ -5815,7 +5818,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                 UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
                 UI_Parent(now) {
                     Prog__Label(Prog__TransferName(&state->frameArena, progress), UI_Flex(), m->row, 0, theme->textDim, 0);
-                    Prog__Label(StrFormat(&state->frameArena, "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
+                    Prog__Label(StrFormat(&state->frameArena, paused ? "Paused at %u%%" : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
                 }
             }
             String amount = bytes ? StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
@@ -5839,7 +5842,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * UI__Clamp(done, 0, 1))));
                         UI_SetNextPrefHeight(UI_Pixels(barHeight));
                         UI_SetNextCornerRadius(barHeight * 0.5f);
-                        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                        UI_SetNextColors((UI_Colors){ .background = paused ? theme->textDim : theme->accent });
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                     }
                 }

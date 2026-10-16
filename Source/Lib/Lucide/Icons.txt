@@ -77,3 +77,5 @@ rotate-ccw
 monitor
 funnel
 square-check
+pause
+play

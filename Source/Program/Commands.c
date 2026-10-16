@@ -2568,6 +2568,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
                 if (transfer && transfer->job) P_RequestCancel(&transfer->job->cancelToken);
             } break;
+            case Prog_CommandKind_TransferPause: {
+                Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
+                if (transfer && transfer->job) atomic_store(&transfer->progress.paused, !atomic_load(&transfer->progress.paused));
+            } break;
             case Prog_CommandKind_CommandPalette: {
                 Prog_CloseMenu(state);
                 state->paletteOpen = !state->paletteOpen || state->paletteMode != Prog_PaletteMode_Commands;

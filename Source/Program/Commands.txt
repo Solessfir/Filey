@@ -1097,6 +1097,10 @@ command TransferAnswerAll {
 command TransferCancel {
 }
 
+// Pauses transfer row's copy or move, or lets it go on.
+command TransferPause {
+}
+
 command TogglePreview {
     label   = "Toggle Inspector^show,hide,preview,pane,quick look,peek,panel"
     tooltip = "Toggle inspector in currently active panel."
