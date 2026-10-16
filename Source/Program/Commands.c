@@ -2919,6 +2919,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;
     // The Types popup lists the active panel's types, the new ones once the listing changes under it.
     if (state->typesOpen) Prog_GatherTypes(state);
+    // Files dropped where the system leaves them to Filey go as a paste does, with its progress, questions about taken names and undo.
+    String dropFolder = {0};
+    b32 dropMove = false;
+    ArrayStr dropped = P_TakeDroppedFiles(&state->frameArena, &dropFolder, &dropMove);
+    if (dropped.header.count) {
+        Prog__FileJob(state, Prog_JobKind_Transfer, dropped.v, dropped.header.count, dropFolder, dropMove, (String){0});
+        changed = true;
+    }
     // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
     if (pinned.header.count) {
@@ -3243,6 +3251,15 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         if (event->kind != PlatformEventKind_KeyDown) continue;
         KeyMods mods = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+        // Escape cancels a copy or move that waits on a question about a taken name, unless a menu or the filter box has the keyboard.
+        if (event->key == Key_Escape && !state->menuOpen && !state->filtering) {
+            u32 asking = UINT32_MAX;
+            for (u32 i = 0; i < Prog_MaxTransfers && asking == UINT32_MAX; ++i) if (state->transfers[i].job && atomic_load(&state->transfers[i].progress.asking)) asking = i;
+            if (asking != UINT32_MAX) {
+                Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, asking, 0, order);
+                continue;
+            }
+        }
         // Escape removes the filter.
         // Keys the box does not use still reach the list: Up and Down move through it and Enter opens the focused item.
         if (!state->menuOpen && event->key == Key_Escape && (state->filtering || state->filter.length)) {

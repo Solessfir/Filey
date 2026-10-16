@@ -1429,6 +1429,20 @@ function b32 TestWaitCount(Prog_State *state, u64 count)
     return state->directory.count == count;
 }
 
+// The transfer slot that waits on a question about a taken name, once one does, or UINT32_MAX after five seconds.
+function u32 TestAskingTransfer(Prog_State *state)
+{
+    for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && atomic_load(&state->transfers[i].progress.asking)) return i;
+    }
+    return UINT32_MAX;
+}
+
+function void TestWaitTransfer(Prog_State *state, u32 slot)
+{
+    for (u64 start = PlatformNowMicroseconds(); state->transfers[slot].job && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(state);
+}
+
 function void TestProgramFileCommands(TestFileFixture *fixture)
 {
     Arena arena = {0};
@@ -1469,6 +1483,46 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestFileCommand(&state, Prog_CommandKind_Paste);
     Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) != UINT64_MAX);
     Check(!TestHasFile(&arena, fixture, S("Commands"), S("a.txt")));
+
+    // Pasting where the name is taken asks first, and the answer is carried out: here the file is replaced.
+    {
+        String other = Prog_JoinPath(&arena, root, S("a.txt")), inside = Prog_JoinPath(&arena, Prog_JoinPath(&arena, root, S("New folder")), S("a.txt")), contents = {0};
+        Check(!P_WriteFile(&arena, other, S("newer")).code);
+        PlatformClipboardSetFiles(&other, 1, false);
+        TestBrowsingCommand(&state, Prog_CommandKind_Paste, 0);
+        u32 asked = TestAskingTransfer(&state);
+        Check(asked != UINT32_MAX && StrIsEqual(StrFromCStr(state.transfers[asked].progress.conflictName), S("a.txt")));
+        if (asked != UINT32_MAX) {
+            ArenaClear(&state.frameArena);
+            Prog_QueueCommand(&state, Prog_CommandKind_TransferAnswer, asked, 0, 0)->target = P_Conflict_Replace;
+            Prog_ProcessCommands(&state);
+            TestWaitTransfer(&state, asked);
+        }
+        Check(TestWaitCount(&state, 1) && P_ReadFile(&arena, inside, &contents) && StrIsEqual(contents, S("newer")));
+#if defined(__linux__)
+        // A drop goes the same way, and Escape cancels the copy waiting on its question.
+        Check(!P_WriteFile(&arena, other, S("newest")).code);
+        ArrayStr dropped = {0};
+        ArrayPush(&arena, dropped, other);
+        P__KeepDroppedFiles(&dropped, state.directory.path, false);
+        ArenaClear(&state.frameArena);
+        Prog_ProcessCommands(&state);
+        asked = TestAskingTransfer(&state);
+        Check(asked != UINT32_MAX);
+        if (asked != UINT32_MAX) {
+            TestRenameKey(&state, Key_Escape, 0);
+            TestWaitTransfer(&state, asked);
+        }
+        Check(TestWaitCount(&state, 1) && P_ReadFile(&arena, inside, &contents) && StrIsEqual(contents, S("newer")) && !state.error.length);
+#endif
+        P_CancelToken token = {0};
+        Check(!P_DeleteItems(&arena, &other, 1, false, &token).code);
+        // The refresh the folder's watch defers for the files that changed comes before the next steps.
+        u64 settle = PlatformNowMicroseconds();
+        while (PlatformNowMicroseconds() - settle < 2 * Prog_WatchInterval) P__TestPause();
+        Prog_TakeCompletions(&state);
+        Check(TestWaitDirectory(&state));
+    }
 
     // Copy As Path puts the system's form of the path on the clipboard.
     Prog_SelectRow(&state, 0, 0);

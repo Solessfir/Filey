@@ -5823,9 +5823,12 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                         Prog__Spacer(UI_Pixels(m->gap * 0.5f), UI_Pixels(m->bar));
                     }
                     Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
-                    UI_Interaction all = Prog__TextButton(StrFormat(&state->frameArena, "TransferAll/%u", i), transfer->answerAll ? S("For all: on") : S("For all: off"), NULL, UI_TextContent(),
-                                                          m->bar * 0.8f, m->inset * 0.75f, transfer->answerAll ? theme->textMatch : theme->textDim, theme->text, theme->textDim, true, m);
-                    if (all.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferAnswerAll, i, 0, all.clickOrder);
+                    // Only where more names may be taken.
+                    if (items > 1) {
+                        UI_Interaction all = Prog__TextButton(StrFormat(&state->frameArena, "TransferAll/%u", i), transfer->answerAll ? S("For all: on") : S("For all: off"), NULL, UI_TextContent(),
+                                                              m->bar * 0.8f, m->inset * 0.75f, transfer->answerAll ? theme->textMatch : theme->textDim, theme->text, theme->textDim, true, m);
+                        if (all.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferAnswerAll, i, 0, all.clickOrder);
+                    }
                 }
             }
             // Bytes where there are any to copy; a move within one file system only counts its items.

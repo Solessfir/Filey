@@ -633,7 +633,7 @@ function void DataDeviceDrop(void *data, struct wl_data_device *device)
         P__ParseFileList(scratch.arena, list, strcmp(Wl.dragFiles, LinuxFileMimes[0]) == 0, &paths, &cut);
         b32 move = own ? LinuxOwnDropMoves(folder) : Wl.dragAction == WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
         // Filey's own files moved back where they are stay put; copied there, they are duplicated, as Explorer's Ctrl+drag does.
-        if (!(own && move && StrIsEqual(folder, Wl.dragFolder))) P__TransferDropped(&paths, move);
+        if (!(own && move && StrIsEqual(folder, Wl.dragFolder))) P__KeepDroppedFiles(&paths, folder, move);
         if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
         ReleaseScratch(scratch);
     }

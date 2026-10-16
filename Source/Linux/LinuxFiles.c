@@ -349,7 +349,18 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
 
 // Where dropped files go; the window's drop handler reads it.
 // While `takesFolders` is on, drops are kept in `dropped` for the program instead. The window sets `pending` while a drag is over it.
-global struct { char path[PATH_MAX]; u64 length; b32 takesFolders; b32 pending; Arena droppedArena; ArrayStr dropped; } P__drop;
+global struct {
+    char path[PATH_MAX];
+    u64 length;
+    b32 takesFolders;
+    b32 pending;
+    Arena droppedArena;
+    ArrayStr dropped;
+    Arena filesArena;     // the files of a drop, until the program takes them
+    ArrayStr files;
+    String filesDirectory;
+    b32 filesMove;
+} P__drop;
 
 function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
 
@@ -407,43 +418,25 @@ function void P__ParseFileList(Arena *arena, String list, b32 gnome, ArrayStr *p
     ReleaseScratch(scratch);
 }
 
-typedef struct P__DropTransfer {
-    Arena arena;
-    String *paths;
-    u64 count;
-    String directory;
-    b32 move;
-} P__DropTransfer;
-
-function void *P__DropThread(void *user)
+// Keeps the files dropped into `directory` for P_TakeDroppedFiles.
+// ponytail: one drop is kept until the program takes it on the next frame; a second one before then joins it, into the newer folder.
+function void P__KeepDroppedFiles(const ArrayStr *paths, String directory, b32 move)
 {
-    P__DropTransfer *transfer = user;
-    P_CancelToken token = {0};
-    P_FileError error = P_TransferItems(&transfer->arena, transfer->paths, transfer->count, transfer->directory, transfer->move, NULL, NULL, &token);
-    // ponytail: drop errors only reach stderr; report them in the status bar through the program if drops fail in practice.
-    if (error.code) fprintf(stderr, "Filey: dropping into %.*s failed: %.*s\n", (i32)transfer->directory.length, transfer->directory.value, (i32)error.message.length, error.message.value);
-    Arena arena = transfer->arena;
-    ArenaRelease(&arena);
-    return NULL;
+    for (u64 i = 0; i < paths->header.count; ++i) ArrayPush(&P__drop.filesArena, P__drop.files, StrCopy(&P__drop.filesArena, paths->v[i]));
+    P__drop.filesDirectory = StrCopy(&P__drop.filesArena, directory);
+    P__drop.filesMove = move;
 }
 
-// Copies or moves dropped files into the drop folder on a thread of their own, so a big drop never holds the window; the folder's watch shows the result.
-function void P__TransferDropped(const ArrayStr *paths, b32 move)
+function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
 {
-    if (!paths->header.count || !P__drop.length) return;
-    P__DropTransfer *transfer = ArenaBootstrapStruct(P__DropTransfer, arena);
-    transfer->directory = StrCopy(&transfer->arena, StrMake(P__drop.path, P__drop.length));
-    transfer->paths = ArenaPushArray(&transfer->arena, paths->header.count, String);
-    for (u64 i = 0; i < paths->header.count; ++i) transfer->paths[i] = StrCopy(&transfer->arena, paths->v[i]);
-    transfer->count = paths->header.count;
-    transfer->move = move;
-    pthread_t thread;
-    if (pthread_create(&thread, NULL, P__DropThread, transfer) == 0) {
-        pthread_detach(thread);
-    } else {
-        Arena arena = transfer->arena;
-        ArenaRelease(&arena);
-    }
+    ArrayStr result = {0};
+    for (u64 i = 0; i < P__drop.files.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.files.v[i]));
+    *directory = StrCopy(arena, P__drop.filesDirectory);
+    *move = P__drop.filesMove;
+    P__drop.files = (ArrayStr){0};
+    P__drop.filesDirectory = (String){0};
+    ArenaClear(&P__drop.filesArena);
+    return result;
 }
 
 // A '/' would turn a rename into a move.

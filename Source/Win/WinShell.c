@@ -366,6 +366,14 @@ function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
 
 function b32 P_DropPending(void) { return P__drop.data != NULL; }
 
+function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
+{
+    (void)arena;
+    *directory = (String){0};
+    *move = false;
+    return (ArrayStr){0};
+}
+
 function ArrayStr P_TakeDroppedFolders(Arena *arena)
 {
     ArrayStr result = {0};

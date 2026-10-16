@@ -354,3 +354,6 @@ function void P_SetDropTakesFolders(b32 takes);
 function ArrayStr P_TakeDroppedFolders(Arena *arena);
 // A drag, Filey's own or another program's, is over the window.
 function b32 P_DropPending(void);
+// Where the system leaves dropped files to Filey, as on Linux, the files dropped into a folder since the last call, copied into `arena`,
+// with that folder and whether they move, for the program to copy or move as a paste does; empty on Windows, whose shell carries drops out.
+function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move);
