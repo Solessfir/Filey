@@ -86,6 +86,8 @@ function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
 global u32 TestWindowCalls[4];  // minimize, maximize, close, move
 
 function b32 PlatformWindowHasButtons(void) { return true; }
+function b32 PlatformHasBackdrops(void) { return true; }
+function b32 PlatformHasVSync(void) { return true; }
 function b32 PlatformWindowIsMaximized(void) { return false; }
 function b32 PlatformWindowNeedsBorder(void) { return false; }
 function PlatformWindowInfo PlatformWindowGetInfo(void) { return (PlatformWindowInfo){0}; }

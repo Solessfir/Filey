@@ -608,11 +608,21 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
 };
 
 // The options whose name or description holds what is typed into the popup, in their order, into `found`; returns how many.
+// Whether `option` sets anything on this system: the backdrop, VSync and system files are Windows' alone.
+function b32 Prog_OptionApplies(Prog_Option option)
+{
+    if (option == Prog_Option_Backdrop) return PlatformHasBackdrops();
+    if (option == Prog_Option_VSync) return PlatformHasVSync();
+    if (option == Prog_Option_ShowSystemFiles) return P_HasSystemFiles();
+    return true;
+}
+
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
 {
     String typed = Prog_EditText(&state->palette);
     u32 count = 0;
     for (u32 i = 0; i < Prog_Option_Count; ++i) {
+        if (!Prog_OptionApplies((Prog_Option)i)) continue;
         if (!typed.length || Prog_FuzzyScore(Prog_Options[i].label, Prog_Options[i].tooltip, typed, NULL, NULL) > 0) found[count++] = (u8)i;
     }
     return count;

@@ -1087,6 +1087,7 @@ function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
 
 function b32 P_EmptyTrashAsks(void) { return false; }
 function b32 P_DeleteAsks(void) { return false; }
+function b32 P_HasSystemFiles(void) { return false; }
 
 function b32 P_IsTrashFolder(String path)
 {

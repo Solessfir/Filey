@@ -1136,6 +1136,9 @@ global const struct wl_callback_listener FrameListener = {
 
 // The compositor's frame callbacks pace the frames either way, and a swap that does not wait for them would only draw frames that are never shown.
 function void PlatformSetVSync(b32 on) { (void)on; }
+function b32 PlatformHasVSync(void) { return false; }
+// Hyprland and the like blur by their own settings.
+function b32 PlatformHasBackdrops(void) { return false; }
 
 function void PlatformSwapBuffers(void)
 {

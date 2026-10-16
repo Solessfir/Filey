@@ -1990,6 +1990,8 @@ function void TestSidebar(TestFileFixture *fixture)
     // A drive mounted under its UUID is named by its disk's size where the disk has no model; neither is made up for what is not a disk.
     Check(StrIsEqual(P__ShortSize(&arena, UINT64_C(3960000000000)), S("3.6 TB")) && StrIsEqual(P__ShortSize(&arena, 512), S("512.0 B")));
     Check(!P__NamedByUuid(&arena, S("not-a-uuid"), S("/dev/sda1")) && !P__DiskModel(&arena, S("/dev/not-a-disk")).length);
+    // Options of Windows alone are not offered: files are never marked as the system's own here.
+    Check(!Prog_OptionApplies(Prog_Option_ShowSystemFiles) && Prog_OptionApplies(Prog_Option_FontSize));
     // Only a drive on a local device is looked into for Windows; /proc's source is no device.
     Check(StrIsEqual(P__MountPoint(&arena, S("/mnt/My\\040Disk")), S("/mnt/My Disk")) && !P__LocalMount(&arena, S("/proc")));
 #endif

@@ -587,6 +587,9 @@ function void P_ReleaseWindowWake(void)
 {
 }
 
+function b32 PlatformHasVSync(void) { return true; }
+function b32 PlatformHasBackdrops(void) { return true; }
+
 function void PlatformSetVSync(b32 on)
 {
     if (Win.swapInterval) Win.swapInterval(on ? 1 : 0);

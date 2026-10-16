@@ -195,6 +195,8 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
 // confirms first.
 function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, b32 confirm, const P_CancelToken *cancel);
 function b32 P_DeleteAsks(void);
+// Whether files can be marked as the system's own, as P_File.system says on Windows, which showing or hiding them needs.
+function b32 P_HasSystemFiles(void);
 // `path` with the system's own separators, for showing or copying.
 function String P_NativePath(Arena *arena, String path);
 
