@@ -203,6 +203,30 @@ function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
 }
 
 // The shell's image factory gives a thumbnail where the file has one and its icon otherwise, at any size.
+// The shell's thumbnail cache gives some folders' pictures opaque on black instead of see-through. The black that reaches the edges is
+// cleared, which keeps what the folder's picture shows of its contents.
+function void P__ClearFolderBackground(Arena *scratch, P_Image *image)
+{
+    i64 count = (i64)image->width * image->height;
+    if (count <= 0 || image->pixels[0] != 0xFF000000u) return;
+    for (i64 i = 0; i < count; ++i) if ((image->pixels[i] >> 24) != 0xFF) return;
+    // Each pixel is cleared as it is pushed, so that none is pushed twice.
+    u32 *stack = ArenaPushArrayNoZero(scratch, (u64)count, u32), *pixels = image->pixels;
+    u64 top = 0;
+    u32 w = (u32)image->width, h = (u32)image->height;
+    for (u32 i = 0; i < (u32)count; ++i) {
+        u32 x = i % w, y = i / w;
+        if ((x == 0 || y == 0 || x + 1 == w || y + 1 == h) && pixels[i] == 0xFF000000u) { pixels[i] = 0; stack[top++] = i; }
+    }
+    while (top) {
+        u32 at = stack[--top], x = at % w, y = at / w;
+        u32 next[4] = { x > 0 ? at - 1 : UINT32_MAX, x + 1 < w ? at + 1 : UINT32_MAX, y > 0 ? at - w : UINT32_MAX, y + 1 < h ? at + w : UINT32_MAX };
+        for (u32 n = 0; n < 4; ++n) {
+            if (next[n] != UINT32_MAX && pixels[next[n]] == 0xFF000000u) { pixels[next[n]] = 0; stack[top++] = next[n]; }
+        }
+    }
+}
+
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
@@ -216,6 +240,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
             if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT | (thumbnailOnly ? SIIGBF_THUMBNAILONLY : 0), &bitmap)) && bitmap) {
                 result = P__BitmapPixels(arena, bitmap, image);
                 DeleteObject(bitmap);
+                if (result && kind == P_FileKind_Directory) P__ClearFolderBackground(scratch.arena, image);
             }
             factory->lpVtbl->Release(factory);
         }
