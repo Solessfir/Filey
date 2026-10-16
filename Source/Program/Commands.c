@@ -870,6 +870,22 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
     ReleaseScratch(scratch);
 }
 
+// Puts Filey's own `item`, with `icon` when one is given, and a line after it at the top of the open menu.
+function void Prog__MenuPrepend(Prog_State *state, P_MenuItem item, String icon)
+{
+    P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 2, P_MenuItem);
+    items[0] = item;
+    if (icon.length) P_LoadFileIcon(&state->menuArena, icon, P_FileKind_Directory, Max(state->iconSize, 16), true, &items[0].icon);
+    items[1] = (P_MenuItem){ .separator = true };
+    for (u32 i = 0; i < state->menu.count; ++i) {
+        items[i + 2] = state->menu.items[i];
+        if (items[i + 2].childCount) items[i + 2].firstChild += 2;
+    }
+    state->menu.items = items;
+    state->menu.count += 2;
+    state->menu.rootCount += 2;
+}
+
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
 {
     Prog_CloseMenu(state);
@@ -899,6 +915,11 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     if (!state->menuOpen) {
         Prog_CloseMenu(state);
         return;
+    }
+    // In the bin its items start with putting them back, and its background with putting everything back, as in Explorer.
+    if (P_IsTrashFolder(state->directory.path) && (state->menuRowCount || state->directory.count)) {
+        Prog__MenuPrepend(state, state->menuRowCount ? (P_MenuItem){ .label = S("Restore"), .action = P_MenuAction_Restore }
+                                                     : (P_MenuItem){ .label = S("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
     }
     state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
     for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
@@ -1184,9 +1205,14 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         Prog_BeginRename(state, row);
         return;
     }
+    if (item.action == P_MenuAction_Restore || item.action == P_MenuAction_RestoreAll) {
+        Prog_CloseMenu(state);
+        Prog_QueueCommand(state, item.action == P_MenuAction_Restore ? Prog_CommandKind_SelectionRestore : Prog_CommandKind_TrashRestoreAll, 0, 0, UINT64_MAX);
+        return;
+    }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 11);
+        static_assert(P_MenuAction_Count == 13);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_Cut] = Prog_CommandKind_CutSelection,
             [P_MenuAction_Copy] = Prog_CommandKind_CopySelection,
@@ -1714,17 +1740,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 // The bin's menu starts with emptying it, while it holds anything.
                 if (P_IsTrashFolder(path) && P_TrashHasItems()) {
-                    P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 2, P_MenuItem);
-                    items[0] = (P_MenuItem){ .label = StrFormat(&state->menuArena, "Empty %S", Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash };
-                    P_LoadFileIcon(&state->menuArena, path, P_FileKind_Directory, Max(state->iconSize, 16), true, &items[0].icon);
-                    items[1] = (P_MenuItem){ .separator = true };
-                    for (u32 i = 0; i < state->menu.count; ++i) {
-                        items[i + 2] = state->menu.items[i];
-                        if (items[i + 2].childCount) items[i + 2].firstChild += 2;
-                    }
-                    state->menu.items = items;
-                    state->menu.count += 2;
-                    state->menu.rootCount += 2;
+                    Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, "Empty %S", Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
                 state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
                 for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
@@ -2188,7 +2204,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (count) Prog__FileJob(state, Prog_JobKind_Restore, paths, count, state->directory.path, false, (String){0});
             } break;
             case Prog_CommandKind_TrashRestoreAll: {
-                String bin = P_TrashFolder(&state->frameArena);
+                // The bin shown, else the system drive's.
+                String bin = P_IsTrashFolder(state->directory.path) ? state->directory.path : P_TrashFolder(&state->frameArena);
                 Prog__FileJob(state, Prog_JobKind_Restore, NULL, 0, bin, false, (String){0});
             } break;
             case Prog_CommandKind_EmptyTrash: {

@@ -276,6 +276,8 @@ typedef enum P_MenuAction {
     P_MenuAction_NewFolder,
     P_MenuAction_NewFile,
     P_MenuAction_EmptyTrash,
+    P_MenuAction_Restore,
+    P_MenuAction_RestoreAll,
     P_MenuAction_Count,
 } P_MenuAction;
 
