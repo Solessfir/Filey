@@ -1259,7 +1259,9 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
     const char *homeValue = getenv("HOME");
     if (!homeValue || homeValue[0] != '/') return result;
     String home = P_AbsolutePath(arena, StrFromCStr(homeValue));
-    ArrayPush(arena, result, ((P_Place){ .name = S("Home"), .path = home }));
+    Index slash = StrIndexChar(home, '/', SSF_SearchBackwards);
+    String name = slash.exists && slash.value + 1 < home.length ? StrFrom(home, slash.value + 1) : S("Home");
+    ArrayPush(arena, result, ((P_Place){ .name = name, .path = home, .home = true }));
     local_persist const struct { const char *key; const char *name; } folders[] = {
         { "DESKTOP", "Desktop" }, { "DOCUMENTS", "Documents" }, { "DOWNLOAD", "Downloads" },
         { "MUSIC", "Music" }, { "PICTURES", "Pictures" }, { "VIDEOS", "Videos" },

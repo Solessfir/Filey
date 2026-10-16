@@ -656,13 +656,15 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
 function P_ArrayPlace P_UserPlaces(Arena *arena)
 {
     local_persist const struct { const GUID *id; const char *name; } folders[] = {
-        { &P__FolderProfile, "Home" }, { &P__FolderDesktop, "Desktop" }, { &P__FolderDocuments, "Documents" }, { &P__FolderDownloads, "Downloads" },
+        { &P__FolderProfile, NULL }, { &P__FolderDesktop, "Desktop" }, { &P__FolderDocuments, "Documents" }, { &P__FolderDownloads, "Downloads" },
         { &P__FolderMusic, "Music" }, { &P__FolderPictures, "Pictures" }, { &P__FolderVideos, "Videos" },
     };
     P_ArrayPlace result = {0};
     for (u32 i = 0; i < CArrayCount(folders); ++i) {
         String path = P__KnownFolder(arena, folders[i].id);
-        if (path.length) ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
+        if (!path.length) continue;
+        String name = folders[i].name ? StrFromCStr(folders[i].name) : StrFrom(path, StrIndexChar(path, '/', SSF_SearchBackwards).value + 1);
+        ArrayPush(arena, result, ((P_Place){ .name = name, .path = path, .home = !folders[i].name }));
     }
     ArrayPush(arena, result, ((P_Place){ .name = S("Recycle Bin"), .path = P_TrashFolder(arena) }));
     return result;

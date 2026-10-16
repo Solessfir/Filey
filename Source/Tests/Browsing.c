@@ -1911,7 +1911,7 @@ function void TestSidebar(TestFileFixture *fixture)
 {
     Arena arena = {0};
     P_ArrayPlace places = P_UserPlaces(&arena);
-    Check(places.header.count >= 1 && StrIsEqual(places.v[0].name, S("Home")) && places.v[0].path.length);
+    Check(places.header.count >= 1 && places.v[0].home && StrIsEqual(places.v[0].name, Prog__FolderName(places.v[0].path)) && places.v[0].path.length);
     P_ArrayPlace drives = P_Drives(&arena);
     Check(drives.header.count >= 1);
     b32 sized = false;

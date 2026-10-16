@@ -2249,7 +2249,8 @@ function String Prog_HomePath(Arena *arena)
 {
     Scratch scratch = GetScratchEx(arena);
     P_ArrayPlace places = P_UserPlaces(scratch.arena);
-    String result = places.header.count && StrIsEqual(places.v[0].name, S("Home")) ? StrCopy(arena, places.v[0].path) : (String){0};
+    String result = {0};
+    for (u64 i = 0; i < places.header.count && !result.length; ++i) if (places.v[i].home) result = StrCopy(arena, places.v[i].path);
     ReleaseScratch(scratch);
     return result;
 }
