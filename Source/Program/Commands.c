@@ -1510,6 +1510,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
                 b32 root = StrIsEqual(parent, path) || !parent.length;
                 if (root) name = path;
+                // This PC is the system's computer item, where it has one.
+                if (StrIsEqual(path, Prog_ThisPC)) {
+                    name = P_ComputerIconPath();
+                    root = true;
+                    if (!name.length) {
+                        Prog_CloseMenu(state);
+                        break;
+                    }
+                }
                 state->menuOpen = P_ContextMenuOpen(&state->menuArena, root ? (String){0} : parent, &name, 1, &state->menu);
                 if (!state->menuOpen) {
                     Prog_CloseMenu(state);
