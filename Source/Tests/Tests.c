@@ -465,6 +465,39 @@ function void TestContextMenuModel(void)
     Check(state.menuHighlight == 6);
 }
 
+function void TestContextMenuInline(void)
+{
+    // A (X (Z), Y), sep, B
+    P_MenuItem items[] = {
+        { .label = S("A"), .id = 1, .firstChild = 3, .childCount = 2 }, { .separator = true }, { .label = S("B"), .id = 2 },
+        { .label = S("X"), .id = 3, .firstChild = 5, .childCount = 1 }, { .label = S("Y"), .id = 4 }, { .label = S("Z"), .id = 5 },
+    };
+    Prog_State state = { .menuOpen = true, .menuInline = true, .menuHighlight = UINT32_MAX };
+    state.menu = (P_ContextMenu){ .items = items, .count = CArrayCount(items), .rootCount = 3 };
+    u32 rows[16];
+    u8 depths[16];
+    Check(Prog_MenuInlineVisible(&state, rows, depths) == 3 && rows[0] == 0 && rows[1] == 1 && rows[2] == 2);
+    // A's items follow it after a line; the menu's own line closes them.
+    Prog_MenuToggleExpanded(&state, 0);
+    u32 shown = Prog_MenuInlineVisible(&state, rows, depths);
+    Check(shown == 6 && rows[1] == Prog_MenuLine && rows[2] == 3 && rows[3] == 4 && rows[4] == 1 && rows[5] == 2);
+    Check(depths[0] == 0 && depths[1] == 1 && depths[2] == 1 && depths[3] == 1 && depths[4] == 0);
+    // X's open inside A's, between lines of their own.
+    Prog_MenuToggleExpanded(&state, 3);
+    shown = Prog_MenuInlineVisible(&state, rows, depths);
+    Check(shown == 9 && rows[2] == 3 && rows[3] == Prog_MenuLine && rows[4] == 5 && depths[4] == 2 && rows[5] == Prog_MenuLine && rows[6] == 4);
+    // The keyboard moves through them, past the lines.
+    state.menuHighlight = 3;
+    Prog__MenuMove(&state, 1);
+    Check(state.menuHighlight == 5);
+    Prog__MenuMove(&state, 1);
+    Check(state.menuHighlight == 4);
+    Check(Prog_MenuOwner(&state, 5) == 3 && Prog_MenuOwner(&state, 3) == 0 && Prog_MenuOwner(&state, 0) == UINT32_MAX);
+    // Closing A closes X with it.
+    Prog_MenuToggleExpanded(&state, 0);
+    Check(state.menuExpandedCount == 0 && Prog_MenuInlineVisible(&state, rows, depths) == 3);
+}
+
 function void TestProfiler(void)
 {
     Check(P_ProfileInit(1));
@@ -527,6 +560,7 @@ int main(void)
     TestBrowsing();
     TestProfiler();
     TestContextMenuModel();
+    TestContextMenuInline();
     TestTextEditWords();
 
     if (CheckFailures != 0) {

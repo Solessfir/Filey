@@ -449,6 +449,7 @@ typedef enum Prog_Option {
     Prog_Option_Spacing,
     Prog_Option_Animations,
     Prog_Option_RoundCorners,
+    Prog_Option_InlineSubmenus,
     Prog_Option_SystemScheme,
     Prog_Option_ColorScheme,
     Prog_Option_AlternatingRows,
@@ -885,6 +886,11 @@ typedef struct Prog_State {
     R_Rect menuRects[9];      // each open level's panel in the last build, empty past the last one
     b32 menuApart[9];         // each submenu that could not sit against its opener's panel in the last build, whose opener is then lit
     u32 menuSquare[9];        // each level's corners that the submenu joined to it squared off in the last build, as R_Shape flags
+    b32 menuInline;           // submenus open inside their menu, under their item, rather than beside it
+    u32 menuExpanded[32];     // with menuInline, the items whose submenus are open, in the order they were opened
+    u32 menuExpandedCount;
+    f32 menuTop;              // with menuInline, where the menu opened, which it keeps as it grows; set for menuSerial + 1 in menuTopSerial
+    u32 menuTopSerial;
     u32 menuSerial;           // counts the menus opened, which keys their rows' scrolling afresh
     b32 menuReveal;           // the keyboard moved the highlight, which the list scrolls to
     // The system menu commands pinned to the top of every system menu, by label, saved as MenuPins.txt; menuBase is the open menu's items

@@ -155,6 +155,10 @@ command MenuPinToggle {
 command ContextMenuClose {
 }
 
+// With inline submenus, a click on an item with a submenu; carries the item, whose submenu it opens under it, or closes.
+command ContextMenuExpand {
+}
+
 // A selected row dragged with the left button.
 command DragSelection {
 }

@@ -280,7 +280,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = state->noTrashConfirm = false;
+    state->showCheckboxes = state->noTrashConfirm = state->menuInline = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
@@ -337,6 +337,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->fullPaths = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("paths.trail"))) {
             state->noTrail = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("menus.inline"))) {
+            state->menuInline = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("startup"))) {
             for (u32 i = 0; i < Prog_Startup_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStartups[i])) state->startup = (u8)i;
         } else if (StrIsEqual(name, S("newtab"))) {
@@ -458,6 +460,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
                                 "# paths.short = on\n# paths.trail = on\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = off\n\n"
+                                "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = off\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = on\n\n"
                                 "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n\n"
@@ -517,6 +520,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                  Prog_OptionSwitch, 2, S("animations") },
     [Prog_Option_RoundCorners] = { S("Round Corners"), S("Applies rounding to the corners of UI elements such as popups, buttons, and selections."), Prog_OptionControl_Switch,
                                    0, 1, Prog_OptionCorners, 2, S("corners") },
+    [Prog_Option_InlineSubmenus] = { S("Inline Submenus"), S("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
+                                     Prog_OptionSwitch, 2, S("menus.inline") },
     [Prog_Option_SystemScheme] = { S("System Light / Dark Scheme"), S("Automatically adapt between light and dark color schemes based on system settings."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("theme.system") },
     [Prog_Option_ColorScheme] = { S("Color Scheme"), S("Applies a color palette to all UI elements."), Prog_OptionControl_Choice, 0, 0,
@@ -605,6 +610,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ColorScheme: return state->scheme;
         case Prog_Option_Spacing: return 4 + state->spacingShift;
         case Prog_Option_RoundCorners: return !state->squareCorners;
+        case Prog_Option_InlineSubmenus: return state->menuInline;
         case Prog_Option_SystemScheme: return state->systemScheme;
         case Prog_Option_AlternatingRows: return state->alternatingRows;
         case Prog_Option_InactiveOpacity: return 60 + state->inactiveShift;
@@ -3612,9 +3618,14 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                              Prog_MenuBorder *parentBorder)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    u32 *visible = ArenaPushArray(&state->frameArena, Max(place.count, 1u), u32);
+    // With inline submenus, the top level holds the open submenus' items too, each as deep as `depths` says.
+    b32 flat = level == 0 && Prog_MenuInline(state);
+    u32 room = flat ? Prog_MenuInlineRoom(state) : Max(place.count, 1u);
+    u32 *visible = ArenaPushArray(&state->frameArena, room, u32);
+    u8 *depths = ArenaPushArray(&state->frameArena, room, u8);
     String filter = Prog_MenuFilter(state, level);
-    u32 shown = Prog_MenuVisible(&state->menu, place.first, place.count, filter, visible);
+    u32 shown = flat ? Prog_MenuInlineVisible(state, visible, depths) : Prog_MenuVisible(&state->menu, place.first, place.count, filter, visible);
+    f32 indent = floorf(24.0f * m->scale + 0.5f);
     // The system menu's top level has its search field over the items, and stays open with nothing found.
     b32 search = level == 0 && !state->menuCommands;
     if (!shown && !search) {
@@ -3638,9 +3649,9 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 rowWidth = 0, height = 2 * pad + searchHeight;
     b32 anySubmenu = false;
     for (u32 i = 0; i < shown; ++i) {
-        const P_MenuItem *item = &state->menu.items[visible[i]];
+        const P_MenuItem *item = Prog_MenuItemAt(state, visible[i]);
         height += item->separator ? separatorHeight : itemHeight;
-        f32 labelWidth = R_TextWidth(m->font, item->label), hotkeyWidth = 0;
+        f32 labelWidth = R_TextWidth(m->font, item->label) + depths[i] * indent, hotkeyWidth = 0;
         anySubmenu |= item->childCount != 0;
         if (!item->separator) {
             // A system item shows the hotkeys of the Filey command that does the same.
@@ -3660,10 +3671,13 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 pins = level == 0 && !state->menuCommands;
     f32 star = pins ? floorf(24.0f * m->scale + 0.5f) : 0;
     R_Rect view = UI->root->rect;
-    // A menu taller than the window fits it and scrolls, with a bar in a gutter on the right.
-    b32 scrolls = height > view.y1 - view.y0;
+    // A menu taller than the window fits it and scrolls, with a bar in a gutter on the right; one with inline submenus keeps where it opened, below which
+    // it has the room.
+    b32 placedBefore = flat && state->menuTopSerial == state->menuSerial + 1;
+    b32 scrolls = height > (placedBefore ? view.y1 - state->menuTop : view.y1 - view.y0);
     f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
     f32 width = floorf(MinF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + star + 2 * pad, m->line * 12), m->line * 36)) + gutter;
+    if (flat) width = floorf(UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuWidth/%u", state->menuSerial)), width, width) + 0.5f);
     f32 x = level == 0 && state->menuRight > 0 ? state->menuRight - width : place.x, y = place.y;
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
     // A submenu sits against its opener's panel, on the side the menus have been opening to while there is room, so that it does not cover the
@@ -3686,9 +3700,19 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 reveal = own ? UI_Animate(revealKey, 1, 0) : 1;
     itemHeight *= 0.9f + 0.1f * reveal;
     height = 2 * pad + searchHeight;
-    for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
+    for (u32 i = 0; i < shown; ++i) height += Prog_MenuItemAt(state, visible[i])->separator ? separatorHeight : itemHeight;
     // On whole pixels, for a joined submenu's lines to meet its edges exactly.
     height = floorf(MinF32(height, view.y1 - view.y0) + 0.5f);
+    // Inline, the menu grows and shrinks with the submenus opening in it, as its rows slide.
+    if (flat) {
+        // It stays where it opened, and once it reaches the window's bottom its rows scroll.
+        if (state->menuTopSerial != state->menuSerial + 1) {
+            state->menuTop = y;
+            state->menuTopSerial = state->menuSerial + 1;
+        }
+        y = state->menuTop;
+        height = floorf(MinF32(UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuHeight/%u", state->menuSerial)), height, height), view.y1 - y) + 0.5f);
+    }
     f32 opacity = own ? Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade"))) : 1;
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
@@ -3802,29 +3826,55 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         // the others while they move down to make room for it.
         UI_Key *keys = ArenaPushArray(&state->frameArena, Max(shown, 1u), UI_Key);
         f32 *placed = ArenaPushArray(&state->frameArena, Max(shown, 1u), f32), *slid = ArenaPushArray(&state->frameArena, Max(shown, 1u), f32);
+        // Inline, each row of an open submenu goes by the item it opened under, the row before it one less deep.
+        u32 *owners = ArenaPushArray(&state->frameArena, Max(shown, 1u), u32);
         f32 rowsHeight = 0, rowWidth = width - 2 * pad - gutter;
         for (u32 i = 0; i < shown; ++i) {
-            const P_MenuItem *item = &state->menu.items[visible[i]];
+            const P_MenuItem *item = Prog_MenuItemAt(state, visible[i]);
+            owners[i] = UINT32_MAX;
+            for (u32 j = i; depths[i] && j-- > 0;) if (depths[j] < depths[i]) { owners[i] = j; break; }
             // A line goes by the row above it; a menu may hold one command twice, so each copy has a number of its own.
             u32 copy = 0;
             for (u32 j = 0; j < i; ++j) {
-                const P_MenuItem *other = &state->menu.items[visible[j]];
+                const P_MenuItem *other = Prog_MenuItemAt(state, visible[j]);
                 copy += other->id == item->id && StrIsEqual(other->label, item->label);
             }
             String identity = StrFormat(&state->frameArena, "Menu/%u/%u/%S/%u", level, item->id, item->label, copy);
             keys[i] = item->separator && i ? UI_KeyFromStr(keys[i - 1], S("Line")) : UI_KeyFromStr(0, identity);
             placed[i] = rowsHeight;
-            slid[i] = UI_Animate(UI_KeyFromStr(keys[i], S("Y")), rowsHeight, rowsHeight);
             rowsHeight += item->separator ? separatorHeight : itemHeight;
+        }
+        for (u32 i = 0; i < shown; ++i) {
+            // The rows of a submenu that opens start drawn up under its item by all their height, and slide down with the rows after them.
+            f32 start = placed[i];
+            if (owners[i] != UINT32_MAX) {
+                u32 owner = owners[i], end = owner + 1;
+                while (end < shown && depths[end] > depths[owner]) ++end;
+                start -= (end < shown ? placed[end] : rowsHeight) - placed[owner] - itemHeight;
+            }
+            slid[i] = UI_Animate(UI_KeyFromStr(keys[i], S("Y")), placed[i], start);
         }
         UI_Parent(list) for (u32 pass = 0; pass < 2; ++pass) for (u32 i = 0; i < shown; ++i) {
             // The row just pinned or unpinned is drawn last, over those it passes on its way.
+            // Each row goes in the list again, out of the clip the one before may have gone in.
+            UI_PopParent(list);
             u32 index = visible[i];
-            const P_MenuItem *item = &state->menu.items[index];
+            const P_MenuItem *item = Prog_MenuItemAt(state, index);
             b32 moving = level == 0 && state->menuMoved.length && StrIsEqual(item->label, state->menuMoved) && fabsf(slid[i] - placed[i]) > 0.5f;
             if (moving != (pass == 1)) continue;
             // Rounded rather than floored, or a row easing down sits a pixel short through the tail of the ease and then jumps.
             f32 rowY = floorf(slid[i] - list->scrollShown.y + 0.5f);
+            // A submenu's rows show only below the item they opened under, out of which they slide; each is drawn in a clip from there down.
+            if (owners[i] != UINT32_MAX) {
+                // A line on the item's bottom edge shows whole, half of it above the edge.
+                f32 from = floorf(slid[owners[i]] - list->scrollShown.y + 0.5f) + itemHeight - (item->separator ? ceilf(line * 0.5f) : 0);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, from });
+                UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+                UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - from)));
+                UI_Block *below = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+                UI_PushParent(below);
+                rowY -= from;
+            }
             if (item->separator) {
                 // A line on the boundary of the rows around it, left out next to a row its submenu joins, whose outline takes its place.
                 b32 joinedNext = false;
@@ -3845,15 +3895,17 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_Key key = keys[i];
             // Moving the mouse onto an item decides the highlight and which submenu is open, as in native menus; the keyboard takes over until the mouse moves to another item.
             // Rows sliding under a still pointer do not take the highlight from the keyboard's or the pinned row's.
+            // Inline, pointing only lights an item; a click opens its submenu.
             if (enabled && UI->hotKey == key && state->menuPointerMoved) {
                 state->menuHighlight = index;
                 state->menuDepth = level;
-                if (item->childCount && level < CArrayCount(state->menuPath)) {
+                if (item->childCount && level < CArrayCount(state->menuPath) && !flat) {
                     state->menuPath[level] = index;
                     state->menuDepth = level + 1;
                 }
             }
-            b32 open = level < state->menuDepth && state->menuPath[level] == index;
+            b32 open = !flat && level < state->menuDepth && state->menuPath[level] == index;
+            b32 expanded = flat && item->childCount && Prog_MenuIsExpanded(state, index);
             // The row on its way covers those it passes in the menu's own color, unlit until it is in place.
             b32 highlighted = enabled && !moving && (open || state->menuHighlight == index);
             // The row whose submenu joins it is outlined by the submenu rather than lit.
@@ -3878,11 +3930,15 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_Interaction interaction = UI_InteractionFromBlock(row);
             if (interaction.clicked && !item->childCount) {
                 Prog_QueueCommand(state, Prog_CommandKind_ContextMenuInvoke, index, 0, interaction.clickOrder);
+            } else if (interaction.clicked && flat) {
+                Prog_QueueCommand(state, Prog_CommandKind_ContextMenuExpand, index, 0, interaction.clickOrder);
             }
             UI_Parent(row) {
                 R_Color color = enabled ? theme->text : theme->textDim;
                 const Prog_Icon *icon = state->menuIcons ? state->menuIcons[index] : NULL;
                 const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[index] : NULL;
+                // An open submenu's items sit in from its item's.
+                if (depths[i]) Prog__Spacer(UI_Pixels(depths[i] * indent), UI_Pixels(itemHeight));
                 UI_SetNextPrefWidth(UI_Pixels(iconColumn));
                 UI_SetNextPrefHeight(UI_Pixels(itemHeight));
                 UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
@@ -3899,7 +3955,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 // The star pins the item to the top of the system's menus, or unpins it; a pinned one shows it lit.
                 b32 pinned = pins && Prog_MenuPinned(state, item->label);
                 if (pins && !item->childCount && (highlighted || pinned)) {
-                    UI_Interaction pin = Prog__TextButton(StrFormat(&state->frameArena, "MenuPin/%u", item->id ? item->id : index), Icon_Star, m->icons, UI_Pixels(star), itemHeight, 0,
+                    UI_Interaction pin = Prog__TextButton(StrFormat(&state->frameArena, "MenuPin/%u/%u", item->id ? item->id : index, i), Icon_Star, m->icons, UI_Pixels(star), itemHeight, 0,
                                                           pinned && !highlighted ? theme->textMatch : theme->text, pinned && !highlighted ? theme->textMatch : theme->text, theme->iconDisabled, true, m);
                     if (pin.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinToggle, index, 0, pin.clickOrder);
                 } else if (pins) {
@@ -3932,7 +3988,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     }
                 }
                 if (command || chipCounts[i]) Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(itemHeight));
-                if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
+                if (item->childCount) Prog__Icon(expanded ? Icon_ChevronDown : Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
                 // The submenu starts level with its row, the row's top line running on as its own.

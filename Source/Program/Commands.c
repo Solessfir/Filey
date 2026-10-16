@@ -51,6 +51,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuCommands = NULL;
     state->menuRowCount = 0;
     state->menuDepth = 0;
+    state->menuExpandedCount = 0;
     state->menuHighlight = UINT32_MAX;
     state->menuOpener = Prog_CommandKind_None;
     state->menuRight = 0;
@@ -66,6 +67,13 @@ function b32 Prog_MenuPinned(const Prog_State *state, String label)
     return false;
 }
 
+// With inline submenus, whether the submenu of `index` is open under it.
+function b32 Prog_MenuIsExpanded(const Prog_State *state, u32 index)
+{
+    for (u32 i = 0; i < state->menuExpandedCount; ++i) if (state->menuExpanded[i] == index) return true;
+    return false;
+}
+
 // The open system menu in its pinned order: the pinned items first, in the order they were pinned, then a line and the rest as the system gave
 // them; their submenus' children follow unchanged. Its icons are worked out again for the new places.
 function void Prog__ApplyMenuPins(Prog_State *state)
@@ -73,10 +81,12 @@ function void Prog__ApplyMenuPins(Prog_State *state)
     if (state->menuCommands || !state->menuOpen) return;
     if (!state->menuBase.items) state->menuBase = state->menu;
     P_ContextMenu base = state->menuBase;
-    u32 *order = ArenaPushArray(&state->frameArena, base.rootCount + 1, u32);
+    u32 *order = ArenaPushArray(&state->frameArena, base.rootCount + (u32)state->menuPins.header.count + 1, u32);
     b8 *taken = ArenaPushArray(&state->frameArena, base.rootCount + 1, b8);
     u32 pinned = 0;
     // A command the menu holds twice, as some handlers add theirs twice, shows once, pinned.
+    // An item of a submenu, pinned where submenus open inside the menu, shows at the top as well as in its submenu.
+    u32 liftedCount = 0;
     for (u64 p = 0; p < state->menuPins.header.count; ++p) {
         b32 placed = false;
         for (u32 i = 0; i < base.rootCount; ++i) {
@@ -85,9 +95,19 @@ function void Prog__ApplyMenuPins(Prog_State *state)
             if (!placed) order[pinned++] = i;
             placed = true;
         }
+        for (u32 i = base.rootCount; i < base.count && !placed; ++i) {
+            if (base.items[i].separator || !StrIsEqual(base.items[i].label, state->menuPins.v[p])) continue;
+            ++liftedCount;
+            order[pinned++] = i;
+            placed = true;
+        }
     }
-    u32 line = pinned && pinned < base.rootCount ? 1 : 0;
-    P_MenuItem *items = ArenaPushArray(&state->menuArena, base.count + line, P_MenuItem);
+    u32 line = pinned && pinned - liftedCount < base.rootCount ? 1 : 0;
+    P_MenuItem *items = ArenaPushArray(&state->menuArena, base.count + pinned + line, P_MenuItem);
+    // Which submenus are open goes by the items, whose places change.
+    P_MenuItem *was = state->menu.items;
+    u32 wasCount = state->menu.count, wasOpen[CArrayCount(state->menuExpanded)], wasOpenCount = state->menuExpandedCount;
+    for (u32 i = 0; i < wasOpenCount; ++i) wasOpen[i] = state->menuExpanded[i];
     u32 at = 0;
     for (u32 i = 0; i < pinned; ++i) items[at++] = base.items[order[i]];
     if (line) items[at++] = (P_MenuItem){ .separator = true };
@@ -96,9 +116,21 @@ function void Prog__ApplyMenuPins(Prog_State *state)
     u32 roots = at;
     for (u32 i = base.rootCount; i < base.count; ++i) items[at++] = base.items[i];
     for (u32 i = 0; i < at; ++i) if (items[i].childCount) items[i].firstChild = items[i].firstChild - base.rootCount + roots;
+    u32 wasRoots = state->menu.rootCount;
     state->menu.items = items;
     state->menu.count = at;
     state->menu.rootCount = roots;
+    // Open submenus stay open: each is found again by its item, at the top level or in a submenu as it was.
+    state->menuExpandedCount = 0;
+    for (u32 k = 0; k < wasOpenCount && was; ++k) {
+        u32 o = wasOpen[k];
+        if (o >= wasCount) continue;
+        for (u32 i = 0; i < at; ++i) {
+            if ((i < roots) != (o < wasRoots) || items[i].id != was[o].id || items[i].childCount != was[o].childCount || !StrIsEqual(items[i].label, was[o].label)) continue;
+            if (!Prog_MenuIsExpanded(state, i)) state->menuExpanded[state->menuExpandedCount++] = i;
+            break;
+        }
+    }
     state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
     for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
 }
@@ -131,6 +163,85 @@ function String Prog_MenuFilter(const Prog_State *state, u32 level)
     return level == 0 && !state->menuCommands ? Prog_EditText(&state->menuSearch) : (String){0};
 }
 
+// With inline submenus, the line that sets an open submenu's items off from those around it, which is no item of the menu.
+#define Prog_MenuLine (UINT32_MAX - 1)
+global const P_MenuItem Prog_MenuLineItem = { .separator = true };
+
+function const P_MenuItem *Prog_MenuItemAt(const Prog_State *state, u32 index)
+{
+    return index == Prog_MenuLine ? &Prog_MenuLineItem : &state->menu.items[index];
+}
+
+// Whether the menu shows its submenus inside it; a search lists its top level alone.
+function b32 Prog_MenuInline(const Prog_State *state)
+{
+    return state->menuInline && !Prog_MenuFilter(state, 0).length;
+}
+
+// The items of `first`..`count` and, under each open submenu, its own, `depth` deep, with a line before and after them where none is already.
+function u32 Prog__MenuFlatten(const Prog_State *state, u32 first, u32 count, u8 depth, u32 *out, u8 *depths, u32 at)
+{
+    Scratch scratch = GetScratch();
+    u32 *level = ArenaPushArray(scratch.arena, Max(count, 1u), u32);
+    u32 shown = Prog_MenuVisible(&state->menu, first, count, (String){0}, level);
+    for (u32 i = 0; i < shown; ++i) {
+        const P_MenuItem *item = &state->menu.items[level[i]];
+        depths[at] = depth;
+        out[at++] = level[i];
+        if (!item->childCount || !Prog_MenuIsExpanded(state, level[i]) || depth >= 8) continue;
+        u32 start = at;
+        depths[at] = (u8)(depth + 1);
+        out[at++] = Prog_MenuLine;
+        at = Prog__MenuFlatten(state, item->firstChild, item->childCount, (u8)(depth + 1), out, depths, at);
+        // An empty submenu shows no lines; nor does one last in the menu, or with a line of the menu's own after it, close with one of its own.
+        if (at == start + 1) { --at; continue; }
+        b32 lineAfter = i + 1 < shown && state->menu.items[level[i + 1]].separator;
+        if (i + 1 < shown && !lineAfter) {
+            depths[at] = (u8)(depth + 1);
+            out[at++] = Prog_MenuLine;
+        }
+    }
+    ReleaseScratch(scratch);
+    return at;
+}
+
+// The rows of an inline menu, its items and the open submenus' under them, into `out` with how deep each is in `depths`; both hold at least
+// Prog_MenuInlineRoom entries. Returns how many.
+function u32 Prog_MenuInlineRoom(const Prog_State *state) { return state->menu.count + 2 * state->menuExpandedCount + 2; }
+function u32 Prog_MenuInlineVisible(const Prog_State *state, u32 *out, u8 *depths)
+{
+    return Prog__MenuFlatten(state, 0, state->menu.rootCount, 0, out, depths, 0);
+}
+
+// The item whose submenu holds `index`, or UINT32_MAX for one of the top level.
+function u32 Prog_MenuOwner(const Prog_State *state, u32 index)
+{
+    if (index < state->menu.rootCount || index >= state->menu.count) return UINT32_MAX;
+    for (u32 j = 0; j < state->menu.count; ++j) {
+        const P_MenuItem *item = &state->menu.items[j];
+        if (item->childCount && index >= item->firstChild && index < item->firstChild + item->childCount) return j;
+    }
+    return UINT32_MAX;
+}
+
+// Opens the submenu of `index` inside the menu, or closes it with those open inside it, which would otherwise show again with it all at once.
+function void Prog_MenuToggleExpanded(Prog_State *state, u32 index)
+{
+    if (index >= state->menu.count || !state->menu.items[index].childCount) return;
+    if (!Prog_MenuIsExpanded(state, index)) {
+        if (state->menuExpandedCount < CArrayCount(state->menuExpanded)) state->menuExpanded[state->menuExpandedCount++] = index;
+        return;
+    }
+    u32 kept = 0;
+    for (u32 i = 0; i < state->menuExpandedCount; ++i) {
+        u32 open = state->menuExpanded[i];
+        b32 inside = false;
+        for (u32 up = open, steps = 0; up != UINT32_MAX && !inside && steps <= 8; up = Prog_MenuOwner(state, up), ++steps) inside = up == index;
+        if (!inside) state->menuExpanded[kept++] = open;
+    }
+    state->menuExpandedCount = kept;
+}
+
 // The level the keyboard moves in: the deepest open one.
 function void Prog__MenuLevel(const Prog_State *state, u32 *first, u32 *count)
 {
@@ -148,13 +259,17 @@ function void Prog__MenuMove(Prog_State *state, i32 step)
     u32 first = 0, count = 0;
     Prog__MenuLevel(state, &first, &count);
     Scratch scratch = GetScratch();
-    u32 *visible = ArenaPushArray(scratch.arena, Max(count, 1u), u32);
-    u32 shown = Prog_MenuVisible(&state->menu, first, count, Prog_MenuFilter(state, state->menuDepth), visible);
+    // Inline, the keyboard moves through the open submenus' items too.
+    b32 flat = Prog_MenuInline(state);
+    u32 room = flat ? Prog_MenuInlineRoom(state) : Max(count, 1u);
+    u32 *visible = ArenaPushArray(scratch.arena, room, u32);
+    u8 *depths = ArenaPushArray(scratch.arena, room, u8);
+    u32 shown = flat ? Prog_MenuInlineVisible(state, visible, depths) : Prog_MenuVisible(&state->menu, first, count, Prog_MenuFilter(state, state->menuDepth), visible);
     i64 at = -1;
     for (u32 i = 0; i < shown; ++i) if (visible[i] == state->menuHighlight) at = i;
     for (u32 tries = 0; tries < shown; ++tries) {
         at = at < 0 ? (step > 0 ? 0 : (i64)shown - 1) : (at + step + (i64)shown) % (i64)shown;
-        const P_MenuItem *item = &state->menu.items[visible[at]];
+        const P_MenuItem *item = Prog_MenuItemAt(state, visible[at]);
         if (!item->separator && (!item->disabled || item->childCount)) {
             state->menuHighlight = visible[at];
             state->menuReveal = true;
@@ -2008,6 +2123,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_ContextMenuExpand: {
+                if (state->menuOpen && command->row < state->menu.count) {
+                    Prog_MenuToggleExpanded(state, (u32)command->row);
+                    state->menuHighlight = (u32)command->row;
+                }
+            } break;
             case Prog_CommandKind_MenuPinToggle: {
                 if (state->menuOpen && command->row < state->menu.count) {
                     String label = StrCopy(&state->frameArena, state->menu.items[command->row].label);
@@ -2552,6 +2673,22 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             }
         }
         // An open menu takes the keyboard.
+        // Inline, Right and Enter open a submenu under its item and Left closes it, or goes up to the item it is under.
+        if (state->menuOpen && Prog_MenuInline(state) && (event->key == Key_Left || event->key == Key_Right || event->key == Key_Enter)) {
+            u32 at = state->menuHighlight;
+            b32 parent = at < state->menu.count && state->menu.items[at].childCount;
+            if (event->key == Key_Left) {
+                if (parent && Prog_MenuIsExpanded(state, at)) Prog_MenuToggleExpanded(state, at);
+                else if (Prog_MenuOwner(state, at) != UINT32_MAX) state->menuHighlight = Prog_MenuOwner(state, at), state->menuReveal = true;
+            } else if (parent && (event->key == Key_Enter || !Prog_MenuIsExpanded(state, at))) {
+                Prog_MenuToggleExpanded(state, at);
+            } else if (parent) {
+                Prog__MenuMove(state, 1);
+            } else if (event->key == Key_Enter && at < state->menu.count) {
+                Prog_QueueCommand(state, Prog_CommandKind_ContextMenuInvoke, at, 0, order);
+            }
+            continue;
+        }
         if (state->menuOpen) {
             switch (event->key) {
                 case Key_Escape: {
