@@ -521,6 +521,7 @@ typedef enum Prog_Option {
     Prog_Option_NewTabShow,
     Prog_Option_VSync,
     Prog_Option_Transparency,
+    Prog_Option_WindowOpacity,
     Prog_Option_PopupBlur,
     Prog_Option_Backdrop,
     Prog_Option_Count,

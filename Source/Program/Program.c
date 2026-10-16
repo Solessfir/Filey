@@ -264,6 +264,7 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   color.<theme field> = #rrggbb[aa]
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
+//   glass.opacity = 55            how much of glass.window's tint covers what is behind, in percent, where there is no backdrop to choose
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
 //   transparent = true            the transparent theme
@@ -321,6 +322,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             Prog_ThemeGlassUser.window = color;
         } else if (StrIsEqual(name, S("glass.popup")) && Prog__ParseColor(value, &color)) {
             Prog_ThemeGlassUser.menu = color;
+        } else if (StrIsEqual(name, S("glass.opacity"))) {
+            if (number >= 0 && number <= 100) Prog_ThemeGlassUser.window.a = number / 100.0f;
         } else if (StrIsEqual(name, S("glass.blur"))) {
             if (number >= 0 && number <= 100) Prog_GlassBlur = number;
         } else if (StrIsEqual(name, S("glass.backdrop"))) {
@@ -508,6 +511,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     }
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The transparent theme (the \"Transparency\" command), with colors as #rrggbbaa whose last pair is the opacity:\n"
                                                "# glass.window tints what is behind the window, glass.popup the blur under menus, the palette and the other floating boxes,\n"
+                                               "# glass.opacity is the tint's opacity alone in percent, where there is no backdrop to choose,\n"
                                                "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
                                                "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
                                                "# transparent = false\n# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
@@ -601,6 +605,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                             Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("vsync") },
     [Prog_Option_Transparency] = { SInit("Transparency"), SInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
                                    Prog_OptionSwitch, 2, SInit("transparent") },
+    [Prog_Option_WindowOpacity] = { SInit("Window Opacity"), SInit("How much the window's color covers what is behind it while the window is transparent."),
+                                    Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.opacity") },
     [Prog_Option_PopupBlur] = { SInit("Popup Blur"), SInit("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
                                 NULL, 0, SInit("glass.blur") },
     [Prog_Option_Backdrop] = { SInit("Backdrop"), SInit("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
@@ -609,9 +615,11 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
 
 // The options whose name or description holds what is typed into the popup, in their order, into `found`; returns how many.
 // Whether `option` sets anything on this system: the backdrop, VSync and system files are Windows' alone.
+// Without a backdrop to choose, as on Linux, the window's opacity is set instead.
 function b32 Prog_OptionApplies(Prog_Option option)
 {
     if (option == Prog_Option_Backdrop) return PlatformHasBackdrops();
+    if (option == Prog_Option_WindowOpacity) return !PlatformHasBackdrops();
     if (option == Prog_Option_VSync) return PlatformHasVSync();
     if (option == Prog_Option_ShowSystemFiles) return P_HasSystemFiles();
     return true;
@@ -672,6 +680,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_CharacterKeyAction: return state->characterKeys;
         case Prog_Option_Transparency: return state->transparent != 0;
         case Prog_Option_PopupBlur: return (i32)floorf(Prog_GlassBlur + 0.5f);
+        case Prog_Option_WindowOpacity: return (i32)floorf(Prog_ThemeGlassUser.window.a * 100 + 0.5f);
         case Prog_Option_Backdrop: return state->glassBackdrop;
         default: return 0;
     }
@@ -727,6 +736,7 @@ function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 valu
     if (option == Prog_Option_FontSize) state->uiScale = (f32)value / 9.0f;
     if (option == Prog_Option_InspectorFontSize) state->inspectorFontSize = (u32)value;
     if (option == Prog_Option_PopupBlur) Prog_GlassBlur = (f32)value;
+    if (option == Prog_Option_WindowOpacity) Prog_ThemeGlassUser.window.a = (f32)value / 100.0f;
     if (option == Prog_Option_Spacing) state->spacingShift = value - 4;
     if (option == Prog_Option_InactiveOpacity) state->inactiveShift = value - 60;
 }
