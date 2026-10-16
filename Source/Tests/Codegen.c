@@ -185,6 +185,33 @@ function void TestHotkeyDispatch(void)
         ArenaRelease(&escape.frameArena);
     }
 
+    // Every prompt and popup that takes the keyboard closes with Escape, answering no.
+    {
+        P_Job waiting = {0};
+        PlatformEvent keys[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Escape } };
+        for (u32 which = 0; which < 8; ++which) {
+            Prog_State escape = {0};
+            Prog_CommandKind expected = Prog_CommandKind_None;
+            switch (which) {
+                case 0: escape.confirmingDelete = true, expected = Prog_CommandKind_DeleteCancel; break;
+                case 1: escape.hotkeyAsking = true, expected = Prog_CommandKind_HotkeyCancel; break;
+                case 2: escape.paletteOpen = true, expected = Prog_CommandKind_PaletteClose; break;
+                case 3: escape.menuOpen = true, expected = Prog_CommandKind_ContextMenuClose; break;
+                case 4: escape.renaming = true, expected = Prog_CommandKind_RenameCancel; break;
+                case 5: escape.inspectorFiltering = true, expected = Prog_CommandKind_InspectorRemoveFilter; break;
+                case 6: escape.typesOpen = true, expected = Prog_CommandKind_TypesPopupClose; break;
+                case 7: {
+                    escape.transfers[0].job = &waiting;
+                    atomic_store(&escape.transfers[0].progress.asking, true);
+                    expected = Prog_CommandKind_TransferCancel;
+                } break;
+            }
+            Prog_HandleInput(&escape, TestUIEvents(keys, CArrayCount(keys)));
+            Check(escape.commandFirst && escape.commandFirst->kind == expected && !escape.commandFirst->next);
+            ArenaRelease(&escape.frameArena);
+        }
+    }
+
     // Ctrl+Comma opens the options.
     {
         Prog_State options = {0};
