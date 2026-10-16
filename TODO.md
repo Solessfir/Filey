@@ -5,7 +5,6 @@
 - Miller columns and archives as folders, when asked.
 - LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen.
 - Font pickers, with the system's font families listed on both platforms.
-- Rebindable text commands.
 
 ## Look
 
@@ -15,9 +14,9 @@
 
 ## Command palette parity
 
-The palette groups its commands as the reference does; groups without commands yet are left out. Still missing there: the reference's star on the highlighted row, which adds the command to Quick, and its filled star icon. The reference's command table has 283 entries (names from `HK_` strings in the binary); Filey has 232 commands, 168 of them in the palette.
+The palette groups its commands as the reference does; groups without commands yet are left out. Still missing there: the reference's star on the highlighted row, which adds the command to Quick, and its filled star icon. The reference's command table has 283 entries (names from `HK_` strings in the binary); Filey has 257 commands, 193 of them in the palette.
 
-Already in Filey under another name: SelectionActivate (OpenFocused), SelectionCopy/Cut/Paste, SelectionTrash, SelectionDelete, SelectionDuplicate, SelectionRename, SelectionCopyAsPath, CreateFile, CreateFolder, ToggleExpandFolder, StartFileFilter, StartExpandedSearch, RefreshFolder, MoveFolderBack/Forward/Up, BookmarksToggle, BookmarksClear, RecentsClear, ToggleShowDirectories/Files, ZoomIn/OutContent, View Details/List/Columns/Medium/Large/XL Icons, EditPath, OpenInTab, the Tab commands but those below, TabSearch (TabList), PanelSplitRight/Bottom, PanelSelectNext/Prev/Left/Right/Up/Down, GoToOpen, CommandsOpen, QuickAccessOpen, ContextMenuOpen, ToggleHiddenFiles, ScrollSelectAll, the other Scroll commands, InspectorToggle (TogglePreview), OptionsOpen (OpenOptions), FolderViewToggle, FolderViewsClear, PanelFilterApply2, PanelFilterCancel, GoToMoveBack/Forward/Up, CloseWindow (WindowClose), MenuOpen (MainMenu), MinimizeWindow (WindowMinimize), SelectionInspect, OpenRelativePath(InTab), TabCloseAll, TabMenu, GoToSelectInPanel, ConsoleOpen, ToggleFullscreen. Filey only: ToggleFilterPin, Undo, ToggleDebugTheme, ToggleTransparency, NewWindow.
+Already in Filey under another name: SelectionActivate (OpenFocused), SelectionCopy/Cut/Paste, SelectionTrash, SelectionDelete, SelectionDuplicate, SelectionRename, SelectionCopyAsPath, CreateFile, CreateFolder, ToggleExpandFolder, StartFileFilter, StartExpandedSearch, RefreshFolder, MoveFolderBack/Forward/Up, BookmarksToggle, BookmarksClear, RecentsClear, ToggleShowDirectories/Files, ZoomIn/OutContent, View Details/List/Columns/Medium/Large/XL Icons, EditPath, OpenInTab, the Tab commands but those below, TabSearch (TabList), PanelSplitRight/Bottom, PanelSelectNext/Prev/Left/Right/Up/Down, GoToOpen, CommandsOpen, QuickAccessOpen, ContextMenuOpen, ToggleHiddenFiles, ScrollSelectAll, the other Scroll commands, the Text commands (text undo is one step, and Uppercase and Lowercase change ASCII letters only), InspectorToggle (TogglePreview), OptionsOpen (OpenOptions), FolderViewToggle, FolderViewsClear, PanelFilterApply2, PanelFilterCancel, GoToMoveBack/Forward/Up, CloseWindow (WindowClose), MenuOpen (MainMenu), MinimizeWindow (WindowMinimize), SelectionInspect, OpenRelativePath(InTab), TabCloseAll, TabMenu, GoToSelectInPanel, ConsoleOpen, ToggleFullscreen. Filey only: ToggleFilterPin, Undo, ToggleDebugTheme, ToggleTransparency, NewWindow.
 
 Missing, by the reference's group:
 
@@ -30,7 +29,6 @@ Missing, by the reference's group:
 - Panels: PanelEvenSiblings, PanelEvenAll.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow.
 - Misc: ExplorerOpen, LayoutsSave/Load, ConfigCreate/Open, the Quick Access filter (StartQuickAccessFilter, Alt+F; the sidebar's Filter box is only a label now), viewport and group options. Install is the reference's own setup and stays out.
-- Text: Filey handles these keys inside its text boxes without commands; the reference lists each (move/extend by letter, word, home, end, delete, case, undo/redo, autocomplete) so they can be rebound.
 
 ## From the reference's roadmap
 

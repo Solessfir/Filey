@@ -6,7 +6,7 @@ function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kin
 {
     Assert(kind > Prog_CommandKind_None && kind < Prog_CommandKind_Count);
     Prog_Command *command = ArenaPushStruct(&state->frameArena, Prog_Command);
-    command->kind = (u8)kind;
+    command->kind = (u16)kind;
     command->panel = Prog__PanelId(state);
     command->row = row;
     command->pressCount = pressCount;
@@ -656,6 +656,13 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Rename),
     Prog_CommandKind_RenameInsertIncrementalID, Prog_CommandKind_RenameInsertCurrentDate, Prog_CommandKind_RenameInsertCreateDate,
     Prog_CommandKind_RenameInsertModifiedDate, Prog_CommandKind_RenamePrev, Prog_CommandKind_RenameNext,
+    Prog__PaletteGroup(Text),
+    Prog_CommandKind_TextMoveLeft, Prog_CommandKind_TextExtendLeft, Prog_CommandKind_TextMoveRight, Prog_CommandKind_TextExtendRight,
+    Prog_CommandKind_TextMoveLeftWord, Prog_CommandKind_TextExtendLeftWord, Prog_CommandKind_TextMoveRightWord, Prog_CommandKind_TextExtendRightWord,
+    Prog_CommandKind_TextMoveHome, Prog_CommandKind_TextExtendHome, Prog_CommandKind_TextMoveEnd, Prog_CommandKind_TextExtendEnd, Prog_CommandKind_TextDeleteLeft,
+    Prog_CommandKind_TextDeleteLeftWord, Prog_CommandKind_TextDeleteRight, Prog_CommandKind_TextDeleteRightWord, Prog_CommandKind_TextSelectAll,
+    Prog_CommandKind_TextCopySelection, Prog_CommandKind_TextCutSelection, Prog_CommandKind_TextPaste, Prog_CommandKind_TextUppercase, Prog_CommandKind_TextLowercase,
+    Prog_CommandKind_TextAutocomplete, Prog_CommandKind_TextUndo, Prog_CommandKind_TextRedo,
     Prog__PaletteGroup(Scroll),
     Prog_CommandKind_ScrollSelectPrev, Prog_CommandKind_ScrollSelectNext, Prog_CommandKind_ScrollSelectLeft, Prog_CommandKind_ScrollSelectRight,
     Prog_CommandKind_ScrollSelectFirst, Prog_CommandKind_ScrollSelectLast, Prog_CommandKind_ScrollScrollSelectUp, Prog_CommandKind_ScrollScrollSelectDown,
@@ -664,7 +671,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_ScrollExtendSelectRight, Prog_CommandKind_ScrollExtendSelectFirst, Prog_CommandKind_ScrollExtendSelectLast,
     Prog_CommandKind_ScrollScrollExtendSelectUp, Prog_CommandKind_ScrollScrollExtendSelectDown, Prog_CommandKind_SelectAll,
 };
-static_assert(Prog_CommandKind_Count < 256, "commands fit Prog_PaletteRow");
+static_assert((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_Count <= UINT16_MAX, "commands and groups fit Prog_PaletteTree");
 
 // The palette's rows: with nothing typed, each group's title and the commands of the groups open;
 // otherwise the commands the text finds by the score of their label and description, best first, then those only their search words find.
@@ -686,6 +693,14 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_OpenContainingPathInTab:
             return focused;
         case Prog_CommandKind_OpenRelativePath: case Prog_CommandKind_OpenRelativePathInTab: return focused && state->directory.expanded;
+        case Prog_CommandKind_TextMoveLeft: case Prog_CommandKind_TextExtendLeft: case Prog_CommandKind_TextMoveRight: case Prog_CommandKind_TextExtendRight:
+        case Prog_CommandKind_TextMoveLeftWord: case Prog_CommandKind_TextExtendLeftWord: case Prog_CommandKind_TextMoveRightWord:
+        case Prog_CommandKind_TextExtendRightWord: case Prog_CommandKind_TextMoveHome: case Prog_CommandKind_TextExtendHome: case Prog_CommandKind_TextMoveEnd:
+        case Prog_CommandKind_TextExtendEnd: case Prog_CommandKind_TextDeleteLeft: case Prog_CommandKind_TextDeleteLeftWord: case Prog_CommandKind_TextDeleteRight:
+        case Prog_CommandKind_TextDeleteRightWord: case Prog_CommandKind_TextSelectAll: case Prog_CommandKind_TextCopySelection: case Prog_CommandKind_TextCutSelection:
+        case Prog_CommandKind_TextPaste: case Prog_CommandKind_TextUppercase: case Prog_CommandKind_TextLowercase: case Prog_CommandKind_TextAutocomplete:
+        case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo:
+            return state->renaming || state->filtering || state->inspectorFiltering;
         case Prog_CommandKind_SelectionInspect: return item;
         case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
         case Prog_CommandKind_SelectionMoveNextPanel:
@@ -740,7 +755,7 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
             continue;
         }
         if (!text.length) {
-            if (state->paletteExpanded & (1u << group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u8)item };
+            if (state->paletteExpanded & (1u << group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
         const Prog_CommandDesc *desc = &Prog_Commands[item];
@@ -754,7 +769,7 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
             out[at] = out[at - 1];
             scores[at] = scores[at - 1];
         }
-        out[at] = (Prog_PaletteRow){ (u8)group, (u8)item };
+        out[at] = (Prog_PaletteRow){ (u8)group, (u16)item };
         scores[at] = score;
     }
     return count;
@@ -1139,7 +1154,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow, .label = S("Duplicate Tab To New Window"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
-            u8 closers[] = { Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs, Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll };
+            u16 closers[] = { Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs, Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll };
             for (u32 i = 0; i < CArrayCount(closers); ++i) Prog__Item(.kind = closers[i], .icon = Icon_SquareX, .disabled = !Prog_CommandAvailable(state, (Prog_CommandKind)closers[i]));
         } break;
         case Prog_CommandKind_HistoryMenu: {
@@ -1289,16 +1304,48 @@ function u32 Prog__EditStep(const Prog_TextEdit *edit, u32 at, i32 step)
 }
 
 // Replaces the selection with `bytes`.
-function void Prog__EditReplace(Prog_TextEdit *edit, const u8 *bytes, u32 count)
+// Replaces the selection with `bytes`; `typed` joins it to the typing before it as one step of undo.
+function void Prog__EditReplaceTyped(Prog_TextEdit *edit, const u8 *bytes, u32 count, b32 typed)
 {
     u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
     u32 length = edit->length - (to - from) + count;
-    if (length >= sizeof(edit->text)) return;
+    if (length >= sizeof(edit->text) || (from == to && !count)) return;
+    if (!typed || !edit->typing || edit->undone) {
+        MemCopy(edit->other, edit->text, edit->length);
+        edit->otherLength = edit->length;
+        edit->otherCursor = edit->cursor;
+        edit->undoable = true;
+    }
+    edit->typing = (b8)typed;
+    edit->undone = false;
     MemMove(edit->text + from + count, edit->text + to, edit->length - to);
     MemCopy(edit->text + from, bytes, count);
     edit->length = length;
     edit->cursor = edit->anchor = from + count;
-    if (from != to || count) ++edit->version;
+    ++edit->version;
+}
+
+function void Prog__EditReplace(Prog_TextEdit *edit, const u8 *bytes, u32 count)
+{
+    Prog__EditReplaceTyped(edit, bytes, count, false);
+}
+
+// Undo swaps in the text before the last change, and Redo swaps it back.
+function void Prog__EditSwap(Prog_TextEdit *edit, b32 redo)
+{
+    if (!edit->undoable || edit->undone != redo) return;
+    u8 text[sizeof(edit->text)];
+    u32 length = edit->length, cursor = edit->cursor;
+    MemCopy(text, edit->text, length);
+    MemCopy(edit->text, edit->other, edit->otherLength);
+    edit->length = edit->otherLength;
+    edit->cursor = edit->anchor = Min(edit->otherCursor, edit->length);
+    MemCopy(edit->other, text, length);
+    edit->otherLength = length;
+    edit->otherCursor = cursor;
+    edit->undone = (b8)!redo;
+    edit->typing = false;
+    ++edit->version;
 }
 
 function void Prog__EditInsert(Prog_TextEdit *edit, rune c)
@@ -1320,7 +1367,7 @@ function void Prog__EditInsert(Prog_TextEdit *edit, rune c)
         bytes[count++] = (u8)(0x80 | ((c >> 6) & 0x3F));
         bytes[count++] = (u8)(0x80 | (c & 0x3F));
     }
-    Prog__EditReplace(edit, bytes, count);
+    Prog__EditReplaceTyped(edit, bytes, count, true);
 }
 
 function b32 Prog__IsWordByte(u8 c)
@@ -1389,48 +1436,75 @@ function u32 Prog__EditWordStep(const Prog_TextEdit *edit, u32 at, i32 step)
 }
 
 // Ctrl moves and deletes by word.
-function b32 Prog__EditKey(Prog_TextEdit *edit, const PlatformEvent *event)
+// Runs text command `kind` on `edit`: a caret move, a deletion, the clipboard, case or undo. False for the other commands, Autocomplete among
+// them, which is the box's own to do.
+function b32 Prog__EditCommand(Prog_TextEdit *edit, Prog_CommandKind kind)
 {
-    b32 shift = (event->mods & KeyMod_Shift) != 0, word = (event->mods & KeyMod_Control) != 0;
     u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
-    switch (event->key) {
-        case Key_Left:
-        case Key_Right: {
-            i32 step = event->key == Key_Left ? -1 : 1;
-            if (!shift && !word && from != to) edit->cursor = step < 0 ? from : to;
+    switch (kind) {
+        case Prog_CommandKind_TextMoveLeft: case Prog_CommandKind_TextExtendLeft: case Prog_CommandKind_TextMoveRight: case Prog_CommandKind_TextExtendRight:
+        case Prog_CommandKind_TextMoveLeftWord: case Prog_CommandKind_TextExtendLeftWord: case Prog_CommandKind_TextMoveRightWord:
+        case Prog_CommandKind_TextExtendRightWord: {
+            i32 step = kind == Prog_CommandKind_TextMoveLeft || kind == Prog_CommandKind_TextExtendLeft || kind == Prog_CommandKind_TextMoveLeftWord ||
+                       kind == Prog_CommandKind_TextExtendLeftWord ? -1 : 1;
+            b32 extend = kind == Prog_CommandKind_TextExtendLeft || kind == Prog_CommandKind_TextExtendRight || kind == Prog_CommandKind_TextExtendLeftWord ||
+                         kind == Prog_CommandKind_TextExtendRightWord;
+            b32 word = kind >= Prog_CommandKind_TextMoveLeftWord && kind <= Prog_CommandKind_TextExtendRightWord;
+            // A plain move from a selection goes to its end on that side.
+            if (!extend && !word && from != to) edit->cursor = step < 0 ? from : to;
             else edit->cursor = word ? Prog__EditWordStep(edit, edit->cursor, step) : Prog__EditStep(edit, edit->cursor, step);
-            if (!shift) edit->anchor = edit->cursor;
+            if (!extend) edit->anchor = edit->cursor;
+            edit->typing = false;
         } return true;
-        case Key_Home:
-        case Key_End: {
-            edit->cursor = event->key == Key_Home ? 0 : edit->length;
-            if (!shift) edit->anchor = edit->cursor;
+        case Prog_CommandKind_TextMoveHome: case Prog_CommandKind_TextExtendHome: case Prog_CommandKind_TextMoveEnd: case Prog_CommandKind_TextExtendEnd: {
+            edit->cursor = kind == Prog_CommandKind_TextMoveHome || kind == Prog_CommandKind_TextExtendHome ? 0 : edit->length;
+            if (kind == Prog_CommandKind_TextMoveHome || kind == Prog_CommandKind_TextMoveEnd) edit->anchor = edit->cursor;
+            edit->typing = false;
         } return true;
-        case Key_Backspace:
-        case Key_Delete: {
-            i32 step = event->key == Key_Backspace ? -1 : 1;
+        case Prog_CommandKind_TextDeleteLeft: case Prog_CommandKind_TextDeleteLeftWord: case Prog_CommandKind_TextDeleteRight:
+        case Prog_CommandKind_TextDeleteRightWord: {
+            i32 step = kind == Prog_CommandKind_TextDeleteLeft || kind == Prog_CommandKind_TextDeleteLeftWord ? -1 : 1;
+            b32 word = kind == Prog_CommandKind_TextDeleteLeftWord || kind == Prog_CommandKind_TextDeleteRightWord;
             if (from == to) edit->anchor = word ? Prog__EditWordStep(edit, edit->cursor, step) : Prog__EditStep(edit, edit->cursor, step);
             Prog__EditReplace(edit, NULL, 0);
         } return true;
-        case Key_A: {
-            if (!(event->mods & KeyMod_Control)) return false;
+        case Prog_CommandKind_TextSelectAll: {
             edit->anchor = 0;
             edit->cursor = edit->length;
         } return true;
-        case Key_C:
-        case Key_X: {
-            if (!(event->mods & KeyMod_Control)) return false;
+        case Prog_CommandKind_TextCopySelection: case Prog_CommandKind_TextCutSelection: {
             if (from != to) {
                 PlatformClipboardSetText(StrMake((const char *)edit->text + from, to - from));
-                if (event->key == Key_X) Prog__EditReplace(edit, NULL, 0);
+                if (kind == Prog_CommandKind_TextCutSelection) Prog__EditReplace(edit, NULL, 0);
             }
         } return true;
-        case Key_V: {
-            if (!(event->mods & KeyMod_Control)) return false;
-            Prog__EditPaste(edit);
+        case Prog_CommandKind_TextPaste: Prog__EditPaste(edit); return true;
+        // ponytail: ASCII letters only; fold the rest too once names in other scripts need it.
+        case Prog_CommandKind_TextUppercase: case Prog_CommandKind_TextLowercase: {
+            if (from == to) return true;
+            u8 bytes[sizeof(edit->text)];
+            for (u32 i = from; i < to; ++i) {
+                u8 c = edit->text[i];
+                if (kind == Prog_CommandKind_TextUppercase && c >= 'a' && c <= 'z') c = (u8)(c - 'a' + 'A');
+                if (kind == Prog_CommandKind_TextLowercase && c >= 'A' && c <= 'Z') c = (u8)(c - 'A' + 'a');
+                bytes[i - from] = c;
+            }
+            if (!MemCompare(bytes, edit->text + from, to - from)) return true;
+            b32 forward = edit->cursor >= edit->anchor;
+            Prog__EditReplace(edit, bytes, to - from);
+            edit->anchor = forward ? from : to;
+            edit->cursor = forward ? to : from;
         } return true;
+        case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo: Prog__EditSwap(edit, kind == Prog_CommandKind_TextRedo); return true;
         default: return false;
     }
+}
+
+// Runs the text box hotkey `event` presses on `edit`; false for keys the box does not use, which go on to the hotkeys of where it is.
+function b32 Prog__EditKey(const Prog_State *state, Prog_TextEdit *edit, const PlatformEvent *event)
+{
+    const Prog_Hotkey *hotkey = Prog_FindHotkey(state, Prog_HotkeyScope_Text, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super));
+    return hotkey && Prog__EditCommand(edit, (Prog_CommandKind)hotkey->command);
 }
 
 function void Prog_BeginRename(Prog_State *state, u64 row)
@@ -2353,10 +2427,24 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->menuHighlight = (u32)command->row;
                 }
             } break;
+            // A text command run from the palette works on the box that has the keyboard; Autocomplete is Go To's own.
+            case Prog_CommandKind_TextMoveLeft: case Prog_CommandKind_TextExtendLeft: case Prog_CommandKind_TextMoveRight: case Prog_CommandKind_TextExtendRight:
+            case Prog_CommandKind_TextMoveLeftWord: case Prog_CommandKind_TextExtendLeftWord: case Prog_CommandKind_TextMoveRightWord:
+            case Prog_CommandKind_TextExtendRightWord: case Prog_CommandKind_TextMoveHome: case Prog_CommandKind_TextExtendHome: case Prog_CommandKind_TextMoveEnd:
+            case Prog_CommandKind_TextExtendEnd: case Prog_CommandKind_TextDeleteLeft: case Prog_CommandKind_TextDeleteLeftWord: case Prog_CommandKind_TextDeleteRight:
+            case Prog_CommandKind_TextDeleteRightWord: case Prog_CommandKind_TextSelectAll: case Prog_CommandKind_TextCopySelection: case Prog_CommandKind_TextCutSelection:
+            case Prog_CommandKind_TextPaste: case Prog_CommandKind_TextUppercase: case Prog_CommandKind_TextLowercase: case Prog_CommandKind_TextAutocomplete:
+            case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo: {
+                Prog_TextEdit *box = state->renaming ? &state->rename : state->filtering ? &state->filter : state->inspectorFiltering ? &state->inspectorFilter : NULL;
+                u32 version = box ? box->version : 0;
+                if (box && Prog__EditCommand(box, (Prog_CommandKind)command->kind) && box == &state->filter && box->version != version) Prog_ApplyFilter(state, true);
+            } break;
+            // Go To's key runs its row instead, as Ctrl+Enter does; from the palette it has nothing to select.
+            case Prog_CommandKind_GoToSelectInPanel: break;
             case Prog_CommandKind_HotkeyRecord:
             case Prog_CommandKind_HotkeyDeleteAsk: {
                 if (command->row <= Prog_CommandKind_None || command->row >= Prog_CommandKind_Count) break;
-                state->hotkeyKind = (u8)command->row;
+                state->hotkeyKind = (u16)command->row;
                 state->hotkeySlot = (u8)Min(command->target, (u64)UINT8_MAX);
                 state->hotkeyAsking = command->kind == Prog_CommandKind_HotkeyDeleteAsk;
                 state->hotkeyAskAt = command->at;
@@ -2373,7 +2461,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 const Prog_Hotkey *found[16];
                 Prog_Hotkey list[CArrayCount(found) + 1];
                 u32 count = Prog_CommandHotkeys(state, kind, found, CArrayCount(found)), n = 0;
-                Prog_Hotkey bound = { .key = (Key)command->pressCount, .mods = command->mods, .command = (u8)kind };
+                Prog_Hotkey bound = { .key = (Key)command->pressCount, .mods = command->mods, .command = (u16)kind };
                 b32 bind = command->kind == Prog_CommandKind_HotkeyBind;
                 for (u32 i = 0; i < count; ++i) {
                     if (i != command->target) list[n++] = *found[i];
@@ -2853,8 +2941,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     else if (!event->isRepeat || !Prog_Commands[own->command].noRepeat) Prog_QueueCommand(state, own->command, 0, 0, order);
                     continue;
                 }
-                // Tab in Go To puts the highlighted folder in the box, to go on into it.
-                if (goTo && event->key == Key_Tab) {
+                // Autocomplete in Go To puts the highlighted folder in the box, to go on into it.
+                const Prog_Hotkey *boxKey = goTo ? Prog_FindHotkey(state, Prog_HotkeyScope_Text, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super)) : NULL;
+                if (boxKey && boxKey->command == Prog_CommandKind_TextAutocomplete) {
                     if (state->paletteHighlight < count && !found[state->paletteHighlight].file) Prog__GoToExpand(state, found[state->paletteHighlight].path);
                     continue;
                 }
@@ -2886,7 +2975,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count && !goTo ? count - 1 : 0);
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
-                else Prog__EditKey(&state->palette, event);
+                else Prog__EditKey(state, &state->palette, event);
                 if (state->palette.version != version) state->paletteHighlight = 0;
             }
             continue;
@@ -2916,7 +3005,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 }
                 else if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_RenameCancel, 0, 0, order);
-                else Prog__EditKey(&state->rename, event);
+                else Prog__EditKey(state, &state->rename, event);
             }
             continue;
         }
@@ -2946,7 +3035,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 b32 used = true;
                 if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_InspectorApplyFilter, 0, 0, order);
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_InspectorRemoveFilter, 0, 0, order);
-                else used = Prog__EditKey(&state->inspectorFilter, event) || Prog__TypesInBox(event->key, event->mods) ||
+                else used = Prog__EditKey(state, &state->inspectorFilter, event) || Prog__TypesInBox(event->key, event->mods) ||
                             (event->key == Key_Space && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super)));
                 if (used) continue;
             }
@@ -2996,7 +3085,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         if (!state->menuOpen && state->filtering) {
             u32 version = state->filter.version;
-            if (Prog__EditKey(&state->filter, event)) {
+            if (Prog__EditKey(state, &state->filter, event)) {
                 if (state->filter.version != version) Prog_ApplyFilter(state, true);
                 continue;
             }
@@ -3037,7 +3126,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 } break;
                 default: {
                     u32 version = state->menuSearch.version;
-                    if (!state->menuCommands && Prog__EditKey(&state->menuSearch, event) && state->menuSearch.version != version) {
+                    if (!state->menuCommands && Prog__EditKey(state, &state->menuSearch, event) && state->menuSearch.version != version) {
                         state->menuDepth = 0;
                         state->menuHighlight = UINT32_MAX;
                         Prog__MenuMove(state, 1);

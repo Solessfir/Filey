@@ -92,9 +92,10 @@ struct Prog_ViewSettings {
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
 
-// Where a command's hotkeys work: the browser, the rename box or Go To. A key may mean a command in each.
+// Where a command's hotkeys work: the browser, any text box, the rename box (before the text box's) or Go To. A key may mean a command in each.
 typedef enum Prog_HotkeyScope {
     Prog_HotkeyScope_Browser,
+    Prog_HotkeyScope_Text,
     Prog_HotkeyScope_Rename,
     Prog_HotkeyScope_GoTo,
     Prog_HotkeyScope_Count,
@@ -113,7 +114,7 @@ typedef struct Prog_Hotkey {
     Key key;
     KeyMods mods;  // matched exactly
     Key lead;      // for a sequence such as "G G", the key pressed before it, without modifiers
-    enum8(Prog_CommandKind) command;
+    enum16(Prog_CommandKind) command;
 } Prog_Hotkey;
 
 // A chip of a command's hotkeys as a row shows it.
@@ -141,7 +142,7 @@ typedef enum Prog_CharacterKeys {
 typedef struct Prog_Command Prog_Command;
 struct Prog_Command {
     Prog_Command *next;
-    enum8(Prog_CommandKind) kind;
+    enum16(Prog_CommandKind) kind;
     u64 panel;   // the panel whose UI queued it, which becomes the active one; 0 for the active one
     u64 row;
     u64 target;  // MoveTab: the slot the tab moves to
@@ -154,7 +155,7 @@ struct Prog_Command {
 
 // An item of Filey's own menus, which queues `kind` with `row`; Prog_CommandKind_None is a separator.
 typedef struct Prog_MenuCommand {
-    enum8(Prog_CommandKind) kind;
+    enum16(Prog_CommandKind) kind;
     u64 row;
     String label;  // the command's label when empty
     b32 checked;
@@ -162,7 +163,7 @@ typedef struct Prog_MenuCommand {
     b8 toggle;     // shows `checked` as a box at the row's end rather than a check before the label
     b8 disabled;
     String mouse;  // a mouse button that does it too, in a chip before the hotkeys'
-    enum8(Prog_CommandKind) hotkeysOf;  // the command whose hotkeys its chips show, when not its own
+    enum16(Prog_CommandKind) hotkeysOf;  // the command whose hotkeys its chips show, when not its own
 } Prog_MenuCommand;
 
 typedef struct Prog_Entry {
@@ -610,7 +611,7 @@ typedef enum Prog_CommandGroup {
 // A palette row: a group's title when `kind` is None, else one of the group's commands.
 typedef struct Prog_PaletteRow {
     enum8(Prog_CommandGroup) group;
-    enum8(Prog_CommandKind) kind;
+    enum16(Prog_CommandKind) kind;
 } Prog_PaletteRow;
 
 enum { Prog_MaxPaletteRows = (u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_Count };
@@ -710,12 +711,20 @@ typedef struct Prog_FontName {
     char text[64];
 } Prog_FontName;
 
+// ponytail: one step of undo, which Redo takes back; keep a stack of steps if one falls short.
 typedef struct Prog_TextEdit {
     u8 text[1024];
     u32 length;
     u32 cursor;
     u32 anchor;
     u32 version;  // bumped by every change to the text
+    // The text before the last change, a run of typing counting as one, or once undone the text the undo replaced.
+    u8 other[1024];
+    u32 otherLength;
+    u32 otherCursor;
+    b8 undoable;
+    b8 undone;    // Redo swaps it back
+    b8 typing;    // the last change typed a character, which the next typed one joins
 } Prog_TextEdit;
 
 typedef struct Prog_Directory {
@@ -945,12 +954,12 @@ typedef struct Prog_State {
     Prog_MenuCommand *menuCommands;  // per item of Filey's own menus; NULL for the system's
     UI_Key menuHot;           // hot block when the menu was last built
     Prog_TextEdit menuSearch; // typed into a system menu, which then shows only its top items holding it
-    enum8(Prog_CommandKind) menuOpener;  // the button whose menu is open, which stays lit; None for other menus
+    enum16(Prog_CommandKind) menuOpener;  // the button whose menu is open, which stays lit; None for other menus
     // The button under the pointer this frame, whose tip shows once the pointer rests on it.
     UI_Key tooltipKey;
     b32 tooltipAbove;         // it is a button's inside a menu or the palette, whose tips show over them
     R_Rect tooltipRect;
-    enum8(Prog_CommandKind) tooltipKind;
+    enum16(Prog_CommandKind) tooltipKind;
     String tooltipLabel;      // the command's label when empty
     // A sidebar item's tip: its folder, inspected by tipJob into tipArena.
     String tipPath;
@@ -1148,7 +1157,7 @@ typedef struct Prog_State {
     Key hotkeyLead;           // the last key, when it starts a sequence such as "G G"
     // A hotkey chip being rebound: the next key press replaces hotkey `hotkeySlot` of `hotkeyKind`, or adds one when the slot is past its last;
     // with hotkeyAsking its delete button asked whether to delete it instead, in a box at hotkeyAskAt.
-    enum8(Prog_CommandKind) hotkeyKind;  // None while no chip is
+    enum16(Prog_CommandKind) hotkeyKind;  // None while no chip is
     u8 hotkeySlot;
     b32 hotkeyAsking;
     UI_Vec2 hotkeyAskAt;

@@ -421,24 +421,43 @@ function void TestMaps(void)
 }
 
 // Ctrl+Backspace and Ctrl+Delete delete a word, Ctrl+Left and Ctrl+Right step over one, and Shift extends the selection.
+// Undo takes back a run of typing at once, Redo brings it again, and Uppercase keeps the selection.
 function void TestTextEditWords(void)
 {
+    local_persist Prog_State state;
     Prog_TextEdit edit = {0};
     String text = S("open some/folder now");
     Prog__EditReplace(&edit, (const u8 *)text.value, (u32)text.length);
     PlatformEvent key = { .kind = PlatformEventKind_KeyDown, .key = Key_Backspace, .mods = KeyMod_Control };
-    Check(Prog__EditKey(&edit, &key) && StrIsEqual(Prog_EditText(&edit), S("open some/folder ")));
-    Check(Prog__EditKey(&edit, &key) && StrIsEqual(Prog_EditText(&edit), S("open some/")));
+    Check(Prog__EditKey(&state, &edit, &key) && StrIsEqual(Prog_EditText(&edit), S("open some/folder ")));
+    Check(Prog__EditKey(&state, &edit, &key) && StrIsEqual(Prog_EditText(&edit), S("open some/")));
     key.key = Key_Left;
-    Check(Prog__EditKey(&edit, &key) && edit.cursor == 5 && edit.anchor == 5);
+    Check(Prog__EditKey(&state, &edit, &key) && edit.cursor == 5 && edit.anchor == 5);
     key.mods = KeyMod_Control | KeyMod_Shift;
     key.key = Key_Right;
-    Check(Prog__EditKey(&edit, &key) && edit.cursor == 9 && edit.anchor == 5);
-    key.mods = KeyMod_Control;
+    Check(Prog__EditKey(&state, &edit, &key) && edit.cursor == 9 && edit.anchor == 5);
+    key.mods = 0;
     key.key = Key_Home;
-    Check(Prog__EditKey(&edit, &key) && edit.cursor == 0);
+    Check(Prog__EditKey(&state, &edit, &key) && edit.cursor == 0);
+    key.mods = KeyMod_Control;
     key.key = Key_Delete;
-    Check(Prog__EditKey(&edit, &key) && StrIsEqual(Prog_EditText(&edit), S(" some/")));
+    Check(Prog__EditKey(&state, &edit, &key) && StrIsEqual(Prog_EditText(&edit), S(" some/")));
+
+    Prog_TextEdit typed = {0};
+    Prog__EditInsert(&typed, 'a');
+    Prog__EditInsert(&typed, 'b');
+    PlatformEvent undo = { .kind = PlatformEventKind_KeyDown, .key = Key_Z, .mods = KeyMod_Control };
+    PlatformEvent redo = { .kind = PlatformEventKind_KeyDown, .key = Key_Z, .mods = KeyMod_Control | KeyMod_Shift };
+    Check(Prog__EditKey(&state, &typed, &undo) && !typed.length);
+    Check(Prog__EditKey(&state, &typed, &redo) && StrIsEqual(Prog_EditText(&typed), S("ab")) && typed.cursor == 2);
+    PlatformEvent back = { .kind = PlatformEventKind_KeyDown, .key = Key_Backspace };
+    Check(Prog__EditKey(&state, &typed, &back) && StrIsEqual(Prog_EditText(&typed), S("a")));
+    Check(Prog__EditKey(&state, &typed, &undo) && StrIsEqual(Prog_EditText(&typed), S("ab")));
+    typed.anchor = 0;
+    Check(Prog__EditCommand(&typed, Prog_CommandKind_TextUppercase) && StrIsEqual(Prog_EditText(&typed), S("AB")) && typed.anchor == 0 && typed.cursor == 2);
+    // Keys the boxes do not take go on to the browser.
+    PlatformEvent letter = { .kind = PlatformEventKind_KeyDown, .key = Key_J };
+    Check(!Prog__EditKey(&state, &typed, &letter));
 }
 
 function void TestContextMenuModel(void)

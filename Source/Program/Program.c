@@ -424,7 +424,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
                 if (Prog__EqualFolded(value, S("none"))) break;
                 for (u64 at = 0; at < value.length;) {
                     Index comma = StrIndexChar(StrFrom(value, at), ',', SSF_CountOnFail);
-                    Prog_Hotkey hotkey = { .command = (u8)k };
+                    Prog_Hotkey hotkey = { .command = (u16)k };
                     if (Prog_ParseHotkey(StrFromTo(value, at, (i64)(at + comma.value)), &hotkey) && state->userHotkeyCount < CArrayCount(state->userHotkeys)) {
                         state->userHotkeys[state->userHotkeyCount++] = hotkey;
                     }
@@ -953,7 +953,7 @@ function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String
     if (!button || UI->hotKey != button->key || UI->activeKey) return;
     state->tooltipKey = button->key;
     state->tooltipRect = button->rect;
-    state->tooltipKind = (u8)kind;
+    state->tooltipKind = (u16)kind;
     state->tooltipLabel = label;
     // The history buttons say where they go.
     String to = {0};
@@ -3889,7 +3889,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 box = floorf(16.0f * m->scale + 0.5f);
     Prog_HotkeyChip *chips = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, Prog_HotkeyChip);
     u32 *chipCounts = ArenaPushArray(&state->frameArena, Max(shown, 1u), u32);
-    u8 *chipKinds = ArenaPushArray(&state->frameArena, Max(shown, 1u), u8);
+    u16 *chipKinds = ArenaPushArray(&state->frameArena, Max(shown, 1u), u16);
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
     // The search field is a band across the top in the inner color, over a line and a little room before the items.
     f32 fieldInset = floorf(2.4f * m->scale + 0.5f), fieldHeight = floorf(30.4f * m->scale + 0.5f);
@@ -3908,7 +3908,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             u32 mouse = command && command->mouse.length ? 1 : 0;
             if (mouse) chips[i * 3] = (Prog_HotkeyChip){ .text = command->mouse, .slot = UINT8_MAX };
             Prog_CommandKind kind = command ? (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind) : Prog__VerbCommand(item->verb);
-            chipKinds[i] = (u8)kind;
+            chipKinds[i] = (u16)kind;
             chipCounts[i] = mouse + (kind ? Prog_HotkeyChips(&state->frameArena, state, kind, chips + i * 3 + mouse, 3 - mouse) : 0);
             f32 end = command && command->toggle ? box + m->gap : 0;
             for (u32 c = 0; c < chipCounts[i]; ++c) end += Prog__HotkeyChipWidth(&chips[i * 3 + c], m) + chipGap;

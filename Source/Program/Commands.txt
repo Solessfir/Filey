@@ -6,7 +6,7 @@
 //     tooltip = "One sentence."
 //     hotkey  = "Ctrl+Shift+Key"               repeatable; Key is a Key_ name without the prefix; "G G" is G pressed twice
 //     repeat  = "false"                        ignore auto-repeat key events
-//     scope   = "Rename"                       where its hotkeys work: the rename box or "GoTo"; the browser when omitted
+//     scope   = "Rename"                       where its hotkeys work: "Text" boxes, the rename box or "GoTo"; the browser when omitted
 // }
 //
 // Hotkeys match modifiers exactly, so every accepted combination is listed.
@@ -355,6 +355,182 @@ command RenameNext {
     scope   = "Rename"
 }
 
+// The keys of the text boxes: the filter, the rename box, the palette and the others. Autocomplete is Go To's, where it puts the highlighted
+// folder in the box; elsewhere its key goes on to the browser's hotkeys.
+
+command TextMoveLeft {
+    label   = "Move Left"
+    tooltip = "Move the text caret left."
+    hotkey  = "Left"
+    scope   = "Text"
+}
+
+command TextExtendLeft {
+    label   = "Extend Left"
+    tooltip = "Extend the selection left from the text caret."
+    hotkey  = "Shift+Left"
+    scope   = "Text"
+}
+
+command TextMoveRight {
+    label   = "Move Right"
+    tooltip = "Move the text caret right."
+    hotkey  = "Right"
+    scope   = "Text"
+}
+
+command TextExtendRight {
+    label   = "Extend Right"
+    tooltip = "Extend the selection right from the text caret."
+    hotkey  = "Shift+Right"
+    scope   = "Text"
+}
+
+command TextMoveLeftWord {
+    label   = "Move Left By Word"
+    tooltip = "Move the text caret left by a word."
+    hotkey  = "Ctrl+Left"
+    scope   = "Text"
+}
+
+command TextExtendLeftWord {
+    label   = "Extend Left By Word"
+    tooltip = "Extend the selection left by a word from the text caret."
+    hotkey  = "Ctrl+Shift+Left"
+    scope   = "Text"
+}
+
+command TextMoveRightWord {
+    label   = "Move Right By Word"
+    tooltip = "Move the text caret right by a word."
+    hotkey  = "Ctrl+Right"
+    scope   = "Text"
+}
+
+command TextExtendRightWord {
+    label   = "Extend Right By Word"
+    tooltip = "Extend the selection right by a word from the text caret."
+    hotkey  = "Ctrl+Shift+Right"
+    scope   = "Text"
+}
+
+command TextMoveHome {
+    label   = "Move Home"
+    tooltip = "Move the text caret to the start of the line."
+    hotkey  = "Home"
+    scope   = "Text"
+}
+
+command TextExtendHome {
+    label   = "Extend Home"
+    tooltip = "Extend the selection to the start of the line from the text caret."
+    hotkey  = "Shift+Home"
+    scope   = "Text"
+}
+
+command TextMoveEnd {
+    label   = "Move End"
+    tooltip = "Move the text caret to the end of the line."
+    hotkey  = "End"
+    scope   = "Text"
+}
+
+command TextExtendEnd {
+    label   = "Extend End"
+    tooltip = "Extend the selection to the end of the line from the text caret."
+    hotkey  = "Shift+End"
+    scope   = "Text"
+}
+
+command TextDeleteLeft {
+    label   = "Delete Left"
+    tooltip = "Delete the character to the left of the text caret."
+    hotkey  = "Backspace"
+    hotkey  = "Shift+Backspace"
+    scope   = "Text"
+}
+
+command TextDeleteLeftWord {
+    label   = "Delete Left By Word"
+    tooltip = "Delete the word to the left of the text caret."
+    hotkey  = "Ctrl+Backspace"
+    scope   = "Text"
+}
+
+command TextDeleteRight {
+    label   = "Delete Right"
+    tooltip = "Delete the character to the right of the text caret."
+    hotkey  = "Delete"
+    scope   = "Text"
+}
+
+command TextDeleteRightWord {
+    label   = "Delete Right By Word"
+    tooltip = "Delete the word to the right of the text caret."
+    hotkey  = "Ctrl+Delete"
+    scope   = "Text"
+}
+
+command TextSelectAll {
+    label   = "Select All"
+    tooltip = "Select all text."
+    hotkey  = "Ctrl+A"
+    scope   = "Text"
+}
+
+command TextCopySelection {
+    label   = "Copy"
+    tooltip = "Copy the selected text."
+    hotkey  = "Ctrl+C"
+    scope   = "Text"
+}
+
+command TextCutSelection {
+    label   = "Cut"
+    tooltip = "Cut the selected text."
+    hotkey  = "Ctrl+X"
+    scope   = "Text"
+}
+
+command TextPaste {
+    label   = "Paste"
+    tooltip = "Paste the clipboard contents."
+    hotkey  = "Ctrl+V"
+    scope   = "Text"
+}
+
+command TextUppercase {
+    label   = "Uppercase"
+    tooltip = "Convert the selected text to uppercase."
+    scope   = "Text"
+}
+
+command TextLowercase {
+    label   = "Lowercase"
+    tooltip = "Convert the selected text to lowercase."
+    scope   = "Text"
+}
+
+command TextAutocomplete {
+    label   = "Autocomplete"
+    tooltip = "Autocomplete file names or paths, and toggle groups where possible."
+    hotkey  = "Tab"
+    scope   = "Text"
+}
+
+command TextUndo {
+    label   = "Undo"
+    tooltip = "Undo the last text-based action."
+    hotkey  = "Ctrl+Z"
+    scope   = "Text"
+}
+
+command TextRedo {
+    label   = "Redo"
+    tooltip = "Redo the last text-based action."
+    hotkey  = "Ctrl+Shift+Z"
+    scope   = "Text"
+}
 command FilterCaret {
 }
 
