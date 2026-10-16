@@ -3536,7 +3536,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             const P_MenuItem *item = &state->menu.items[index];
             b32 moving = level == 0 && state->menuMoved.length && StrIsEqual(item->label, state->menuMoved) && fabsf(slid[i] - placed[i]) > 0.5f;
             if (moving != (pass == 1)) continue;
-            f32 rowY = floorf(slid[i] - list->scrollShown.y);
+            // Rounded rather than floored, or a row easing down sits a pixel short through the tail of the ease and then jumps.
+            f32 rowY = floorf(slid[i] - list->scrollShown.y + 0.5f);
             if (item->separator) {
                 // A line on the boundary of the rows around it.
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY - floorf(line * 0.5f) });
