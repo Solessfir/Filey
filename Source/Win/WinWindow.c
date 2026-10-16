@@ -609,6 +609,7 @@ function void PlatformWindowSetTransparent(b32 transparent, PlatformBackdrop bac
 
 function b32 PlatformWindowHasButtons(void) { return true; }
 function b32 PlatformWindowIsMaximized(void) { return IsZoomed(Win.window) != 0; }
+function b32 PlatformWindowNeedsBorder(void) { return false; }
 function void PlatformWindowMinimize(void) { ShowWindow(Win.window, SW_MINIMIZE); }
 function void PlatformWindowToggleMaximize(void) { ShowWindow(Win.window, IsZoomed(Win.window) ? SW_RESTORE : SW_MAXIMIZE); }
 

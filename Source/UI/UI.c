@@ -517,7 +517,7 @@ function void UI__DrawBlock(UI_Block *block, f32 opacity)
 
 function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
 {
-    if (UI->squareCorners) block->props.cornerRadius = 0;
+    if (UI->squareCorners && !FlagIntersects(block->flags, UI_Flag_KeepCorners)) block->props.cornerRadius = 0;
     if (block->props.blurSource == 1) R_BeginBlurSource();
     if (block->props.blurSource == 2) R_EndBlurSource();
     f32 own = 1.0f - UI__Clamp(block->props.fade, 0, 1);

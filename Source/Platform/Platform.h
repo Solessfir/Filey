@@ -152,6 +152,7 @@ typedef struct PlatformWindowInfo {
     i32 width;     // physical pixels
     i32 height;
     f32 scale;     // physical / logical
+    f32 cornerRadius;  // physical pixels the system rounds the window's corners by, 0 when square or unknown
 } PlatformWindowInfo;
 
 function b32                PlatformWindowOpen(PlatformWindowDesc desc);
@@ -173,6 +174,8 @@ function void               PlatformWindowSetTransparent(b32 transparent, Platfo
 // Without buttons (tiling compositors) the program draws no minimize, maximize or close buttons.
 function b32  PlatformWindowHasButtons(void);
 function b32  PlatformWindowIsMaximized(void);
+// The program draws the window's sides and bottom: Wayland leaves the frame to the program, where Windows draws a border around the window.
+function b32  PlatformWindowNeedsBorder(void);
 function void PlatformWindowMinimize(void);
 function void PlatformWindowToggleMaximize(void);
 // Covers the whole screen without the system's frame, or goes back to how the window was.

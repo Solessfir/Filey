@@ -87,6 +87,8 @@ global u32 TestWindowCalls[4];  // minimize, maximize, close, move
 
 function b32 PlatformWindowHasButtons(void) { return true; }
 function b32 PlatformWindowIsMaximized(void) { return false; }
+function b32 PlatformWindowNeedsBorder(void) { return false; }
+function PlatformWindowInfo PlatformWindowGetInfo(void) { return (PlatformWindowInfo){0}; }
 function void PlatformWindowMinimize(void) { ++TestWindowCalls[0]; }
 function void PlatformWindowToggleMaximize(void) { ++TestWindowCalls[1]; }
 function void PlatformWindowToggleFullscreen(void) {}

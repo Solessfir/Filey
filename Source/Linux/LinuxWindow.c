@@ -4,6 +4,8 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <sys/eventfd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <linux/input-event-codes.h>
 
 // wl_registry_listener has a member named `global`, which collides with the base macro.
@@ -101,6 +103,7 @@ typedef struct LinuxWindowState {
     i32 pendingWidth;
     i32 pendingHeight;
     f32 scale;           // physical / logical, fractional when the compositor supports it
+    f32 rounding;        // logical pixels the compositor rounds the window's corners by
     b32 configured;
     b32 closed;
     b32 closeRequested;  // the compositor asked the window to close
@@ -892,6 +895,38 @@ function b32 LinuxCreateGLContext(void)
 
 function void LinuxEnsureDataDevice(void);
 
+// Hyprland rounds windows' corners by its decoration options, which no Wayland protocol tells, so they are asked of its socket.
+// ponytail: read once at startup and without window rules; ask again on a configure if a reloaded config or a rule should show.
+function f32 LinuxHyprlandRounding(void)
+{
+    const char *runtime = getenv("XDG_RUNTIME_DIR"), *instance = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+    if (!runtime || !instance) return 0;
+    f32 values[2] = {0};
+    const char *requests[2] = { "j/getoption decoration:rounding", "j/getoption decoration:rounding_power" };
+    for (u32 i = 0; i < 2; ++i) {
+        struct sockaddr_un address = { .sun_family = AF_UNIX };
+        i32 length = snprintf(address.sun_path, sizeof(address.sun_path), "%s/hypr/%s/.socket.sock", runtime, instance);
+        i32 socketFd = length > 0 && length < (i32)sizeof(address.sun_path) ? socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0) : -1;
+        if (socketFd < 0) return 0;
+        struct timeval timeout = { .tv_usec = 200000 };
+        setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        char reply[256] = {0};
+        u64 received = 0;
+        u64 size = strlen(requests[i]);
+        if (connect(socketFd, (struct sockaddr *)&address, sizeof(address)) == 0 && write(socketFd, requests[i], size) == (i64)size) {
+            for (i64 count; received < sizeof(reply) - 1 && (count = read(socketFd, reply + received, sizeof(reply) - 1 - received)) > 0;) received += (u64)count;
+        }
+        close(socketFd);
+        // {"option": "decoration:rounding", "int": 8, "set": true }, and "float" for the power.
+        const char *value = strstr(reply, i == 0 ? "\"int\":" : "\"float\":");
+        if (!value) return 0;
+        values[i] = strtof(strchr(value, ':') + 1, NULL);
+    }
+    // Hyprland grows the radius with the power so that corners look as round; drawn as a circle, it matches powers other than 2 only roughly.
+    return values[0] * values[1] / 2.0f;
+}
+
 function b32 PlatformWindowOpen(PlatformWindowDesc desc)
 {
     Wl.display = wl_display_connect(NULL);
@@ -912,6 +947,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     Wl.width = desc.width;
     Wl.height = desc.height;
     Wl.scale = 1;
+    Wl.rounding = LinuxHyprlandRounding();
 
     Wl.surface = wl_compositor_create_surface(Wl.compositor);
     Wl.cursorSurface = wl_compositor_create_surface(Wl.compositor);
@@ -963,6 +999,7 @@ function PlatformWindowInfo PlatformWindowGetInfo(void)
         .width  = LinuxPhysical(Wl.width),
         .height = LinuxPhysical(Wl.height),
         .scale  = Wl.scale,
+        .cornerRadius = Wl.rounding * Wl.scale,
     };
 }
 
@@ -1085,6 +1122,8 @@ function void PlatformWindowSetTransparent(b32 transparent, PlatformBackdrop bac
 // Compositors older than xdg-shell version 5 never send their capabilities, and those are taken to support everything.
 function b32 PlatformWindowHasButtons(void) { return !Wl.noMinimize; }
 function b32 PlatformWindowIsMaximized(void) { return Wl.maximized; }
+// Maximized tells nothing here: Hyprland reports every window maximized, so that programs leave out their frames.
+function b32 PlatformWindowNeedsBorder(void) { return !Wl.fullscreen; }
 function void PlatformWindowMinimize(void) { xdg_toplevel_set_minimized(Wl.toplevel); }
 function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
 

@@ -7075,6 +7075,17 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__HotkeyQuestion(state, m);
     Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);
+    // The window's outline, where no system border draws it, over everything as Windows' border is, in the color of the top border the
+    // title bar draws, and round where the compositor rounds the window.
+    if (PlatformWindowNeedsBorder()) {
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+        UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+        UI_SetNextCornerRadius(PlatformWindowGetInfo().cornerRadius);
+        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextColors((UI_Colors){ .border = Prog_CurrentTheme()->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder | UI_Flag_KeepCorners);
+    }
     // A chip being rebound that went out of sight, with its menu or its palette row, stops.
     if (state->hotkeyKind && !state->hotkeyChipShown) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, 0);
     state->hotkeyChipShown = false;
