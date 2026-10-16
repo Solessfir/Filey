@@ -534,7 +534,8 @@ function void LinuxDragPointer(wl_fixed_t x, wl_fixed_t y)
     event->mods = Wl.mods;
 }
 
-// Files are taken as uri-lists, copied by default and moved when the source or the user asks for it; Filey's own drags move.
+// Files are taken as uri-lists, copied by default and moved when the source or the user asks for it; Filey's own drags move, as the drop
+// then decides by the keys held.
 function void LinuxAcceptDrag(void)
 {
     if (!Wl.dragOffer) return;
@@ -578,6 +579,20 @@ function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 ti
 function String LinuxClipboardReceive(Arena *arena, const char *mime);
 function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const char *mime);
 
+// Filey's own drops follow Explorer's keys, which compositors such as Hyprland do not pass on as the drop's action: Ctrl copies, Shift
+// moves, and otherwise files move within their file system and are copied onto another.
+function b32 LinuxOwnDropMoves(String target)
+{
+    if (Wl.mods & KeyMod_Control) return false;
+    if (Wl.mods & KeyMod_Shift) return true;
+    Scratch scratch = GetScratch();
+    struct stat from = {0}, to = {0};
+    char *source = P__FilePathCString(scratch.arena, Wl.dragFolder), *destination = P__FilePathCString(scratch.arena, target);
+    b32 result = source && destination && stat(source, &from) == 0 && stat(destination, &to) == 0 && from.st_dev == to.st_dev;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function void DataDeviceDrop(void *data, struct wl_data_device *device)
 {
     if (Wl.dragOffer && Wl.dragFiles && P__drop.takesFolders) {
@@ -597,7 +612,7 @@ function void DataDeviceDrop(void *data, struct wl_data_device *device)
         ArrayStr paths = {0};
         b32 cut = false;
         P__ParseFileList(scratch.arena, list, strcmp(Wl.dragFiles, LinuxFileMimes[0]) == 0, &paths, &cut);
-        b32 move = Wl.dragAction == WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
+        b32 move = own ? LinuxOwnDropMoves(folder) : Wl.dragAction == WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE;
         // Dropping Filey's own files back where they are would only duplicate them.
         if (!(own && StrIsEqual(folder, Wl.dragFolder))) P__TransferDropped(&paths, move);
         if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
