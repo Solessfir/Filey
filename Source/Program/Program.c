@@ -3933,10 +3933,11 @@ function void Prog__MarkedText(String text, const u8 *marks, const R_Font *font,
 }
 
 // `text` in `color` with what `search` finds in it in the match color, faded with the text when `faded` is set: the first place it appears
-// whole, else its letters in order.
-function void Prog__MarkedLabel(Prog_State *state, String text, String search, const R_Font *font, f32 height, R_Color color, b32 faded, const Prog_Metrics *m)
+// whole, else its letters in order. On a highlighted row the match color goes to its full blue, which stands out from the highlight's.
+function void Prog__MarkedLabel(Prog_State *state, String text, String search, const R_Font *font, f32 height, R_Color color, b32 faded, b32 lit, const Prog_Metrics *m)
 {
     R_Color match = Prog_CurrentTheme()->textMatch;
+    if (lit) match.b = 1.0f;
     if (faded) match.a *= 0.5f;
     u8 *marks = search.length ? ArenaPushArray(&state->frameArena, Max(text.length, (u64)1), u8) : NULL;
     b32 whole = false;
@@ -4173,12 +4174,12 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                         }
                     } else {
-                        Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, faded ? theme->textDim : theme->text, faded, m);
+                        Prog__MarkedLabel(state, name, searching ? typed : (String){0}, m->font, face, faded ? theme->textDim : theme->text, faded, highlighted, m);
                     }
                     if (sections || searching) {
                         Prog__Spacer(UI_Pixels(floorf(5.6f * s + 0.5f)), UI_Pixels(face));
                         Prog__Icon(Icon_ChevronRight, R_TextWidth(m->icons, Icon_ChevronRight) + floorf(4.0f * s + 0.5f), face, dim, 0, m);
-                        Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, faded, m);
+                        Prog__MarkedLabel(state, where, searching ? typed : (String){0}, m->detail, face, dim, faded, highlighted, m);
                     }
                 }
                 if (r + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
