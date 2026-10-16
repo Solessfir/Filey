@@ -1633,6 +1633,20 @@ function void TestTabs(TestFileFixture *fixture)
     Prog__EditReplace(&state.palette, (const u8 *)"samsung test", 12);
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 1 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[0].name, S("Samsung Test Drive")));
+    // And by its volume's UUID, pasted from a disk tool, which its folder is not named by here.
+    state.drives.v[0].id = S("0008C21B08C21018");
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    Prog__EditReplace(&state.palette, (const u8 *)"0008C21B08C21018", 16);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 1 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[0].name, S("Samsung Test Drive")));
+    // Ahead of a folder named after it, as GVfs keeps them.
+    String named = Prog_JoinPath(&driveArena, fixture->path, S("uuid-0008C21B08C21018"));
+    ArrayPush(&driveArena, state.bookmarks, named);
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    Prog__EditReplace(&state.palette, (const u8 *)"0008C21B08C21018", 16);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 2 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[1].path, named));
+    --state.bookmarks.header.count;
     // What the walk wrote reads back as the same entries, once its last step has put it in place.
     String saved = Prog_JoinPath(&driveArena, cache, Prog_IndexFile), contents = {0};
     start = PlatformNowMicroseconds();

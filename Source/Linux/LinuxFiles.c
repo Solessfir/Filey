@@ -1350,6 +1350,25 @@ function String P__ShortSize(Arena *arena, u64 bytes)
     return StrFormat(arena, "%.1f %s", value, units[unit]);
 }
 
+// The UUID of the file system on `device`, as /dev/disk/by-uuid lists it; empty where it has none.
+function String P__DeviceUuid(Arena *arena, String device)
+{
+    Index slash = StrIndexChar(device, '/', SSF_SearchBackwards);
+    String leaf = StrFrom(device, slash.exists ? slash.value + 1 : 0);
+    DIR *folder = leaf.length ? opendir("/dev/disk/by-uuid") : NULL;
+    String result = {0};
+    for (struct dirent *entry; folder && !result.length && (entry = readdir(folder));) {
+        char target[PATH_MAX];
+        i64 length = readlinkat(dirfd(folder), entry->d_name, target, sizeof(target) - 1);
+        if (length <= 0) continue;
+        String linked = StrMake(target, (u64)length);
+        Index at = StrIndexChar(linked, '/', SSF_SearchBackwards);
+        if (StrIsEqual(StrFrom(linked, at.exists ? at.value + 1 : 0), leaf)) result = StrCopy(arena, StrFromCStr(entry->d_name));
+    }
+    if (folder) closedir(folder);
+    return result;
+}
+
 // Whether the mount folder `name` is the UUID of `device`, as /dev/disk/by-uuid lists it.
 function b32 P__NamedByUuid(Arena *arena, String name, String device)
 {
@@ -1414,6 +1433,7 @@ function P_ArrayPlace P_Drives(Arena *arena)
         }
         // udisks names a mount whose file system has no label by its UUID, as "FEBA1237BA11ED41".
         // Such a drive goes by its disk's model instead, as "Samsung SSD 990 PRO 4TB", or by its size where the disk has none, as nemo names it.
+        place.id = P__DeviceUuid(arena, fields.v[0]);
         if (!root && P__NamedByUuid(scratch.arena, place.name, fields.v[0])) {
             String model = P__DiskModel(scratch.arena, fields.v[0]);
             if (model.length) place.name = StrCopy(arena, model);

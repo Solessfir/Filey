@@ -994,7 +994,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             // The drives first, by the names they are shown by, as "Samsung SSD 990 PRO 4TB", which the index and the recents know only their folders' names for.
             for (u64 i = 0; i < drives; ++i) {
                 const P_Place *drive = &state->drives.v[i];
-                i32 score = Prog__GoToScore(state, drive->name, drive->path, text);
+                // Or by its UUID, pasted from a disk tool, which names it wholly: scored as its name and its path, so that files named after it, as "uuid-<UUID>.log", do not outrank it.
+                i32 score = Max(Prog__GoToScore(state, drive->name, drive->path, text), drive->id.length ? Prog_FuzzyScore(drive->id, drive->id, text, NULL, NULL) : 0);
                 if (score <= 0 || MapsGetPtrNull(state->gotoSeen, drive->path)) continue;
                 String path = StrCopy(arena, drive->path);
                 MapsPut(arena, state->gotoSeen, path, true);
