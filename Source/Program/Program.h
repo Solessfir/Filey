@@ -469,6 +469,7 @@ typedef struct Prog_Places {
     P_ArrayPlace places;
     P_ArrayPlace drives;
     ArrayStr roots;
+    ArrayStr missing;  // the bookmarks whose folders are gone
 } Prog_Places;
 
 typedef enum Prog_PaletteMode {
@@ -1213,6 +1214,7 @@ typedef struct Prog_State {
     P_ArrayPlace places;
     P_ArrayPlace drives;
     ArrayStr pathRoots;       // folders that breadcrumbs start from, for folders inside them
+    ArrayStr missingBookmarks;  // bookmarks whose folders were gone at the last listing, which the sidebar fades
     P_Job *placesJob;
     u64 placesTime;
     // Bookmarked and recently shown folders, saved in configDirectory when the app sets one.

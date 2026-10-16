@@ -1569,6 +1569,7 @@ function void Prog__DirectoryJob(P_Job *job)
             result->places = P_UserPlaces(&job->arena);
             result->drives = P_Drives(&job->arena);
             result->roots = P_PathRoots(&job->arena);
+            for (u64 i = 0; i < input->pathCount; ++i) if (!P_PathExists(input->paths[i])) ArrayPush(&job->arena, result->missing, input->paths[i]);
         }
         job->result = result;
         return;
@@ -2270,6 +2271,38 @@ function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry
         MapsPut(&state->knownArena, state->knownSet, folder, true);
         ArrayPush(&state->knownArena, state->knownFolders, folder);
     }
+}
+
+// Bookmarks and recents at or inside items Filey moved or renamed from `from` to `to` follow them, as Explorer's pinned folders do.
+function void Prog__FollowMoved(Prog_State *state, const String *from, const String *to, u64 count)
+{
+    Scratch scratch = GetScratch();
+    for (u32 list = 0; list < 2; ++list) {
+        ArrayStr paths = list ? state->recents : state->bookmarks;
+        String *followed = ArenaPushArray(scratch.arena, Max(paths.header.count, (u64)1), String);
+        b32 changed = false;
+        for (u64 i = 0; i < paths.header.count; ++i) {
+            String path = followed[i] = paths.v[i];
+            for (u64 m = 0; m < count; ++m) {
+                String old = from[m];
+                b32 inside = path.length >= old.length && StrIsEqual(StrFromTo(path, 0, (i64)old.length), old) &&
+                             (path.length == old.length || path.value[old.length] == '/' || (old.length && old.value[old.length - 1] == '/'));
+                if (!inside) continue;
+                followed[i] = StrFormat(scratch.arena, "%S%S", to[m], StrFrom(path, old.length));
+                changed = true;
+                break;
+            }
+        }
+        if (!changed) continue;
+        if (list) {
+            Prog__SetRecents(state, followed, state->recentRanks, paths.header.count);
+            if (state->storeRecents == Prog_StoreRecents_Persistent) Prog__SaveList(state, Prog_RecentsFile, state->recents);
+        } else {
+            Prog__SetList(&state->bookmarkArena, &state->bookmarks, followed, paths.header.count);
+            Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
+        }
+    }
+    ReleaseScratch(scratch);
 }
 
 // Counts `path` opened among the recents, and saves them when they are kept across runs.
@@ -3554,6 +3587,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->panel = Prog__PanelId(state);
         input->kind = Prog_JobKind_Places;
+        input->pathCount = state->bookmarks.header.count;
+        input->paths = ArenaPushArray(&job->arena, Max(input->pathCount, (u64)1), String);
+        for (u64 i = 0; i < input->pathCount; ++i) input->paths[i] = StrCopy(&job->arena, state->bookmarks.v[i]);
         job->input = input;
         state->placesJob = job;
         P_JobSubmit(job);
@@ -3728,6 +3764,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             } else {
                 String from = Prog_JoinPath(&state->frameArena, input->path, input->name), to = Prog_JoinPath(&state->frameArena, input->path, input->newName);
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
+                Prog__FollowMoved(state, &from, &to, 1);
+                state->placesTime = 0;
                 // Reloading now, rather than on the watch, selects the new name without waiting.
                 String listed = input->prefix.length ? StrFormat(&state->frameArena, "%S/%S", input->prefix, input->newName) : input->newName;
                 String folder = input->prefix.length ? Prog_JoinPath(&state->frameArena, state->directory.path, input->prefix) : state->directory.path;
@@ -3772,14 +3810,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 const Prog_Transferred *result = job->result;
                 if (result->placed.header.count == input->pathCount) {
                     Prog_PushUndo(state, input->move ? Prog_UndoKind_Move : Prog_UndoKind_Copy, input->move ? input->paths : NULL, result->placed.v, input->pathCount);
+                    if (input->move) Prog__FollowMoved(state, input->paths, result->placed.v, input->pathCount);
                 }
             }
             if (!error.code && input->kind == Prog_JobKind_Create && job->result) {
                 String created = Prog_JoinPath(&state->frameArena, input->path, ((Prog_Created *)job->result)->name);
                 Prog_PushUndo(state, Prog_UndoKind_Create, NULL, &created, 1);
             }
-            // Reloading now shows the result without waiting for the watch.
+            // Reloading now shows the result without waiting for the watch, and the places, one of whose folders may be gone, are listed again.
             if (!error.code) Prog_Reload(state);
+            state->placesTime = 0;
         } else if (input->kind == Prog_JobKind_Undo) {
             P_FileError *error = job->result;
             changed = true;
@@ -3790,6 +3830,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // The items are back at `from`, so the way back to `to` is the same step the other way round. New items and copies went to the
                 // trash, which Redo does not take them out of.
                 const Prog_Undo *done = &input->undo;
+                Prog__FollowMoved(state, done->to, done->from, done->count);
                 if (input->redo) Prog__PushStep(&state->undoArena, &state->undo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
                 else Prog__PushStep(&state->redoArena, &state->redo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
             }
@@ -3855,6 +3896,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
                 state->drives = result->drives;
                 state->pathRoots = result->roots;
+                state->missingBookmarks = result->missing;
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_Save) {

@@ -3468,7 +3468,10 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
-                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, false, m);
+                // One whose folder is gone, renamed or deleted elsewhere or on a drive taken away, is faded rather than dropped.
+                b32 missing = false;
+                for (u64 j = 0; j < state->missingBookmarks.header.count && !missing; ++j) missing = StrIsEqual(state->missingBookmarks.v[j], path);
+                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, missing, m);
                 R_Rect row = body->last->rect;
                 zone.y1 = row.y1;
                 if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {

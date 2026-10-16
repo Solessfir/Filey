@@ -1964,6 +1964,21 @@ function void TestSidebar(TestFileFixture *fixture)
     for (u64 i = 0; i < drives.header.count; ++i) sized |= drives.v[i].totalBytes > 0 && drives.v[i].freeBytes <= drives.v[i].totalBytes;
     Check(sized);
 
+    // Bookmarks and recents at or inside a renamed folder follow it; a name that only starts the same stays.
+    {
+        Prog_State moved = {0};
+        String marks[] = { S("/a/Downloads"), S("/a/Other"), S("/a/DownloadsX") }, recent[] = { S("/a/Downloads/file.txt"), S("/a/Downloadsy") };
+        Prog_RecentRank ranks[2] = { { .score = 2, .ordinal = 2 }, { .score = 1, .ordinal = 1 } };
+        Prog__SetList(&moved.bookmarkArena, &moved.bookmarks, marks, 3);
+        Prog__SetRecents(&moved, recent, ranks, 2);
+        String from = S("/a/Downloads"), to = S("/a/Downloads1");
+        Prog__FollowMoved(&moved, &from, &to, 1);
+        Check(StrIsEqual(moved.bookmarks.v[0], S("/a/Downloads1")) && StrIsEqual(moved.bookmarks.v[1], S("/a/Other")) && StrIsEqual(moved.bookmarks.v[2], S("/a/DownloadsX")));
+        Check(StrIsEqual(moved.recents.v[0], S("/a/Downloads1/file.txt")) && StrIsEqual(moved.recents.v[1], S("/a/Downloadsy")));
+        ArenaRelease(&moved.bookmarkArena);
+        ArenaRelease(&moved.recentArena);
+    }
+
     String file = Prog_JoinPath(&arena, fixture->path, S("settings.txt"));
     String text = {0};
     Check(!P_ReadFile(&arena, file, &text));
