@@ -344,6 +344,61 @@ static_assert(Prog_CommandKind_Count < 256, "commands fit Prog_PaletteRow");
 // The palette's rows: with nothing typed, each group's title and the commands of the groups open;
 // otherwise the commands the text finds by the score of their label and description, best first, then those only their search words find.
 // `out` has room for Prog_MaxPaletteRows; returns how many it holds.
+// Whether `kind` would do anything now, which the palette dims the rows of those that would not; commands this does not know of always can.
+function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kind)
+{
+    b32 item = !state->loading && (state->selectedCount || (state->hasFocus && state->focusedRow < state->directory.count));
+    b32 focused = !state->loading && state->hasFocus && state->focusedRow < state->directory.count;
+    u64 order[Prog_MaxPanels];
+    u32 panels = Prog__PanelsInOrder(state, 0, order, 0);
+    switch (kind) {
+        case Prog_CommandKind_OpenFocused: case Prog_CommandKind_OpenInTab: case Prog_CommandKind_OpenInRightSplit: case Prog_CommandKind_OpenInBottomSplit:
+        case Prog_CommandKind_CopySelection: case Prog_CommandKind_CutSelection: case Prog_CommandKind_Trash: case Prog_CommandKind_SelectionDelete:
+        case Prog_CommandKind_Duplicate: case Prog_CommandKind_CalcDirsContents:
+            return item;
+        case Prog_CommandKind_Rename: case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
+        case Prog_CommandKind_OpenContainingPathInTab:
+            return focused;
+        case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
+        case Prog_CommandKind_SelectionMoveNextPanel:
+            return item && panels > 1;
+        case Prog_CommandKind_Back: return state->historyAt > 0;
+        case Prog_CommandKind_Forward: return state->historyAt + 1 < state->history.header.count;
+        case Prog_CommandKind_Up: return Prog_UpPath(state->directory.path).length != 0;
+        case Prog_CommandKind_Undo: return state->undo.header.count != 0;
+        case Prog_CommandKind_Redo: return state->redo.header.count != 0;
+        case Prog_CommandKind_ApplyFilter: case Prog_CommandKind_RemoveFilter: return state->filter.length || state->filtering;
+        case Prog_CommandKind_RecentsClear: return state->recents.header.count != 0;
+        case Prog_CommandKind_BookmarksClear: return state->bookmarks.header.count != 0;
+        case Prog_CommandKind_FolderViewsClear: return state->folderViews.header.count != 0;
+        case Prog_CommandKind_PanelSelectNext: case Prog_CommandKind_PanelSelectPrev: case Prog_CommandKind_PanelLeft: case Prog_CommandKind_PanelRight:
+        case Prog_CommandKind_PanelUp: case Prog_CommandKind_PanelDown:
+            return panels > 1;
+        case Prog_CommandKind_TogglePanelZoom: return panels > 1 || state->zoomedPanel;
+        case Prog_CommandKind_TabCloseOthers: case Prog_CommandKind_TabSelectNext: case Prog_CommandKind_TabSelectPrev: case Prog_CommandKind_TabSelectLast:
+            return state->tabCount > 1;
+        case Prog_CommandKind_TabCloseLeftTabs: case Prog_CommandKind_TabShiftLeft: return state->activeTab > 0;
+        case Prog_CommandKind_TabCloseRightTabs: case Prog_CommandKind_TabShiftRight: return state->activeTab + 1 < state->tabCount;
+        case Prog_CommandKind_TabReopen: return state->closedTabs.header.count != 0;
+        case Prog_CommandKind_TabSelect1: case Prog_CommandKind_TabSelect2: case Prog_CommandKind_TabSelect3: case Prog_CommandKind_TabSelect4:
+        case Prog_CommandKind_TabSelect5: case Prog_CommandKind_TabSelect6: case Prog_CommandKind_TabSelect7: case Prog_CommandKind_TabSelect8:
+            return state->tabCount > (u32)(kind - Prog_CommandKind_TabSelect1);
+        case Prog_CommandKind_InspectorToggleDetails: case Prog_CommandKind_InspectorChangeLayout: case Prog_CommandKind_InspectorIncreaseContentsSize:
+        case Prog_CommandKind_InspectorDecreaseContentsSize: case Prog_CommandKind_InspectorToggleHex:
+            return state->previewShown;
+        case Prog_CommandKind_InspectorToggleWordWrap: case Prog_CommandKind_InspectorToggleLineNumbers: case Prog_CommandKind_InspectorToggleWhitespace:
+        case Prog_CommandKind_InspectorStartFilter:
+            return state->previewShown && state->previewText.length;
+        case Prog_CommandKind_InspectorToggleImageGrid: case Prog_CommandKind_InspectorToggleImageMinimap: case Prog_CommandKind_InspectorToggleImageScale:
+        case Prog_CommandKind_InspectorScaleImageUp: case Prog_CommandKind_InspectorScaleImageDown:
+            return state->previewShown && state->previewImage;
+        case Prog_CommandKind_RenameInsertIncrementalID: case Prog_CommandKind_RenameInsertCurrentDate: case Prog_CommandKind_RenameInsertCreateDate:
+        case Prog_CommandKind_RenameInsertModifiedDate: case Prog_CommandKind_RenamePrev: case Prog_CommandKind_RenameNext:
+            return state->renaming;
+        default: return true;
+    }
+}
+
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 {
     String text = Prog_EditText(&state->palette);

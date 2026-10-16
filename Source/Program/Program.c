@@ -4622,9 +4622,12 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     if (state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
     if (state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
-    u32 first = state->paletteScroll, shown = Min(count - first, visible + 1);
+    // The rows slide to where the scroll stops rather than jump.
+    f32 scrolled = count > visible ? UI_Animate(UI_KeyFromStr(0, S("PaletteScroll")), (f32)state->paletteScroll, (f32)state->paletteScroll) : 0;
+    u32 first = Min((u32)scrolled, count ? count - 1 : 0), shown = Min(count - first, visible + 2);
+    f32 lag = (scrolled - (f32)first) * row;
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
-    f32 listHeight = MinF32((f32)shown * row - line, room) + 2 * pad;
+    f32 listHeight = MinF32((f32)Min(count - state->paletteScroll, visible + 1) * row - line, room) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     // It fades in as the menus do.
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
@@ -4690,7 +4693,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
         // Room on the right for the scroll bar while there is one.
         f32 bar = floorf(6.4f * s + 0.5f), side = floorf(6.4f * s + 0.5f), gutter = count > visible ? floorf(19.2f * s + 0.5f) : side;
-        UI_SetNextChildrenPadding((UI_Padding){ side, pad, gutter, pad });
+        UI_SetNextChildrenPadding((UI_Padding){ side, pad - floorf(lag), gutter, pad + floorf(lag) });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
             for (u32 i = first; i < first + shown; ++i) {
@@ -4703,9 +4706,11 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Palette/%u/%u", (u32)at.group, (u32)at.kind));
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
                 f32 face = row - line, slot = floorf(21.6f * s + 0.5f);
-                // The pointer's row is the highlight's color washed out, inside its outline.
+                // The pointer's row is the highlight's color washed out, inside its outline; a command that would do nothing now is dimmed,
+                // and highlighted in that washed-out color.
                 R_Color washed = theme->selection;
                 washed.a *= 0.35f;
+                b32 able = at.kind == Prog_CommandKind_None || Prog_CommandAvailable(state, (Prog_CommandKind)at.kind);
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(face));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -4713,12 +4718,13 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(12.0f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
                 UI_SetNextBorderThickness(1.2f * s);
-                UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
+                UI_SetNextColors((UI_Colors){ .background = highlighted && able ? theme->selection : washed, .border = theme->selection });
                 UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
                 if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
                 UI_Parent(entry) {
-                    R_Color icon = highlighted ? theme->text : theme->icon;
+                    // The highlight shows a row that would do nothing in full, on its washed-out color.
+                    R_Color icon = highlighted ? theme->text : able ? theme->icon : theme->iconDisabled, named = able || highlighted ? theme->text : theme->textDim;
                     if (at.kind == Prog_CommandKind_None) {
                         // A group's title, which opens and closes it.
                         b32 open = state->paletteExpanded & (1u << at.group);
@@ -4730,7 +4736,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         if (searching) {
                             // A command found by searching shows its group in front of it.
                             Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
-                            Prog__Label(groupNames[at.group], UI_Pixels(floorf(63.2f * s + 0.5f)), face, 0, theme->text, 0);
+                            Prog__Label(groupNames[at.group], UI_Pixels(floorf(63.2f * s + 0.5f)), face, 0, named, 0);
                             Prog__Icon(Icon_ChevronRight, floorf(20.8f * s + 0.5f), face, icon, 0, m);
                         } else {
                             Prog__Spacer(UI_Pixels(slot + floorf(1.6f * s + 0.5f)), UI_Pixels(face));
@@ -4745,10 +4751,12 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextChildrenPadding((UI_Padding){ 0, state->paletteCompact ? floorf((face - m->line) * 0.5f) : floorf(4.8f * s + 0.5f), 0, 0 });
                         UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
                         UI_Parent(texts) {
-                            Prog__MarkedText(desc->label, labelMarks, m->font, m->line, theme->text);
+                            Prog__MarkedText(desc->label, labelMarks, m->font, m->line, named);
                             if (!state->paletteCompact) {
                                 Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
-                                Prog__MarkedText(desc->tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : theme->textDim);
+                                R_Color described = theme->textDim;
+                                if (!able && !highlighted) described.a *= 0.6f;
+                                Prog__MarkedText(desc->tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : described);
                             }
                         }
                         String hotkeys[3];
@@ -4764,7 +4772,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             if (count > visible) {
                 // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
                 f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)count), row);
-                f32 offset = floorf((track - thumb) * (f32)first / (f32)(count - visible));
+                f32 offset = floorf((track - thumb) * scrolled / (f32)(count - visible));
                 UI_SetNextFloatingOffset((UI_Vec2){ width - side - gutter + floorf((gutter - bar) * 0.5f), offset });
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));
