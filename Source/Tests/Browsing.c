@@ -809,6 +809,13 @@ function void TestFileIcons(TestFileFixture *fixture)
     opened = P_ContextMenuOpen(&arena, (String){0}, &trash, 1, &menu);
     Check(opened && menu.count == 1 && StrIsEqual(menu.items[0].verb, S("open")));
     P_ContextMenuClose(&menu);
+    // What is in it is only deleted for good, and its background offers nothing to paste or make; the program adds putting things back.
+    opened = P_ContextMenuOpen(&arena, StrFormat(&arena, "%S/files", trash), names, 1, &menu);
+    Check(opened && menu.count == 1 && menu.items[0].action == P_MenuAction_Delete);
+    P_ContextMenuClose(&menu);
+    opened = P_ContextMenuOpen(&arena, trash, NULL, 0, &menu);
+    Check(opened && menu.count == 0);
+    P_ContextMenuClose(&menu);
 #endif
     ArenaRelease(&arena);
 }

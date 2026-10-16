@@ -687,10 +687,13 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
     switch (kind) {
         case Prog_CommandKind_OpenFocused: case Prog_CommandKind_OpenInTab: case Prog_CommandKind_OpenInRightSplit: case Prog_CommandKind_OpenInBottomSplit:
         case Prog_CommandKind_CopySelection: case Prog_CommandKind_CutSelection: case Prog_CommandKind_Trash: case Prog_CommandKind_SelectionDelete:
-        case Prog_CommandKind_Duplicate: case Prog_CommandKind_CalcDirsContents:
+        case Prog_CommandKind_CalcDirsContents:
             return item;
+        // What is in the bin is put back or deleted, not copied beside itself or renamed there.
+        case Prog_CommandKind_Duplicate: return item && !P_IsTrashFolder(state->directory.path);
+        case Prog_CommandKind_Rename: return focused && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_SelectionRestore: return item && P_IsTrashFolder(state->directory.path);
-        case Prog_CommandKind_Rename: case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
+        case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
         case Prog_CommandKind_OpenContainingPathInTab:
             return focused;
         case Prog_CommandKind_OpenRelativePath: case Prog_CommandKind_OpenRelativePathInTab: return focused && state->directory.expanded;
@@ -1227,17 +1230,19 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 // Puts Filey's own `item`, with `icon` when one is given, and a line after it at the top of the open menu.
 function void Prog__MenuPrepend(Prog_State *state, P_MenuItem item, String icon)
 {
-    P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 2, P_MenuItem);
+    // A line parts it from the rest, where there is any.
+    u32 shift = state->menu.count ? 2 : 1;
+    P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + shift, P_MenuItem);
     items[0] = item;
     if (icon.length) P_LoadFileIcon(&state->menuArena, icon, P_FileKind_Directory, Max(state->iconSize, 16), state->iconScale, true, &items[0].icon);
-    items[1] = (P_MenuItem){ .separator = true };
+    if (shift == 2) items[1] = (P_MenuItem){ .separator = true };
     for (u32 i = 0; i < state->menu.count; ++i) {
-        items[i + 2] = state->menu.items[i];
-        if (items[i + 2].childCount) items[i + 2].firstChild += 2;
+        items[i + shift] = state->menu.items[i];
+        if (items[i + shift].childCount) items[i + shift].firstChild += shift;
     }
     state->menu.items = items;
-    state->menu.count += 2;
-    state->menu.rootCount += 2;
+    state->menu.count += shift;
+    state->menu.rootCount += shift;
 }
 
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
@@ -1276,6 +1281,11 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     if (P_IsTrashFolder(state->directory.path) && !restores && (state->menuRowCount || state->directory.count)) {
         Prog__MenuPrepend(state, state->menuRowCount ? (P_MenuItem){ .label = S("Restore"), .action = P_MenuAction_Restore }
                                                      : (P_MenuItem){ .label = S("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
+    }
+    // A menu left with nothing in it, as an empty bin's background is, does not open.
+    if (!state->menu.count) {
+        Prog_CloseMenu(state);
+        return;
     }
     Prog__ApplyMenuPins(state);
     state->menuAt = mouse ? state->ui.mouse
@@ -1801,7 +1811,13 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             b32 cut = false;
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
         } break;
-        case Prog_CommandKind_Trash: Prog__FileJob(state, Prog_JobKind_Trash, paths, count, state->directory.path, false, (String){0}); break;
+        case Prog_CommandKind_Trash:
+            // In the bin, as in Explorer's, the key that trashes deletes for good, after asking.
+            if (!P_IsTrashFolder(state->directory.path)) {
+                Prog__FileJob(state, Prog_JobKind_Trash, paths, count, state->directory.path, false, (String){0});
+                break;
+            }
+            [[fallthrough]];
         case Prog_CommandKind_SelectionDelete: {
             // Where the system asks itself, the delete starts at once and its own confirmation comes first; elsewhere nothing is deleted
             // until the confirmation here is accepted.

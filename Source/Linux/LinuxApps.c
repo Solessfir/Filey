@@ -423,14 +423,20 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     // The trash is a place to look in, as Windows' Recycle Bin is, rather than a folder to copy or delete; the program adds emptying it.
     Scratch scratch = GetScratchEx(arena);
     b32 trash = count == 1 && P_IsTrashFolder(data->paths[0]);
+    // What is in it, named by its place under the trash's files folder, is only deleted for good; the program adds putting it back.
+    Index slash = StrIndexChar(directory, '/', SSF_SearchBackwards);
+    b32 inTrash = P_IsTrashFolder(directory) ||
+                  (slash.exists && StrIsEqual(StrFrom(directory, slash.value + 1), S("files")) && P_IsTrashFolder(StrFromTo(directory, 0, (i64)slash.value)));
     b32 oneFolder = count == 1 && P__IsDirectory(scratch.arena, data->paths[0]);
     P__App *apps[MaxApps];
-    u64 appCount = count && !trash ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), false, apps, MaxApps) : 0;
+    u64 appCount = count && !trash && !inTrash ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), false, apps, MaxApps) : 0;
     const char *run[2] = {0};
-    b32 terminal = !trash && (!count || oneFolder) && P__FindTerminal(scratch.arena, run) != NULL;
+    b32 terminal = !trash && !inTrash && (!count || oneFolder) && P__FindTerminal(scratch.arena, run) != NULL;
     ReleaseScratch(scratch);
     u32 openWith = UINT32_MAX;
-    if (count) {
+    if (inTrash) {
+        if (count) items[itemCount++] = (P_MenuItem){ .label = S("Delete"), .action = P_MenuAction_Delete };
+    } else if (count) {
         items[itemCount++] = (P_MenuItem){ .label = S("Open"), .verb = S("open"), .isDefault = true };
         if (appCount) {
             openWith = itemCount;
@@ -441,7 +447,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         itemTerminal[itemCount] = true;
         items[itemCount++] = (P_MenuItem){ .label = S("Open in Terminal"), .verb = S("openterminal") };
     }
-    if (count && !trash) {
+    if (count && !trash && !inTrash) {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
         items[itemCount++] = (P_MenuItem){ .label = S("Copy"), .verb = S("copy"), .action = P_MenuAction_Copy };
@@ -451,14 +457,14 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         if (count == 1) items[itemCount++] = (P_MenuItem){ .label = S("Rename"), .verb = S("rename") };
         items[itemCount++] = (P_MenuItem){ .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
         items[itemCount++] = (P_MenuItem){ .label = S("Delete"), .action = P_MenuAction_Delete };
-    } else if (!count) {
+    } else if (!count && !inTrash) {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .label = S("New") };
     }
     u32 rootCount = itemCount;
-    if (!count) {
+    if (!count && !inTrash) {
         items[rootCount - 1].firstChild = rootCount;
         items[rootCount - 1].childCount = 2;
         items[itemCount++] = (P_MenuItem){ .label = S("Folder"), .action = P_MenuAction_NewFolder };
