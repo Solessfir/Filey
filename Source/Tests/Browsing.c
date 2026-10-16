@@ -1297,6 +1297,8 @@ function void TestFileOperations(TestFileFixture *fixture)
         progress = (P_Progress){ .policy = P_Conflict_Replace };
         Check(!P_TransferItems(&arena, &plain, 1, ops, false, &progress, NULL, &token).code && TestListing(&arena, fixture, S("Ops")).header.count == 6);
         Check(atomic_load(&progress.doneItems) == 1 && atomic_load(&progress.doneBytes) == atomic_load(&progress.totalBytes));
+        // It names the file it copied last, under the source's name rather than the free one it was copied to first.
+        Check(StrIsEqual(Prog__TransferName(&arena, &progress), S("plain.txt")) && !(atomic_load(&progress.nameVersion) & 1));
     }
 #endif
     Check(!P_TransferItems(&arena, &folder, 1, ops, false, NULL, NULL, &token).code);

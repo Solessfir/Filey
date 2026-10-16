@@ -700,6 +700,16 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+// Puts `name` up as the file being copied, for the program to show.
+function void P__ProgressName(P_Progress *progress, const char *name)
+{
+    atomic_fetch_add(&progress->nameVersion, 1);
+    u64 length = 0;
+    for (; name[length] && length + 1 < CArrayCount(progress->name); ++length) atomic_store_explicit(&progress->name[length], name[length], memory_order_relaxed);
+    atomic_store_explicit(&progress->name[length], 0, memory_order_relaxed);
+    atomic_fetch_add(&progress->nameVersion, 1);
+}
+
 // Copies `name` in `sourceDir` to `targetName` in `targetDir`.
 // Folders are copied with everything in them and links as links; sockets, pipes and devices are skipped.
 // Returns EEXIST without touching anything when `targetName` is taken; `created` tells whether the target was made, so that a failed copy can be removed without touching anything else.
@@ -754,6 +764,7 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
         return error;
     }
     *created = true;
+    P__ProgressName(progress, name);
     u32 error = 0;
     b32 kernelCopy = true;
     char buffer[65536];

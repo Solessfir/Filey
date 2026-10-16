@@ -5732,7 +5732,22 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
-// Copies and moves that take a while, in cards at the bottom right: what goes where, how far it is, and a question when a name is taken.
+// The name of the file a transfer is copying, read again while the job rewrites it; empty before the first.
+function String Prog__TransferName(Arena *arena, P_Progress *progress)
+{
+    char *name = ArenaPushArrayNoZero(arena, CArrayCount(progress->name), char);
+    for (u32 tries = 0; tries < 100; ++tries) {
+        u32 version = atomic_load(&progress->nameVersion);
+        if (version & 1) continue;
+        u64 length = 0;
+        while (length + 1 < CArrayCount(progress->name) && (name[length] = atomic_load_explicit(&progress->name[length], memory_order_relaxed))) ++length;
+        atomic_thread_fence(memory_order_acquire);
+        if (atomic_load_explicit(&progress->nameVersion, memory_order_relaxed) == version) return StrMake(name, length);
+    }
+    return (String){0};
+}
+
+// Copies and moves that take a while, in cards at the bottom right: what goes where, the file being copied, how far it is, and a question when a name is taken.
 function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -5749,7 +5764,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         // Windows shows its own progress, so its transfers leave the counts at zero and never show here.
         if (!transfer->job || !items || (!asking && now - transfer->started < UINT64_C(400000))) continue;
         String target = StrMake((const char *)transfer->target, transfer->targetLength);
-        f32 height = 2 * pad + m->row * (asking ? 3 : 2) + (asking ? m->bar : 0);
+        f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0);
         bottom -= height + m->gap;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
@@ -5796,6 +5811,13 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             }
             // Bytes where there are any to copy; a move within one file system only counts its items.
             f32 done = bytes ? (f32)((f64)doneBytes / (f64)bytes) : (f32)((f64)doneItems / (f64)items);
+            if (!asking) {
+                UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Parent(now) {
+                    Prog__Label(Prog__TransferName(&state->frameArena, progress), UI_Flex(), m->row, 0, theme->textDim, 0);
+                    Prog__Label(StrFormat(&state->frameArena, "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
+                }
+            }
             String amount = bytes ? StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
                                   : StrFormat(&state->frameArena, "%" PRIu64 " of %" PRIu64, Min(doneItems, items), items);
             UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);

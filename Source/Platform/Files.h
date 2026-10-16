@@ -138,6 +138,9 @@ typedef struct P_Progress {
     atomic_uint policy;       // a P_Conflict, set before the operation starts
     b32 conflictFolder;       // what is asked about: the existing item `conflictName` in the target folder
     char conflictName[256];
+    // The name of the file being copied, which the job rewrites as it goes; `nameVersion` is odd while it does, so that a read across a rewrite is told.
+    atomic_uint nameVersion;
+    atomic_char name[256];
 } P_Progress;
 
 // Copies or moves the items at `paths` into `directory`.
