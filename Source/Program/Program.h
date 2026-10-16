@@ -890,6 +890,8 @@ typedef struct Prog_State {
     Arena menuPinArena;
     ArrayStr menuPins;
     P_ContextMenu menuBase;
+    UI_Vec2 menuPointer;      // where the pointer was in the last build, as only its moving decides the highlight
+    b32 menuPointerMoved;
     String menuMoved;         // the label of the item last pinned or unpinned, in menuArena, which slides to its place lit
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none

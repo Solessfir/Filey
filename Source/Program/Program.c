@@ -3531,7 +3531,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             rowsHeight += item->separator ? separatorHeight : itemHeight;
         }
         UI_Parent(list) for (u32 pass = 0; pass < 2; ++pass) for (u32 i = 0; i < shown; ++i) {
-            // The row just pinned or unpinned is drawn last, lit as a dragged one, over those it passes on its way.
+            // The row just pinned or unpinned is drawn last, over those it passes on its way.
             u32 index = visible[i];
             const P_MenuItem *item = &state->menu.items[index];
             b32 moving = level == 0 && state->menuMoved.length && StrIsEqual(item->label, state->menuMoved) && fabsf(slid[i] - placed[i]) > 0.5f;
@@ -3549,7 +3549,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             b32 enabled = !item->disabled || item->childCount;
             UI_Key key = keys[i];
             // Moving the mouse onto an item decides the highlight and which submenu is open, as in native menus; the keyboard takes over until the mouse moves to another item.
-            if (enabled && UI->hotKey == key && state->menuHot != key) {
+            // Rows sliding under a still pointer do not take the highlight from the keyboard's or the pinned row's.
+            if (enabled && UI->hotKey == key && state->menuPointerMoved) {
                 state->menuHighlight = index;
                 state->menuDepth = level;
                 if (item->childCount && level < CArrayCount(state->menuPath)) {
@@ -3558,7 +3559,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 }
             }
             b32 open = level < state->menuDepth && state->menuPath[level] == index;
-            b32 highlighted = enabled && (open || state->menuHighlight == index);
+            // The row on its way covers those it passes in the menu's own color, unlit until it is in place.
+            b32 highlighted = enabled && !moving && (open || state->menuHighlight == index);
             UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY });
             UI_SetNextPrefWidth(UI_Pixels(rowWidth));
             UI_SetNextPrefHeight(UI_Pixels(itemHeight));
@@ -3566,7 +3568,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             UI_SetNextChildrenPadding((UI_Padding){ iconLeft, 0, 0, 0 });
             UI_SetNextCornerRadius(m->radius * 2);
-            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_SetNextColors((UI_Colors){ .background = moving ? theme->menu : theme->selection });
             UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_Floating | (highlighted || moving ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
             // A highlight the keyboard moved scrolls into sight; the rows' places are the last layout's, in the list's content.
             // A first frame has no layout yet to go by, so it waits for the next.
@@ -5002,6 +5004,8 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
     UI_Interaction interaction = UI_InteractionFromBlock(catcher);
     if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, interaction.pressOrder);
+    state->menuPointerMoved = UI->mouse.x != state->menuPointer.x || UI->mouse.y != state->menuPointer.y;
+    state->menuPointer = UI->mouse;
     // Each open level is its own top-level panel, so no panel clips the next.
     Prog_MenuPlace place = { 0, state->menu.rootCount, state->menuAt.x, state->menuAt.y, 0 };
     for (u32 level = 0; level <= CArrayCount(state->menuPath); ++level) {
