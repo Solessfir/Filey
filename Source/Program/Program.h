@@ -599,17 +599,21 @@ typedef struct Prog_ArrayU32 { ArrayHeader header; u32 *v; } Prog_ArrayU32;
 enum { Prog_IndexFlag_Hidden = 1, Prog_IndexFlag_File = 2 };
 
 // Every folder and file on the drives, each as its name inside the entry of its parent, so that a few million fit; a root's name is its whole path.
+// Each name is packed as its length in two bytes and then its bytes, in `arena` or in the saved index file read into it.
 typedef struct Prog_Index {
     Arena arena;
-    ArrayStr names;
-    Prog_ArrayU32 parents;  // UINT32_MAX for a root
-    Prog_ArrayFlag flags;   // Prog_IndexFlag_
+    Arena tables;           // names, parents and flags, made for Prog_MaxIndexed entries at once so that they never move and leave copies behind
+    const u8 **names;
+    u32 *parents;           // UINT32_MAX for a root
+    u8 *flags;              // Prog_IndexFlag_
+    u64 count;
 } Prog_Index;
 
 // What was found inside the first `listed` of an index job's folders, in order, each with the entry of the folder it is in.
 // IndexLoad hands back a whole index the same way, `count` entries in its own arena.
 typedef struct Prog_Indexed {
     String *names;
+    const u8 **packed;  // IndexLoad: the names, in the file read
     u32 *parents;
     b8 *flags;
     u64 count;

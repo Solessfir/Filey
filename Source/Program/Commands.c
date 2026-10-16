@@ -428,9 +428,9 @@ function u16 Prog__GoToRank(i32 score)
 // Whether the index's `folder` is one of the folders close at hand, whose entries match by their path too.
 function b32 Prog__GoToNearby(const Prog_State *state, const Prog_Index *index, u32 folder)
 {
-    if (folder >= index->names.header.count) return false;
-    String name = index->names.v[folder];
-    if (index->parents.v[folder] == UINT32_MAX) name = Prog__FolderName(name);
+    if (folder >= index->count) return false;
+    String name = Prog_IndexName(index, folder);
+    if (index->parents[folder] == UINT32_MAX) name = Prog__FolderName(name);
     if (!MapsGetPtrNull(state->gotoNearbyNames, name)) return false;
     char made[1024];
     return MapsGetPtrNull(state->gotoNearbyPaths, Prog__IndexPathTo(made, sizeof(made), index, folder)) != NULL;
@@ -467,8 +467,8 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
     u32 lastParent = UINT32_MAX - 1;
     b32 inside = false;
     for (u64 at = from; at < to; ++at) {
-        u32 entry = (u32)at, parent = index->parents.v[entry];
-        String name = index->names.v[entry];
+        u32 entry = (u32)at, parent = index->parents[entry];
+        String name = Prog_IndexName(index, entry);
         // A root's name is its whole path.
         if (parent == UINT32_MAX) name = Prog__FolderName(name);
         if (parent != lastParent) {
@@ -540,7 +540,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     // Something typed searches every folder known, those of the drive index included, by name and then the few close at hand by path, as one list.
     if (cut < 0 && text.length) {
         // The walk's index once it is done, and before then the last run's, unless there is none.
-        const Prog_Index *index = state->indexDone || !state->savedIndex.names.header.count ? &state->index : &state->savedIndex;
+        const Prog_Index *index = state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, known = state->knownFolders.header.count;
         u64 nearby = recents + bookmarks + known;
         // Ranked by the score of the name and the shown path; within a score the walk's order keeps shallower entries first.
@@ -577,7 +577,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         }
         // Once a frame, so that every look in a frame sees the same rows; the walk's new entries are reached in turn.
         // Each frame looks for about 4 ms.
-        u64 entries = index->names.header.count;
+        u64 entries = index->count;
         if (state->gotoScanFrame != state->ui.frameIndex && state->gotoScanAt < entries) ProfileScope("GoToSearch") {
             state->gotoScanFrame = state->ui.frameIndex;
             Prog__GoToLook look = {
@@ -600,8 +600,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                     String path = Prog__IndexPathTo(made, sizeof(made), index, found.entry);
                     // The index finds the folders close at hand again.
                     if (MapsGetPtrNull(state->gotoSeen, path)) continue;
-                    u8 flags = (u8)index->flags.v[found.entry];
-                    String name = index->names.v[found.entry];
+                    u8 flags = index->flags[found.entry];
+                    String name = Prog_IndexName(index, found.entry);
                     b32 hidden = (flags & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.');
                     Prog__GoToPool(state, frame, (Prog_GoToItem){ StrCopy(arena, path), Prog_GoToSection_Found, (b8)((flags & Prog_IndexFlag_File) != 0), (b8)hidden, {0}, NULL }, rank);
                 }

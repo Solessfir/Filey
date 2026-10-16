@@ -1548,15 +1548,15 @@ function void TestTabs(TestFileFixture *fixture)
         Prog_TakeCompletions(&state);
         P__TestPause();
     } while ((!state.indexDone || state.indexJob || state.indexLoadJob) && PlatformNowMicroseconds() - start < Millions(5));
-    Check(state.indexStarted && state.indexDone && !state.indexJob && state.index.names.header.count >= 2);
+    Check(state.indexStarted && state.indexDone && !state.indexJob && state.index.count >= 2);
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Prog__EditReplace(&state.palette, (const u8 *)"mpt", 3);
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 1 && TestEndsWith(found[0].path, S("/Empty")) && !found[0].file);
     // A file is found as well, by its name.
     String fileName = {0};
-    for (u64 i = 0; i < state.index.names.header.count && !fileName.length; ++i) {
-        if (state.index.flags.v[i] & Prog_IndexFlag_File) fileName = state.index.names.v[i];
+    for (u64 i = 0; i < state.index.count && !fileName.length; ++i) {
+        if (state.index.flags[i] & Prog_IndexFlag_File) fileName = Prog_IndexName(&state.index, i);
     }
     Check(fileName.length);
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
@@ -1572,9 +1572,10 @@ function void TestTabs(TestFileFixture *fixture)
     load.input = &loadInput;
     Prog__DirectoryJob(&load);
     const Prog_Indexed *loaded = load.result;
-    Check(loaded && loaded->count == state.index.names.header.count);
+    Check(loaded && loaded->count == state.index.count);
     for (u64 i = 0; loaded && i < loaded->count; ++i) {
-        Check(StrIsEqual(loaded->names[i], state.index.names.v[i]) && loaded->parents[i] == state.index.parents.v[i] && loaded->flags[i] == state.index.flags.v[i]);
+        Check(StrIsEqual(Prog__PackedName(loaded->packed[i]), Prog_IndexName(&state.index, i)) && loaded->parents[i] == state.index.parents[i] &&
+              (u8)loaded->flags[i] == state.index.flags[i]);
     }
     ArenaRelease(&load.arena);
     // The options write their lines into Settings.txt, over the commented-out defaults, and apply at once; each keeps the others.

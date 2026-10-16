@@ -18,7 +18,6 @@ Not tonight: Miller columns and archives as folders (start only when asked), fon
 ## Go To and the drive index
 
 - List several folders at once during the walk. The first walk is limited by listing one folder at a time; parallel slices need their writes to `Index.bin.walk` kept in the order the entries join the index.
-- Pack the index's names into one buffer instead of a `String` per entry. A full walk of C: takes about 320 MB, mostly names and their headers.
 
 ## Recursive listing (Ctrl+E)
 

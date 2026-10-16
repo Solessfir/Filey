@@ -13,13 +13,50 @@ function String Prog_EntryModified(Arena *arena, const Prog_Entry *entry)
     return entry->file.metadataValid ? P_FormatFileTime(arena, entry->file.modifiedTimeUnix) : (String){0};
 }
 
+function String Prog__PackedName(const u8 *packed)
+{
+    u16 length;
+    MemCopy(&length, packed, sizeof(length));
+    return StrMake((const char *)packed + sizeof(length), length);
+}
+
+function String Prog_IndexName(const Prog_Index *index, u64 entry)
+{
+    return Prog__PackedName(index->names[entry]);
+}
+
+function void Prog_IndexAdd(Prog_Index *index, String name, u32 parent, u8 flags)
+{
+    if (index->count >= Prog_MaxIndexed) return;
+    if (!index->names) {
+        index->names = ArenaPushArrayNoZero(&index->tables, Prog_MaxIndexed, const u8 *);
+        index->parents = ArenaPushArrayNoZero(&index->tables, Prog_MaxIndexed, u32);
+        index->flags = ArenaPushArrayNoZero(&index->tables, Prog_MaxIndexed, u8);
+    }
+    u16 length = (u16)Min(name.length, (u64)UINT16_MAX);
+    u8 *packed = _ArenaPush(&index->arena, sizeof(length) + (u64)length, 1, 0);
+    MemCopy(packed, &length, sizeof(length));
+    MemCopy(packed + sizeof(length), name.value, length);
+    index->names[index->count] = packed;
+    index->parents[index->count] = parent;
+    index->flags[index->count] = flags;
+    ++index->count;
+}
+
+function void Prog_IndexRelease(Prog_Index *index)
+{
+    ArenaRelease(&index->arena);
+    ArenaRelease(&index->tables);
+    *index = (Prog_Index){0};
+}
+
 // The path of an index entry written into `text`, cut at `room`.
 function String Prog__IndexPathTo(char *text, u64 room, const Prog_Index *index, u32 entry)
 {
     // The names from the entry up to its root, then joined from the root down.
     String chain[256];
     u32 depth = 0;
-    for (u32 at = entry; at < index->names.header.count && depth < CArrayCount(chain); at = index->parents.v[at]) chain[depth++] = index->names.v[at];
+    for (u32 at = entry; at < index->count && depth < CArrayCount(chain); at = index->parents[at]) chain[depth++] = Prog_IndexName(index, at);
     u64 used = 0;
     for (u32 i = depth; i-- > 0;) {
         if (used && used < room && text[used - 1] != '/') text[used++] = '/';
@@ -34,7 +71,7 @@ function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
 {
     u64 length = 0;
     u32 depth = 0;
-    for (u32 at = entry; at < index->names.header.count && depth < 256; at = index->parents.v[at], ++depth) length += index->names.v[at].length + 1;
+    for (u32 at = entry; at < index->count && depth < 256; at = index->parents[at], ++depth) length += Prog_IndexName(index, at).length + 1;
     return Prog__IndexPathTo(ArenaPushArray(arena, Max(length, (u64)1), char), Max(length, (u64)1), index, entry);
 }
 
@@ -1261,7 +1298,7 @@ function void Prog__DirectoryJob(P_Job *job)
             if (at <= text.length) ++count;
         }
         count = Min(count, (u64)Prog_MaxIndexed);
-        result->names = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
+        result->packed = ArenaPushArray(&job->arena, Max(count, (u64)1), const u8 *);
         result->parents = ArenaPushArray(&job->arena, Max(count, (u64)1), u32);
         result->flags = ArenaPushArray(&job->arena, Max(count, (u64)1), b8);
         for (u64 at = Prog_IndexFileMagic.length; result->count < count;) {
@@ -1273,7 +1310,7 @@ function void Prog__DirectoryJob(P_Job *job)
             if (parent != UINT32_MAX && parent >= result->count) break;
             result->parents[result->count] = parent;
             result->flags[result->count] = (b8)text.value[at + 4];
-            result->names[result->count++] = StrMake(text.value + at + 7, length);
+            result->packed[result->count++] = (const u8 *)text.value + at + 5;
             at += 7 + length;
         }
         return;
@@ -3301,9 +3338,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         for (u64 i = 0; i < state->drives.header.count; ++i) {
             String root = state->drives.v[i].path;
             if (!root.length) continue;
-            ArrayPush(&index->arena, index->names, StrCopy(&index->arena, root));
-            ArrayPush(&index->arena, index->parents, UINT32_MAX);
-            ArrayPush(&index->arena, index->flags, (b8)0);
+            Prog_IndexAdd(index, root, UINT32_MAX, 0);
         }
         if (state->configDirectory.length) {
             P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
@@ -3324,15 +3359,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         // The next folders to list, past the files among them.
         u32 batch[4096];
         u64 batchCount = 0, at = state->indexAt;
-        for (; at < index->names.header.count && batchCount < CArrayCount(batch); ++at) {
-            if (!(index->flags.v[at] & Prog_IndexFlag_File)) batch[batchCount++] = (u32)at;
+        for (; at < index->count && batchCount < CArrayCount(batch); ++at) {
+            if (!(index->flags[at] & Prog_IndexFlag_File)) batch[batchCount++] = (u32)at;
         }
         state->indexAt = batchCount ? batch[0] : at;
-        if (!batchCount || index->names.header.count >= Prog_MaxIndexed) {
+        if (!batchCount || index->count >= Prog_MaxIndexed) {
             state->indexDone = true;
             // The walk replaces the last run's, on disk too.
-            ArenaRelease(&state->savedIndex.arena);
-            state->savedIndex = (Prog_Index){0};
+            Prog_IndexRelease(&state->savedIndex);
             if (state->configDirectory.length) {
                 P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
                 Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
@@ -3353,7 +3387,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 input->entries[i] = batch[i];
                 input->paths[i] = Prog_IndexPath(&job->arena, index, batch[i]);
             }
-            input->room = Prog_MaxIndexed - index->names.header.count;
+            input->room = Prog_MaxIndexed - index->count;
             input->restart = batch[0] == 0;
             if (state->configDirectory.length) input->name = StrFormat(&job->arena, "%S.walk", Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile));
             job->input = input;
@@ -3538,11 +3572,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_Index *index = &state->index;
                 // Past the folders listed, and the files between them.
                 state->indexAt = result->listed < input->pathCount ? input->entries[result->listed] : input->entries[input->pathCount - 1] + (u64)1;
-                for (u64 i = 0; i < result->count; ++i) {
-                    ArrayPush(&index->arena, index->names, StrCopy(&index->arena, result->names[i]));
-                    ArrayPush(&index->arena, index->parents, result->parents[i]);
-                    ArrayPush(&index->arena, index->flags, result->flags[i]);
-                }
+                for (u64 i = 0; i < result->count; ++i) Prog_IndexAdd(index, result->names[i], result->parents[i], (u8)result->flags[i]);
                 // Another frame hands out the next slice.
                 changed = true;
             }
@@ -3552,12 +3582,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // Kept in the job's arena, where its names point into the file read.
             if (result && result->count && !state->indexDone && !P_IsCancelled(&job->cancelToken)) {
                 Prog_Index *saved = &state->savedIndex;
-                ArenaRelease(&saved->arena);
-                *saved = (Prog_Index){ .arena = job->arena };
+                Prog_IndexRelease(saved);
+                *saved = (Prog_Index){ .arena = job->arena, .names = result->packed, .parents = result->parents, .flags = (u8 *)result->flags, .count = result->count };
                 job->arena = (Arena){0};
-                saved->names = (ArrayStr){ .header = { result->count, result->count }, .v = result->names };
-                saved->parents = (Prog_ArrayU32){ .header = { result->count, result->count }, .v = result->parents };
-                saved->flags = (Prog_ArrayFlag){ .header = { result->count, result->count }, .v = result->flags };
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_GoTo) {
@@ -3899,8 +3926,8 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->gotoArena);
     ArenaRelease(&state->gotoHistoryArena);
     ArenaRelease(&state->knownArena);
-    ArenaRelease(&state->index.arena);
-    ArenaRelease(&state->savedIndex.arena);
+    Prog_IndexRelease(&state->index);
+    Prog_IndexRelease(&state->savedIndex);
     ArenaRelease(&state->gotoFoundArena);
     ArenaRelease(&state->previewArena);
     *state = (Prog_State){0};
