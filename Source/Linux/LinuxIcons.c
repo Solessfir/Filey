@@ -602,12 +602,10 @@ function void P__BadgeWindows(P_Image *image)
 function void P__BadgeTux(Arena *arena, P_Image *image)
 {
     // Drawn here rather than taken from a theme, few of which have one in color; a light rim keeps its black body seen on dark sidebars.
+    // At a dozen pixels only its body, belly and feet read, so it has nothing else.
     local_persist const char tux[] =
         "<svg width=\"16\" height=\"16\"><ellipse cx=\"8\" cy=\"8.2\" rx=\"5.2\" ry=\"6.6\" fill=\"#1a1a1a\" stroke=\"#d8d8d8\" stroke-width=\"1\"/>"
         "<ellipse cx=\"8\" cy=\"10\" rx=\"3.5\" ry=\"4.6\" fill=\"#f2f2f2\"/>"
-        "<circle cx=\"6.4\" cy=\"4.6\" r=\"1.25\" fill=\"#f2f2f2\"/><circle cx=\"9.6\" cy=\"4.6\" r=\"1.25\" fill=\"#f2f2f2\"/>"
-        "<circle cx=\"6.6\" cy=\"4.8\" r=\"0.6\" fill=\"#1a1a1a\"/><circle cx=\"9.4\" cy=\"4.8\" r=\"0.6\" fill=\"#1a1a1a\"/>"
-        "<ellipse cx=\"8\" cy=\"6.7\" rx=\"1.8\" ry=\"1\" fill=\"#f6b40e\"/>"
         "<ellipse cx=\"5\" cy=\"14.7\" rx=\"2.6\" ry=\"1.2\" fill=\"#f6b40e\"/><ellipse cx=\"11\" cy=\"14.7\" rx=\"2.6\" ry=\"1.2\" fill=\"#f6b40e\"/></svg>";
     i32 size = Max(Min(image->width, image->height) * 3 / 5, 6);
     // nanosvg parses in place.
