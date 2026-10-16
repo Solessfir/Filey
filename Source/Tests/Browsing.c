@@ -2013,14 +2013,14 @@ function void TestApps(TestFileFixture *fixture)
     Check(P__TestMakeDirectory(fixture, S("Apps/bin")));
     String opener = Prog_JoinPath(&arena, root, S("bin/opener"));
     TestWriteText(&arena, fixture, S("Apps/data/applications/test.desktop"),
-                  StrFormat(&arena, "[Desktop Entry]\nType=Application\nName=Test Opener\nExec=%S --flag \"two words\" 100%%%% %%F\nMimeType=inode/directory;text/plain;\n", opener), 0600);
+                  StrFormat(&arena, "[Desktop Entry]\nType=Application\nName=Test Opener\nExec=%S --flag \"two words\" 100%%%% %%F\nMimeType=inode/directory;text/plain;image/png;\n", opener), 0600);
     TestWriteText(&arena, fixture, S("Apps/data/applications/vendor/other.desktop"),
                   S("[Desktop Entry]\nType=Application\nName=Another\nExec=other %u\nMimeType=inode/directory;\n"), 0600);
     TestWriteText(&arena, fixture, S("Apps/data/applications/hidden.desktop"),
                   S("[Desktop Entry]\nType=Application\nName=Hidden\nExec=hidden %f\nHidden=true\nMimeType=inode/directory;\n"), 0600);
     TestWriteText(&arena, fixture, S("Apps/data/applications/helper.desktop"),
                   S("[Desktop Entry]\nType=Application\nName=Helper\nExec=helper %f\nNoDisplay=true\nMimeType=inode/directory;\n"), 0600);
-    TestWriteText(&arena, fixture, S("Apps/config/mimeapps.list"), S("[Default Applications]\ninode/directory=missing.desktop;vendor-other.desktop;\n"), 0600);
+    TestWriteText(&arena, fixture, S("Apps/config/mimeapps.list"), S("[Default Applications]\ninode/directory=missing.desktop;vendor-other.desktop;\ntext/plain=test.desktop;\n"), 0600);
     TestWriteText(&arena, fixture, S("Apps/bin/opener"), S("#!/bin/sh\n{ pwd; printf '%s|' \"$@\"; echo; } > \"${0%/*}/../opened.tmp\" && /bin/mv \"${0%/*}/../opened.tmp\" \"${0%/*}/../opened\"\n"), 0700);
     TestWriteText(&arena, fixture, S("Apps/bin/kitty"), S("#!/bin/sh\n{ pwd; } > \"${0%/*}/../terminal.tmp\" && /bin/mv \"${0%/*}/../terminal.tmp\" \"${0%/*}/../terminal\"\n"), 0700);
 
@@ -2044,11 +2044,11 @@ function void TestApps(TestFileFixture *fixture)
     P__AppData data = {0};
     P__LoadApps(&data);
     P__App *apps[8];
-    u64 count = P__AppsFor(&data, S("inode/directory"), apps, CArrayCount(apps));
+    u64 count = P__AppsFor(&data, S("inode/directory"), false, apps, CArrayCount(apps));
     // The default comes first, past the missing one; hidden and NoDisplay entries are left out.
     Check(count == 2 && StrIsEqual(apps[0]->id, S("vendor-other.desktop")) && StrIsEqual(apps[1]->name, S("Test Opener")));
     P__App *textApps[8];
-    Check(P__AppsFor(&data, S("text/plain"), textApps, CArrayCount(textApps)) == 1);
+    Check(P__AppsFor(&data, S("text/plain"), false, textApps, CArrayCount(textApps)) == 1);
 
     String paths[2] = { Prog_JoinPath(&arena, fixture->path, S("plain.txt")), Prog_JoinPath(&arena, fixture->path, S("Zażółć 1.txt")) };
     ArrayStr args = {0};
@@ -2064,6 +2064,19 @@ function void TestApps(TestFileFixture *fixture)
         Check(!P__LaunchApp(&arena, test, paths, 2, root).code);
         String opened = TestWaitText(&arena, fixture, S("Apps/opened"));
         Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|%S|\n", root, paths[0], paths[1])));
+        // Opening a file starts its default application in the file's folder.
+        Check(P__TestRemovePath(fixture, S("Apps/opened"), false));
+        Check(!P__OpenPath(&arena, &data, paths[0]).code);
+        opened = TestWaitText(&arena, fixture, S("Apps/opened"));
+        Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|\n", fixture->path, paths[0])));
+        // A patch is a kind of text/plain, so the text application opens it too.
+        Check(P__TestRemovePath(fixture, S("Apps/opened"), false));
+        String patch = Prog_JoinPath(&arena, fixture->path, S("fix.patch"));
+        Check(!P__OpenPath(&arena, &data, patch).code);
+        opened = TestWaitText(&arena, fixture, S("Apps/opened"));
+        Check(StrIsEqual(opened, StrFormat(&arena, "%S\n--flag|two words|100%%|%S|\n", fixture->path, patch)));
+        // A type that mimeapps.list chooses nothing for goes to xdg-open, which PATH lacks here, even though the application lists it.
+        Check(P__OpenPath(&arena, &data, Prog_JoinPath(&arena, fixture->path, S("picture.png"))).code == ENOENT);
     }
     Check(!P__OpenTerminal(&arena, Prog_JoinPath(&arena, fixture->path, S("Empty"))).code);
     Check(StrIsEqual(TestWaitText(&arena, fixture, S("Apps/terminal")), StrFormat(&arena, "%S/Empty\n", fixture->path)));

@@ -73,6 +73,7 @@ typedef struct P__IconData {
     ArrayStr dataDirs;
     P__StrMap mimeByExtension;  // "txt" -> "text/plain"
     P__StrMap genericIcons;     // "text/plain" -> "text-x-generic"
+    P__StrMap mimeParents;      // "text/x-patch" -> "text/plain", several separated by ";"
     P__IconTheme *themes;       // lookup order: configured theme, what it inherits, hicolor
     u64 themeCount;
 } P__IconData;
@@ -217,6 +218,15 @@ function void P__LoadMime(Arena *arena, ArrayStr dataDirs)
             if (!MapsIndex(P__icons.genericIcons, mime).exists) {
                 MapsPut(arena, P__icons.genericIcons, mime, P__Trim(StrFrom(lines.v[i], colon.value + 1)));
             }
+        }
+        String subclasses = P__ReadFile(arena, StrFormat(arena, "%S/mime/subclasses", dataDirs.v[d]));
+        lines = StrSplit(arena, subclasses, '\n');
+        for (u64 i = 0; i < lines.header.count; ++i) {
+            Index space = StrIndexChar(lines.v[i], ' ', SSF_None);
+            if (!space.exists) continue;
+            String mime = StrFromTo(lines.v[i], 0, (i64)space.value), parent = P__Trim(StrFrom(lines.v[i], space.value + 1));
+            String parents = MapsGet(P__icons.mimeParents, String, mime);
+            MapsPut(arena, P__icons.mimeParents, mime, parents.length ? StrFormat(arena, "%S;%S", parents, parent) : parent);
         }
     }
 }

@@ -117,8 +117,9 @@ function i32 P__CompareFolded(String a, String b)
     return a.length == b.length ? 0 : a.length < b.length ? -1 : 1;
 }
 
-// Applications for `mime`, best first: the default, the associations the user added, then every other entry that lists the type, by name.
-function u64 P__AppsFor(const P__AppData *data, String mime, P__App **out, u64 capacity)
+// Applications for `mime`, best first: the default, the associations the user added, then every other entry that lists the type, by name,
+// unless `chosenOnly` keeps just those that mimeapps.list chooses.
+function u64 P__AppsFor(const P__AppData *data, String mime, b32 chosenOnly, P__App **out, u64 capacity)
 {
     u64 count = 0;
     Scratch scratch = GetScratch();
@@ -146,7 +147,7 @@ function u64 P__AppsFor(const P__AppData *data, String mime, P__App **out, u64 c
         }
     }
     u64 sorted = count;
-    for (u64 i = 0; i < data->apps.header.count && count < capacity; ++i) {
+    for (u64 i = 0; !chosenOnly && i < data->apps.header.count && count < capacity; ++i) {
         P__App *app = &data->apps.v[i];
         if (!app->exec.length || app->noDisplay || !P__ListHas(app->mimeTypes, mime) || P__ListHas(removed.buffer, app->id)) continue;
         b32 listed = false;
@@ -298,6 +299,83 @@ function P_FileError P__OpenTerminal(Arena *arena, String directory)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+// The application mimeapps.list chooses for `mime`, or else for the nearest type it is a kind of, as text/x-patch is of text/plain.
+// xdg-open in the generic mode of desktops such as Hyprland looks at the type itself only, so it finds no editor for a patch.
+function P__App *P__ChosenApp(const P__AppData *data, String mime)
+{
+    pthread_once(&P__iconsOnce, P__LoadIconData);
+    String types[16] = { mime };
+    u32 count = 1;
+    P__App *app = NULL;
+    for (u32 i = 0; i < count && !app; ++i) {
+        P__AppsFor(data, types[i], true, &app, 1);
+        String parents = MapsGet(P__icons.mimeParents, String, types[i]);
+        for (u64 from = 0, to = 0; to <= parents.length; ++to) {
+            if (to < parents.length && parents.value[to] != ';') continue;
+            String parent = StrFromTo(parents, from, (i64)to);
+            from = to + 1;
+            b32 seen = !parent.length;
+            for (u32 j = 0; j < count && !seen; ++j) seen = StrIsEqual(types[j], parent);
+            if (!seen && count < CArrayCount(types)) types[count++] = parent;
+        }
+    }
+    // Every text type is also text/plain.
+    if (!app && StrIsEqual(StrFromTo(mime, 0, 5), S("text/"))) P__AppsFor(data, S("text/plain"), true, &app, 1);
+    return app;
+}
+
+// An executable ELF file, which runs rather than opens; xdg-open has no handler for programs. Executable scripts still open in their
+// editor, and so do the files of mounts that mark every file executable.
+function b32 P__IsProgram(const char *file, const struct stat *metadata)
+{
+    if (!S_ISREG(metadata->st_mode) || access(file, X_OK) != 0) return false;
+    u8 magic[4] = {0};
+    i32 descriptor = open(file, O_RDONLY | O_CLOEXEC);
+    b32 result = descriptor >= 0 && read(descriptor, magic, sizeof(magic)) == sizeof(magic) && MemCompare(magic, "\x7f" "ELF", sizeof(magic)) == 0;
+    if (descriptor >= 0) close(descriptor);
+    return result;
+}
+
+// Opens `path` as a double click does: a program runs, and a file starts the application mimeapps.list chooses for its type among `data`'s.
+// Any other file goes to xdg-open, which can look inside a file whose name tells no type and has its own order for unchosen applications.
+function P_FileError P__OpenPath(Arena *arena, const P__AppData *data, String path)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String absolute = P_AbsolutePath(scratch.arena, path);
+    char *file = absolute.length ? P__FilePathCString(scratch.arena, absolute) : NULL;
+    u32 error = file ? 0 : (u32)errno;
+    P_FileError result = {0};
+    if (file) {
+        // Programs and applications start in the file's folder, as Windows starts them.
+        Index slash = StrIndexChar(absolute, '/', SSF_SearchBackwards);
+        String directory = slash.value ? StrFromTo(absolute, 0, (i64)slash.value) : S("/");
+        struct stat metadata = {0};
+        b32 found = stat(file, &metadata) == 0;
+        String mime = P__MimeForName(absolute, found && S_ISDIR(metadata.st_mode));
+        P__App *app = StrIsEqual(mime, S("application/octet-stream")) ? NULL : P__ChosenApp(data, mime);
+        if (found && P__IsProgram(file, &metadata)) {
+            char *args[] = {file, NULL};
+            error = P__Spawn(file, args, P__FilePathCString(scratch.arena, directory));
+        } else if (app) {
+            result = P__LaunchApp(arena, app, &absolute, 1, directory);
+        } else {
+            char *executable = P__FindExecutable(scratch.arena, S("xdg-open"), &error);
+            char *args[] = {"xdg-open", file, NULL};
+            if (executable) error = P__Spawn(executable, args, NULL);
+        }
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : result;
+}
+
+// ponytail: `order` is unused until a Linux launcher protocol carries neighboring files.
+function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
+{
+    (void)order;
+    pthread_once(&P__appsOnce, P__LoadGlobalApps);
+    return P__OpenPath(arena, &P__apps, path);
+}
+
 function P_FileError P_OpenConsole(Arena *arena, String directory)
 {
     return P__OpenTerminal(arena, directory);
@@ -343,7 +421,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     Scratch scratch = GetScratchEx(arena);
     b32 oneFolder = count == 1 && P__IsDirectory(scratch.arena, data->paths[0]);
     P__App *apps[MaxApps];
-    u64 appCount = count ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), apps, MaxApps) : 0;
+    u64 appCount = count ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), false, apps, MaxApps) : 0;
     const char *run[2] = {0};
     b32 terminal = (!count || oneFolder) && P__FindTerminal(scratch.arena, run) != NULL;
     ReleaseScratch(scratch);

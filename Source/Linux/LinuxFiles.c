@@ -323,23 +323,6 @@ function u32 P__Spawn(const char *executable, char **args, const char *directory
     return error;
 }
 
-// ponytail: `order` is unused until a Linux launcher protocol carries neighboring files.
-function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
-{
-    (void)order;
-    Scratch scratch = GetScratchEx(arena);
-    String absolute = P_AbsolutePath(scratch.arena, path);
-    char *file = absolute.length ? P__FilePathCString(scratch.arena, absolute) : NULL;
-    u32 error = file ? 0 : (u32)errno;
-    char *executable = file ? P__FindExecutable(scratch.arena, S("xdg-open"), &error) : NULL;
-    if (executable) {
-        char *args[] = {"xdg-open", file, NULL};
-        error = P__Spawn(executable, args, NULL);
-    }
-    ReleaseScratch(scratch);
-    return error ? P__FileError(arena, error) : (P_FileError){0};
-}
-
 function P_FileError P_OpenWindow(Arena *arena, String path)
 {
     Scratch scratch = GetScratchEx(arena);

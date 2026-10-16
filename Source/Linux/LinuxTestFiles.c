@@ -61,7 +61,7 @@ function b32 P__TestCreateFixture(TestFileFixture *fixture)
 function void P__TestRemoveFixture(TestFileFixture *fixture)
 {
     if (fixture->created && fixture->path.length) {
-        String launcherFiles[] = {S("xdg-open"), S("launch-argument"), S("launch-running"), S("launch-finished")};
+        String launcherFiles[] = {S("xdg-open"), S("launch-argument"), S("launch-running"), S("launch-finished"), S("program")};
         for (u64 i = 0; i < CArrayCount(launcherFiles); ++i) Check(P__TestRemovePath(fixture, launcherFiles[i], false));
         Check(P__TestRemovePath(fixture, S("refresh.txt"), false));
         Check(P__TestRemovePath(fixture, S("broken-link"), false));
@@ -100,6 +100,8 @@ function void P__TestOpenPath(TestFileFixture *fixture)
     const char *original = getenv("PATH");
     b32 hadPath = original != NULL;
     String savedPath = original ? StrCopy(scratch.arena, StrFromCStr(original)) : (String){0};
+    // No applications, so that files go to the fake xdg-open rather than to a real editor.
+    P__AppData none = {0};
     char *launcher = P__TestNativePath(scratch.arena, fixture, S("xdg-open"));
     String script = S("#!/bin/sh\nroot=${0%/*}\nprintf '%s' \"$1\" > \"$root/launch-argument\"\n: > \"$root/launch-running\"\n/bin/sleep 1\n: > \"$root/launch-finished\"\n");
     i32 file = open(launcher, O_WRONLY | O_CREAT | O_EXCL, 0700);
@@ -110,12 +112,14 @@ function void P__TestOpenPath(TestFileFixture *fixture)
     }
     Check(write(file, script.value, script.length) == (i64)script.length);
     Check(close(file) == 0);
+    u32 trueError = 0;
+    char *truePath = P__FindExecutable(scratch.arena, S("true"), &trueError);
     char *fixturePath = P__FilePathCString(scratch.arena, fixture->path);
     b32 isolated = setenv("PATH", fixturePath, 1) == 0;
     Check(isolated);
     if (!isolated) goto restore;
     String target = StrFormat(scratch.arena, "%S/Zażółć 🙂 ';$(printf unsafe).txt", fixture->path);
-    P_FileError error = P_OpenPath(&fixture->arena, target, (P_FileOrder){0});
+    P_FileError error = P__OpenPath(&fixture->arena, &none, target);
     Check(!error.code);
     u64 start = PlatformNowMicroseconds();
     while (!P__TestFileExists(fixture, S("launch-running")) && PlatformNowMicroseconds() - start < Millions(5)) P__TestPause();
@@ -130,18 +134,26 @@ function void P__TestOpenPath(TestFileFixture *fixture)
     }
     while (!P__TestFileExists(fixture, S("launch-finished")) && PlatformNowMicroseconds() - start < Millions(5)) P__TestPause();
     Check(P__TestFileExists(fixture, S("launch-finished")));
-    error = P_OpenPath(&fixture->arena, S("bad\0path"), (P_FileOrder){0});
+    // A program runs itself instead of going to xdg-open.
+    char *program = P__TestNativePath(scratch.arena, fixture, S("program"));
+    Check(truePath && unlink(P__TestNativePath(scratch.arena, fixture, S("launch-argument"))) == 0 && symlink(truePath, program) == 0);
+    error = P__OpenPath(&fixture->arena, &none, StrFormat(scratch.arena, "%S/program", fixture->path));
+    Check(!error.code);
+    start = PlatformNowMicroseconds();
+    while (PlatformNowMicroseconds() - start < Thousands(200)) P__TestPause();
+    Check(!P__TestFileExists(fixture, S("launch-argument")));
+    error = P__OpenPath(&fixture->arena, &none, S("bad\0path"));
     Check(error.code == EINVAL);
     char *emptyPath = P__TestNativePath(scratch.arena, fixture, S("Empty"));
     isolated = setenv("PATH", emptyPath, 1) == 0;
     Check(isolated);
     if (!isolated) goto restore;
-    error = P_OpenPath(&fixture->arena, target, (P_FileOrder){0});
+    error = P__OpenPath(&fixture->arena, &none, target);
     Check(error.code == ENOENT && error.message.length);
     isolated = setenv("PATH", fixturePath, 1) == 0 && chmod(launcher, 0600) == 0;
     Check(isolated);
     if (!isolated) goto restore;
-    error = P_OpenPath(&fixture->arena, target, (P_FileOrder){0});
+    error = P__OpenPath(&fixture->arena, &none, target);
     Check(error.code == EACCES);
 restore:
     if (hadPath) {
