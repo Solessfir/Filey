@@ -255,6 +255,7 @@ function f32 Prog__ParseNumber(String value)
 global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { S("persistent"), S("session"), S("never") };
 global const String Prog_OptionStartups[Prog_Startup_Count] = { S("session"), S("root"), S("home") };
 global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { S("root"), S("home"), S("current") };
+global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { S("filter"), S("hotkey"), S("select") };
 
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
@@ -285,6 +286,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->inactiveShift = 0;
     state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
     state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
+    state->characterKeys = Prog_CharacterKeys_TypeInFilter;
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
@@ -396,6 +398,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->noOverscroll = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("scroll.reverse"))) {
             state->reverseScroll = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("keys.character"))) {
+            for (u32 i = 0; i < Prog_CharacterKeys_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionCharacterKeys[i])) state->characterKeys = (u8)i;
         } else if (StrIsEqual(name, S("inactive.opacity"))) {
             if (number >= 0 && number <= 100) state->inactiveShift = (i32)number - 60;
         } else if (StrIsEqual(name, S("transparent"))) {
@@ -421,7 +425,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
                 for (u64 at = 0; at < value.length;) {
                     Index comma = StrIndexChar(StrFrom(value, at), ',', SSF_CountOnFail);
                     Prog_Hotkey hotkey = { .command = (u8)k };
-                    if (Prog_ParseHotkey(StrFromTo(value, at, (i64)(at + comma.value)), &hotkey.key, &hotkey.mods) && state->userHotkeyCount < CArrayCount(state->userHotkeys)) {
+                    if (Prog_ParseHotkey(StrFromTo(value, at, (i64)(at + comma.value)), &hotkey) && state->userHotkeyCount < CArrayCount(state->userHotkeys)) {
                         state->userHotkeys[state->userHotkeyCount++] = hotkey;
                     }
                     at += comma.value + 1;
@@ -466,6 +470,9 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# scroll past the last item, and turn the wheel around.\n"
                                 "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.underline = true\n"
                                 "# click.doubleToParent = false\n# scroll.over = true\n# scroll.reverse = false\n\n"
+                                "# What a letter or other character key does in the lists, without modifiers but Shift: type into the filter (filter),\n"
+                                "# run its hotkey, such as J to go down (hotkey), or select the item whose name starts with what is typed (select).\n"
+                                "# keys.character = filter\n\n"
                                 "# What the lists show: file extensions, hidden and dot files, and the system's own files.\n"
                                 "# files.extensions = true\n# files.hidden = false\n# files.system = false\n\n"
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
@@ -504,13 +511,12 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                                "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
                                                "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
                                                "# transparent = false\n# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
-    StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas; \"none\" removes a command's.\n"));
+    StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas, and \"G G\" for G pressed twice; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
     for (u32 k = Prog_CommandKind_None + 1; k < Prog_CommandKind_Count; ++k) {
         if (!Prog_Commands[k].label.length) continue;
-        String hotkey = Prog_HotkeyText(arena, &defaults, (Prog_CommandKind)k);
-        StrBuildStr(arena, &text, StrFormat(arena, "# hotkey.%S = %S\n", Prog_Commands[k].name, hotkey.length ? hotkey : S("none")));
+        StrBuildStr(arena, &text, StrFormat(arena, "# hotkey.%S = %S\n", Prog_Commands[k].name, Prog_HotkeysSetting(arena, &defaults, (Prog_CommandKind)k)));
     }
     return text.buffer;
 }
@@ -583,6 +589,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_Overscroll] = { S("Scroll Beyond Last Item"), S("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("scroll.over") },
     [Prog_Option_ReverseScroll] = { S("Reverse Scroll Direction"), S("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
                                     Prog_OptionSwitch, 2, S("scroll.reverse") },
+    [Prog_Option_CharacterKeyAction] = { S("Character Key Action"), S("Determines the action when you press raw character keys without modifiers."),
+                                         Prog_OptionControl_Choice, 0, 0, Prog_OptionCharacterKeys, Prog_CharacterKeys_Count, S("keys.character") },
     [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
     [Prog_Option_LoadOnStartup] = { S("Load On Startup"), S("Previous session or location to load on startup."), Prog_OptionControl_Choice, 0, 0,
@@ -651,6 +659,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_DoubleClickToParent: return state->doubleClickToParent;
         case Prog_Option_Overscroll: return !state->noOverscroll;
         case Prog_Option_ReverseScroll: return state->reverseScroll;
+        case Prog_Option_CharacterKeyAction: return state->characterKeys;
         case Prog_Option_Transparency: return state->transparent != 0;
         case Prog_Option_PopupBlur: return (i32)floorf(Prog_GlassBlur + 0.5f);
         case Prog_Option_Backdrop: return state->glassBackdrop;
@@ -1006,13 +1015,16 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
                : kind == Prog_CommandKind_HistoryMenu ? S("History") : tabs ? (String){0} : S("View");
     if (enabled && !lit) Prog__NoteTooltip(state, kind, tip);
     UI_Interaction interaction = UI_InteractionFromBlock(block);
+    R_Rect rect = block->rect;
+    UI_Vec2 at = { rect.x0, rect.y1 + floorf(4.0f * m->scale + 0.5f) };
+    // The main menu hangs just under the title bar, also when its hotkey opens it.
+    if (main) {
+        at.y = UI->root->rect.y0 + m->separator + Prog__TitleStripHeight(m) + floorf((PlatformWindowIsMaximized() ? 3.2f : 2.4f) * m->scale + 0.5f);
+        state->mainMenuAt = at;
+    }
     if (enabled && interaction.clicked) {
-        R_Rect rect = block->rect;
-        f32 gap = floorf(4.0f * m->scale + 0.5f);
         Prog_Command *command = Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
-        command->at = (UI_Vec2){ rect.x0, rect.y1 + gap };
-        // The main menu hangs just under the title bar.
-        if (main) command->at.y = UI->root->rect.y0 + m->separator + Prog__TitleStripHeight(m) + floorf((PlatformWindowIsMaximized() ? 3.2f : 2.4f) * m->scale + 0.5f);
+        command->at = at;
         if (rect.x0 > (UI->root->rect.x0 + UI->root->rect.x1) * 0.5f) command->atRight = rect.x1;
     }
 }
@@ -2755,9 +2767,11 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         u64 position = Prog_ViewPosition(state, state->focusedRow);
         f32 top = (f32)((position == UINT64_MAX ? 0 : position) / perLine) * pitch.y;
         f32 height = Max(0.0f, list->rect.y1 - list->rect.y0);
-        if (top < list->scrollOffset.y) list->scrollOffset.y = top;
+        // Center Camera puts its line in the middle.
+        if (state->centerFocus) list->scrollOffset.y = Max(0.0f, top + pitch.y * 0.5f - height * 0.5f);
+        else if (top < list->scrollOffset.y) list->scrollOffset.y = top;
         else if (top + pitch.y > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + pitch.y - height);
-        state->revealFocus = false;
+        state->revealFocus = state->centerFocus = false;
     }
     if (snapScroll || !UI->animate) list->scrollShown = list->scrollOffset;
     // Only lines near the viewport get blocks; spacers stand in for the rest. While scrolling eases, both ends of the way are covered.
@@ -3396,8 +3410,9 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// A key chip as the menus and the palette show hotkeys, centered in a slot `slotHeight` tall; `lit` draws it for a highlighted row.
-function void Prog__Chip(String text, f32 slotHeight, b32 lit, const Prog_Metrics *m)
+// A key chip as the menus and the palette show hotkeys, centered in a slot `slotHeight` tall; `lit` draws it for a highlighted row, and `idle`
+// edges it in the danger color for a hotkey that does nothing now.
+function void Prog__Chip(String text, f32 slotHeight, b32 lit, b32 idle, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 pad = floorf(4.8f * m->scale + 0.5f), height = floorf(m->line * 1.35f + 0.5f);
@@ -3413,7 +3428,7 @@ function void Prog__Chip(String text, f32 slotHeight, b32 lit, const Prog_Metric
         UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
         UI_SetNextBorderThickness(0.8f * m->scale);
         UI_SetNextFont(m->detail);
-        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = lit ? theme->text : theme->outline, .text = lit ? theme->text : theme->icon });
+        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = idle ? theme->danger : lit ? theme->text : theme->outline, .text = lit ? theme->text : theme->icon });
         UI_SetNextText(text);
         UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
     }
@@ -3717,6 +3732,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     f32 box = floorf(16.0f * m->scale + 0.5f);
     String *chips = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, String);
     u32 *chipCounts = ArenaPushArray(&state->frameArena, Max(shown, 1u), u32);
+    b8 *chipIdle = ArenaPushArray(&state->frameArena, Max(shown, 1u) * 3, b8);
     f32 iconLeft = floorf(7.0f * m->scale + 0.5f), iconColumn = (f32)state->iconSize + floorf(8.0f * m->scale + 0.5f);
     // The search field is a band across the top in the inner color, over a line and a little room before the items.
     f32 fieldInset = floorf(2.4f * m->scale + 0.5f), fieldHeight = floorf(30.4f * m->scale + 0.5f);
@@ -3735,7 +3751,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             u32 mouse = command && command->mouse.length ? 1 : 0;
             if (mouse) chips[i * 3] = command->mouse;
             Prog_CommandKind kind = command ? (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind) : Prog__VerbCommand(item->verb);
-            chipCounts[i] = mouse + (kind ? Prog_HotkeyTexts(&state->frameArena, state, kind, chips + i * 3 + mouse, 3 - mouse) : 0);
+            chipCounts[i] = mouse + (kind ? Prog_HotkeyTexts(&state->frameArena, state, kind, chips + i * 3 + mouse, chipIdle + i * 3 + mouse, 3 - mouse) : 0);
             f32 end = command && command->toggle ? box + m->gap : 0;
             for (u32 c = 0; c < chipCounts[i]; ++c) end += R_TextWidth(m->detail, chips[i * 3 + c]) + 2 * chipPad + chipGap;
             if (end > 0) hotkeyWidth = end + m->inset - floorf(5.6f * m->scale + 0.5f);
@@ -4038,7 +4054,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     Prog__Spacer(UI_Pixels(star), UI_Pixels(itemHeight));
                 }
                 for (u32 c = 0; c < chipCounts[i]; ++c) {
-                    Prog__Chip(chips[i * 3 + c], itemHeight, highlighted, m);
+                    Prog__Chip(chips[i * 3 + c], itemHeight, highlighted, chipIdle[i * 3 + c], m);
                     Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(itemHeight));
                 }
                 if (command && command->toggle) {
@@ -4148,7 +4164,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
             Prog__Label(values[i], UI_TextContent(), row, 0, theme->textDim, 0);
             for (u32 c = 0; i + 1 == CArrayCount(labels) && c < CArrayCount(chips); ++c) {
                 Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(row));
-                Prog__Chip(chips[c], row, false, m);
+                Prog__Chip(chips[c], row, false, false, m);
             }
         }
     }
@@ -4175,7 +4191,8 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     String detail = state->tooltipDetail;
     b32 plain = state->tooltipKind == Prog_CommandKind_None, described = state->tooltipDescribes || plain;
     String hotkeys[3];
-    u32 hotkeyCount = plain || (detail.length && !described) ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, 3);
+    b8 idle[3] = {0};
+    u32 hotkeyCount = plain || (detail.length && !described) ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, idle, 3);
     if (described && !plain && !hotkeyCount) hotkeys[hotkeyCount++] = S("Blank");
     ArrayStr lines = detail.length ? StrSplit(&state->frameArena, detail, '\n') : (ArrayStr){0};
     f32 pad = floorf(9.6f * s + 0.5f), gap = floorf(4.8f * s + 0.5f), chipGap = floorf(8.0f * s + 0.5f), lineHeight = floorf(37.6f * s + 0.5f);
@@ -4224,7 +4241,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
                 Prog__Label(label, UI_TextContent(), commandRow, 0, theme->textDim, 0);
                 for (u32 i = 0; i < hotkeyCount; ++i) {
                     Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(commandRow));
-                    Prog__Chip(hotkeys[i], commandRow, false, m);
+                    Prog__Chip(hotkeys[i], commandRow, false, idle[i], m);
                 }
             }
         }
@@ -4726,6 +4743,11 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return S("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return S("Vertical");
     if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return S("Last Session");
+    if (option == Prog_Option_CharacterKeyAction) {
+        if (StrIsEqual(name, S("filter"))) return S("Type In Filter");
+        if (StrIsEqual(name, S("hotkey"))) return S("Trigger Hotkey");
+        if (StrIsEqual(name, S("select"))) return S("Select Typed Item");
+    }
     String result = StrCopy(arena, name);
     if (result.length && result.value[0] >= 'a' && result.value[0] <= 'z') ((char *)result.value)[0] = (char)(result.value[0] - 'a' + 'A');
     return result;
@@ -5269,10 +5291,11 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                             }
                         }
                         String hotkeys[3];
-                        u32 hotkeyCount = Prog_HotkeyTexts(&state->frameArena, state, at.kind, hotkeys, 3);
+                        b8 idle[3];
+                        u32 hotkeyCount = Prog_HotkeyTexts(&state->frameArena, state, at.kind, hotkeys, idle, 3);
                         for (u32 c = 0; c < hotkeyCount; ++c) {
                             Prog__Spacer(UI_Pixels(floorf(3.2f * s + 0.5f)), UI_Pixels(face));
-                            Prog__Chip(hotkeys[c], face, highlighted, m);
+                            Prog__Chip(hotkeys[c], face, highlighted, idle[c], m);
                         }
                     }
                 }

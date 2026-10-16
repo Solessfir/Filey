@@ -348,13 +348,17 @@ global const char *Prog_KeyNames[Key_Count] = {
     [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PageUp", [Key_PageDown] = "PageDown", [Key_ContextMenu] = "ContextMenu", [Key_Comma] = "Comma",
-    [Key_Equals] = "Equals", [Key_Minus] = "Minus", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
+    [Key_Equals] = "Equals", [Key_Minus] = "Minus", [Key_Slash] = "Slash", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
+    [Key_Keypad0] = "Keypad0", [Key_Keypad1] = "Keypad1", [Key_Keypad2] = "Keypad2", [Key_Keypad3] = "Keypad3", [Key_Keypad4] = "Keypad4",
+    [Key_Keypad5] = "Keypad5", [Key_Keypad6] = "Keypad6", [Key_Keypad7] = "Keypad7", [Key_Keypad8] = "Keypad8", [Key_Keypad9] = "Keypad9",
 };
 global const char *Prog_KeyShortNames[Key_Count] = {
     [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
-    [Key_Equals] = "=", [Key_Minus] = "-", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
+    [Key_Equals] = "=", [Key_Minus] = "-", [Key_Slash] = "/", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
+    [Key_Keypad0] = "Keypad0", [Key_Keypad1] = "Keypad1", [Key_Keypad2] = "Keypad2", [Key_Keypad3] = "Keypad3", [Key_Keypad4] = "Keypad4",
+    [Key_Keypad5] = "Keypad5", [Key_Keypad6] = "Keypad6", [Key_Keypad7] = "Keypad7", [Key_Keypad8] = "Keypad8", [Key_Keypad9] = "Keypad9",
 };
 
 function b32 Prog__EqualFolded(String a, String b)
@@ -366,24 +370,58 @@ function b32 Prog__EqualFolded(String a, String b)
     return true;
 }
 
-// The hotkey `key` with `mods` runs: the settings' own first, then the defaults of the commands they leave alone.
-function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Key key, KeyMods mods)
+// The hotkey in `scope` that `key` with `mods` runs after `lead`, or Key_None for a key on its own: the settings' own first, then the defaults of the
+// commands they leave alone.
+function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Prog_HotkeyScope scope, Key lead, Key key, KeyMods mods)
 {
-    for (u32 i = 0; i < state->userHotkeyCount; ++i) {
-        if (state->userHotkeys[i].key == key && state->userHotkeys[i].mods == mods) return &state->userHotkeys[i];
-    }
-    for (u64 i = 0; i < CArrayCount(Prog_DefaultHotkeys); ++i) {
-        const Prog_Hotkey *hotkey = &Prog_DefaultHotkeys[i];
-        if (hotkey->key == key && hotkey->mods == mods && !state->hotkeyOverridden[hotkey->command]) return hotkey;
+    for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys); ++i) {
+        b32 user = i < state->userHotkeyCount;
+        const Prog_Hotkey *hotkey = user ? &state->userHotkeys[i] : &Prog_DefaultHotkeys[i - state->userHotkeyCount];
+        if (hotkey->key == key && hotkey->mods == mods && hotkey->lead == lead && Prog_Commands[hotkey->command].scope == scope && (user || !state->hotkeyOverridden[hotkey->command])) {
+            return hotkey;
+        }
     }
     return NULL;
 }
 
-// "Ctrl+Shift+S", modifiers in any order and case; false when it names no key.
-function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods)
+// Whether `key` starts a sequence in `scope`, such as the first G of "G G".
+function b32 Prog__HotkeyLeads(const Prog_State *state, Prog_HotkeyScope scope, Key key)
 {
-    *key = Key_None;
-    *mods = 0;
+    for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys); ++i) {
+        b32 user = i < state->userHotkeyCount;
+        const Prog_Hotkey *hotkey = user ? &state->userHotkeys[i] : &Prog_DefaultHotkeys[i - state->userHotkeyCount];
+        if (hotkey->lead == key && Prog_Commands[hotkey->command].scope == scope && (user || !state->hotkeyOverridden[hotkey->command])) return true;
+    }
+    return false;
+}
+
+// A key that types a character, without modifiers but Shift: letters, digits and punctuation. Space and '/' are left out, since their
+// hotkeys run however Character Key Action is set.
+function b32 Prog_IsCharacterKey(Key key, KeyMods mods)
+{
+    b32 typed = (key >= Key_A && key <= Key_Z) || (key >= Key_0 && key <= Key_9) || (key >= Key_Keypad0 && key <= Key_Keypad9) ||
+                key == Key_Comma || key == Key_Equals || key == Key_Minus;
+    return typed && !(mods & ~(KeyMods)KeyMod_Shift);
+}
+
+// "Ctrl+Shift+S", modifiers in any order and case, or a sequence of two keys such as "G G"; false when it names no key.
+function b32 Prog_ParseHotkey(String text, Prog_Hotkey *hotkey)
+{
+    hotkey->key = hotkey->lead = Key_None;
+    hotkey->mods = 0;
+    while (text.length && text.value[0] == ' ') text = StrFrom(text, 1);
+    while (text.length && text.value[text.length - 1] == ' ') --text.length;
+    // A space between two keys, rather than beside a '+', splits a sequence.
+    for (u64 i = 1; i + 1 < text.length; ++i) {
+        if (text.value[i] != ' ' || text.value[i - 1] == '+' || text.value[i - 1] == ' ' || text.value[i + 1] == '+' || text.value[i + 1] == ' ') continue;
+        Prog_Hotkey lead = {0};
+        if (!Prog_ParseHotkey(StrFromTo(text, 0, (i64)i), &lead) || lead.mods || lead.lead) return false;
+        b32 parsed = Prog_ParseHotkey(StrFrom(text, i + 1), hotkey);
+        hotkey->lead = lead.key;
+        return parsed && !hotkey->mods;
+    }
+    Key *key = &hotkey->key;
+    KeyMods *mods = &hotkey->mods;
     for (u64 at = 0; at <= text.length;) {
         Index plus = StrIndexChar(StrFrom(text, at), '+', SSF_CountOnFail);
         String part = StrFromTo(text, at, (i64)(at + plus.value));
@@ -416,37 +454,78 @@ function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods)
     return *key != Key_None;
 }
 
-// "Ctrl+Shift+S" for the first hotkey of `kind`, the settings' own before the defaults; empty when it has none.
-// Every hotkey of `kind`, up to `max` of them, in the order they are looked up; returns how many.
-function u32 Prog_HotkeyTexts(Arena *arena, const Prog_State *state, Prog_CommandKind kind, String *out, u32 max)
+// A key's name: "A", "F5", and the short names such as "PgUp" and "," for showing, or the ones Settings.txt reads back, such as "PageUp" and "Comma".
+function String Prog__KeyName(Arena *arena, Key key, b32 spelled)
+{
+    if (key >= Key_A && key <= Key_Z) return StrFormat(arena, "%c", 'A' + (i32)(key - Key_A));
+    if (key >= Key_0 && key <= Key_9) return StrFormat(arena, "%c", '0' + (i32)(key - Key_0));
+    if (key >= Key_F1 && key <= Key_F12) return StrFormat(arena, "F%u", (u32)(key - Key_F1) + 1);
+    const char *name = key < Key_Count ? (spelled ? Prog_KeyNames : Prog_KeyShortNames)[key] : NULL;
+    return name ? StrFromCStr(name) : (String){0};
+}
+
+// "Ctrl+Shift+S", or "G G" for a sequence; empty for a key without a name.
+function String Prog_HotkeyString(Arena *arena, const Prog_Hotkey *hotkey, b32 spelled)
+{
+    String name = Prog__KeyName(arena, hotkey->key, spelled), lead = Prog__KeyName(arena, hotkey->lead, spelled);
+    if (!name.length) return name;
+    return StrFormat(arena, "%S%s%s%s%s%s%S", lead, lead.length ? " " : "", (hotkey->mods & KeyMod_Control) ? "Ctrl+" : "", (hotkey->mods & KeyMod_Alt) ? "Alt+" : "",
+                     (hotkey->mods & KeyMod_Shift) ? "Shift+" : "", (hotkey->mods & KeyMod_Super) ? "Super+" : "", name);
+}
+
+// The hotkeys `kind` has, up to `max` of them, in the order they are looked up: the settings' own, or else its defaults; returns how many.
+function u32 Prog_CommandHotkeys(const Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey **out, u32 max)
 {
     u32 count = 0;
     for (u64 i = 0; i < state->userHotkeyCount + CArrayCount(Prog_DefaultHotkeys) && count < max; ++i) {
         b32 user = i < state->userHotkeyCount;
         const Prog_Hotkey *hotkey = user ? &state->userHotkeys[i] : &Prog_DefaultHotkeys[i - state->userHotkeyCount];
-        if (hotkey->command != kind || (!user && state->hotkeyOverridden[kind])) continue;
-        char key[4] = {0};
-        const char *name = hotkey->key < Key_Count ? Prog_KeyShortNames[hotkey->key] : NULL;
-        if (hotkey->key >= Key_A && hotkey->key <= Key_Z) key[0] = (char)('A' + (hotkey->key - Key_A));
-        else if (hotkey->key >= Key_0 && hotkey->key <= Key_9) key[0] = (char)('0' + (hotkey->key - Key_0));
-        else if (hotkey->key >= Key_F1 && hotkey->key <= Key_F12) {
-            u32 number = (u32)(hotkey->key - Key_F1) + 1;
-            key[0] = 'F';
-            key[1] = (char)(number < 10 ? '0' + number : '1');
-            key[2] = (char)(number < 10 ? 0 : '0' + number - 10);
-        }
-        if (key[0]) name = key;
-        if (!name) continue;
-        out[count++] = StrFormat(arena, "%s%s%s%s%s", (hotkey->mods & KeyMod_Control) ? "Ctrl+" : "", (hotkey->mods & KeyMod_Alt) ? "Alt+" : "",
-                                 (hotkey->mods & KeyMod_Shift) ? "Shift+" : "", (hotkey->mods & KeyMod_Super) ? "Super+" : "", name);
+        if (hotkey->command == kind && (user || !state->hotkeyOverridden[kind])) out[count++] = hotkey;
     }
     return count;
+}
+
+// Whether `hotkey` does nothing now, being a character key that types while Character Key Action is not Trigger Hotkey.
+function b32 Prog_HotkeyIdle(const Prog_State *state, const Prog_Hotkey *hotkey)
+{
+    b32 character = Prog_IsCharacterKey(hotkey->key, hotkey->mods) || Prog_IsCharacterKey(hotkey->lead, 0);
+    return character && Prog_Commands[hotkey->command].scope == Prog_HotkeyScope_Browser && state->characterKeys != Prog_CharacterKeys_TriggerHotkey;
+}
+
+// Every hotkey of `kind` as "Ctrl+Shift+S", up to `max` of them, in the order they are looked up, and into `idle`, when given, whether each
+// does nothing now; returns how many.
+function u32 Prog_HotkeyTexts(Arena *arena, const Prog_State *state, Prog_CommandKind kind, String *out, b8 *idle, u32 max)
+{
+    const Prog_Hotkey *hotkeys[16];
+    u32 found = Prog_CommandHotkeys(state, kind, hotkeys, Min(max, (u32)CArrayCount(hotkeys))), count = 0;
+    for (u32 i = 0; i < found; ++i) {
+        String text = Prog_HotkeyString(arena, hotkeys[i], false);
+        if (!text.length) continue;
+        if (idle) idle[count] = (b8)Prog_HotkeyIdle(state, hotkeys[i]);
+        out[count++] = text;
+    }
+    return count;
+}
+
+// `kind`'s hotkeys as a hotkey.<Command> line of Settings.txt takes them, "Ctrl+Comma, F6", or "none".
+function String Prog_HotkeysSetting(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
+{
+    const Prog_Hotkey *hotkeys[16];
+    u32 count = Prog_CommandHotkeys(state, kind, hotkeys, CArrayCount(hotkeys));
+    StrBuilder out = {0};
+    for (u32 i = 0; i < count; ++i) {
+        String text = Prog_HotkeyString(arena, hotkeys[i], true);
+        if (!text.length) continue;
+        if (out.buffer.length) StrBuildStr(arena, &out, S(", "));
+        StrBuildStr(arena, &out, text);
+    }
+    return out.buffer.length ? out.buffer : S("none");
 }
 
 function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind)
 {
     String result = {0};
-    Prog_HotkeyTexts(arena, state, kind, &result, 1);
+    Prog_HotkeyTexts(arena, state, kind, &result, NULL, 1);
     return result;
 }
 
@@ -499,8 +578,11 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabReopen, Prog_CommandKind_TabSelectNext, Prog_CommandKind_TabSelectPrev, Prog_CommandKind_TabSelect1,
     Prog_CommandKind_TabSelect2, Prog_CommandKind_TabSelect3, Prog_CommandKind_TabSelect4, Prog_CommandKind_TabSelect5, Prog_CommandKind_TabSelect6,
     Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
+    Prog__PaletteGroup(GoTo),
+    Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
     Prog__PaletteGroup(Misc),
-    Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
+    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
+    Prog_CommandKind_WindowMinimize, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
@@ -510,7 +592,12 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_RenameInsertIncrementalID, Prog_CommandKind_RenameInsertCurrentDate, Prog_CommandKind_RenameInsertCreateDate,
     Prog_CommandKind_RenameInsertModifiedDate, Prog_CommandKind_RenamePrev, Prog_CommandKind_RenameNext,
     Prog__PaletteGroup(Scroll),
-    Prog_CommandKind_SelectAll,
+    Prog_CommandKind_ScrollSelectPrev, Prog_CommandKind_ScrollSelectNext, Prog_CommandKind_ScrollSelectLeft, Prog_CommandKind_ScrollSelectRight,
+    Prog_CommandKind_ScrollSelectFirst, Prog_CommandKind_ScrollSelectLast, Prog_CommandKind_ScrollScrollSelectUp, Prog_CommandKind_ScrollScrollSelectDown,
+    Prog_CommandKind_ScrollCenterCamera, Prog_CommandKind_ScrollMoveCursorPrev, Prog_CommandKind_ScrollMoveCursorNext, Prog_CommandKind_ScrollMoveCursorLeft,
+    Prog_CommandKind_ScrollMoveCursorRight, Prog_CommandKind_ScrollExtendSelectPrev, Prog_CommandKind_ScrollExtendSelectNext, Prog_CommandKind_ScrollExtendSelectLeft,
+    Prog_CommandKind_ScrollExtendSelectRight, Prog_CommandKind_ScrollExtendSelectFirst, Prog_CommandKind_ScrollExtendSelectLast,
+    Prog_CommandKind_ScrollScrollExtendSelectUp, Prog_CommandKind_ScrollScrollExtendSelectDown, Prog_CommandKind_SelectAll,
 };
 static_assert(Prog_CommandKind_Count < 256, "commands fit Prog_PaletteRow");
 
@@ -991,9 +1078,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         } break;
         // The panel's views, its splits, its tabs, the app, then what the listing shows.
         case Prog_CommandKind_PanelMenu: {
-            // Ctrl+E starts a search through the expanded folder, which is what expands it.
-            Prog__Item(.kind = Prog_CommandKind_ToggleExpandFolder, .icon = Icon_FolderTree, .toggle = true, .checked = state->directory.expanded,
-                       .hotkeysOf = Prog_CommandKind_StartExpandedSearch);
+            Prog__Item(.kind = Prog_CommandKind_ToggleExpandFolder, .icon = Icon_FolderTree, .toggle = true, .checked = state->directory.expanded);
             Prog__Item(.kind = Prog_CommandKind_TogglePreview, .icon = Icon_ScanEye, .toggle = true, .checked = state->previewShown);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_SplitRight, .icon = Icon_UnfoldHorizontal);
@@ -2101,39 +2186,67 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->selectedCount = select ? state->viewCount : 0;
                 }
             } break;
-            case Prog_CommandKind_FocusUp:
-            case Prog_CommandKind_FocusDown:
-            case Prog_CommandKind_FocusLeft:
-            case Prog_CommandKind_FocusRight:
-            case Prog_CommandKind_FocusFirst:
-            case Prog_CommandKind_FocusLast:
-            case Prog_CommandKind_FocusPageUp:
-            case Prog_CommandKind_FocusPageDown: {
+            case Prog_CommandKind_ScrollSelectPrev: case Prog_CommandKind_ScrollSelectNext: case Prog_CommandKind_ScrollSelectLeft:
+            case Prog_CommandKind_ScrollSelectRight: case Prog_CommandKind_ScrollSelectFirst: case Prog_CommandKind_ScrollSelectLast:
+            case Prog_CommandKind_ScrollScrollSelectUp: case Prog_CommandKind_ScrollScrollSelectDown: case Prog_CommandKind_ScrollMoveCursorPrev:
+            case Prog_CommandKind_ScrollMoveCursorNext: case Prog_CommandKind_ScrollMoveCursorLeft: case Prog_CommandKind_ScrollMoveCursorRight:
+            case Prog_CommandKind_ScrollExtendSelectPrev: case Prog_CommandKind_ScrollExtendSelectNext: case Prog_CommandKind_ScrollExtendSelectLeft:
+            case Prog_CommandKind_ScrollExtendSelectRight: case Prog_CommandKind_ScrollExtendSelectFirst: case Prog_CommandKind_ScrollExtendSelectLast:
+            case Prog_CommandKind_ScrollScrollExtendSelectUp: case Prog_CommandKind_ScrollScrollExtendSelectDown: {
+                // Each command's way, and how it treats the selection, as a click with these modifiers would: Shift extends it, Ctrl moves the
+                // file cursor alone. In Commands.txt's order, from ScrollSelectPrev.
+                enum { Up, Down, Left, Right, First, Last, PageUp, PageDown };
+                local_persist const struct { u8 way; KeyMods how; } moves[] = {
+                    { Up, 0 }, { Down, 0 }, { Left, 0 }, { Right, 0 }, { First, 0 }, { Last, 0 }, { PageUp, 0 }, { PageDown, 0 },
+                    { Up, KeyMod_Control }, { Down, KeyMod_Control }, { Left, KeyMod_Control }, { Right, KeyMod_Control },
+                    { Up, KeyMod_Shift }, { Down, KeyMod_Shift }, { Left, KeyMod_Shift }, { Right, KeyMod_Shift }, { First, KeyMod_Shift }, { Last, KeyMod_Shift },
+                    { PageUp, KeyMod_Shift }, { PageDown, KeyMod_Shift },
+                };
+                static_assert(CArrayCount(moves) == Prog_CommandKind_ScrollScrollExtendSelectDown - Prog_CommandKind_ScrollSelectPrev + 1, "a move for each command");
+                u8 way = moves[command->kind - Prog_CommandKind_ScrollSelectPrev].way;
+                KeyMods how = moves[command->kind - Prog_CommandKind_ScrollSelectPrev].how;
                 if (!state->loading && state->viewCount) {
                     // Moves through the rows the filter shows.
                     u64 row = state->hasFocus ? Prog_ViewPosition(state, state->focusedRow) : 0;
                     if (row == UINT64_MAX) row = 0;
                     // In a grid, up and down move a whole line and left and right one item; a line's worth of a page is a line of items.
                     u64 step = Max(state->gridColumns, (u64)1);
-                    if ((command->kind == Prog_CommandKind_FocusLeft || command->kind == Prog_CommandKind_FocusRight) && step == 1) break;
+                    if ((way == Left || way == Right) && step == 1) break;
                     u64 page = (state->pageRows > 1 ? state->pageRows - 1 : 1) * step;
                     u64 last = state->viewCount - 1;
-                    switch (command->kind) {
-                        case Prog_CommandKind_FocusUp: if (row >= step) row -= step; break;
+                    switch (way) {
+                        case Up: if (row >= step) row -= step; break;
                         // Down from a line with nothing under it goes to the last item, as in Explorer.
-                        case Prog_CommandKind_FocusDown: if (state->hasFocus) row = row + step <= last ? row + step : row / step < last / step ? last : row; break;
-                        case Prog_CommandKind_FocusLeft: if (row) --row; break;
-                        case Prog_CommandKind_FocusRight: if (state->hasFocus && row < last) ++row; break;
-                        case Prog_CommandKind_FocusFirst: row = 0; break;
-                        case Prog_CommandKind_FocusLast: row = last; break;
-                        case Prog_CommandKind_FocusPageUp: row = row > page ? row - page : 0; break;
-                        case Prog_CommandKind_FocusPageDown: row = Min(row + page, last); break;
+                        case Down: if (state->hasFocus) row = row + step <= last ? row + step : row / step < last / step ? last : row; break;
+                        case Left: if (row) --row; break;
+                        case Right: if (state->hasFocus && row < last) ++row; break;
+                        case First: row = 0; break;
+                        case Last: row = last; break;
+                        case PageUp: row = row > page ? row - page : 0; break;
+                        case PageDown: row = Min(row + page, last); break;
                         default: InvalidPath;
                     }
                     row = state->view[row];
-                    if (command->mods & KeyMod_Control) { state->focusedRow = row; state->hasFocus = true; }
-                    else Prog_SelectRow(state, row, command->mods);
+                    if (how & KeyMod_Control) { state->focusedRow = row; state->hasFocus = true; }
+                    else Prog_SelectRow(state, row, how);
                     state->revealFocus = true;
+                }
+            } break;
+            case Prog_CommandKind_ScrollCenterCamera: state->revealFocus = state->centerFocus = true; break;
+            case Prog_CommandKind_SelectTyped: {
+                if (state->loading || !state->viewCount || !state->typed.length) break;
+                // A first character looks from the item after the focused one, so typing it again goes on to the next item it begins.
+                String typed = Prog_EditText(&state->typed);
+                b32 first = Prog__EditStep(&state->typed, 0, 1) == state->typed.length;
+                u64 from = state->hasFocus ? Prog_ViewPosition(state, state->focusedRow) : UINT64_MAX;
+                from = from == UINT64_MAX ? 0 : from + (first ? 1 : 0);
+                for (u64 i = 0; i < state->viewCount; ++i) {
+                    u64 row = state->view[(from + i) % state->viewCount];
+                    String name = state->directory.entries[row].file.name;
+                    if (name.length < typed.length || !Prog__EqualFolded(StrFromTo(name, 0, (i64)typed.length), typed)) continue;
+                    Prog_SelectRow(state, row, 0);
+                    state->revealFocus = true;
+                    break;
                 }
             } break;
             case Prog_CommandKind_ContextMenu:
@@ -2302,7 +2415,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
             case Prog_CommandKind_MainMenu:
-            case Prog_CommandKind_PanelMenu: Prog__OpenProgramMenu(state, command); break;
+            case Prog_CommandKind_PanelMenu: {
+                if (command->kind == Prog_CommandKind_MainMenu && command->at.x == 0 && command->at.y == 0) command->at = state->mainMenuAt;
+                Prog__OpenProgramMenu(state, command);
+            } break;
             case Prog_CommandKind_HistoryGo: {
                 if (command->row < state->history.header.count) Prog_RequestDirectory(state, state->history.v[command->row], false, command->row);
             } break;
@@ -2480,6 +2596,23 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     return changed || transferring || Prog__AnyMeasuring(state);
 }
 
+// What a text box types rather than hands to the hotkeys: a character key, and Space or '/' without modifiers.
+function b32 Prog__TypesInBox(Key key, KeyMods mods)
+{
+    mods &= KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super;
+    return Prog_IsCharacterKey(key, mods) || ((key == Key_Space || key == Key_Slash) && !mods);
+}
+
+// Select Typed Item: adds `codepoint` to what was typed, which starts over after a pause, and queues the selection of the item it begins.
+function void Prog__TypeToSelect(Prog_State *state, rune codepoint, u64 order)
+{
+    u64 now = PlatformNowMicroseconds();
+    if (now - Min(state->typedTime, now) > 1000000) state->typed.length = state->typed.cursor = state->typed.anchor = 0;
+    state->typedTime = now;
+    Prog__EditInsert(&state->typed, codepoint);
+    Prog_QueueCommand(state, Prog_CommandKind_SelectTyped, 0, 0, order);
+}
+
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
 {
     u64 order = 0;
@@ -2544,6 +2677,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     continue;
                 }
                 u32 version = state->palette.version;
+                // Go To's own hotkeys, such as Alt+Left for its back button.
+                const Prog_Hotkey *own = goTo ? Prog_FindHotkey(state, Prog_HotkeyScope_GoTo, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super)) : NULL;
+                if (own) {
+                    if (!event->isRepeat || !Prog_Commands[own->command].noRepeat) Prog_QueueCommand(state, own->command, 0, 0, order);
+                    continue;
+                }
                 // Tab in Go To puts the highlighted folder in the box, to go on into it.
                 if (goTo && event->key == Key_Tab) {
                     if (state->paletteHighlight < count && !found[state->paletteHighlight].file) Prog__GoToExpand(state, found[state->paletteHighlight].path);
@@ -2600,12 +2739,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 // Of the hotkeys only the rename box's own reach it.
                 KeyMods held = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
-                const Prog_Hotkey *hotkey = Prog_FindHotkey(state, event->key, held);
-                Prog_CommandKind own = hotkey ? hotkey->command : Prog_CommandKind_Count;
-                if (own < Prog_CommandKind_RenameInsertIncrementalID || own > Prog_CommandKind_RenameNext) own = Prog_CommandKind_Count;
-                if (event->key == Key_Tab && (held == 0 || held == KeyMod_Shift)) own = held ? Prog_CommandKind_RenamePrev : Prog_CommandKind_RenameNext;
-                if (own != Prog_CommandKind_Count) {
-                    Prog_QueueCommand(state, own, 0, 0, order);
+                const Prog_Hotkey *own = Prog_FindHotkey(state, Prog_HotkeyScope_Rename, Key_None, event->key, held);
+                if (own) {
+                    Prog_QueueCommand(state, own->command, 0, 0, order);
                     state->swallowText = true;
                 }
                 else if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
@@ -2636,19 +2772,25 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 continue;
             }
             if (event->kind == PlatformEventKind_KeyDown) {
-                // Keys the box does not use, such as Up and Down, still reach the list; a space is typed.
+                // Keys the box does not use, such as Up and Down, still reach the list; what types a character is typed.
                 b32 used = true;
                 if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_InspectorApplyFilter, 0, 0, order);
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_InspectorRemoveFilter, 0, 0, order);
-                else used = Prog__EditKey(&state->inspectorFilter, event) || (event->key == Key_Space && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super)));
+                else used = Prog__EditKey(&state->inspectorFilter, event) || Prog__TypesInBox(event->key, event->mods) ||
+                            (event->key == Key_Space && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super)));
                 if (used) continue;
             }
         }
-        // Typing anywhere in the browser filters it.
+        // Typing anywhere in the browser filters it, or with Select Typed Item selects what starts with it; Trigger Hotkey leaves it to the hotkeys.
         if (event->kind == PlatformEventKind_Text && !state->menuOpen) {
             u32 version = state->filter.version;
             // '/' outside the box only puts the keyboard in it, like Ctrl+F.
             b32 opens = !state->filtering && event->codepoint == '/';
+            if (!state->filtering && !opens && state->characterKeys == Prog_CharacterKeys_TriggerHotkey) continue;
+            if (!state->filtering && !opens && state->characterKeys == Prog_CharacterKeys_SelectTypedItem) {
+                Prog__TypeToSelect(state, event->codepoint, order);
+                continue;
+            }
             state->filtering = true;
             if (!opens) Prog__EditInsert(&state->filter, event->codepoint);
             if (state->filter.version != version) Prog_ApplyFilter(state, true);
@@ -2734,9 +2876,21 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             }
             continue;
         }
-        // While filtering, a space is typed.
-        if (state->filtering && event->key == Key_Space && !mods) continue;
-        const Prog_Hotkey *hotkey = Prog_FindHotkey(state, event->key, mods);
+        // While filtering, what types a character is typed; outside the box, a character key types unless Character Key Action runs its hotkey.
+        if (state->filtering && Prog__TypesInBox(event->key, mods)) continue;
+        if (state->characterKeys != Prog_CharacterKeys_TriggerHotkey && Prog_IsCharacterKey(event->key, mods)) {
+            state->hotkeyLead = Key_None;
+            continue;
+        }
+        // A sequence such as "G G" runs on its second key; a key that only starts one waits for the next.
+        const Prog_Hotkey *hotkey = state->hotkeyLead && !event->isRepeat ? Prog_FindHotkey(state, Prog_HotkeyScope_Browser, state->hotkeyLead, event->key, mods) : NULL;
+        state->hotkeyLead = Key_None;
+        if (!hotkey) hotkey = Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, mods);
+        if (!hotkey && !mods && !event->isRepeat && Prog__HotkeyLeads(state, Prog_HotkeyScope_Browser, event->key)) {
+            state->hotkeyLead = event->key;
+            state->swallowText = true;
+            continue;
+        }
         if (hotkey) state->swallowText = true;
         if (hotkey && (!event->isRepeat || !Prog_Commands[hotkey->command].noRepeat)) {
             Prog_Command *command = Prog_QueueCommand(state, hotkey->command, 0, 0, order);

@@ -4,11 +4,13 @@
 // command Name {
 //     label   = "Shown Label^search,aliases"   palette/menu label; omit for internal commands
 //     tooltip = "One sentence."
-//     hotkey  = "Ctrl+Shift+Key"               repeatable; Key is a Key_ name without the prefix
+//     hotkey  = "Ctrl+Shift+Key"               repeatable; Key is a Key_ name without the prefix; "G G" is G pressed twice
 //     repeat  = "false"                        ignore auto-repeat key events
+//     scope   = "Rename"                       where its hotkeys work: the rename box or "GoTo"; the browser when omitted
 // }
 //
 // Hotkeys match modifiers exactly, so every accepted combination is listed.
+// A character key without modifiers but Shift, such as "J" or "Shift+G", runs its command only while the Character Key Action option says so.
 
 // Row press from the file list; carries the row, press count and modifiers.
 command SelectRow {
@@ -32,6 +34,7 @@ command OpenFocused {
 command Refresh {
     label   = "Refresh^reload"
     tooltip = "Reload the current folder."
+    hotkey  = "Ctrl+R"
     hotkey  = "F5"
 }
 
@@ -72,63 +75,154 @@ command SelectAll {
 command ToggleSelectAll {
 }
 
-// Focus movement. Shift extends the selection; Ctrl moves the focus without selecting.
-
-command FocusUp {
-    hotkey = "Up"
-    hotkey = "Shift+Up"
-    hotkey = "Ctrl+Up"
-    hotkey = "Ctrl+Shift+Up"
+// Select Typed Item: selects the next item whose name starts with Prog_State.typed, from the focused one on.
+command SelectTyped {
 }
 
-command FocusDown {
-    hotkey = "Down"
-    hotkey = "Shift+Down"
-    hotkey = "Ctrl+Down"
-    hotkey = "Ctrl+Shift+Down"
+// Moving through the list: the Select commands move the selection, Move File Cursor moves the focus alone and Extend Select grows the selection to it.
+// Commands.c finds how each moves by its place in this run, from ScrollSelectPrev to ScrollScrollExtendSelectDown, so they keep this order.
+// Left and Right step across a grid's line.
+
+command ScrollSelectPrev {
+    label   = "Select Previous^entry"
+    tooltip = "Select the previous item in the list."
+    hotkey  = "Up"
+    hotkey  = "K"
 }
 
-// Across the items of a grid view.
-command FocusLeft {
-    hotkey = "Left"
-    hotkey = "Shift+Left"
-    hotkey = "Ctrl+Left"
-    hotkey = "Ctrl+Shift+Left"
+command ScrollSelectNext {
+    label   = "Select Next^entry"
+    tooltip = "Select the next item in the list."
+    hotkey  = "Down"
+    hotkey  = "J"
 }
 
-command FocusRight {
-    hotkey = "Right"
-    hotkey = "Shift+Right"
-    hotkey = "Ctrl+Right"
-    hotkey = "Ctrl+Shift+Right"
+command ScrollSelectLeft {
+    label   = "Select Left^entry"
+    tooltip = "Select the item to the left."
+    hotkey  = "Left"
+    hotkey  = "H"
 }
 
-command FocusFirst {
-    hotkey = "Home"
-    hotkey = "Shift+Home"
-    hotkey = "Ctrl+Home"
-    hotkey = "Ctrl+Shift+Home"
+command ScrollSelectRight {
+    label   = "Select Right^entry"
+    tooltip = "Select the item to the right."
+    hotkey  = "Right"
+    hotkey  = "L"
 }
 
-command FocusLast {
-    hotkey = "End"
-    hotkey = "Shift+End"
-    hotkey = "Ctrl+End"
-    hotkey = "Ctrl+Shift+End"
+command ScrollSelectFirst {
+    label   = "Select First^entry"
+    tooltip = "Select the first item in the list."
+    hotkey  = "Home"
+    hotkey  = "G G"
 }
 
-command FocusPageUp {
-    hotkey = "PageUp"
-    hotkey = "Shift+PageUp"
-    hotkey = "Ctrl+PageUp"
-    hotkey = "Ctrl+Shift+PageUp"
+command ScrollSelectLast {
+    label   = "Select Last^entry"
+    tooltip = "Select the last item in the list."
+    hotkey  = "End"
+    hotkey  = "Shift+G"
 }
 
-command FocusPageDown {
-    hotkey = "PageDown"
-    hotkey = "Shift+PageDown"
-    hotkey = "Ctrl+PageDown"
-    hotkey = "Ctrl+Shift+PageDown"
+command ScrollScrollSelectUp {
+    label   = "Scroll Select Up"
+    tooltip = "Scroll up by a page and select an item."
+    hotkey  = "PageUp"
+    hotkey  = "Ctrl+U"
+}
+
+// Ctrl+D is Duplicate's.
+command ScrollScrollSelectDown {
+    label   = "Scroll Select Down"
+    tooltip = "Scroll down by a page and select an item."
+    hotkey  = "PageDown"
+}
+
+command ScrollMoveCursorPrev {
+    label   = "Move File Cursor To Previous^entry"
+    tooltip = "Move the file cursor to the previous item."
+    hotkey  = "Ctrl+Up"
+    hotkey  = "Ctrl+K"
+}
+
+command ScrollMoveCursorNext {
+    label   = "Move File Cursor To Next^entry"
+    tooltip = "Move the file cursor to the next item."
+    hotkey  = "Ctrl+Down"
+    hotkey  = "Ctrl+J"
+}
+
+command ScrollMoveCursorLeft {
+    label   = "Move File Cursor Left^entry"
+    tooltip = "Move the file cursor to the left item."
+    hotkey  = "Ctrl+Left"
+}
+
+command ScrollMoveCursorRight {
+    label   = "Move File Cursor Right^entry"
+    tooltip = "Move the file cursor to the right item."
+    hotkey  = "Ctrl+Right"
+}
+
+command ScrollExtendSelectPrev {
+    label   = "Extend Select Previous^entry,expand"
+    tooltip = "Extend the selection to the previous item."
+    hotkey  = "Shift+Up"
+    hotkey  = "Shift+K"
+}
+
+command ScrollExtendSelectNext {
+    label   = "Extend Select Next^entry,expand"
+    tooltip = "Extend the selection to the next item."
+    hotkey  = "Shift+Down"
+    hotkey  = "Shift+J"
+}
+
+command ScrollExtendSelectLeft {
+    label   = "Extend Select Left^entry,expand"
+    tooltip = "Extend the selection to the left item."
+    hotkey  = "Shift+H"
+    hotkey  = "Shift+Left"
+}
+
+command ScrollExtendSelectRight {
+    label   = "Extend Select Right^entry,expand"
+    tooltip = "Extend the selection to the right item."
+    hotkey  = "Shift+Right"
+    hotkey  = "Shift+L"
+}
+
+command ScrollExtendSelectFirst {
+    label   = "Extend Select First^entry,expand"
+    tooltip = "Extend the selection to the first item."
+    hotkey  = "Shift+Home"
+}
+
+command ScrollExtendSelectLast {
+    label   = "Extend Select Last^entry,expand"
+    tooltip = "Extend the selection to the last item."
+    hotkey  = "Shift+End"
+}
+
+command ScrollScrollExtendSelectUp {
+    label   = "Scroll Extend Select Up^expand"
+    tooltip = "Scroll up by a page and extend the selection."
+    hotkey  = "Ctrl+Shift+U"
+    hotkey  = "Shift+PageUp"
+}
+
+command ScrollScrollExtendSelectDown {
+    label   = "Scroll Extend Select Down^expand"
+    tooltip = "Scroll down by a page and extend the selection."
+    hotkey  = "Ctrl+Shift+D"
+    hotkey  = "Shift+PageDown"
+}
+
+command ScrollCenterCamera {
+    label   = "Center Camera"
+    tooltip = "Center the camera on the current selection."
+    hotkey  = "Z Z"
 }
 
 command ContextMenu {
@@ -175,6 +269,7 @@ command Rename {
     label   = "Rename^rename,name"
     tooltip = "Rename the focused item in place."
     hotkey  = "F2"
+    hotkey  = "I"
     repeat  = "false"
 }
 
@@ -190,6 +285,7 @@ command StartFilter {
     label   = "Filter^search"
     tooltip = "Start filtering the current folder's contents."
     hotkey  = "Ctrl+F"
+    hotkey  = "Slash"
     hotkey  = "F3"
     repeat  = "false"
 }
@@ -201,32 +297,39 @@ command RenameCaret {
 command RenameInsertIncrementalID {
     label   = "Insert Incremental ID"
     tooltip = "Insert an incremental ID at the text caret."
+    scope   = "Rename"
 }
 
 command RenameInsertCurrentDate {
     label   = "Insert Current Date^day,month,year"
     tooltip = "Insert the current date at the text caret."
+    scope   = "Rename"
 }
 
 command RenameInsertCreateDate {
     label   = "Insert File Create Date^day,month,year"
     tooltip = "Insert the file's creation date at the text caret."
+    scope   = "Rename"
 }
 
 command RenameInsertModifiedDate {
     label   = "Insert File Last Modified Date^day,month,year"
     tooltip = "Insert the file's last modified date at the text caret."
+    scope   = "Rename"
 }
 
-// Tab and Shift+Tab in the rename box, which Tab's other commands do not reach.
 command RenamePrev {
     label   = "Rename Previous File"
     tooltip = "Apply rename to the current selection and jump to the previous file."
+    hotkey  = "Shift+Tab"
+    scope   = "Rename"
 }
 
 command RenameNext {
     label   = "Rename Next File"
     tooltip = "Apply rename to the current selection and jump to the next file."
+    hotkey  = "Tab"
+    scope   = "Rename"
 }
 
 command FilterCaret {
@@ -235,7 +338,7 @@ command FilterCaret {
 command StartExpandedSearch {
     label   = "Expanded Search^filter,subfolder,recursive,flatten"
     tooltip = "Start searching through all subfiles and subfolders."
-    hotkey  = "Ctrl+E"
+    hotkey  = "Ctrl+Shift+F"
     repeat  = "false"
 }
 
@@ -297,6 +400,7 @@ command CalcDirsContents {
 command ToggleExpandFolder {
     label   = "Toggle Expand Folder^unfold,reveal,deep,hierarchy,directory"
     tooltip = "Recursively flatten all subfiles and subfolders into a single file listing."
+    hotkey  = "Ctrl+E"
 }
 
 command ApplyFilter {
@@ -329,6 +433,7 @@ command CopySelection {
     tooltip = "Copy selected files in the folder, placing them in the system clipboard."
     hotkey  = "Ctrl+C"
     hotkey  = "Ctrl+Insert"
+    hotkey  = "Y"
     repeat  = "false"
 }
 
@@ -343,6 +448,8 @@ command Paste {
     label   = "Paste"
     tooltip = "Paste files from the system clipboard into the current folder."
     hotkey  = "Ctrl+V"
+    hotkey  = "Shift+Insert"
+    hotkey  = "P"
     repeat  = "false"
 }
 
@@ -433,11 +540,13 @@ command TabDuplicate {
 command TabShiftLeft {
     label   = "Shift Tab Left"
     tooltip = "Shift the current tab to the left."
+    hotkey  = "Ctrl+Shift+PageUp"
 }
 
 command TabShiftRight {
     label   = "Shift Tab Right"
     tooltip = "Shift the current tab to the right."
+    hotkey  = "Ctrl+Shift+PageDown"
 }
 
 command TabClose {
@@ -474,66 +583,77 @@ command TabSelectNext {
     label   = "Select Next Tab"
     tooltip = "Select the next tab if it exists."
     hotkey  = "Ctrl+Tab"
+    hotkey  = "Ctrl+PageDown"
 }
 
 command TabSelectPrev {
     label   = "Select Previous Tab"
     tooltip = "Select the previous tab if it exists."
     hotkey  = "Ctrl+Shift+Tab"
+    hotkey  = "Ctrl+PageUp"
 }
 
 command TabSelect1 {
     label   = "Select 1st Tab"
     tooltip = "Select the 1st tab."
     hotkey  = "Ctrl+1"
+    hotkey  = "Ctrl+Keypad1"
 }
 
 command TabSelect2 {
     label   = "Select 2nd Tab"
     tooltip = "Select the 2nd tab if it exists."
     hotkey  = "Ctrl+2"
+    hotkey  = "Ctrl+Keypad2"
 }
 
 command TabSelect3 {
     label   = "Select 3rd Tab"
     tooltip = "Select the 3rd tab if it exists."
     hotkey  = "Ctrl+3"
+    hotkey  = "Ctrl+Keypad3"
 }
 
 command TabSelect4 {
     label   = "Select 4th Tab"
     tooltip = "Select the 4th tab if it exists."
     hotkey  = "Ctrl+4"
+    hotkey  = "Ctrl+Keypad4"
 }
 
 command TabSelect5 {
     label   = "Select 5th Tab"
     tooltip = "Select the 5th tab if it exists."
     hotkey  = "Ctrl+5"
+    hotkey  = "Ctrl+Keypad5"
 }
 
 command TabSelect6 {
     label   = "Select 6th Tab"
     tooltip = "Select the 6th tab if it exists."
     hotkey  = "Ctrl+6"
+    hotkey  = "Ctrl+Keypad6"
 }
 
 command TabSelect7 {
     label   = "Select 7th Tab"
     tooltip = "Select the 7th tab if it exists."
     hotkey  = "Ctrl+7"
+    hotkey  = "Ctrl+Keypad7"
 }
 
 command TabSelect8 {
     label   = "Select 8th Tab"
     tooltip = "Select the 8th tab if it exists."
     hotkey  = "Ctrl+8"
+    hotkey  = "Ctrl+Keypad8"
 }
 
 command TabSelectLast {
     label   = "Select Last Tab"
     tooltip = "Select the last tab."
     hotkey  = "Ctrl+9"
+    hotkey  = "Ctrl+Keypad9"
 }
 
 command ToggleQuickAccess {
@@ -681,6 +801,9 @@ command WindowMove {
 }
 
 command WindowMinimize {
+    label   = "Minimize Window"
+    tooltip = "Minimize the currently opened window."
+    hotkey  = "Alt+M"
 }
 
 command WindowToggleMaximize {
@@ -781,12 +904,24 @@ command GoTo {
 
 // Go To's buttons: the text before the last expansion, the one after it, and the folder above the one typed.
 command GoToBack {
+    label   = "GoTo Move Back"
+    tooltip = "Navigate to the previous path in the undo stack."
+    hotkey  = "Alt+Left"
+    scope   = "GoTo"
 }
 
 command GoToForward {
+    label   = "GoTo Move Forward"
+    tooltip = "Navigate to the next path in the undo stack."
+    hotkey  = "Alt+Right"
+    scope   = "GoTo"
 }
 
 command GoToUp {
+    label   = "GoTo Move Up"
+    tooltip = "Navigate to the parent file path in GoTo."
+    hotkey  = "Alt+Up"
+    scope   = "GoTo"
 }
 
 // A Go To section title click; carries the Prog_GoToSection.
@@ -827,6 +962,10 @@ command TabList {
 }
 
 command MainMenu {
+    label   = "Menu"
+    tooltip = "Open the top left main menu."
+    hotkey  = "F10"
+    repeat  = "false"
 }
 
 // The panel's own menu, from the button at the toolbar's end.
@@ -1057,11 +1196,13 @@ command InspectorSetImageScale {
 command InspectorIncreaseContentsSize {
     label   = "Increase Contents Size^large,big,scale"
     tooltip = "Increase contents size in the inspector; font size for text, zoom for images, etc."
+    hotkey  = "Shift+Equals"
 }
 
 command InspectorDecreaseContentsSize {
     label   = "Decrease Inspector Contents Size^small,scale"
     tooltip = "Decrease contents size in the inspector; font size for text, zoom for images, etc."
+    hotkey  = "Shift+Minus"
 }
 
 command InspectorToggleWordWrap {

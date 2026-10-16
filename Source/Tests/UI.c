@@ -638,11 +638,11 @@ function void TestProgramCommands(void)
     Check(Prog_ProcessCommands(&state) && state.focusedRow == 2 && entries[2].selected && !entries[7].selected);
     ArenaClear(&state.frameArena);
     state.pageRows = 4;
-    Prog_QueueCommand(&state, Prog_CommandKind_FocusPageDown, 0, 0, 0);
+    Prog_QueueCommand(&state, Prog_CommandKind_ScrollScrollSelectDown, 0, 0, 0);
     Check(Prog_ProcessCommands(&state) && state.focusedRow == 5 && entries[5].selected && !entries[2].selected);
-    Prog_QueueCommand(&state, Prog_CommandKind_FocusPageDown, 0, 0, 0);
+    Prog_QueueCommand(&state, Prog_CommandKind_ScrollScrollSelectDown, 0, 0, 0);
     Check(Prog_ProcessCommands(&state) && state.focusedRow == 7);
-    Prog_QueueCommand(&state, Prog_CommandKind_FocusPageUp, 0, 0, 0);
+    Prog_QueueCommand(&state, Prog_CommandKind_ScrollScrollSelectUp, 0, 0, 0);
     Check(Prog_ProcessCommands(&state) && state.focusedRow == 4);
     ArenaRelease(&state.frameArena);
     ArenaRelease(&state.viewArena);

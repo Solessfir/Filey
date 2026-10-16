@@ -43,17 +43,27 @@ function void TestCodegenParse(void)
     Check(TestCodegenContains(output, S("{ .key = Key_0, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_Open }")));
     Check(TestCodegenContains(output, S("{ .key = Key_Enter, .mods = 0, .command = Prog_CommandKind_Open }")));
 
+    // A sequence keeps its first key, and a scope lets another command take the same key.
+    {
+        Codegen_ArrayCommand scoped = {0};
+        Check(Codegen_ParseCommands(&arena, S("command A {\n    hotkey = \"G G\"\n    hotkey = \"Tab\"\n}\ncommand B {\n    hotkey = \"Tab\"\n    scope = \"Rename\"\n}"), &scoped, &error));
+        String emitted = Codegen_EmitCommands(&arena, scoped);
+        Check(TestCodegenContains(emitted, S("{ .key = Key_G, .mods = 0, .lead = Key_G, .command = Prog_CommandKind_A }")));
+        Check(TestCodegenContains(emitted, S(".scope = Prog_HotkeyScope_Rename }")));
+    }
+
     // Each malformed input reports the offending line.
     struct { String input; String error; } failures[] = {
         { S("comand Open {\n}"), S("line 1: expected `command Name {`") },
         { S("command 1Open {\n}"), S("line 1: command names are letters and digits") },
         { S("command A {\n}\ncommand A {\n}"), S("line 3: duplicate command") },
         { S("command A {\n    label = Open\n}"), S("line 2: expected `key = \"value\"` without quotes or backslashes inside the value") },
-        { S("command A {\n    colour = \"red\"\n}"), S("line 2: unknown key; expected label, tooltip, hotkey or repeat") },
+        { S("command A {\n    colour = \"red\"\n}"), S("line 2: unknown key; expected label, tooltip, hotkey, repeat or scope") },
         { S("command A {\n    hotkey = \"Ctrl+Ctrl+A\"\n}"), S("line 2: hotkeys look like \"Ctrl+Shift+Key\"") },
         { S("command A {\n    repeat = \"maybe\"\n}"), S("line 2: repeat is \"true\" or \"false\"") },
         { S("command A {\n"), S("line 1: missing `}` for command A") },
         { S("command A {\n    hotkey = \"F5\"\n}\ncommand B {\n    hotkey = \"F5\"\n}"), S("hotkey F5 is bound twice (A, B)") },
+        { S("command A {\n    scope = \"Text\"\n}"), S("line 2: scope is \"Rename\" or \"GoTo\"") },
     };
     for (u32 i = 0; i < CArrayCount(failures); ++i) {
         Codegen_ArrayCommand ignored = {0};
@@ -79,7 +89,7 @@ function void TestHotkeyDispatch(void)
     Prog_Command *command = state.commandFirst;
     Check(command && command->kind == Prog_CommandKind_Refresh && command->inputOrder == 1);
     command = command ? command->next : NULL;
-    Check(command && command->kind == Prog_CommandKind_FocusUp && command->mods == KeyMod_Shift && command->inputOrder == 4);
+    Check(command && command->kind == Prog_CommandKind_ScrollExtendSelectPrev && command->mods == KeyMod_Shift && command->inputOrder == 4);
     command = command ? command->next : NULL;
     Check(command && command->kind == Prog_CommandKind_Up && command->inputOrder == 5);
     Check(command && command->next == NULL);
@@ -100,6 +110,37 @@ function void TestHotkeyDispatch(void)
         Prog_HandleInput(&typing, TestUIEvents(more, CArrayCount(more)));
         Check(StrIsEqual(Prog_EditText(&typing.inspectorFilter), S("x ")) && StrIsEqual(Prog_EditText(&typing.filter), S("a")));
         ArenaRelease(&typing.frameArena);
+    }
+
+    // A character key types into the filter until Character Key Action runs its hotkey; then "G G" runs on its second G, and a key bound to
+    // nothing types nothing.
+    {
+        Prog_State filtering = {0};
+        PlatformEvent keys[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_J }, { .kind = PlatformEventKind_Text, .codepoint = 'j' },
+                                 { .kind = PlatformEventKind_KeyDown, .key = Key_F, .mods = KeyMod_Shift }, { .kind = PlatformEventKind_Text, .codepoint = 'F' } };
+        Prog_HandleInput(&filtering, TestUIEvents(keys, CArrayCount(keys)));
+        Check(!filtering.commandFirst && StrIsEqual(Prog_EditText(&filtering.filter), S("jF")));
+        ArenaRelease(&filtering.frameArena);
+
+        Prog_State hotkeys = { .characterKeys = Prog_CharacterKeys_TriggerHotkey };
+        PlatformEvent more[] = {
+            { .kind = PlatformEventKind_KeyDown, .key = Key_J }, { .kind = PlatformEventKind_Text, .codepoint = 'j' },
+            { .kind = PlatformEventKind_KeyDown, .key = Key_G }, { .kind = PlatformEventKind_Text, .codepoint = 'g' },
+            { .kind = PlatformEventKind_KeyDown, .key = Key_G }, { .kind = PlatformEventKind_Text, .codepoint = 'g' },
+            { .kind = PlatformEventKind_KeyDown, .key = Key_X }, { .kind = PlatformEventKind_Text, .codepoint = 'x' },
+        };
+        Prog_HandleInput(&hotkeys, TestUIEvents(more, CArrayCount(more)));
+        Prog_Command *first = hotkeys.commandFirst;
+        Check(first && first->kind == Prog_CommandKind_ScrollSelectNext && first->next && first->next->kind == Prog_CommandKind_ScrollSelectFirst && !first->next->next);
+        Check(!hotkeys.filter.length && !hotkeys.filtering);
+        ArenaRelease(&hotkeys.frameArena);
+
+        Prog_Hotkey parsed = {0};
+        Check(Prog_ParseHotkey(S(" z Z "), &parsed) && parsed.lead == Key_Z && parsed.key == Key_Z && !parsed.mods);
+        Check(Prog_ParseHotkey(S("Ctrl + Shift + K"), &parsed) && !parsed.lead && parsed.key == Key_K && parsed.mods == (KeyMod_Control | KeyMod_Shift));
+        Check(!Prog_ParseHotkey(S("Ctrl+G G"), &parsed) && !Prog_ParseHotkey(S("G Ctrl+G"), &parsed));
+        Check(StrIsEqual(Prog_HotkeyString(&state.frameArena, &(Prog_Hotkey){ .key = Key_Comma, .mods = KeyMod_Control }, true), S("Ctrl+Comma")));
+        Check(StrIsEqual(Prog_HotkeyString(&state.frameArena, &(Prog_Hotkey){ .key = Key_G, .lead = Key_G }, false), S("G G")));
     }
 
     // Ctrl+Comma opens the options.

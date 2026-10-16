@@ -22,6 +22,7 @@
 typedef struct Codegen_Hotkey {
     String key;    // Key_ name without the prefix
     KeyMods mods;
+    String lead;   // a sequence's first key, as in "G G"; empty for one chord
 } Codegen_Hotkey;
 
 typedef struct Codegen_ArrayHotkey {
@@ -35,6 +36,7 @@ typedef struct Codegen_Command {
     String aliases;
     String tooltip;
     b32 noRepeat;
+    String scope;  // a Prog_HotkeyScope_ name; empty for the browser
     Codegen_ArrayHotkey hotkeys;
 } Codegen_Command;
 
@@ -64,10 +66,18 @@ function b32 Codegen__IsName(String s, b32 allowLeadingDigit)
     return true;
 }
 
-// "Ctrl+Shift+Up" -> mods + key name. Modifiers come first, the key last.
+// "Ctrl+Shift+Up" -> mods + key name. Modifiers come first, the key last; "G G" is G pressed twice.
 function b32 Codegen__ParseHotkey(String text, Codegen_Hotkey *hotkey)
 {
     *hotkey = (Codegen_Hotkey){0};
+    Index space = StrIndexChar(text, ' ', SSF_None);
+    if (space.exists) {
+        String lead = StrFromTo(text, 0, (i64)space.value);
+        if (!Codegen__IsName(lead, true)) return false;
+        b32 parsed = Codegen__ParseHotkey(StrFrom(text, space.value + 1), hotkey);
+        hotkey->lead = lead;
+        return parsed;
+    }
     for (;;) {
         Index plus = StrIndexChar(text, '+', SSF_None);
         if (!plus.exists) break;
@@ -140,8 +150,11 @@ function b32 Codegen_ParseCommands(Arena *arena, String text, Codegen_ArrayComma
                 Codegen_Hotkey hotkey = {0};
                 if (!Codegen__ParseHotkey(value, &hotkey)) message = S("hotkeys look like \"Ctrl+Shift+Key\"");
                 else ArrayPush(arena, command->hotkeys, hotkey);
+            } else if (StrIsEqual(key, S("scope"))) {
+                if (StrIsEqual(value, S("Rename")) || StrIsEqual(value, S("GoTo"))) command->scope = value;
+                else message = S("scope is \"Rename\" or \"GoTo\"");
             } else {
-                message = S("unknown key; expected label, tooltip, hotkey or repeat");
+                message = S("unknown key; expected label, tooltip, hotkey, repeat or scope");
             }
         }
 
@@ -155,14 +168,15 @@ function b32 Codegen_ParseCommands(Arena *arena, String text, Codegen_ArrayComma
         return false;
     }
 
-    // One combination must mean one command.
+    // One combination must mean one command where it works.
     for (u64 a = 0; a < commands->header.count; ++a) {
         for (u64 i = 0; i < commands->v[a].hotkeys.header.count; ++i) {
             Codegen_Hotkey first = commands->v[a].hotkeys.v[i];
             for (u64 b = a; b < commands->header.count; ++b) {
+                if (!StrIsEqual(commands->v[a].scope, commands->v[b].scope)) continue;
                 for (u64 j = b == a ? i + 1 : 0; j < commands->v[b].hotkeys.header.count; ++j) {
                     Codegen_Hotkey second = commands->v[b].hotkeys.v[j];
-                    if (first.mods == second.mods && StrIsEqual(first.key, second.key)) {
+                    if (first.mods == second.mods && StrIsEqual(first.key, second.key) && StrIsEqual(first.lead, second.lead)) {
                         *error = StrFormat(arena, "hotkey %S is bound twice (%S, %S)", first.key, commands->v[a].name, commands->v[b].name);
                         return false;
                     }
@@ -217,6 +231,7 @@ function String Codegen_EmitCommands(Arena *arena, Codegen_ArrayCommand commands
             Codegen__EmitString(arena, &out, optional[f].field, optional[f].value);
         }
         if (command->noRepeat) StrBuildCStr(arena, &out, ", .noRepeat = true");
+        if (command->scope.length) StrBuildF(arena, &out, ", .scope = Prog_HotkeyScope_%S", command->scope);
         StrBuildCStr(arena, &out, " },\n");
     }
     StrBuildCStr(arena, &out,
@@ -238,7 +253,9 @@ function String Codegen_EmitCommands(Arena *arena, Codegen_ArrayCommand commands
                     any = true;
                 }
             }
-            StrBuildF(arena, &out, "%s, .command = Prog_CommandKind_%S },\n", any ? "" : "0", commands.v[i].name);
+            StrBuildCStr(arena, &out, any ? "" : "0");
+            if (hotkey.lead.length) StrBuildF(arena, &out, ", .lead = Key_%S", hotkey.lead);
+            StrBuildF(arena, &out, ", .command = Prog_CommandKind_%S },\n", commands.v[i].name);
         }
     }
     StrBuildCStr(arena, &out,

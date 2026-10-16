@@ -139,6 +139,7 @@ function Key LinuxKeyFromKeysym(xkb_keysym_t sym)
     if (sym >= XKB_KEY_A && sym <= XKB_KEY_Z) return Key_A + (Key)(sym - XKB_KEY_A);
     if (sym >= XKB_KEY_0 && sym <= XKB_KEY_9) return Key_0 + (Key)(sym - XKB_KEY_0);
     if (sym >= XKB_KEY_F1 && sym <= XKB_KEY_F12) return Key_F1 + (Key)(sym - XKB_KEY_F1);
+    if (sym >= XKB_KEY_KP_0 && sym <= XKB_KEY_KP_9) return Key_Keypad0 + (Key)(sym - XKB_KEY_KP_0);
 
     switch (sym) {
         case XKB_KEY_Escape:    return Key_Escape;
@@ -173,12 +174,18 @@ function Key LinuxKeyFromKeysym(xkb_keysym_t sym)
         case XKB_KEY_plus:      return Key_Equals;
         case XKB_KEY_minus:     return Key_Minus;
         case XKB_KEY_underscore: return Key_Minus;
+        case XKB_KEY_slash:
+        case XKB_KEY_question:
+        case XKB_KEY_KP_Divide: return Key_Slash;
         default:                return Key_None;
     }
 }
 
 function Key LinuxKeyFromKeycode(u32 keycode)
 {
+    // The keypad's digits are its second level, which Num Lock picks.
+    xkb_keysym_t current = xkb_state_key_get_one_sym(Wl.xkbState, keycode);
+    if (current >= XKB_KEY_KP_0 && current <= XKB_KEY_KP_9) return LinuxKeyFromKeysym(current);
     // The unshifted symbol, so Shift+1 still reports Key_1.
     xkb_layout_index_t layout = xkb_state_key_get_layout(Wl.xkbState, keycode);
     const xkb_keysym_t *syms = NULL;

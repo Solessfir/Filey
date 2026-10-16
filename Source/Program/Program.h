@@ -92,19 +92,38 @@ struct Prog_ViewSettings {
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
 
+// Where a command's hotkeys work: the browser, the rename box or Go To. A key may mean a command in each.
+typedef enum Prog_HotkeyScope {
+    Prog_HotkeyScope_Browser,
+    Prog_HotkeyScope_Rename,
+    Prog_HotkeyScope_GoTo,
+    Prog_HotkeyScope_Count,
+} Prog_HotkeyScope;
+
 typedef struct Prog_CommandDesc {
     String name;
     String label;    // empty for internal commands that never reach a palette or menu
     String aliases;  // comma-separated search words
     String tooltip;
     b32 noRepeat;    // ignore auto-repeat key events
+    enum8(Prog_HotkeyScope) scope;
 } Prog_CommandDesc;
 
 typedef struct Prog_Hotkey {
     Key key;
     KeyMods mods;  // matched exactly
+    Key lead;      // for a sequence such as "G G", the key pressed before it, without modifiers
     enum8(Prog_CommandKind) command;
 } Prog_Hotkey;
+
+// What a character key without modifiers but Shift does in the browser: types into the filter, runs its hotkey, or selects the first item whose name
+// starts with what is typed. Space and '/' run their hotkeys in every case.
+typedef enum Prog_CharacterKeys {
+    Prog_CharacterKeys_TypeInFilter,
+    Prog_CharacterKeys_TriggerHotkey,
+    Prog_CharacterKeys_SelectTypedItem,
+    Prog_CharacterKeys_Count,
+} Prog_CharacterKeys;
 
 typedef struct Prog_Command Prog_Command;
 struct Prog_Command {
@@ -480,6 +499,7 @@ typedef enum Prog_Option {
     Prog_Option_DoubleClickToParent,
     Prog_Option_Overscroll,
     Prog_Option_ReverseScroll,
+    Prog_Option_CharacterKeyAction,
     Prog_Option_InspectorLayout,
     Prog_Option_LoadOnStartup,
     Prog_Option_NewTabShow,
@@ -740,7 +760,7 @@ typedef struct Prog_Tab {
 // The Prog_State fields each panel has its own of, besides its tabs' (Prog_TabFields).
 // The current panel's live in Prog_State; Prog__UsePanel swaps them with the panel's slot, so every panel keeps its own listing, jobs, watch and layout.
 //   error: the last failure, in errorArena; directoryJob, generation, loading: the listing on its way
-//   revealFocus, resetScroll, restoreScroll: scroll changes the next build makes; pageRows: lines visible in the last layout, for Page Up/Down
+//   revealFocus, centerFocus, resetScroll, restoreScroll: scroll changes the next build makes; pageRows: lines visible in the last layout, for Page Up/Down
 //   tabs, tabCount, activeTab: the panel's Prog_MaxTabs tab slots, in tabArena from the first use; the shown one's slot holds nothing while it is shown
 //   zoom: the view's zoom, up to Prog_ZoomMax
 //   gridColumns, gridPitch, gridItem: the list's last layout, in its coordinates (x from its left edge, y from the top of its content):
@@ -759,7 +779,7 @@ typedef struct Prog_Tab {
 //   ownView, ownSettings: while a folder's kept view applies, the panel's own, which the next folder without one gets back
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
-    X(b32, revealFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
+    X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
     X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) X(u32, zoom) \
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
@@ -1111,6 +1131,12 @@ typedef struct Prog_State {
     b32 inspectorDetails;     // the card of the item's details under its name
     b32 inspectorDetailsFolded; // showing only its title
     b32 swallowText;          // the next character comes from a key that ran a command
+    Key hotkeyLead;           // the last key, when it starts a sequence such as "G G"
+    UI_Vec2 mainMenuAt;       // where the main menu opens from its button, for its hotkey too
+    enum8(Prog_CharacterKeys) characterKeys;
+    // Select Typed Item: what was typed so far, and when its last character came; a pause starts it over.
+    Prog_TextEdit typed;
+    u64 typedTime;
     // Its filter keeps the lines holding the letters typed, in order; the keyboard is in its box while inspectorFiltering.
     Prog_TextEdit inspectorFilter;
     b32 inspectorFiltering;
@@ -1173,7 +1199,7 @@ typedef struct Prog_State {
     enum8(PlatformBackdrop) glassBackdrop;
     // Settings.txt in the config folder: the UI scale and hotkeys here, colors in the custom theme; its folder's watch applies edits as they are saved.
     f32 uiScale;              // 0 is 1
-    Prog_Hotkey userHotkeys[64];
+    Prog_Hotkey userHotkeys[256];
     u32 userHotkeyCount;
     b8 hotkeyOverridden[Prog_CommandKind_Count];  // the command's default hotkeys give way to the settings' ones
     P_DirectoryWatch configWatch;
@@ -1283,8 +1309,9 @@ function u32 Prog_ZoomStepped(u32 zoom, b32 up);
 function u32 Prog_ZoomFromSaved(u64 value);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);
 function String Prog_HotkeyText(Arena *arena, const Prog_State *state, Prog_CommandKind kind);
-function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Key key, KeyMods mods);
-function b32 Prog_ParseHotkey(String text, Key *key, KeyMods *mods);
+function const Prog_Hotkey *Prog_FindHotkey(const Prog_State *state, Prog_HotkeyScope scope, Key lead, Key key, KeyMods mods);
+function b32 Prog_ParseHotkey(String text, Prog_Hotkey *hotkey);
+function b32 Prog_IsCharacterKey(Key key, KeyMods mods);
 function void Prog_ApplySettings(Prog_State *state, String text);
 function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state);
 function void Prog_ReloadSettingsFile(Prog_State *state);

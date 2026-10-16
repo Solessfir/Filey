@@ -5,7 +5,7 @@
 - Miller columns and archives as folders, when asked.
 - LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen, ConsoleOpen, ToggleFullscreen.
 - Font pickers, with the system's font families listed on both platforms.
-- Rebindable text and scroll commands.
+- Rebindable text commands, and hotkeys rebound from the menus' and the palette's chips.
 
 ## Look
 
@@ -15,23 +15,23 @@
 
 ## Command palette parity
 
-The palette groups its commands as the reference does; groups without commands yet are left out. Still missing there: the reference's star and plus buttons on the highlighted row (add to Quick, add a hotkey) and its filled star icon. The reference's command table has 283 entries (names from `HK_` strings in the binary); Filey has 130, 77 of them in the palette.
+The palette groups its commands as the reference does; groups without commands yet are left out. Still missing there: the reference's star and plus buttons on the highlighted row (add to Quick, add a hotkey) and its filled star icon. The reference's command table has 283 entries (names from `HK_` strings in the binary); Filey has 218 commands, 160 of them in the palette.
 
-Already in Filey under another name: SelectionActivate (OpenFocused), SelectionCopy/Cut/Paste, SelectionTrash, SelectionDelete, SelectionDuplicate, SelectionRename, SelectionCopyAsPath, CreateFile, CreateFolder, ToggleExpandFolder, StartFileFilter, StartExpandedSearch, RefreshFolder, MoveFolderBack/Forward/Up, BookmarksToggle, BookmarksClear, RecentsClear, ToggleShowDirectories/Files, ZoomIn/OutContent, View Details/List/Columns/Medium/Large/XL Icons, EditPath, OpenInTab, the Tab commands but those below, TabSearch (TabList), PanelSplitRight/Bottom, PanelSelectNext/Prev/Left/Right/Up/Down, GoToOpen, CommandsOpen, QuickAccessOpen, ContextMenuOpen, ToggleHiddenFiles, ScrollSelectAll, InspectorToggle (TogglePreview), OptionsOpen (OpenOptions), FolderViewToggle, FolderViewsClear, PanelFilterApply2, PanelFilterCancel, GoToMoveBack/Forward/Up, CloseWindow (WindowClose). Filey only: ToggleFilterPin, Undo, ToggleDebugTheme, ToggleTransparency, NewWindow.
+Already in Filey under another name: SelectionActivate (OpenFocused), SelectionCopy/Cut/Paste, SelectionTrash, SelectionDelete, SelectionDuplicate, SelectionRename, SelectionCopyAsPath, CreateFile, CreateFolder, ToggleExpandFolder, StartFileFilter, StartExpandedSearch, RefreshFolder, MoveFolderBack/Forward/Up, BookmarksToggle, BookmarksClear, RecentsClear, ToggleShowDirectories/Files, ZoomIn/OutContent, View Details/List/Columns/Medium/Large/XL Icons, EditPath, OpenInTab, the Tab commands but those below, TabSearch (TabList), PanelSplitRight/Bottom, PanelSelectNext/Prev/Left/Right/Up/Down, GoToOpen, CommandsOpen, QuickAccessOpen, ContextMenuOpen, ToggleHiddenFiles, ScrollSelectAll, the other Scroll commands, InspectorToggle (TogglePreview), OptionsOpen (OpenOptions), FolderViewToggle, FolderViewsClear, PanelFilterApply2, PanelFilterCancel, GoToMoveBack/Forward/Up, CloseWindow (WindowClose), MenuOpen (MainMenu), MinimizeWindow (WindowMinimize). Filey only: ToggleFilterPin, Undo, ToggleDebugTheme, ToggleTransparency, NewWindow.
 
 Missing, by the reference's group:
 
-- Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick), MenuOpen.
+- Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick).
 - Folder: OpenInWindow, SelectionPasteLink, SelectionInspect, SelectionCopyAsPathSmart, OpenRelativePath(InTab), FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - View: ToggleSepFilesFolders.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.
-- Options: still missing are the font pickers (`font` and `inspector.font` in Settings.txt take a family's name), Long Path Support, Character Key Action, color scheme editing, custom layouts for Load On Startup, and checkboxes in the icon views.
+- Options: still missing are the font pickers (`font` and `inspector.font` in Settings.txt take a family's name), Long Path Support, color scheme editing, custom layouts for Load On Startup, and checkboxes in the icon views.
 - Panels: PanelEvenSiblings, PanelEvenAll.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow, TabCloseAll, TabMenu.
 - Go To: GoToSelectInPanel.
-- Misc: ExplorerOpen, ConsoleOpen, MinimizeWindow, ToggleFullscreen, LayoutsSave/Load, ConfigCreate/Open, the Quick Access filter, viewport and group options. Install is the reference's own setup and stays out.
-- Text and Scroll: Filey handles these keys inside its text boxes and lists without commands; the reference lists each (move/extend by letter, word, home, end, delete, case, undo/redo, autocomplete; select/extend/scroll/cursor moves, center camera) so they can be rebound.
+- Misc: ExplorerOpen, ConsoleOpen, ToggleFullscreen, LayoutsSave/Load, ConfigCreate/Open, the Quick Access filter, viewport and group options. Install is the reference's own setup and stays out.
+- Text: Filey handles these keys inside its text boxes without commands; the reference lists each (move/extend by letter, word, home, end, delete, case, undo/redo, autocomplete) so they can be rebound.
 
 ## From the reference's roadmap
 
@@ -103,4 +103,3 @@ Its source (https://github.com/EpicGamesExt/raddebugger) has these ideas worth t
 ## Checks
 
 - Compare rename, drag and drop, the preview pane and the settings page side by side.
-- Some hotkeys in the reference's context menu have a red outline. Find out what it marks.

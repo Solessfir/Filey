@@ -1388,7 +1388,7 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
     ArenaClear(&state.frameArena);
-    Prog_QueueCommand(&state, Prog_CommandKind_FocusFirst, 0, 0, 0)->panel = state.panels[0].id;
+    Prog_QueueCommand(&state, Prog_CommandKind_ScrollSelectFirst, 0, 0, 0)->panel = state.panels[0].id;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && TestEndsWith(state.directory.path, S("/New folder")));
     for (u64 i = 0; i < state.directory.count; ++i) state.directory.entries[i].selected = false;
@@ -1638,7 +1638,7 @@ function void TestPanels(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state) && TestEndsWith(state.directory.path, S("/Empty")));
     // The first panel kept its folder.
     ArenaClear(&state.frameArena);
-    Prog_Command *select = Prog_QueueCommand(&state, Prog_CommandKind_FocusFirst, 0, 0, 0);
+    Prog_Command *select = Prog_QueueCommand(&state, Prog_CommandKind_ScrollSelectFirst, 0, 0, 0);
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
@@ -1664,7 +1664,7 @@ function void TestPanels(TestFileFixture *fixture)
             TestBrowsingCommand(&state, Prog_CommandKind_InspectorDecreaseContentsSize, 0);
             Check(state.panels[inner].zoom == 0);
             ArenaClear(&state.frameArena);
-            Prog_QueueCommand(&state, Prog_CommandKind_FocusFirst, 0, 0, 0)->panel = state.panels[inner].id;
+            Prog_QueueCommand(&state, Prog_CommandKind_ScrollSelectFirst, 0, 0, 0)->panel = state.panels[inner].id;
             Prog_ProcessCommands(&state);
             Check(state.activePanel == inner && state.hasFocus && StrIsEqual(state.previewPath, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2"))));
             String session = Prog_SessionText(&state.frameArena, &state);
@@ -1831,22 +1831,22 @@ function void TestSettings(void)
         Check(StrIsEqual(StrMake(look.font.text, look.font.length), S("Consolas")) && StrIsEqual(StrMake(look.inspectorFont.text, look.inspectorFont.length), S("Cascadia Mono")));
         Prog_ApplySettings(&look, S(""));
     }
-    const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Key_R, KeyMod_Control | KeyMod_Alt);
+    const Prog_Hotkey *hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_R, KeyMod_Control | KeyMod_Alt);
     Check(hotkey && hotkey->command == Prog_CommandKind_SplitRight);
-    hotkey = Prog_FindHotkey(&state, Key_F6, 0);
+    hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_F6, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_SplitRight);
-    Check(!Prog_FindHotkey(&state, Key_S, KeyMod_Control | KeyMod_Shift) && !Prog_FindHotkey(&state, Key_F5, 0));
-    hotkey = Prog_FindHotkey(&state, Key_S, KeyMod_Control);
+    Check(!Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_S, KeyMod_Control | KeyMod_Shift) && !Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_F5, 0));
+    hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_S, KeyMod_Control);
     Check(hotkey && hotkey->command == Prog_CommandKind_SplitBottom);
     Arena arena = {0};
     Check(StrIsEqual(Prog_HotkeyText(&arena, &state, Prog_CommandKind_SplitRight), S("Ctrl+Alt+R")));
     Check(Prog_SettingsTemplate(&arena, &state).length > 0);
     Prog_ApplySettings(&state, (String){0});
-    Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == Prog_ThemeCustom.accent.r && Prog_FindHotkey(&state, Key_F5, 0));
+    Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == Prog_ThemeCustom.accent.r && Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_F5, 0));
     // The mouse's side buttons go back and forward.
-    hotkey = Prog_FindHotkey(&state, Key_MouseX1, 0);
+    hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_MouseX1, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_Back);
-    hotkey = Prog_FindHotkey(&state, Key_MouseX2, 0);
+    hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_MouseX2, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_Forward);
     Check(Prog_ThemeGlassUser.menu.a == Prog_ThemeGlass.menu.a && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
     ArenaRelease(&arena);
