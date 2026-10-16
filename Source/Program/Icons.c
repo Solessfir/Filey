@@ -101,6 +101,17 @@ function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path)
     return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true, false);
 }
 
+// Asks for a folder's own icon again, for one that changes, such as the Recycle Bin's when it fills or empties; the old one shows until the new one comes.
+function void Prog_ReloadFolderIcon(Prog_State *state, String path)
+{
+    String key = StrFormat(&state->frameArena, "exact:%S", path);
+    Prog_Icon *icon = MapsGetPtrNull(state->icons, key);
+    if (!icon || icon->state == Prog_IconState_Pending) return;
+    if (icon->state == Prog_IconState_Failed) icon->state = Prog_IconState_Pending;
+    Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = P_FileKind_Directory, .size = state->iconSize, .exact = true };
+    ArrayPush(&state->iconArena, state->iconRequests, request);
+}
+
 function void Prog__ResetAtlas(Prog_IconAtlas *atlas, i32 size, i32 pageSize, u32 pageLimit)
 {
     atlas->size = size;

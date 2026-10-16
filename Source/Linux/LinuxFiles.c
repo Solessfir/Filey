@@ -1041,6 +1041,39 @@ function String P_TrashFolder(Arena *arena)
     return data && data[0] == '/' ? StrFormat(arena, "%s/Trash", data) : home && home[0] == '/' ? StrFormat(arena, "%s/.local/share/Trash", home) : (String){0};
 }
 
+function b32 P_TrashHasItems(void)
+{
+    Scratch scratch = GetScratch();
+    String trash = P_TrashFolder(scratch.arena);
+    DIR *folder = trash.length ? opendir(P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/files", trash))) : NULL;
+    b32 result = false;
+    for (struct dirent *entry; folder && !result && (entry = readdir(folder));) result = strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0;
+    if (folder) closedir(folder);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
+{
+    (void)confirm;
+    Scratch scratch = GetScratchEx(arena);
+    String trash = P_TrashFolder(scratch.arena);
+    P_FileError result = {0};
+    // The deleted items, then the notes on where they came from.
+    local_persist const char *parts[] = { "files", "info", "expunged" };
+    for (u32 p = 0; trash.length && p < CArrayCount(parts) && !result.code; ++p) {
+        String folder = StrFormat(scratch.arena, "%S/%s", trash, parts[p]);
+        P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, folder, NULL);
+        String *paths = ArenaPushArray(scratch.arena, Max(listing.files.header.count, (u64)1), String);
+        for (u64 i = 0; i < listing.files.header.count; ++i) paths[i] = StrFormat(scratch.arena, "%S/%S", folder, listing.files.v[i].name);
+        if (listing.files.header.count) result = P_DeleteItems(arena, paths, listing.files.header.count, NULL);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function b32 P_EmptyTrashAsks(void) { return false; }
+
 function b32 P_IsTrashFolder(String path)
 {
     // Worked out once, since every join of a path asks.

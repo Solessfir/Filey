@@ -179,6 +179,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
+    Prog_JobKind_EmptyTrash,
     Prog_JobKind_Create,
     Prog_JobKind_Places,
     Prog_JobKind_Save,
@@ -304,6 +305,7 @@ typedef struct Prog_JobInput {
     u64 pathCount;
     b32 move;
     b32 folder;
+    b32 confirm;           // EmptyTrash: the system asks first
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
     // Index lists `paths`, the index entries `entries`, keeps at most `room` of what it finds and adds that to the file `name` when there is one,
@@ -406,6 +408,7 @@ typedef enum Prog_Option {
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
     Prog_Option_ShowCheckboxes,
+    Prog_Option_ConfirmEmptyTrash,
     Prog_Option_StoreRecents,
     Prog_Option_ShowRecents,
     Prog_Option_SortRecents,
@@ -900,6 +903,7 @@ typedef struct Prog_State {
     enum8(Prog_Thumbnails) thumbnailMode;
     // While several items are selected, the rows show boxes that check them in place of their icons.
     b32 showCheckboxes;
+    b32 noTrashConfirm;       // emptying the Recycle Bin or the Trash does not ask first
     // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;
@@ -1011,6 +1015,7 @@ typedef struct Prog_State {
     const R_Font *monoFont;   // the inspector's, at its size; NULL until made
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;
+    b32 confirmEmptyTrash;    // the confirmation is for emptying the Recycle Bin or the Trash rather than for confirmPaths
     Arena confirmArena;
     String *confirmPaths;
     u64 confirmCount;
@@ -1092,6 +1097,7 @@ function f32 Prog_RowHeight(const R_Font *font);
 function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, const Prog_Entry *entry);
 function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind);
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
+function void Prog_ReloadFolderIcon(Prog_State *state, String path);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_FolderPicture(Prog_State *state, String path, i32 size);

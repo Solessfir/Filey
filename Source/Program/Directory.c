@@ -1018,7 +1018,7 @@ function void Prog__DirectoryJob(P_Job *job)
         result->count = input->rowCount;
         return;
     }
-    if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete) {
+    if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash) {
         Prog_Transferred *result = ArenaPushStruct(&job->arena, Prog_Transferred);
         P_FileError *error = &result->error;
         if (P_IsCancelled(&job->cancelToken)) {
@@ -1026,6 +1026,8 @@ function void Prog__DirectoryJob(P_Job *job)
             ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, input->progress, &result->placed, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_Delete) {
             ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, &job->cancelToken);
+        } else if (input->kind == Prog_JobKind_EmptyTrash) {
+            ProfileScope("EmptyTrash") *error = P_EmptyTrash(&job->arena, input->confirm);
         } else {
             ProfileScope("TrashItems") *error = P_TrashItems(&job->arena, input->paths, input->pathCount);
         }
@@ -1462,6 +1464,8 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 
 // Bookmarks and recents, one path per line in the config folder.
 #define Prog_BookmarksFile S("Bookmarks.txt")
+// The window's panels and their tabs, and which sidebar groups are open, kept in the config folder between runs.
+#define Prog_SessionFile S("Session.txt")
 #define Prog_RecentsFile   S("Recents.txt")
 #define Prog_FolderViewsFile S("FolderViews.txt")
 #define Prog_MaxRecents    20
@@ -1538,6 +1542,22 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
     if (!configDirectory.length) return;
     b32 found = false;
     Prog__LoadList(state, Prog_BookmarksFile, &state->bookmarkArena, &state->bookmarks, &found);
+    // The sidebar's groups stay open or closed from the last run, whatever the window starts with.
+    Scratch session = GetScratch();
+    String text = {0};
+    if (P_ReadFile(session.arena, Prog_JoinPath(session.arena, configDirectory, Prog_SessionFile), &text)) {
+        ArrayStr lines = StrSplit(session.arena, text, '\n');
+        for (u64 l = 0; l < lines.header.count; ++l) {
+            String line = lines.v[l];
+            if (line.length < 7 || !StrIsEqual(StrFromTo(line, 0, 7), S("groups "))) continue;
+            line = StrFrom(line, 7);
+            for (u32 g = 0; g < Prog_Group_Count; ++g) {
+                u64 toggled = 0;
+                if (Prog__TakeNumber(&line, &toggled)) state->groupToggled[g] = toggled != 0;
+            }
+        }
+    }
+    ReleaseScratch(session);
     if (!found) {
         Scratch scratch = GetScratch();
         P_ArrayPlace places = P_UserPlaces(scratch.arena);
@@ -2364,8 +2384,6 @@ function void Prog_KeepFolderView(Prog_State *state)
     if (!Prog__SameView(view, Prog_CurrentView(state))) Prog__SetFolderView(state, state->directory.path, true);
 }
 
-// The window's panels and their tabs, kept in the config folder between runs.
-#define Prog_SessionFile S("Session.txt")
 
 // The digits at the start of `*text`, which moves past them and one space.
 function b32 Prog__TakeNumber(String *text, u64 *value)
@@ -2390,6 +2408,9 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     u32 shown = state->panels[active].inspectorOf ? Prog_PanelIndex(state, state->panels[active].inspectorOf) : active;
     StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\npreview %u\n", shown < state->panelCount ? numbers[shown] : 0,
                                         state->sidebarHidden ? 1u : 0u, state->previewShown ? 1u : 0u));
+    StrBuildStr(arena, &text, S("groups"));
+    for (u32 g = 0; g < Prog_Group_Count; ++g) StrBuildStr(arena, &text, state->groupToggled[g] ? S(" 1") : S(" 0"));
+    StrBuildChar(arena, &text, '\n');
     for (u32 i = 0; i < Prog_MaxSplits; ++i) {
         const Prog_Split *split = &state->splits[i];
         if (split->kind == Prog_SplitKind_None) continue;
@@ -2622,7 +2643,9 @@ function const P_Place *Prog_PathDrive(const Prog_State *state, String path)
 // What a tab calls `path`: a drive's root by the drive's name, as "DVD RW Drive (E:)", and other folders by their own.
 function String Prog_PathName(const Prog_State *state, String path)
 {
-    if (P_IsTrashFolder(path)) return S("Recycle Bin");
+    for (u64 i = 0; P_IsTrashFolder(path) && i < state->places.header.count; ++i) {
+        if (P_IsTrashFolder(state->places.v[i].path)) return state->places.v[i].name;
+    }
     const P_Place *drive = Prog_PathDrive(state, path);
     return drive && drive->name.length && StrIsEqual(drive->path, path) ? drive->name : Prog__FolderName(path);
 }
@@ -2951,14 +2974,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     Prog_Reload(state);
                 }
             }
-        } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_Create) {
+        } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_Create ||
+                   input->kind == Prog_JobKind_EmptyTrash) {
             changed = true;
+            // The bin's listing has no watcher to see it emptied, and its icon shows whether it holds anything.
+            if (input->kind == Prog_JobKind_EmptyTrash && P_IsTrashFolder(state->directory.path)) Prog_Reload(state);
+            if (input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Trash || (input->kind == Prog_JobKind_Delete && P_IsTrashFolder(input->path))) {
+                Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
+            }
             for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
                 if (state->transfers[i].job == job) state->transfers[i].job = NULL;
             }
             P_FileError error = input->kind == Prog_JobKind_Create ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->move ? S("Move") : S("Copy");
+            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->move ? S("Move") : S("Copy");
             if (error.code) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "%S: %S", verb, error.message);

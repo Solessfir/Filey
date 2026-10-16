@@ -517,6 +517,27 @@ function String P_TrashFolder(Arena *arena)
     return result;
 }
 
+function b32 P_TrashHasItems(void)
+{
+    wchar root[8] = {0};
+    u32 length = GetEnvironmentVariableW(L"SystemDrive", root, (u32)CArrayCount(root) - 1);
+    if (!length || length >= CArrayCount(root) - 1) lstrcpyW(root, L"C:");
+    lstrcatW(root, L"\\");
+    SHQUERYRBINFO info = { .cbSize = sizeof(info) };
+    return SUCCEEDED(SHQueryRecycleBinW(root, &info)) && info.i64NumItems > 0;
+}
+
+function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
+{
+    (void)arena;
+    P__EnsureCom();
+    // The system's confirmation, with how many items go, and its progress window for a big bin; an empty bin or a No is not an error.
+    HRESULT status = SHEmptyRecycleBinW(P__shellOwner, NULL, confirm ? 0 : SHERB_NOCONFIRMATION);
+    return SUCCEEDED(status) || status == E_UNEXPECTED || status == HRESULT_FROM_WIN32(ERROR_CANCELLED) ? (P_FileError){0} : (P_FileError){ .code = (u32)status, .message = S("The Recycle Bin could not be emptied.") };
+}
+
+function b32 P_EmptyTrashAsks(void) { return true; }
+
 function b32 P_IsTrashFolder(String path)
 {
     while (path.length > 3 && path.value[path.length - 1] == '/') --path.length;

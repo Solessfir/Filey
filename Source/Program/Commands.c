@@ -296,7 +296,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TabClose, Prog_CommandKind_OpenOptions, Prog_CommandKind_ToggleHidden,
     Prog__PaletteGroup(Folder),
     Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
-    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Rename,
+    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Rename,
     Prog_CommandKind_CopyAsPath, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
@@ -1068,7 +1068,8 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     if (state->menuTarget.length && (item.action || StrIsEqual(item.verb, S("open")))) {
         String target = StrCopy(&state->frameArena, state->menuTarget);
         Prog_CloseMenu(state);
-        if (item.action == P_MenuAction_CopyAsPath) PlatformClipboardSetText(P_NativePath(&state->frameArena, target));
+        if (item.action == P_MenuAction_EmptyTrash) Prog_QueueCommand(state, Prog_CommandKind_EmptyTrash, 0, 0, UINT64_MAX);
+        else if (item.action == P_MenuAction_CopyAsPath) PlatformClipboardSetText(P_NativePath(&state->frameArena, target));
         else if (!item.action) Prog_RequestDirectory(state, target, true, 0);
         return;
     }
@@ -1082,7 +1083,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 10);
+        static_assert(P_MenuAction_Count == 11);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_Cut] = Prog_CommandKind_CutSelection,
             [P_MenuAction_Copy] = Prog_CommandKind_CopySelection,
@@ -1205,6 +1206,7 @@ function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *
     input->pathCount = count;
     input->move = kind == Prog_JobKind_Transfer && flag;
     input->folder = kind == Prog_JobKind_Create && flag;
+    input->confirm = kind == Prog_JobKind_EmptyTrash && flag;
     input->name = StrCopy(&job->arena, name);
     // A copy or move takes a free slot for its progress and questions; without one, taken names get numbers.
     for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers; ++i) {
@@ -1512,6 +1514,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!state->menuOpen) {
                     Prog_CloseMenu(state);
                     break;
+                }
+                // The bin's menu starts with emptying it, while it holds anything.
+                if (P_IsTrashFolder(path) && P_TrashHasItems()) {
+                    P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 2, P_MenuItem);
+                    items[0] = (P_MenuItem){ .label = StrFormat(&state->menuArena, "Empty %S", Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash };
+                    P_LoadFileIcon(&state->menuArena, path, P_FileKind_Directory, Max(state->iconSize, 16), true, &items[0].icon);
+                    items[1] = (P_MenuItem){ .separator = true };
+                    for (u32 i = 0; i < state->menu.count; ++i) {
+                        items[i + 2] = state->menu.items[i];
+                        if (items[i + 2].childCount) items[i + 2].firstChild += 2;
+                    }
+                    state->menu.items = items;
+                    state->menu.count += 2;
+                    state->menu.rootCount += 2;
                 }
                 state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
                 for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
@@ -1939,12 +1955,27 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CopyAsPath:
             case Prog_CommandKind_CreateFolder:
             case Prog_CommandKind_CreateFile: Prog__FileCommand(state, command->kind); break;
+            case Prog_CommandKind_EmptyTrash: {
+                // Asked first, as a permanent delete is: by the system where it asks itself, else here.
+                if (P_EmptyTrashAsks() || state->noTrashConfirm) {
+                    String bin = P_TrashFolder(&state->frameArena);
+                    Prog__FileJob(state, Prog_JobKind_EmptyTrash, &bin, 1, bin, !state->noTrashConfirm, (String){0});
+                    break;
+                }
+                ArenaClear(&state->confirmArena);
+                state->confirmPaths = ArenaPushArray(&state->confirmArena, 1, String);
+                state->confirmPaths[0] = P_TrashFolder(&state->confirmArena);
+                state->confirmCount = 1;
+                state->confirmEmptyTrash = state->confirmingDelete = true;
+                state->filtering = false;
+            } break;
             case Prog_CommandKind_DeleteConfirm:
             case Prog_CommandKind_DeleteCancel: {
                 if (state->confirmingDelete && command->kind == Prog_CommandKind_DeleteConfirm) {
-                    Prog__FileJob(state, Prog_JobKind_Delete, state->confirmPaths, state->confirmCount, state->directory.path, false, (String){0});
+                    Prog__FileJob(state, state->confirmEmptyTrash ? Prog_JobKind_EmptyTrash : Prog_JobKind_Delete, state->confirmPaths, state->confirmCount,
+                                  state->confirmEmptyTrash ? state->confirmPaths[0] : state->directory.path, false, (String){0});
                 }
-                state->confirmingDelete = false;
+                state->confirmingDelete = state->confirmEmptyTrash = false;
                 state->confirmCount = 0;
                 ArenaClear(&state->confirmArena);
             } break;

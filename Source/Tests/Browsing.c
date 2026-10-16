@@ -1751,6 +1751,10 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
         Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));
         Check(look.actOnRelease && look.singleClick && look.underlineAlways && look.noOverscroll && look.reverseScroll && look.doubleClickToParent && !look.hoverToSelect);
+        // Emptying the bin asks first unless turned off.
+        Check(Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
+        Prog_ApplySettings(&look, S("trash.confirm = off\n"));
+        Check(look.noTrashConfirm && !Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
         // Names without their extensions, a folder's kept whole, and a dot file's too.
         Prog_ApplySettings(&look, S("files.extensions = off\nfiles.hidden = on\n"));
         Prog_Entry file = { .file = { .name = S("Report.final.pdf"), .kind = P_FileKind_File } }, folder = { .file = { .name = S("v1.2"), .kind = P_FileKind_Directory } };

@@ -171,6 +171,12 @@ function b32 P_PrefersDarkColors(void);
 function String P_TrashFolder(Arena *arena);
 // True when `path` is a bin P_ListTrash reads: a drive's $Recycle.Bin, or the home Trash.
 function b32 P_IsTrashFolder(String path);
+// Whether the Recycle Bin, the system drive's on Windows, or the Trash holds anything; it reads the bin, so it is asked on a click, not every frame.
+function b32 P_TrashHasItems(void);
+// Deletes everything in the Recycle Bin of every drive, or in the Trash, for good. With `confirm`, Windows asks first with its own
+// confirmation, which P_EmptyTrashAsks says; elsewhere it never asks, and the program confirms first.
+function P_FileError P_EmptyTrash(Arena *arena, b32 confirm);
+function b32 P_EmptyTrashAsks(void);
 // What the bin at `path` holds; on Windows, the items of the user's own folders in it.
 function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelToken *cancel);
 // Deletes the items at `paths` for good, folders with everything in them, without asking; the program confirms first.
@@ -257,6 +263,7 @@ typedef enum P_MenuAction {
     P_MenuAction_Delete,
     P_MenuAction_NewFolder,
     P_MenuAction_NewFile,
+    P_MenuAction_EmptyTrash,
     P_MenuAction_Count,
 } P_MenuAction;
 

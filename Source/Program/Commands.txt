@@ -576,6 +576,11 @@ command TogglePreview {
     repeat  = "false"
 }
 
+command EmptyTrash {
+    label   = "Empty Recycle Bin^trash,bin,empty,delete,permanently,purge"
+    tooltip = "Permanently delete everything in the Recycle Bin."
+}
+
 command Undo {
     label   = "Undo^revert,back,restore"
     tooltip = "Reverse the last rename, new item, copy or move."

@@ -280,7 +280,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = false;
+    state->showCheckboxes = state->noTrashConfirm = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
@@ -355,6 +355,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->noVSync = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("checkboxes"))) {
             state->showCheckboxes = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("trash.confirm"))) {
+            state->noTrashConfirm = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("thumbnails"))) {
             if (Prog__EqualFolded(value, S("never"))) state->thumbnailMode = Prog_Thumbnails_Never;
             if (Prog__EqualFolded(value, S("always"))) state->thumbnailMode = Prog_Thumbnails_Always;
@@ -456,6 +458,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
                                 "# paths.short = on\n# paths.trail = on\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = off\n\n"
+                                "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = on\n\n"
                                 "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
@@ -533,6 +536,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                   Prog_OptionSwitch, 2, S("paths.trail") },
     [Prog_Option_ShowCheckboxes] = { S("Show Selection Boxes"), S("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, S("checkboxes") },
+    [Prog_Option_ConfirmEmptyTrash] = { S("Confirm Emptying Recycle Bin"), S("Ask before permanently deleting everything in the Recycle Bin."),
+                                        Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("trash.confirm") },
     [Prog_Option_StoreRecents] = { S("Store Recents"), S("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), S("recents.store") },
     [Prog_Option_ShowRecents] = { S("Highlight Recents"), S("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
@@ -609,6 +614,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
+        case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_ShowRecents: return state->showRecents;
         case Prog_Option_SortRecents: return state->sortRecents;
@@ -4849,7 +4855,8 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeleteCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, outside.pressOrder);
-    String title = state->confirmCount == 1 ? StrFormat(&state->frameArena, "Permanently delete \"%S\"?", Prog__FolderName(state->confirmPaths[0]))
+    String title = state->confirmEmptyTrash ? StrFormat(&state->frameArena, "Permanently delete everything in the %S?", Prog_PathName(state, state->confirmPaths[0]))
+                 : state->confirmCount == 1 ? StrFormat(&state->frameArena, "Permanently delete \"%S\"?", Prog__FolderName(state->confirmPaths[0]))
                                             : StrFormat(&state->frameArena, "Permanently delete %" PRIu64 " items?", state->confirmCount);
     f32 width = floorf(MinF32(MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, m->line * 20), view.x1 - view.x0 - 2 * m->inset));
     f32 height = floorf(m->row * 2 + m->bar + m->inset * 2);
