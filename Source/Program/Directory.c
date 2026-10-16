@@ -1315,10 +1315,10 @@ function b32 Prog_ShowsThumbnails(const Prog_State *state)
     return state->thumbnailMode == Prog_Thumbnails_Always;
 }
 
-// Measures the shown folder's subfolders that have no totals yet, one job at a time.
+// Measures the shown folder's subfolders that have no totals yet, one job at a time; when the settings measure none, only those asked for again.
 function void Prog__MeasureFolders(Prog_State *state)
 {
-    if (!Prog_MeasuresFolders(state)) return;
+    b32 all = Prog_MeasuresFolders(state);
     // Drives are not walked to be measured, and the bin knows its folders' sizes.
     if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path)) return;
     // Not while a walk through the whole tree is on its way, which counts them itself.
@@ -1326,7 +1326,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     u64 count = 0;
     for (u64 i = 0; i < state->directory.count; ++i) {
         const Prog_Entry *entry = &state->directory.entries[i];
-        count += entry->file.kind == P_FileKind_Directory && (!entry->measured || entry->remeasure);
+        count += entry->file.kind == P_FileKind_Directory && (all ? !entry->measured || entry->remeasure : entry->remeasure);
     }
     if (!count) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
@@ -1340,7 +1340,7 @@ function void Prog__MeasureFolders(Prog_State *state)
     input->rows = ArenaPushArray(&job->arena, count, u64);
     for (u64 i = 0; i < state->directory.count; ++i) {
         const Prog_Entry *entry = &state->directory.entries[i];
-        if (entry->file.kind != P_FileKind_Directory || (entry->measured && !entry->remeasure)) continue;
+        if (entry->file.kind != P_FileKind_Directory || (all ? entry->measured && !entry->remeasure : !entry->remeasure)) continue;
         input->names[input->rowCount] = StrCopy(&job->arena, entry->file.name);
         input->rows[input->rowCount++] = i;
     }

@@ -231,6 +231,60 @@ command StartExpandedSearch {
     repeat  = "false"
 }
 
+command ToggleCursorSelection {
+    label   = "Toggle File Cursor Selection"
+    tooltip = "Toggle selection for the file or folder at the file cursor position without affecting other selections."
+    hotkey  = "Ctrl+Space"
+}
+
+command OpenInRightSplit {
+    label   = "Open In Right Split^panel,side,dual,pane"
+    tooltip = "Open selected folders in the new panels to the right. For files, opens containing folders."
+}
+
+command OpenInBottomSplit {
+    label   = "Open In Bottom Split^panel,below,dual,pane"
+    tooltip = "Open selected folders in the new panels to the bottom. For files, opens containing folders."
+}
+
+command SelectionCopyPrevPanel {
+    label   = "Copy Files To Previous Panel"
+    tooltip = "Copy selected files to the previous neighbor panel."
+}
+
+command SelectionCopyNextPanel {
+    label   = "Copy Files To Next Panel"
+    tooltip = "Copy selected files to the next neighbor panel."
+    hotkey  = "Ctrl+F6"
+}
+
+command SelectionMovePrevPanel {
+    label   = "Move Files To Previous Panel"
+    tooltip = "Move selected files to the previous neighbor panel."
+}
+
+command SelectionMoveNextPanel {
+    label   = "Move Files To Next Panel"
+    tooltip = "Move selected files to the next neighbor panel."
+    hotkey  = "Shift+F6"
+}
+
+command OpenContainingPath {
+    label   = "Open Containing Path"
+    tooltip = "Open the target file or folder's real location in its containing folder."
+}
+
+command OpenContainingPathInTab {
+    label   = "Open Containing Path In Tab"
+    tooltip = "Open the target file or folder's real location in its containing folder in a new tab."
+}
+
+command CalcDirsContents {
+    label   = "Refresh Folder Stats^reload,calculate,directory,contents,size,count"
+    tooltip = "Refresh total child size and item count for the selected folders."
+    hotkey  = "Alt+R"
+}
+
 command ToggleExpandFolder {
     label   = "Toggle Expand Folder^unfold,reveal,deep,hierarchy,directory"
     tooltip = "Recursively flatten all subfiles and subfolders into a single file listing."

@@ -296,9 +296,12 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_TogglePreview, Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_TabNew,
     Prog_CommandKind_TabClose, Prog_CommandKind_OpenOptions, Prog_CommandKind_ToggleHidden,
     Prog__PaletteGroup(Folder),
-    Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
+    Prog_CommandKind_ToggleCursorSelection, Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_OpenInRightSplit,
+    Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Rename,
-    Prog_CommandKind_CopyAsPath, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
+    Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
+    Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
+    Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
     Prog_CommandKind_BookmarksToggle,
@@ -1406,6 +1409,74 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
             } break;
             case Prog_CommandKind_OpenInTab: Prog__OpenInTabs(state, UINT64_MAX); break;
+            case Prog_CommandKind_OpenInRightSplit:
+            case Prog_CommandKind_OpenInBottomSplit: {
+                // Each folder in a panel of its own, split off the last one; the paths are taken first, as a split moves to the new panel.
+                if (state->loading) break;
+                Arena *frame = &state->frameArena;
+                String *paths = ArenaPushArray(frame, Max(state->directory.count, (u64)1), String);
+                u64 count = 0;
+                for (u64 i = 0; i < state->directory.count; ++i) {
+                    const Prog_Entry *entry = &state->directory.entries[i];
+                    if (!(state->selectedCount ? entry->selected : state->hasFocus && i == state->focusedRow)) continue;
+                    String name = entry->file.kind == P_FileKind_Directory ? entry->file.name : Prog_EntryParent(entry->file.name);
+                    paths[count++] = name.length ? Prog_JoinPath(frame, state->directory.path, name) : state->directory.path;
+                }
+                Prog_SplitKind kind = command->kind == Prog_CommandKind_OpenInRightSplit ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical;
+                for (u64 i = 0; i < count; ++i) Prog_SplitPanel(state, state->activePanel, kind, false, paths[i]);
+            } break;
+            case Prog_CommandKind_SelectionCopyPrevPanel:
+            case Prog_CommandKind_SelectionCopyNextPanel:
+            case Prog_CommandKind_SelectionMovePrevPanel:
+            case Prog_CommandKind_SelectionMoveNextPanel: {
+                if (state->loading || state->renaming) break;
+                u64 order[Prog_MaxPanels];
+                u32 count = Prog__PanelsInOrder(state, 0, order, 0), at = count;
+                for (u32 i = 0; i < count; ++i) if (order[i] == state->panels[state->activePanel].id) at = i;
+                if (count < 2 || at == count) break;
+                b32 next = command->kind == Prog_CommandKind_SelectionCopyNextPanel || command->kind == Prog_CommandKind_SelectionMoveNextPanel;
+                b32 move = command->kind == Prog_CommandKind_SelectionMovePrevPanel || command->kind == Prog_CommandKind_SelectionMoveNextPanel;
+                u32 target = Prog_PanelIndex(state, order[next ? (at + 1) % count : (at + count - 1) % count]);
+                if (target == UINT32_MAX) break;
+                String folder = target == state->currentPanel ? state->directory.path : state->panels[target].directory.path;
+                String *paths = NULL;
+                u64 selected = Prog__SelectedPaths(state, &state->frameArena, &paths);
+                if (folder.length && !StrIsEqual(folder, state->directory.path) && !StrIsEqual(folder, Prog_ThisPC)) {
+                    Prog__FileJob(state, Prog_JobKind_Transfer, paths, selected, folder, move, (String){0});
+                }
+            } break;
+            case Prog_CommandKind_ToggleCursorSelection: {
+                if (state->loading || !state->hasFocus || state->focusedRow >= state->directory.count) break;
+                Prog_Entry *entry = &state->directory.entries[state->focusedRow];
+                entry->selected = !entry->selected;
+                state->selectedCount = entry->selected ? state->selectedCount + 1 : state->selectedCount - 1;
+                state->anchorRow = state->focusedRow;
+                state->hasAnchor = true;
+            } break;
+            case Prog_CommandKind_OpenContainingPath:
+            case Prog_CommandKind_OpenContainingPathInTab: {
+                // The focused item shown in its own folder, selected; an expanded listing's items are in subfolders of the one shown.
+                if (state->loading || !state->hasFocus || state->focusedRow >= state->directory.count) break;
+                String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
+                String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
+                if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) break;
+                if (command->kind == Prog_CommandKind_OpenContainingPathInTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
+                MemCopy(state->selectText, name.value, name.length);
+                state->selectLength = (u32)name.length;
+                if (command->kind == Prog_CommandKind_OpenContainingPath) {
+                    state->expanded = false;
+                    Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
+                }
+            } break;
+            case Prog_CommandKind_CalcDirsContents: {
+                if (state->loading) break;
+                for (u64 i = 0; i < state->directory.count; ++i) {
+                    Prog_Entry *entry = &state->directory.entries[i];
+                    b32 wanted = state->selectedCount ? entry->selected : state->hasFocus && i == state->focusedRow;
+                    if (wanted && entry->file.kind == P_FileKind_Directory && !entry->drive) entry->remeasure = true;
+                }
+                Prog__MeasureFolders(state);
+            } break;
             case Prog_CommandKind_OpenRowInTab: if (command->row < state->directory.count) Prog__OpenInTabs(state, command->row); break;
             case Prog_CommandKind_SelectTab: Prog_SelectTab(state, (u32)command->row); break;
             case Prog_CommandKind_CloseTabAt: Prog_CloseTab(state, (u32)command->row); break;

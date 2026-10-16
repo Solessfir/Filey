@@ -1362,6 +1362,26 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Check(!state.confirmingDelete && TestWaitCount(&state, 1) && !state.error.length);
     Check(!TestHasFile(&arena, fixture, S("Commands/New folder"), S("Doomed")) && TestHasFile(&arena, fixture, S("Commands/New folder"), S("a.txt")));
 
+    // Ctrl+Space selects the focused item alone, without changing the rest; Ctrl+F6 copies the selection into the next panel's folder.
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
+    ArenaClear(&state.frameArena);
+    Prog_QueueCommand(&state, Prog_CommandKind_FocusFirst, 0, 0, 0)->panel = state.panels[0].id;
+    Prog_ProcessCommands(&state);
+    Check(state.activePanel == 0 && TestEndsWith(state.directory.path, S("/New folder")));
+    for (u64 i = 0; i < state.directory.count; ++i) state.directory.entries[i].selected = false;
+    state.selectedCount = 0;
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleCursorSelection, 0);
+    Check(state.selectedCount == 1 && state.directory.entries[state.focusedRow].selected);
+    TestBrowsingCommand(&state, Prog_CommandKind_SelectionCopyNextPanel, 0);
+    for (u64 start = PlatformNowMicroseconds(); !TestHasFile(&arena, fixture, S("Commands"), S("a.txt")) && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(&state);
+        P__TestPause();
+    }
+    Check(TestHasFile(&arena, fixture, S("Commands"), S("a.txt")) && TestHasFile(&arena, fixture, S("Commands/New folder"), S("a.txt")));
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleCursorSelection, 0);
+    Check(state.selectedCount == 0);
+
 #if defined(__linux__)
     // Trash goes to a trash inside the fixture, never the real one.
     String data = Prog_JoinPath(&arena, root, S("data"));

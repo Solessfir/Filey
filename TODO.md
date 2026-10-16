@@ -7,7 +7,7 @@ Autonomous run, in order. Each step: build release, run `Build.bat test`, check 
 Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
 
 3. Recursive listing (section below): rows appear as the walk finds them.
-5. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin.
+5. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin. OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
 6. Redo beside Undo.
 7. Hex view: read further pages as it scrolls, fewer bytes per line when the inspector is narrow, colors for zero and printable bytes, and a command to show any file as hex.
 8. Syntax highlighting in the inspector's text view: keywords, strings, comments and numbers for C/C++, C#, Python, JS/TS, Lua, Rust, Go, shell, JSON, INI/TOML and Markdown headings, from a small table, no library.
@@ -44,7 +44,7 @@ Already in Filey under another name: SelectionActivate (OpenFocused), SelectionC
 Missing, by the reference's group:
 
 - Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick), MenuOpen.
-- Folder: ToggleCursorSelection, OpenInRightSplit, OpenInBottomSplit, OpenInWindow, SelectionPasteLink, SelectionCopy/MovePrev/NextPanel, SelectionInspect, SelectionRestore, SelectionCopyAsPathSmart, OpenRelativePath(InTab), OpenContainingPath(InTab), CalcDirsContents, TrashDeleteAll, TrashRestoreAll, FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
+- Folder: OpenInWindow, SelectionPasteLink, SelectionInspect, SelectionRestore, SelectionCopyAsPathSmart, OpenRelativePath(InTab), TrashDeleteAll, TrashRestoreAll, FilesPopupOpen/Prev/Next, TypesPopupOpen, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - View: ToggleSepFilesFolders.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.
