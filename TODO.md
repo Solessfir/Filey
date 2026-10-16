@@ -6,7 +6,7 @@ Autonomous run, in order. Each step: build release, run `Build.bat test`, check 
 
 Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
 
-3. Recursive listing (section below): rows appear as the walk finds them, "[..]" in the tab and breadcrumbs, "name › Subfolder" rows with the folder's own items first, an empty list without the "No items match" text.
+3. Recursive listing (section below): rows appear as the walk finds them.
 4. Rename: InsertIncrementalID, InsertCurrentDate, InsertCreateDate, InsertModifiedDate, RenamePrev, RenameNext.
 5. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin.
 6. Redo beside Undo.
@@ -29,9 +29,6 @@ Not tonight: Miller columns and archives as folders (start only when asked), fon
 ## Recursive listing (Ctrl+E)
 
 - Show rows as the walk finds them, as the reference does, instead of all at once at the end; its first count is the rows listed so far.
-- The reference marks it with "[..]" after the folder's name in the tab and the breadcrumbs.
-- It shows an item inside a subfolder as "file001.txt › Docs", not "Docs/file001.txt", and lists the folder's own items before those of its subfolders.
-- With nothing left after filtering it shows an empty list, without "No items match the filter".
 
 ## Look
 

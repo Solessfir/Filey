@@ -1271,6 +1271,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             b32 shown = i == state->activeTab;
             String path = Prog_TabPath(state, i);
             String name = Prog_PathName(state, path);
+            if (shown ? state->expanded : state->tabs[i].expanded) name = StrFormat(&state->frameArena, "%S [...]", name);
             UI_Key key = Prog__TabKey(state, i);
             UI_Key closeKey = UI_KeyFromStr(key, S("Close"));
             b32 hot = Prog__TabHot(state, i);
@@ -1539,6 +1540,8 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
             if (at > start || drive) Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), Prog__StripHeight(m), theme->textDim, 0.5f, m);
             if (drive && at == 0) segment = Prog__DriveName(state, path);
             else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
+            // A walk through the whole tree is marked after the folder walked.
+            if (current && state->expanded) segment = StrFormat(&state->frameArena, "%S [...]", segment);
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
             UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
                                                           theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
@@ -1943,7 +1946,18 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metri
     }
 }
 
-// A name whose first `prefix` bytes, the folder in an expanded listing, are dimmed, with the bytes a filter matched after it, flagged in `marks` when not NULL, in the match color.
+// The bytes from `start` to `end` of `name`, those a filter matched, flagged in `marks` when not NULL, in the match color.
+function void Prog__NameRuns(String name, u64 start, u64 end, const u8 *marks, R_Color color, const R_Font *font, const Prog_Metrics *m)
+{
+    for (u64 at = start; at < end; start = at) {
+        b32 match = marks && marks[at];
+        while (at < end && (marks && marks[at]) == match) ++at;
+        if (font) UI_SetNextFont(font);
+        Prog__Label(StrFromTo(name, start, (i64)at), UI_TextContent(), m->row, 0, match ? Prog_CurrentTheme()->textMatch : color, 0);
+    }
+}
+
+// A name whose first `prefix` bytes are the folder it is in, in an expanded listing: the item's own name, then a chevron and that folder, smaller and dimmed.
 function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size width, R_Color color, R_Color dim, const Prog_Metrics *m)
 {
     UI_SetNextPrefWidth(width);
@@ -1953,11 +1967,10 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(cell) {
-        for (u64 start = 0, end = 0; start < name.length; start = end) {
-            b32 match = marks && marks[start];
-            b32 folder = start < prefix;
-            while (end < name.length && (marks && marks[end]) == match && (end < prefix) == folder) ++end;
-            Prog__Label(StrFromTo(name, start, (i64)end), UI_TextContent(), m->row, 0, match ? Prog_CurrentTheme()->textMatch : folder ? dim : color, 0);
+        Prog__NameRuns(name, prefix, name.length, marks, color, NULL, m);
+        if (prefix > 1) {
+            Prog__Icon(Icon_ChevronRight, floorf(22.8f * m->scale), m->row, dim, 0.5f, m);
+            Prog__NameRuns(name, 0, prefix - 1, marks, dim, m->detail, m);
         }
     }
 }
@@ -2759,7 +2772,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(viewHeight - pitch.y));
         if (!state->viewCount && !state->loading) {
             // Centered a little below the top.
-            String empty = state->directory.count ? S("No items match the filter.") : S("This folder is empty.");
+            String empty = state->directory.count ? S("All items are currently hidden by view settings.") : S("This folder is empty.");
             Prog__Spacer(UI_Flex(), UI_Pixels(floorf(m->row * 0.65f)));
             Prog__Label(empty, UI_Flex(), m->row, 0, theme->textDim, 0.5f);
         }

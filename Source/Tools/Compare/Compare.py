@@ -5,7 +5,7 @@
 # since an off-screen GL window keeps none of what it draws. Steps post input to the two windows only, and only the started processes are closed.
 #
 #   python Source/Tools/Compare/Compare.py run <name> "<steps>" [ref|filey|both]
-#       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | wheel x y notches | key VK | mods VK... | wait s | shot [tag]
+#       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | wheel x y notches | key VK | type text | mods VK... | wait s | shot [tag]
 #       | frames n interval tag
 #       | keyframes VK n interval tag (presses VK and records from then)
 #       | moveframes x y n interval tag, downframes, upframes, clickframes, rclickframes (the same for the pointer: moves, presses, releases or clicks at x y)
@@ -239,6 +239,10 @@ def steps(app, text, side, name, tags):
         elif op == 'down': app.mouse(n[0], n[1]); app.press(n[0], n[1], 'l', True)
         elif op == 'up': app.mouse(n[0], n[1]); app.press(n[0], n[1], 'l', False)
         elif op == 'key': app.key(n[0])
+        elif op == 'type':
+            # A key goes down first, as when typing, since apps may drop a character that a hotkey's key press brings.
+            app.post(0x100, 0x10, 1); app.post(0x101, 0x10, 0xC0000001)
+            for c in step.split(None, 1)[1]: app.post(0x102, ord(c), 1); time.sleep(0.03)
         elif op == 'wheel': app.wheel(n[0], n[1], n[2])
         elif op == 'mods': app.mods(*n)
         elif op == 'wait': time.sleep(float(words[1]))
