@@ -435,10 +435,13 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     if (state->systemScheme && !P_PrefersDarkColors()) Prog_ThemeUser = Prog_ThemeLight;
     // The inspector's text size and layout change with the file, and keep what its controls set otherwise.
     if (inspectorFontSize != state->settingInspectorFontSize) state->inspectorFontSize = state->settingInspectorFontSize = inspectorFontSize;
-    // Hidden items too, which the shown tab takes when the file changes them.
+    // Hidden items too, which the shown tab takes when the file changes them, listing its folder again; that includes a listing still on
+    // its way, as the first one is when the settings load.
     if ((showHidden ? 2u : 1u) != state->settingHidden) {
+        b32 changed = state->showHidden != showHidden;
         state->settingHidden = showHidden ? 2 : 1;
         state->showHidden = showHidden;
+        if (changed) Prog_Reload(state);
     }
     if (inspectorLayout + 1u != state->settingInspectorLayout) {
         state->inspectorLayout = inspectorLayout;
@@ -724,8 +727,8 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
         Prog_ApplySettings(state, line);
     }
     ReleaseScratch(scratch);
-    // What the folder lists, marks or measures changes with these, so it is listed again.
-    if (option == Prog_Option_ShowHiddenFiles || option == Prog_Option_ShowSystemFiles || option == Prog_Option_ShowRecents || option == Prog_Option_SortRecents ||
+    // What the folder lists, marks or measures changes with these, so it is listed again; applying the hidden files' does that itself.
+    if (option == Prog_Option_ShowSystemFiles || option == Prog_Option_ShowRecents || option == Prog_Option_SortRecents ||
         (option >= Prog_Option_CalcFolderSizes && option <= Prog_Option_CalcFolderSizesNetwork)) {
         Prog_Reload(state);
     }
