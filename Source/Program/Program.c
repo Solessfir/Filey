@@ -2265,6 +2265,7 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, const Prog
         UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + at });
         UI_SetNextPrefWidth(UI_Pixels(thick));
         UI_SetNextPrefHeight(UI_Pixels(thumb));
+        UI_SetNextCornerRadius(floorf(thick * 0.5f));
         UI_SetNextColors((UI_Colors){ .background = theme->track });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         f32 size = floorf(16.0f * s + 0.5f);
