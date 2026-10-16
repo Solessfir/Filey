@@ -289,6 +289,17 @@ function void P_RunLanes(u32 count, P_LaneCallback *callback, void *user)
     }
 }
 
+function b32 P_WaitGone(const String *paths, u64 count, u32 milliseconds)
+{
+    for (u32 waited = 0;; waited += 50) {
+        b32 left = false;
+        for (u64 i = 0; i < count && !left; ++i) left = P_PathExists(paths[i]);
+        if (!left) return true;
+        if (waited >= milliseconds) return false;
+        P_Sleep(50);
+    }
+}
+
 function u32 P_ProcessorCount(void) { return P__ProcessorCount(); }
 function b32 P_MutexInit(P_Mutex *mutex) { return P__MutexInit(mutex); }
 function void P_MutexRelease(P_Mutex *mutex) { P__MutexRelease(mutex); }

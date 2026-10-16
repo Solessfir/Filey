@@ -664,6 +664,17 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
         P__EnsureCom();
         IContextMenu *menu = P__RecycleBinMenu(arena, paths, count);
         if (menu) {
+            // The shell moves them on after it returns, so the job waits until they have left the bin, for what is shown of it to be right.
+            Scratch waits = GetScratchEx(arena);
+            const String *going = paths;
+            u64 goingCount = count;
+            if (!count) {
+                P_ArrayTrashed binned = P_ListTrash(waits.arena, bin, NULL);
+                String *all = ArenaPushArray(waits.arena, Max(binned.header.count, (u64)1), String);
+                for (u64 i = 0; i < binned.header.count; ++i) all[i] = binned.v[i].file.name;
+                going = all;
+                goingCount = binned.header.count;
+            }
             HMENU popup = CreatePopupMenu();
             HRESULT result = popup ? menu->lpVtbl->QueryContextMenu(menu, popup, 0, P__MenuFirstId, P__MenuLastId, CMF_NORMAL) : E_FAIL;
             if (SUCCEEDED(result)) {
@@ -672,6 +683,8 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
             }
             if (popup) DestroyMenu(popup);
             menu->lpVtbl->Release(menu);
+            if (SUCCEEDED(result)) P_WaitGone(going, goingCount, 10000);
+            ReleaseScratch(waits);
             if (SUCCEEDED(result) || result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return (P_FileError){0};
             return P__FileError(arena, HRESULT_FACILITY(result) == FACILITY_WIN32 ? (u32)HRESULT_CODE(result) : (u32)result);
         }

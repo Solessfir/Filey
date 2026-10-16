@@ -603,6 +603,20 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
     return result;
 }
 
+function b32 P_PathExists(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
+    b32 result = wide && GetFileAttributesW(wide) != INVALID_FILE_ATTRIBUTES;
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function void P_Sleep(u32 milliseconds)
+{
+    Sleep(milliseconds);
+}
+
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
 {
     return P_ReadFileAt(arena, path, 0, limit, contents);

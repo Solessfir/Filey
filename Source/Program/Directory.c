@@ -1433,7 +1433,7 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ||
-        input->kind == Prog_JobKind_Restore) {
+        input->kind == Prog_JobKind_Restore || input->kind == Prog_JobKind_BinWait) {
         Prog_Transferred *result = ArenaPushStruct(&job->arena, Prog_Transferred);
         P_FileError *error = &result->error;
         if (P_IsCancelled(&job->cancelToken)) {
@@ -1445,6 +1445,8 @@ function void Prog__DirectoryJob(P_Job *job)
             ProfileScope("EmptyTrash") *error = P_EmptyTrash(&job->arena, input->confirm);
         } else if (input->kind == Prog_JobKind_Restore) {
             ProfileScope("RestoreTrash") *error = P_RestoreTrash(&job->arena, input->path, input->paths, input->pathCount);
+        } else if (input->kind == Prog_JobKind_BinWait) {
+            P_WaitGone(input->paths, input->pathCount, 10000);
         } else {
             ProfileScope("TrashItems") *error = P_TrashItems(&job->arena, input->paths, input->pathCount);
         }
@@ -3665,10 +3667,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
             }
         } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_Create ||
-                   input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore) {
+                   input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore || input->kind == Prog_JobKind_BinWait) {
             changed = true;
             // The bin's listing has no watcher to see it emptied, and its icon shows whether it holds anything.
-            b32 binChanged = input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore;
+            b32 binChanged = input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore || input->kind == Prog_JobKind_BinWait;
             if (binChanged && P_IsTrashFolder(state->directory.path)) Prog_Reload(state);
             if (binChanged || input->kind == Prog_JobKind_Trash || (input->kind == Prog_JobKind_Delete && P_IsTrashFolder(input->path))) {
                 Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));

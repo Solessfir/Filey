@@ -222,6 +222,12 @@ function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *conte
 // Runs `arguments[0]`, found on the PATH, with the rest of `arguments` in `directory`, without a window, and gives what it wrote to its standard
 // output; false when it could not start, ran past `timeoutMilliseconds` (it is then stopped) or exited with an error.
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output);
+// Whether anything is at `path`, a link itself included.
+function b32 P_PathExists(String path);
+// Waits `milliseconds`, for a job that waits on something outside the program.
+function void P_Sleep(u32 milliseconds);
+// Waits up to `milliseconds` until nothing is left at any of `paths`, as after the shell started moving them; false when something still is.
+function b32 P_WaitGone(const String *paths, u64 count, u32 milliseconds);
 // Up to `limit` bytes of `path` from `offset` on; fewer past its end.
 function b32 P_ReadFileAt(Arena *arena, String path, u64 offset, u64 limit, String *contents);
 // Replaces the file with `contents` in one step, so that a crash leaves the old or the new file and never half of one.

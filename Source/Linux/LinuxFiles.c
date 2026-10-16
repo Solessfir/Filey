@@ -1455,6 +1455,22 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
     return result;
 }
 
+function b32 P_PathExists(String path)
+{
+    Scratch scratch = GetScratch();
+    char *native = P__FilePathCString(scratch.arena, path);
+    struct stat info;
+    b32 result = native && lstat(native, &info) == 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function void P_Sleep(u32 milliseconds)
+{
+    struct timespec wait = { .tv_sec = milliseconds / 1000, .tv_nsec = (long)(milliseconds % 1000) * 1000000 };
+    while (nanosleep(&wait, &wait) != 0 && errno == EINTR) {}
+}
+
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
 {
     return P_ReadFileAt(arena, path, 0, limit, contents);

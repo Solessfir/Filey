@@ -180,7 +180,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
     Prog_JobKind_EmptyTrash,
-    Prog_JobKind_Restore,      // `paths` from the bin `path` back where they came from, or all of it without any
+    Prog_JobKind_Restore,
+    Prog_JobKind_BinWait,      // waits until the bin's items at `paths` have left it, after a command of its menu      // `paths` from the bin `path` back where they came from, or all of it without any
     Prog_JobKind_Create,
     Prog_JobKind_Places,
     Prog_JobKind_Save,

@@ -1220,6 +1220,7 @@ function void Prog__RenameInsert(Prog_State *state, Prog_CommandKind kind)
 }
 
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind);
+function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name);
 
 function void Prog__InvokeMenu(Prog_State *state, u32 index)
 {
@@ -1289,6 +1290,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         state->error = error.code ? StrFormat(&state->errorArena, "%S: %S", item.label, error.message) : (String){0};
         // The watch would catch the change too; reloading now shows it without waiting.
         Prog_Reload(state);
+        // The bin has no watch, and the shell moves its items on after the command returns, so a job waits for them to leave it.
+        if (!error.code && state->menuRowCount && P_IsTrashFolder(state->directory.path)) {
+            String *paths = ArenaPushArray(&state->frameArena, state->menuRowCount, String);
+            for (u64 i = 0; i < state->menuRowCount; ++i) paths[i] = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->menuRows[i]].file.name);
+            Prog__FileJob(state, Prog_JobKind_BinWait, paths, state->menuRowCount, state->directory.path, false, (String){0});
+        }
     }
     Prog_CloseMenu(state);
 }
