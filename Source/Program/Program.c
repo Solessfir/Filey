@@ -5504,6 +5504,8 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, line = m->separator;
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
     f32 row = floorf((state->paletteCompact ? 24.0f : 40.8f) * s + 0.5f) + line;
+    // A font taller than the reference's grows the rows rather than cutting off the description under the label.
+    if (!state->paletteCompact) row = MaxF32(row, floorf(4.8f * s + 0.5f) + m->line + floorf(2.4f * s + 0.5f) + m->detail->lineHeight + line);
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
     // The box reaches down to the bottom margin, with as many rows as fit and the next one cut off under them, with lines between them.
     // The list scrolls only as far as keeps the highlight wholly in sight.
