@@ -551,6 +551,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
 
 // ponytail: `exact` is ignored, so the user's folders show the plain folder icon; map them to the theme's folder-download and kin when that matters.
 // The icons of `path` when it is one of the user's places, as GTK shows the home, the desktop or the downloads.
+// The home has none of its own, as Windows shows the user's folder as a plain one.
 function void P__PlaceIconNames(Arena *arena, String path, ArrayStr *names)
 {
     local_persist const struct { String place; String icons[2]; } special[] = {
@@ -561,15 +562,16 @@ function void P__PlaceIconNames(Arena *arena, String path, ArrayStr *names)
         { SInit("Pictures"), { SInit("folder-pictures") } },
         { SInit("Videos"), { SInit("folder-videos") } },
     };
+    if (StrIsEqual(path, P_ComputerIconPath())) {
+        ArrayPush(arena, *names, S("computer"));
+        return;
+    }
     P_ArrayPlace places = P_UserPlaces(arena);
     String absolute = P_AbsolutePath(arena, path);
     for (u64 i = 0; i < places.header.count; ++i) {
         const P_Place *place = &places.v[i];
         if (!StrIsEqual(place->path, absolute)) continue;
-        if (place->home) {
-            ArrayPush(arena, *names, S("user-home"));
-            ArrayPush(arena, *names, S("folder-home"));
-        } else if (StrIsEqual(place->name, S("Trash"))) {
+        if (StrIsEqual(place->name, S("Trash"))) {
             if (P_TrashHasItems()) ArrayPush(arena, *names, S("user-trash-full"));
             ArrayPush(arena, *names, S("user-trash"));
         }
@@ -581,6 +583,18 @@ function void P__PlaceIconNames(Arena *arena, String path, ArrayStr *names)
     }
 }
 
+// Whether an icon is drawn in grays alone, as the small symbolic designs of some themes are.
+function b32 P__IsGray(const P_Image *image)
+{
+    for (u64 i = 0; i < (u64)image->width * (u64)image->height; ++i) {
+        u32 pixel = image->pixels[i];
+        i32 red = (i32)(pixel & 0xFF), green = (i32)(pixel >> 8 & 0xFF), blue = (i32)(pixel >> 16 & 0xFF);
+        i32 spread = Max(Max(red, green), blue) - Min(Min(red, green), blue);
+        if ((pixel >> 24) > 32 && spread > 24) return false;
+    }
+    return true;
+}
+
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, f32 scale, b32 exact, P_Image *image)
 {
     (void)exact;
@@ -589,12 +603,14 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     pthread_once(&P__iconsOnce, P__LoadIconData);
     Scratch scratch = GetScratchEx(arena);
     ArrayStr names = {0};
+    u64 places = 0;  // the names before this are a place's own
     String key = P_FileIconKey(scratch.arena, path, kind);
     if (kind == P_FileKind_Drive) {
         ArrayPush(scratch.arena, names, S("drive-harddisk"));
         ArrayPush(scratch.arena, names, S("folder"));
     } else if (kind == P_FileKind_Directory) {
         if (exact) P__PlaceIconNames(scratch.arena, path, &names);
+        places = names.header.count;
         ArrayPush(scratch.arena, names, S("folder"));
     } else {
         String mime = key.length && key.value[0] == '.' ? MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1)) : (String){0};
@@ -616,6 +632,10 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     for (u64 i = 0; i < names.header.count && !result; ++i) {
         String file = P__FindIcon(scratch.arena, names.v[i], logical, wholeScale);
         result = file.length && P__DecodeIcon(arena, file, size, image);
+        // Places show in color, as Windows shows them; where the theme draws this size as a gray symbol, its largest artwork stands in.
+        P_Image colored = {0};
+        String large = result && i < places && P__IsGray(image) ? P__FindIcon(scratch.arena, names.v[i], 512, 1) : (String){0};
+        if (large.length && P__DecodeIcon(arena, large, size, &colored) && !P__IsGray(&colored)) *image = colored;
     }
     ReleaseScratch(scratch);
     return result;

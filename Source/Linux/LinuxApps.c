@@ -401,6 +401,8 @@ typedef struct P__MenuData {
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
+    // The computer is an icon here, not an item with a menu of its own.
+    if (count == 1 && StrIsEqual(names[0], P_ComputerIconPath())) return false;
     pthread_once(&P__appsOnce, P__LoadGlobalApps);
     enum { MaxApps = 16, MaxItems = 24 + MaxApps };
     P_MenuItem items[MaxItems];

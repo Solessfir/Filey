@@ -712,13 +712,19 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(!P_WriteFile(&arena, wrapped, S("<svg width=\"16\" height=\"16\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M30 2h4v4h-4z\"/></svg>")).code);
     Check(!P__DecodeIcon(&arena, wrapped, 16, &(P_Image){0}));
     Check(P__TestRemovePath(fixture, S("wrapped.svg"), false));
-    // The home and the user's folders have their own icons, as GTK names them; other folders have none of their own.
+    // The computer and the user's folders have their own icons, as GTK names them; the home and other folders are plain folders.
     ArrayStr placeIcons = {0};
-    P__PlaceIconNames(&arena, StrFromCStr(getenv("HOME")), &placeIcons);
-    Check(placeIcons.header.count && StrIsEqual(placeIcons.v[0], S("user-home")));
+    P__PlaceIconNames(&arena, P_ComputerIconPath(), &placeIcons);
+    Check(placeIcons.header.count == 1 && StrIsEqual(placeIcons.v[0], S("computer")));
     placeIcons = (ArrayStr){0};
+    P__PlaceIconNames(&arena, StrFromCStr(getenv("HOME")), &placeIcons);
     P__PlaceIconNames(&arena, fixture->path, &placeIcons);
     Check(placeIcons.header.count == 0);
+    // A gray symbol gives way to color for a place; a little tint is still gray.
+    u32 grays[2] = { 0xFF808080u, 0x80848080u }, tinted[2] = { 0xFF808080u, 0xFFD07020u };
+    Check(P__IsGray(&(P_Image){ grays, 2, 1 }) && !P__IsGray(&(P_Image){ tinted, 2, 1 }));
+    String computer = P_ComputerIconPath();
+    Check(!P_ContextMenuOpen(&arena, (String){0}, &computer, 1, &(P_ContextMenu){0}));
 #endif
     // Without a thumbnail of its own, a file gets none rather than its icon when only a thumbnail will do.
     String plain = Prog_JoinPath(&arena, fixture->path, S("plain.bin"));

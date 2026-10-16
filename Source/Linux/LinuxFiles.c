@@ -547,7 +547,8 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
 }
 
 // ponytail: no computer icon yet; load the theme's "computer" icon if the glyph looks out of place.
-function String P_ComputerIconPath(void) { return (String){0}; }
+// nemo's name for the computer, which P_LoadFileIcon gives the theme's icon of it.
+function String P_ComputerIconPath(void) { return S("computer:///"); }
 
 function b32 P_IsVirtualFolder(String path)
 {
