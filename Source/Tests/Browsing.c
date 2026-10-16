@@ -1323,14 +1323,18 @@ function void TestFileOperations(TestFileFixture *fixture)
         Check(atomic_load(&progress.doneItems) == 1 && atomic_load(&progress.doneBytes) == atomic_load(&progress.totalBytes));
         // It names the file it copied last, under the source's name rather than the free one it was copied to first.
         Check(StrIsEqual(Prog__TransferName(&arena, &progress), S("plain.txt")) && !(atomic_load(&progress.nameVersion) & 1));
-        // A paused transfer starts nothing until it is let go on.
+        // A file is written under a hidden name, and the one an earlier copy cut off left is kept.
         Check(!P_CreateItem(&arena, fixture->path, S("Parts"), true, &created).code);
-        String parts = Prog_JoinPath(&arena, fixture->path, S("Parts"));
+        String parts = Prog_JoinPath(&arena, fixture->path, S("Parts")), leftover = Prog_JoinPath(&arena, parts, S(".plain.txt.part")), contents = {0};
+        Check(!P_WriteFile(&arena, leftover, S("cut off")).code);
+        Check(!P_TransferItems(&arena, &plain, 1, parts, false, NULL, NULL, &token).code && TestHasFile(&arena, fixture, S("Parts"), S("plain.txt")));
+        Check(P_ReadFile(&arena, leftover, &contents) && StrIsEqual(contents, S("cut off")) && TestListing(&arena, fixture, S("Parts")).header.count == 2);
+        // A paused transfer starts nothing until it is let go on.
         TestPausedTransfer run = { .arena = &arena, .path = plain, .target = parts, .token = &token };
         atomic_store(&run.progress.policy, P_Conflict_KeepBoth);
         atomic_store(&run.progress.paused, true);
         P_RunLanes(2, TestPausedTransferLane, &run);
-        Check(!run.early && !run.failed && atomic_load(&run.progress.doneItems) == 1 && TestListing(&arena, fixture, S("Parts")).header.count == 1);
+        Check(!run.early && !run.failed && atomic_load(&run.progress.doneItems) == 1 && TestListing(&arena, fixture, S("Parts")).header.count == 3);
         TestRemoveTree(&arena, fixture, S("Parts"));
     }
 #endif

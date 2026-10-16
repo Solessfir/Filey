@@ -149,7 +149,9 @@ typedef struct P_Progress {
 // `placed`, when not NULL, receives in `arena` the path each item ended up at, in the order of `paths`, empty for one that was skipped.
 // Windows asks with its own conflict and progress windows instead, and the shell's "- Copy" names replace numbers.
 // A folder is never put inside itself, and moving an item into the folder it is in does nothing.
-// Linux moves across file systems by copying and removes the source only once its copy is complete.
+// Linux moves across file systems by copying and removes the source only once its copy is complete. It writes each file unnamed and names it
+// once complete, or where the file system cannot, as FAT and NTFS, under a hidden name, ".<name>.part", so that a copy cut off, as by a drive
+// pulled out, never leaves a shortened file under the real name.
 function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 count, String directory, b32 move, P_Progress *progress, ArrayStr *placed, const P_CancelToken *cancel);
 // Moves the items at `paths` to the Trash, or the Recycle Bin on Windows, which asks before deleting anything it cannot keep.
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count);

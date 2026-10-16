@@ -763,15 +763,26 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
         return error;
     }
     if (!S_ISREG(info.st_mode)) return 0;
+    struct stat taken;
+    if (fstatat(targetDir, targetName, &taken, AT_SYMLINK_NOFOLLOW) == 0) return EEXIST;
     i32 in = openat(sourceDir, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     if (in < 0) return (u32)errno;
-    i32 out = openat(targetDir, targetName, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, (info.st_mode & 07777) | S_IWUSR);
+    // Written unnamed, which leaves nothing when cut off and shows nothing in the folder until it is complete.
+    // Elsewhere under a hidden name; one left by an earlier copy cut off is kept, as it may be all there is of that file.
+    // ponytail: a name close to NAME_MAX is cut for it, mid-character where it falls so.
+    char part[NAME_MAX + 1] = {0};
+    i32 out = openat(targetDir, ".", O_TMPFILE | O_WRONLY | O_CLOEXEC, (info.st_mode & 07777) | S_IWUSR), kept = (i32)Min(strlen(targetName), (u64)NAME_MAX - 16);
+    for (u32 n = 1; out < 0 && n < 100; ++n) {
+        if (n == 1) snprintf(part, sizeof(part), ".%.*s.part", kept, targetName);
+        else snprintf(part, sizeof(part), ".%.*s.%u.part", kept, targetName, n);
+        out = openat(targetDir, part, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, (info.st_mode & 07777) | S_IWUSR);
+        if (out < 0 && errno != EEXIST) break;
+    }
     if (out < 0) {
         u32 error = (u32)errno;
         close(in);
         return error;
     }
-    *created = true;
     P__ProgressName(progress, name);
     u32 error = 0;
     b32 kernelCopy = true;
@@ -795,8 +806,23 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
     }
     fchmod(out, info.st_mode & 07777);
     futimens(out, times);
+    // Into place only where the name is still free, which something else may have taken meanwhile; an unnamed file is linked by its descriptor.
+    if (!error && !part[0]) {
+        char self[64];
+        snprintf(self, sizeof(self), "/proc/self/fd/%d", out);
+        if (linkat(AT_FDCWD, self, targetDir, targetName, AT_SYMLINK_FOLLOW) != 0) error = (u32)errno;
+    }
     if (close(out) != 0 && !error) error = (u32)errno;
     close(in);
+    if (!error && part[0] && renameat2(targetDir, part, targetDir, targetName, RENAME_NOREPLACE) != 0) {
+        error = (u32)errno;
+        // ponytail: file systems without RENAME_NOREPLACE get a check-then-rename race, as moves do.
+        if (error == EINVAL || error == ENOSYS) {
+            error = fstatat(targetDir, targetName, &taken, AT_SYMLINK_NOFOLLOW) == 0 ? EEXIST : renameat(targetDir, part, targetDir, targetName) == 0 ? 0 : (u32)errno;
+        }
+    }
+    if (error && part[0]) unlinkat(targetDir, part, 0);
+    *created = !error;
     return error;
 }
 
