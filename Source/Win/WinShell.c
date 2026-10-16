@@ -631,15 +631,22 @@ function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *path
             error = GetLastError();
             break;
         }
+        // Explorer tells of a restore as the item's rename out of the bin, which open windows and the bin's icon follow.
+        wchar *fromPlain = P__FilePathWide(scratch.arena, item->file.name), *toPlain = P__FilePathWide(scratch.arena, target);
+        if (fromPlain && toPlain) SHChangeNotify(item->file.kind == P_FileKind_Directory ? SHCNE_RENAMEFOLDER : SHCNE_RENAMEITEM, SHCNF_PATHW, fromPlain, toPlain);
         // The record of where it came from, $I beside the item's $R, goes too.
         Index slash = StrIndexChar(item->file.name, '/', SSF_SearchBackwards);
         String record = StrFormat(scratch.arena, "%S/$I%S", StrFromTo(item->file.name, 0, (i64)slash.value), StrFrom(item->file.name, slash.value + 3));
         wchar *recordWide = P__FileExtendedPath(scratch.arena, record);
         if (recordWide) DeleteFileW(recordWide);
     }
-    // Explorer's Recycle Bin and its icon catch up.
-    wchar *binWide = P__FilePathWide(scratch.arena, bin);
-    if (binWide) SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_PATHW, binWide, NULL);
+    // The bin's own item, which the desktop and Filey draw full or empty.
+    PIDLIST_ABSOLUTE recycleBin = NULL;
+    if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_BITBUCKET, &recycleBin))) {
+        SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_IDLIST | SHCNF_FLUSH, (const wchar *)recycleBin, NULL);
+        SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_IDLIST | SHCNF_FLUSH, (const wchar *)recycleBin, NULL);
+        ILFree(recycleBin);
+    }
     ReleaseScratch(scratch);
     if (error) return P__FileError(arena, error);
     if (taken) return (P_FileError){ .code = ERROR_ALREADY_EXISTS, .message = StrFormat(arena, "%u item%s stayed in the Recycle Bin, as something else is where %s came from.", taken, taken == 1 ? "" : "s", taken == 1 ? "it" : "they") };
