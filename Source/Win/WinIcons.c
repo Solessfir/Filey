@@ -204,12 +204,13 @@ function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
 
 // The shell's image factory gives a thumbnail where the file has one and its icon otherwise, at any size.
 // The shell's thumbnail cache gives some folders' pictures opaque on black instead of see-through. The black that reaches the edges is
-// cleared, which keeps what the folder's picture shows of its contents.
-function void P__ClearFolderBackground(Arena *scratch, P_Image *image)
+// cleared, which keeps what the folder's picture shows of its contents. Some of those pictures are only the folder's icon drawn small in
+// the middle, its shadow still dark around it; for those this returns false, so that the folder's own icon is shown instead.
+function b32 P__ClearFolderBackground(Arena *scratch, P_Image *image)
 {
     i64 count = (i64)image->width * image->height;
-    if (count <= 0 || image->pixels[0] != 0xFF000000u) return;
-    for (i64 i = 0; i < count; ++i) if ((image->pixels[i] >> 24) != 0xFF) return;
+    if (count <= 0 || image->pixels[0] != 0xFF000000u) return true;
+    for (i64 i = 0; i < count; ++i) if ((image->pixels[i] >> 24) != 0xFF) return true;
     // Each pixel is cleared as it is pushed, so that none is pushed twice.
     u32 *stack = ArenaPushArrayNoZero(scratch, (u64)count, u32), *pixels = image->pixels;
     u64 top = 0;
@@ -225,6 +226,13 @@ function void P__ClearFolderBackground(Arena *scratch, P_Image *image)
             if (next[n] != UINT32_MAX && pixels[next[n]] == 0xFF000000u) { pixels[next[n]] = 0; stack[top++] = next[n]; }
         }
     }
+    u32 x0 = w, y0 = h, x1 = 0, y1 = 0;
+    for (u32 i = 0; i < (u32)count; ++i) {
+        if (!pixels[i]) continue;
+        u32 x = i % w, y = i / w;
+        x0 = Min(x0, x), y0 = Min(y0, y), x1 = Max(x1, x), y1 = Max(y1, y);
+    }
+    return x0 <= x1 && (x1 - x0 + 1) * 2 > w && (y1 - y0 + 1) * 2 > h;
 }
 
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image)
@@ -240,7 +248,10 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
             if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT | (thumbnailOnly ? SIIGBF_THUMBNAILONLY : 0), &bitmap)) && bitmap) {
                 result = P__BitmapPixels(arena, bitmap, image);
                 DeleteObject(bitmap);
-                if (result && kind == P_FileKind_Directory) P__ClearFolderBackground(scratch.arena, image);
+                if (result && kind == P_FileKind_Directory && !P__ClearFolderBackground(scratch.arena, image)) {
+                    *image = (P_Image){0};
+                    result = false;
+                }
             }
             factory->lpVtbl->Release(factory);
         }
