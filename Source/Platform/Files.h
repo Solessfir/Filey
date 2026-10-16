@@ -55,7 +55,8 @@ typedef struct P_DirectoryTotals {
 } P_DirectoryTotals;
 
 // Adds the items directly inside `path`, hidden ones included, to `totals`: its folders, its files and their bytes.
-// Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions.
+// Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions, and on Linux
+// the folders of other file systems, as du -x does.
 // False when `path` cannot be read. Touches the disk, so run it in a job.
 function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders);
 // Whether `path` is a folder the system makes up rather than stores, such as Linux's /proc, which a walk of the whole drive leaves out.

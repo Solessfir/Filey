@@ -575,6 +575,8 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
     char *cpath = P__FilePathCString(scratch.arena, path.length ? path : S("."));
     DIR *stream = cpath ? opendir(cpath) : NULL;
     String parent = path.length > 1 && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
+    struct stat folder = {0};
+    b32 device = stream && fstat(dirfd(stream), &folder) == 0;
     if (stream) {
         for (struct dirent *entry; (entry = readdir(stream));) {
             const char *name = entry->d_name;
@@ -588,7 +590,12 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
             }
             if (type == DT_DIR) {
                 ++totals->folders;
-                ArrayPush(arena, *subfolders, StrFormat(arena, "%S/%s", StrIsEqual(parent, S("/")) ? (String){0} : parent, name));
+                // A walk stays on its file system, as du -x does: /proc and the like, other drives mounted inside it and btrfs subvolumes,
+                // whose snapshots would each count the whole drive again, are counted as folders but left to their own walks.
+                if (!statted) statted = fstatat(dirfd(stream), name, &metadata, AT_SYMLINK_NOFOLLOW) == 0;
+                if (!device || !statted || metadata.st_dev == folder.st_dev) {
+                    ArrayPush(arena, *subfolders, StrFormat(arena, "%S/%s", StrIsEqual(parent, S("/")) ? (String){0} : parent, name));
+                }
             } else {
                 ++totals->files;
                 if (statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) totals->bytes += (u64)metadata.st_size;

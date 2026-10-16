@@ -1116,6 +1116,17 @@ function void TestMeasure(TestFileFixture *fixture)
     Arena arena = {0};
     Check(StrIsEqual(Prog__FormatCount(&arena, 999), S("999")) && StrIsEqual(Prog__FormatCount(&arena, 1599), S("1.5K")));
     Check(StrIsEqual(Prog__FormatCount(&arena, 250000), S("250K")) && StrIsEqual(Prog__FormatCount(&arena, 3210000), S("3.2M")));
+#if defined(__linux__)
+    // A walk of the root counts /proc as a folder but stays out of it, a file system of its own; a plain folder it goes into.
+    {
+        P_DirectoryTotals counted = {0};
+        ArrayStr below = {0};
+        Check(P_CountFolder(&arena, S("/"), &counted, &below) && counted.folders > 0);
+        b32 proc = false, usr = false;
+        for (u64 i = 0; i < below.header.count; ++i) proc |= StrIsEqual(below.v[i], S("/proc")), usr |= StrIsEqual(below.v[i], S("/usr"));
+        Check(!proc && usr);
+    }
+#endif
     // An image file is read at its own size or shrunk to fit, and a text file is not taken for a picture.
     {
         local_persist const u8 picture[] = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52\x00\x00\x00\x03\x00\x00\x00\x02\x08\x06\x00\x00\x00\x9D\x74\x66\x1A\x00\x00\x00\x11\x49\x44\x41\x54\x78\x9C\x63\xF8\xCF\xC0\xF0\x1F\x86\x19\x90\x39\x00\x9B\x7E\x0B\xF5\x72\xB0\xB9\x3C\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82";
