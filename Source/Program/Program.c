@@ -876,6 +876,32 @@ function void Prog__SmallIcon(String icon, f32 width, f32 height, R_Color color,
     Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
 }
 
+// The header's sort arrow in the middle of a `width` by `height` slot: a solid head on a short stem, pointing up or `down`, in whole pixels.
+function void Prog__SortArrow(b32 down, f32 width, f32 height, R_Color color, const Prog_Metrics *m)
+{
+    f32 rows = MaxF32(2, floorf(3.2f * m->scale + 0.5f)), stem = MaxF32(1, floorf(1.6f * m->scale + 0.5f)), tail = floorf(4.8f * m->scale + 0.5f);
+    f32 top = floorf((height - rows - tail) * 0.5f), middle = floorf(width * 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_Block *slot = UI_AddBlock(0);
+    UI_Parent(slot) {
+        // The head widens a pixel on each side per row, from the stem's width at its point.
+        for (f32 r = 0; r < rows; ++r) {
+            f32 across = stem + 2 * r;
+            UI_SetNextFloatingOffset((UI_Vec2){ middle - floorf(across * 0.5f), down ? top + tail + rows - 1 - r : top + r });
+            UI_SetNextPrefWidth(UI_Pixels(across));
+            UI_SetNextPrefHeight(UI_Pixels(1));
+            UI_SetNextColors((UI_Colors){ .background = color });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+        UI_SetNextFloatingOffset((UI_Vec2){ middle - floorf(stem * 0.5f), down ? top : top + rows });
+        UI_SetNextPrefWidth(UI_Pixels(stem));
+        UI_SetNextPrefHeight(UI_Pixels(tail));
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+}
+
 function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 alignX, const Prog_Metrics *m)
 {
     UI_SetNextFont(m->icons);
@@ -1876,8 +1902,8 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
                 f32 arrow = sorted ? floorf(m->line * 0.6f) : 0;
                 f32 room = column->width > 0 ? column->width - left - right - line - arrow : 0;
                 Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, column->title, room) : column->title, UI_Flex(), m->row, left, sorted ? 0 : right, color, 0);
-                if (sorted) Prog__Icon(state->descending ? Icon_MoveDown : Icon_MoveUp, arrow, m->row, theme->textDim, 0.5f, m);
-                if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, floorf(15.2f * m->scale + 0.5f))), UI_Pixels(m->row));
+                if (sorted) Prog__SortArrow(state->descending, arrow, m->row, theme->textDim, m);
+                if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, floorf(12.0f * m->scale + 0.5f))), UI_Pixels(m->row));
                 // The line starts the next column, so that it sits on the boundary.
                 if (line > 0) {
                     f32 tall = floorf(m->line * 1.15f + 0.5f);
@@ -2743,6 +2769,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
                                         (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     UI_Interaction listInteraction = UI_InteractionFromBlock(list);
+    // A box drawn from the empty space leaves it the marquee's block, which only that drag's release is kept from clicking.
+    if (listInteraction.pressed && state->marqueeKey == list->key) state->marqueeKey = 0;
     if (listInteraction.pressed && listInteraction.button == MouseButton_Right) {
         Prog_QueueCommand(state, Prog_CommandKind_ContextMenuAt, UINT64_MAX, listInteraction.pressCount, listInteraction.pressOrder);
     }

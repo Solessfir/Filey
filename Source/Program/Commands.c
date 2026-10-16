@@ -2346,6 +2346,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomIcons; state->revealFocus = true; break;
             case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomLarge; state->revealFocus = true; break;
             case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomMax; state->revealFocus = true; break;
+            case Prog_CommandKind_DeselectAll: {
+                for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = false;
+                state->selectedCount = 0;
+            } break;
             case Prog_CommandKind_SelectAll:
             case Prog_CommandKind_ToggleSelectAll: {
                 if (!state->loading) {

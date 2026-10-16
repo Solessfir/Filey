@@ -79,6 +79,11 @@ command ToggleSelectAll {
 command SelectTyped {
 }
 
+// Escape in the list, once there is no menu, filter or rename for it to close: selects nothing, keeping the focus.
+command DeselectAll {
+    hotkey  = "Escape"
+}
+
 // Moving through the list: the Select commands move the selection, Move File Cursor moves the focus alone and Extend Select grows the selection to it.
 // Commands.c finds how each moves by its place in this run, from ScrollSelectPrev to ScrollScrollExtendSelectDown, so they keep this order.
 // Left and Right step across a grid's line.

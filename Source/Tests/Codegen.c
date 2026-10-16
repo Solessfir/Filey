@@ -172,6 +172,19 @@ function void TestHotkeyDispatch(void)
         ArenaRelease(&keys.frameArena);
     }
 
+    // Escape removes a filter first, and then selects nothing.
+    {
+        Prog_State escape = {0};
+        PlatformEvent keys[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Escape } };
+        Prog_HandleInput(&escape, TestUIEvents(keys, CArrayCount(keys)));
+        Check(escape.commandFirst && escape.commandFirst->kind == Prog_CommandKind_DeselectAll);
+        escape.commandFirst = escape.commandLast = NULL;
+        escape.filtering = true;
+        Prog_HandleInput(&escape, TestUIEvents(keys, CArrayCount(keys)));
+        Check(escape.commandFirst && escape.commandFirst->kind == Prog_CommandKind_RemoveFilter && !escape.commandFirst->next);
+        ArenaRelease(&escape.frameArena);
+    }
+
     // Ctrl+Comma opens the options.
     {
         Prog_State options = {0};
