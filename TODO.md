@@ -3,7 +3,6 @@
 ## Next
 
 - TrashRestoreAll and TrashDeleteAll, checked by hand since they act on the real bin.
-- OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
 - Miller columns and archives as folders, when asked.
 - LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen, ConsoleOpen, ToggleFullscreen.
 - Font pickers, with the system's font families listed on both platforms.

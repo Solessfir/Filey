@@ -465,6 +465,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_F3, .mods = 0, .command = Prog_CommandKind_StartFilter },
     { .key = Key_E, .mods = KeyMod_Control, .command = Prog_CommandKind_StartExpandedSearch },
     { .key = Key_Space, .mods = KeyMod_Control, .command = Prog_CommandKind_ToggleCursorSelection },
+    { .key = Key_S, .mods = KeyMod_Control | KeyMod_Alt, .command = Prog_CommandKind_OpenInRightSplit },
     { .key = Key_F6, .mods = KeyMod_Control, .command = Prog_CommandKind_SelectionCopyNextPanel },
     { .key = Key_F6, .mods = KeyMod_Shift, .command = Prog_CommandKind_SelectionMoveNextPanel },
     { .key = Key_R, .mods = KeyMod_Alt, .command = Prog_CommandKind_CalcDirsContents },

@@ -240,6 +240,7 @@ command ToggleCursorSelection {
 command OpenInRightSplit {
     label   = "Open In Right Split^panel,side,dual,pane"
     tooltip = "Open selected folders in the new panels to the right. For files, opens containing folders."
+    hotkey  = "Ctrl+Alt+S"
 }
 
 command OpenInBottomSplit {
