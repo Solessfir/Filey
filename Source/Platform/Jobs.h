@@ -110,6 +110,6 @@ function b32 P__ThreadStart(P_Thread *thread, P_JobQueue *queue);
 function void P__ThreadJoin(P_Thread *thread);
 function u32 P__ProcessorCount(void);
 function void P__JobsRunWorker(P_JobQueue *queue);
-// Starts `thread` on P__LaneMain(lane).
-function b32 P__ThreadStartLane(P_Thread *thread, void *lane);
-function void P__LaneMain(void *lane);
+// Starts `thread` on P__LaneMain(worker), a kept lane thread that waits for lanes to run.
+function b32 P__ThreadStartLane(P_Thread *thread, void *worker);
+function void P__LaneMain(void *worker);

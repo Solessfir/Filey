@@ -168,26 +168,124 @@ typedef struct P__Lane {
     u32 index;
 } P__Lane;
 
+// One P_RunLanes call: how many of its lanes are still running on kept threads.
+typedef struct P__LaneCall {
+    P_Mutex mutex;
+    P_Condition done;
+    u32 running;
+} P__LaneCall;
+
+// Lanes run on threads kept for them: a call borrows idle ones and starts more only while every kept one is busy, so that lanes run every
+// frame start no threads; each new thread costs memory that some drivers never give back. Calls from several threads at once get their own.
+typedef struct P__LaneWorker {
+    P_Thread thread;
+    P_Mutex mutex;
+    P_Condition wake;
+    P__Lane *lane;               // the lane to run, NULL while idle
+    P__LaneCall *call;
+    struct P__LaneWorker *nextFree;
+} P__LaneWorker;
+
+// ponytail: a fixed number of kept lane threads; past them a lane runs on its caller's thread.
+#define P__MaxLaneWorkers 128
+global P__LaneWorker P__laneWorkers[P__MaxLaneWorkers];
+global u32 P__laneWorkerCount;
+global P__LaneWorker *P__laneFree;
+global atomic_flag P__laneLock = ATOMIC_FLAG_INIT;
+
+function void P__LaneLock(void)
+{
+    while (atomic_flag_test_and_set_explicit(&P__laneLock, memory_order_acquire)) {}
+}
+
+function void P__LaneUnlock(void)
+{
+    atomic_flag_clear_explicit(&P__laneLock, memory_order_release);
+}
+
 function void P__LaneMain(void *parameter)
 {
-    P__Lane *lane = parameter;
-    lane->callback(lane->user, lane->index);
-    ReleaseThreadScratch();
+    P__LaneWorker *worker = parameter;
+    for (;;) {
+        P__MutexLock(&worker->mutex);
+        while (!worker->lane) P__ConditionWait(&worker->wake, &worker->mutex);
+        P__Lane *lane = worker->lane;
+        P__LaneCall *call = worker->call;
+        worker->lane = NULL;
+        P__MutexUnlock(&worker->mutex);
+        lane->callback(lane->user, lane->index);
+        ReleaseThreadScratch();
+        // Idle again before its caller hears it is done, so that the caller's next call can take it again.
+        P__LaneLock();
+        worker->nextFree = P__laneFree;
+        P__laneFree = worker;
+        P__LaneUnlock();
+        P__MutexLock(&call->mutex);
+        --call->running;
+        P__ConditionSignal(&call->done);
+        P__MutexUnlock(&call->mutex);
+    }
+}
+
+// An idle kept thread, or a new one while there is room; NULL when neither is to be had.
+function P__LaneWorker *P__TakeLaneWorker(void)
+{
+    P__LaneLock();
+    P__LaneWorker *worker = P__laneFree;
+    if (worker) P__laneFree = worker->nextFree;
+    u32 at = !worker && P__laneWorkerCount < P__MaxLaneWorkers ? P__laneWorkerCount++ : UINT32_MAX;
+    P__LaneUnlock();
+    if (worker || at == UINT32_MAX) return worker;
+    worker = &P__laneWorkers[at];
+    if (!P__MutexInit(&worker->mutex)) return NULL;
+    if (!P__ConditionInit(&worker->wake)) {
+        P__MutexRelease(&worker->mutex);
+        return NULL;
+    }
+    if (!P__ThreadStartLane(&worker->thread, worker)) {
+        P__ConditionRelease(&worker->wake);
+        P__MutexRelease(&worker->mutex);
+        return NULL;
+    }
+    return worker;
 }
 
 function void P_RunLanes(u32 count, P_LaneCallback *callback, void *user)
 {
     count = Max(1u, Min(count, (u32)P_MaxLanes));
     P__Lane lanes[P_MaxLanes];
-    P_Thread threads[P_MaxLanes];
-    b32 started[P_MaxLanes] = {0};
     for (u32 i = 0; i < count; ++i) lanes[i] = (P__Lane){ callback, user, i };
-    for (u32 i = 1; i < count; ++i) started[i] = P__ThreadStartLane(&threads[i], &lanes[i]);
+    P__LaneCall call = {0};
+    b32 ready = count > 1 && P__MutexInit(&call.mutex);
+    if (ready && !P__ConditionInit(&call.done)) {
+        P__MutexRelease(&call.mutex);
+        ready = false;
+    }
+    b32 handed[P_MaxLanes] = {0};
+    for (u32 i = 1; ready && i < count; ++i) {
+        P__LaneWorker *worker = P__TakeLaneWorker();
+        if (!worker) continue;
+        handed[i] = true;
+        P__MutexLock(&call.mutex);
+        ++call.running;
+        P__MutexUnlock(&call.mutex);
+        P__MutexLock(&worker->mutex);
+        worker->lane = &lanes[i];
+        worker->call = &call;
+        P__ConditionSignal(&worker->wake);
+        P__MutexUnlock(&worker->mutex);
+    }
     callback(user, 0);
-    // A lane whose thread would not start runs here instead, once the others have the work.
+    // A lane without a thread runs here instead, once the others have the work.
     for (u32 i = 1; i < count; ++i) {
-        if (started[i]) P__ThreadJoin(&threads[i]);
-        else callback(user, i);
+        if (!handed[i]) callback(user, i);
+    }
+    if (ready) {
+        P__MutexLock(&call.mutex);
+        while (call.running) P__ConditionWait(&call.done, &call.mutex);
+        P__MutexUnlock(&call.mutex);
+        P__ConditionRelease(&call.done);
+        P__MutexRelease(&call.mutex);
     }
 }
 
