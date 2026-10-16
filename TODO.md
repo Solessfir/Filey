@@ -57,7 +57,11 @@ Planned there, worth doing here first:
 
 ## Filey's own
 
-- Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, and file states in the list.
+- Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, file states in the list, and better text and styling for what the path bar shows, which looks rough now.
+- 3D model previews in the inspector: .blend, .gltf/.glb, .fbx, .obj and other common formats, drawn by Filey itself and not by a shell handler.
+- Linux install and uninstall through a standalone `.sh` script, like https://github.com/Solessfir/razer-laptop-control's `install.sh`, documented in a README. `./Build.sh install` covers installing only, and the repository has no README yet.
+- Context menu editing: a shortcut in an open menu enters an edit mode, with a ghost panel beside the menu. Dragging an item into the panel hides it, and dragging it back shows it again. Items can be reordered in the menu, and a button restores the default. Hidden items and the order are saved with the pins.
+- Context menu lag: the warm-up job runs once a session, for the first item listed, so the handlers of other file types still load on the first right-click. Build the hovered or focused item's real menu ahead of time on a background STA thread, so a right-click finds it ready. The menu has to be invoked on that same thread too.
 - Archives as folders: open a zip, 7z, rar or tar like a folder, in a panel or the inspector, go into its folders, select items and drag or copy them out to extract them where they land. Windows: list and drag through the shell's archive folder, whose items' data objects carry virtual files that any drop target extracts with the system's progress and password prompts. Linux: list with libarchive and extract the dropped or pasted entries in a transfer job (progress, conflicts, cancel); a drag to other apps extracts to a temp folder first. Solid archives can be slow to pull one file from, so extraction always runs in a job. The inspector's text listing then becomes this browsable list.
 - Hex view (ImHex-like, https://github.com/WerWolv/ImHex): it reads pages as they come into sight, up to a million rows (16 MB at 16 bytes a row), since the scroll offset is a float. Still to do: past that, a selection and copy, and searching for bytes.
 - Syntax highlighting: the inspector colors keywords, strings, comments, numbers and headings by extension (Prog_SyntaxForPath). Still to do: XML/HTML, CMake, Makefiles, and colors in the theme and Settings.txt instead of the fixed dark and light ones.
@@ -65,4 +69,5 @@ Planned there, worth doing here first:
 
 ## Checks
 
-- Compare rename, the context menu, drag and drop, the preview pane and the settings page side by side.
+- Compare rename, drag and drop, the preview pane and the settings page side by side.
+- Some hotkeys in the reference's context menu have a red outline. Find out what it marks.
