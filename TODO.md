@@ -8,7 +8,6 @@ Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations a
 
 3. Recursive listing (section below): rows appear as the walk finds them.
 5. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin. OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
-10. Go To index: pack names into one buffer, fix the highlighted row's typed letters, then the parallel walk if time remains.
 11. Command palette parity: dimmed rows and darker highlight for commands that cannot run now, smooth scrolling.
 
 Not tonight: Miller columns and archives as folders (start only when asked), font pickers, localization, anything that needs the real bin or drives other than fixtures.
@@ -17,7 +16,6 @@ Not tonight: Miller columns and archives as folders (start only when asked), fon
 
 ## Go To and the drive index
 
-- List several folders at once during the walk. The first walk is limited by listing one folder at a time; parallel slices need their writes to `Index.bin.walk` kept in the order the entries join the index.
 
 ## Recursive listing (Ctrl+E)
 

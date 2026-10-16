@@ -1092,6 +1092,27 @@ function void Prog__WalkLane(void *user, u32 index)
     }
 }
 
+// A slice of the drive index's walk: the lanes take the slice's folders in turn until its time is up, each listing into its own arena,
+// so that every folder taken is listed and the ones listed are the first ones, in the order the index takes what they hold.
+typedef struct Prog__IndexSlice {
+    const Prog_JobInput *input;
+    const P_CancelToken *cancel;
+    u64 until;
+    atomic_uint_fast64_t next;
+    P_DirectoryResult *listings;
+    Arena lanes[Prog_WalkLanes];
+} Prog__IndexSlice;
+
+function void Prog__IndexLane(void *user, u32 lane)
+{
+    Prog__IndexSlice *slice = user;
+    while (PlatformNowMicroseconds() < slice->until && !P_IsCancelled(slice->cancel)) {
+        u64 at = atomic_fetch_add(&slice->next, 1);
+        if (at >= slice->input->pathCount) break;
+        slice->listings[at] = P_EnumerateDirectory(&slice->lanes[lane], slice->input->paths[at], slice->cancel);
+    }
+}
+
 // A measure of several folders' trees at once, sharing the lanes:
 // each lane lists one folder at a time, adds what it holds to its tree's totals and leaves its subfolders for whichever lane is free next.
 // Each tree keeps its own stack of folders to list, and the lanes take from the trees in turn, so that small trees finish while a big one is walked.
@@ -1228,19 +1249,23 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_Index) {
-        // Lists folders for a few dozen milliseconds and hands back what is inside them, so that it never holds a worker for long.
+        // Lists folders for a few dozen milliseconds, several at once, and hands back what is inside them, so that it never holds the workers for long.
         Prog_Indexed *result = ArenaPushStruct(&job->arena, Prog_Indexed);
         ArrayStr names = {0};
         Prog_ArrayU32 parents = {0};
         Prog_ArrayFlag flags = {0};
-        u64 start = PlatformNowMicroseconds();
-        while (result->listed < input->pathCount && PlatformNowMicroseconds() - start < UINT64_C(30000) && !P_IsCancelled(&job->cancelToken)) {
+        Prog__IndexSlice slice = { .input = input, .cancel = &job->cancelToken, .until = PlatformNowMicroseconds() + UINT64_C(30000) };
+        slice.listings = ArenaPushArray(&job->arena, Max(input->pathCount, (u64)1), P_DirectoryResult);
+        u32 lanes = Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes));
+        P_RunLanes(lanes, Prog__IndexLane, &slice);
+        u64 taken = Min((u64)atomic_load(&slice.next), input->pathCount);
+        while (result->listed < taken && !P_IsCancelled(&job->cancelToken)) {
             String folder = input->paths[result->listed];
+            const P_DirectoryResult *listing = &slice.listings[result->listed];
             u32 parent = input->entries[result->listed++];
             Scratch scratch = GetScratchEx(&job->arena);
-            P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, folder, &job->cancelToken);
-            for (u64 i = 0; i < listing.files.header.count && names.header.count < input->room; ++i) {
-                const P_File *file = &listing.files.v[i];
+            for (u64 i = 0; i < listing->files.header.count && names.header.count < input->room; ++i) {
+                const P_File *file = &listing->files.v[i];
                 b32 directory = file->kind == P_FileKind_Directory;
                 // Links are not followed, so that the walk ends; a link to a folder is still found by its name.
                 if (directory && !file->symbolicLink && P_IsVirtualFolder(Prog_JoinPath(scratch.arena, folder, file->name))) continue;
@@ -1250,6 +1275,7 @@ function void Prog__DirectoryJob(P_Job *job)
             }
             ReleaseScratch(scratch);
         }
+        for (u32 i = 0; i < lanes; ++i) ArenaRelease(&slice.lanes[i]);
         result->names = names.v;
         result->parents = parents.v;
         result->flags = flags.v;
