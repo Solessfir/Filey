@@ -3511,25 +3511,43 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, gutter, 0 });
         UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, listName), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
-        UI_Parent(list) for (u32 i = 0; i < shown; ++i) {
+        // Rows are keyed by their item rather than their place and each slides to where it now is, so that one pinned to the top travels up over
+        // the others while they move down to make room for it.
+        UI_Key *keys = ArenaPushArray(&state->frameArena, Max(shown, 1u), UI_Key);
+        f32 *placed = ArenaPushArray(&state->frameArena, Max(shown, 1u), f32), *slid = ArenaPushArray(&state->frameArena, Max(shown, 1u), f32);
+        f32 rowsHeight = 0, rowWidth = width - 2 * pad - gutter;
+        for (u32 i = 0; i < shown; ++i) {
+            const P_MenuItem *item = &state->menu.items[visible[i]];
+            // A line goes by the row above it; a menu may hold one command twice, so each copy has a number of its own.
+            u32 copy = 0;
+            for (u32 j = 0; j < i; ++j) {
+                const P_MenuItem *other = &state->menu.items[visible[j]];
+                copy += other->id == item->id && StrIsEqual(other->label, item->label);
+            }
+            String identity = StrFormat(&state->frameArena, "Menu/%u/%u/%S/%u", level, item->id, item->label, copy);
+            keys[i] = item->separator && i ? UI_KeyFromStr(keys[i - 1], S("Line")) : UI_KeyFromStr(0, identity);
+            placed[i] = rowsHeight;
+            slid[i] = UI_Animate(UI_KeyFromStr(keys[i], S("Y")), rowsHeight, rowsHeight);
+            rowsHeight += item->separator ? separatorHeight : itemHeight;
+        }
+        UI_Parent(list) for (u32 pass = 0; pass < 2; ++pass) for (u32 i = 0; i < shown; ++i) {
+            // The row just pinned or unpinned is drawn last, lit as a dragged one, over those it passes on its way.
             u32 index = visible[i];
             const P_MenuItem *item = &state->menu.items[index];
+            b32 moving = level == 0 && state->menuMoved.length && StrIsEqual(item->label, state->menuMoved) && fabsf(slid[i] - placed[i]) > 0.5f;
+            if (moving != (pass == 1)) continue;
+            f32 rowY = floorf(slid[i] - list->scrollShown.y);
             if (item->separator) {
-                // A line on the boundary of the rows around it, from a place in the list that takes no room.
-                UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(0));
-                UI_Block *spot = UI_AddBlock(0);
-                UI_Parent(spot) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, -floorf(line * 0.5f) });
-                    UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad - gutter));
-                    UI_SetNextPrefHeight(UI_Pixels(line));
-                    UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                }
+                // A line on the boundary of the rows around it.
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY - floorf(line * 0.5f) });
+                UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+                UI_SetNextPrefHeight(UI_Pixels(line));
+                UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 continue;
             }
             b32 enabled = !item->disabled || item->childCount;
-            UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Menu/%u/%u", level, index));
+            UI_Key key = keys[i];
             // Moving the mouse onto an item decides the highlight and which submenu is open, as in native menus; the keyboard takes over until the mouse moves to another item.
             if (enabled && UI->hotKey == key && state->menuHot != key) {
                 state->menuHighlight = index;
@@ -3541,14 +3559,15 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             }
             b32 open = level < state->menuDepth && state->menuPath[level] == index;
             b32 highlighted = enabled && (open || state->menuHighlight == index);
-            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY });
+            UI_SetNextPrefWidth(UI_Pixels(rowWidth));
             UI_SetNextPrefHeight(UI_Pixels(itemHeight));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             UI_SetNextChildrenPadding((UI_Padding){ iconLeft, 0, 0, 0 });
             UI_SetNextCornerRadius(m->radius * 2);
             UI_SetNextColors((UI_Colors){ .background = theme->selection });
-            UI_Block *row = UI_AddBlockFromKey(key, (highlighted ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+            UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_Floating | (highlighted || moving ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
             // A highlight the keyboard moved scrolls into sight; the rows' places are the last layout's, in the list's content.
             // A first frame has no layout yet to go by, so it waits for the next.
             if (scrolls && state->menuReveal && state->menuHighlight == index && state->menuDepth == level && row->rect.y1 > row->rect.y0 && list->rect.y1 > list->rect.y0) {
@@ -3581,7 +3600,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 // The star pins the item to the top of the system's menus, or unpins it; a pinned one shows it lit.
                 b32 pinned = pins && Prog_MenuPinned(state, item->label);
                 if (pins && !item->childCount && (highlighted || pinned)) {
-                    UI_Interaction pin = Prog__TextButton(StrFormat(&state->frameArena, "MenuPin/%u", index), Icon_Star, m->icons, UI_Pixels(star), itemHeight, 0,
+                    UI_Interaction pin = Prog__TextButton(StrFormat(&state->frameArena, "MenuPin/%u", item->id ? item->id : index), Icon_Star, m->icons, UI_Pixels(star), itemHeight, 0,
                                                           pinned && !highlighted ? theme->textMatch : theme->text, pinned && !highlighted ? theme->textMatch : theme->text, theme->iconDisabled, true, m);
                     if (pin.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinToggle, index, 0, pin.clickOrder);
                 } else if (pins) {
@@ -3617,11 +3636,12 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
-                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, (row->rect.y1 > row->rect.y0 ? row->rect.y0 : itemY) - pad, width };
+                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, (row->rect.y1 > row->rect.y0 ? row->rect.y0 : itemY + placed[i]) - pad, width };
                 result = true;
             }
-            itemY += itemHeight;
         }
+        // The rows float, so the list scrolls by a stand-in as tall as they are.
+        UI_Parent(list) Prog__Spacer(UI_Pixels(rowWidth), UI_Pixels(rowsHeight));
         if (scrolls) Prog__ScrollBar(list, itemHeight, listName, m);
     }
     return result;

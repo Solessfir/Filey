@@ -56,6 +56,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuRight = 0;
     state->menuSearch = (Prog_TextEdit){0};
     state->menuBase = (P_ContextMenu){0};
+    state->menuMoved = (String){0};
     ++state->menuSerial;
 }
 
@@ -2013,7 +2014,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (!was) pins[count++] = label;
                     Prog__SetList(&state->menuPinArena, &state->menuPins, pins, count);
                     Prog__SaveList(state, Prog_MenuPinsFile, state->menuPins);
-                    // The menu takes its new order at once, with the highlight kept on the item.
+                    // The menu takes its new order at once, with the highlight kept on the item, which slides to its place.
+                    state->menuMoved = StrCopy(&state->menuArena, label);
                     Prog__ApplyMenuPins(state);
                     state->menuHighlight = UINT32_MAX;
                     for (u32 i = 0; i < state->menu.rootCount && state->menuHighlight == UINT32_MAX; ++i) {

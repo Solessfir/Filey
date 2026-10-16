@@ -890,6 +890,7 @@ typedef struct Prog_State {
     Arena menuPinArena;
     ArrayStr menuPins;
     P_ContextMenu menuBase;
+    String menuMoved;         // the label of the item last pinned or unpinned, in menuArena, which slides to its place lit
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
