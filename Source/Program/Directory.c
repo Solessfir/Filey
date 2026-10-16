@@ -1928,6 +1928,7 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 #define Prog_SessionFile S("Session.txt")
 #define Prog_RecentsFile   S("Recents.txt")
 #define Prog_FolderViewsFile S("FolderViews.txt")
+#define Prog_MenuPinsFile S("MenuPins.txt")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
 // What a first visit scores.
@@ -1937,7 +1938,7 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 // The save slot of each list file.
 function u32 Prog__SaveSlot(String file)
 {
-    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : 0;
+    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -2114,6 +2115,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
     }
     Prog__LoadRecents(state);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
+    Prog__LoadList(state, Prog_MenuPinsFile, &state->menuPinArena, &state->menuPins, &found);
     Prog_ReloadSettingsFile(state);
     // Recents kept only for a run start empty.
     if (state->storeRecents != Prog_StoreRecents_Persistent) Prog__SetRecents(state, NULL, NULL, 0);
@@ -3786,12 +3788,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Save %S: %S", input->path, error->message);
                 changed = true;
             }
-            local_persist const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile };
+            local_persist const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
                 state->saveAgain[slot] = false;
-                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : state->bookmarks);
+                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
@@ -4072,6 +4074,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->recentArena);
     ArenaRelease(&state->undoArena);
     ArenaRelease(&state->redoArena);
+    ArenaRelease(&state->menuPinArena);
     ArenaRelease(&state->sizeArena);
     ArenaRelease(&state->tipArena);
     ArenaRelease(&state->gotoArena);

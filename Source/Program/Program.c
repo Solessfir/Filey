@@ -3411,8 +3411,14 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         rowWidth = MaxF32(rowWidth, labelWidth + hotkeyWidth);
     }
     f32 arrow = anySubmenu ? m->line * 1.5f : 0;
-    f32 width = floorf(MinF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + 2 * pad, m->line * 12), m->line * 36));
+    // A system menu's top level has a star on its highlighted row, for pinning the item to the top.
+    b32 pins = level == 0 && !state->menuCommands;
+    f32 star = pins ? floorf(24.0f * m->scale + 0.5f) : 0;
     R_Rect view = UI->root->rect;
+    // A menu taller than the window fits it and scrolls, with a bar in a gutter on the right.
+    b32 scrolls = height > view.y1 - view.y0;
+    f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
+    f32 width = floorf(MinF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + star + 2 * pad, m->line * 12), m->line * 36)) + gutter;
     f32 x = level == 0 && state->menuRight > 0 ? state->menuRight - width : place.x, y = place.y;
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
     if (x + width > view.x1) x = place.openerWidth > 0 ? x - place.openerWidth - width + 2 * pad : view.x1 - width - floorf(4.0f * m->scale + 0.5f);
@@ -3426,6 +3432,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     itemHeight *= 0.9f + 0.1f * reveal;
     height = 2 * pad + searchHeight;
     for (u32 i = 0; i < shown; ++i) height += state->menu.items[visible[i]].separator ? separatorHeight : itemHeight;
+    height = MinF32(height, view.y1 - view.y0);
     f32 opacity = own ? Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade"))) : 1;
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
@@ -3496,15 +3503,28 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             Prog__Spacer(UI_Flex(), UI_Pixels(searchHeight));
             itemY += searchHeight;
         }
-        for (u32 i = 0; i < shown; ++i) {
+        // The rows, in a list of their own under the search field, which scrolls when they do not fit.
+        String listName = StrFormat(&state->frameArena, "MenuList/%u/%u/%u", state->menuSerial, level, place.first);
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - 2 * pad - searchHeight)));
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, gutter, 0 });
+        UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, listName), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
+        UI_Parent(list) for (u32 i = 0; i < shown; ++i) {
             u32 index = visible[i];
             const P_MenuItem *item = &state->menu.items[index];
             if (item->separator) {
-                UI_SetNextFloatingOffset((UI_Vec2){ 0, itemY - y - pad - floorf(line * 0.5f) });
-                UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad));
-                UI_SetNextPrefHeight(UI_Pixels(line));
-                UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                // A line on the boundary of the rows around it, from a place in the list that takes no room.
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(0));
+                UI_Block *spot = UI_AddBlock(0);
+                UI_Parent(spot) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, -floorf(line * 0.5f) });
+                    UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad - gutter));
+                    UI_SetNextPrefHeight(UI_Pixels(line));
+                    UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
                 continue;
             }
             b32 enabled = !item->disabled || item->childCount;
@@ -3528,6 +3548,14 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_SetNextCornerRadius(m->radius * 2);
             UI_SetNextColors((UI_Colors){ .background = theme->selection });
             UI_Block *row = UI_AddBlockFromKey(key, (highlighted ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+            // A highlight the keyboard moved scrolls into sight; the rows' places are the last layout's, in the list's content.
+            // A first frame has no layout yet to go by, so it waits for the next.
+            if (scrolls && state->menuReveal && state->menuHighlight == index && state->menuDepth == level && row->rect.y1 > row->rect.y0 && list->rect.y1 > list->rect.y0) {
+                f32 top = row->rect.y0 - list->rect.y0 + list->scrollShown.y, room = list->rect.y1 - list->rect.y0;
+                if (top < list->scrollOffset.y) list->scrollOffset.y = top;
+                if (top + itemHeight > list->scrollOffset.y + room) list->scrollOffset.y = top + itemHeight - room;
+                state->menuReveal = false;
+            }
             UI_Interaction interaction = UI_InteractionFromBlock(row);
             if (interaction.clicked && !item->childCount) {
                 Prog_QueueCommand(state, Prog_CommandKind_ContextMenuInvoke, index, 0, interaction.clickOrder);
@@ -3549,6 +3577,16 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 }
                 UI_AddBlock(icon ? UI_Flag_DrawImage : glyph.length ? UI_Flag_DrawText : 0);
                 Prog__Label(item->label, UI_Flex(), itemHeight, 0, color, 0);
+                // The star pins the item to the top of the system's menus, or unpins it; a pinned one shows it lit.
+                b32 pinned = pins && Prog_MenuPinned(state, item->label);
+                if (pins && !item->childCount && (highlighted || pinned)) {
+                    UI_Interaction pin = Prog__TextButton(StrFormat(&state->frameArena, "MenuPin/%u", index), Icon_Star, m->icons, UI_Pixels(star), itemHeight, 0,
+                                                          pinned && !highlighted ? theme->textMatch : theme->text, pinned && !highlighted ? theme->textMatch : theme->text, theme->iconDisabled, true, m);
+                    if (pin.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinAsk, index, 0, pin.clickOrder);
+                    if (state->menuPinAsk == index) state->menuPinRow = row->rect;
+                } else if (pins) {
+                    Prog__Spacer(UI_Pixels(star), UI_Pixels(itemHeight));
+                }
                 for (u32 c = 0; c < chipCounts[i]; ++c) {
                     Prog__Chip(chips[i * 3 + c], itemHeight, highlighted, m);
                     Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(itemHeight));
@@ -3579,11 +3617,12 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 if (item->childCount) Prog__Icon(Icon_ChevronRight, arrow, itemHeight, highlighted ? theme->text : theme->icon, 0.5f, m);
             }
             if (open) {
-                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, itemY - pad, width };
+                *child = (Prog_MenuPlace){ item->firstChild, item->childCount, x + width - pad, (row->rect.y1 > row->rect.y0 ? row->rect.y0 : itemY) - pad, width };
                 result = true;
             }
             itemY += itemHeight;
         }
+        if (scrolls) Prog__ScrollBar(list, itemHeight, listName, m);
     }
     return result;
 }
@@ -4949,6 +4988,48 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
         Prog_MenuPlace child = {0};
         if (!Prog__MenuPanel(state, level, place, m, &child)) break;
         place = child;
+    }
+    // The question a row's star asks, beside the row.
+    if (state->menuPinAsk < state->menu.count && state->menuPinRow.y1 > state->menuPinRow.y0) {
+        const Prog_Theme *theme = Prog_CurrentTheme();
+        f32 s = m->scale, pad = floorf(8.0f * s + 0.5f), buttonWidth = floorf(96.0f * s + 0.5f), buttonHeight = floorf(24.0f * s + 0.5f);
+        f32 boxWidth = 2 * buttonWidth + 3 * pad, boxHeight = m->row + buttonHeight + 2 * pad, radius = floorf(8.0f * s + 0.5f);
+        R_Rect view = UI->root->rect;
+        f32 x = state->menuRects[0].x1 + floorf(4.0f * s + 0.5f), y = state->menuPinRow.y0;
+        if (x + boxWidth > view.x1) x = state->menuRects[0].x0 - boxWidth - floorf(4.0f * s + 0.5f);
+        y = MinF32(y, view.y1 - boxHeight);
+        Prog__DropShadow(x - view.x0, y - view.y0, boxWidth, boxHeight, radius, 1, m);
+        UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
+        UI_SetNextPrefWidth(UI_Pixels(boxWidth));
+        UI_SetNextPrefHeight(UI_Pixels(boxHeight));
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, floorf(pad * 0.5f), pad, pad });
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextBorderThickness(1.2f * s);
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+        UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuPinAsk")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable);
+        UI_Parent(box) {
+            b32 pinned = Prog_MenuPinned(state, state->menu.items[state->menuPinAsk].label);
+            Prog__Label(pinned ? S("Unpin command from the top.") : S("Pin command to the top."), UI_Flex(), m->row, 0, theme->text, 0.5f);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(buttonHeight));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_Block *buttons = UI_AddBlock(0);
+            UI_Parent(buttons) for (u32 answer = 0; answer < 2; ++answer) {
+                if (answer) Prog__Spacer(UI_Pixels(pad), UI_Pixels(buttonHeight));
+                UI_Key key = UI_KeyFromStr(0, answer ? S("MenuPinCancel") : S("MenuPinYes"));
+                UI_SetNextPrefWidth(UI_Pixels(buttonWidth));
+                UI_SetNextPrefHeight(UI_Pixels(buttonHeight));
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextColors((UI_Colors){ .background = UI->hotKey == key ? theme->hover : theme->track, .border = theme->tabBorder, .text = theme->text });
+                UI_SetNextText(answer ? S("Cancel") : S("Yes"));
+                UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
+                UI_Interaction clicked = UI_InteractionFromBlock(button);
+                if (clicked.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuPinAnswer, answer ? 0 : 1, 0, clicked.clickOrder);
+            }
+        }
     }
     state->menuHot = UI->hotKey;
 }

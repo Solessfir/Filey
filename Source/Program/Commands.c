@@ -55,6 +55,48 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuOpener = Prog_CommandKind_None;
     state->menuRight = 0;
     state->menuSearch = (Prog_TextEdit){0};
+    state->menuBase = (P_ContextMenu){0};
+    state->menuPinAsk = UINT32_MAX;
+    ++state->menuSerial;
+}
+
+function b32 Prog_MenuPinned(const Prog_State *state, String label)
+{
+    for (u64 i = 0; label.length && i < state->menuPins.header.count; ++i) if (StrIsEqual(state->menuPins.v[i], label)) return true;
+    return false;
+}
+
+// The open system menu in its pinned order: the pinned items first, in the order they were pinned, then a line and the rest as the system gave
+// them; their submenus' children follow unchanged. Its icons are worked out again for the new places.
+function void Prog__ApplyMenuPins(Prog_State *state)
+{
+    if (state->menuCommands || !state->menuOpen) return;
+    if (!state->menuBase.items) state->menuBase = state->menu;
+    P_ContextMenu base = state->menuBase;
+    u32 *order = ArenaPushArray(&state->frameArena, base.rootCount + 1, u32);
+    b8 *taken = ArenaPushArray(&state->frameArena, base.rootCount + 1, b8);
+    u32 pinned = 0;
+    for (u64 p = 0; p < state->menuPins.header.count; ++p) {
+        for (u32 i = 0; i < base.rootCount; ++i) {
+            if (taken[i] || base.items[i].separator || !StrIsEqual(base.items[i].label, state->menuPins.v[p])) continue;
+            taken[i] = true;
+            order[pinned++] = i;
+            break;
+        }
+    }
+    u32 line = pinned && pinned < base.rootCount ? 1 : 0;
+    P_MenuItem *items = ArenaPushArray(&state->menuArena, base.count + line, P_MenuItem);
+    u32 at = 0;
+    for (u32 i = 0; i < pinned; ++i) items[at++] = base.items[order[i]];
+    if (line) items[at++] = (P_MenuItem){ .separator = true };
+    for (u32 i = 0; i < base.rootCount; ++i) if (!taken[i]) items[at++] = base.items[i];
+    for (u32 i = base.rootCount; i < base.count; ++i) items[at++] = base.items[i];
+    for (u32 i = 0; i < at; ++i) if (items[i].childCount) items[i].firstChild += line;
+    state->menu.items = items;
+    state->menu.count = base.count + line;
+    state->menu.rootCount = base.rootCount + line;
+    state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
+    for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
 }
 
 // Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
@@ -111,6 +153,7 @@ function void Prog__MenuMove(Prog_State *state, i32 step)
         const P_MenuItem *item = &state->menu.items[visible[at]];
         if (!item->separator && (!item->disabled || item->childCount)) {
             state->menuHighlight = visible[at];
+            state->menuReveal = true;
             break;
         }
     }
@@ -921,8 +964,7 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
         Prog__MenuPrepend(state, state->menuRowCount ? (P_MenuItem){ .label = S("Restore"), .action = P_MenuAction_Restore }
                                                      : (P_MenuItem){ .label = S("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
     }
-    state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
-    for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
+    Prog__ApplyMenuPins(state);
     state->menuAt = mouse ? state->ui.mouse
                   : state->menuRowCount ? (UI_Vec2){ state->focusedRowRect.x0 + 24, state->focusedRowRect.y1 }
                   : state->ui.mouse;
@@ -1742,8 +1784,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (P_IsTrashFolder(path) && P_TrashHasItems()) {
                     Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, "Empty %S", Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
-                state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
-                for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
+                Prog__ApplyMenuPins(state);
                 // Filey's own cut, copy and delete act on the list's selection, so for a sidebar folder they are shown disabled, and its rename,
                 // which edits a list row, is left out.
                 for (u32 i = 0; i < state->menu.count; ++i) {
@@ -1954,6 +1995,27 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ContextMenuAt: Prog__OpenMenu(state, command); break;
             case Prog_CommandKind_ContextMenuInvoke: Prog__InvokeMenu(state, (u32)command->row); break;
             case Prog_CommandKind_ContextMenuClose: Prog_CloseMenu(state); break;
+            case Prog_CommandKind_MenuPinAsk: if (state->menuOpen && command->row < state->menu.count) state->menuPinAsk = (u32)command->row; break;
+            case Prog_CommandKind_MenuPinAnswer: {
+                if (command->row && state->menuOpen && state->menuPinAsk < state->menu.count) {
+                    String label = StrCopy(&state->frameArena, state->menu.items[state->menuPinAsk].label);
+                    String *pins = ArenaPushArray(&state->frameArena, state->menuPins.header.count + 1, String);
+                    u64 count = 0;
+                    b32 was = Prog_MenuPinned(state, label);
+                    for (u64 i = 0; i < state->menuPins.header.count; ++i) if (!StrIsEqual(state->menuPins.v[i], label)) pins[count++] = state->menuPins.v[i];
+                    if (!was) pins[count++] = label;
+                    Prog__SetList(&state->menuPinArena, &state->menuPins, pins, count);
+                    Prog__SaveList(state, Prog_MenuPinsFile, state->menuPins);
+                    // The menu takes its new order at once, with the highlight kept on the item.
+                    Prog__ApplyMenuPins(state);
+                    state->menuHighlight = UINT32_MAX;
+                    for (u32 i = 0; i < state->menu.rootCount && state->menuHighlight == UINT32_MAX; ++i) {
+                        if (StrIsEqual(state->menu.items[i].label, label)) state->menuHighlight = i;
+                    }
+                    state->menuDepth = 0;
+                }
+                state->menuPinAsk = UINT32_MAX;
+            } break;
             case Prog_CommandKind_TransferAnswer: {
                 Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
                 if (!transfer || !transfer->job || !atomic_load(&transfer->progress.asking) || command->target >= P_Conflict_Count) break;

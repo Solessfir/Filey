@@ -882,6 +882,15 @@ typedef struct Prog_State {
     String menuTarget;        // the folder a sidebar item's menu acts on instead, in menuArena
     u32 menuPath[8];          // the open submenu item at each level
     R_Rect menuRects[9];      // each open level's panel in the last build, empty past the last one
+    u32 menuSerial;           // counts the menus opened, which keys their rows' scrolling afresh
+    b32 menuReveal;           // the keyboard moved the highlight, which the list scrolls to
+    // The system menu commands pinned to the top of every system menu, by label, saved as MenuPins.txt; menuBase is the open menu's items
+    // before they were put in that order, and menuPinAsk the item whose star asks whether to pin it, with the place of its row.
+    Arena menuPinArena;
+    ArrayStr menuPins;
+    P_ContextMenu menuBase;
+    u32 menuPinAsk;
+    R_Rect menuPinRow;
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
@@ -1138,8 +1147,8 @@ typedef struct Prog_State {
     Prog_RecentRank *recentRanks;  // one for each of the recents
     u32 recentOrdinal;             // the last one's, counting up across runs
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[3];            // bookmarks, recents, folder views
-    b32 saveAgain[3];
+    b32 saving[4];            // bookmarks, recents, folder views, menu pins
+    b32 saveAgain[4];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.txt.
     Arena folderViewArena;
     ArrayStr folderViews;
