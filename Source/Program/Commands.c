@@ -1221,6 +1221,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->hexPageJob = NULL;
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
+    state->previewLineStates = NULL;
+    state->previewSyntax = Prog_Syntax_None;
     state->previewLineCount = state->previewRowColumns = 0;
     state->inspectorResetScroll = true;
     if (!want.length) return;

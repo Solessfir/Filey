@@ -5072,7 +5072,21 @@ function u32 Prog__WrapLine(String line, u32 columns, u32 *starts, u32 room)
 
 // One row of the inspector's text in `font`, `cell` wide per character: tabs to their stops, with `marks` spaces as dots and tabs as dashes,
 // and the bytes flagged in `matched`, when not NULL, in the match color.
-function void Prog__InspectorRow(Prog_State *state, String text, const u8 *matched, const R_Font *font, f32 cell, f32 height, b32 marks, const Prog_Metrics *m)
+// A code token's color: lighter hues on a dark theme and deeper ones on a light one, told apart by how bright its text is.
+function R_Color Prog__TokenColor(const Prog_Theme *theme, u8 kind)
+{
+    b32 dark = theme->text.r + theme->text.g + theme->text.b > 1.5f;
+    switch (kind) {
+        case Prog_Token_Keyword: return dark ? (R_Color)Prog_Rgb(198, 120, 221) : (R_Color)Prog_Rgb(166, 38, 164);
+        case Prog_Token_String: return dark ? (R_Color)Prog_Rgb(152, 195, 121) : (R_Color)Prog_Rgb(64, 140, 60);
+        case Prog_Token_Comment: return theme->textDim;
+        case Prog_Token_Number: return dark ? (R_Color)Prog_Rgb(209, 154, 102) : (R_Color)Prog_Rgb(152, 104, 1);
+        case Prog_Token_Heading: return dark ? (R_Color)Prog_Rgb(97, 175, 239) : (R_Color)Prog_Rgb(1, 100, 200);
+        default: return theme->text;
+    }
+}
+
+function void Prog__InspectorRow(Prog_State *state, String text, const u8 *matched, const u8 *tokens, const R_Font *font, f32 cell, f32 height, b32 marks, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     u32 cells = 0;
@@ -5098,8 +5112,9 @@ function void Prog__InspectorRow(Prog_State *state, String text, const u8 *match
         }
         // A run of spaces, as dots when marked, or of everything else up to the next tab or space, or to where the filter's letters start or stop.
         b32 spaces = c == ' ', match = matched && matched[start];
+        u8 token = tokens ? tokens[start] : 0;
         u64 end = start;
-        while (end < text.length && text.value[end] != '\t' && (text.value[end] == ' ') == spaces && (matched && matched[end]) == match) ++end;
+        while (end < text.length && text.value[end] != '\t' && (text.value[end] == ' ') == spaces && (matched && matched[end]) == match && (tokens ? tokens[end] : 0) == token) ++end;
         String run = StrFromTo(text, start, (i64)end);
         u32 runCells = Prog__TextCells(run);
         cells += runCells;
@@ -5111,7 +5126,7 @@ function void Prog__InspectorRow(Prog_State *state, String text, const u8 *match
         StrBuilder dots = {0};
         if (spaces) for (u64 i = 0; i < run.length; ++i) StrBuildStr(&state->frameArena, &dots, S("·"));
         UI_SetNextFont(font);
-        Prog__Label(spaces ? dots.buffer : run, UI_Pixels((f32)runCells * cell), height, 0, spaces ? theme->textDim : match ? theme->textMatch : theme->text, 0);
+        Prog__Label(spaces ? dots.buffer : run, UI_Pixels((f32)runCells * cell), height, 0, spaces ? theme->textDim : match ? theme->textMatch : Prog__TokenColor(theme, token), 0);
     }
 }
 
@@ -5279,6 +5294,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             if (whole.length && whole.value[whole.length - 1] == '\r') --whole.length;
             u8 *matched = filter.length ? ArenaPushArray(&state->frameArena, whole.length + 1, u8) : NULL;
             if (matched) Prog_FilterMatch(whole, filter, matched);
+            u8 *tokens = state->previewLineStates ? ArenaPushArrayNoZero(&state->frameArena, whole.length + 1, u8) : NULL;
+            if (tokens) Prog_SyntaxLine(state->previewSyntax, whole, state->previewLineStates[line], tokens);
             u32 starts[256];
             u32 rows = columns ? Min(Prog__WrapLine(whole, columns, starts, CArrayCount(starts)), (u32)CArrayCount(starts)) : 1;
             if (!columns) starts[0] = 0;
@@ -5298,7 +5315,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
                     } else {
                         Prog__Spacer(UI_Pixels(left), UI_Pixels(pitch));
                     }
-                    Prog__InspectorRow(state, StrFromTo(whole, starts[r], (i64)end), matched ? matched + starts[r] : NULL, font, cell, pitch, state->inspectorWhitespace, m);
+                    Prog__InspectorRow(state, StrFromTo(whole, starts[r], (i64)end), matched ? matched + starts[r] : NULL, tokens ? tokens + starts[r] : NULL, font, cell, pitch,
+                                       state->inspectorWhitespace, m);
                 }
             }
         }

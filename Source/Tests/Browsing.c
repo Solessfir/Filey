@@ -708,6 +708,17 @@ function void TestFileIcons(TestFileFixture *fixture)
     String sixteen = Prog_HexRowText(&arena, (const u8 *)"0123456789abcdef", 16, 0x10, 16, Prog_HexPlaces(0x10000));
     Check(StrIsEqual(sixteen, S("0010  30 31 32 33 34 35 36 37  38 39 61 62 63 64 65 66  0123456789abcdef")) && Prog_HexPlaces(0x10001) == 5);
     Check(Prog_HexPerLine(4, 72) == 16 && Prog_HexPerLine(4, 71) == 8 && Prog_HexPerLine(4, 10) == 4);
+    // A code file's lines are colored by what each byte is, and a comment left open goes on into the next line.
+    u8 tokens[64];
+    Check(Prog_SyntaxLine(Prog_Syntax_C, S("int x = 0x1F; // done"), 0, tokens) == 0);
+    Check(tokens[0] == Prog_Token_Keyword && tokens[4] == Prog_Token_Plain && tokens[8] == Prog_Token_Number && tokens[14] == Prog_Token_Comment && tokens[20] == Prog_Token_Comment);
+    Check(Prog_SyntaxLine(Prog_Syntax_C, S("a /* b"), 0, NULL) != 0);
+    Check(Prog_SyntaxLine(Prog_Syntax_C, S("c */ \"s\" 'x'"), Prog_SyntaxLine(Prog_Syntax_C, S("a /* b"), 0, NULL), tokens) == 0);
+    Check(tokens[0] == Prog_Token_Comment && tokens[3] == Prog_Token_Comment && tokens[4] == Prog_Token_Plain && tokens[5] == Prog_Token_String && tokens[9] == Prog_Token_String);
+    Check(Prog_SyntaxLine(Prog_Syntax_Rust, S("fn f<'a>(x: &'a str)"), 0, tokens) == 0 && tokens[0] == Prog_Token_Keyword && tokens[6] == Prog_Token_Plain);
+    Check(Prog_SyntaxLine(Prog_Syntax_Json, S("{ \"key\": \"value\", \"n\": 12 }"), 0, tokens) == 0 && tokens[2] == Prog_Token_Keyword && tokens[10] == Prog_Token_String);
+    Check(Prog_SyntaxLine(Prog_Syntax_Python, S("x = '''doc"), 0, NULL) != 0 && Prog_SyntaxLine(Prog_Syntax_Markdown, S("# Title"), 0, tokens) == 0 && tokens[2] == Prog_Token_Heading);
+    Check(Prog_SyntaxForPath(S("C:/x/Thing.CPP")) == Prog_Syntax_C && Prog_SyntaxForPath(S("/a/b.py")) == Prog_Syntax_Python && Prog_SyntaxForPath(S("/a/notes.txt")) == Prog_Syntax_None);
     String part = {0};
     Check(P_ReadFileAt(&arena, plain, 1, 8, &part) && StrIsEqual(part, S("\x02")));
     // An archive lists its folders and files with their paths inside it; one made by Python's zipfile, a folder "docs" holding "a.txt".

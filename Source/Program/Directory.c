@@ -655,6 +655,254 @@ function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 
     return text.buffer;
 }
 
+typedef struct Prog__SyntaxDesc {
+    String comment, comment2;      // to the end of the line
+    String blockStart, blockEnd;   // comments over several lines
+    String keywords;               // separated and surrounded by spaces
+} Prog__SyntaxDesc;
+
+global const Prog__SyntaxDesc Prog__Syntaxes[Prog_Syntax_Count] = {
+    [Prog_Syntax_C] = { S("//"), {0}, S("/*"), S("*/"),
+        S(" alignas alignof auto bool break case catch char char8_t char16_t char32_t class const consteval constexpr constinit const_cast continue co_await co_return "
+          "co_yield decltype default delete do double dynamic_cast else enum explicit export extern false final float for friend goto if inline int long mutable "
+          "namespace new noexcept nullptr operator override private protected public register reinterpret_cast restrict return short signed sizeof static "
+          "static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile "
+          "wchar_t while _Alignas _Alignof _Atomic _Bool _Generic _Noreturn _Static_assert _Thread_local UCLASS USTRUCT UENUM UFUNCTION UPROPERTY UINTERFACE "
+          "UMETA UPARAM GENERATED_BODY GENERATED_UCLASS_BODY GENERATED_USTRUCT_BODY ") },
+    [Prog_Syntax_CSharp] = { S("//"), {0}, S("/*"), S("*/"),
+        S(" abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event "
+          "explicit extern false finally fixed float for foreach get goto if implicit in init int interface internal is lock long namespace new null object "
+          "operator out override params private protected public readonly record ref return sbyte sealed set short sizeof stackalloc static string struct "
+          "switch this throw true try typeof uint ulong unchecked unsafe ushort using value var virtual void volatile while yield ") },
+    [Prog_Syntax_Script] = { S("//"), {0}, S("/*"), S("*/"),
+        S(" abstract any as async await boolean break case catch class const continue debugger declare default delete do else enum export extends false "
+          "finally for from function get if implements import in instanceof interface keyof let namespace never new null number of private protected public "
+          "readonly return set static string super switch this throw true try type typeof undefined unknown var void while with yield ") },
+    [Prog_Syntax_Rust] = { S("//"), {0}, S("/*"), S("*/"),
+        S(" as async await bool break char const continue crate dyn else enum extern f32 f64 false fn for i8 i16 i32 i64 i128 if impl in isize let loop match "
+          "mod move mut pub ref return self Self static str struct super trait true type u8 u16 u32 u64 u128 unsafe use usize where while Some None Ok Err ") },
+    [Prog_Syntax_Go] = { S("//"), {0}, S("/*"), S("*/"),
+        S(" any bool break byte case chan const continue default defer else error fallthrough false float32 float64 for func go goto if import int int8 int16 "
+          "int32 int64 interface iota map nil package range return rune select string struct switch true type uint uint8 uint16 uint32 uint64 uintptr var ") },
+    [Prog_Syntax_Java] = { S("//"), {0}, S("/*"), S("*/"),
+        S(" abstract assert boolean break byte case catch char class companion const continue data default do double else enum extends false final finally "
+          "float for fun if implements import in instanceof int interface is lateinit long native new null object open override package private protected public "
+          "return sealed short static super switch synchronized this throw throws transient true try val var void volatile when while ") },
+    [Prog_Syntax_Python] = { S("#"), {0}, {0}, {0},
+        S(" and as assert async await break case class continue def del elif else except False finally for from global if import in is lambda match None "
+          "nonlocal not or pass raise return self True try while with yield ") },
+    [Prog_Syntax_Lua] = { S("--"), {0}, S("--[["), S("]]"),
+        S(" and break do else elseif end false for function goto if in local nil not or repeat return self then true until while ") },
+    [Prog_Syntax_Shell] = { S("#"), {0}, {0}, {0},
+        S(" case declare do done echo elif else esac exit export fi for function if in local readonly return select set source then until unset while ") },
+    [Prog_Syntax_PowerShell] = { S("#"), {0}, S("<#"), S("#>"),
+        S(" begin break catch class continue data do dynamicparam else elseif end exit filter finally for foreach function if in param process return "
+          "switch throw trap try until using while ") },
+    [Prog_Syntax_Json] = { S("//"), {0}, S("/*"), S("*/"), S(" true false null ") },
+    [Prog_Syntax_Ini] = { {0}, {0}, {0}, {0}, S(" true false yes no on off null ") },
+    [Prog_Syntax_Markdown] = { {0}, {0}, {0}, {0}, {0} },
+};
+
+// The language of `path`, by its extension or, for a few, its whole name.
+function Prog_Syntax Prog_SyntaxForPath(String path)
+{
+    String name = Prog_EntryLeaf(path);
+    Index dot = StrIndexChar(name, '.', SSF_SearchBackwards);
+    String extension = dot.exists ? StrFrom(name, dot.value + 1) : (String){0};
+    char lower[16];
+    if (!extension.length || extension.length > sizeof(lower)) return Prog_Syntax_None;
+    for (u64 i = 0; i < extension.length; ++i) lower[i] = extension.value[i] >= 'A' && extension.value[i] <= 'Z' ? (char)(extension.value[i] + 32) : extension.value[i];
+    String e = StrMake(lower, extension.length);
+    local_persist const struct { const char *extensions; Prog_Syntax syntax; } table[] = {
+        { " c h cpp cc cxx c++ hpp hh hxx h++ inl ipp ino m mm cu cuh glsl vert frag geom comp tesc tese hlsl hlsli fx fxh usf ush metal ", Prog_Syntax_C },
+        { " cs csx ", Prog_Syntax_CSharp },
+        { " js mjs cjs jsx ts mts cts tsx ", Prog_Syntax_Script },
+        { " rs ", Prog_Syntax_Rust },
+        { " go ", Prog_Syntax_Go },
+        { " java kt kts gradle scala ", Prog_Syntax_Java },
+        { " py pyw pyi ", Prog_Syntax_Python },
+        { " lua ", Prog_Syntax_Lua },
+        { " sh bash zsh fish ksh ", Prog_Syntax_Shell },
+        { " ps1 psm1 psd1 ", Prog_Syntax_PowerShell },
+        { " json jsonc json5 uproject uplugin code-workspace ", Prog_Syntax_Json },
+        { " ini toml cfg conf properties yaml yml editorconfig gitignore gitattributes gitconfig gitmodules desktop ", Prog_Syntax_Ini },
+        { " md markdown ", Prog_Syntax_Markdown },
+    };
+    for (u64 i = 0; i < CArrayCount(table); ++i) {
+        String list = StrFromCStr(table[i].extensions);
+        for (u64 at = 0; at + e.length + 2 <= list.length; ++at) {
+            if (list.value[at] == ' ' && list.value[at + e.length + 1] == ' ' && StrIsEqual(StrFromTo(list, at + 1, (i64)(at + 1 + e.length)), e)) return table[i].syntax;
+        }
+    }
+    return Prog_Syntax_None;
+}
+
+function b32 Prog__IdentChar(u8 c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c >= 0x80;
+}
+
+function b32 Prog__StartsAt(String line, u64 at, String with)
+{
+    return with.length && at + with.length <= line.length && StrIsEqual(StrFromTo(line, at, (i64)(at + with.length)), with);
+}
+
+function void Prog__MarkTokens(u8 *classes, u64 from, u64 to, Prog_Token kind)
+{
+    if (classes) for (u64 i = from; i < to; ++i) classes[i] = (u8)kind;
+}
+
+// What a line can leave open for the next ones: a comment over several lines, Python's triple-quoted strings, a Markdown code fence.
+enum { Prog__Open_None, Prog__Open_Comment, Prog__Open_Triple2, Prog__Open_Triple1, Prog__Open_Fence };
+
+// Marks what each byte of `line` is in `syntax` into `classes` when it is not NULL (a byte each), starting inside what `open` says the lines
+// before left open; returns what this one leaves open. A line at a time, so that only the lines in sight are worked out, after one pass that
+// keeps only what each line starts inside of.
+function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classes)
+{
+    Prog__MarkTokens(classes, 0, line.length, Prog_Token_Plain);
+    if (syntax <= Prog_Syntax_None || syntax >= Prog_Syntax_Count) return Prog__Open_None;
+    const Prog__SyntaxDesc *desc = &Prog__Syntaxes[syntax];
+    const u8 *t = (const u8 *)line.value;
+    u64 n = line.length, lead = 0;
+    while (lead < n && (t[lead] == ' ' || t[lead] == '	')) ++lead;
+    if (syntax == Prog_Syntax_Markdown) {
+        b32 fence = Prog__StartsAt(line, lead, S("```")) || Prog__StartsAt(line, lead, S("~~~"));
+        if (open == Prog__Open_Fence || fence) {
+            Prog__MarkTokens(classes, 0, n, Prog_Token_String);
+            return open == Prog__Open_Fence ? (fence ? Prog__Open_None : Prog__Open_Fence) : Prog__Open_Fence;
+        }
+        if (lead < n && t[lead] == '#') {
+            Prog__MarkTokens(classes, 0, n, Prog_Token_Heading);
+            return Prog__Open_None;
+        }
+        // Inline code between backticks.
+        for (u64 at = 0; at < n; ++at) {
+            if (t[at] != '`') continue;
+            u64 end = at + 1;
+            while (end < n && t[end] != '`') ++end;
+            if (end >= n) break;
+            Prog__MarkTokens(classes, at, end + 1, Prog_Token_String);
+            at = end;
+        }
+        return Prog__Open_None;
+    }
+    u64 at = 0;
+    if (syntax == Prog_Syntax_Ini) {
+        if (lead < n && (t[lead] == '#' || t[lead] == ';')) {
+            Prog__MarkTokens(classes, 0, n, Prog_Token_Comment);
+            return Prog__Open_None;
+        }
+        if (lead < n && t[lead] == '[') {
+            Prog__MarkTokens(classes, 0, n, Prog_Token_Heading);
+            return Prog__Open_None;
+        }
+        // The key is plain; what it is set to is read like code.
+        while (at < n && t[at] != '=' && t[at] != ':') ++at;
+    }
+    b32 cLike = syntax == Prog_Syntax_C || syntax == Prog_Syntax_CSharp || syntax == Prog_Syntax_Script || syntax == Prog_Syntax_Rust ||
+                syntax == Prog_Syntax_Go || syntax == Prog_Syntax_Java;
+    while (at < n) {
+        if (open == Prog__Open_Comment || open == Prog__Open_Triple2 || open == Prog__Open_Triple1) {
+            String end = open == Prog__Open_Comment ? desc->blockEnd : open == Prog__Open_Triple2 ? S("\"\"\"") : S("'''");
+            u64 stop = at;
+            while (stop < n && !Prog__StartsAt(line, stop, end)) ++stop;
+            b32 closed = stop < n;
+            stop = closed ? stop + end.length : n;
+            Prog__MarkTokens(classes, at, stop, open == Prog__Open_Comment ? Prog_Token_Comment : Prog_Token_String);
+            at = stop;
+            if (closed) open = Prog__Open_None;
+            continue;
+        }
+        u8 c = t[at];
+        if (Prog__StartsAt(line, at, desc->blockStart)) {
+            Prog__MarkTokens(classes, at, at + desc->blockStart.length, Prog_Token_Comment);
+            at += desc->blockStart.length;
+            open = Prog__Open_Comment;
+            continue;
+        }
+        // A shell's # starts a comment only as a word of its own, not in $# or ${#name}.
+        b32 wordStart = at == 0 || t[at - 1] == ' ' || t[at - 1] == '\t';
+        if ((Prog__StartsAt(line, at, desc->comment) || Prog__StartsAt(line, at, desc->comment2)) &&
+            (wordStart || (syntax != Prog_Syntax_Shell && syntax != Prog_Syntax_PowerShell))) {
+            Prog__MarkTokens(classes, at, n, Prog_Token_Comment);
+            break;
+        }
+        if (syntax == Prog_Syntax_Python && (Prog__StartsAt(line, at, S("\"\"\"")) || Prog__StartsAt(line, at, S("'''")))) {
+            Prog__MarkTokens(classes, at, at + 3, Prog_Token_String);
+            open = c == '"' ? Prog__Open_Triple2 : Prog__Open_Triple1;
+            at += 3;
+            continue;
+        }
+        if (c == '"' || c == '\'' || (c == '`' && syntax == Prog_Syntax_Script)) {
+            u64 end = at + 1;
+            b32 escapes = !(c == '\'' && (syntax == Prog_Syntax_Shell || syntax == Prog_Syntax_PowerShell));
+            while (end < n && t[end] != c) end += escapes && t[end] == '\\' ? 2 : 1;
+            // In C-like languages a quote starts a string only as a character: one byte, an escape or one character in UTF-8, not a Rust lifetime.
+            b32 character = end < n && (end - at == 2 || (t[at + 1] == '\\' && end - at <= 12) || (t[at + 1] >= 0x80 && end - at <= 5));
+            if (c == '\'' && cLike && !character) {
+                ++at;
+                continue;
+            }
+            end = Min(end + 1, n);
+            Prog_Token kind = Prog_Token_String;
+            // A JSON key is the string before a colon.
+            if (syntax == Prog_Syntax_Json) {
+                u64 next = end;
+                while (next < n && (t[next] == ' ' || t[next] == '\t')) ++next;
+                if (next < n && t[next] == ':') kind = Prog_Token_Keyword;
+            }
+            Prog__MarkTokens(classes, at, end, kind);
+            at = end;
+            continue;
+        }
+        if (((c >= '0' && c <= '9') || (c == '.' && at + 1 < n && t[at + 1] >= '0' && t[at + 1] <= '9')) && (at == 0 || !Prog__IdentChar(t[at - 1]))) {
+            u64 end = at + 1;
+            while (end < n && (Prog__IdentChar(t[end]) || t[end] == '.' || (t[end] == '\'' && cLike))) ++end;
+            Prog__MarkTokens(classes, at, end, Prog_Token_Number);
+            at = end;
+            continue;
+        }
+        // A preprocessor line's directive, and an include's <path> as a string.
+        if (c == '#' && at == lead && (syntax == Prog_Syntax_C || syntax == Prog_Syntax_CSharp)) {
+            u64 end = at + 1;
+            while (end < n && (t[end] == ' ' || t[end] == '\t')) ++end;
+            while (end < n && Prog__IdentChar(t[end])) ++end;
+            Prog__MarkTokens(classes, at, end, Prog_Token_Keyword);
+            at = end;
+            while (at < n && (t[at] == ' ' || t[at] == '\t')) ++at;
+            if (at < n && t[at] == '<') {
+                for (end = at + 1; end < n && t[end] != '>'; ++end) {}
+                end = Min(end + 1, n);
+                Prog__MarkTokens(classes, at, end, Prog_Token_String);
+                at = end;
+            }
+            continue;
+        }
+        if (Prog__IdentChar(c)) {
+            u64 end = at + 1;
+            while (end < n && Prog__IdentChar(t[end])) ++end;
+            if (classes && desc->keywords.length && end - at < 32) {
+                char word[34];
+                word[0] = ' ';
+                MemCopy(word + 1, t + at, end - at);
+                word[end - at + 1] = ' ';
+                String needle = StrMake(word, end - at + 2), list = desc->keywords;
+                for (u64 i = 0; i + needle.length <= list.length; ++i) {
+                    if (list.value[i] == ' ' && StrIsEqual(StrFromTo(list, i, (i64)(i + needle.length)), needle)) {
+                        Prog__MarkTokens(classes, at, end, Prog_Token_Keyword);
+                        break;
+                    }
+                }
+            }
+            at = end;
+            continue;
+        }
+        ++at;
+    }
+    return open;
+}
+
 // A hex row: the offset in `places` hex digits and two spaces, three characters a byte with one more space after the eighth, then the
 // bytes as characters, printable ones as they are and others as dots.
 function u64 Prog_HexByteColumn(u32 places, u64 i)
@@ -3089,6 +3337,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 if (lines) state->previewLines[line++] = 0;
                 for (u64 i = 0; i + 1 < text.length; ++i) if (text.value[i] == '\n') state->previewLines[line++] = (u32)(i + 1);
                 state->previewLines[lines] = (u32)text.length;
+                // A code file's colors: what each line starts inside of, in one pass, and the rest for the lines in sight as they are drawn.
+                state->previewSyntax = (u8)(preview->archive ? Prog_Syntax_None : Prog_SyntaxForPath(state->previewPath));
+                state->previewLineStates = NULL;
+                if (state->previewSyntax) {
+                    state->previewLineStates = ArenaPushArray(&state->previewArena, lines + 1, u8);
+                    u8 open = 0;
+                    for (u32 i = 0; i < lines; ++i) {
+                        state->previewLineStates[i] = open;
+                        open = Prog_SyntaxLine(state->previewSyntax, StrFromTo(text, state->previewLines[i], (i64)state->previewLines[i + 1]), open, NULL);
+                    }
+                }
                 if (preview->pixels) {
                     // The texture is made again for a picture of another size.
                     if (state->previewTexture.u64[0] && (state->previewTextureWidth != preview->width || state->previewTextureHeight != preview->height)) {

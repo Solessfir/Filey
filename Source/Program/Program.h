@@ -356,6 +356,36 @@ typedef struct Prog_Transfer {
 // else the system's thumbnail of Prog_PreviewSize squared.
 #define Prog_PreviewImageSide 4096
 
+// The languages the inspector colors the text of, by the file's extension.
+typedef enum Prog_Syntax {
+    Prog_Syntax_None,
+    Prog_Syntax_C,         // C, C++, shaders
+    Prog_Syntax_CSharp,
+    Prog_Syntax_Script,    // JavaScript and TypeScript
+    Prog_Syntax_Rust,
+    Prog_Syntax_Go,
+    Prog_Syntax_Java,      // Java and Kotlin
+    Prog_Syntax_Python,
+    Prog_Syntax_Lua,
+    Prog_Syntax_Shell,
+    Prog_Syntax_PowerShell,
+    Prog_Syntax_Json,
+    Prog_Syntax_Ini,       // INI, TOML, YAML and other key files
+    Prog_Syntax_Markdown,
+    Prog_Syntax_Count,
+} Prog_Syntax;
+
+// What each byte of a line is, for its color.
+typedef enum Prog_Token {
+    Prog_Token_Plain,
+    Prog_Token_Keyword,    // a keyword, a JSON key, a preprocessor line's directive
+    Prog_Token_String,
+    Prog_Token_Comment,
+    Prog_Token_Number,
+    Prog_Token_Heading,    // a Markdown heading, an INI section
+    Prog_Token_Count,
+} Prog_Token;
+
 typedef struct Prog_Preview {
     u32 *pixels;
     i32 width, height;              // of pixels
@@ -1015,6 +1045,8 @@ typedef struct Prog_State {
     UI_Vec2 imagePan;         // of the image's center from the view's, in pixels
     UI_Vec2 imageDragFrom;
     u32 *previewLines;        // where each line of previewText starts, and one past its end
+    enum8(Prog_Syntax) previewSyntax;
+    u8 *previewLineStates;    // what each line starts inside of, a comment or a string the lines before left open, for previewSyntax
     u32 previewLineCount;
     u32 *previewRows;         // the first wrapped row of each line, and the total, at previewRowColumns characters across
     u32 previewRowColumns;
