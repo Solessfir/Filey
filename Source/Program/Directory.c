@@ -3796,7 +3796,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
             String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
-            if (error.code) {
+            // One cancelled from its card or with Escape stops without an error.
+            if (error.code && !P_IsCancelled(&job->cancelToken)) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "%S: %S", verb, error.message);
             } else if (input->kind == Prog_JobKind_Create && StrIsEqual(state->directory.path, input->path)) {
