@@ -176,13 +176,13 @@ global const char *Prog_KeyNames[Key_Count] = {
     [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PageUp", [Key_PageDown] = "PageDown", [Key_ContextMenu] = "ContextMenu", [Key_Comma] = "Comma",
-    [Key_Equals] = "Equals", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
+    [Key_Equals] = "Equals", [Key_Minus] = "Minus", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
 };
 global const char *Prog_KeyShortNames[Key_Count] = {
     [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
     [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
-    [Key_Equals] = "=", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
+    [Key_Equals] = "=", [Key_Minus] = "-", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
 };
 
 function b32 Prog__EqualFolded(String a, String b)
@@ -305,7 +305,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
     Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_FolderViewToggle,
-    Prog_CommandKind_SizeAllColumnsToFit,
+    Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize,
+    Prog_CommandKind_IncreaseSpacing, Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleSystemFiles,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType, Prog_CommandKind_CycleFolderSort,
@@ -1595,6 +1596,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
             } break;
             case Prog_CommandKind_ToggleRecents: Prog_SetOption(state, Prog_Option_ShowRecents, !state->showRecents); break;
+            case Prog_CommandKind_IncreaseFontSize: Prog_SetOption(state, Prog_Option_FontSize, Prog_OptionValue(state, Prog_Option_FontSize) + 1); break;
+            case Prog_CommandKind_DecreaseFontSize: Prog_SetOption(state, Prog_Option_FontSize, Prog_OptionValue(state, Prog_Option_FontSize) - 1); break;
+            case Prog_CommandKind_ResetFontSize: Prog_SetOption(state, Prog_Option_FontSize, 9); break;
+            case Prog_CommandKind_IncreaseSpacing: Prog_SetOption(state, Prog_Option_Spacing, Prog_OptionValue(state, Prog_Option_Spacing) + 1); break;
+            case Prog_CommandKind_DecreaseSpacing: Prog_SetOption(state, Prog_Option_Spacing, Prog_OptionValue(state, Prog_Option_Spacing) - 1); break;
+            case Prog_CommandKind_ToggleFileExtension: Prog_SetOption(state, Prog_Option_ShowFileExtension, state->hideExtensions); break;
+            case Prog_CommandKind_ToggleSystemFiles: Prog_SetOption(state, Prog_Option_ShowSystemFiles, !state->showSystem); break;
             case Prog_CommandKind_ToggleSortRecents: Prog_SetOption(state, Prog_Option_SortRecents, !state->sortRecents); break;
             case Prog_CommandKind_CycleFolderSort: {
                 state->folderSort = (u8)((state->folderSort + 1) % Prog_FolderSort_Count);
@@ -2202,6 +2210,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             if (!inspector) state->zoomWheelTime = PlatformNowMicroseconds();
             for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, in, 0, 0, order);
             for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, out, 0, 0, order);
+            continue;
+        }
+        // Alt+wheel steps the font size and Alt+Shift+wheel the spacing.
+        if (event->kind == PlatformEventKind_MouseWheel && (event->mods & (KeyMod_Control | KeyMod_Alt)) == KeyMod_Alt && !state->menuOpen) {
+            b32 spacing = (event->mods & KeyMod_Shift) != 0;
+            state->sizeWheel += event->wheelY;
+            for (; state->sizeWheel >= 1; state->sizeWheel -= 1) Prog_QueueCommand(state, spacing ? Prog_CommandKind_IncreaseSpacing : Prog_CommandKind_IncreaseFontSize, 0, 0, order);
+            for (; state->sizeWheel <= -1; state->sizeWheel += 1) Prog_QueueCommand(state, spacing ? Prog_CommandKind_DecreaseSpacing : Prog_CommandKind_DecreaseFontSize, 0, 0, order);
             continue;
         }
         if (event->kind != PlatformEventKind_KeyDown) continue;

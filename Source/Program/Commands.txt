@@ -508,6 +508,44 @@ command SizeAllColumnsToFit {
     hotkey  = "Ctrl+Equals"
 }
 
+command IncreaseFontSize {
+    label   = "Increase Font Size^large,big"
+    tooltip = "Increase the main font size and scale up the whole UI."
+    hotkey  = "Ctrl+Shift+Equals"
+}
+
+command DecreaseFontSize {
+    label   = "Decrease Font Size^small"
+    tooltip = "Decrease the main font size and scale down the whole UI."
+    hotkey  = "Ctrl+Minus"
+}
+
+command ResetFontSize {
+    label   = "Reset Font Size"
+    tooltip = "Reset the main font size and restore the original UI scale."
+    hotkey  = "Ctrl+0"
+}
+
+command IncreaseSpacing {
+    label   = "Increase Spacing^large,padding,scale"
+    tooltip = "Increase the space between items in a list."
+}
+
+command DecreaseSpacing {
+    label   = "Decrease Spacing^small,padding,scale"
+    tooltip = "Decrease the space between items in a list."
+}
+
+command ToggleFileExtension {
+    label   = "Toggle File Extension^set,show,hide"
+    tooltip = "Show or hide the extensions of file names."
+}
+
+command ToggleSystemFiles {
+    label   = "Toggle System Files^set,show,hide"
+    tooltip = "Show or hide system files."
+}
+
 command FolderViewsClear {
     label   = "Clear Folders Views^directory,delete,remove"
     tooltip = "Clear view settings for all folders."

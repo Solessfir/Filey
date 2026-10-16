@@ -91,6 +91,7 @@ function Key WinKeyFromVirtualKey(WPARAM vk)
         case VK_APPS:    return Key_ContextMenu;
         case VK_OEM_COMMA: return Key_Comma;
         case VK_OEM_PLUS:  return Key_Equals;
+        case VK_OEM_MINUS: return Key_Minus;
         default:         return Key_None;
     }
 }

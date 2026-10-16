@@ -168,7 +168,11 @@ function Key LinuxKeyFromKeysym(xkb_keysym_t sym)
         case XKB_KEY_Super_R:   return Key_Super;
         case XKB_KEY_Menu:      return Key_ContextMenu;
         case XKB_KEY_comma:     return Key_Comma;
+        // With Shift held these come as the shifted symbols.
         case XKB_KEY_equal:     return Key_Equals;
+        case XKB_KEY_plus:      return Key_Equals;
+        case XKB_KEY_minus:     return Key_Minus;
+        case XKB_KEY_underscore: return Key_Minus;
         default:                return Key_None;
     }
 }

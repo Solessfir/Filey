@@ -844,6 +844,7 @@ typedef struct Prog_State {
     u64 gridMoveTime;         // when the grid's layout last changed, which its items glide from for a moment
     u32 iconsPending;         // file icons this build drew without, still loading; the first frame waits for them
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
+    f32 sizeWheel;            // the same with Alt held, for the font size and spacing
     // The views on a slider over the active panel's view button: shown while the pointer is over the button or the popup, and for a moment
     // after each Ctrl+wheel step.
     u64 zoomWheelTime;        // when Ctrl+wheel last zoomed the list, in microseconds
