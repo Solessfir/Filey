@@ -555,6 +555,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
             // The folders close at hand first, which the index's entries are then told apart by.
             for (u64 i = 0; i < nearby; ++i) {
+                if (i < recents && state->recentRanks[i].file) continue;
                 String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks];
                 String name = Prog__FolderName(path);
                 MapsPut(arena, state->gotoNearbyNames, name, true);
@@ -611,8 +612,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         return result;
     }
     if (cut < 0) {
-        // The ten most recent.
-        u64 recents = Min(state->recents.header.count, (u64)10);
+        // The ten best folders among the recents.
+        u64 recents = Prog_RecentFolders(state, 10);
         Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + state->drives.header.count + state->places.header.count + 1, Prog_GoToItem);
         for (u32 section = 0; section < Prog_GoToSection_Folder; ++section) {
             if (state->gotoFolded[section]) continue;
@@ -628,6 +629,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             u64 limit = section == Prog_GoToSection_Recents ? recents : list->header.count;
             for (u32 tier = 0; tier < 2; ++tier) {
                 for (u64 i = 0; i < limit; ++i) {
+                    if (section == Prog_GoToSection_Recents && state->recentRanks[i].file) continue;
                     String path = list->v[i];
                     b32 named = Prog__ContainsFolded(Prog__FolderName(path), text);
                     if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) {
@@ -1493,7 +1495,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
             } break;
             case Prog_CommandKind_RecentsClear: {
-                Prog__SetList(&state->recentArena, &state->recents, NULL, 0);
+                Prog__SetRecents(state, NULL, NULL, 0);
                 Prog__SaveList(state, Prog_RecentsFile, state->recents);
             } break;
             case Prog_CommandKind_SidebarOpen:

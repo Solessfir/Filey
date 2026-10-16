@@ -1468,7 +1468,10 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 #define Prog_SessionFile S("Session.txt")
 #define Prog_RecentsFile   S("Recents.txt")
 #define Prog_FolderViewsFile S("FolderViews.txt")
-#define Prog_MaxRecents    20
+#define Prog_MaxRecents    300
+#define Prog_RecentScoreMax 10
+// What a first visit scores.
+#define Prog_RecentScoreNew 6
 
 
 // The save slot of each list file.
@@ -1498,6 +1501,57 @@ function String Prog__ListText(Arena *arena, ArrayStr list)
     return text.buffer;
 }
 
+// A line each of a recent's path, then after a tab its score, decay, ordinal and whether it is a file.
+function String Prog__RecentsText(Arena *arena, const Prog_State *state)
+{
+    StrBuilder text = {0};
+    for (u64 i = 0; i < state->recents.header.count; ++i) {
+        Prog_RecentRank rank = state->recentRanks[i];
+        StrBuildF(arena, &text, "%S\t%u %u %u %u\n", state->recents.v[i], (u32)rank.score, (u32)rank.decay, rank.ordinal, (u32)rank.file);
+    }
+    return text.buffer;
+}
+
+// Replaces the recents with copies of the `count` at `paths` and `ranks`, ordered best first and cut to the most kept.
+function void Prog__SetRecents(Prog_State *state, const String *paths, const Prog_RecentRank *ranks, u64 count)
+{
+    Scratch scratch = GetScratch();
+    u64 *order = ArenaPushArray(scratch.arena, Max(count, (u64)1), u64);
+    for (u64 i = 0; i < count; ++i) {
+        u64 at = i;
+        for (; at > 0; --at) {
+            Prog_RecentRank above = ranks[order[at - 1]], rank = ranks[i];
+            if (above.score > rank.score || (above.score == rank.score && above.ordinal >= rank.ordinal)) break;
+            order[at] = order[at - 1];
+        }
+        order[at] = i;
+    }
+    count = Min(count, (u64)Prog_MaxRecents);
+    Arena fresh = {0};
+    ArrayStr result = {0};
+    Prog_RecentRank *kept = ArenaPushArray(&fresh, Max(count, (u64)1), Prog_RecentRank);
+    u32 ordinal = 0;
+    for (u64 i = 0; i < count; ++i) {
+        ArrayPush(&fresh, result, StrCopy(&fresh, paths[order[i]]));
+        kept[i] = ranks[order[i]];
+        ordinal = Max(ordinal, kept[i].ordinal);
+    }
+    ArenaRelease(&state->recentArena);
+    state->recentArena = fresh;
+    state->recents = result;
+    state->recentRanks = kept;
+    state->recentOrdinal = Max(state->recentOrdinal, ordinal);
+    ReleaseScratch(scratch);
+}
+
+// How far into the recents the first `limit` folders among them reach.
+function u64 Prog_RecentFolders(const Prog_State *state, u64 limit)
+{
+    u64 i = 0;
+    for (u64 folders = 0; i < state->recents.header.count && folders < limit; ++i) folders += !state->recentRanks[i].file;
+    return i;
+}
+
 function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
 {
     if (!state->configDirectory.length) return;
@@ -1512,7 +1566,7 @@ function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
     input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Save;
     input->path = Prog_JoinPath(&job->arena, state->configDirectory, file);
-    input->name = Prog__ListText(&job->arena, list);
+    input->name = which == 1 ? Prog__RecentsText(&job->arena, state) : Prog__ListText(&job->arena, list);
     job->input = input;
     P_JobSubmit(job);
 }
@@ -1530,6 +1584,34 @@ function void Prog__LoadList(Prog_State *state, String file, Arena *arena, Array
         if (line.length) lines.v[kept++] = line;
     }
     Prog__SetList(arena, list, lines.v, kept);
+    ReleaseScratch(scratch);
+}
+
+// Lines without a rank, from before the recents had one, keep their order as the most opened.
+function void Prog__LoadRecents(Prog_State *state)
+{
+    Scratch scratch = GetScratch();
+    Arena lines = {0};
+    ArrayStr paths = {0};
+    b32 found = false;
+    Prog__LoadList(state, Prog_RecentsFile, &lines, &paths, &found);
+    u64 count = paths.header.count;
+    Prog_RecentRank *ranks = ArenaPushArray(scratch.arena, Max(count, (u64)1), Prog_RecentRank);
+    for (u64 i = 0; i < count; ++i) {
+        String line = paths.v[i];
+        Index tab = StrIndexChar(line, '\t', SSF_None);
+        ranks[i] = (Prog_RecentRank){ .ordinal = (u32)(count - i), .score = Prog_RecentScoreMax };
+        if (!tab.exists) continue;
+        paths.v[i] = StrFromTo(line, 0, (i64)tab.value);
+        String numbers = StrFrom(line, tab.value + 1);
+        u64 values[4] = {0};
+        for (u32 n = 0; n < 4 && Prog__TakeNumber(&numbers, &values[n]); ++n) {}
+        ranks[i] = (Prog_RecentRank){ .ordinal = (u32)values[2], .score = (u8)Min(values[0], (u64)Prog_RecentScoreMax), .decay = (u8)Min(values[1], (u64)10),
+                                      .file = values[3] != 0 };
+    }
+    state->recentOrdinal = 0;
+    Prog__SetRecents(state, paths.v, ranks, count);
+    ArenaRelease(&lines);
     ReleaseScratch(scratch);
 }
 
@@ -1570,11 +1652,11 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
         Prog__SetList(&state->bookmarkArena, &state->bookmarks, paths, count);
         ReleaseScratch(scratch);
     }
-    Prog__LoadList(state, Prog_RecentsFile, &state->recentArena, &state->recents, &found);
+    Prog__LoadRecents(state);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog_ReloadSettingsFile(state);
     // Recents kept only for a run start empty.
-    if (state->storeRecents != Prog_StoreRecents_Persistent) Prog__SetList(&state->recentArena, &state->recents, NULL, 0);
+    if (state->storeRecents != Prog_StoreRecents_Persistent) Prog__SetRecents(state, NULL, NULL, 0);
     P_DirectoryWatchStop(&state->configWatch);
     P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
 }
@@ -1658,20 +1740,45 @@ function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry
     }
 }
 
-// Puts `path` first among the recents, and saves them when they are kept across runs.
-function void Prog__AddRecent(Prog_State *state, String path)
+// Counts `path` opened among the recents, and saves them when they are kept across runs.
+function void Prog__AddRecent(Prog_State *state, String path, b32 file)
 {
     if (state->storeRecents == Prog_StoreRecents_Never) return;
-    if (state->recents.header.count && StrIsEqual(state->recents.v[0], path)) return;
     Scratch scratch = GetScratch();
-    String *paths = ArenaPushArray(scratch.arena, Prog_MaxRecents, String);
-    u64 count = 0;
-    paths[count++] = path;
-    for (u64 i = 0; i < state->recents.header.count && count < Prog_MaxRecents; ++i) {
-        if (!StrIsEqual(state->recents.v[i], path)) paths[count++] = state->recents.v[i];
+    u64 count = state->recents.header.count;
+    String *paths = ArenaPushArray(scratch.arena, count + 1, String);
+    Prog_RecentRank *ranks = ArenaPushArray(scratch.arena, count + 1, Prog_RecentRank);
+    if (count) {
+        MemCopy(paths, state->recents.v, count * sizeof(String));
+        MemCopy(ranks, state->recentRanks, count * sizeof(Prog_RecentRank));
     }
-    Prog__SetList(&state->recentArena, &state->recents, paths, count);
+    u64 at = 0;
+    while (at < count && !StrIsEqual(paths[at], path)) ++at;
+    if (at == count) ranks[count++] = (Prog_RecentRank){ .score = Prog_RecentScoreNew - 1 };
+    paths[at] = path;
+    ranks[at].score = (u8)Min(ranks[at].score + 1, Prog_RecentScoreMax);
+    ranks[at].decay = 0;
+    ranks[at].ordinal = ++state->recentOrdinal;
+    ranks[at].file = (b8)file;
+    Prog__SetRecents(state, paths, ranks, count);
     ReleaseScratch(scratch);
+    if (state->storeRecents == Prog_StoreRecents_Persistent) Prog__SaveList(state, Prog_RecentsFile, state->recents);
+}
+
+// The recents right inside `folder` were shown there without being opened, but for `from`, the one just left.
+function void Prog__DecayRecents(Prog_State *state, String folder, String from)
+{
+    b32 changed = false;
+    for (u64 i = 0; i < state->recents.header.count; ++i) {
+        String path = state->recents.v[i];
+        if (StrIsEqual(path, from) || !StrIsEqual(Prog_UpPath(path), folder)) continue;
+        Prog_RecentRank *rank = &state->recentRanks[i];
+        if (rank->decay < 10) ++rank->decay;
+        else if (rank->score) --rank->score;
+        changed = true;
+    }
+    if (!changed) return;
+    Prog__SetRecents(state, state->recents.v, state->recentRanks, state->recents.header.count);
     if (state->storeRecents == Prog_StoreRecents_Persistent) Prog__SaveList(state, Prog_RecentsFile, state->recents);
 }
 
@@ -3231,9 +3338,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->focusedRow = state->anchorRow = pickRow;
                         state->revealFocus = true;
                     }
+                    // The folder a panel starts on is not one opened.
                     if (!samePath) {
                         state->resetScroll = true;
-                        Prog__AddRecent(state, result->path);
+                        Prog__DecayRecents(state, result->path, state->directory.path);
+                        if (state->directory.path.length) Prog__AddRecent(state, result->path, false);
                     }
                     Prog__NoteFolders(state, result->path, result->entries, result->count);
                     if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {
@@ -3319,6 +3428,7 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
     if (entry->file.kind == P_FileKind_Directory) {
         Prog_RequestDirectory(state, path, true, 0);
     } else {
+        Prog__AddRecent(state, path, true);
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->panel = Prog__PanelId(state);
@@ -3355,7 +3465,10 @@ function void Prog_Release(Prog_State *state)
         Scratch scratch = GetScratch();
         ArrayStr lists[2] = { state->bookmarks, state->recents };
         String files[2] = { Prog_BookmarksFile, Prog_RecentsFile };
-        for (u32 i = 0; i < 2; ++i) P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, files[i]), Prog__ListText(scratch.arena, lists[i]));
+        for (u32 i = 0; i < 2; ++i) {
+            String text = i == 1 ? Prog__RecentsText(scratch.arena, state) : Prog__ListText(scratch.arena, lists[i]);
+            P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, files[i]), text);
+        }
         ReleaseScratch(scratch);
     }
     UI_Release(&state->ui);

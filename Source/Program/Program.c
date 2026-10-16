@@ -3219,7 +3219,9 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
         UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents, m);
         if (body) UI_Parent(body) {
-            for (u64 i = 0; i < state->recents.header.count; ++i) {
+            u64 shown = Prog_RecentFolders(state, 10);
+            for (u64 i = 0; i < shown; ++i) {
+                if (state->recentRanks[i].file) continue;
                 String path = state->recents.v[i];
                 Prog__SidebarItem(state, Prog_Group_Recents, i, Prog__FolderName(path), path, NULL, m);
             }

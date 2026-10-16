@@ -6,7 +6,6 @@ Autonomous run, in order. Each step: build release, run `Build.bat test`, check 
 
 Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
 
-2. Recents record the items opened from a list, not every folder shown; Highlight Recents follows.
 3. Recursive listing (section below): rows appear as the walk finds them, "[..]" in the tab and breadcrumbs, "name › Subfolder" rows with the folder's own items first, an empty list without the "No items match" text.
 4. Rename: InsertIncrementalID, InsertCurrentDate, InsertCreateDate, InsertModifiedDate, RenamePrev, RenameNext.
 5. Two-panel and selection commands: OpenInRightSplit/BottomSplit, SelectionCopy/MovePrev/NextPanel, ToggleCursorSelection, OpenContainingPath(InTab), CalcDirsContents. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin.
@@ -53,7 +52,7 @@ Missing, by the reference's group:
 - View: ToggleSepFilesFolders.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.
-- Options: still missing are the font pickers (`font` and `inspector.font` in Settings.txt take a family's name), Long Path Support, Character Key Action, color scheme editing, custom layouts for Load On Startup, and checkboxes in the icon views. The reference's recents are the items opened from a list, while Filey's are every folder it shows, so Highlight Recents marks more.
+- Options: still missing are the font pickers (`font` and `inspector.font` in Settings.txt take a family's name), Long Path Support, Character Key Action, color scheme editing, custom layouts for Load On Startup, and checkboxes in the icon views.
 - Panels: PanelEvenSiblings, PanelEvenAll.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow, TabCloseAll, TabMenu.
 - Go To: GoToSelectInPanel.

@@ -1858,14 +1858,15 @@ function void TestSidebar(TestFileFixture *fixture)
         Check(TestWaitDirectory(&state));
         // A first run starts with the user's folders bookmarked.
         u64 seeded = state.bookmarks.header.count;
-        Check(seeded <= 4 && state.recents.header.count == 1 && StrIsEqual(state.recents.v[0], fixture->path));
+        // The folder it starts on is not counted as opened.
+        Check(seeded <= 4 && state.recents.header.count == 0);
         TestBrowsingCommand(&state, Prog_CommandKind_BookmarksToggle, 0);
         Check(state.bookmarks.header.count == seeded + 1 && Prog_IsBookmarked(&state, fixture->path));
         u64 empty = TestEntryIndex(&state, S("Empty"));
         Check(empty != UINT64_MAX);
         Prog_OpenRow(&state, empty);
         Check(TestWaitDirectory(&state));
-        Check(state.recents.header.count == 2 && TestEndsWith(state.recents.v[0], S("/Empty")) && StrIsEqual(state.recents.v[1], fixture->path));
+        Check(state.recents.header.count == 1 && TestEndsWith(state.recents.v[0], S("/Empty")) && !state.recentRanks[0].file);
         ArenaClear(&state.frameArena);
         Prog_Command *open = Prog_QueueCommand(&state, Prog_CommandKind_SidebarOpen, Prog_Group_Bookmarks, 1, 0);
         open->target = seeded;
@@ -1877,7 +1878,8 @@ function void TestSidebar(TestFileFixture *fixture)
         Check(Prog_Init(&state, fixture->path, NULL, NULL));
         Prog_LoadSettings(&state, config);
         Check(state.bookmarks.header.count == seeded + 1 && Prog_IsBookmarked(&state, fixture->path));
-        Check(state.recents.header.count >= 2);
+        // Opened as often, the later ranks first.
+        Check(state.recents.header.count == 2 && StrIsEqual(state.recents.v[0], fixture->path) && TestEndsWith(state.recents.v[1], S("/Empty")));
         TestBrowsingCommand(&state, Prog_CommandKind_RemoveBookmark, seeded);
         Check(state.bookmarks.header.count == seeded && !Prog_IsBookmarked(&state, fixture->path));
         // Dropped folders are pinned where the drop points; one already pinned moves there.

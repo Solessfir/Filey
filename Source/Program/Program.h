@@ -469,6 +469,13 @@ typedef enum Prog_NewTab {
     Prog_NewTab_Count,
 } Prog_NewTab;
 
+typedef struct Prog_RecentRank {
+    u32 ordinal;  // when it was last opened
+    u8 score;     // 0 to 10, up one each time it is opened
+    u8 decay;     // listings that showed it since it was last opened, up to 10
+    b8 file;      // a file opened from a list, which only the listings mark
+} Prog_RecentRank;
+
 // How long the recents are kept: across runs, until the app closes, or not at all.
 typedef enum Prog_StoreRecents {
     Prog_StoreRecents_Persistent,
@@ -1052,8 +1059,12 @@ typedef struct Prog_State {
     u64 zoomedPanel;
     u64 zoomShownPanel;
     R_Rect zoomFrom;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
+    // The recents, best first: the more often one is opened the higher it ranks, and among equals the later; one listed without being opened
+    // drops a step each listing after its tenth.
     Arena recentArena;
     ArrayStr recents;
+    Prog_RecentRank *recentRanks;  // one for each of the recents
+    u32 recentOrdinal;             // the last one's, counting up across runs
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
     b32 saving[3];            // bookmarks, recents, folder views
     b32 saveAgain[3];
