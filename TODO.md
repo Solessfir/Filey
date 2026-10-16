@@ -8,7 +8,6 @@ Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations a
 
 3. Recursive listing (section below): rows appear as the walk finds them.
 5. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin. OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
-6. Redo beside Undo.
 7. Hex view: read further pages as it scrolls, fewer bytes per line when the inspector is narrow, colors for zero and printable bytes, and a command to show any file as hex.
 8. Syntax highlighting in the inspector's text view: keywords, strings, comments and numbers for C/C++, C#, Python, JS/TS, Lua, Rust, Go, shell, JSON, INI/TOML and Markdown headings, from a small table, no library.
 9. Git status in the path bar: find `.git` above the shown folder in a background job, read HEAD and the upstream, show ↑/↓ counts; refresh on folder change and on the watcher.
@@ -68,7 +67,6 @@ Shipped there, missing here:
 
 Planned there, worth doing here first:
 
-- Redo, beside the existing Undo.
 - Miller columns: each opened folder adds a column to the right. Decided: its own view toggle (a command with a hotkey, saved per panel), outside the zoom ladder, so Ctrl+wheel steps the other views as now; the column right of the shown folder lists the focused folder's contents and stays empty for a file, whose preview stays in the inspector.
 - Multiline names in the icon views, and larger thumbnails that use the grid's room.
 - Command-line arguments beyond folders (open in a new tab of the running window).

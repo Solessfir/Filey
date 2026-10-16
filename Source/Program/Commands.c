@@ -298,7 +298,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Folder),
     Prog_CommandKind_ToggleCursorSelection, Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_OpenInRightSplit,
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
-    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Rename,
+    Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
@@ -1597,6 +1597,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 P_JobSubmit(job);
             } break;
             case Prog_CommandKind_Undo: if (!state->renaming) Prog_UndoLast(state); break;
+            case Prog_CommandKind_Redo: if (!state->renaming) Prog_RedoLast(state); break;
             case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
             case Prog_CommandKind_FolderViewToggle: Prog_ToggleFolderView(state); break;
             case Prog_CommandKind_FolderViewsClear: Prog_ClearFolderViews(state); break;

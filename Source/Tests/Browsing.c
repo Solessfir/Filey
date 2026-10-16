@@ -1857,6 +1857,26 @@ function void TestUndo(TestFileFixture *fixture)
     Check(TestHasFile(&arena, fixture, S(""), S("plain.txt")) && !TestHasFile(&arena, fixture, S("UndoTarget"), S("plain.txt")));
     Prog_UndoLast(&state);
     Check(StrIsEqual(state.error, S("Nothing to undo")));
+    // Redo moves it again, which Undo can then reverse once more.
+    for (start = PlatformNowMicroseconds(); !state.redo.header.count && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(&state);
+        P__TestPause();
+    }
+    Check(state.redo.header.count == 1);
+    Prog_RedoLast(&state);
+    for (start = PlatformNowMicroseconds(); !state.undo.header.count && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(&state);
+        P__TestPause();
+    }
+    Check(state.undo.header.count == 1 && !state.redo.header.count && TestHasFile(&arena, fixture, S("UndoTarget"), S("plain.txt")));
+    Prog_UndoLast(&state);
+    for (start = PlatformNowMicroseconds(); !TestHasFile(&arena, fixture, S(""), S("plain.txt")) && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(&state);
+        P__TestPause();
+    }
+    Check(TestHasFile(&arena, fixture, S(""), S("plain.txt")));
+    Prog_UndoLast(&state);
+    Check(StrIsEqual(state.error, S("Nothing to undo")));
     Check(TestWaitDirectory(&state));
     Prog_Release(&state);
     Check(P__TestRemovePath(fixture, S("UndoTarget"), true));

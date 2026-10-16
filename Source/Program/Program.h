@@ -308,6 +308,7 @@ typedef struct Prog_JobInput {
     b32 confirm;           // EmptyTrash: the system asks first
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
+    b32 redo;              // Undo: the step came from the redo stack
     // Index lists `paths`, the index entries `entries`, keeps at most `room` of what it finds and adds that to the file `name` when there is one,
     // emptied first with `paths` as its roots when `restart` is set. IndexLoad reads the index file `name`; IndexFinish moves `path` over `name`.
     u32 *entries;
@@ -973,9 +974,11 @@ typedef struct Prog_State {
     Prog_Transfer transfers[Prog_MaxTransfers];
     Arena sizeArena;
     Prog_SizeMap sizes;
-    // File operations Undo can reverse, newest last.
+    // File operations Undo can reverse, newest last, and the renames and moves it reversed, which Redo makes again until another operation.
     Arena undoArena;
     Prog_ArrayUndo undo;
+    Arena redoArena;
+    Prog_ArrayUndo redo;
     // The preview pane beside the active panel's list: the focused item's picture or text, loaded by previewJob into previewArena.
     b32 previewShown;
     Arena previewArena;
@@ -1210,3 +1213,4 @@ function b32 Prog_RestoreSession(Prog_State *state, String text);
 function void Prog_LoadSession(Prog_State *state);
 function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String *from, const String *to, u64 count);
 function void Prog_UndoLast(Prog_State *state);
+function void Prog_RedoLast(Prog_State *state);

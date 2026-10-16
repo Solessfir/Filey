@@ -710,6 +710,13 @@ command Undo {
     hotkey  = "Ctrl+Z"
 }
 
+command Redo {
+    label   = "Redo^again,repeat"
+    tooltip = "Make the last rename or move that Undo reversed again."
+    hotkey  = "Ctrl+Y"
+    hotkey  = "Ctrl+Shift+Z"
+}
+
 command OpenOptions {
     label   = "Options^preferences,settings,config,theme,scale,animations"
     tooltip = "Open the options popup to customize the application behavior."

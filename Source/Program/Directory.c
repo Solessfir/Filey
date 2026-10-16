@@ -2176,48 +2176,69 @@ function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy)
 }
 
 // Records a file operation for Undo; strings are copied.
+function void Prog__PushStep(Arena *arena, Prog_ArrayUndo *stack, Prog_UndoKind kind, const String *from, const String *to, u64 count)
+{
+    if (!count) return;
+    if (stack->header.count >= Prog_MaxUndo) {
+        MemMove(&stack->v[0], &stack->v[1], (stack->header.count - 1) * sizeof(Prog_Undo));
+        --stack->header.count;
+    }
+    Prog_Undo step = { .kind = (u8)kind, .count = count, .to = ArenaPushArray(arena, count, String) };
+    if (from) step.from = ArenaPushArray(arena, count, String);
+    for (u64 i = 0; i < count; ++i) {
+        step.to[i] = StrCopy(arena, to[i]);
+        if (from) step.from[i] = StrCopy(arena, from[i]);
+    }
+    ArrayPush(arena, *stack, step);
+}
+
+// A new operation ends what Redo could make again.
 function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String *from, const String *to, u64 count)
 {
     if (!count) return;
-    if (state->undo.header.count >= Prog_MaxUndo) {
-        MemMove(&state->undo.v[0], &state->undo.v[1], (state->undo.header.count - 1) * sizeof(Prog_Undo));
-        --state->undo.header.count;
-    }
-    Prog_Undo undo = { .kind = (u8)kind, .count = count, .to = ArenaPushArray(&state->undoArena, count, String) };
-    if (from) undo.from = ArenaPushArray(&state->undoArena, count, String);
-    for (u64 i = 0; i < count; ++i) {
-        undo.to[i] = StrCopy(&state->undoArena, to[i]);
-        if (from) undo.from[i] = StrCopy(&state->undoArena, from[i]);
-    }
-    ArrayPush(&state->undoArena, state->undo, undo);
+    ArenaClear(&state->redoArena);
+    state->redo = (Prog_ArrayUndo){0};
+    Prog__PushStep(&state->undoArena, &state->undo, kind, from, to, count);
 }
 
-// Reverses the newest recorded file operation in a job.
-function void Prog_UndoLast(Prog_State *state)
+// Reverses the newest step of the undo or the redo stack in a job; once it is done, the step back again goes on the other one.
+function void Prog__ReverseLast(Prog_State *state, b32 redo)
 {
     ArenaClear(&state->errorArena);
     state->error = (String){0};
-    if (!state->undo.header.count) {
-        state->error = S("Nothing to undo");
+    Prog_ArrayUndo *stack = redo ? &state->redo : &state->undo;
+    if (!stack->header.count) {
+        state->error = redo ? S("Nothing to redo") : S("Nothing to undo");
         return;
     }
-    Prog_Undo undo = state->undo.v[--state->undo.header.count];
+    Prog_Undo undo = stack->v[--stack->header.count];
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Undo;
     input->panel = Prog__PanelId(state);
+    input->redo = redo;
     input->undo = (Prog_Undo){ .kind = undo.kind, .count = undo.count, .to = ArenaPushArray(&job->arena, undo.count, String) };
     if (undo.from) input->undo.from = ArenaPushArray(&job->arena, undo.count, String);
     for (u64 i = 0; i < undo.count; ++i) {
         input->undo.to[i] = StrCopy(&job->arena, undo.to[i]);
         if (undo.from) input->undo.from[i] = StrCopy(&job->arena, undo.from[i]);
     }
-    if (!state->undo.header.count) {
-        ArenaClear(&state->undoArena);
-        state->undo = (Prog_ArrayUndo){0};
+    if (!stack->header.count) {
+        ArenaClear(redo ? &state->redoArena : &state->undoArena);
+        *stack = (Prog_ArrayUndo){0};
     }
     job->input = input;
     P_JobSubmit(job);
+}
+
+function void Prog_UndoLast(Prog_State *state)
+{
+    Prog__ReverseLast(state, false);
+}
+
+function void Prog_RedoLast(Prog_State *state)
+{
+    Prog__ReverseLast(state, true);
 }
 
 // The panel's columns: its own once it changes them, else the defaults; This PC has its own, for drives.
@@ -3127,7 +3148,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             changed = true;
             if (error && error->code) {
                 ArenaClear(&state->errorArena);
-                state->error = StrFormat(&state->errorArena, "Undo: %S", error->message);
+                state->error = StrFormat(&state->errorArena, input->redo ? "Redo: %S" : "Undo: %S", error->message);
+            } else if (input->undo.kind == Prog_UndoKind_Rename || input->undo.kind == Prog_UndoKind_Move) {
+                // The items are back at `from`, so the way back to `to` is the same step the other way round. New items and copies went to the
+                // trash, which Redo does not take them out of.
+                const Prog_Undo *done = &input->undo;
+                if (input->redo) Prog__PushStep(&state->undoArena, &state->undo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
+                else Prog__PushStep(&state->redoArena, &state->redo, (Prog_UndoKind)done->kind, done->to, done->from, done->count);
             }
             Prog_Reload(state);
         } else if (input->kind == Prog_JobKind_Index) {
@@ -3487,6 +3514,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);
     ArenaRelease(&state->undoArena);
+    ArenaRelease(&state->redoArena);
     ArenaRelease(&state->sizeArena);
     ArenaRelease(&state->tipArena);
     ArenaRelease(&state->gotoArena);
