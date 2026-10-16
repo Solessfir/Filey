@@ -3275,8 +3275,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
     // Not lit under a drag, which would hide the line where it goes.
     b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending();
-    // Lit while it is shown, or while its menu is open.
-    b32 current = StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget));
+    // Lit while it is shown, or while its menu is open; not under a drag, where only the folder a drop would go into is lit.
+    b32 current = !P_DropPending() && (StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget)));
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
