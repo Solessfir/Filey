@@ -686,7 +686,12 @@ command WindowMinimize {
 command WindowToggleMaximize {
 }
 
+// Closes the window and quits, as Ctrl+W closes one tab; Alt+F4 does it too, through the system.
 command WindowClose {
+    label   = "Close Window^quit,exit"
+    tooltip = "Close the window and quit Filey."
+    hotkey  = "Ctrl+Shift+W"
+    repeat  = "false"
 }
 
 // Answers transfer row's question about a taken name with the P_Conflict in target.
