@@ -1617,7 +1617,7 @@ function void TestTabs(TestFileFixture *fixture)
     state.configDirectory = (String){0};
     state.drives = (P_ArrayPlace){0};
     Prog_Release(&state);
-    Check(!P_DeleteItems(&driveArena, &cache, 1, NULL).code);
+    Check(!P_DeleteItems(&driveArena, &cache, 1, false, NULL).code);
     ArenaRelease(&driveArena);
 }
 

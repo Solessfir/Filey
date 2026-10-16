@@ -186,9 +186,11 @@ function P_ArrayTrashed P_ListTrash(Arena *arena, String path, const P_CancelTok
 // Puts the items of the bin `bin` at `paths` (P_ListTrash's file names), or all of them when `count` is 0, back where they came from, making
 // the folders that have gone since. One whose place something else has taken stays in the bin, which the error then tells of.
 function P_FileError P_RestoreTrash(Arena *arena, String bin, const String *paths, u64 count);
-// Deletes the items at `paths` for good, folders with everything in them, without asking; the program confirms first.
-// Links are removed, never followed.
-function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel);
+// Deletes the items at `paths` for good, folders with everything in them; links are removed, never followed. With `confirm`, Windows
+// first asks with its own confirmation, which P_DeleteAsks says, and a No is not an error; elsewhere it never asks, and the program
+// confirms first.
+function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, b32 confirm, const P_CancelToken *cancel);
+function b32 P_DeleteAsks(void);
 // `path` with the system's own separators, for showing or copying.
 function String P_NativePath(Arena *arena, String path);
 

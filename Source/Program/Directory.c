@@ -1440,7 +1440,7 @@ function void Prog__DirectoryJob(P_Job *job)
         } else if (input->kind == Prog_JobKind_Transfer) {
             ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, input->progress, &result->placed, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_Delete) {
-            ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, &job->cancelToken);
+            ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, input->confirm, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_EmptyTrash) {
             ProfileScope("EmptyTrash") *error = P_EmptyTrash(&job->arena, input->confirm);
         } else if (input->kind == Prog_JobKind_Restore) {

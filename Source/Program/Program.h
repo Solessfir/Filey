@@ -314,7 +314,7 @@ typedef struct Prog_JobInput {
     b32 hex;               // Preview: the file's bytes, whatever it holds
     b32 move;
     b32 folder;
-    b32 confirm;           // EmptyTrash: the system asks first
+    b32 confirm;           // EmptyTrash and Delete: the system asks first
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
     b32 redo;              // Undo: the step came from the redo stack

@@ -1516,7 +1516,7 @@ function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *
     input->pathCount = count;
     input->move = kind == Prog_JobKind_Transfer && flag;
     input->folder = kind == Prog_JobKind_Create && flag;
-    input->confirm = kind == Prog_JobKind_EmptyTrash && flag;
+    input->confirm = (kind == Prog_JobKind_EmptyTrash || kind == Prog_JobKind_Delete) && flag;
     input->name = StrCopy(&job->arena, name);
     // A copy or move takes a free slot for its progress and questions; without one, taken names get numbers.
     for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers; ++i) {
@@ -1552,8 +1552,13 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         } break;
         case Prog_CommandKind_Trash: Prog__FileJob(state, Prog_JobKind_Trash, paths, count, state->directory.path, false, (String){0}); break;
         case Prog_CommandKind_SelectionDelete: {
-            // Nothing is deleted until the confirmation is accepted.
+            // Where the system asks itself, the delete starts at once and its own confirmation comes first; elsewhere nothing is deleted
+            // until the confirmation here is accepted.
             if (!count) break;
+            if (P_DeleteAsks()) {
+                Prog__FileJob(state, Prog_JobKind_Delete, paths, count, state->directory.path, true, (String){0});
+                break;
+            }
             ArenaClear(&state->confirmArena);
             state->confirmPaths = ArenaPushArray(&state->confirmArena, count, String);
             for (u64 i = 0; i < count; ++i) state->confirmPaths[i] = StrCopy(&state->confirmArena, paths[i]);

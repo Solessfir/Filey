@@ -1080,13 +1080,14 @@ function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
         P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, folder, NULL);
         String *paths = ArenaPushArray(scratch.arena, Max(listing.files.header.count, (u64)1), String);
         for (u64 i = 0; i < listing.files.header.count; ++i) paths[i] = StrFormat(scratch.arena, "%S/%S", folder, listing.files.v[i].name);
-        if (listing.files.header.count) result = P_DeleteItems(arena, paths, listing.files.header.count, NULL);
+        if (listing.files.header.count) result = P_DeleteItems(arena, paths, listing.files.header.count, false, NULL);
     }
     ReleaseScratch(scratch);
     return result;
 }
 
 function b32 P_EmptyTrashAsks(void) { return false; }
+function b32 P_DeleteAsks(void) { return false; }
 
 function b32 P_IsTrashFolder(String path)
 {
@@ -1548,8 +1549,9 @@ function P_FileError P_ReplaceFile(Arena *arena, String from, String to)
 }
 
 // ponytail: cancellation is checked between items, not inside one big folder.
-function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel)
+function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, b32 confirm, const P_CancelToken *cancel)
 {
+    (void)confirm;
     Scratch scratch = GetScratchEx(arena);
     u32 error = 0;
     for (u64 i = 0; i < count && !error; ++i) {

@@ -397,7 +397,10 @@ function String P__PlacedPath(Arena *arena, String directory, String path)
 }
 
 // `placed`, for copies and moves, gets each item's new path: in `directory` under its own name, or under the one the shell gave it when that was taken.
-function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, String *placed)
+// Set by WinWindow.c; dialogs that verbs open are owned by it.
+global HWND P__shellOwner;
+
+function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, HWND owner, String *placed)
 {
     Scratch scratch = GetScratchEx(arena);
     // Both lists end with an extra null.
@@ -424,7 +427,7 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
         if (target) MemCopy(to, target, size * sizeof(wchar));
     }
     if (!error && count) {
-        SHFILEOPSTRUCTW op = { .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | (placed ? FOF_WANTMAPPINGHANDLE : 0)) };
+        SHFILEOPSTRUCTW op = { .hwnd = owner, .wFunc = operation, .pFrom = from, .pTo = to, .fFlags = (FILEOP_FLAGS)(flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | (placed ? FOF_WANTMAPPINGHANDLE : 0)) };
         i32 result = SHFileOperationW(&op);
         error = result ? (u32)result : op.fAnyOperationsAborted ? ERROR_CANCELLED : 0;
         for (u64 i = 0; placed && i < count; ++i) placed[i] = P__PlacedPath(arena, directory, paths[i]);
@@ -476,7 +479,7 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
     }
     String *keptPlaced = placed ? ArenaPushArray(arena, Max(keptCount, (u64)1), String) : NULL;
     P_FileError result = error ? P__FileError(arena, error)
-                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION, keptPlaced);
+                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION, NULL, keptPlaced);
     // Items moved into the folder they are in stay where they were.
     if (placed && !error) {
         for (u64 i = 0; i < count; ++i) ArrayPush(arena, *placed, StrCopy(arena, paths[i]));
@@ -488,15 +491,21 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
 
 function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
 {
-    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING, NULL);
+    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING, NULL, NULL);
 }
 
-// Without FOF_ALLOWUNDO the shell deletes instead of recycling; it still shows progress for long deletes.
-function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, const P_CancelToken *cancel)
+// Without FOF_ALLOWUNDO the shell deletes instead of recycling; it still shows progress for long deletes. Its confirmation names the item
+// or how many go, owned by the window.
+function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count, b32 confirm, const P_CancelToken *cancel)
 {
     if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
-    return P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, FOF_NOCONFIRMATION, NULL);
+    P_FileError error = P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, confirm ? 0 : FOF_NOCONFIRMATION, confirm ? P__shellOwner : NULL, NULL);
+    // A No is reported as a cancel, or as the shell's own DE_OPCANCELLED.
+    return confirm && (error.code == ERROR_CANCELLED || error.code == 0x75) ? (P_FileError){0} : error;
 }
+
+// Only with a window to own its dialog, so that the headless tests confirm as other platforms do.
+function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 
 function ArrayStr P_StartupPaths(Arena *arena)
 {
