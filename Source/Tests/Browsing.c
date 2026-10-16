@@ -1746,11 +1746,13 @@ function void TestPanels(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_CommandPalette, 0);
         u32 groups = Prog_PaletteMatches(&state, matches);
         Check(state.paletteOpen && groups >= 5 && matches[0].group == Prog_CommandGroup_Quick && matches[0].kind == Prog_CommandKind_None);
-        // Every command with a label is in exactly one group.
+        // Every command with a label that does anything here is in exactly one group.
         state.paletteExpanded = (u16)((1u << Prog_CommandGroup_Count) - 1);
         u32 all = Prog_PaletteMatches(&state, matches), seen[Prog_CommandKind_Count] = {0};
         for (u32 i = 0; i < all; ++i) ++seen[matches[i].kind];
-        for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) Check(seen[kind] == (Prog_Commands[kind].label.length ? 1u : 0u));
+        for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) {
+            Check(seen[kind] == (Prog_Commands[kind].label.length && Prog_CommandApplies((Prog_CommandKind)kind) ? 1u : 0u));
+        }
         state.paletteExpanded = 0;
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
         Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > groups && matches[1].group == Prog_CommandGroup_Quick && matches[1].kind != Prog_CommandKind_None);
@@ -1992,6 +1994,10 @@ function void TestSidebar(TestFileFixture *fixture)
     Check(!P__NamedByUuid(&arena, S("not-a-uuid"), S("/dev/sda1")) && !P__DiskModel(&arena, S("/dev/not-a-disk")).length);
     // Options of Windows alone are not offered: files are never marked as the system's own here.
     Check(!Prog_OptionApplies(Prog_Option_ShowSystemFiles) && Prog_OptionApplies(Prog_Option_FontSize));
+    // Nor the palette's command for them, and the bin is named as here: the Trash.
+    Check(!Prog_CommandApplies(Prog_CommandKind_ToggleSystemFiles) && Prog_CommandApplies(Prog_CommandKind_EmptyTrash));
+    Check(StrIsEqual(Prog_CommandLabel(Prog_CommandKind_EmptyTrash), S("Empty Trash")) && TestEndsWith(Prog_CommandTooltip(Prog_CommandKind_EmptyTrash), S("in the Trash.")));
+    Check(StrIsEqual(Prog_CommandLabel(Prog_CommandKind_Undo), S("Undo")));
     // Only a drive on a local device is looked into for Windows; /proc's source is no device.
     Check(StrIsEqual(P__MountPoint(&arena, S("/mnt/My\\040Disk")), S("/mnt/My Disk")) && !P__LocalMount(&arena, S("/proc")));
 #endif

@@ -3580,7 +3580,7 @@ function String Prog__ConflictText(Arena *arena, const Prog_State *state, Prog_C
         for (u32 i = 0; i < found; ++i) {
             if (others[i]->key != hotkey->key || others[i]->mods != hotkey->mods || others[i]->lead != hotkey->lead) continue;
             StrBuildChar(arena, &out, '\n');
-            StrBuildStr(arena, &out, Prog_Commands[k].label.length ? Prog_Commands[k].label : Prog_Commands[k].name);
+            StrBuildStr(arena, &out, Prog_Commands[k].label.length ? Prog_CommandLabel((Prog_CommandKind)k) : Prog_Commands[k].name);
             break;
         }
     }
@@ -4443,7 +4443,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
         Prog__FolderTip(state, opacity, m);
         return;
     }
-    String label = state->tooltipLabel.length ? state->tooltipLabel : Prog_Commands[state->tooltipKind].label;
+    String label = state->tooltipLabel.length ? state->tooltipLabel : Prog_CommandLabel((Prog_CommandKind)state->tooltipKind);
     // A tip with a place to go shows it over the command and leaves the hotkeys out.
     // A described button's words go over its command a line each, with its hotkeys or "Blank"; a tip of no command is only its words.
     String detail = state->tooltipDetail;
@@ -5650,7 +5650,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         Prog__Label(groupNames[at.group], UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, floorf(m->line * 1.2f), face, icon, 0.5f, m);
                     } else {
-                        const Prog_CommandDesc *desc = &Prog_Commands[at.kind];
+                        String label = Prog_CommandLabel((Prog_CommandKind)at.kind), tooltip = Prog_CommandTooltip((Prog_CommandKind)at.kind);
                         if (searching) {
                             // A command found by searching shows its group in front of it.
                             Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
@@ -5660,21 +5660,21 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                             Prog__Spacer(UI_Pixels(slot + floorf(1.6f * s + 0.5f)), UI_Pixels(face));
                         }
                         // What was typed shows in the match color, in the label and in the description.
-                        u8 *labelMarks = searching ? ArenaPushArray(&state->frameArena, desc->label.length + 1, u8) : NULL;
-                        u8 *tooltipMarks = searching ? ArenaPushArray(&state->frameArena, desc->tooltip.length + 1, u8) : NULL;
-                        if (searching) Prog_FuzzyScore(desc->label, desc->tooltip, typed, labelMarks, tooltipMarks);
+                        u8 *labelMarks = searching ? ArenaPushArray(&state->frameArena, label.length + 1, u8) : NULL;
+                        u8 *tooltipMarks = searching ? ArenaPushArray(&state->frameArena, tooltip.length + 1, u8) : NULL;
+                        if (searching) Prog_FuzzyScore(label, tooltip, typed, labelMarks, tooltipMarks);
                         UI_SetNextPrefWidth(UI_Flex());
                         UI_SetNextPrefHeight(UI_Pixels(face));
                         UI_SetNextChildrenLayout(UI_Layout_Vertical);
                         UI_SetNextChildrenPadding((UI_Padding){ 0, state->paletteCompact ? floorf((face - m->line) * 0.5f) : floorf(4.8f * s + 0.5f), 0, 0 });
                         UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
                         UI_Parent(texts) {
-                            Prog__MarkedText(desc->label, labelMarks, m->font, m->line, named);
+                            Prog__MarkedText(label, labelMarks, m->font, m->line, named);
                             if (!state->paletteCompact) {
                                 Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
                                 R_Color described = theme->textDim;
                                 if (!able && !highlighted) described.a *= 0.6f;
-                                Prog__MarkedText(desc->tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : described);
+                                Prog__MarkedText(tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : described);
                             }
                         }
                         // The highlighted row's buttons bring back its default hotkeys once they changed and add a new one; then its chips,

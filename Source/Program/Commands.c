@@ -2,6 +2,33 @@
 #include "Meta/Commands.meta.h"
 #include "Meta/Icons.meta.h"
 
+// Commands' labels and descriptions, made once, with the bin named as this system names it where Commands.txt names Windows' Recycle Bin.
+global Arena Prog__CommandTextArena;
+global String Prog__CommandTexts[Prog_CommandKind_Count][2];
+
+function String Prog__CommandText(Prog_CommandKind kind, u32 which)
+{
+    if (kind >= Prog_CommandKind_Count) return (String){0};
+    String *text = &Prog__CommandTexts[kind][which];
+    if (!text->value) {
+        String source = which ? Prog_Commands[kind].tooltip : Prog_Commands[kind].label, bin = P_TrashName();
+        Index at = StrIndexStr(source, S("Recycle Bin"), SSF_None);
+        *text = !at.exists || StrIsEqual(bin, S("Recycle Bin")) ? source
+              : StrFormat(&Prog__CommandTextArena, "%S%S%S", StrFromTo(source, 0, (i64)at.value), bin, StrFrom(source, at.value + S("Recycle Bin").length));
+        if (!text->value) *text = S("");
+    }
+    return *text;
+}
+
+function String Prog_CommandLabel(Prog_CommandKind kind) { return Prog__CommandText(kind, 0); }
+function String Prog_CommandTooltip(Prog_CommandKind kind) { return Prog__CommandText(kind, 1); }
+
+// Whether `kind` does anything on this system; the palette leaves out those that do not, as system files where files are never marked so.
+function b32 Prog_CommandApplies(Prog_CommandKind kind)
+{
+    return kind != Prog_CommandKind_ToggleSystemFiles || P_HasSystemFiles();
+}
+
 function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kind, u64 row, u32 pressCount, u64 inputOrder)
 {
     Assert(kind > Prog_CommandKind_None && kind < Prog_CommandKind_Count);
@@ -329,7 +356,7 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     state->menuIcons = ArenaPushArray(&state->menuArena, count, const Prog_Icon *);
     for (u32 i = 0; i < count; ++i) {
         Prog_MenuCommand item = items[i];
-        item.label = StrCopy(&state->menuArena, item.label.length ? item.label : Prog_Commands[item.kind].label);
+        item.label = StrCopy(&state->menuArena, item.label.length ? item.label : Prog_CommandLabel(item.kind));
         item.mouse = StrCopy(&state->menuArena, item.mouse);
         state->menuCommands[i] = item;
         state->menu.items[i] = (P_MenuItem){ .label = item.label, .id = i + 1, .separator = item.kind == Prog_CommandKind_None, .isDefault = (b8)(item.checked != 0),
@@ -758,14 +785,14 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
             if (!text.length) out[count++] = (Prog_PaletteRow){ (u8)group, Prog_CommandKind_None };
             continue;
         }
+        if (!Prog_CommandApplies((Prog_CommandKind)item)) continue;
         if (!text.length) {
             if (state->paletteExpanded & (1u << group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
-        const Prog_CommandDesc *desc = &Prog_Commands[item];
-        i32 score = Prog_FuzzyScore(desc->label, desc->tooltip, text, NULL, NULL);
+        i32 score = Prog_FuzzyScore(Prog_CommandLabel((Prog_CommandKind)item), Prog_CommandTooltip((Prog_CommandKind)item), text, NULL, NULL);
         if (score <= 0) {
-            if (!Prog_FilterMatch(desc->aliases, text, NULL)) continue;
+            if (!Prog_FilterMatch(Prog_Commands[item].aliases, text, NULL)) continue;
             score = INT32_MIN;
         }
         u32 at = count++;
@@ -2260,7 +2287,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_IncreaseSpacing: Prog_SetOption(state, Prog_Option_Spacing, Prog_OptionValue(state, Prog_Option_Spacing) + 1); break;
             case Prog_CommandKind_DecreaseSpacing: Prog_SetOption(state, Prog_Option_Spacing, Prog_OptionValue(state, Prog_Option_Spacing) - 1); break;
             case Prog_CommandKind_ToggleFileExtension: Prog_SetOption(state, Prog_Option_ShowFileExtension, state->hideExtensions); break;
-            case Prog_CommandKind_ToggleSystemFiles: Prog_SetOption(state, Prog_Option_ShowSystemFiles, !state->showSystem); break;
+            case Prog_CommandKind_ToggleSystemFiles: if (Prog_CommandApplies(Prog_CommandKind_ToggleSystemFiles)) Prog_SetOption(state, Prog_Option_ShowSystemFiles, !state->showSystem); break;
             case Prog_CommandKind_ToggleSortRecents: Prog_SetOption(state, Prog_Option_SortRecents, !state->sortRecents); break;
             case Prog_CommandKind_CycleFolderSort: {
                 state->folderSort = (u8)((state->folderSort + 1) % Prog_FolderSort_Count);

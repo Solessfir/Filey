@@ -197,6 +197,8 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 function b32 P_DeleteAsks(void);
 // Whether files can be marked as the system's own, as P_File.system says on Windows, which showing or hiding them needs.
 function b32 P_HasSystemFiles(void);
+// What the system calls its bin: "Recycle Bin" on Windows, "Trash" on Linux.
+function String P_TrashName(void);
 // `path` with the system's own separators, for showing or copying.
 function String P_NativePath(Arena *arena, String path);
 

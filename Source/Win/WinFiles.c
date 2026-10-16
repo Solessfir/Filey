@@ -518,6 +518,7 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 // Only with a window to own its dialog, so that the headless tests confirm as other platforms do.
 function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
+function String P_TrashName(void) { return S("Recycle Bin"); }
 
 function ArrayStr P_StartupPaths(Arena *arena)
 {
