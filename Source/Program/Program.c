@@ -186,6 +186,14 @@ function R_Color Prog__CaptionColor(const Prog_State *state)
     return state->windowInactive && theme->caption.a >= 1 ? theme->panel : theme->caption;
 }
 
+// The title bar's icons, brighter than the toolbar's: the text color at three quarters.
+function R_Color Prog__CaptionInk(const Prog_Theme *theme)
+{
+    R_Color result = theme->text;
+    result.a *= 0.75f;
+    return result;
+}
+
 // The custom theme with the settings' colors.
 global Prog_Theme Prog_ThemeUser = Prog_ThemeCustom;
 
@@ -963,16 +971,33 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
     R_Color wash = Prog__ButtonWash(key, hot, pressed);
-    // The tab list's and the main menu's are rounder than the toolbar's, as the window buttons beside them, and the main menu's wider.
+    // The tab list's and the main menu's, in the title bar, are rounder than the toolbar's, as the window buttons beside them, and the
+    // main menu's wider.
     b32 main = kind == Prog_CommandKind_MainMenu;
-    UI_SetNextPrefWidth(UI_Pixels(main ? floorf(36.0f * m->scale + 0.5f) : Prog__ToolbarButtonWidth(m)));
-    UI_SetNextPrefHeight(UI_Pixels(height > 0 ? height : Prog__ToolbarButtonHeight(m)));
+    f32 width = main ? floorf(36.0f * m->scale + 0.5f) : Prog__ToolbarButtonWidth(m);
+    height = height > 0 ? height : Prog__ToolbarButtonHeight(m);
+    R_Color ink = !enabled ? theme->iconDisabled : hot || lit || pressed ? theme->text : tabs || main ? Prog__CaptionInk(theme) : theme->icon;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
     UI_SetNextCornerRadius(floorf((tabs || main ? 5.6f : 4.0f) * m->scale + 0.5f));
-    UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit || pressed ? theme->text : theme->icon });
+    UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = ink });
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
-    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (lit || wash.a > 0 ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    UI_Block *block = UI_AddBlockFromKey(key, (main ? 0 : UI_Flag_DrawText) | (lit || wash.a > 0 ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    // The main menu's three bars are shapes, since the icon font's strokes are too thin for them.
+    if (main) {
+        f32 barWidth = 12.0f * m->scale, bar = 2.0f * m->scale, pitch = 4.3f * m->scale;
+        UI_Parent(block) {
+            for (i32 i = -1; i <= 1; ++i) {
+                UI_SetNextFloatingOffset((UI_Vec2){ (width - barWidth) * 0.5f, (height - bar) * 0.5f + (f32)i * pitch });
+                UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                UI_SetNextPrefHeight(UI_Pixels(bar));
+                UI_SetNextColors((UI_Colors){ .background = ink });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+        }
+    }
     // These open menus rather than run commands, so they name themselves; the tab list runs Search Tabs.
     String tip = kind == Prog_CommandKind_PanelMenu ? S("Panel Menu") : kind == Prog_CommandKind_MainMenu ? S("Main Menu")
                : kind == Prog_CommandKind_HistoryMenu ? S("History") : tabs ? (String){0} : S("View");
@@ -1074,7 +1099,7 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     b32 close = kind == Prog_WindowButton_Close;
     R_Color background = close ? theme->danger : theme->selection;
     background.a *= 0.35f;
-    R_Color ink = hot ? theme->text : theme->icon;
+    R_Color ink = hot ? theme->text : Prog__CaptionInk(theme);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -1089,22 +1114,23 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (close ? UI_Flag_DrawText : 0) | (hot ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(button);
     if (interaction.clicked) Prog_QueueCommand(state, command, 0, 0, interaction.clickOrder);
-    // The glyphs sit in the middle of the button's wash, on whole pixels so that their thin lines stay sharp.
+    // The glyphs sit in the middle of the button's wash, their boxes on whole pixels. Their strokes are a little over a pixel at 100%,
+    // and smoothed where they end between pixels.
     f32 glyph = floorf(9.6f * scale + 0.5f);
-    f32 line = MaxF32(1.0f, floorf(1.25f * scale + 0.5f));
+    f32 stroke = 1.2f * scale;
     f32 gx = ceilf((width - glyph) * 0.5f), gy = floorf((height - glyph) * 0.5f);
     UI_Parent(button) {
         if (kind == Prog_WindowButton_Minimize) {
-            UI_SetNextFloatingOffset((UI_Vec2){ gx, ceilf((height - line) * 0.5f) });
+            UI_SetNextFloatingOffset((UI_Vec2){ gx, (height - stroke) * 0.5f });
             UI_SetNextPrefWidth(UI_Pixels(glyph));
-            UI_SetNextPrefHeight(UI_Pixels(line));
+            UI_SetNextPrefHeight(UI_Pixels(stroke));
             UI_SetNextColors((UI_Colors){ .background = ink });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         } else if (kind == Prog_WindowButton_Maximize) {
             UI_SetNextFloatingOffset((UI_Vec2){ gx, gy });
             UI_SetNextPrefWidth(UI_Pixels(glyph));
             UI_SetNextPrefHeight(UI_Pixels(glyph + 1));
-            UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * scale + 0.5f)));
+            UI_SetNextBorderThickness(stroke);
             UI_SetNextColors((UI_Colors){ .border = ink });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
         } else if (kind == Prog_WindowButton_Restore) {
@@ -1116,7 +1142,7 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
             UI_SetNextPrefHeight(UI_Pixels(glyph));
             UI_Block *squares = UI_AddBlock(UI_Flag_Floating);
             UI_Parent(squares) {
-                R_Rect edges[] = { { offset, 0, glyph, 1 }, { glyph - 1, 0, glyph, size } };
+                R_Rect edges[] = { { offset, 0, glyph, stroke }, { glyph - stroke, 0, glyph, size } };
                 for (u32 i = 0; i < CArrayCount(edges); ++i) {
                     UI_SetNextFloatingOffset((UI_Vec2){ edges[i].x0, edges[i].y0 });
                     UI_SetNextPrefWidth(UI_Pixels(edges[i].x1 - edges[i].x0));
@@ -1127,6 +1153,7 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, offset });
                 UI_SetNextPrefWidth(UI_Pixels(size));
                 UI_SetNextPrefHeight(UI_Pixels(size));
+                UI_SetNextBorderThickness(stroke);
                 UI_SetNextColors((UI_Colors){ .border = ink });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
             }
@@ -1176,7 +1203,7 @@ function void Prog__Caption(Prog_State *state, String identity, f32 width, f32 h
 function void Prog__SidebarToggle(Prog_State *state, f32 button, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    UI_Interaction toggle = Prog__TextButton(S("ToggleQuickAccess"), Icon_PanelLeft, m->icons, UI_Pixels(button), button, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+    UI_Interaction toggle = Prog__TextButton(S("ToggleQuickAccess"), Icon_PanelLeft, m->icons, UI_Pixels(button), button, 0, Prog__CaptionInk(theme), theme->text, theme->iconDisabled, true, m);
     if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleQuickAccess, 0, 0, toggle.clickOrder)->panel = 0;
 }
 
@@ -1427,7 +1454,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
         UI_Block *plusBox = UI_AddBlock(0);
         UI_Parent(plusBox) {
-            UI_Interaction add = Prog__TextButton(S("TabNew"), Icon_Plus, m->icons, UI_Pixels(floorf(plus * 0.8f)), floorf(plus * 0.75f), 0, theme->icon, theme->text, theme->iconDisabled,
+            UI_Interaction add = Prog__TextButton(S("TabNew"), Icon_Plus, m->icons, UI_Pixels(floorf(plus * 0.8f)), floorf(plus * 0.75f), 0, Prog__CaptionInk(theme), theme->text, theme->iconDisabled,
                                                   state->tabCount < Prog_MaxTabs, m);
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
         }
