@@ -1,19 +1,13 @@
 # TODO
 
-## Overnight plan
+## Next
 
-Autonomous run, in order. Each step: build release, run `Build.bat test`, check the UI with the Compare tool or `FILEY_CAPTURE_DIR` against the reference where it has the feature, commit with a short title, remove the done item from this file in the same commit. Run `./Build.sh asan test` in WSL after any Platform, Base or Linux change. A step that gets stuck for long is noted under "Left for the morning" below and skipped.
-
-Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
-
-5. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin. OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
-
-Not tonight: Miller columns and archives as folders (start only when asked), font pickers, localization, anything that needs the real bin or drives other than fixtures.
-
-### Left for the morning
-
-## Go To and the drive index
-
+- TrashRestoreAll and TrashDeleteAll, checked by hand since they act on the real bin.
+- OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
+- Miller columns and archives as folders, when asked.
+- LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen, ConsoleOpen, ToggleFullscreen.
+- Font pickers, with the system's font families listed on both platforms.
+- Rebindable text and scroll commands.
 
 ## Look
 
