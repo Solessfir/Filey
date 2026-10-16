@@ -3317,11 +3317,29 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
         UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents, m);
         if (body) UI_Parent(body) {
+            // Each row eases to its place by its folder, so that one opened again travels up over the others while they move down to make
+            // room for it; a folder new to the list starts in its place.
             u64 shown = Prog_RecentFolders(state, 10);
+            f32 *slid = ArenaPushArray(&state->frameArena, Max(shown, (u64)1), f32), *placed = ArenaPushArray(&state->frameArena, Max(shown, (u64)1), f32);
+            f32 rows = 0;
             for (u64 i = 0; i < shown; ++i) {
                 if (state->recentRanks[i].file) continue;
-                String path = state->recents.v[i];
-                Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, m);
+                placed[i] = rows;
+                slid[i] = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "RecentY/%S", state->recents.v[i])), rows, rows);
+                rows += m->row;
+            }
+            Prog__Spacer(UI_Flex(), UI_Pixels(rows));
+            for (u32 pass = 0; pass < 2; ++pass) {
+                for (u64 i = 0; i < shown; ++i) {
+                    // Those rising are drawn last, over the rows they pass.
+                    if (state->recentRanks[i].file || (slid[i] > placed[i] + 0.5f) != (pass == 1)) continue;
+                    String path = state->recents.v[i];
+                    Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, m);
+                    UI_Block *row = body->last;
+                    row->flags |= UI_Flag_Floating;
+                    // Rounded rather than floored, or a row easing sits a pixel short through the tail of the ease and then jumps.
+                    row->props.floatingOffset = (UI_Vec2){ 0, floorf(slid[i] + 0.5f) };
+                }
             }
         }
         Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
