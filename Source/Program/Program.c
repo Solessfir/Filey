@@ -1973,28 +1973,38 @@ function void Prog__EditMouse(Prog_State *state, UI_Block *block, const Prog_Tex
     command->mods = interaction.mods | (drag ? KeyMod_Shift : 0);
 }
 
-// The name being edited, with its selection and caret, in place of the name label.
-function void Prog__RenameBox(Prog_State *state, UI_Size width, const Prog_Metrics *m)
+// The name being edited, with its selection and caret, in place of the name label: in a row's cell at its left, or in an icon view's
+// cell, `width` pixels wide, in the middle, its text where the name's was.
+function void Prog__RenameBox(Prog_State *state, UI_Size width, b32 icons, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String text = Prog_EditText(&state->rename);
     f32 pad = floorf(m->gap * 0.5f);
-    f32 height = m->line + pad;
+    f32 height = m->line + pad, above = floorf((height - m->line) * 0.5f);
+    f32 boxWidth = R_TextWidth(m->font, text) + 2 * pad + Prog__CaretWidth(m);
     UI_SetNextPrefWidth(width);
-    UI_SetNextPrefHeight(UI_Pixels(m->row));
-    UI_SetNextChildrenPadding((UI_Padding){ m->gap - pad, 0, m->gap, 0 });
-    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
+    if (icons) {
+        // As tall as the name's line, with the box running past it above and below; the box is kept inside the cell's width instead.
+        boxWidth = MinF32(boxWidth, width.value - 2 * (m->gap - pad));
+        UI_SetNextPrefHeight(UI_Pixels(m->line));
+        UI_SetNextChildrenPadding((UI_Padding){ m->gap - pad, -above, m->gap - pad, 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
+    } else {
+        UI_SetNextPrefHeight(UI_Pixels(m->row));
+        UI_SetNextChildrenPadding((UI_Padding){ m->gap - pad, 0, m->gap, 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    }
+    UI_Block *cell = UI_AddBlock(icons ? 0 : UI_Flag_Clip);
     UI_Parent(cell) {
-        UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->font, text) + 2 * pad + Prog__CaretWidth(m)));
+        UI_SetNextPrefWidth(UI_Pixels(boxWidth));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextCornerRadius(m->radius);
         UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->focus });
         UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->renameRect = box->rect;
         Prog__EditMouse(state, box, &state->rename, pad, Prog_CommandKind_RenameCaret, m);
-        UI_Parent(box) Prog__EditContents(&state->rename, pad, floorf((height - m->line) * 0.5f), true, 0, m);
+        UI_Parent(box) Prog__EditContents(&state->rename, pad, above, true, 0, m);
     }
 }
 
@@ -2431,7 +2441,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
             f32 columnWidth = i == Prog_ColumnId_Name ? MaxF32(0, column->width - (m->iconSlot - m->gap)) : column->width;
             UI_Size width = column->width > 0 && !nameOnly ? UI_Pixels(columnWidth) : UI_Flex();
             if (i == Prog_ColumnId_Name && renaming) {
-                Prog__RenameBox(state, width, m);
+                Prog__RenameBox(state, width, false, m);
                 continue;
             }
             R_Color color = (i == Prog_ColumnId_Name && !faded) || highlighted ? theme->text : theme->textDim;
@@ -2518,7 +2528,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     UI_Parent(cell) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
-        if (renaming) Prog__RenameBox(state, UI_Flex(), m);
+        if (renaming) Prog__RenameBox(state, UI_Flex(), false, m);
         else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
     }
     return result;
@@ -2564,7 +2574,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     UI_Parent(cell) {
         Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, highlighted, m);
         if (renaming) {
-            Prog__RenameBox(state, UI_Pixels(width), m);
+            Prog__RenameBox(state, UI_Pixels(width), true, m);
         } else if (entry->drive) {
             u64 total = entry->file.size;
             Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(5.6f * m->scale + 0.5f)));
@@ -3311,7 +3321,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             for (u64 i = 0; i < shown; ++i) {
                 if (state->recentRanks[i].file) continue;
                 String path = state->recents.v[i];
-                Prog__SidebarItem(state, Prog_Group_Recents, i, Prog__FolderName(path), path, NULL, m);
+                Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, m);
             }
         }
         Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
@@ -3323,7 +3333,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
-                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog__FolderName(path), path, NULL, m);
+                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, m);
                 R_Rect row = body->last->rect;
                 zone.y1 = row.y1;
                 if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
@@ -4075,7 +4085,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
     Arena *frame = &state->frameArena;
     b32 known = state->tipKnown;
     String waiting = S("...");
-    String labels[] = { Prog__FolderName(path), S("Created:"), S("Subfolders:"), S("Subfiles:"), S("Size:"), S("Cmd:") };
+    String labels[] = { Prog_PathName(state, path), S("Created:"), S("Subfolders:"), S("Subfiles:"), S("Size:"), S("Cmd:") };
     String values[] = {
         Prog__CrumbPath(state, path),
         known && state->tip.created ? P_FormatFileTime(frame, state->tip.created) : known ? S("--") : waiting,
@@ -4231,7 +4241,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     f32 textWidth = R_TextWidth(m->font, hint) + floorf(16.0f * s + 0.5f);
     for (u32 i = 0; i < count; ++i) {
         String path = Prog_TabPath(state, matches[i]);
-        textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog__FolderName(path)), R_TextWidth(m->detail, Prog__CrumbPath(state, path))));
+        textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog_PathName(state, path)), R_TextWidth(m->detail, Prog__CrumbPath(state, path))));
     }
     // No narrower than this for a short name.
     f32 width = floorf(MinF32(MaxF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, 187.2f * s), view.x1 - view.x0 - 2 * m->gap));
@@ -4325,7 +4335,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
                 UI_Parent(texts) {
-                    Prog__Label(path.length ? Prog__FolderName(path) : S("This PC"), UI_Flex(), m->line, 0, theme->text, 0);
+                    Prog__Label(path.length ? Prog_PathName(state, path) : S("This PC"), UI_Flex(), m->line, 0, theme->text, 0);
                     if (where.length) {
                         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
                         UI_SetNextFont(m->detail);
@@ -4615,7 +4625,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         Prog__Icon(item.file ? Icon_File : item.drive ? Icon_HardDrive : Icon_Folder, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
                     }
                     // What was searched for shows in the match color, in the name and in the path.
-                    String name = item.name.length ? item.name : Prog__FolderName(item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
+                    String name = item.name.length ? item.name : Prog_PathName(state, item.path), where = Prog__GoToWhere(state, item.path), typed = Prog_EditText(&state->palette);
                     R_Color dim = highlighted ? theme->text : theme->textDim;
                     if (item.drive && item.drive->totalBytes) {
                         // A drive's fill shows under its name, as in the sidebar.
@@ -6268,7 +6278,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             }
             Prog__Spacer(UI_Flex(), UI_Pixels(bar));
             // The item's name, and beside it the button for the card of its details.
-            String name = entry ? entry->file.name : Prog__FolderName(state->directory.path);
+            String name = entry ? entry->file.name : Prog_PathName(state, state->directory.path);
             Prog__Label(name, UI_TextContent(), bar, 0, theme->text, 0);
             if (entry) Prog__ToolbarButton(state, S("InspectorDetailsButton"), Icon_ChevronRight, Prog_CommandKind_InspectorToggleDetails, true, m);
             Prog__Spacer(UI_Pixels(floorf(m->inset * 0.4f)), UI_Pixels(bar));
