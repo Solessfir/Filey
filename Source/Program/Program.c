@@ -6987,6 +6987,19 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         UI_Parent(body) {
             Prog__Sidebar(state, m);
             Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
+            // The edge drags to resize the sidebar, by a grip wider than the line, lit while the pointer is on it or drags it.
+            UI_Key key = UI_KeyFromStr(0, S("SidebarEdge"));
+            b32 lit = UI->hotKey == key || UI->activeKey == key;
+            f32 grip = floorf(6.4f * scale + 0.5f);
+            UI_SetNextFloatingOffset((UI_Vec2){ width - grip, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(grip));
+            UI_SetNextPrefHeight(UI_Pixels(body->rect.y1 > body->rect.y0 ? body->rect.y1 - body->rect.y0 : height));
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_Interaction drag = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0)));
+            if (drag.active && drag.isDragging) {
+                Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_ResizeSidebar, 0, 0, 0);
+                command->target = (u64)(MaxF32(UI->mouse.x - column->rect.x0, 0) / scale * 1000.0f);
+            }
         }
     }
 }
@@ -7014,6 +7027,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (state->tabDragCancelled && UI->activeKey != state->tabDragKey) state->tabDragCancelled = false;
     state->tabDrop.kind = Prog_TabDrop_None;
     Prog_Metrics metrics = Prog__Metrics(font, icons, scale);
+    if (state->sidebarWidth > 0) metrics.sidebar = floorf(state->sidebarWidth * scale + 0.5f);
     // Spacing moves the rows apart or together from the default 4, two pixels a step at 125%.
     metrics.row = MaxF32(metrics.line + 2, metrics.row + (f32)state->spacingShift * floorf(1.6f * scale + 0.5f));
     UI->squareCorners = state->squareCorners;

@@ -3107,6 +3107,7 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     u32 shown = state->panels[active].inspectorOf ? Prog_PanelIndex(state, state->panels[active].inspectorOf) : active;
     StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\npreview %u\n", shown < state->panelCount ? numbers[shown] : 0,
                                         state->sidebarHidden ? 1u : 0u, state->previewShown ? 1u : 0u));
+    if (state->sidebarWidth > 0) StrBuildStr(arena, &text, StrFormat(arena, "sidebarwidth %u\n", (u32)(state->sidebarWidth + 0.5f)));
     StrBuildStr(arena, &text, S("groups"));
     for (u32 g = 0; g < Prog_Group_Count; ++g) StrBuildStr(arena, &text, state->groupToggled[g] ? S(" 1") : S(" 0"));
     StrBuildChar(arena, &text, '\n');
@@ -3160,7 +3161,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     u32 splitPanel[Prog_MaxSplits] = {0};
     typedef struct { b32 sticky, expanded, hideFolders, hideFiles; String text; } Filter;
     struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
-    u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0;
+    u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0, sidebarWidth = 0;
     b32 valid = false;
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
     for (u64 l = 0; l < lines.header.count; ++l) {
@@ -3172,6 +3173,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
         if (StrIsEqual(word, S("session"))) valid = Prog__TakeNumber(&rest, &a) && a == 1;
         else if (StrIsEqual(word, S("active"))) Prog__TakeNumber(&rest, &active);
         else if (StrIsEqual(word, S("sidebar"))) Prog__TakeNumber(&rest, &sidebarHidden);
+        else if (StrIsEqual(word, S("sidebarwidth"))) Prog__TakeNumber(&rest, &sidebarWidth);
         else if (StrIsEqual(word, S("preview"))) Prog__TakeNumber(&rest, &previewShown);
         else if (StrIsEqual(word, S("split"))) {
             if (!(Prog__TakeNumber(&rest, &a) && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) && Prog__TakeNumber(&rest, &e) && Prog__TakeNumber(&rest, &f))
@@ -3230,6 +3232,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     for (u32 p = 0; valid && p < panelCount; ++p) valid = reached[p] == 1 && panels[p].tabCount;
     if (valid) {
         state->sidebarHidden = sidebarHidden != 0;
+        state->sidebarWidth = sidebarWidth ? UI__Clamp((f32)sidebarWidth, Prog_SidebarMin, Prog_SidebarMax) : 0;
         state->previewShown = previewShown != 0;
         for (u32 p = 0; p < panelCount; ++p) {
             if (p) {

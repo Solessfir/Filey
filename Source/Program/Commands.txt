@@ -1329,6 +1329,10 @@ command TabDrop {
 command ResizeSplit {
 }
 
+// The sidebar's edge dragged to Prog_Command.target thousandths of a logical pixel.
+command ResizeSidebar {
+}
+
 command ZoomIn {
     label   = "Zoom In^bigger,larger,icons,view"
     tooltip = "Show the files larger, one view step at a time."

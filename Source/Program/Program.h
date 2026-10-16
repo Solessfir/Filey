@@ -853,6 +853,9 @@ typedef struct Prog_Split {
 } Prog_Split;
 
 #define Prog_MaxSplits (2 * Prog_MaxPanels)
+// How narrow and wide dragging its edge makes the sidebar, in logical pixels.
+#define Prog_SidebarMin 120.0f
+#define Prog_SidebarMax 480.0f
 
 // Where a dragged tab goes: a slot of a panel's strip, into a panel, a new panel on one of a panel's sides, or a new window.
 typedef enum Prog_TabDrop {
@@ -1206,6 +1209,7 @@ typedef struct Prog_State {
     u64 confirmCount;
     // Sidebar.
     b32 sidebarHidden;
+    f32 sidebarWidth;         // logical pixels its edge was dragged to; 0 for the default
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
     b32 placesWanted;         // the sidebar was built, so its places are kept current
     b32 windowInactive;       // another window has the focus, which dims the title strip

@@ -2348,6 +2348,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_PanelRight: Prog_FocusPanelToward(state, 1, 0); break;
             case Prog_CommandKind_PanelUp: Prog_FocusPanelToward(state, 0, -1); break;
             case Prog_CommandKind_PanelDown: Prog_FocusPanelToward(state, 0, 1); break;
+            case Prog_CommandKind_ResizeSidebar: state->sidebarWidth = UI__Clamp((f32)command->target / 1000.0f, Prog_SidebarMin, Prog_SidebarMax); break;
             case Prog_CommandKind_ResizeSplit: {
                 if (command->row < Prog_MaxSplits) state->splits[command->row].ratio = UI__Clamp((f32)command->target / 1e6f, 0.1f, 0.9f);
             } break;

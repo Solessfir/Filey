@@ -1821,12 +1821,17 @@ function void TestPanels(TestFileFixture *fixture)
         MemCopy(state.filter.text, "al pha", 6);
         state.filter.length = 6;
         state.hideFiles = true;
+        // And the sidebar's width, dragged past its widest, which it is held to.
+        Prog_QueueCommand(&state, Prog_CommandKind_ResizeSidebar, 0, 0, 0)->target = 900000;
+        Prog_ProcessCommands(&state);
+        Check(state.sidebarWidth == Prog_SidebarMax);
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
         Check(!Prog_RestoreSession(&restored, S("session 1\nsplit 0 2 5 6 0 0\n")) && restored.panelCount == 1);
         Check(Prog_RestoreSession(&restored, text) && TestWaitDirectory(&restored));
         Check(restored.panelCount == state.panelCount && restored.activePanel == state.activePanel && restored.splits[0].kind == state.splits[0].kind);
+        Check(restored.sidebarWidth == Prog_SidebarMax);
         Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
         Check(StrIsEqual(Prog_EditText(&restored.filter), S("al pha")) && restored.hideFiles && !restored.filterSticky);
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
