@@ -1004,7 +1004,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             // The folders close at hand first, which the index's entries are then told apart by.
             for (u64 i = 0; i < nearby; ++i) {
                 if (i < recents && (state->recentRanks[i].file || Prog_RecentLeftOut(state, i))) continue;
-                String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks];
+                // A copy, as the pool outlives lists written anew under the same count, as the recents are on every visit.
+                String path = StrCopy(arena, i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks]);
                 String name = Prog__FolderName(path);
                 MapsPut(arena, state->gotoNearbyNames, name, true);
                 MapsPut(arena, state->gotoNearbyPaths, path, true);

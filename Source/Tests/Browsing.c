@@ -1641,12 +1641,20 @@ function void TestTabs(TestFileFixture *fixture)
     Check(offered >= 1 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[0].name, S("Samsung Test Drive")) && found[0].drive == &state.drives.v[0]);
     // Ahead of a folder named after it, as GVfs keeps them.
     String named = Prog_JoinPath(&driveArena, fixture->path, S("uuid-0008C21B08C21018"));
-    ArrayPush(&driveArena, state.bookmarks, named);
+    u64 marked = state.bookmarks.header.count;
+    String *marks = ArenaPushArray(&driveArena, marked + 1, String);
+    for (u64 i = 0; i < marked; ++i) marks[i] = StrCopy(&driveArena, state.bookmarks.v[i]);
+    marks[marked] = named;
+    Prog__SetList(&state.bookmarkArena, &state.bookmarks, marks, marked + 1);
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Prog__EditReplace(&state.palette, (const u8 *)"0008C21B08C21018", 16);
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 2 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[1].path, named));
-    --state.bookmarks.header.count;
+    // The rows found keep their paths when the bookmarks are written anew under the same count, as following a rename does.
+    Prog__SetList(&state.bookmarkArena, &state.bookmarks, marks, marked + 1);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 2 && StrIsEqual(found[1].path, named));
+    Prog__SetList(&state.bookmarkArena, &state.bookmarks, marks, marked);
     // What the walk wrote reads back as the same entries, once its last step has put it in place.
     String saved = Prog_JoinPath(&driveArena, cache, Prog_IndexFile), contents = {0};
     start = PlatformNowMicroseconds();
