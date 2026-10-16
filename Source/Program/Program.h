@@ -811,6 +811,7 @@ typedef struct Prog_State {
     u64 menuRowCount;
     String menuTarget;        // the folder a sidebar item's menu acts on instead, in menuArena
     u32 menuPath[8];          // the open submenu item at each level
+    R_Rect menuRects[9];      // each open level's panel in the last build, empty past the last one
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
     const Prog_Icon **menuIcons;  // per item, NULL when it has no picture

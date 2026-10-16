@@ -44,6 +44,7 @@ function void Prog_CloseMenu(Prog_State *state)
     ArenaClear(&state->menuArena);
     state->menu = (P_ContextMenu){0};
     state->menuOpen = false;
+    MemZero(state->menuRects, sizeof(state->menuRects));
     state->menuRows = NULL;
     state->menuTarget = (String){0};
     state->menuIcons = NULL;
@@ -2040,6 +2041,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             continue;
         }
         if (event->kind == PlatformEventKind_KeyDown) state->swallowText = false;
+        // A right click outside the open menu closes it before what it is on opens its own, or anywhere without one of its own.
+        if (state->menuOpen && event->kind == PlatformEventKind_MouseDown && event->button == MouseButton_Right) {
+            b32 inside = false;
+            for (u32 i = 0; i < CArrayCount(state->menuRects); ++i) inside |= UI__Contains(state->menuRects[i], (UI_Vec2){ event->x, event->y });
+            if (!inside) Prog_CloseMenu(state);
+        }
         if (state->tabDrag && event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) {
             state->tabDrag = false;
             state->tabDragCancelled = true;

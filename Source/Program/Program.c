@@ -3404,9 +3404,14 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     UI_SetNextBorderThickness(1.2f * m->scale);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
-    // Clickable so that clicks on the padding do not reach the catcher behind it.
+    // Clickable so that clicks on the padding do not reach the catcher behind it, nor right clicks what is under it.
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuPanel/%u", level)),
-                                         UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+                                         UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable |
+                                         UI_Flag_RightMouseClickable);
+    if (level < CArrayCount(state->menuRects)) {
+        state->menuRects[level] = panel->rect;
+        if (level + 1 < CArrayCount(state->menuRects)) state->menuRects[level + 1] = (R_Rect){0};
+    }
     b32 result = false;
     f32 itemY = y + pad;
     UI_Parent(panel) {
@@ -4887,10 +4892,10 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
 function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->menuOpen) return;
-    // Clicks anywhere else close the menu and go no further.
+    // Clicks anywhere else close the menu and go no further; a right click goes on to open the menu of what it is on.
     UI_SetNextPrefWidth(UI_Pixels(UI->root->rect.x1 - UI->root->rect.x0));
     UI_SetNextPrefHeight(UI_Pixels(UI->root->rect.y1 - UI->root->rect.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
     UI_Interaction interaction = UI_InteractionFromBlock(catcher);
     if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, interaction.pressOrder);
     // Each open level is its own top-level panel, so no panel clips the next.
