@@ -220,6 +220,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
             // Hotkey commands apply before the UI is built, so this frame already shows them.
             handled = Prog_ProcessCommands(state);
             Prog_BuildUI(state, &loop->font, &loop->icons, scale);
+            PlatformSetCursor(state->cursor);
         }
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;

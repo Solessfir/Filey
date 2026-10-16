@@ -6932,6 +6932,7 @@ function void Prog__Layout(Prog_State *state, u32 node, R_Rect rect, R_Rect area
         UI_SetNextPrefHeight(UI_Pixels(across ? rect.y1 - rect.y0 : line));
         UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
         UI_Block *divider = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
+        if (UI->hotKey == key || UI->activeKey == key) state->cursor = across ? PlatformCursor_ResizeHorizontal : PlatformCursor_ResizeVertical;
         // Through the title bar it gives way to the bar, under the window's top border, so that the strips on either side meet.
         if (across && rect.y0 <= area.y0) UI_Parent(divider) {
             UI_SetNextFloatingOffset((UI_Vec2){ 0, line });
@@ -6990,6 +6991,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
             // The edge drags to resize the sidebar, by a grip wider than the line, lit while the pointer is on it or drags it.
             UI_Key key = UI_KeyFromStr(0, S("SidebarEdge"));
             b32 lit = UI->hotKey == key || UI->activeKey == key;
+            if (lit) state->cursor = PlatformCursor_ResizeHorizontal;
             f32 grip = floorf(6.4f * scale + 0.5f);
             UI_SetNextFloatingOffset((UI_Vec2){ width - grip, 0 });
             UI_SetNextPrefWidth(UI_Pixels(grip));
@@ -7011,6 +7013,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tooltipKey = 0;
     state->tooltipAbove = false;
     state->tooltipPath = (String){0};
+    state->cursor = PlatformCursor_Arrow;
     state->inspectorRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
     ArenaClear(&state->dropPlaceArena);

@@ -174,6 +174,14 @@ function void               PlatformWindowSetTransparent(b32 transparent, Platfo
 // Without buttons (tiling compositors) the program draws no minimize, maximize or close buttons.
 function b32  PlatformWindowHasButtons(void);
 function b32  PlatformWindowIsMaximized(void);
+typedef enum PlatformCursor {
+    PlatformCursor_Arrow,
+    PlatformCursor_ResizeHorizontal,  // over an edge that drags sideways
+    PlatformCursor_ResizeVertical,    // over an edge that drags up and down
+    PlatformCursor_Count,
+} PlatformCursor;
+// The pointer's shape over the window's content; the system keeps its own over the window's frame.
+function void PlatformSetCursor(PlatformCursor cursor);
 // The program draws the window's sides and bottom: Wayland leaves the frame to the program, where Windows draws a border around the window.
 function b32  PlatformWindowNeedsBorder(void);
 function void PlatformWindowMinimize(void);

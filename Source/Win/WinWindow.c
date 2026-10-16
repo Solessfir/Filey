@@ -32,6 +32,7 @@ typedef struct WinWindowState {
     b32 trackingLeave;  // asked to be told when the pointer leaves the window
     b32 postedPointer;  // FILEY_POSTED_POINTER: the pointer comes from posted messages while the real one is elsewhere, so it never leaves
     b32 sizing;
+    PlatformCursor cursor;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
     HICON icons[2];     // the app icon at the window's size and at the small size, for its DPI
     b32 fullscreen;     // over the whole monitor without its frame, to go back to `placement`
@@ -208,6 +209,25 @@ function i32 WinFrameThickness(void)
     return GetSystemMetricsForDpi(SM_CYFRAME, Win.dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, Win.dpi);
 }
 
+function HCURSOR WinCursor(PlatformCursor cursor)
+{
+    local_persist const LPCWSTR shapes[PlatformCursor_Count] = {
+        [PlatformCursor_Arrow] = (LPCWSTR)IDC_ARROW, [PlatformCursor_ResizeHorizontal] = (LPCWSTR)IDC_SIZEWE, [PlatformCursor_ResizeVertical] = (LPCWSTR)IDC_SIZENS,
+    };
+    return LoadCursorW(NULL, shapes[cursor < PlatformCursor_Count ? cursor : PlatformCursor_Arrow]);
+}
+
+function void PlatformSetCursor(PlatformCursor cursor)
+{
+    if (cursor == Win.cursor || cursor >= PlatformCursor_Count) return;
+    Win.cursor = cursor;
+    // The shape changes at once while the pointer is over the content; WM_SETCURSOR keeps it there after.
+    POINT point;
+    if (GetCursorPos(&point) && WindowFromPoint(point) == Win.window && SendMessageW(Win.window, WM_NCHITTEST, 0, MAKELPARAM(point.x, point.y)) == HTCLIENT) {
+        SetCursor(WinCursor(cursor));
+    }
+}
+
 function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
@@ -221,6 +241,12 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             // A maximized window hangs its frame off the screen; a full screen one has none.
             if (IsZoomed(window) && !Win.fullscreen) params->rgrc[0].top += WinFrameThickness();
         } return 0;
+
+        // Over the content the program's shape shows; the frame's edges keep the system's.
+        case WM_SETCURSOR: {
+            if (LOWORD(lParam) != HTCLIENT) break;
+            SetCursor(WinCursor(Win.cursor));
+        } return TRUE;
 
         case WM_NCHITTEST: {
             LRESULT hit = DefWindowProcW(window, message, wParam, lParam);

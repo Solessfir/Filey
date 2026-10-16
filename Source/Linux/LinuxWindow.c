@@ -55,6 +55,8 @@ typedef struct LinuxWindowState {
     String dragList;
     String dragFolder;
     u32 pointerSerial;        // of the latest button press, which starting a drag needs
+    u32 enterSerial;          // of the pointer's arrival, which setting its shape needs; 0 while it is elsewhere
+    PlatformCursor cursor;
     Arena clipboardArena;     // what Filey offers while it owns the selection
     const char *clipboardMimes[8];
     String clipboardData[8];
@@ -355,10 +357,14 @@ function void LinuxSetCursor(u32 serial)
         return;
     }
 
-    struct wl_cursor *cursor = wl_cursor_theme_get_cursor(Wl.cursorTheme, "default");
-    if (cursor == NULL) {
-        cursor = wl_cursor_theme_get_cursor(Wl.cursorTheme, "left_ptr");
-    }
+    // The freedesktop names first, then the older X ones that some themes still use alone.
+    local_persist const char *names[PlatformCursor_Count][3] = {
+        [PlatformCursor_Arrow] = { "default", "left_ptr" },
+        [PlatformCursor_ResizeHorizontal] = { "ew-resize", "col-resize", "sb_h_double_arrow" },
+        [PlatformCursor_ResizeVertical] = { "ns-resize", "row-resize", "sb_v_double_arrow" },
+    };
+    struct wl_cursor *cursor = NULL;
+    for (u32 i = 0; i < 3 && !cursor && names[Wl.cursor][i]; ++i) cursor = wl_cursor_theme_get_cursor(Wl.cursorTheme, names[Wl.cursor][i]);
     if (cursor == NULL || cursor->image_count == 0) {
         return;
     }
@@ -372,8 +378,16 @@ function void LinuxSetCursor(u32 serial)
                           (i32)image->hotspot_x / cursorScale, (i32)image->hotspot_y / cursorScale);
 }
 
+function void PlatformSetCursor(PlatformCursor cursor)
+{
+    if (cursor == Wl.cursor || cursor >= PlatformCursor_Count) return;
+    Wl.cursor = cursor;
+    if (Wl.enterSerial) LinuxSetCursor(Wl.enterSerial);
+}
+
 function void PointerEnter(void *data, struct wl_pointer *pointer, u32 serial, struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y)
 {
+    Wl.enterSerial = serial;
     LinuxSetCursor(serial);
     Wl.pointerX = (f32)(wl_fixed_to_double(x) * Wl.scale);
     Wl.pointerY = (f32)(wl_fixed_to_double(y) * Wl.scale);
@@ -381,6 +395,7 @@ function void PointerEnter(void *data, struct wl_pointer *pointer, u32 serial, s
 
 function void PointerLeave(void *data, struct wl_pointer *pointer, u32 serial, struct wl_surface *surface)
 {
+    Wl.enterSerial = 0;
     PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseLeave);
     event->mods = Wl.mods;
 }

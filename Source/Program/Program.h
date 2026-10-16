@@ -1210,6 +1210,7 @@ typedef struct Prog_State {
     // Sidebar.
     b32 sidebarHidden;
     f32 sidebarWidth;         // logical pixels its edge was dragged to; 0 for the default
+    PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
     b32 placesWanted;         // the sidebar was built, so its places are kept current
     b32 windowInactive;       // another window has the focus, which dims the title strip
