@@ -720,6 +720,13 @@ function void TestFileIcons(TestFileFixture *fixture)
     P__PlaceIconNames(&arena, StrFromCStr(getenv("HOME")), &placeIcons);
     P__PlaceIconNames(&arena, fixture->path, &placeIcons);
     Check(placeIcons.header.count == 0);
+    // A drive with Windows on it is marked with Windows' logo in the corner, and each drive keeps its own icon so that only it is.
+    {
+        u32 pixels[20 * 20] = {0};
+        P__BadgeWindows(&(P_Image){ pixels, 20, 20 });
+        Check(pixels[0] == 0xFFD47800u && pixels[19 * 20 + 19] == 0 && pixels[10 * 20 + 10] == 0);
+        Check(!StrIsEqual(P_FileIconKey(&arena, S("/"), P_FileKind_Drive), P_FileIconKey(&arena, S("/mnt/c"), P_FileKind_Drive)));
+    }
     // A gray symbol gives way to color for a place; a little tint is still gray.
     u32 grays[2] = { 0xFF808080u, 0x80848080u }, tinted[2] = { 0xFF808080u, 0xFFD07020u };
     Check(P__IsGray(&(P_Image){ grays, 2, 1 }) && !P__IsGray(&(P_Image){ tinted, 2, 1 }));

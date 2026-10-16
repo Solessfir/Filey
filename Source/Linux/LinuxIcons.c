@@ -463,7 +463,8 @@ function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)
 // ponytail: one access() per candidate file and no icon-theme.cache; add the cache if lookups show up in profiles.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
 {
-    if (kind == P_FileKind_Drive) return S("/drive");
+    // Each drive its own, since one with Windows on it is marked so.
+    if (kind == P_FileKind_Drive) return StrFormat(arena, "drive:%S", path);
     return P_FileTypeKey(arena, path, kind);
 }
 
@@ -584,6 +585,19 @@ function void P__PlaceIconNames(Arena *arena, String path, ArrayStr *names)
     }
 }
 
+// Windows' logo, four squares in its blue, over the top left corner of an icon, where Windows marks its own drive.
+function void P__BadgeWindows(P_Image *image)
+{
+    i32 size = Min(image->width, image->height);
+    i32 logo = Max(size * 9 / 20, 4), gap = Max(logo / 9, 1), square = (logo - gap) / 2;
+    for (i32 q = 0; q < 4; ++q) {
+        i32 x0 = (q & 1) * (square + gap), y0 = (q >> 1) * (square + gap);
+        for (i32 y = y0; y < y0 + square; ++y) {
+            for (i32 x = x0; x < x0 + square; ++x) image->pixels[(u64)y * (u64)image->width + (u64)x] = 0xFFD47800u;
+        }
+    }
+}
+
 // Whether an icon is drawn in grays alone, as the small symbolic designs of some themes are.
 function b32 P__IsGray(const P_Image *image)
 {
@@ -605,8 +619,15 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     Scratch scratch = GetScratchEx(arena);
     ArrayStr names = {0};
     u64 places = 0;  // the names before this are a place's own
+    b32 windows = false;
     String key = P_FileIconKey(scratch.arena, path, kind);
     if (kind == P_FileKind_Drive) {
+        // A drive with Windows on it takes a theme's icon for one, as some themes name it, or else the usual one marked with Windows' logo.
+        windows = P_PathExists(StrFormat(scratch.arena, "%S/Windows/System32", path));
+        if (windows) {
+            ArrayPush(scratch.arena, names, S("drive-harddisk-windows"));
+            ArrayPush(scratch.arena, names, S("drive-windows"));
+        }
         ArrayPush(scratch.arena, names, S("drive-harddisk"));
         ArrayPush(scratch.arena, names, S("folder"));
     } else if (kind == P_FileKind_Directory) {
@@ -637,6 +658,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         P_Image colored = {0};
         String large = result && i < places && P__IsGray(image) ? P__FindIcon(scratch.arena, names.v[i], 512, 1) : (String){0};
         if (large.length && P__DecodeIcon(arena, large, size, &colored) && !P__IsGray(&colored)) *image = colored;
+        if (result && windows && i >= 2) P__BadgeWindows(image);
     }
     ReleaseScratch(scratch);
     return result;
