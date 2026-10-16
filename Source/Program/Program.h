@@ -275,6 +275,8 @@ typedef struct Prog_TreeTotals {
     atomic_bool failed;  // its folder could not be read
 } Prog_TreeTotals;
 
+typedef struct Prog_Partial Prog_Partial;
+
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
@@ -286,6 +288,7 @@ typedef struct Prog_JobInput {
     b32 showHidden;
     b32 showSystem;
     b32 expanded;
+    Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
     u64 historyAt;
     // The names of the recents inside `path`, which are marked, and sorted first with sortRecents.
@@ -697,6 +700,14 @@ typedef struct Prog_Directory {
     String *parents;
     u32 parentCount;
 } Prog_Directory;
+
+// The rows of an expanded listing found so far: the latest ones its job has handed over and the window not yet taken, in their own arena.
+struct Prog_Partial {
+    P_Mutex mutex;
+    b32 ready;
+    Arena arena;
+    Prog_Directory directory;
+};
 
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter and scroll.

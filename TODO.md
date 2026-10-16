@@ -6,7 +6,6 @@ Autonomous run, in order. Each step: build release, run `Build.bat test`, check 
 
 Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations are tested only inside fixture folders the test creates; never touch the real Recycle Bin, user folders or processes the run did not start; no pushes.
 
-3. Recursive listing (section below): rows appear as the walk finds them.
 5. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin. OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
 
 Not tonight: Miller columns and archives as folders (start only when asked), font pickers, localization, anything that needs the real bin or drives other than fixtures.
@@ -15,10 +14,6 @@ Not tonight: Miller columns and archives as folders (start only when asked), fon
 
 ## Go To and the drive index
 
-
-## Recursive listing (Ctrl+E)
-
-- Show rows as the walk finds them, as the reference does, instead of all at once at the end; its first count is the rows listed so far.
 
 ## Look
 

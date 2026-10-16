@@ -1051,10 +1051,60 @@ typedef struct Prog__Walk {
     Arena arena;  // `pending`, which only grows; the names in it live in the lanes' arenas
     ArrayStr pending;
     u32 busy;     // lanes listing a folder, which can still add to `pending`
-    struct { Arena arena; P_FileArray found; } lanes[Prog_WalkLanes];
+    struct { Arena arena; P_FileArray found; } lanes[Prog_WalkLanes];  // `found` grows under the mutex, so that the first lane can read it
+    // The listing so far is handed over now and then: its own folder's items, the result it fills in, and when it is next due.
+    P_FileArray top;
+    const Prog_Directory *base;
+    u64 nextPartial;
 } Prog__Walk;
 
 function void Prog__CountFound(Prog_JobInput *input, const P_File *files, u64 count);
+function void Prog__FillListing(Arena *arena, const Prog_JobInput *input, P_FileArray files, Prog_Directory *result, const P_CancelToken *cancel);
+
+// The rows found so far, as a listing of their own handed to the window. What each lane has found is read under the lock; an array that grows
+// afterwards moves on and leaves the part read here in place.
+function void Prog__WalkPartial(Prog__Walk *walk)
+{
+    u64 started = PlatformNowMicroseconds();
+    P_File *found[Prog_WalkLanes];
+    u64 counts[Prog_WalkLanes], total = walk->top.header.count;
+    P_MutexLock(&walk->mutex);
+    for (u32 i = 0; i < Prog_WalkLanes; ++i) {
+        found[i] = walk->lanes[i].found.v;
+        counts[i] = walk->lanes[i].found.header.count;
+        total += counts[i];
+    }
+    P_MutexUnlock(&walk->mutex);
+    Arena arena = {0};
+    P_FileArray all = {0};
+    ArrayReserve(&arena, all, Max(total, (u64)1));
+    for (u64 i = 0; i < walk->top.header.count; ++i) {
+        P_File file = walk->top.v[i];
+        file.name = StrCopy(&arena, file.name);
+        ArrayPush(&arena, all, file);
+    }
+    for (u32 lane = 0; lane < Prog_WalkLanes; ++lane) {
+        for (u64 i = 0; i < counts[lane]; ++i) {
+            P_File file = found[lane][i];
+            file.name = StrCopy(&arena, file.name);
+            ArrayPush(&arena, all, file);
+        }
+    }
+    Prog_Directory listed = *walk->base;
+    listed.path = StrCopy(&arena, walk->base->path);
+    Prog__FillListing(&arena, walk->input, all, &listed, walk->cancel);
+    Prog_Partial *partial = walk->input->partial;
+    P_MutexLock(&partial->mutex);
+    if (partial->ready) ArenaRelease(&partial->arena);
+    partial->arena = arena;
+    partial->directory = listed;
+    partial->ready = !listed.cancelled;
+    if (listed.cancelled) ArenaRelease(&partial->arena);
+    P_MutexUnlock(&partial->mutex);
+    // Each one takes longer than the last, so they come further apart as the tree grows, and the walk keeps most of the time.
+    u64 now = PlatformNowMicroseconds();
+    walk->nextPartial = now + Max(UINT64_C(250000), 3 * (now - started));
+}
 
 function void Prog__WalkLane(void *user, u32 index)
 {
@@ -1077,18 +1127,19 @@ function void Prog__WalkLane(void *user, u32 index)
         ProfileScope("WalkList") inside = P_EnumerateDirectory(scratch.arena, Prog_JoinPath(scratch.arena, walk->input->path, folder), walk->cancel);
         ArrayStr below = {0};
         for (u64 i = 0; i < inside.files.header.count; ++i) {
-            P_File file = inside.files.v[i];
-            file.name = StrFormat(arena, "%S/%S", folder, file.name);
-            ArrayPush(arena, walk->lanes[index].found, file);
-            if (file.kind == P_FileKind_Directory && !file.symbolicLink && (!file.hidden || walk->input->showHidden)) ArrayPush(scratch.arena, below, file.name);
+            P_File *file = &inside.files.v[i];
+            file->name = StrFormat(arena, "%S/%S", folder, file->name);
+            if (file->kind == P_FileKind_Directory && !file->symbolicLink && (!file->hidden || walk->input->showHidden)) ArrayPush(scratch.arena, below, file->name);
         }
         Prog__CountFound(walk->input, inside.files.v, inside.files.header.count);
         P_MutexLock(&walk->mutex);
+        for (u64 i = 0; i < inside.files.header.count; ++i) ArrayPush(arena, walk->lanes[index].found, inside.files.v[i]);
         for (u64 i = 0; i < below.header.count; ++i) ArrayPush(&walk->arena, walk->pending, below.v[i]);
         --walk->busy;
         P_ConditionBroadcast(&walk->condition);
         P_MutexUnlock(&walk->mutex);
         ReleaseScratch(scratch);
+        if (index == 0 && walk->input->partial && PlatformNowMicroseconds() >= walk->nextPartial) Prog__WalkPartial(walk);
     }
 }
 
@@ -1557,7 +1608,7 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->expanded) ProfileScope("ExpandDirectory") {
         // Lanes on threads of their own list folders from one shared stack, keeping what they find apart; links are not followed and
         // unreadable folders are skipped.
-        Prog__Walk walk = { .input = input, .cancel = &job->cancelToken };
+        Prog__Walk walk = { .input = input, .cancel = &job->cancelToken, .top = files, .base = result, .nextPartial = PlatformNowMicroseconds() + UINT64_C(150000) };
         if (!P_MutexInit(&walk.mutex)) {
             result->cancelled = true;
             return;
@@ -1595,15 +1646,21 @@ function void Prog__DirectoryJob(P_Job *job)
         }
         files = all;
     }
-    result->entries = ArenaPushArray(&job->arena, files.header.count, Prog_Entry);
+    Prog__FillListing(&job->arena, input, files, result, &job->cancelToken);
+}
+
+// The rows of `files` in `result`: the shown ones with their type names, an expanded listing's folder totals, sorted.
+function void Prog__FillListing(Arena *arena, const Prog_JobInput *input, P_FileArray files, Prog_Directory *result, const P_CancelToken *cancel)
+{
+    result->entries = ArenaPushArray(arena, Max(files.header.count, (u64)1), Prog_Entry);
     // The walk keeps each folder's items together, so that a folder is a run of them.
-    if (input->expanded) result->parents = ArenaPushArrayNoZero(&job->arena, Max(files.header.count, (u64)1), String);
+    if (input->expanded) result->parents = ArenaPushArrayNoZero(arena, Max(files.header.count, (u64)1), String);
     // Type names repeat per type, so each is asked of the system once per listing.
     struct { MapHeader header; struct { String key; String value; } *v; } types = {0};
     // The keys are made in scratch, and only a type seen for the first time keeps a copy.
-    Scratch keys = GetScratchEx(&job->arena);
+    Scratch keys = GetScratchEx(arena);
     ProfileScope("ListEntries") for (u64 i = 0; i < files.header.count; ++i) {
-        if (P_IsCancelled(&job->cancelToken)) {
+        if (P_IsCancelled(cancel)) {
             result->cancelled = true;
             ReleaseScratch(keys);
             return;
@@ -1629,8 +1686,8 @@ function void Prog__DirectoryJob(P_Job *job)
         if (type) {
             entry->type = *type;
         } else {
-            entry->type = P_FileTypeName(&job->arena, file.name, file.kind);
-            MapsPut(&job->arena, types, StrCopy(&job->arena, typeKey), entry->type);
+            entry->type = P_FileTypeName(arena, file.name, file.kind);
+            MapsPut(arena, types, StrCopy(arena, typeKey), entry->type);
         }
         ArenaPopTo(keys.arena, mark);
         if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
@@ -1644,7 +1701,7 @@ function void Prog__DirectoryJob(P_Job *job)
             Prog_Entry *entry = &result->entries[i];
             if (entry->file.kind != P_FileKind_Directory) continue;
             entry->measured = true;
-            MapsPut(&job->arena, folders, entry->file.name, i + 1);
+            MapsPut(arena, folders, entry->file.name, i + 1);
         }
         for (u64 i = 0; i < result->count; ++i) {
             const Prog_Entry *entry = &result->entries[i];
@@ -1661,9 +1718,9 @@ function void Prog__DirectoryJob(P_Job *job)
             }
         }
     }
-    Prog_Entry *buffer = ArenaPushArray(&job->arena, result->count, Prog_Entry);
+    Prog_Entry *buffer = ArenaPushArray(arena, Max(result->count, (u64)1), Prog_Entry);
     Prog_Entry *sorted = NULL;
-    ProfileScope("SortEntries") sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, input->folderSort, &job->cancelToken);
+    ProfileScope("SortEntries") sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, input->folderSort, cancel);
     if (sorted) result->entries = sorted;
     else result->cancelled = true;
 }
@@ -1828,6 +1885,10 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     if (state->directory.path.length && !StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
     input->showHidden = state->showHidden;
     input->expanded = state->expanded;
+    if (input->expanded) {
+        input->partial = ArenaPushStruct(&job->arena, Prog_Partial);
+        if (!P_MutexInit(&input->partial->mutex)) input->partial = NULL;
+    }
     input->addHistory = addHistory;
     input->historyAt = historyAt;
     // The recents inside the folder, by name, for the listing to mark and sort first.
@@ -3321,6 +3382,49 @@ function void Prog_MoveTab(Prog_State *state, u32 from, u32 to)
 // Coalesces bursts such as a copy or a build into a few reloads.
 #define Prog_WatchInterval UINT64_C(100000)
 
+// What a finished job's input still holds for the window: an expanded listing's last rows, if they were never taken.
+function void Prog__ReleaseJob(P_Job *job)
+{
+    Prog_JobInput *input = job->input;
+    if (input && input->partial) {
+        if (input->partial->ready) ArenaRelease(&input->partial->arena);
+        P_MutexRelease(&input->partial->mutex);
+        input->partial = NULL;
+    }
+    P_JobRelease(job);
+}
+
+// Shows the rows an expanded listing has found so far in place of the shown ones, keeping the focus and the selection by name.
+function void Prog__TakePartial(Prog_State *state, Prog_Directory *listed, Arena arena)
+{
+    if (!StrIsEqual(state->directory.path, listed->path)) {
+        ArenaRelease(&arena);
+        return;
+    }
+    String focus = state->hasFocus && state->focusedRow < state->directory.count ? state->directory.entries[state->focusedRow].file.name : (String){0};
+    String anchor = state->hasAnchor && state->anchorRow < state->directory.count ? state->directory.entries[state->anchorRow].file.name : (String){0};
+    struct { MapHeader header; struct { String key; b32 value; } *v; } selected = {0};
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        if (state->directory.entries[i].selected) MapsPut(&state->frameArena, selected, state->directory.entries[i].file.name, true);
+    }
+    state->hasFocus = state->hasAnchor = false;
+    state->selectedCount = 0;
+    for (u64 i = 0; i < listed->count; ++i) {
+        Prog_Entry *entry = &listed->entries[i];
+        entry->selected = selected.header.count && MapsGet(selected, b32, entry->file.name);
+        state->selectedCount += entry->selected != 0;
+        if (focus.length && StrIsEqual(focus, entry->file.name)) { state->hasFocus = true; state->focusedRow = i; }
+        if (anchor.length && StrIsEqual(anchor, entry->file.name)) { state->hasAnchor = true; state->anchorRow = i; }
+    }
+    // The menu's rows index the listing being replaced; Filey's own menus have none.
+    if (!state->menuCommands) Prog_CloseMenu(state);
+    ArenaRelease(&state->directoryArena);
+    state->directoryArena = arena;
+    state->directory = *listed;
+    ++state->listing;
+    Prog_ApplyFilter(state, false);
+}
+
 function b32 Prog_TakeCompletions(Prog_State *state)
 {
     b32 changed = false;
@@ -3343,6 +3447,22 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         }
         // A deferred reload needs frames until it runs.
         changed |= state->watchDirty;
+        // An expanded listing shows the rows found so far while its walk goes on.
+        Prog_JobInput *walking = state->directoryJob ? state->directoryJob->input : NULL;
+        if (walking && walking->partial) {
+            Prog_Partial *partial = walking->partial;
+            P_MutexLock(&partial->mutex);
+            b32 ready = partial->ready;
+            Arena arena = partial->arena;
+            Prog_Directory listed = partial->directory;
+            partial->ready = false;
+            partial->arena = (Arena){0};
+            P_MutexUnlock(&partial->mutex);
+            if (ready) {
+                Prog__TakePartial(state, &listed, arena);
+                changed = true;
+            }
+        }
     }
     Prog__UsePanel(state, active);
     // Drives are listed again every few seconds while the sidebar shows them, and at once when the system tells of one coming or going.
@@ -3427,7 +3547,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
-            P_JobRelease(job);
+            Prog__ReleaseJob(job);
             continue;
         }
         Prog__UsePanel(state, owner);
@@ -3849,7 +3969,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
             }
         }
-        P_JobRelease(job);
+        Prog__ReleaseJob(job);
     }
     Prog__UsePanel(state, state->activePanel);
     return changed;
