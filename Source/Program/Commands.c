@@ -27,15 +27,25 @@ function Prog_Command *Prog_QueueCommand(Prog_State *state, Prog_CommandKind kin
 function void Prog_Reload(Prog_State *state)
 {
     String path = state->directory.path;
-    b32 addHistory = false;
+    b32 addHistory = false, passing = false;
     u64 historyAt = state->historyAt;
     if (state->directoryJob) {
         Prog_JobInput *input = state->directoryJob->input;
         path = input->path;
         addHistory = input->addHistory;
         historyAt = input->historyAt;
+        passing = input->passing;
     }
-    if (path.length) Prog_RequestDirectory(state, path, addHistory, historyAt);
+    if (!path.length) return;
+    state->requestPassing = passing;
+    Prog_RequestDirectory(state, path, addHistory, historyAt);
+}
+
+// Goes to `path` by Up or a crumb, passing through the folder on the way somewhere rather than opening it, which the recents do not count.
+function void Prog__PassToDirectory(Prog_State *state, String path)
+{
+    state->requestPassing = true;
+    Prog_RequestDirectory(state, path, true, 0);
 }
 
 function void Prog_CloseMenu(Prog_State *state)
@@ -840,8 +850,9 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         return result;
     }
     if (cut < 0) {
-        // The ten best folders among the recents.
-        u64 recents = Prog_RecentFolders(state, 10);
+        // The recents the sidebar shows.
+        u64 shownRecents[Prog_ShownRecentCount];
+        u64 recents = Prog_ShownRecents(state, shownRecents);
         Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + state->drives.header.count + state->places.header.count + 1, Prog_GoToItem);
         for (u32 section = 0; section < Prog_GoToSection_Folder; ++section) {
             if (state->gotoFolded[section]) continue;
@@ -856,9 +867,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             const ArrayStr *list = section == Prog_GoToSection_Recents ? &state->recents : &state->bookmarks;
             u64 limit = section == Prog_GoToSection_Recents ? recents : list->header.count;
             for (u32 tier = 0; tier < 2; ++tier) {
-                for (u64 i = 0; i < limit; ++i) {
-                    if (section == Prog_GoToSection_Recents && state->recentRanks[i].file) continue;
-                    String path = list->v[i];
+                for (u64 n = 0; n < limit; ++n) {
+                    String path = list->v[section == Prog_GoToSection_Recents ? shownRecents[n] : n];
                     b32 named = Prog__ContainsFolded(Prog__FolderName(path), text);
                     if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) {
                         String name = Prog__FolderName(path);
@@ -1948,7 +1958,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_Up: {
                 String up = Prog_UpPath(state->directory.path);
-                if (up.length) Prog_RequestDirectory(state, up, true, 0);
+                if (up.length) Prog__PassToDirectory(state, up);
             } break;
             case Prog_CommandKind_SortByName:
             case Prog_CommandKind_SortBySize:
@@ -1989,11 +1999,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
                 String path = trail.length ? trail : state->directory.path;
                 // Before a drive's name, This PC.
-                if (command->row == 0 && !StrIsEqual(path, Prog_ThisPC)) Prog_RequestDirectory(state, Prog_ThisPC, true, 0);
+                if (command->row == 0 && !StrIsEqual(path, Prog_ThisPC)) Prog__PassToDirectory(state, Prog_ThisPC);
                 if (command->row > 0 && command->row <= path.length) {
                     // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
                     u64 length = path.value[command->row - 1] == ':' ? command->row + 1 : command->row;
-                    Prog_RequestDirectory(state, StrFromTo(path, 0, (i64)length), true, 0);
+                    Prog__PassToDirectory(state, StrFromTo(path, 0, (i64)length));
                 }
             } break;
             case Prog_CommandKind_ToggleHidden: {

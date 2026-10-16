@@ -1968,6 +1968,12 @@ function void TestSidebar(TestFileFixture *fixture)
         Prog_PinBookmarks(&state, &dropped, state.bookmarks.header.count);
         Check(state.bookmarks.header.count == seeded + 2 && StrIsEqual(state.bookmarks.v[seeded + 1], pins[0]) && StrIsEqual(state.bookmarks.v[0], pins[1]));
         Check(TestWaitDirectory(&state));
+        // Up passes through the folder it goes to, which does not count as opening it.
+        Prog_OpenRow(&state, TestEntryIndex(&state, S("Empty")));
+        Check(TestWaitDirectory(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
+        Check(TestEndsWith(state.recents.v[0], S("/Empty")) && StrIsEqual(state.recents.v[1], fixture->path) && state.recentRanks[1].score == Prog_RecentScoreNew);
         Prog_Release(&state);
     }
     Check(P__TestRemovePath(fixture, S("Config/Bookmarks.txt"), false));

@@ -3322,26 +3322,25 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         if (body) UI_Parent(body) {
             // Each row eases to its place by its folder, so that one opened again travels up over the others while they move down to make
             // room for it; a folder new to the list starts in its place.
-            u64 shown = Prog_RecentFolders(state, 10);
-            f32 *slid = ArenaPushArray(&state->frameArena, Max(shown, (u64)1), f32), *placed = ArenaPushArray(&state->frameArena, Max(shown, (u64)1), f32);
-            f32 rows = 0;
-            for (u64 i = 0; i < shown; ++i) {
-                if (state->recentRanks[i].file) continue;
-                placed[i] = rows;
-                slid[i] = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "RecentY/%S", state->recents.v[i])), rows, rows);
-                rows += m->row;
+            u64 indices[Prog_ShownRecentCount];
+            u32 shown = Prog_ShownRecents(state, indices);
+            f32 slid[Prog_ShownRecentCount], placed[Prog_ShownRecentCount];
+            for (u32 n = 0; n < shown; ++n) {
+                placed[n] = (f32)n * m->row;
+                slid[n] = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "RecentY/%S", state->recents.v[indices[n]])), placed[n], placed[n]);
             }
-            Prog__Spacer(UI_Flex(), UI_Pixels(rows));
+            Prog__Spacer(UI_Flex(), UI_Pixels((f32)shown * m->row));
             for (u32 pass = 0; pass < 2; ++pass) {
-                for (u64 i = 0; i < shown; ++i) {
+                for (u32 n = 0; n < shown; ++n) {
                     // Those rising are drawn last, over the rows they pass.
-                    if (state->recentRanks[i].file || (slid[i] > placed[i] + 0.5f) != (pass == 1)) continue;
+                    if ((slid[n] > placed[n] + 0.5f) != (pass == 1)) continue;
+                    u64 i = indices[n];
                     String path = state->recents.v[i];
                     Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, m);
                     UI_Block *row = body->last;
                     row->flags |= UI_Flag_Floating;
                     // Rounded rather than floored, or a row easing sits a pixel short through the tail of the ease and then jumps.
-                    row->props.floatingOffset = (UI_Vec2){ 0, floorf(slid[i] + 0.5f) };
+                    row->props.floatingOffset = (UI_Vec2){ 0, floorf(slid[n] + 0.5f) };
                 }
             }
         }

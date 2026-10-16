@@ -293,6 +293,7 @@ typedef struct Prog_JobInput {
     Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
     u64 historyAt;
+    b32 passing;  // gone to by Up or a crumb, passing through the folder rather than opening it, which the recents do not count
     // The names of the recents inside `path`, which are marked, and sorted first with sortRecents.
     String *recentNames;
     u32 recentCount;
@@ -348,6 +349,8 @@ typedef struct Prog_Transfer {
 
 // What the preview pane shows of a file: a picture of Prog_PreviewSize squared, or the start of its text.
 #define Prog_PreviewSize 512
+// How many of the recents the sidebar and Go To show.
+#define Prog_ShownRecentCount 10
 #define Prog_PreviewBytes (1 << 20)
 // A file shown as hex is read a page at a time as its rows come into sight, up to Prog_HexRows rows; past that the view would need more
 // precision than its float scroll offset has.
@@ -1151,11 +1154,12 @@ typedef struct Prog_State {
     u64 zoomShownPanel;
     R_Rect zoomFrom;          // where the last build found a drag over the bookmarks would go, plus one, for the rows to open a gap
     // The recents, best first: the more often one is opened the higher it ranks, and among equals the later; one listed without being opened
-    // drops a step each listing after its tenth.
+    // drops a step each listing after its tenth, and every tenth open all the others do.
     Arena recentArena;
     ArrayStr recents;
     Prog_RecentRank *recentRanks;  // one for each of the recents
     u32 recentOrdinal;             // the last one's, counting up across runs
+    b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
     b32 saving[4];            // bookmarks, recents, folder views, menu pins
     b32 saveAgain[4];

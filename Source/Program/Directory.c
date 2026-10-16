@@ -1896,6 +1896,8 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     }
     input->addHistory = addHistory;
     input->historyAt = historyAt;
+    input->passing = state->requestPassing;
+    state->requestPassing = false;
     // The recents inside the folder, by name, for the listing to mark and sort first.
     if (state->showRecents || state->sortRecents) {
         input->recentNames = ArenaPushArray(&job->arena, Max(state->recents.header.count, (u64)1), String);
@@ -2007,12 +2009,30 @@ function void Prog__SetRecents(Prog_State *state, const String *paths, const Pro
     ReleaseScratch(scratch);
 }
 
-// How far into the recents the first `limit` folders among them reach.
-function u64 Prog_RecentFolders(const Prog_State *state, u64 limit)
+// The recents the sidebar and Go To show, as indices into them in their order: the best Prog_ShownRecentCount folders, the three opened last
+// always among them, so that a folder just opened shows whatever it ranks.
+function u32 Prog_ShownRecents(const Prog_State *state, u64 *indices)
 {
-    u64 i = 0;
-    for (u64 folders = 0; i < state->recents.header.count && folders < limit; ++i) folders += !state->recentRanks[i].file;
-    return i;
+    u64 latest[3] = { UINT64_MAX, UINT64_MAX, UINT64_MAX };
+    for (u64 i = 0; i < state->recents.header.count; ++i) {
+        if (state->recentRanks[i].file) continue;
+        u32 ordinal = state->recentRanks[i].ordinal;
+        for (u32 at = 0; at < 3; ++at) {
+            if (latest[at] != UINT64_MAX && state->recentRanks[latest[at]].ordinal >= ordinal) continue;
+            for (u32 move = 2; move > at; --move) latest[move] = latest[move - 1];
+            latest[at] = i;
+            break;
+        }
+    }
+    u32 count = 0, pending = (latest[0] != UINT64_MAX) + (latest[1] != UINT64_MAX) + (latest[2] != UINT64_MAX);
+    for (u64 i = 0; i < state->recents.header.count && count < Prog_ShownRecentCount; ++i) {
+        if (state->recentRanks[i].file) continue;
+        b32 last = i == latest[0] || i == latest[1] || i == latest[2];
+        if (last) --pending;
+        // The ones still to come keep their places.
+        if (last || count + pending < Prog_ShownRecentCount) indices[count++] = i;
+    }
+    return count;
 }
 
 function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
@@ -2224,6 +2244,10 @@ function void Prog__AddRecent(Prog_State *state, String path, b32 file)
     ranks[at].decay = 0;
     ranks[at].ordinal = ++state->recentOrdinal;
     ranks[at].file = (b8)file;
+    // Every tenth open, all the others drop a point, so that those no longer opened make way.
+    if (ranks[at].ordinal % 10 == 0) {
+        for (u64 i = 0; i < count; ++i) if (i != at && ranks[i].score) --ranks[i].score;
+    }
     Prog__SetRecents(state, paths, ranks, count);
     ReleaseScratch(scratch);
     if (state->storeRecents == Prog_StoreRecents_Persistent) Prog__SaveList(state, Prog_RecentsFile, state->recents);
@@ -3929,11 +3953,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (!samePath) state->git = (Prog_GitStatus){ .ahead = -1, .behind = -1 };
                         Prog_RequestGitStatus(state, result->path);
                     }
-                    // The folder a panel starts on is not one opened.
+                    // The folder a panel starts on is not one opened, nor one gone back or forward to, or up to on the way somewhere.
                     if (!samePath) {
                         state->resetScroll = true;
                         Prog__DecayRecents(state, result->path, state->directory.path);
-                        if (state->directory.path.length) Prog__AddRecent(state, result->path, false);
+                        if (state->directory.path.length && input->addHistory && !input->passing) Prog__AddRecent(state, result->path, false);
                     }
                     Prog__NoteFolders(state, result->path, result->entries, result->count);
                     if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {

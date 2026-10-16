@@ -465,6 +465,36 @@ function void TestContextMenuModel(void)
     Check(state.menuHighlight == 6);
 }
 
+// The sidebar shows the best recents with the three opened last always among them, and every tenth open lowers all the others.
+function void TestRecentsRanking(void)
+{
+    Arena arena = {0};
+    Prog_State state = { .storeRecents = Prog_StoreRecents_Session };
+    String paths[12];
+    Prog_RecentRank ranks[12];
+    // Eleven folders opened often, and one opened last, once.
+    for (u32 i = 0; i < 12; ++i) {
+        paths[i] = StrFormat(&arena, "/r/%u", i);
+        ranks[i] = (Prog_RecentRank){ .ordinal = i + 1, .score = i == 11 ? Prog_RecentScoreNew : Prog_RecentScoreMax };
+    }
+    Prog__SetRecents(&state, paths, ranks, 12);
+    u64 shown[Prog_ShownRecentCount];
+    u32 count = Prog_ShownRecents(&state, shown);
+    Check(count == Prog_ShownRecentCount && StrIsEqual(state.recents.v[shown[count - 1]], S("/r/11")));
+    b32 dropped = true;
+    for (u32 n = 0; n < count; ++n) dropped &= !StrIsEqual(state.recents.v[shown[n]], S("/r/1")) && !StrIsEqual(state.recents.v[shown[n]], S("/r/0"));
+    Check(dropped);
+    // The twentieth open.
+    state.recentOrdinal = 19;
+    Prog__AddRecent(&state, S("/r/0"), false);
+    for (u64 i = 0; i < state.recents.header.count; ++i) {
+        u8 expected = StrIsEqual(state.recents.v[i], S("/r/0")) ? Prog_RecentScoreMax : StrIsEqual(state.recents.v[i], S("/r/11")) ? Prog_RecentScoreNew - 1 : Prog_RecentScoreMax - 1;
+        Check(state.recentRanks[i].score == expected);
+    }
+    ArenaRelease(&state.recentArena);
+    ArenaRelease(&arena);
+}
+
 function void TestContextMenuInline(void)
 {
     // A (X (Z), Y), sep, B
@@ -561,6 +591,7 @@ int main(void)
     TestProfiler();
     TestContextMenuModel();
     TestContextMenuInline();
+    TestRecentsRanking();
     TestTextEditWords();
 
     if (CheckFailures != 0) {
