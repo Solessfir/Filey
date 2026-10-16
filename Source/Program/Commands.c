@@ -793,7 +793,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
             // The folders close at hand first, which the index's entries are then told apart by.
             for (u64 i = 0; i < nearby; ++i) {
-                if (i < recents && state->recentRanks[i].file) continue;
+                if (i < recents && (state->recentRanks[i].file || Prog_RecentLeftOut(state, i))) continue;
                 String path = i < recents ? state->recents.v[i] : i < recents + bookmarks ? state->bookmarks.v[i - recents] : state->knownFolders.v[i - recents - bookmarks];
                 String name = Prog__FolderName(path);
                 MapsPut(arena, state->gotoNearbyNames, name, true);
@@ -868,11 +868,13 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             u64 limit = section == Prog_GoToSection_Recents ? recents : list->header.count;
             for (u32 tier = 0; tier < 2; ++tier) {
                 for (u64 n = 0; n < limit; ++n) {
-                    String path = list->v[section == Prog_GoToSection_Recents ? shownRecents[n] : n];
+                    u64 at = section == Prog_GoToSection_Recents ? shownRecents[n] : n;
+                    String path = list->v[at];
                     b32 named = Prog__ContainsFolded(Prog__FolderName(path), text);
                     if ((tier == 0 && named) || (tier == 1 && !named && Prog__ContainsFolded(path, text))) {
                         String name = Prog__FolderName(path);
-                        result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false, (b8)(name.length && name.value[0] == '.'), {0}, NULL };
+                        b8 hidden = section == Prog_GoToSection_Recents ? (b8)Prog_RecentFaded(state, at) : (b8)(name.length && name.value[0] == '.');
+                        result[(*count)++] = (Prog_GoToItem){ path, (u8)section, false, hidden, {0}, NULL };
                     }
                 }
             }

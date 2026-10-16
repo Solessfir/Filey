@@ -33,6 +33,7 @@ typedef struct P_DirectoryResult {
     u32 errorCode;
     String errorString;
     b32 cancelled;
+    b32 hidden;  // the folder itself, as its parent's listing marks it: hidden, or named with a dot first; never a drive's root
 } P_DirectoryResult;
 
 typedef struct P_FileError {

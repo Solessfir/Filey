@@ -484,9 +484,17 @@ function void TestRecentsRanking(void)
     b32 dropped = true;
     for (u32 n = 0; n < count; ++n) dropped &= !StrIsEqual(state.recents.v[shown[n]], S("/r/1")) && !StrIsEqual(state.recents.v[shown[n]], S("/r/0"));
     Check(dropped);
+    // A hidden one is left out while hidden items are, and its slot goes to the next best.
+    for (u64 i = 0; i < state.recents.header.count; ++i) state.recentRanks[i].hidden = (b8)StrIsEqual(state.recents.v[i], S("/r/11"));
+    count = Prog_ShownRecents(&state, shown);
+    Check(count == Prog_ShownRecentCount && StrIsEqual(state.recents.v[shown[count - 1]], S("/r/1")));
+    state.showHidden = true;
+    count = Prog_ShownRecents(&state, shown);
+    Check(StrIsEqual(state.recents.v[shown[count - 1]], S("/r/11")));
+    state.recentRanks[state.recents.header.count - 1].hidden = false;
     // The twentieth open.
     state.recentOrdinal = 19;
-    Prog__AddRecent(&state, S("/r/0"), false);
+    Prog__AddRecent(&state, S("/r/0"), false, false);
     for (u64 i = 0; i < state.recents.header.count; ++i) {
         u8 expected = StrIsEqual(state.recents.v[i], S("/r/0")) ? Prog_RecentScoreMax : StrIsEqual(state.recents.v[i], S("/r/11")) ? Prog_RecentScoreNew - 1 : Prog_RecentScoreMax - 1;
         Check(state.recentRanks[i].score == expected);

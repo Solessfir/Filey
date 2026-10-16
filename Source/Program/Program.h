@@ -529,6 +529,7 @@ typedef struct Prog_RecentRank {
     u8 score;     // 0 to 10, up one each time it is opened
     u8 decay;     // listings that showed it since it was last opened, up to 10
     b8 file;      // a file opened from a list, which only the listings mark
+    b8 hidden;    // as the list marks it when it was last opened, which dims it as the list does
 } Prog_RecentRank;
 
 // How long the recents are kept: across runs, until the app closes, or not at all.
@@ -700,6 +701,7 @@ typedef struct Prog_Directory {
     b32 showHidden;
     enum8(P_DriveKind) driveKind;
     u64 recentCount;  // entries among the recents
+    b32 hidden;       // the folder itself, as P_DirectoryResult says
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.

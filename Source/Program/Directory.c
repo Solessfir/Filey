@@ -1607,6 +1607,7 @@ function void Prog__DirectoryJob(P_Job *job)
     ProfileScope("EnumerateDirectory") listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
+    result->hidden = listing.hidden;
     if (result->error.code || result->cancelled) return;
     P_FileArray files = listing.files;
     Prog__CountFound(input, files.v, files.header.count);
@@ -1966,13 +1967,13 @@ function String Prog__ListText(Arena *arena, ArrayStr list)
     return text.buffer;
 }
 
-// A line each of a recent's path, then after a tab its score, decay, ordinal and whether it is a file.
+// A line each of a recent's path, then after a tab its score, decay, ordinal, whether it is a file and whether it is hidden.
 function String Prog__RecentsText(Arena *arena, const Prog_State *state)
 {
     StrBuilder text = {0};
     for (u64 i = 0; i < state->recents.header.count; ++i) {
         Prog_RecentRank rank = state->recentRanks[i];
-        StrBuildF(arena, &text, "%S\t%u %u %u %u\n", state->recents.v[i], (u32)rank.score, (u32)rank.decay, rank.ordinal, (u32)rank.file);
+        StrBuildF(arena, &text, "%S\t%u %u %u %u %u\n", state->recents.v[i], (u32)rank.score, (u32)rank.decay, rank.ordinal, (u32)rank.file, (u32)rank.hidden);
     }
     return text.buffer;
 }
@@ -2009,13 +2010,27 @@ function void Prog__SetRecents(Prog_State *state, const String *paths, const Pro
     ReleaseScratch(scratch);
 }
 
+// Whether the recent at `index` is dimmed as the list dims hidden items; one kept from before that was saved still is by its name.
+function b32 Prog_RecentFaded(const Prog_State *state, u64 index)
+{
+    String name = Prog__FolderName(state->recents.v[index]);
+    return state->recentRanks[index].hidden || (name.length && name.value[0] == '.');
+}
+
+// Whether the recent at `index` is left out of the sidebar and Go To: a hidden one while the active panel hides hidden items.
+function b32 Prog_RecentLeftOut(const Prog_State *state, u64 index)
+{
+    b32 shows = state->currentPanel == state->activePanel ? state->showHidden : state->panels[state->activePanel].showHidden;
+    return !shows && Prog_RecentFaded(state, index);
+}
+
 // The recents the sidebar and Go To show, as indices into them in their order: the best Prog_ShownRecentCount folders, the three opened last
 // always among them, so that a folder just opened shows whatever it ranks.
 function u32 Prog_ShownRecents(const Prog_State *state, u64 *indices)
 {
     u64 latest[3] = { UINT64_MAX, UINT64_MAX, UINT64_MAX };
     for (u64 i = 0; i < state->recents.header.count; ++i) {
-        if (state->recentRanks[i].file) continue;
+        if (state->recentRanks[i].file || Prog_RecentLeftOut(state, i)) continue;
         u32 ordinal = state->recentRanks[i].ordinal;
         for (u32 at = 0; at < 3; ++at) {
             if (latest[at] != UINT64_MAX && state->recentRanks[latest[at]].ordinal >= ordinal) continue;
@@ -2026,7 +2041,7 @@ function u32 Prog_ShownRecents(const Prog_State *state, u64 *indices)
     }
     u32 count = 0, pending = (latest[0] != UINT64_MAX) + (latest[1] != UINT64_MAX) + (latest[2] != UINT64_MAX);
     for (u64 i = 0; i < state->recents.header.count && count < Prog_ShownRecentCount; ++i) {
-        if (state->recentRanks[i].file) continue;
+        if (state->recentRanks[i].file || Prog_RecentLeftOut(state, i)) continue;
         b32 last = i == latest[0] || i == latest[1] || i == latest[2];
         if (last) --pending;
         // The ones still to come keep their places.
@@ -2087,10 +2102,10 @@ function void Prog__LoadRecents(Prog_State *state)
         if (!tab.exists) continue;
         paths.v[i] = StrFromTo(line, 0, (i64)tab.value);
         String numbers = StrFrom(line, tab.value + 1);
-        u64 values[4] = {0};
-        for (u32 n = 0; n < 4 && Prog__TakeNumber(&numbers, &values[n]); ++n) {}
+        u64 values[5] = {0};
+        for (u32 n = 0; n < 5 && Prog__TakeNumber(&numbers, &values[n]); ++n) {}
         ranks[i] = (Prog_RecentRank){ .ordinal = (u32)values[2], .score = (u8)Min(values[0], (u64)Prog_RecentScoreMax), .decay = (u8)Min(values[1], (u64)10),
-                                      .file = values[3] != 0 };
+                                      .file = values[3] != 0, .hidden = values[4] != 0 };
     }
     state->recentOrdinal = 0;
     Prog__SetRecents(state, paths.v, ranks, count);
@@ -2225,7 +2240,7 @@ function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry
 }
 
 // Counts `path` opened among the recents, and saves them when they are kept across runs.
-function void Prog__AddRecent(Prog_State *state, String path, b32 file)
+function void Prog__AddRecent(Prog_State *state, String path, b32 file, b32 hidden)
 {
     if (state->storeRecents == Prog_StoreRecents_Never) return;
     Scratch scratch = GetScratch();
@@ -2244,6 +2259,7 @@ function void Prog__AddRecent(Prog_State *state, String path, b32 file)
     ranks[at].decay = 0;
     ranks[at].ordinal = ++state->recentOrdinal;
     ranks[at].file = (b8)file;
+    ranks[at].hidden = (b8)hidden;
     // Every tenth open, all the others drop a point, so that those no longer opened make way.
     if (ranks[at].ordinal % 10 == 0) {
         for (u64 i = 0; i < count; ++i) if (i != at && ranks[i].score) --ranks[i].score;
@@ -3957,7 +3973,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if (!samePath) {
                         state->resetScroll = true;
                         Prog__DecayRecents(state, result->path, state->directory.path);
-                        if (state->directory.path.length && input->addHistory && !input->passing) Prog__AddRecent(state, result->path, false);
+                        if (state->directory.path.length && input->addHistory && !input->passing) Prog__AddRecent(state, result->path, false, result->hidden);
                     }
                     Prog__NoteFolders(state, result->path, result->entries, result->count);
                     if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {
@@ -4043,7 +4059,7 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
     if (entry->file.kind == P_FileKind_Directory) {
         Prog_RequestDirectory(state, path, true, 0);
     } else {
-        Prog__AddRecent(state, path, true);
+        Prog__AddRecent(state, path, true, entry->file.hidden);
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->panel = Prog__PanelId(state);

@@ -225,6 +225,13 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
     }
     if (P_IsCancelled(cancel)) result.cancelled = true;
     ReleaseScratch(scratch);
+    if (!error && !result.cancelled) {
+        u64 end = path.length;
+        while (end > 0 && path.value[end - 1] == '/') --end;
+        u64 start = end;
+        while (start > 0 && path.value[start - 1] != '/') --start;
+        result.hidden = end > start && path.value[start] == '.';
+    }
     if (error || result.cancelled) {
         ArenaRestore(mark);
         result.files = (P_FileArray){0};

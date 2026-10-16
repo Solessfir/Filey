@@ -183,6 +183,17 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
         FindClose(find);
     }
     if (P_IsCancelled(cancel)) result.cancelled = true;
+    // The system marks a drive's root hidden, which no listing shows it as.
+    if (!error && !result.cancelled) {
+        u64 end = path.length;
+        while (end > 0 && path.value[end - 1] == '/') --end;
+        u64 start = end;
+        while (start > 0 && path.value[start - 1] != '/') --start;
+        String leaf = StrFromTo(path, start, (i64)end);
+        u32 attributes = GetFileAttributesW(directory);
+        result.hidden = leaf.length && leaf.value[leaf.length - 1] != ':' &&
+                        (leaf.value[0] == '.' || (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_HIDDEN)));
+    }
     ReleaseScratch(scratch);
     if (error || result.cancelled) {
         ArenaRestore(mark);

@@ -3153,7 +3153,8 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
 
 // One location under a section title: its folder icon, or a drive glyph, and its name.
 // Drives show how full they are under the name, and bookmarks get a remove button while hovered.
-function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, String name, String path, const P_Place *drive, const Prog_Metrics *m)
+// A row of the sidebar's `group`; a `faded` one, hidden, is dimmed as the list dims hidden items.
+function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, String name, String path, const P_Place *drive, b32 faded, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
@@ -3221,12 +3222,12 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextPrefWidth(UI_Pixels(slot));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
             UI_AddBlock(UI_Flag_DrawImage);
         } else {
-            Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, theme->icon, 0, m);
+            Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, faded ? theme->iconDisabled : theme->icon, 0, m);
         }
-        R_Color color = theme->text;
+        R_Color color = faded && !hot && !current ? theme->textDim : theme->text;
         if (drive && drive->totalBytes) {
             // The name sits a little high to leave room for the bar under it.
             UI_SetNextPrefWidth(UI_Flex());
@@ -3336,7 +3337,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     if ((slid[n] > placed[n] + 0.5f) != (pass == 1)) continue;
                     u64 i = indices[n];
                     String path = state->recents.v[i];
-                    Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, m);
+                    Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, Prog_RecentFaded(state, i), m);
                     UI_Block *row = body->last;
                     row->flags |= UI_Flag_Floating;
                     // Rounded rather than floored, or a row easing sits a pixel short through the tail of the ease and then jumps.
@@ -3353,7 +3354,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
-                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, m);
+                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, false, m);
                 R_Rect row = body->last->rect;
                 zone.y1 = row.y1;
                 if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
@@ -3381,7 +3382,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
                 const P_Place *drive = &state->drives.v[i];
-                Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, m);
+                Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
             }
         }
         Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
@@ -3389,7 +3390,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->places.header.count; ++i) {
                 const P_Place *place = &state->places.v[i];
-                Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, m);
+                Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, false, m);
             }
         }
     }
