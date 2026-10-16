@@ -541,6 +541,68 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return result;
 }
 
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output)
+{
+    *output = (String){0};
+    if (!count) return false;
+    Scratch scratch = GetScratchEx(arena);
+    // The command line quotes the arguments that hold spaces, as the C runtime splits it again; these never hold quotes.
+    StrBuilder line = {0};
+    for (u32 i = 0; i < count; ++i) {
+        b32 quote = !arguments[i].length || StrIndexChar(arguments[i], ' ', SSF_None).exists;
+        StrBuildF(scratch.arena, &line, i ? (quote ? " \"%S\"" : " %S") : (quote ? "\"%S\"" : "%S"), arguments[i]);
+    }
+    i32 length = MultiByteToWideChar(CP_UTF8, 0, line.buffer.value, (i32)line.buffer.length, NULL, 0);
+    wchar *wide = ArenaPushArray(scratch.arena, (u64)length + 1, wchar);
+    MultiByteToWideChar(CP_UTF8, 0, line.buffer.value, (i32)line.buffer.length, wide, length);
+    wchar *folder = P__FilePathWide(scratch.arena, directory);
+    SECURITY_ATTRIBUTES inherit = { .nLength = sizeof(inherit), .bInheritHandle = TRUE };
+    HANDLE readEnd = NULL, writeEnd = NULL;
+    b32 result = false;
+    if (folder && CreatePipe(&readEnd, &writeEnd, &inherit, 0)) {
+        SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+        STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = NULL, .hStdInput = NULL };
+        PROCESS_INFORMATION process = {0};
+        b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, folder, &startup, &process) != 0;
+        CloseHandle(writeEnd);
+        if (started) {
+            CloseHandle(process.hThread);
+            StrBuilder out = {0};
+            u64 began = GetTickCount64();
+            b32 late = false;
+            for (;;) {
+                DWORD waiting = 0;
+                if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &waiting, NULL)) break;
+                if (waiting) {
+                    char bytes[4096];
+                    DWORD read = 0;
+                    if (!ReadFile(readEnd, bytes, (DWORD)Min((u64)waiting, sizeof(bytes)), &read, NULL) || !read) break;
+                    StrBuildStr(arena, &out, StrMake(bytes, read));
+                    continue;
+                }
+                if (GetTickCount64() - began > timeoutMilliseconds) {
+                    late = true;
+                    break;
+                }
+                // Done once it has exited and the pipe is drained.
+                if (WaitForSingleObject(process.hProcess, 5) == WAIT_OBJECT_0) {
+                    if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &waiting, NULL) || !waiting) break;
+                }
+            }
+            DWORD code = 1;
+            if (late) TerminateProcess(process.hProcess, 1);
+            WaitForSingleObject(process.hProcess, 1000);
+            GetExitCodeProcess(process.hProcess, &code);
+            CloseHandle(process.hProcess);
+            result = !late && code == 0;
+            *output = out.buffer;
+        }
+        CloseHandle(readEnd);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
 {
     return P_ReadFileAt(arena, path, 0, limit, contents);

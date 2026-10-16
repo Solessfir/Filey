@@ -903,6 +903,49 @@ function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classe
     return open;
 }
 
+function b32 Prog__TakeNumber(String *text, u64 *value);
+
+// The branch of a HEAD file's `head`, "ref: refs/heads/main", or the first seven digits of a detached one's hash.
+function String Prog_GitBranch(String head)
+{
+    while (head.length && (head.value[head.length - 1] == '\n' || head.value[head.length - 1] == '\r' || head.value[head.length - 1] == ' ')) --head.length;
+    if (Prog__StartsAt(head, 0, S("ref: refs/heads/"))) return StrFrom(head, 16);
+    if (Prog__StartsAt(head, 0, S("ref: "))) return StrFrom(head, 5);
+    return StrFromTo(head, 0, (i64)Min(head.length, (u64)7));
+}
+
+// The repository around `folder`: the nearest folder, it or one above it, holding .git, a folder or, for a worktree, a file naming one.
+// The counts come from git itself, which may be missing; the branch is read from HEAD either way.
+function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
+{
+    Prog_GitStatus result = { .ahead = -1, .behind = -1 };
+    if (!folder.length || StrIsEqual(folder, Prog_ThisPC)) return result;
+    for (String at = folder; at.length && !StrIsEqual(at, Prog_ThisPC); at = Prog_UpPath(at)) {
+        String dotGit = Prog_JoinPath(arena, at, S(".git")), head = {0}, link = {0};
+        b32 found = P_ReadFileStart(arena, Prog_JoinPath(arena, dotGit, S("HEAD")), 512, &head);
+        if (!found && P_ReadFileStart(arena, dotGit, 1024, &link) && Prog__StartsAt(link, 0, S("gitdir: "))) {
+            String gitDir = StrFrom(link, 8);
+            while (gitDir.length && (gitDir.value[gitDir.length - 1] == '\n' || gitDir.value[gitDir.length - 1] == '\r')) --gitDir.length;
+            b32 absolute = (gitDir.length && gitDir.value[0] == '/') || (gitDir.length > 1 && gitDir.value[1] == ':');
+            found = P_ReadFileStart(arena, Prog_JoinPath(arena, absolute ? gitDir : Prog_JoinPath(arena, at, gitDir), S("HEAD")), 512, &head);
+        }
+        if (!found) continue;
+        result.branch = Prog_GitBranch(head);
+        String arguments[] = { S("git"), S("rev-list"), S("--left-right"), S("--count"), S("HEAD...@{upstream}") };
+        String counts = {0};
+        if (P_RunCommand(arena, folder, arguments, CArrayCount(arguments), 3000, &counts)) {
+            u64 ahead = 0, behind = 0;
+            String rest = counts;
+            if (Prog__TakeNumber(&rest, &ahead) && Prog__TakeNumber(&rest, &behind)) {
+                result.ahead = (i32)Min(ahead, (u64)INT32_MAX);
+                result.behind = (i32)Min(behind, (u64)INT32_MAX);
+            }
+        }
+        break;
+    }
+    return result;
+}
+
 // A hex row: the offset in `places` hex digits and two spaces, three characters a byte with one more space after the eighth, then the
 // bytes as characters, printable ones as they are and others as dots.
 function u64 Prog_HexByteColumn(u32 places, u64 i)
@@ -1315,6 +1358,12 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    if (input->kind == Prog_JobKind_Git) {
+        Prog_GitStatus *result = ArenaPushStruct(&job->arena, Prog_GitStatus);
+        *result = Prog_FindGitStatus(&job->arena, input->path);
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_HexPage) {
         String *bytes = ArenaPushStruct(&job->arena, String);
         if (!P_ReadFileAt(&job->arena, input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
@@ -1611,6 +1660,25 @@ function void Prog__MeasureFolders(Prog_State *state)
     }
     job->input = input;
     state->measureJob = job;
+    P_JobSubmit(job);
+}
+
+// Finds out `folder`'s git status in a job, at most one at a time; a request while one runs asks again, for the folder shown then, once it is done.
+function void Prog_RequestGitStatus(Prog_State *state, String folder)
+{
+    if (state->gitJob) {
+        state->gitAgain = true;
+        return;
+    }
+    state->gitAgain = false;
+    state->gitTime = PlatformNowMicroseconds();
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_Git;
+    input->path = StrCopy(&job->arena, folder);
+    job->input = input;
+    state->gitJob = job;
     P_JobSubmit(job);
 }
 
@@ -3365,6 +3433,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_Git) {
+            if (state->gitJob == job) state->gitJob = NULL;
+            const Prog_GitStatus *status = job->result;
+            if (status && StrIsEqual(input->path, state->directory.path)) {
+                ArenaClear(&state->gitArena);
+                state->git = (Prog_GitStatus){ StrCopy(&state->gitArena, status->branch), status->ahead, status->behind };
+                changed = true;
+            }
+            if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
         } else if (input->kind == Prog_JobKind_HexPage) {
             if (state->hexPageJob == job) state->hexPageJob = NULL;
             const String *bytes = job->result;
@@ -3663,6 +3740,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->hasFocus = state->hasAnchor = true;
                         state->focusedRow = state->anchorRow = pickRow;
                         state->revealFocus = true;
+                    }
+                    // Another folder's repository is looked for at once; the same folder's, listed again, now and then, for commits made meanwhile.
+                    if (!samePath || PlatformNowMicroseconds() - state->gitTime > Millions(3)) {
+                        if (!samePath) state->git = (Prog_GitStatus){ .ahead = -1, .behind = -1 };
+                        Prog_RequestGitStatus(state, result->path);
                     }
                     // The folder a panel starts on is not one opened.
                     if (!samePath) {

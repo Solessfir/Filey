@@ -719,6 +719,14 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(Prog_SyntaxLine(Prog_Syntax_Json, S("{ \"key\": \"value\", \"n\": 12 }"), 0, tokens) == 0 && tokens[2] == Prog_Token_Keyword && tokens[10] == Prog_Token_String);
     Check(Prog_SyntaxLine(Prog_Syntax_Python, S("x = '''doc"), 0, NULL) != 0 && Prog_SyntaxLine(Prog_Syntax_Markdown, S("# Title"), 0, tokens) == 0 && tokens[2] == Prog_Token_Heading);
     Check(Prog_SyntaxForPath(S("C:/x/Thing.CPP")) == Prog_Syntax_C && Prog_SyntaxForPath(S("/a/b.py")) == Prog_Syntax_Python && Prog_SyntaxForPath(S("/a/notes.txt")) == Prog_Syntax_None);
+    // A repository's branch comes from its HEAD file; the counts from git, here a repository without an upstream.
+    Check(StrIsEqual(Prog_GitBranch(S("ref: refs/heads/main\n")), S("main")) && StrIsEqual(Prog_GitBranch(S("0123456789abcdef\n")), S("0123456")));
+    String made = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S(".git"), true, &made).code);
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, Prog_JoinPath(&arena, fixture->path, S(".git")), S("HEAD")), S("ref: refs/heads/topic\n")).code);
+    Prog_GitStatus git = Prog_FindGitStatus(&arena, Prog_JoinPath(&arena, fixture->path, S("Folder2")));
+    Check(StrIsEqual(git.branch, S("topic")) && git.ahead == -1 && git.behind == -1);
+    Check(P__TestRemovePath(fixture, S(".git/HEAD"), false) && P__TestRemovePath(fixture, S(".git"), true));
     String part = {0};
     Check(P_ReadFileAt(&arena, plain, 1, 8, &part) && StrIsEqual(part, S("\x02")));
     // An archive lists its folders and files with their paths inside it; one made by Python's zipfile, a folder "docs" holding "a.txt".

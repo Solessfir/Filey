@@ -1574,6 +1574,26 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
 }
 
+// The branch of the git repository the shown folder is in, with the commits to push and to pull beside it when there are any.
+function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->git.branch.length) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 bar = Prog__StripHeight(m), gap = floorf(4.8f * m->scale + 0.5f);
+    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+    UI_SetNextFont(m->detail);
+    Prog__Label(state->git.branch, UI_TextContent(), bar, 0, theme->textDim, 0);
+    for (u32 side = 0; side < 2; ++side) {
+        i32 count = side ? state->git.behind : state->git.ahead;
+        if (count <= 0) continue;
+        Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
+        Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, bar, theme->textMatch, 0.5f, m);
+        UI_SetNextFont(m->detail);
+        Prog__Label(StrFormat(&state->frameArena, "%d", count), UI_TextContent(), bar, 0, theme->textMatch, 0);
+    }
+    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+}
+
 function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1601,6 +1621,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextScrollOffset((UI_Vec2){ 1e9f, 0 });
         UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Breadcrumbs")), UI_Flag_Clip);
         UI_Parent(crumbs) Prog__Breadcrumbs(state, m);
+        Prog__GitStatus(state, m);
         Prog__MenuButton(state, S("PanelMenu"), Icon_EllipsisVertical, Prog_CommandKind_PanelMenu, true, m);
         Prog__Spacer(UI_Pixels(m->inset * 0.4f), UI_Pixels(bar));
     }

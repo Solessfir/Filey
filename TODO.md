@@ -8,7 +8,6 @@ Safety: every run sets `FILEY_CONFIG_DIR` to a scratch folder; file operations a
 
 3. Recursive listing (section below): rows appear as the walk finds them.
 5. TrashRestoreAll/DeleteAll wait for a manual check, since they act on the real bin. OpenInRightSplit has no hotkey: the reference's Ctrl+Shift+Enter is Toggle Panel Zoom here.
-9. Git status in the path bar: find `.git` above the shown folder in a background job, read HEAD and the upstream, show ↑/↓ counts; refresh on folder change and on the watcher.
 10. Go To index: pack names into one buffer, fix the highlighted row's typed letters, then the parallel walk if time remains.
 11. Command palette parity: dimmed rows and darker highlight for commands that cannot run now, smooth scrolling.
 
@@ -76,7 +75,7 @@ Planned there, worth doing here first:
 
 ## Filey's own
 
-- Git: detect a repository around the shown folder and show in the path bar how far its branch is from the remote (↑ commits to push, ↓ to pull). Read `.git` directly or run `git` in a background job; never block the UI on it.
+- Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, and file states in the list.
 - Archives as folders: open a zip, 7z, rar or tar like a folder, in a panel or the inspector, go into its folders, select items and drag or copy them out to extract them where they land. Windows: list and drag through the shell's archive folder, whose items' data objects carry virtual files that any drop target extracts with the system's progress and password prompts. Linux: list with libarchive and extract the dropped or pasted entries in a transfer job (progress, conflicts, cancel); a drag to other apps extracts to a temp folder first. Solid archives can be slow to pull one file from, so extraction always runs in a job. The inspector's text listing then becomes this browsable list.
 - Hex view (ImHex-like, https://github.com/WerWolv/ImHex): it reads pages as they come into sight, up to a million rows (16 MB at 16 bytes a row), since the scroll offset is a float. Still to do: past that, a selection and copy, and searching for bytes.
 - Syntax highlighting: the inspector colors keywords, strings, comments, numbers and headings by extension (Prog_SyntaxForPath). Still to do: XML/HTML, CMake, Makefiles, and colors in the theme and Settings.txt instead of the fixed dark and light ones.

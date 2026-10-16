@@ -186,6 +186,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
     Prog_JobKind_HexPage,
+    Prog_JobKind_Git,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -355,6 +356,13 @@ typedef struct Prog_Transfer {
 // A picture is the file's own at up to Prog_PreviewImageSide on its longer side when it is an image,
 // else the system's thumbnail of Prog_PreviewSize squared.
 #define Prog_PreviewImageSide 4096
+
+// The git repository around a folder: its branch, or a detached HEAD's short hash, and how many commits it is ahead of its upstream and behind
+// it, -1 for each when that is not known.
+typedef struct Prog_GitStatus {
+    String branch;
+    i32 ahead, behind;
+} Prog_GitStatus;
 
 // The languages the inspector colors the text of, by the file's extension.
 typedef enum Prog_Syntax {
@@ -735,7 +743,8 @@ typedef struct Prog_Tab {
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(Prog_ColumnSet, columnSet) X(b32, listScrolls) \
-    X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView)
+    X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView) \
+    X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {

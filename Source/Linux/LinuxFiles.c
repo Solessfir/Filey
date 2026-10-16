@@ -15,6 +15,7 @@
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -1338,6 +1339,75 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     close(fd);
     *contents = text.buffer;
     return length == 0;
+}
+
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output)
+{
+    *output = (String){0};
+    if (!count) return false;
+    Scratch scratch = GetScratchEx(arena);
+    // The program is looked up here, before the fork, since the child may only make async-signal-safe calls.
+    char *program = NULL;
+    const char *paths = getenv("PATH");
+    String name = arguments[0];
+    for (String rest = paths ? StrFromCStr(paths) : (String){0}; rest.length && !program;) {
+        Index colon = StrIndexChar(rest, ':', SSF_CountOnFail);
+        String folder = StrFromTo(rest, 0, (i64)colon.value);
+        rest = StrFrom(rest, Min(colon.value + 1, rest.length));
+        char *candidate = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/%S", folder, name));
+        if (folder.length && candidate && access(candidate, X_OK) == 0) program = candidate;
+    }
+    char **args = ArenaPushArray(scratch.arena, count + 1, char *);
+    for (u32 i = 0; i < count; ++i) args[i] = P__FilePathCString(scratch.arena, arguments[i]);
+    char *folder = P__FilePathCString(scratch.arena, directory);
+    i32 ends[2] = {0};
+    b32 result = false;
+    if (program && folder && pipe2(ends, O_CLOEXEC) == 0) {
+        pid_t child = _Fork();
+        if (child == 0) {
+            i32 quiet = open("/dev/null", O_RDWR);
+            dup2(ends[1], 1);
+            if (quiet >= 0) {
+                dup2(quiet, 0);
+                dup2(quiet, 2);
+            }
+            if (chdir(folder) == 0) execve(program, args, environ);
+            _exit(127);
+        }
+        close(ends[1]);
+        if (child > 0) {
+            StrBuilder out = {0};
+            u64 began = PlatformNowMicroseconds();
+            b32 late = false;
+            for (;;) {
+                i64 left = (i64)timeoutMilliseconds - (i64)((PlatformNowMicroseconds() - began) / 1000);
+                if (left <= 0) {
+                    late = true;
+                    break;
+                }
+                struct pollfd wait = { .fd = ends[0], .events = POLLIN };
+                i32 ready = poll(&wait, 1, (i32)left);
+                if (ready < 0 && errno == EINTR) continue;
+                if (ready <= 0) {
+                    late = ready == 0;
+                    break;
+                }
+                char bytes[4096];
+                ssize_t got = read(ends[0], bytes, sizeof(bytes));
+                if (got < 0 && errno == EINTR) continue;
+                if (got <= 0) break;
+                StrBuildStr(arena, &out, StrMake(bytes, (u64)got));
+            }
+            if (late) kill(child, SIGKILL);
+            i32 status = 0;
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            result = !late && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+            *output = out.buffer;
+        }
+        close(ends[0]);
+    }
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents)
