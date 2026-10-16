@@ -1638,7 +1638,7 @@ function void TestTabs(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Prog__EditReplace(&state.palette, (const u8 *)"0008C21B08C21018", 16);
     found = Prog_GoToMatches(&state, &offered, &folder);
-    Check(offered >= 1 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[0].name, S("Samsung Test Drive")));
+    Check(offered >= 1 && StrIsEqual(found[0].path, fixture->path) && StrIsEqual(found[0].name, S("Samsung Test Drive")) && found[0].drive == &state.drives.v[0]);
     // Ahead of a folder named after it, as GVfs keeps them.
     String named = Prog_JoinPath(&driveArena, fixture->path, S("uuid-0008C21B08C21018"));
     ArrayPush(&driveArena, state.bookmarks, named);

@@ -1056,7 +1056,13 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         for (u32 i = 0; i < pooled; ++i) order[starts[state->gotoRanks[i]]++] = i;
         *count = Min(pooled, (u32)Prog_MaxGoToFound);
         Prog_GoToItem *result = ArenaPushArray(frame, Max(*count, 1u), Prog_GoToItem);
-        for (u32 i = 0; i < *count; ++i) result[i] = state->gotoPool[order[i]];
+        for (u32 i = 0; i < *count; ++i) {
+            result[i] = state->gotoPool[order[i]];
+            // Only drives are pooled with a name; the pool outlives the drive list, so that the drive is found again for its icon and fill.
+            for (u64 d = 0; result[i].name.length && d < drives && !result[i].drive; ++d) {
+                if (StrIsEqual(state->drives.v[d].path, result[i].path)) result[i].drive = &state->drives.v[d];
+            }
+        }
         return result;
     }
     if (cut < 0) {
