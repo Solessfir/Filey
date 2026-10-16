@@ -2388,6 +2388,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 u32 index = Prog_PanelIndex(state, order[at]);
                 if (index != UINT32_MAX) Prog__ActivatePanel(state, index);
             } break;
+            case Prog_CommandKind_PanelHover: break;
             case Prog_CommandKind_PanelLeft: Prog_FocusPanelToward(state, -1, 0); break;
             case Prog_CommandKind_PanelRight: Prog_FocusPanelToward(state, 1, 0); break;
             case Prog_CommandKind_PanelUp: Prog_FocusPanelToward(state, 0, -1); break;

@@ -511,6 +511,7 @@ typedef enum Prog_Option {
     Prog_Option_SingleClick,
     Prog_Option_SingleClickFoldersOnly,
     Prog_Option_HoverToSelect,
+    Prog_Option_HoverToFocus,
     Prog_Option_UnderlineOnHover,
     Prog_Option_DoubleClickToParent,
     Prog_Option_Overscroll,
@@ -902,6 +903,7 @@ typedef struct Prog_State {
     Prog_Split splits[Prog_MaxSplits];
     u64 hoverPanel;           // the panel of the row under the pointer, and the panel under the pointer, in the last build
     u64 pointerPanel;
+    UI_Vec2 focusMouse;       // where the pointer was in the last build, whose moves hand the panel under it the keyboard
     // A dragged tab, whose block is `tabDragKey`; the build finds `tabDrop`, where it would go, and the release drops it there.
     b32 tabDrag;
     b32 tabDragCancelled;  // Escape ended the drag; the held tab does not start another until it is let go
@@ -1040,6 +1042,7 @@ typedef struct Prog_State {
     b32 actOnRelease;
     b32 singleClick, singleClickFoldersOnly;
     b32 hoverToSelect;
+    b32 clickToFocus;         // a panel takes the keyboard on a click only, not under a moving pointer
     b32 underlineAlways;      // in single-click mode, every name is underlined, not only the pointed one
     b32 doubleClickToParent;
     b32 noOverscroll;

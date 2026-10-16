@@ -285,7 +285,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->squareCorners = false;
     state->alternatingRows = false;
     state->inactiveShift = 0;
-    state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
+    state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = state->clickToFocus = false;
     state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
     state->characterKeys = Prog_CharacterKeys_TypeInFilter;
     state->hideExtensions = state->showSystem = false;
@@ -393,6 +393,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->singleClickFoldersOnly = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("hover.select"))) {
             state->hoverToSelect = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("hover.focus"))) {
+            state->clickToFocus = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("hover.underline"))) {
             state->underlineAlways = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("click.doubleToParent"))) {
@@ -469,9 +471,10 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
-                                "# underline only the pointed name in single-click mode, go up with a double click on the background,\n"
-                                "# scroll past the last item, and turn the wheel around.\n"
-                                "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.underline = true\n"
+                                "# give the keyboard to the panel it moves over, underline only the pointed name in single-click mode,\n"
+                                "# go up with a double click on the background, scroll past the last item, and turn the wheel around.\n"
+                                "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.focus = true\n"
+                                "# hover.underline = true\n"
                                 "# click.doubleToParent = false\n# scroll.over = true\n# scroll.reverse = false\n\n"
                                 "# What a letter or other character key does in the lists, without modifiers but Shift: type into the filter (filter),\n"
                                 "# run its hotkey, such as J to go down (hotkey), or select the item whose name starts with what is typed (select).\n"
@@ -586,6 +589,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_SingleClickFoldersOnly] = { SInit("Folders Only"), SInit("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
                                              Prog_OptionSwitch, 2, SInit("click.singleFoldersOnly") },
     [Prog_Option_HoverToSelect] = { SInit("Point To Select"), SInit("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("hover.select") },
+    [Prog_Option_HoverToFocus] = { SInit("Point To Focus Panel"), SInit("Give the keyboard to the panel the pointer moves over."), Prog_OptionControl_Switch, 0, 1,
+                                   Prog_OptionSwitch, 2, SInit("hover.focus") },
     [Prog_Option_UnderlineOnHover] = { SInit("Underline On Point"), SInit("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
                                        Prog_OptionSwitch, 2, SInit("hover.underline") },
     [Prog_Option_DoubleClickToParent] = { SInit("Double-click To Parent"), SInit("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
@@ -673,6 +678,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_SingleClick: return state->singleClick;
         case Prog_Option_SingleClickFoldersOnly: return state->singleClickFoldersOnly;
         case Prog_Option_HoverToSelect: return state->hoverToSelect;
+        case Prog_Option_HoverToFocus: return !state->clickToFocus;
         case Prog_Option_UnderlineOnHover: return !state->underlineAlways;
         case Prog_Option_DoubleClickToParent: return state->doubleClickToParent;
         case Prog_Option_Overscroll: return !state->noOverscroll;
@@ -7061,6 +7067,13 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
     }
 }
 
+// The panel that has the keyboard when `id` does: its owner for an inspector's.
+function u64 Prog__FocusOwner(const Prog_State *state, u64 id)
+{
+    u32 at = Prog_PanelIndex(state, id);
+    return at != UINT32_MAX && state->panels[at].inspectorOf ? state->panels[at].inspectorOf : id;
+}
+
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->iconsPending = 0;
@@ -7141,6 +7154,15 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     UI->keySeed = 0;
     Prog__UsePanel(state, state->activePanel);
+    // Under a moving pointer, the panel it is over takes the keyboard, as a click there would, and one the keyboard switched to keeps it
+    // until the pointer moves. A panel's inspector counts as the panel; nothing switches while a press, a text box or a popup has the input.
+    b32 moved = UI->mouse.x != state->focusMouse.x || UI->mouse.y != state->focusMouse.y;
+    state->focusMouse = UI->mouse;
+    if (!state->clickToFocus && moved && UI->mouseKnown && state->pointerPanel && !UI->activeKey && !state->tabDrag && !state->dragging && !state->renaming && !state->filtering &&
+        !state->inspectorFiltering && !state->menuOpen && !state->paletteOpen && !state->typesOpen && !state->zoomShown && !state->confirmingDelete && !state->hotkeyKind) {
+        u64 under = Prog__FocusOwner(state, state->pointerPanel);
+        if (under != Prog__FocusOwner(state, state->panels[state->activePanel].id)) Prog_QueueCommand(state, Prog_CommandKind_PanelHover, 0, 0, 0)->panel = under;
+    }
     if (state->tabDrag) {
         if (!UI__Contains(view, UI->mouse)) state->tabDrop.kind = Prog_TabDrop_Window;
         Prog__TabGhost(state, scale, m);

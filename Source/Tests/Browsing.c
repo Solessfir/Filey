@@ -1765,6 +1765,18 @@ function void TestTabs(TestFileFixture *fixture)
     ArenaRelease(&driveArena);
 }
 
+// One frame of the window, with the pointer moved to `x`, `y` when `move` is set, and the commands it queued run.
+function void TestPanelsFrame(Prog_State *state, b32 move, f32 x, f32 y, u64 now)
+{
+    PlatformEvent event = { .kind = PlatformEventKind_MouseMove, .x = x, .y = y };
+    ArenaClear(&state->frameArena);
+    state->ui.defaultFont = &TestUIFont;
+    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, 1200, 800 }, move ? TestUIEvents(&event, 1) : (PlatformEventList){0}, now);
+    Prog_BuildUI(state, &TestUIFont, &TestUIFont, 1);
+    UI_EndFrame();
+    Prog_ProcessCommands(state);
+}
+
 // Splitting makes a second panel with its own listing; a command from a panel's UI makes it active, and closing a panel's only tab closes the panel.
 function void TestPanels(TestFileFixture *fixture)
 {
@@ -1786,6 +1798,22 @@ function void TestPanels(TestFileFixture *fixture)
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
+    // The panel the pointer moves over takes the keyboard; one Tab switched to keeps it while the pointer rests, until it moves again.
+    TestPanelsFrame(&state, true, 1100, 400, 1);
+    Check(state.activePanel == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
+    Check(state.activePanel == 0);
+    TestPanelsFrame(&state, false, 0, 0, 2);
+    TestPanelsFrame(&state, true, 1100, 400, 3);
+    Check(state.activePanel == 0);
+    TestPanelsFrame(&state, true, 1101, 400, 4);
+    Check(state.activePanel == 1);
+    // Unless only clicks switch panels.
+    Prog_ApplySettings(&state, S("hover.focus = off"));
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
+    TestPanelsFrame(&state, true, 1102, 400, 5);
+    Check(state.activePanel == 0 && state.clickToFocus);
+    Prog_ApplySettings(&state, S("hover.focus = on"));
     // The inspector lists the folder in focus in a panel of its own, which no split holds and the session leaves out.
     // A click in it gives it the keyboard; hiding the inspector closes it and gives the keyboard back.
     {

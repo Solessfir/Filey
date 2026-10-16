@@ -1101,6 +1101,10 @@ command TransferCancel {
 command TransferPause {
 }
 
+// The panel under a moving pointer takes the keyboard, which handing the command its panel does.
+command PanelHover {
+}
+
 command TogglePreview {
     label   = "Toggle Inspector^show,hide,preview,pane,quick look,peek,panel"
     tooltip = "Toggle inspector in currently active panel."
