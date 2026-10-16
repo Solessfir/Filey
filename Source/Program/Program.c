@@ -953,9 +953,9 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
-// Toolbar button that opens one of Filey's menus below it, lit in the selection color while that menu is open.
-// A button in the window's right half lines its menu up with its right edge.
-function void Prog__MenuButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
+// Toolbar button that opens one of Filey's menus below it, lit in the selection color while that menu is open, `height` tall or the
+// toolbar's at 0. A button in the window's right half lines its menu up with its right edge.
+function void Prog__MenuButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, f32 height, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 tabs = kind == Prog_CommandKind_TabList;
@@ -963,14 +963,12 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
     R_Color wash = Prog__ButtonWash(key, hot, pressed);
-    // The tab list's, in the title bar, is taller and rounder than the toolbar's, and the main menu's wider and as round; in a maximized
-    // window both fill the title bar under its border, square.
-    b32 main = kind == Prog_CommandKind_MainMenu, title = (tabs || main) && PlatformWindowIsMaximized();
-    f32 height = title ? Prog__TitleStripHeight(m) - m->separator : tabs ? floorf(26.4f * m->scale + 0.5f) : Prog__ToolbarButtonHeight(m);
+    // The tab list's and the main menu's are rounder than the toolbar's, as the window buttons beside them, and the main menu's wider.
+    b32 main = kind == Prog_CommandKind_MainMenu;
     UI_SetNextPrefWidth(UI_Pixels(main ? floorf(36.0f * m->scale + 0.5f) : Prog__ToolbarButtonWidth(m)));
-    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextPrefHeight(UI_Pixels(height > 0 ? height : Prog__ToolbarButtonHeight(m)));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextCornerRadius(title ? 0 : floorf((tabs || main ? 5.6f : 4.0f) * m->scale + 0.5f));
+    UI_SetNextCornerRadius(floorf((tabs || main ? 5.6f : 4.0f) * m->scale + 0.5f));
     UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : wash, .text = !enabled ? theme->iconDisabled : hot || lit || pressed ? theme->text : theme->icon });
     UI_SetNextText(icon);
     UI_SetNextFont(m->icons);
@@ -986,7 +984,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
         Prog_Command *command = Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
         command->at = (UI_Vec2){ rect.x0, rect.y1 + gap };
         // The main menu hangs just under the title bar.
-        if (main) command->at.y = UI->root->rect.y0 + m->separator + Prog__TitleStripHeight(m) + floorf((title ? 3.2f : 2.4f) * m->scale + 0.5f);
+        if (main) command->at.y = UI->root->rect.y0 + m->separator + Prog__TitleStripHeight(m) + floorf((PlatformWindowIsMaximized() ? 3.2f : 2.4f) * m->scale + 0.5f);
         if (rect.x0 > (UI->root->rect.x0 + UI->root->rect.x1) * 0.5f) command->atRight = rect.x1;
     }
 }
@@ -1065,7 +1063,8 @@ typedef enum Prog_WindowButton {
     Prog_WindowButton_Close,
 } Prog_WindowButton;
 
-// A window button at the strip's right end, washed under the pointer like the other buttons, the close button in the danger color.
+// A window button at the strip's right end, washed under the pointer like the other buttons and as round as the tab list's beside it,
+// the close button in the danger color.
 // The glyphs are thin shapes the size of the system's caption glyphs, which the icon font's strokes are too heavy for; only the close cross comes from the font.
 function void Prog__WindowButton(Prog_State *state, String identity, Prog_WindowButton kind, Prog_CommandKind command, f32 width, f32 height, f32 scale, const Prog_Metrics *m)
 {
@@ -1080,9 +1079,8 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
-    // The glyphs sit a little above the middle.
-    UI_SetNextChildrenPadding((UI_Padding){ 0, 0, 0, floorf(1.6f * scale + 0.5f) });
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextCornerRadius(floorf(5.6f * scale + 0.5f));
     UI_SetNextColors((UI_Colors){ .background = background, .text = ink });
     if (close) {
         UI_SetNextFont(m->icons);
@@ -1091,13 +1089,13 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (close ? UI_Flag_DrawText : 0) | (hot ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(button);
     if (interaction.clicked) Prog_QueueCommand(state, command, 0, 0, interaction.clickOrder);
-    // The glyphs sit on whole pixels, a little above the middle, so that their thin lines stay sharp.
+    // The glyphs sit in the middle of the button's wash, on whole pixels so that their thin lines stay sharp.
     f32 glyph = floorf(9.6f * scale + 0.5f);
     f32 line = MaxF32(1.0f, floorf(1.25f * scale + 0.5f));
-    f32 gx = ceilf((width - glyph) * 0.5f), gy = floorf((height - glyph) * 0.5f) - floorf(0.8f * scale + 0.5f);
+    f32 gx = ceilf((width - glyph) * 0.5f), gy = floorf((height - glyph) * 0.5f);
     UI_Parent(button) {
         if (kind == Prog_WindowButton_Minimize) {
-            UI_SetNextFloatingOffset((UI_Vec2){ gx, gy + floorf(glyph * 0.6f) });
+            UI_SetNextFloatingOffset((UI_Vec2){ gx, ceilf((height - line) * 0.5f) });
             UI_SetNextPrefWidth(UI_Pixels(glyph));
             UI_SetNextPrefHeight(UI_Pixels(line));
             UI_SetNextColors((UI_Colors){ .background = ink });
@@ -1433,17 +1431,17 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                                                   state->tabCount < Prog_MaxTabs, m);
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
         }
-        // The tab list, left of the window buttons.
+        // The tab list, left of the window buttons; in the title bar it fills the strip under its border as they do.
         b32 maximized = PlatformWindowIsMaximized();
         UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap - floorf((maximized ? 2.4f : 4.8f) * scale + 0.5f),
-                                            -floorf(0.8f * scale + 0.5f) });
+                                            caption ? -top : -floorf(0.8f * scale + 0.5f) });
         UI_SetNextPrefWidth(UI_Pixels(button));
-        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextPrefHeight(UI_Pixels(caption ? bar - m->separator : height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
         UI_Block *listBox = UI_AddBlock(UI_Flag_Floating);
         UI_Parent(listBox) {
-            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, m);
+            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, caption ? bar - m->separator : floorf(26.4f * scale + 0.5f), m);
             if (state->currentPanel == state->activePanel) state->tabListRect = listBox->last->rect;
         }
         // The window buttons fill the strip's full height at its right end.
@@ -1611,7 +1609,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
         Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, up.length != 0, m);
-        Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, m);
+        Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, 0, m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
@@ -1628,7 +1626,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Breadcrumbs")), UI_Flag_Clip);
         UI_Parent(crumbs) Prog__Breadcrumbs(state, m);
         Prog__GitStatus(state, m);
-        Prog__MenuButton(state, S("PanelMenu"), Icon_EllipsisVertical, Prog_CommandKind_PanelMenu, true, m);
+        Prog__MenuButton(state, S("PanelMenu"), Icon_EllipsisVertical, Prog_CommandKind_PanelMenu, true, 0, m);
         Prog__Spacer(UI_Pixels(m->inset * 0.4f), UI_Pixels(bar));
     }
 }
@@ -6500,7 +6498,7 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
             UI_SetNextPrefHeight(UI_Pixels(strip));
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             UI_SetNextChildrenPadding((UI_Padding){ 0, maximized ? 0 : nudge, 0, maximized ? nudge : 0 });
-            UI_Parent(UI_AddBlock(0)) Prog__MenuButton(state, S("MainMenu"), Icon_Menu, Prog_CommandKind_MainMenu, true, m);
+            UI_Parent(UI_AddBlock(0)) Prog__MenuButton(state, S("MainMenu"), Icon_Menu, Prog_CommandKind_MainMenu, true, maximized ? strip - m->separator : 0, m);
             Prog__Spacer(UI_Flex(), UI_Pixels(strip));
             Prog__SidebarToggle(state, button, m);
         }
