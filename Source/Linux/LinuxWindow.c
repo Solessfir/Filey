@@ -895,36 +895,46 @@ function b32 LinuxCreateGLContext(void)
 
 function void LinuxEnsureDataDevice(void);
 
+// Hyprland's reply to `request` on its socket, empty when there is no Hyprland to ask. Before 0.40 the socket was under /tmp.
+function void LinuxHyprlandAsk(const char *request, char *reply, u64 capacity)
+{
+    const char *runtime = getenv("XDG_RUNTIME_DIR"), *instance = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+    reply[0] = 0;
+    for (u32 attempt = 0; instance && attempt < 2 && !reply[0]; ++attempt) {
+        struct sockaddr_un address = { .sun_family = AF_UNIX };
+        i32 length = attempt == 1 ? snprintf(address.sun_path, sizeof(address.sun_path), "/tmp/hypr/%s/.socket.sock", instance)
+                   : runtime ? snprintf(address.sun_path, sizeof(address.sun_path), "%s/hypr/%s/.socket.sock", runtime, instance) : -1;
+        if (length <= 0 || length >= (i32)sizeof(address.sun_path)) continue;
+        i32 socketFd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (socketFd < 0) return;
+        struct timeval timeout = { .tv_usec = 200000 };
+        setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        u64 received = 0, size = strlen(request);
+        if (connect(socketFd, (struct sockaddr *)&address, sizeof(address)) == 0 && write(socketFd, request, size) == (i64)size) {
+            for (i64 count; received < capacity - 1 && (count = read(socketFd, reply + received, capacity - 1 - received)) > 0;) received += (u64)count;
+        }
+        reply[received] = 0;
+        close(socketFd);
+    }
+}
+
 // Hyprland rounds windows' corners by its decoration options, which no Wayland protocol tells, so they are asked of its socket.
 // ponytail: read once at startup and without window rules; ask again on a configure if a reloaded config or a rule should show.
 function f32 LinuxHyprlandRounding(void)
 {
-    const char *runtime = getenv("XDG_RUNTIME_DIR"), *instance = getenv("HYPRLAND_INSTANCE_SIGNATURE");
-    if (!runtime || !instance) return 0;
-    f32 values[2] = {0};
-    const char *requests[2] = { "j/getoption decoration:rounding", "j/getoption decoration:rounding_power" };
-    for (u32 i = 0; i < 2; ++i) {
-        struct sockaddr_un address = { .sun_family = AF_UNIX };
-        i32 length = snprintf(address.sun_path, sizeof(address.sun_path), "%s/hypr/%s/.socket.sock", runtime, instance);
-        i32 socketFd = length > 0 && length < (i32)sizeof(address.sun_path) ? socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0) : -1;
-        if (socketFd < 0) return 0;
-        struct timeval timeout = { .tv_usec = 200000 };
-        setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-        char reply[256] = {0};
-        u64 received = 0;
-        u64 size = strlen(requests[i]);
-        if (connect(socketFd, (struct sockaddr *)&address, sizeof(address)) == 0 && write(socketFd, requests[i], size) == (i64)size) {
-            for (i64 count; received < sizeof(reply) - 1 && (count = read(socketFd, reply + received, sizeof(reply) - 1 - received)) > 0;) received += (u64)count;
-        }
-        close(socketFd);
-        // {"option": "decoration:rounding", "int": 8, "set": true }, and "float" for the power.
-        const char *value = strstr(reply, i == 0 ? "\"int\":" : "\"float\":");
-        if (!value) return 0;
-        values[i] = strtof(strchr(value, ':') + 1, NULL);
-    }
-    // Hyprland grows the radius with the power so that corners look as round; drawn as a circle, it matches powers other than 2 only roughly.
-    return values[0] * values[1] / 2.0f;
+    char reply[256];
+    LinuxHyprlandAsk("j/getoption decoration:rounding", reply, sizeof(reply));
+    // {"option": "decoration:rounding", "int": 8, "set": true }
+    const char *rounding = strstr(reply, "\"int\":");
+    if (!rounding) return 0;
+    f32 radius = strtof(rounding + 6, NULL);
+    // Hyprland 0.46 added the power, and grows the radius with it so that corners look as round; drawn as a circle, a radius so grown
+    // matches powers other than 2 only roughly. Before it, corners were circles.
+    LinuxHyprlandAsk("j/getoption decoration:rounding_power", reply, sizeof(reply));
+    const char *power = strstr(reply, "\"float\":");
+    f32 grow = power ? strtof(power + 8, NULL) / 2.0f : 1.0f;
+    return grow > 0 ? radius * grow : radius;
 }
 
 function b32 PlatformWindowOpen(PlatformWindowDesc desc)
