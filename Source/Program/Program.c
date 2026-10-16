@@ -3106,8 +3106,11 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
         Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
 
         String status = state->error;
-        // While a listing walks, what it has found so far.
-        Prog_JobInput *walking = state->directoryJob ? state->directoryJob->input : NULL;
+        // While a listing walks, what it has found so far: from the start for a new folder, and for the shown one's refresh once it has taken
+        // a second, as the clock shows, so that quick refreshes, as while a copy writes into the folder, leave the counts of the rows shown still.
+        u64 now = UI->nowMicroseconds;
+        b32 counting = state->directoryJob && (state->loading || now - Min(state->listStarted, now) >= 1000000);
+        Prog_JobInput *walking = counting ? state->directoryJob->input : NULL;
         u64 found = walking ? atomic_load(&walking->foundFolders) + atomic_load(&walking->foundFiles) : 0;
         if (!status.length && state->loading && !found) {
             status = StrFormat(&state->frameArena, "Loading %S...", walking->path);
@@ -3140,12 +3143,12 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             counts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
             UI_Parent(counts) {
                 // How long the listing has taken, once that is a second or more: counting while it walks, then kept.
-                u64 now = UI->nowMicroseconds, took = walking ? now - Min(state->listStarted, now) : state->listTook;
+                u64 took = walking ? now - Min(state->listStarted, now) : state->listTook;
                 if (took >= 1000000) {
                     Prog__StatusIcon(Icon_Clock, 0, m->pill, theme->icon, m);
                     Prog__LabelPadded(StrFormat(&state->frameArena, "%.2f sec", (f64)took / 1e6), UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), theme->text, 0);
                 }
-                if (walking) UI_KeepAnimating();
+                if (state->directoryJob) UI_KeepAnimating();
                 for (u32 i = 0; i < 2; ++i) {
                     // Both while a walk counts, so that the text does not jump between one number and two as they meet and part.
                     String text = shown[i] == total[i] && !found ? Prog__FormatCount(&state->frameArena, total[i])
