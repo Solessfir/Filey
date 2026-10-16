@@ -4308,12 +4308,15 @@ function f32 Prog__PaletteWidth(f32 view, f32 margin, f32 s)
 }
 
 // The keys that work a palette, in its footer: each key's chip, then what it does.
-function void Prog__PaletteHints(const char *const *keys, const char *const *words, u32 count, f32 height, R_Color background, const Prog_Metrics *m)
+function void Prog__PaletteHints(const char *const *keys, const char *const *words, u32 count, f32 height, R_Color background, f32 radius, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale;
     UI_Block *hints = Prog__Box(UI_Flex(), UI_Pixels(height), UI_Layout_Horizontal, background, 0);
     hints->props.childrenAlignment = (UI_Vec2){ 0.5f, 0.5f };
+    // At the box's bottom, round along its corners, which its clip alone would leave square.
+    hints->props.cornerRadius = radius;
+    hints->props.shape = R_Shape_SquareTopLeft | R_Shape_SquareTopRight;
     // The keys sit in quiet chips, flatter than the menus' hotkey chips.
     f32 chipPad = floorf(7.2f * s + 0.5f), chipHeight = floorf(16.0f * s + 0.5f);
     UI_Parent(hints) for (u32 i = 0; i < count; ++i) {
@@ -4621,7 +4624,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Tab", 0, "Ctrl+Enter", 0, "Escape", 0 };
         local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to expand", 0, "to open in panel", 0, "to dismiss" };
-        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background, m);
+        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background, radius, m);
     }
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -4740,11 +4743,14 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                 UI_SetNextCornerRadius(track * 0.5f);
                 UI_SetNextColors((UI_Colors){ .background = theme->selection });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                // The knob is solid in the color the fill shows over the track, which a translucent selection color would let show through it.
+                R_Color fill = theme->selection, under = theme->track;
+                R_Color solid = { fill.r * fill.a + under.r * (1 - fill.a), fill.g * fill.a + under.g * (1 - fill.a), fill.b * fill.a + under.b * (1 - fill.a), 1 };
                 UI_SetNextFloatingOffset((UI_Vec2){ knobX, 0 });
                 UI_SetNextPrefWidth(UI_Pixels(knob));
                 UI_SetNextPrefHeight(UI_Pixels(knob));
                 UI_SetNextCornerRadius(knob * 0.5f);
-                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_SetNextColors((UI_Colors){ .background = fill.a < 1 && under.a >= 1 ? solid : fill });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         } break;
@@ -5068,6 +5074,9 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     UI_Parent(panel) {
         UI_SetNextChildrenPadding((UI_Padding){ floorf(12.8f * s + 0.5f), 0, floorf(8.0f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, 0);
+        // Round along the box's top corners, which its clip alone would leave square.
+        box->props.cornerRadius = radius;
+        box->props.shape = R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight;
         UI_Parent(box) {
             Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
@@ -5209,7 +5218,8 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
         local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
-        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->menu, m);
+        // In its own band, unless the box is already in the menus' color, which a second coat would darken.
+        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background.a < 1 ? (R_Color){0} : theme->menu, radius, m);
     }
     // The outline over everything inside, so that rows do not cover it.
     UI_SetNextPrefWidth(UI_Pixels(width));
