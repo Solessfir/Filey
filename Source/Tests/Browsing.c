@@ -803,6 +803,12 @@ function void TestFileIcons(TestFileFixture *fixture)
     for (u32 i = 0; opened && i < menu.count; ++i) hasProperties |= StrIsEqual(menu.items[i].verb, S("properties"));
     Check(opened && hasProperties);
     P_ContextMenuClose(&menu);
+#else
+    // The trash's own menu only opens it, as the Recycle Bin's does; the program adds emptying it.
+    String trash = P_TrashFolder(&arena);
+    opened = P_ContextMenuOpen(&arena, (String){0}, &trash, 1, &menu);
+    Check(opened && menu.count == 1 && StrIsEqual(menu.items[0].verb, S("open")));
+    P_ContextMenuClose(&menu);
 #endif
     ArenaRelease(&arena);
 }

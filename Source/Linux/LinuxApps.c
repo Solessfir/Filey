@@ -420,12 +420,14 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     }
     if (!count) data->paths[0] = data->directory;
     // Folders open in Filey itself, so Open With and the terminal are offered for one folder or for files.
+    // The trash is a place to look in, as Windows' Recycle Bin is, rather than a folder to copy or delete; the program adds emptying it.
     Scratch scratch = GetScratchEx(arena);
+    b32 trash = count == 1 && P_IsTrashFolder(data->paths[0]);
     b32 oneFolder = count == 1 && P__IsDirectory(scratch.arena, data->paths[0]);
     P__App *apps[MaxApps];
-    u64 appCount = count ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), false, apps, MaxApps) : 0;
+    u64 appCount = count && !trash ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), false, apps, MaxApps) : 0;
     const char *run[2] = {0};
-    b32 terminal = (!count || oneFolder) && P__FindTerminal(scratch.arena, run) != NULL;
+    b32 terminal = !trash && (!count || oneFolder) && P__FindTerminal(scratch.arena, run) != NULL;
     ReleaseScratch(scratch);
     u32 openWith = UINT32_MAX;
     if (count) {
@@ -439,7 +441,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         itemTerminal[itemCount] = true;
         items[itemCount++] = (P_MenuItem){ .label = S("Open in Terminal"), .verb = S("openterminal") };
     }
-    if (count) {
+    if (count && !trash) {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
         items[itemCount++] = (P_MenuItem){ .label = S("Copy"), .verb = S("copy"), .action = P_MenuAction_Copy };
@@ -449,7 +451,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         if (count == 1) items[itemCount++] = (P_MenuItem){ .label = S("Rename"), .verb = S("rename") };
         items[itemCount++] = (P_MenuItem){ .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
         items[itemCount++] = (P_MenuItem){ .label = S("Delete"), .action = P_MenuAction_Delete };
-    } else {
+    } else if (!count) {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
         items[itemCount++] = separator;
