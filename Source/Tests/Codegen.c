@@ -146,12 +146,12 @@ function void TestHotkeyDispatch(void)
     // A chip being rebound takes the next key, which runs nothing and types nothing; a delete leaves the hotkey out, and restoring brings the
     // defaults back.
     {
-        Prog_State keys = { .hotkeyKind = Prog_CommandKind_CopySelection, .hotkeySlot = 2 };
+        Prog_State keys = { .hotkeyKind = Prog_CommandKind_CopySelection, .hotkeySlot = 1 };
         PlatformEvent press[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Control, .mods = KeyMod_Control },
                                   { .kind = PlatformEventKind_KeyDown, .key = Key_F7, .mods = KeyMod_Control }, { .kind = PlatformEventKind_Text, .codepoint = 'x' } };
         Prog_HandleInput(&keys, TestUIEvents(press, CArrayCount(press)));
         Prog_Command *bind = keys.commandFirst;
-        Check(bind && bind->kind == Prog_CommandKind_HotkeyBind && bind->row == Prog_CommandKind_CopySelection && bind->target == 2 && bind->pressCount == Key_F7);
+        Check(bind && bind->kind == Prog_CommandKind_HotkeyBind && bind->row == Prog_CommandKind_CopySelection && bind->target == 1 && bind->pressCount == Key_F7);
         Check(bind && bind->mods == KeyMod_Control && !bind->next && !keys.filter.length);
         Prog_ProcessCommands(&keys);
         const Prog_Hotkey *found = Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_F7, KeyMod_Control);
@@ -160,7 +160,7 @@ function void TestHotkeyDispatch(void)
         keys.commandFirst = keys.commandLast = NULL;
         Prog_QueueCommand(&keys, Prog_CommandKind_HotkeyDelete, Prog_CommandKind_CopySelection, 0, 0)->target = 0;
         Prog_ProcessCommands(&keys);
-        Check(!Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_C, KeyMod_Control) && Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_Insert, KeyMod_Control));
+        Check(!Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_C, KeyMod_Control) && Prog_FindHotkey(&keys, Prog_HotkeyScope_Browser, Key_None, Key_F7, KeyMod_Control));
         keys.commandFirst = keys.commandLast = NULL;
         Prog_QueueCommand(&keys, Prog_CommandKind_HotkeyRestore, Prog_CommandKind_CopySelection, 0, 0);
         Prog_ProcessCommands(&keys);

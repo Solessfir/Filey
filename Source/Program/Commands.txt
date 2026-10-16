@@ -649,7 +649,6 @@ command CopySelection {
     label   = "Copy"
     tooltip = "Copy selected files in the folder, placing them in the system clipboard."
     hotkey  = "Ctrl+C"
-    hotkey  = "Ctrl+Insert"
     hotkey  = "Y"
     repeat  = "false"
 }
@@ -665,7 +664,6 @@ command Paste {
     label   = "Paste"
     tooltip = "Paste files from the system clipboard into the current folder."
     hotkey  = "Ctrl+V"
-    hotkey  = "Shift+Insert"
     hotkey  = "P"
     repeat  = "false"
 }
