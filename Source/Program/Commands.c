@@ -619,6 +619,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
+    Prog_CommandKind_TypesPopupOpen,
     Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
     Prog_CommandKind_BookmarksToggle,
@@ -2750,6 +2751,31 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->revealFocus = true;
             } break;
             case Prog_CommandKind_ToggleFilterPin: state->filterSticky = !state->filterSticky; break;
+            case Prog_CommandKind_TypesPopupOpen: {
+                // Its hotkey closes it again.
+                if (state->typesOpen || state->loading) {
+                    state->typesOpen = false;
+                    break;
+                }
+                Prog_CloseMenu(state);
+                state->typesOpen = true;
+                state->typesSearch.length = state->typesSearch.cursor = state->typesSearch.anchor = 0;
+                ++state->typesSearch.version;
+                state->typesHighlight = 0;
+                state->typesListing = 0;
+                Prog_GatherTypes(state);
+            } break;
+            case Prog_CommandKind_TypesPopupClose: state->typesOpen = false; break;
+            case Prog_CommandKind_TypesToggle:
+            case Prog_CommandKind_TypesToggleAll:
+            case Prog_CommandKind_TypesUntoggleAll: {
+                // Checked types are the ones shown; none checked shows every type.
+                if (command->kind == Prog_CommandKind_TypesToggle && command->row < state->typeCount) Prog_ToggleType(&state->types, state->typeNames[command->row]);
+                if (command->kind != Prog_CommandKind_TypesToggle) state->types.length = 0;
+                for (u32 t = 0; command->kind == Prog_CommandKind_TypesToggleAll && t < state->typeCount; ++t) Prog_ToggleType(&state->types, state->typeNames[t]);
+                Prog_ApplyFilter(state, false);
+                if (command->target) state->typesOpen = false;
+            } break;
             case Prog_CommandKind_ToggleFolders:
             case Prog_CommandKind_ToggleFiles: {
                 if (command->kind == Prog_CommandKind_ToggleFolders) state->hideFolders = !state->hideFolders;
@@ -2825,6 +2851,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false;
     P_SetDropDirectory(drop);
     state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;
+    // The Types popup lists the active panel's types, the new ones once the listing changes under it.
+    if (state->typesOpen) Prog_GatherTypes(state);
     // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
     if (pinned.header.count) {
@@ -2841,6 +2869,45 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     b32 transferring = false;
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;
     return changed || transferring || Prog__AnyMeasuring(state);
+}
+
+// The types of the shown listing for the Types popup, in the order its items first show them, gathered again once it is another listing.
+// ponytail: compares each item's type with those found so far, which is quick for the few types a folder has.
+function void Prog_GatherTypes(Prog_State *state)
+{
+    u64 listing = (u64)(uintptr_t)state->directory.entries ^ state->directory.count ^ (state->listing << 40);
+    if (state->typesListing == listing && state->typeNames) return;
+    state->typesListing = listing;
+    ArenaClear(&state->typesArena);
+    u64 capacity = Max(Min(state->directory.count, (u64)4096), (u64)1);
+    state->typeNames = ArenaPushArray(&state->typesArena, capacity, String);
+    state->typeCounts = ArenaPushArray(&state->typesArena, capacity, u64);
+    state->typeFirsts = ArenaPushArray(&state->typesArena, capacity, u64);
+    state->typeCount = 0;
+    u32 last = 0;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        String type = state->directory.entries[i].type;
+        // Items of a type often come together, so the last one found is tried first.
+        u32 at = last < state->typeCount && StrIsEqual(state->typeNames[last], type) ? last : UINT32_MAX;
+        for (u32 t = 0; t < state->typeCount && at == UINT32_MAX; ++t) if (StrIsEqual(state->typeNames[t], type)) at = t;
+        if (at == UINT32_MAX && state->typeCount < capacity) {
+            at = state->typeCount++;
+            state->typeNames[at] = StrCopy(&state->typesArena, type);
+            state->typeFirsts[at] = i;
+        }
+        if (at != UINT32_MAX) state->typeCounts[at] += 1, last = at;
+    }
+}
+
+// The types the Types popup lists for what is typed in its box, by their place among Prog_State.typeNames, into `out`; returns how many.
+function u32 Prog_TypeMatches(const Prog_State *state, u32 *out)
+{
+    String typed = Prog_EditText(&state->typesSearch);
+    u32 count = 0;
+    for (u32 t = 0; t < state->typeCount; ++t) {
+        if (!typed.length || Prog_FuzzyScore(state->typeNames[t], (String){0}, typed, NULL, NULL) > 0) out[count++] = t;
+    }
+    return count;
 }
 
 // What a text box types rather than hands to the hotkeys: a character key, and Space or '/' without modifiers.
@@ -2984,6 +3051,32 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(state, &state->palette, event);
                 if (state->palette.version != version) state->paletteHighlight = 0;
+            }
+            continue;
+        }
+        // The Types popup takes the keyboard: typing finds types, Up and Down pick one, Enter toggles it and closes, and Escape or its own hotkey close.
+        if (state->typesOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_Text) {
+                Prog__EditInsert(&state->typesSearch, event->codepoint);
+                state->typesHighlight = 0;
+                continue;
+            }
+            KeyMods held = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+            const Prog_Hotkey *own = Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, held);
+            u32 *rows = ArenaPushArray(&state->frameArena, Max(state->typeCount, 1u), u32);
+            u32 count = Prog_TypeMatches(state, rows), version = state->typesSearch.version;
+            if (event->key == Key_Escape || (own && own->command == Prog_CommandKind_TypesPopupOpen && !event->isRepeat)) {
+                Prog_QueueCommand(state, Prog_CommandKind_TypesPopupClose, 0, 0, order);
+                state->swallowText = true;
+            } else if (event->key == Key_Enter && !event->isRepeat) {
+                if (state->typesHighlight < count) Prog_QueueCommand(state, Prog_CommandKind_TypesToggle, rows[state->typesHighlight], 0, order)->target = 1;
+            } else if (event->key == Key_Up && count) {
+                state->typesHighlight = state->typesHighlight ? state->typesHighlight - 1 : count - 1;
+            } else if (event->key == Key_Down && count) {
+                state->typesHighlight = state->typesHighlight + 1 < count ? state->typesHighlight + 1 : 0;
+            } else {
+                Prog__EditKey(state, &state->typesSearch, event);
+                if (state->typesSearch.version != version) state->typesHighlight = 0;
             }
             continue;
         }

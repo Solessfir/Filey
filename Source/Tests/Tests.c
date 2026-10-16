@@ -482,6 +482,17 @@ function void TestFolderThumbnailBackground(void)
 }
 #endif
 
+// The types a listing shows: none picked shows every type, and picking one again takes it out.
+function void TestTypeFilter(void)
+{
+    Prog_TypeFilter types = {0};
+    Check(Prog_TypeShown(&types, S("PNG File")));
+    Check(Prog_ToggleType(&types, S("PNG File")) && Prog_TypeShown(&types, S("PNG File")) && !Prog_TypeShown(&types, S("File folder")));
+    Check(Prog_ToggleType(&types, S("File folder")) && Prog_ToggleType(&types, S("PNG File")));
+    Check(!Prog_TypeShown(&types, S("PNG File")) && Prog_TypeShown(&types, S("File folder")) && types.length == S("File folder").length + 1);
+    Check(Prog_ToggleType(&types, S("File folder")) && !types.length && Prog_TypeShown(&types, S("ZIP File")));
+}
+
 function void TestContextMenuModel(void)
 {
     // sep, A, (unlabeled), sep, sep, B (disabled), C, sep
@@ -642,6 +653,7 @@ int main(void)
     TestContextMenuInline();
     TestRecentsRanking();
     TestTextEditWords();
+    TestTypeFilter();
 #if defined(_WIN32)
     TestFolderThumbnailBackground();
 #endif

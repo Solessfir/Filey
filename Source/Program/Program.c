@@ -1008,6 +1008,42 @@ function void Prog__PopupTooltip(Prog_State *state, String words)
     if (button && state->tooltipKey == button->key) state->tooltipAbove = true;
 }
 
+// The Type column header's button for the Types popup: a funnel, solid while some types are picked.
+function void Prog__TypesFunnel(Prog_State *state, f32 width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, S("Header/Types"));
+    b32 solid = state->types.length != 0;
+    R_Color color = UI->hotKey == key || (state->typesOpen && state->currentPanel == state->activePanel) ? theme->text : theme->icon;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextFont(m->icons);
+    UI_SetNextColors((UI_Colors){ .text = color });
+    UI_SetNextText(Icon_Funnel);
+    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (solid ? 0 : UI_Flag_DrawText));
+    UI_Interaction interaction = UI_InteractionFromBlock(button);
+    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesPopupOpen, 0, 0, interaction.clickOrder);
+    // The icons are strokes, so the solid one is drawn in whole pixels: a flat top that narrows a pixel a side per row to its stem,
+    // and the stem's foot cut away from the right.
+    if (solid) UI_Parent(button) {
+        f32 s = m->scale, top = floorf(12.8f * s + 0.5f), stem = floorf(3.2f * s + 0.5f), stemRows = floorf(4.0f * s + 0.5f);
+        if ((((i32)top - (i32)stem) & 1) != 0) top += 1;
+        f32 narrowing = (top - stem) * 0.5f - 1, rows = 2 + narrowing + stemRows + stem - 1;
+        f32 y = floorf((m->row - rows) * 0.5f), middle = floorf(width * 0.5f);
+        for (f32 r = 0; r < rows; ++r, ++y) {
+            f32 across = r < 2 ? top : r < 2 + narrowing ? top - 2 * (r - 1) : r < 2 + narrowing + stemRows ? stem : stem - (r - 1 - narrowing - stemRows);
+            f32 left = middle - floorf((r < 2 + narrowing + stemRows ? across : stem) * 0.5f);
+            UI_SetNextFloatingOffset((UI_Vec2){ left, y });
+            UI_SetNextPrefWidth(UI_Pixels(across));
+            UI_SetNextPrefHeight(UI_Pixels(1));
+            UI_SetNextColors((UI_Colors){ .background = color });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+    }
+    Prog__DescribeTooltip(state, Prog_CommandKind_TypesPopupOpen, Prog_Commands[Prog_CommandKind_TypesPopupOpen].tooltip);
+}
+
 function void Prog__ToolbarButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1899,11 +1935,18 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
                 }
                 R_Color color = sorted || hot ? theme->text : theme->textDim;
                 // Titles start at the left even over right-aligned values, and end in an ellipsis where the column is too narrow; the sort arrow sits at the column's end.
-                f32 arrow = sorted ? floorf(m->line * 0.6f) : 0;
-                f32 room = column->width > 0 ? column->width - left - right - line - arrow : 0;
-                Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, column->title, room) : column->title, UI_Flex(), m->row, left, sorted ? 0 : right, color, 0);
+                // The Type column's funnel opens the Types popup, at the column's end after any sort arrow.
+                b32 funnel = id == Prog_ColumnId_Type && !state->panels[state->currentPanel].inspectorOf;
+                f32 arrow = sorted ? floorf(m->line * 0.6f) : 0, funnelSlot = funnel ? floorf(24.0f * m->scale + 0.5f) : 0, funnelGap = funnel ? floorf(8.8f * m->scale + 0.5f) : 0;
+                f32 room = column->width > 0 ? column->width - left - right - line - arrow - funnelSlot - funnelGap : 0;
+                Prog__LabelPadded(room > 0 ? Prog__Ellipsize(&state->frameArena, m->font, column->title, room) : column->title, UI_Flex(), m->row, left, sorted || funnel ? 0 : right, color, 0);
                 if (sorted) Prog__SortArrow(state->descending, arrow, m->row, theme->textDim, m);
-                if (sorted) Prog__Spacer(UI_Pixels(MaxF32(right, floorf(12.0f * m->scale + 0.5f))), UI_Pixels(m->row));
+                if (sorted && !funnel) Prog__Spacer(UI_Pixels(MaxF32(right, floorf(12.0f * m->scale + 0.5f))), UI_Pixels(m->row));
+                if (funnel) {
+                    Prog__TypesFunnel(state, funnelSlot, m);
+                    Prog__Spacer(UI_Pixels(funnelGap), UI_Pixels(m->row));
+                    if (state->currentPanel == state->activePanel) state->typesAnchor = cell->rect;
+                }
                 // The line starts the next column, so that it sits on the boundary.
                 if (line > 0) {
                     f32 tall = floorf(m->line * 1.15f + 0.5f);
@@ -5159,6 +5202,133 @@ function void Prog__FolderSortIcon(Prog_FolderSort sort, R_Color color, R_Color 
 
 // Ctrl+wheel's popup over the view button: the views from Details up to XL Icons beside a slider at the zoom, the shown view's row lit.
 // Details, List, Columns and M Icons are a row apart; the icon sizes above them spread along the slider by their percentage.
+// The Types popup under the Type column's header: a box that finds types, with buttons that check and clear them all, over a row for each of
+// the listing's types with how many items have it and a box that shows it. A click on a box toggles it; elsewhere on its row, it also closes.
+function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->typesOpen) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    f32 s = m->scale;
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TypesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_TypesPopupClose, 0, 0, outside.pressOrder);
+    u32 *rows = ArenaPushArray(frame, Max(state->typeCount, 1u), u32);
+    u32 count = Prog_TypeMatches(state, rows), toggled = 0;
+    for (u32 t = 0; t < state->typeCount; ++t) toggled += Prog_TypeShown(&state->types, state->typeNames[t]) && state->types.length;
+    if (state->typesHighlight >= count) state->typesHighlight = count ? count - 1 : 0;
+    f32 width = floorf(270.4f * s + 0.5f), pad = floorf(6.4f * s + 0.5f), fieldHeight = floorf(32.0f * s + 0.5f), pitch = floorf(25.6f * s + 0.5f);
+    f32 line = MaxF32(1, floorf(0.8f * s + 0.5f)), radius = floorf(8.0f * s + 0.5f), button = floorf(28.0f * s + 0.5f);
+    u32 visible = Min(Max(count, 1u), 12u);
+    f32 above = floorf(3.2f * s + 0.5f), listHeight = (f32)visible * pitch, height = fieldHeight + line + listHeight + above + pad;
+    // Under the Type column's header; with no header in sight, under the top of the window.
+    R_Rect anchor = state->typesAnchor;
+    f32 x = anchor.x1 > anchor.x0 ? anchor.x0 : floorf((view.x0 + view.x1 - width) * 0.5f), y = anchor.y1 > anchor.y0 ? anchor.y1 + floorf(3.2f * s + 0.5f) : view.y0 + m->bar * 2;
+    x = MaxF32(view.x0, MinF32(x, view.x1 - width - pad)), y = MinF32(y, view.y1 - height - pad);
+    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
+    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TypesPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_MouseClickable);
+    UI_Parent(box) {
+        UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(fieldHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(field) {
+            Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(fieldHeight));
+            Prog__Icon(Icon_Search, floorf(24.0f * s + 0.5f), fieldHeight, theme->textDim, 0, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                f32 top = floorf((fieldHeight - m->line) * 0.5f);
+                if (!state->typesSearch.length) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(StrFormat(frame, "Filter %u types...", state->typeCount));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->typesSearch, 0, top, true, 0, m);
+            }
+            // Checking every type shows them all as a filter would, and clearing them shows them all without one.
+            UI_Interaction all = Prog__TextButton(S("TypesToggleAll"), Icon_SquareCheck, m->icons, UI_Pixels(button), fieldHeight, 0, theme->icon, theme->text, theme->iconDisabled,
+                                                  toggled < state->typeCount, m);
+            if (all.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesToggleAll, 0, 0, all.clickOrder);
+            Prog__NoteTooltip(state, Prog_CommandKind_TypesToggleAll, S("Toggle All"));
+            UI_Interaction none = Prog__TextButton(S("TypesUntoggleAll"), Icon_SquareX, m->icons, UI_Pixels(button), fieldHeight, 0, theme->icon, theme->text, theme->iconDisabled,
+                                                   toggled > 0, m);
+            if (none.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesUntoggleAll, 0, 0, none.clickOrder);
+            Prog__NoteTooltip(state, Prog_CommandKind_TypesUntoggleAll, S("Untoggle All"));
+            Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
+            Prog__Box(UI_Pixels(line), UI_Pixels(floorf(m->line * 1.15f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+            Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
+            UI_Interaction close = Prog__TextButton(S("TypesClose"), Icon_X, m->icons, UI_Pixels(button), fieldHeight, 0, theme->textDim, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesPopupClose, 0, 0, close.clickOrder);
+            Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, above, pad, pad });
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(listHeight + above + pad));
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TypesList")), UI_Flag_Clip | (count > visible ? UI_Flag_Scrollable : 0));
+        String typed = Prog_EditText(&state->typesSearch);
+        f32 box16 = floorf(14.4f * s + 0.5f), iconSize = (f32)state->iconSize;
+        UI_Parent(list) for (u32 i = 0; i < count; ++i) {
+            u32 t = rows[i];
+            UI_Key rowKey = UI_KeyFromStr(0, StrFormat(frame, "Types/%S", state->typeNames[t])), checkKey = UI_KeyFromStr(rowKey, S("Check"));
+            if ((UI->hotKey == rowKey || UI->hotKey == checkKey) && UI__Contains(list->rect, UI->mouse)) state->typesHighlight = i;
+            b32 lit = i == state->typesHighlight, on = state->types.length && Prog_TypeShown(&state->types, state->typeNames[t]);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(pitch));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ floorf(6.4f * s + 0.5f), 0, floorf(6.4f * s + 0.5f), 0 });
+            UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_Block *row = UI_AddBlockFromKey(rowKey, UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
+            UI_Interaction pick = UI_InteractionFromBlock(row);
+            if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesToggle, t, 0, pick.clickOrder)->target = 1;
+            UI_Parent(row) {
+                const Prog_Icon *icon = state->typeFirsts[t] < state->directory.count ? Prog_FileIcon(state, state->directory.path, &state->directory.entries[state->typeFirsts[t]]) : NULL;
+                UI_SetNextPrefWidth(UI_Pixels(iconSize + floorf(8.0f * s + 0.5f)));
+                UI_SetNextPrefHeight(UI_Pixels(pitch));
+                UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+                if (icon) UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ iconSize, iconSize }, (R_Color){ 1, 1, 1, 1 });
+                UI_AddBlock(icon ? UI_Flag_DrawImage : 0);
+                u8 *marks = typed.length ? ArenaPushArray(frame, state->typeNames[t].length + 1, u8) : NULL;
+                if (marks) Prog_FuzzyScore(state->typeNames[t], (String){0}, typed, marks, NULL);
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(pitch));
+                UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((pitch - m->line) * 0.5f), 0, 0 });
+                UI_Block *name = UI_AddBlock(UI_Flag_Clip);
+                UI_Parent(name) Prog__MarkedText(state->typeNames[t], marks, m->font, m->line, theme->text);
+                Prog__Label(StrFormat(frame, "%" PRIu64, state->typeCounts[t]), UI_TextContent(), pitch, 0, lit ? theme->text : theme->textDim, 1);
+                Prog__Spacer(UI_Pixels(floorf(12.0f * s + 0.5f)), UI_Pixels(pitch));
+                UI_SetNextPrefWidth(UI_Pixels(box16));
+                UI_SetNextPrefHeight(UI_Pixels(box16));
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextFont(m->iconsSmall);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = lit ? theme->text : theme->tabBorder, .text = theme->text });
+                UI_SetNextText(Icon_Check);
+                UI_Block *check = UI_AddBlockFromKey(checkKey, UI_Flag_LeftMouseClickable | UI_Flag_DrawBorder | (on ? UI_Flag_DrawBackground | UI_Flag_DrawText : 0));
+                UI_Interaction tick = UI_InteractionFromBlock(check);
+                if (tick.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesToggle, t, 0, tick.clickOrder);
+            }
+        }
+    }
+}
+
 function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
 {
     R_Rect anchor = state->zoomAnchor;
@@ -6897,6 +7067,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     Prog__Transfers(state, m);
     Prog__ContextMenu(state, m);
+    Prog__TypesPopup(state, m);
     Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
     Prog__HotkeyQuestion(state, m);

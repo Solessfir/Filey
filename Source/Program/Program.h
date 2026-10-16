@@ -711,6 +711,13 @@ typedef struct Prog_FontName {
     char text[64];
 } Prog_FontName;
 
+// The file types a listing shows, by the names its Type column gives them, each ended by '\n'; empty shows every type.
+// ponytail: names up to a kilobyte in all, far more than a folder's types; grow it if one runs out.
+typedef struct Prog_TypeFilter {
+    u8 names[1024];
+    u32 length;
+} Prog_TypeFilter;
+
 // ponytail: one step of undo, which Redo takes back; keep a stack of steps if one falls short.
 typedef struct Prog_TextEdit {
     u8 text[1024];
@@ -766,7 +773,7 @@ struct Prog_Partial {
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) \
-    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) \
+    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
     X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail)
 
 #define Prog__TabField(type, name) type name;
@@ -1168,6 +1175,19 @@ typedef struct Prog_State {
     // Select Typed Item: what was typed so far, and when its last character came; a pause starts it over.
     Prog_TextEdit typed;
     u64 typedTime;
+    // The Types popup over the active panel's listing: what is typed in its box, its highlighted row, and the header of the Type column it
+    // hangs under. The listing's types, with how many items have each and the first of them for its icon, are gathered in typesArena
+    // for each listing it shows, `typesListing`.
+    b32 typesOpen;
+    Prog_TextEdit typesSearch;
+    u32 typesHighlight;
+    R_Rect typesAnchor;
+    Arena typesArena;
+    u64 typesListing;
+    String *typeNames;
+    u64 *typeCounts;
+    u64 *typeFirsts;
+    u32 typeCount;
     // Its filter keeps the lines holding the letters typed, in order; the keyboard is in its box while inspectorFiltering.
     Prog_TextEdit inspectorFilter;
     b32 inspectorFiltering;
@@ -1305,6 +1325,7 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
 function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count);
+function void Prog_GatherTypes(Prog_State *state);
 function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 value);
 function void Prog_PinBookmarks(Prog_State *state, const ArrayStr *paths, u64 at);
 function u32 Prog_PanelIndex(const Prog_State *state, u64 id);

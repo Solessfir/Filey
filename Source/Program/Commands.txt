@@ -640,6 +640,27 @@ command ToggleFilterPin {
     tooltip = "Retain the filter on folder change."
 }
 
+command TypesPopupOpen {
+    label   = "Open Types Dropdown"
+    tooltip = "Open the dropdown to toggle visibility for specific file types."
+    hotkey  = "Alt+T"
+    repeat  = "false"
+}
+
+// The Types popup's rows and buttons. A row carries its type's place among Prog_State.typeNames, and closes the popup after when target is 1.
+command TypesToggle {
+}
+
+command TypesToggleAll {
+}
+
+command TypesUntoggleAll {
+}
+
+// Escape, its close button or a click away from it.
+command TypesPopupClose {
+}
+
 command ToggleFolders {
     label   = "Show Folders^hide,directories"
     tooltip = "List or hide the folder's subfolders."

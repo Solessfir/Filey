@@ -333,6 +333,39 @@ typedef struct Prog__FilterLook {
 
 enum { Prog_FilterUnscored = INT32_MIN };
 
+// Whether `filter` names `type`; an empty one names every type.
+function b32 Prog_TypeShown(const Prog_TypeFilter *filter, String type)
+{
+    if (!filter->length) return true;
+    for (u32 at = 0; at < filter->length;) {
+        u32 end = at;
+        while (end < filter->length && filter->names[end] != '\n') ++end;
+        if (StrIsEqual(StrMake((const char *)filter->names + at, end - at), type)) return true;
+        at = end + 1;
+    }
+    return false;
+}
+
+// Adds `type` to `filter`, or takes it out; false when it has no room for it.
+function b32 Prog_ToggleType(Prog_TypeFilter *filter, String type)
+{
+    for (u32 at = 0; at < filter->length;) {
+        u32 end = at;
+        while (end < filter->length && filter->names[end] != '\n') ++end;
+        if (StrIsEqual(StrMake((const char *)filter->names + at, end - at), type)) {
+            MemMove(filter->names + at, filter->names + end + 1, filter->length - end - 1);
+            filter->length -= end + 1 - at;
+            return true;
+        }
+        at = end + 1;
+    }
+    if (filter->length + type.length + 1 > sizeof(filter->names)) return false;
+    MemCopy(filter->names + filter->length, type.value, type.length);
+    filter->length += (u32)type.length;
+    filter->names[filter->length++] = '\n';
+    return true;
+}
+
 function void Prog__FilterLane(void *user, u32 lane)
 {
     (void)lane;
@@ -344,7 +377,7 @@ function void Prog__FilterLane(void *user, u32 lane)
         u64 to = Min(from + Prog_FilterBlock, state->directory.count);
         for (u64 i = from; i < to; ++i) {
             const Prog_Entry *entry = &state->directory.entries[i];
-            b32 hidden = entry->file.kind == P_FileKind_Directory ? state->hideFolders : state->hideFiles;
+            b32 hidden = (entry->file.kind == P_FileKind_Directory ? state->hideFolders : state->hideFiles) || !Prog_TypeShown(&state->types, entry->type);
             i32 score = hidden ? 0 : 1;
             if (!hidden && look->filter.length) {
                 String name = entry->file.name, leaf = Prog_EntryLeaf(name);
@@ -367,7 +400,7 @@ function void Prog__FilterLane(void *user, u32 lane)
     }
 }
 
-// Rebuilds the view from the filter and the folder and file toggles, and drops hidden rows from the selection.
+// Rebuilds the view from the filter, the folder and file toggles and the types shown, and drops hidden rows from the selection.
 // After an edit the focus moves to the first match, so that Enter opens it; a listing without a focused item puts it on the first one, as a cursor that selects nothing.
 function void Prog_ApplyFilter(Prog_State *state, b32 edited)
 {
@@ -3952,6 +3985,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if ((!samePath && state->directory.path.length && !state->filterSticky) || (pickRow < result->count && Prog_EntryScore(result->entries[pickRow].file.name, Prog_EditText(&state->filter), NULL) <= 0)) {
                         Prog_ClearFilter(state);
                     }
+                    // So do the types shown, which the Types popup set for this folder's.
+                    if (!samePath && state->directory.path.length && !state->filterSticky) state->types.length = 0;
                     b32 renamePicked = (renameCreated && created == 1 && !pick.length) || (state->selectRename && pick.length && pickRow < result->count);
                     state->selectRename = false;
                     if (created) state->renameCreatedUntil = 0;

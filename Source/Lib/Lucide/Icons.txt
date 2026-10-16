@@ -75,3 +75,5 @@ chevrons-right
 move-horizontal
 rotate-ccw
 monitor
+funnel
+square-check
