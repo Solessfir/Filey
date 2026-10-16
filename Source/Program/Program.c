@@ -2733,7 +2733,13 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     UI_SetNextPrefHeight(UI_Flex());
     // While the items run past the bottom, the rows leave room on the right for the scroll bar.
     UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset + (state->listScrolls ? Prog__ScrollGutter(m) : 0), 0 });
-    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    // While a drag over the window would drop into the panel's folder, the list fades into the selection color's wash, as a hovered row's.
+    R_Color background = theme->background, wash = theme->selection;
+    f32 dropping = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "DropWash/%" PRIu64, Prog__PanelId(state))), state->dropPanel == Prog__PanelId(state) ? 1.0f : 0.0f, 0);
+    f32 into = 0.35f * wash.a * dropping;
+    background = (R_Color){ background.r + (wash.r - background.r) * into, background.g + (wash.g - background.g) * into, background.b + (wash.b - background.b) * into,
+                            background.a + (1 - background.a) * into };
+    UI_SetNextColors((UI_Colors){ .background = background });
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
                                         (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     UI_Interaction listInteraction = UI_InteractionFromBlock(list);

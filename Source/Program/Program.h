@@ -1205,6 +1205,7 @@ typedef struct Prog_State {
     // The sidebar folder the last build found a drag over would go into, and the bookmark being dragged, both in dropPlaceArena.
     Arena dropPlaceArena;
     String dropPlace;
+    u64 dropPanel;            // the panel whose own folder a drag over the window would drop into, which its list shows; 0 for none
     String dragPlace;
     u64 bookmarkGap;
     // The panel zoomed to fill the panels' area (an id, 0 for none), the one shown zoomed while it grows or shrinks back, and its place in

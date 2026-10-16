@@ -2808,16 +2808,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     u32 dropPanel = Prog_PanelIndex(state, state->hasHoverRow ? state->hoverPanel : state->pointerPanel);
     if (dropPanel != UINT32_MAX) Prog__UsePanel(state, dropPanel);
     String drop = state->loading ? (String){0} : state->directory.path;
+    b32 intoPanel = drop.length && !StrIsEqual(drop, Prog_ThisPC);
     if (!state->loading && state->hasHoverRow && state->hoverRow < state->directory.count) {
         const Prog_Entry *entry = &state->directory.entries[state->hoverRow];
         // A dragged folder cannot take itself.
         if (entry->file.kind == P_FileKind_Directory && !(state->dragging && entry->selected)) {
             drop = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
+            intoPanel = false;
         }
     }
     Prog__UsePanel(state, state->activePanel);
-    if (state->dropPlace.length) drop = state->dropPlace;
+    if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false;
     P_SetDropDirectory(drop);
+    state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;
     // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
     if (pinned.header.count) {
