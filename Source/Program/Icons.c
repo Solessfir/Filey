@@ -186,7 +186,9 @@ function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory
     if (tier != state->thumbnailAtlas.size) Prog__ThumbnailTierChange(state, tier);
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     P_FileKind kind = entry->drive ? P_FileKind_Drive : entry->file.kind;
-    String key = P_FileThumbnailKey(&state->frameArena, path, kind);
+    // A file that changes, such as a screenshot shown while it is still being written, gets its picture again.
+    String key = StrFormat(&state->frameArena, "%S|%lld|%llu", P_FileThumbnailKey(&state->frameArena, path, kind), (long long)entry->file.modifiedTimeUnix,
+                           (unsigned long long)entry->file.size);
     const Prog_Icon *icon = Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, kind, tier, false, false);
     return icon ? icon : Prog__ThumbnailBefore(state, key);
 }
