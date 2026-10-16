@@ -928,11 +928,10 @@ function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 
     Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
 }
 
-// A button's wash: the selection color, faint under the pointer and fading out after it, and solid while pressed, easing both ways.
-// Its animations are kept only while there is something to show.
-function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed)
+// A button's wash of `wash`, the selection color for most: faint under the pointer and fading out after it, and solid while pressed,
+// easing both ways. Its animations are kept only while there is something to show.
+function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed, R_Color wash)
 {
-    R_Color wash = Prog_CurrentTheme()->selection;
     UI_Key hoverKey = UI_KeyFromStr(key, S("Hover")), pressKey = UI_KeyFromStr(key, S("Press"));
     f32 hover = hot || pressed || UI_Kept(hoverKey) > 0.01f ? UI_Fall(hoverKey, hot || pressed ? 1.0f : 0.0f) : 0;
     f32 press = pressed || UI_Kept(pressKey) > 0.01f ? UI_Animate(pressKey, pressed ? 1.0f : 0.0f, 0) : 0;
@@ -940,10 +939,10 @@ function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed)
     return wash;
 }
 
-// Text button that tints its text when hot and greys out when disabled.
+// Text button that tints its text when hot and greys out when disabled, washed in `washColor` under the pointer.
 // A NULL font uses the default one.
-function UI_Interaction Prog__TextButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
-                                         R_Color color, R_Color hotColor, R_Color disabledColor, b32 enabled, const Prog_Metrics *m)
+function UI_Interaction Prog__WashedButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
+                                           R_Color color, R_Color hotColor, R_Color disabledColor, R_Color washColor, b32 enabled, const Prog_Metrics *m)
 {
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
@@ -951,8 +950,7 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenPadding((UI_Padding){ padding, 0, padding, 0 });
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    // Under the pointer, the same wash of the selection color as a hovered row.
-    R_Color wash = Prog__ButtonWash(key, hot, pressed);
+    R_Color wash = Prog__ButtonWash(key, hot, pressed, washColor);
     UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
     UI_SetNextColors((UI_Colors){ .background = wash, .text = !enabled ? disabledColor : hot || pressed ? hotColor : color });
     UI_SetNextText(text);
@@ -961,6 +959,13 @@ function UI_Interaction Prog__TextButton(String identity, String text, const R_F
     UI_Interaction result = UI_InteractionFromBlock(block);
     if (!enabled) result.clicked = false;
     return result;
+}
+
+// Under the pointer, the same wash of the selection color as a hovered row.
+function UI_Interaction Prog__TextButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
+                                         R_Color color, R_Color hotColor, R_Color disabledColor, b32 enabled, const Prog_Metrics *m)
+{
+    return Prog__WashedButton(identity, text, font, width, height, padding, color, hotColor, disabledColor, Prog_CurrentTheme()->selection, enabled, m);
 }
 
 function f32 Prog__StripHeight(const Prog_Metrics *m) { return m->bar - floorf(0.8f * m->scale + 0.5f); }
@@ -1082,7 +1087,7 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
     b32 lit = tabs ? state->paletteOpen && state->paletteMode == Prog_PaletteMode_Tabs : state->menuOpen && state->menuOpener == kind;
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
-    R_Color wash = Prog__ButtonWash(key, hot, pressed);
+    R_Color wash = Prog__ButtonWash(key, hot, pressed, theme->selection);
     // The tab list's and the main menu's, in the title bar, are rounder than the toolbar's, as the window buttons beside them, and the
     // main menu's wider.
     b32 main = kind == Prog_CommandKind_MainMenu;
@@ -5785,11 +5790,13 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(head) {
                 String title = StrFormat(&state->frameArena, "%s %" PRIu64 " item%s to %S", transfer->move ? "Moving" : "Copying", items, items == 1 ? "" : "s", target);
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
-                UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", i), paused ? Icon_Play : Icon_Pause, m->icons, UI_Pixels(m->row), m->row, 0,
+                // Lucide draws these larger than its cross, which the smaller icons bring to its size.
+                UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", i), paused ? Icon_Play : Icon_Pause, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
                                                         theme->icon, theme->text, theme->iconDisabled, true, m);
                 if (pause.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferPause, i, 0, pause.clickOrder);
-                UI_Interaction cancel = Prog__TextButton(StrFormat(&state->frameArena, "TransferCancel/%u", i), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
-                                                         theme->icon, theme->text, theme->iconDisabled, true, m);
+                // Washed red, as the window's close button.
+                UI_Interaction cancel = Prog__WashedButton(StrFormat(&state->frameArena, "TransferCancel/%u", i), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                                           theme->icon, theme->text, theme->iconDisabled, theme->danger, true, m);
                 if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, i, 0, cancel.clickOrder);
             }
             if (asking) {
