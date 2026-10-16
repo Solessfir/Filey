@@ -11,7 +11,7 @@
 
 // Extensions whose files carry their own icon, so they cannot share one per type.
 global const String P__IconPerPathExtensions[] = {
-    S("exe"), S("lnk"), S("ico"), S("cur"), S("ani"), S("url"), S("scr"), S("msc"), S("cpl"), S("appref-ms"),
+    SInit("exe"), SInit("lnk"), SInit("ico"), SInit("cur"), SInit("ani"), SInit("url"), SInit("scr"), SInit("msc"), SInit("cpl"), SInit("appref-ms"),
 };
 
 function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)

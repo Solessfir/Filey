@@ -12,15 +12,15 @@ typedef struct TestFixtureEntry {
 } TestFixtureEntry;
 
 global const TestFixtureEntry TestFixtureEntries[] = {
-    {.name = S("Folder10"), .directory = true},
-    {.name = S("Folder2"), .directory = true},
-    {.name = S("Empty"), .directory = true},
-    {.name = S("file10.txt"), .size = 10},
-    {.name = S("file2.txt"), .size = 2},
-    {.name = S("plain.txt"), .size = 1},
-    {.name = S(".hidden"), .hidden = true},
-    {.name = S("Zażółć-🙂.txt"), .size = 3},
-    {.name = S("Folder2/inside.txt"), .size = 5},
+    {.name = SInit("Folder10"), .directory = true},
+    {.name = SInit("Folder2"), .directory = true},
+    {.name = SInit("Empty"), .directory = true},
+    {.name = SInit("file10.txt"), .size = 10},
+    {.name = SInit("file2.txt"), .size = 2},
+    {.name = SInit("plain.txt"), .size = 1},
+    {.name = SInit(".hidden"), .hidden = true},
+    {.name = SInit("Zażółć-🙂.txt"), .size = 3},
+    {.name = SInit("Folder2/inside.txt"), .size = 5},
 };
 
 #if defined(_WIN32)

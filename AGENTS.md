@@ -38,6 +38,7 @@ Screenshots of the reference app, kept outside the repository, are the visual re
 - Enum values are `Type_Value` (e.g. `FileKind_Directory`), and dense enums end with a `_Count` sentinel.
 - Use `function`, `global`, and `local_persist` instead of bare `static`.
 - Use the base-layer vocabulary (`u64`, `b32`, `S("...")`, `ArenaPushStruct`, `ArrayPush`, `QueuePush`, etc.) instead of raw runtime calls.
+- `S("...")` is a compound literal, which is not a constant in the initializer of `global` or `local_persist` data (GCC's `-Wpedantic` flags it). Write `SInit("...")` there; a function's table of macros that wrap `S()`, such as `Icon_*`, is left automatic instead.
 - Prefer standard C23 (`__VA_OPT__`, `static_assert`, `alignof`) over compiler extensions.
 - Use the base type aliases (`u8`..`u64`, `i32`, `f32`, `b32`, `wchar`, `rune`) instead of `int`, `float`, `unsigned`, `size_t`, `WCHAR`, etc., including in the C++ adapter. Internal helpers of a layer use a double underscore (`R__FontFindGlyph`, `GL__PushInstance`).
 - Screenshots of the reference's original source, kept outside the repository, show its style (`result` return variables, `Prefix__Name` internals, `enum8(...)` fields, `_Count` sentinels). Use them as a loose reference, not a formatting rule.

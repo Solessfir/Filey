@@ -253,6 +253,9 @@ function void TestStrings(void)
     Check(StrIsEqual(s2, S("should be simple.")));
     Check(StrIsEqual(StrFromTo(s2, 0, -8), S("should be")));
     Check(StrIsEqual(StrFromTo(S("abcdef"), 1, -2), S("bcd")));
+
+    local_persist const String table[] = { SInit("ab"), SInit("") };
+    Check(StrIsEqual(table[0], S("ab")) && table[1].length == 0);
     Check(StrIsEqual(StrFromTo(S("abcdef"), 1, 3), S("bc")));
     Check(StrFromTo(S("abc"), 2, 1).length == 0);
 

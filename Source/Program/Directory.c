@@ -694,7 +694,7 @@ function b32 Prog__EqualFolded(String a, String b);
 
 function b32 Prog__IsArchive(String path)
 {
-    local_persist const String extensions[] = { S(".zip"), S(".7z"), S(".rar"), S(".tar"), S(".tgz"), S(".gz"), S(".bz2"), S(".xz"), S(".zst"), S(".cab"), S(".jar") };
+    local_persist const String extensions[] = { SInit(".zip"), SInit(".7z"), SInit(".rar"), SInit(".tar"), SInit(".tgz"), SInit(".gz"), SInit(".bz2"), SInit(".xz"), SInit(".zst"), SInit(".cab"), SInit(".jar") };
     for (u32 i = 0; i < CArrayCount(extensions); ++i) {
         String tail = path.length >= extensions[i].length ? StrFrom(path, path.length - extensions[i].length) : (String){0};
         if (Prog__EqualFolded(tail, extensions[i])) return true;
@@ -732,44 +732,44 @@ typedef struct Prog__SyntaxDesc {
 } Prog__SyntaxDesc;
 
 global const Prog__SyntaxDesc Prog__Syntaxes[Prog_Syntax_Count] = {
-    [Prog_Syntax_C] = { S("//"), {0}, S("/*"), S("*/"),
-        S(" alignas alignof auto bool break case catch char char8_t char16_t char32_t class const consteval constexpr constinit const_cast continue co_await co_return "
+    [Prog_Syntax_C] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
+        SInit(" alignas alignof auto bool break case catch char char8_t char16_t char32_t class const consteval constexpr constinit const_cast continue co_await co_return "
           "co_yield decltype default delete do double dynamic_cast else enum explicit export extern false final float for friend goto if inline int long mutable "
           "namespace new noexcept nullptr operator override private protected public register reinterpret_cast restrict return short signed sizeof static "
           "static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile "
           "wchar_t while _Alignas _Alignof _Atomic _Bool _Generic _Noreturn _Static_assert _Thread_local UCLASS USTRUCT UENUM UFUNCTION UPROPERTY UINTERFACE "
           "UMETA UPARAM GENERATED_BODY GENERATED_UCLASS_BODY GENERATED_USTRUCT_BODY ") },
-    [Prog_Syntax_CSharp] = { S("//"), {0}, S("/*"), S("*/"),
-        S(" abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event "
+    [Prog_Syntax_CSharp] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
+        SInit(" abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event "
           "explicit extern false finally fixed float for foreach get goto if implicit in init int interface internal is lock long namespace new null object "
           "operator out override params private protected public readonly record ref return sbyte sealed set short sizeof stackalloc static string struct "
           "switch this throw true try typeof uint ulong unchecked unsafe ushort using value var virtual void volatile while yield ") },
-    [Prog_Syntax_Script] = { S("//"), {0}, S("/*"), S("*/"),
-        S(" abstract any as async await boolean break case catch class const continue debugger declare default delete do else enum export extends false "
+    [Prog_Syntax_Script] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
+        SInit(" abstract any as async await boolean break case catch class const continue debugger declare default delete do else enum export extends false "
           "finally for from function get if implements import in instanceof interface keyof let namespace never new null number of private protected public "
           "readonly return set static string super switch this throw true try type typeof undefined unknown var void while with yield ") },
-    [Prog_Syntax_Rust] = { S("//"), {0}, S("/*"), S("*/"),
-        S(" as async await bool break char const continue crate dyn else enum extern f32 f64 false fn for i8 i16 i32 i64 i128 if impl in isize let loop match "
+    [Prog_Syntax_Rust] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
+        SInit(" as async await bool break char const continue crate dyn else enum extern f32 f64 false fn for i8 i16 i32 i64 i128 if impl in isize let loop match "
           "mod move mut pub ref return self Self static str struct super trait true type u8 u16 u32 u64 u128 unsafe use usize where while Some None Ok Err ") },
-    [Prog_Syntax_Go] = { S("//"), {0}, S("/*"), S("*/"),
-        S(" any bool break byte case chan const continue default defer else error fallthrough false float32 float64 for func go goto if import int int8 int16 "
+    [Prog_Syntax_Go] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
+        SInit(" any bool break byte case chan const continue default defer else error fallthrough false float32 float64 for func go goto if import int int8 int16 "
           "int32 int64 interface iota map nil package range return rune select string struct switch true type uint uint8 uint16 uint32 uint64 uintptr var ") },
-    [Prog_Syntax_Java] = { S("//"), {0}, S("/*"), S("*/"),
-        S(" abstract assert boolean break byte case catch char class companion const continue data default do double else enum extends false final finally "
+    [Prog_Syntax_Java] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
+        SInit(" abstract assert boolean break byte case catch char class companion const continue data default do double else enum extends false final finally "
           "float for fun if implements import in instanceof int interface is lateinit long native new null object open override package private protected public "
           "return sealed short static super switch synchronized this throw throws transient true try val var void volatile when while ") },
-    [Prog_Syntax_Python] = { S("#"), {0}, {0}, {0},
-        S(" and as assert async await break case class continue def del elif else except False finally for from global if import in is lambda match None "
+    [Prog_Syntax_Python] = { SInit("#"), {0}, {0}, {0},
+        SInit(" and as assert async await break case class continue def del elif else except False finally for from global if import in is lambda match None "
           "nonlocal not or pass raise return self True try while with yield ") },
-    [Prog_Syntax_Lua] = { S("--"), {0}, S("--[["), S("]]"),
-        S(" and break do else elseif end false for function goto if in local nil not or repeat return self then true until while ") },
-    [Prog_Syntax_Shell] = { S("#"), {0}, {0}, {0},
-        S(" case declare do done echo elif else esac exit export fi for function if in local readonly return select set source then until unset while ") },
-    [Prog_Syntax_PowerShell] = { S("#"), {0}, S("<#"), S("#>"),
-        S(" begin break catch class continue data do dynamicparam else elseif end exit filter finally for foreach function if in param process return "
+    [Prog_Syntax_Lua] = { SInit("--"), {0}, SInit("--[["), SInit("]]"),
+        SInit(" and break do else elseif end false for function goto if in local nil not or repeat return self then true until while ") },
+    [Prog_Syntax_Shell] = { SInit("#"), {0}, {0}, {0},
+        SInit(" case declare do done echo elif else esac exit export fi for function if in local readonly return select set source then until unset while ") },
+    [Prog_Syntax_PowerShell] = { SInit("#"), {0}, SInit("<#"), SInit("#>"),
+        SInit(" begin break catch class continue data do dynamicparam else elseif end exit filter finally for foreach function if in param process return "
           "switch throw trap try until using while ") },
-    [Prog_Syntax_Json] = { S("//"), {0}, S("/*"), S("*/"), S(" true false null ") },
-    [Prog_Syntax_Ini] = { {0}, {0}, {0}, {0}, S(" true false yes no on off null ") },
+    [Prog_Syntax_Json] = { SInit("//"), {0}, SInit("/*"), SInit("*/"), SInit(" true false null ") },
+    [Prog_Syntax_Ini] = { {0}, {0}, {0}, {0}, SInit(" true false yes no on off null ") },
     [Prog_Syntax_Markdown] = { {0}, {0}, {0}, {0}, {0} },
 };
 
@@ -2851,7 +2851,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
 
 // The columns' names in the files that keep them.
 global const String Prog_ColumnWords[Prog_ColumnKind_Count] = {
-    S("name"), S("type"), S("size"), S("items"), S("created"), S("modified"), S("accessed"), S("volume"), S("folder"), S("filesystem"), S("free"), S("full"), S("original"), S("deleted"),
+    SInit("name"), SInit("type"), SInit("size"), SInit("items"), SInit("created"), SInit("modified"), SInit("accessed"), SInit("volume"), SInit("folder"), SInit("filesystem"), SInit("free"), SInit("full"), SInit("original"), SInit("deleted"),
 };
 
 // `set` as one word: its columns' names, those resized with their share of the row after a colon, between commas; "-" for the defaults.
@@ -3864,7 +3864,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Save %S: %S", input->path, error->message);
                 changed = true;
             }
-            local_persist const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile };
+            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {

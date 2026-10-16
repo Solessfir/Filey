@@ -420,7 +420,7 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
 // Pictures stb_image decodes are their own thumbnails; every other file shows its type's icon.
 function b32 P__IsPicture(String typeKey)
 {
-    local_persist const String pictures[] = { S(".png"), S(".jpg"), S(".jpeg"), S(".jpe"), S(".gif"), S(".bmp") };
+    local_persist const String pictures[] = { SInit(".png"), SInit(".jpg"), SInit(".jpeg"), SInit(".jpe"), SInit(".gif"), SInit(".bmp") };
     for (u64 i = 0; i < CArrayCount(pictures); ++i) {
         if (StrIsEqual(typeKey, pictures[i])) return true;
     }
@@ -552,7 +552,7 @@ function String P__MimeComment(Arena *arena, String mime)
             StrBuilder builder = {0};
             for (u64 i = 0; i < raw.length; ++i) {
                 local_persist const struct { String entity; char c; } entities[] = {
-                    { S("&amp;"), '&' }, { S("&lt;"), '<' }, { S("&gt;"), '>' }, { S("&quot;"), '"' }, { S("&apos;"), '\'' },
+                    { SInit("&amp;"), '&' }, { SInit("&lt;"), '<' }, { SInit("&gt;"), '>' }, { SInit("&quot;"), '"' }, { SInit("&apos;"), '\'' },
                 };
                 char c = raw.value[i];
                 for (u32 e = 0; c == '&' && e < CArrayCount(entities); ++e) {

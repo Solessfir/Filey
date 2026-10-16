@@ -432,6 +432,8 @@ typedef struct ArrayStr {
 
 // Only for string literals; a `char *` gives the pointer size.
 #define S(text) ((String){ .value = (text), .length = sizeof(text) - 1 })
+// S for initializers of static data, where a compound literal is not a constant expression.
+#define SInit(text) { .value = (text), .length = sizeof(text) - 1 }
 
 typedef u32 StrSearchFlags;
 enum {

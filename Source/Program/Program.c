@@ -252,10 +252,10 @@ function f32 Prog__ParseNumber(String value)
 }
 
 // The words Settings.txt has for the choices of the start, new tabs and recents.
-global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { S("persistent"), S("session"), S("never") };
-global const String Prog_OptionStartups[Prog_Startup_Count] = { S("session"), S("root"), S("home") };
-global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { S("root"), S("home"), S("current") };
-global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { S("filter"), S("hotkey"), S("select") };
+global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { SInit("persistent"), SInit("session"), SInit("never") };
+global const String Prog_OptionStartups[Prog_Startup_Count] = { SInit("session"), SInit("root"), SInit("home") };
+global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { SInit("root"), SInit("home"), SInit("current") };
+global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit("filter"), SInit("hotkey"), SInit("select") };
 
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
@@ -324,7 +324,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("glass.blur"))) {
             if (number >= 0 && number <= 100) Prog_GlassBlur = number;
         } else if (StrIsEqual(name, S("glass.backdrop"))) {
-            local_persist const String backdrops[PlatformBackdrop_Count] = { S("acrylic"), S("mica"), S("tabbed"), S("none") };
+            local_persist const String backdrops[PlatformBackdrop_Count] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
             for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, backdrops[i])) state->glassBackdrop = (u8)i;
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
@@ -407,7 +407,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("inspector.fontSize"))) {
             if (number >= Prog_InspectorFontMin && number <= Prog_InspectorFontMax) inspectorFontSize = (u32)number;
         } else if (StrIsEqual(name, S("inspector.layout"))) {
-            local_persist const String layouts[Prog_InspectorLayout_Count] = { S("auto"), S("right"), S("below") };
+            local_persist const String layouts[Prog_InspectorLayout_Count] = { SInit("auto"), SInit("right"), SInit("below") };
             for (u32 i = 0; i < Prog_InspectorLayout_Count; ++i) if (Prog__EqualFolded(value, layouts[i])) inspectorLayout = (u8)i;
         } else if (StrIsEqual(name, S("animations"))) {
             state->animationsOff = Prog__EqualFolded(value, S("off")) || Prog__EqualFolded(value, S("false")) || StrIsEqual(value, S("0"));
@@ -522,89 +522,89 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 }
 
 // The options of the Options popup, in its order.
-global const String Prog_OptionSwitch[] = { S("false"), S("true") };
-global const String Prog_OptionSchemes[] = { S("default"), S("fullmoon"), S("light") };
-global const String Prog_OptionCorners[] = { S("square"), S("round") };
-global const String Prog_OptionLayouts[] = { S("auto"), S("right"), S("below") };
-global const String Prog_OptionThumbnails[] = { S("never"), S("local"), S("always") };
-global const String Prog_OptionBackdrops[] = { S("acrylic"), S("mica"), S("tabbed"), S("none") };
+global const String Prog_OptionSwitch[] = { SInit("false"), SInit("true") };
+global const String Prog_OptionSchemes[] = { SInit("default"), SInit("fullmoon"), SInit("light") };
+global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
+global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
+global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
+global const String Prog_OptionBackdrops[] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
-    [Prog_Option_FontSize] = { S("Font Size"), S("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, S("scale") },
-    [Prog_Option_InspectorFontSize] = { S("Inspector Font Size"), S("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
-                                        Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, S("inspector.fontSize") },
-    [Prog_Option_Spacing] = { S("Spacing"), S("Defines the space between items in a list."), Prog_OptionControl_Slider, 0, 13, NULL, 0, S("spacing") },
-    [Prog_Option_Animations] = { S("Animations"), S("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
-                                 Prog_OptionSwitch, 2, S("animations") },
-    [Prog_Option_RoundCorners] = { S("Round Corners"), S("Applies rounding to the corners of UI elements such as popups, buttons, and selections."), Prog_OptionControl_Switch,
-                                   0, 1, Prog_OptionCorners, 2, S("corners") },
-    [Prog_Option_InlineSubmenus] = { S("Inline Submenus"), S("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
-                                     Prog_OptionSwitch, 2, S("menus.inline") },
-    [Prog_Option_SystemScheme] = { S("System Light / Dark Scheme"), S("Automatically adapt between light and dark color schemes based on system settings."),
-                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("theme.system") },
-    [Prog_Option_ColorScheme] = { S("Color Scheme"), S("Applies a color palette to all UI elements."), Prog_OptionControl_Choice, 0, 0,
-                                  Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), S("theme") },
-    [Prog_Option_AlternatingRows] = { S("Alternating Row Colors"), S("Applies alternating row colors to improve readability and distinguish adjacent rows."),
-                                      Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("rows.alternate") },
-    [Prog_Option_InactiveOpacity] = { S("Inactive Panel Contents Opacity"), S("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
-                                      0, 100, NULL, 0, S("inactive.opacity") },
-    [Prog_Option_ShowFileExtension] = { S("Show File Extension"), S("Toggle the visibility of file extensions."), Prog_OptionControl_Switch, 0, 1,
-                                        Prog_OptionSwitch, 2, S("files.extensions") },
-    [Prog_Option_ShowHiddenFiles] = { S("Show Hidden Files"), S("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
-                                      Prog_OptionSwitch, 2, S("files.hidden") },
-    [Prog_Option_ShowSystemFiles] = { S("Show System Files"), S("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("files.system") },
-    [Prog_Option_ShortenedPaths] = { S("Display Compact Paths"), S("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
-                                     Prog_OptionSwitch, 2, S("paths.short") },
-    [Prog_Option_Breadcrumbs] = { S("Display Path Breadcrumbs"), S("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
-                                  Prog_OptionSwitch, 2, S("paths.trail") },
-    [Prog_Option_ShowCheckboxes] = { S("Show Selection Boxes"), S("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
-                                     Prog_OptionSwitch, 2, S("checkboxes") },
-    [Prog_Option_ConfirmEmptyTrash] = { S("Confirm Emptying Recycle Bin"), S("Ask before permanently deleting everything in the Recycle Bin."),
-                                        Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("trash.confirm") },
-    [Prog_Option_StoreRecents] = { S("Store Recents"), S("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
-                                   Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), S("recents.store") },
-    [Prog_Option_ShowRecents] = { S("Highlight Recents"), S("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
-                                  Prog_OptionSwitch, 2, S("recents.highlight") },
-    [Prog_Option_SortRecents] = { S("Sort Recents On Top"), S("Sort recently accessed files and directories to the top."), Prog_OptionControl_Switch, 0, 1,
-                                  Prog_OptionSwitch, 2, S("recents.sort") },
-    [Prog_Option_LoadThumbnails] = { S("Load Thumbnails"), S("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
-                                     Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), S("thumbnails") },
-    [Prog_Option_CalcFolderSizes] = { S("Calculate Folder Sizes"), S("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
-                                      Prog_OptionSwitch, 2, S("folders.size") },
-    [Prog_Option_CalcFolderSizesSSD] = { S("SSDs"), S("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
-                                         Prog_OptionSwitch, 2, S("folders.size.ssd") },
-    [Prog_Option_CalcFolderSizesHDD] = { S("HDDs"), S("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
-                                         Prog_OptionSwitch, 2, S("folders.size.hdd") },
-    [Prog_Option_CalcFolderSizesNetwork] = { S("Network Locations"), S("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
-                                             0, 1, Prog_OptionSwitch, 2, S("folders.size.network") },
-    [Prog_Option_ActOnPress] = { S("Act On Press"), S("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
-                                 Prog_OptionSwitch, 2, S("click.onPress") },
-    [Prog_Option_SingleClick] = { S("Single-click To Open"), S("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("click.single") },
-    [Prog_Option_SingleClickFoldersOnly] = { S("Folders Only"), S("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
-                                             Prog_OptionSwitch, 2, S("click.singleFoldersOnly") },
-    [Prog_Option_HoverToSelect] = { S("Point To Select"), S("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("hover.select") },
-    [Prog_Option_UnderlineOnHover] = { S("Underline On Point"), S("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
-                                       Prog_OptionSwitch, 2, S("hover.underline") },
-    [Prog_Option_DoubleClickToParent] = { S("Double-click To Parent"), S("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
-                                          Prog_OptionSwitch, 2, S("click.doubleToParent") },
-    [Prog_Option_Overscroll] = { S("Scroll Beyond Last Item"), S("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("scroll.over") },
-    [Prog_Option_ReverseScroll] = { S("Reverse Scroll Direction"), S("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
-                                    Prog_OptionSwitch, 2, S("scroll.reverse") },
-    [Prog_Option_CharacterKeyAction] = { S("Character Key Action"), S("Determines the action when you press raw character keys without modifiers."),
-                                         Prog_OptionControl_Choice, 0, 0, Prog_OptionCharacterKeys, Prog_CharacterKeys_Count, S("keys.character") },
-    [Prog_Option_InspectorLayout] = { S("Inspector Layout"), S("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
-                                      Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), S("inspector.layout") },
-    [Prog_Option_LoadOnStartup] = { S("Load On Startup"), S("Previous session or location to load on startup."), Prog_OptionControl_Choice, 0, 0,
-                                    Prog_OptionStartups, CArrayCount(Prog_OptionStartups), S("startup") },
-    [Prog_Option_NewTabShow] = { S("New Tab Show"), S("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
-                                 Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), S("newtab") },
-    [Prog_Option_VSync] = { S("VSync"), S("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
-                            Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, S("vsync") },
-    [Prog_Option_Transparency] = { S("Transparency"), S("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
-                                   Prog_OptionSwitch, 2, S("transparent") },
-    [Prog_Option_PopupBlur] = { S("Popup Blur"), S("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
-                                NULL, 0, S("glass.blur") },
-    [Prog_Option_Backdrop] = { S("Backdrop"), S("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
-                               Prog_OptionBackdrops, CArrayCount(Prog_OptionBackdrops), S("glass.backdrop") },
+    [Prog_Option_FontSize] = { SInit("Font Size"), SInit("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, SInit("scale") },
+    [Prog_Option_InspectorFontSize] = { SInit("Inspector Font Size"), SInit("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
+                                        Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, SInit("inspector.fontSize") },
+    [Prog_Option_Spacing] = { SInit("Spacing"), SInit("Defines the space between items in a list."), Prog_OptionControl_Slider, 0, 13, NULL, 0, SInit("spacing") },
+    [Prog_Option_Animations] = { SInit("Animations"), SInit("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
+                                 Prog_OptionSwitch, 2, SInit("animations") },
+    [Prog_Option_RoundCorners] = { SInit("Round Corners"), SInit("Applies rounding to the corners of UI elements such as popups, buttons, and selections."), Prog_OptionControl_Switch,
+                                   0, 1, Prog_OptionCorners, 2, SInit("corners") },
+    [Prog_Option_InlineSubmenus] = { SInit("Inline Submenus"), SInit("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
+                                     Prog_OptionSwitch, 2, SInit("menus.inline") },
+    [Prog_Option_SystemScheme] = { SInit("System Light / Dark Scheme"), SInit("Automatically adapt between light and dark color schemes based on system settings."),
+                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("theme.system") },
+    [Prog_Option_ColorScheme] = { SInit("Color Scheme"), SInit("Applies a color palette to all UI elements."), Prog_OptionControl_Choice, 0, 0,
+                                  Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), SInit("theme") },
+    [Prog_Option_AlternatingRows] = { SInit("Alternating Row Colors"), SInit("Applies alternating row colors to improve readability and distinguish adjacent rows."),
+                                      Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("rows.alternate") },
+    [Prog_Option_InactiveOpacity] = { SInit("Inactive Panel Contents Opacity"), SInit("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
+                                      0, 100, NULL, 0, SInit("inactive.opacity") },
+    [Prog_Option_ShowFileExtension] = { SInit("Show File Extension"), SInit("Toggle the visibility of file extensions."), Prog_OptionControl_Switch, 0, 1,
+                                        Prog_OptionSwitch, 2, SInit("files.extensions") },
+    [Prog_Option_ShowHiddenFiles] = { SInit("Show Hidden Files"), SInit("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
+                                      Prog_OptionSwitch, 2, SInit("files.hidden") },
+    [Prog_Option_ShowSystemFiles] = { SInit("Show System Files"), SInit("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("files.system") },
+    [Prog_Option_ShortenedPaths] = { SInit("Display Compact Paths"), SInit("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
+                                     Prog_OptionSwitch, 2, SInit("paths.short") },
+    [Prog_Option_Breadcrumbs] = { SInit("Display Path Breadcrumbs"), SInit("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
+                                  Prog_OptionSwitch, 2, SInit("paths.trail") },
+    [Prog_Option_ShowCheckboxes] = { SInit("Show Selection Boxes"), SInit("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
+                                     Prog_OptionSwitch, 2, SInit("checkboxes") },
+    [Prog_Option_ConfirmEmptyTrash] = { SInit("Confirm Emptying Recycle Bin"), SInit("Ask before permanently deleting everything in the Recycle Bin."),
+                                        Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
+    [Prog_Option_StoreRecents] = { SInit("Store Recents"), SInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
+                                   Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
+    [Prog_Option_ShowRecents] = { SInit("Highlight Recents"), SInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
+                                  Prog_OptionSwitch, 2, SInit("recents.highlight") },
+    [Prog_Option_SortRecents] = { SInit("Sort Recents On Top"), SInit("Sort recently accessed files and directories to the top."), Prog_OptionControl_Switch, 0, 1,
+                                  Prog_OptionSwitch, 2, SInit("recents.sort") },
+    [Prog_Option_LoadThumbnails] = { SInit("Load Thumbnails"), SInit("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
+                                     Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), SInit("thumbnails") },
+    [Prog_Option_CalcFolderSizes] = { SInit("Calculate Folder Sizes"), SInit("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
+                                      Prog_OptionSwitch, 2, SInit("folders.size") },
+    [Prog_Option_CalcFolderSizesSSD] = { SInit("SSDs"), SInit("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
+                                         Prog_OptionSwitch, 2, SInit("folders.size.ssd") },
+    [Prog_Option_CalcFolderSizesHDD] = { SInit("HDDs"), SInit("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
+                                         Prog_OptionSwitch, 2, SInit("folders.size.hdd") },
+    [Prog_Option_CalcFolderSizesNetwork] = { SInit("Network Locations"), SInit("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
+                                             0, 1, Prog_OptionSwitch, 2, SInit("folders.size.network") },
+    [Prog_Option_ActOnPress] = { SInit("Act On Press"), SInit("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
+                                 Prog_OptionSwitch, 2, SInit("click.onPress") },
+    [Prog_Option_SingleClick] = { SInit("Single-click To Open"), SInit("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("click.single") },
+    [Prog_Option_SingleClickFoldersOnly] = { SInit("Folders Only"), SInit("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
+                                             Prog_OptionSwitch, 2, SInit("click.singleFoldersOnly") },
+    [Prog_Option_HoverToSelect] = { SInit("Point To Select"), SInit("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("hover.select") },
+    [Prog_Option_UnderlineOnHover] = { SInit("Underline On Point"), SInit("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
+                                       Prog_OptionSwitch, 2, SInit("hover.underline") },
+    [Prog_Option_DoubleClickToParent] = { SInit("Double-click To Parent"), SInit("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
+                                          Prog_OptionSwitch, 2, SInit("click.doubleToParent") },
+    [Prog_Option_Overscroll] = { SInit("Scroll Beyond Last Item"), SInit("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("scroll.over") },
+    [Prog_Option_ReverseScroll] = { SInit("Reverse Scroll Direction"), SInit("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
+                                    Prog_OptionSwitch, 2, SInit("scroll.reverse") },
+    [Prog_Option_CharacterKeyAction] = { SInit("Character Key Action"), SInit("Determines the action when you press raw character keys without modifiers."),
+                                         Prog_OptionControl_Choice, 0, 0, Prog_OptionCharacterKeys, Prog_CharacterKeys_Count, SInit("keys.character") },
+    [Prog_Option_InspectorLayout] = { SInit("Inspector Layout"), SInit("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
+                                      Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), SInit("inspector.layout") },
+    [Prog_Option_LoadOnStartup] = { SInit("Load On Startup"), SInit("Previous session or location to load on startup."), Prog_OptionControl_Choice, 0, 0,
+                                    Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
+    [Prog_Option_NewTabShow] = { SInit("New Tab Show"), SInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
+                                 Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), SInit("newtab") },
+    [Prog_Option_VSync] = { SInit("VSync"), SInit("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
+                            Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("vsync") },
+    [Prog_Option_Transparency] = { SInit("Transparency"), SInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
+                                   Prog_OptionSwitch, 2, SInit("transparent") },
+    [Prog_Option_PopupBlur] = { SInit("Popup Blur"), SInit("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
+                                NULL, 0, SInit("glass.blur") },
+    [Prog_Option_Backdrop] = { SInit("Backdrop"), SInit("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
+                               Prog_OptionBackdrops, CArrayCount(Prog_OptionBackdrops), SInit("glass.backdrop") },
 };
 
 // The options whose name or description holds what is typed into the popup, in their order, into `found`; returns how many.
@@ -1782,8 +1782,8 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
 };
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
-    S("Name"), S("Type"), S("Date Modified"), S("Folders"), S("Files"), S("Size"), S("Date Created"), S("Date Accessed"), S("Folder Usage"), S("Volume Usage"),
-    S("File System"), S("Free Space"), S("Percent Full"), S("Original Location"), S("Date Deleted"),
+    SInit("Name"), SInit("Type"), SInit("Date Modified"), SInit("Folders"), SInit("Files"), SInit("Size"), SInit("Date Created"), SInit("Date Accessed"), SInit("Folder Usage"), SInit("Volume Usage"),
+    SInit("File System"), SInit("Free Space"), SInit("Percent Full"), SInit("Original Location"), SInit("Date Deleted"),
 };
 
 // The panel's columns laid out for rows `room` wide: each its share of it, however narrow,
@@ -2764,7 +2764,7 @@ function f32 Prog__ZoomFraction(u32 zoom) { return MinF32(1, (f32)zoom / (f32)Pr
 // The view's name, as the status bar and the zoom popup call it.
 function String Prog__ZoomName(u32 zoom)
 {
-    local_persist const String names[Prog_View_Count] = { S("Details"), S("List"), S("Columns"), {0} };
+    local_persist const String names[Prog_View_Count] = { SInit("Details"), SInit("List"), SInit("Columns"), {0} };
     Prog_View view = Prog_ZoomView(zoom);
     return view != Prog_View_Icons ? names[view] : zoom < Prog_ZoomLarge ? S("M Icons") : zoom < Prog_ZoomMax ? S("L Icons") : S("XL Icons");
 }
@@ -3149,7 +3149,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefWidth(UI_Pixels(floorf(14.4f * m->scale + 0.5f)));
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_Block *sortButton = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FolderSort")), UI_Flag_LeftMouseClickable);
-                local_persist const String sortTips[Prog_FolderSort_Count] = { S("Folders first, then files."), S("Files first, then folders."), S("Folders and files mixed.") };
+                local_persist const String sortTips[Prog_FolderSort_Count] = { SInit("Folders first, then files."), SInit("Files first, then folders."), SInit("Folders and files mixed.") };
                 Prog__DescribeTooltip(state, Prog_CommandKind_CycleFolderSort, sortTips[state->folderSort]);
                 UI_Interaction sortClick = UI_InteractionFromBlock(sortButton);
                 if (sortClick.clicked) Prog_QueueCommand(state, Prog_CommandKind_CycleFolderSort, 0, 0, sortClick.clickOrder);
@@ -3163,7 +3163,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 Prog__Spacer(UI_Pixels(floorf(8.8f * m->scale + 0.5f)), UI_Pixels(m->pill));
                 // The view and how far it is zoomed, as a bar filled to the zoom's percentage.
                 Prog_View view = Prog_ZoomView(state->zoom);
-                local_persist const String viewIcons[Prog_View_Count] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image };
+                const String viewIcons[Prog_View_Count] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image };
                 String name = Prog__ZoomName(state->zoom);
                 f32 zoom = Prog__ZoomFraction(state->zoom);
                 f32 barWidth = floorf(40.8f * m->scale + 0.5f);
@@ -4859,8 +4859,8 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     UI_Interaction interaction = UI_InteractionFromBlock(title);
                     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GoToFold, (u64)at.section, 0, interaction.clickOrder);
                     UI_Parent(title) {
-                        local_persist const String titles[] = { S("Recents"), S("Bookmarks"), S("Storage"), S("Places") };
-                        local_persist const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_Folder };
+                        local_persist const String titles[] = { SInit("Recents"), SInit("Bookmarks"), SInit("Storage"), SInit("Places") };
+                        const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_Folder };
                         static_assert(CArrayCount(titles) == Prog_GoToSection_Folder, "a title for every section");
                         Prog__Icon(icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
                         Prog__Label(titles[at.section], UI_Flex(), face, 0, theme->text, 0);
@@ -5367,8 +5367,8 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ZoomPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     Prog_View view = Prog_ZoomView(state->zoom);
     u32 lit = view != Prog_View_Icons ? (u32)view : state->zoom < Prog_ZoomLarge ? 3u : state->zoom < Prog_ZoomMax ? 4u : 5u;
-    local_persist const String names[] = { S("Details"), S("List"), S("Columns"), S("M Icons"), S("L Icons"), S("XL Icons") };
-    local_persist const String icons[] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image, Icon_Image, Icon_Image };
+    local_persist const String names[] = { SInit("Details"), SInit("List"), SInit("Columns"), SInit("M Icons"), SInit("L Icons"), SInit("XL Icons") };
+    const String icons[] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image, Icon_Image, Icon_Image };
     f32 places[] = { 0, 0.1f, 0.2f, 0.3f, 0.65f, 1 };
     u32 levels[] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
     f32 inset = floorf(11.2f * s + 0.5f), rowWidth = floorf(120.0f * s + 0.5f), rowHeight = floorf(17.6f * s + 0.5f);
@@ -5581,9 +5581,9 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        local_persist const String groupNames[] = { S("Quick"), S("Folder"), S("View"), S("Sort"), S("Inspector"), S("Panels"), S("Tabs"), S("Go To"), S("Misc"),
-                                                    S("Options"), S("Rename"), S("Text"), S("Scroll") };
-        local_persist const String groupIcons[] = { Icon_Star, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
+        local_persist const String groupNames[] = { SInit("Quick"), SInit("Folder"), SInit("View"), SInit("Sort"), SInit("Inspector"), SInit("Panels"), SInit("Tabs"), SInit("Go To"), SInit("Misc"),
+                                                    SInit("Options"), SInit("Rename"), SInit("Text"), SInit("Scroll") };
+        const String groupIcons[] = { Icon_Star, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
                                                     Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextCursorInput, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
         // Room on the right for the scroll bar while there is one.
@@ -6649,22 +6649,22 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
             Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
             // The layouts, in a dashed outline, the one chosen lit.
-            local_persist const String layoutKeys[Prog_InspectorLayout_Count] = { S("InspectorLayoutAuto"), S("InspectorLayoutRight"), S("InspectorLayoutBelow") };
-            local_persist const String layoutIcons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
+            local_persist const String layoutKeys[Prog_InspectorLayout_Count] = { SInit("InspectorLayoutAuto"), SInit("InspectorLayoutRight"), SInit("InspectorLayoutBelow") };
+            const String layoutIcons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
             Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
             local_persist const String layoutTips[Prog_InspectorLayout_Count] = {
-                S("Auto positions the inspector to the right or below based on available space."), S("Forces the inspector to the right."), S("Forces the inspector below."),
+                SInit("Auto positions the inspector to the right or below based on available space."), SInit("Forces the inspector to the right."), SInit("Forces the inspector below."),
             };
             Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, layoutTips, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout,
                               Prog_CommandKind_InspectorChangeLayout, m);
             if (image) {
                 // An image's scales the same way, then its grid and minimap.
-                local_persist const String scaleKeys[Prog_ImageScale_Count] = { S("InspectorScaleFit"), S("InspectorScaleOriginal"), S("InspectorScaleCustom") };
-                local_persist const String scaleLabels[Prog_ImageScale_Count] = { Icon_Minimize2, S("1:1"), Icon_Maximize2 };
+                local_persist const String scaleKeys[Prog_ImageScale_Count] = { SInit("InspectorScaleFit"), SInit("InspectorScaleOriginal"), SInit("InspectorScaleCustom") };
+                const String scaleLabels[Prog_ImageScale_Count] = { Icon_Minimize2, S("1:1"), Icon_Maximize2 };
                 const R_Font *scaleFonts[Prog_ImageScale_Count] = { NULL, m->detail, NULL };
                 local_persist const String scaleTips[Prog_ImageScale_Count] = {
-                    S("Display image scaled to fit within the viewport."), S("Display image at its original source size, no scaling."),
-                    S("Display image with a custom scale adjustment."),
+                    SInit("Display image scaled to fit within the viewport."), SInit("Display image at its original source size, no scaling."),
+                    SInit("Display image with a custom scale adjustment."),
                 };
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
                 Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
