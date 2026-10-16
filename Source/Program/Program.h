@@ -365,6 +365,7 @@ typedef struct Prog_JobInput {
     Prog_IconRequest *icons;
     u64 iconCount;
     i32 iconSize;
+    f32 iconScale;
 } Prog_JobInput;
 
 // A copy or move on its way, shown with its progress; the job writes `progress` in place, so the slot stays put until the job is taken back.
@@ -910,6 +911,7 @@ typedef struct Prog_State {
     Prog_IconMap icons;
     Prog_ArrayIconRequest iconRequests;  // queued while building UI, submitted by Prog_ProcessCommands
     i32 iconSize;
+    f32 iconScale;                       // the display scale iconSize was reached at
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
     Prog_IconAtlas iconAtlas;
     // Thumbnails for the icon views, keyed by P_FileThumbnailKey, loaded at the tier of sizes at or above what the zoom draws and scaled down

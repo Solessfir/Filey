@@ -7019,6 +7019,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     metrics.iconsSmall = state->smallIcons ? state->smallIcons : icons;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
+    state->iconScale = scale;
     const Prog_Metrics *m = &metrics;
 
     UI->root->props.childrenPadding = (UI_Padding){0};

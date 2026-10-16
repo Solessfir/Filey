@@ -254,11 +254,12 @@ typedef struct P_Image {
 function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind);
 // The type key, except that files with their own icon (executables, shortcuts) are keyed by path.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
-// The system icon for `path`, at least `size` pixels when available.
+// The system icon for `path`, at least `size` pixels when available, which the display's `scale` gave; Linux icon themes pick their
+// artwork by the logical size and the whole scale.
 // The image may be larger or smaller; scaling is left to the caller.
 // May touch the disk, so run it in a job.
 // `exact` asks for the icon of this very item, as for special folders such as the desktop, rather than the one of its type.
-function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image);
+function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, f32 scale, b32 exact, P_Image *image);
 // A large picture for icon views, fitting a size x size square: the system's thumbnail where it makes one (an image's contents, a folder's preview),
 // else the icon unless `thumbnailOnly`, which then fails.
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image);

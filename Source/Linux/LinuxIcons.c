@@ -55,7 +55,8 @@ typedef enum P__IconDirType {
 
 typedef struct P__IconDir {
     String path;  // relative to the theme folder
-    i32 size, minSize, maxSize, threshold;
+    i32 size, minSize, maxSize, threshold;  // in logical pixels, of icons drawn at `scale`
+    i32 scale;
     enum8(P__IconDirType) type;
 } P__IconDir;
 
@@ -282,9 +283,10 @@ function void P__AddTheme(Arena *arena, ArrayStr bases, String name, ArrayStr *p
         String type = P__IniGet(index, dir, S("Type"));
         P__IconDir *entry = &theme.dirs[theme.dirCount++];
         entry->path = dir;
-        entry->size = size * Max(scale, 1);
-        entry->minSize = P__ParseI32(P__IniGet(index, dir, S("MinSize")), size) * Max(scale, 1);
-        entry->maxSize = P__ParseI32(P__IniGet(index, dir, S("MaxSize")), size) * Max(scale, 1);
+        entry->size = size;
+        entry->scale = Max(scale, 1);
+        entry->minSize = P__ParseI32(P__IniGet(index, dir, S("MinSize")), size);
+        entry->maxSize = P__ParseI32(P__IniGet(index, dir, S("MaxSize")), size);
         entry->threshold = P__ParseI32(P__IniGet(index, dir, S("Threshold")), 2);
         entry->type = StrIsEqual(type, S("Fixed")) ? P__IconDirType_Fixed
                     : StrIsEqual(type, S("Scalable")) ? P__IconDirType_Scalable : P__IconDirType_Threshold;
@@ -327,17 +329,24 @@ function void P__LoadIconData(void)
     P__AddTheme(arena, bases, S("hicolor"), &none);
 }
 
-function i32 P__IconDirDistance(const P__IconDir *dir, i32 size)
+// 0 for a directory made for icons `size` logical pixels at `scale`, as the freedesktop spec matches them, else how far apart their pixel
+// sizes are, at least 1. Themes draw some sizes differently, as Win11's monochrome 22 between its colored 16 and 32, so a 16 at 125% is
+// looked up as GTK does, as a 16 at scale 2, rather than as the 20 pixels it is drawn at.
+function i32 P__IconDirDistance(const P__IconDir *dir, i32 size, i32 scale)
 {
     i32 low = dir->size, high = dir->size;
     if (dir->type == P__IconDirType_Scalable) { low = dir->minSize; high = dir->maxSize; }
     if (dir->type == P__IconDirType_Threshold) { low = dir->size - dir->threshold; high = dir->size + dir->threshold; }
-    return size < low ? low - size : size > high ? size - high : 0;
+    if (dir->scale == scale && size >= low && size <= high) return 0;
+    i32 pixels = size * scale;
+    low *= dir->scale;
+    high *= dir->scale;
+    return Max(pixels < low ? low - pixels : pixels > high ? pixels - high : 0, 1);
 }
 
 // An exact size in any theme first, then the closest size, in theme order.
 // The freedesktop spec settles each theme before its parents; looking for exact sizes across themes first keeps icons sharp when an SVG had to be skipped.
-function String P__FindIcon(Arena *arena, String name, i32 size)
+function String P__FindIcon(Arena *arena, String name, i32 size, i32 scale)
 {
     local_persist const char *extensions[] = { "png", "svg" };
     for (u32 pass = 0; pass < 2; ++pass)
@@ -346,7 +355,7 @@ function String P__FindIcon(Arena *arena, String name, i32 size)
         String best = {0};
         i32 bestDistance = pass == 0 ? 1 : INT32_MAX;
         for (u64 d = 0; d < theme->dirCount; ++d) {
-            i32 distance = P__IconDirDistance(&theme->dirs[d], size);
+            i32 distance = P__IconDirDistance(&theme->dirs[d], size, scale);
             if (distance >= bestDistance) continue;
             for (u64 f = 0; f < theme->folders.header.count; ++f) {
                 for (u32 e = 0; e < CArrayCount(extensions); ++e) {
@@ -369,22 +378,49 @@ function String P__FindIcon(Arena *arena, String name, i32 size)
     return (String){0};
 }
 
+function b32 P__DecodePng(Arena *arena, String data, P_Image *image)
+{
+    i32 width = 0, height = 0, channels = 0;
+    u8 *pixels = data.length && data.length < INT32_MAX ? stbi_load_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels, 4) : NULL;
+    if (!pixels) return false;
+    image->width = width;
+    image->height = height;
+    image->pixels = ArenaPushArrayNoZero(arena, (u64)width * (u64)height, u32);
+    MemCopy(image->pixels, pixels, (u64)width * (u64)height * 4);
+    stbi_image_free(pixels);
+    return true;
+}
+
+// The bytes of the base64 text at the start of `text`, up to the first character that is neither base64 nor white space.
+function String P__DecodeBase64(Arena *arena, String text)
+{
+    u8 *bytes = ArenaPushArrayNoZero(arena, text.length / 4 * 3 + 3, u8);
+    u64 count = 0;
+    u32 bits = 0, pending = 0;
+    for (u64 i = 0; i < text.length; ++i) {
+        char c = text.value[i];
+        i32 value = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52 : c == '+' ? 62 : c == '/' ? 63 : -1;
+        if (value < 0) {
+            if (c == ' ' || c == '\n' || c == '\r' || c == '\t') continue;
+            break;
+        }
+        bits = bits << 6 | (u32)value;
+        pending += 6;
+        if (pending >= 8) {
+            pending -= 8;
+            bytes[count++] = (u8)(bits >> pending);
+        }
+    }
+    return StrMake((const char *)bytes, count);
+}
+
 function b32 P__DecodeIcon(Arena *arena, String path, i32 size, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
     String data = P__ReadFile(scratch.arena, path);
     b32 result = false;
-    if (data.length && data.length < INT32_MAX && StrIsEqual(StrFrom(path, path.length - 4), S(".png"))) {
-        i32 width = 0, height = 0, channels = 0;
-        u8 *pixels = stbi_load_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels, 4);
-        if (pixels) {
-            image->width = width;
-            image->height = height;
-            image->pixels = ArenaPushArrayNoZero(arena, (u64)width * (u64)height, u32);
-            MemCopy(image->pixels, pixels, (u64)width * (u64)height * 4);
-            stbi_image_free(pixels);
-            result = true;
-        }
+    if (data.length && StrIsEqual(StrFrom(path, path.length - 4), S(".png"))) {
+        result = P__DecodePng(arena, data, image);
     } else if (data.length) {
         NSVGimage *svg = nsvgParse((char *)data.value, "px", 96.0f);
         if (svg && svg->width > 0 && svg->height > 0) {
@@ -396,10 +432,13 @@ function b32 P__DecodeIcon(Arena *arena, String path, i32 size, P_Image *image)
                 f32 x = ((f32)size - svg->width * scale) * 0.5f, y = ((f32)size - svg->height * scale) * 0.5f;
                 nsvgRasterize(rasterizer, svg, x, y, scale, (u8 *)image->pixels, size, size, size * 4);
                 nsvgDeleteRasterizer(rasterizer);
-                result = true;
+                for (u64 i = 0; i < (u64)size * (u64)size && !result; ++i) result = (image->pixels[i] >> 24) != 0;
             }
         }
         if (svg) nsvgDelete(svg);
+        // Some themes, as Win11's small folders, wrap a PNG in the SVG, which nanosvg does not draw; an icon that draws nothing fails.
+        Index embedded = StrIndexStr(data, S("data:image/png;base64,"), SSF_IndexPlusOne);
+        if (!result && embedded.exists) result = P__DecodePng(arena, P__DecodeBase64(scratch.arena, StrFrom(data, embedded.value)), image);
     }
     ReleaseScratch(scratch);
     return result;
@@ -507,13 +546,46 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, false, image));
+    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));
 }
 
 // ponytail: `exact` is ignored, so the user's folders show the plain folder icon; map them to the theme's folder-download and kin when that matters.
-function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image)
+// The icons of `path` when it is one of the user's places, as GTK shows the home, the desktop or the downloads.
+function void P__PlaceIconNames(Arena *arena, String path, ArrayStr *names)
+{
+    local_persist const struct { String place; String icons[2]; } special[] = {
+        { SInit("Desktop"), { SInit("user-desktop"), SInit("folder-desktop") } },
+        { SInit("Documents"), { SInit("folder-documents") } },
+        { SInit("Downloads"), { SInit("folder-download"), SInit("folder-downloads") } },
+        { SInit("Music"), { SInit("folder-music") } },
+        { SInit("Pictures"), { SInit("folder-pictures") } },
+        { SInit("Videos"), { SInit("folder-videos") } },
+    };
+    P_ArrayPlace places = P_UserPlaces(arena);
+    String absolute = P_AbsolutePath(arena, path);
+    for (u64 i = 0; i < places.header.count; ++i) {
+        const P_Place *place = &places.v[i];
+        if (!StrIsEqual(place->path, absolute)) continue;
+        if (place->home) {
+            ArrayPush(arena, *names, S("user-home"));
+            ArrayPush(arena, *names, S("folder-home"));
+        } else if (StrIsEqual(place->name, S("Trash"))) {
+            if (P_TrashHasItems()) ArrayPush(arena, *names, S("user-trash-full"));
+            ArrayPush(arena, *names, S("user-trash"));
+        }
+        for (u32 s = 0; s < CArrayCount(special); ++s) {
+            if (!StrIsEqual(place->name, special[s].place)) continue;
+            for (u32 n = 0; n < 2; ++n) if (special[s].icons[n].length) ArrayPush(arena, *names, special[s].icons[n]);
+        }
+        return;
+    }
+}
+
+function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, f32 scale, b32 exact, P_Image *image)
 {
     (void)exact;
+    i32 wholeScale = scale > 1 ? (i32)ceilf(scale - 0.01f) : 1;
+    i32 logical = scale > 0 ? Max((i32)roundf((f32)size / scale), 1) : size;
     pthread_once(&P__iconsOnce, P__LoadIconData);
     Scratch scratch = GetScratchEx(arena);
     ArrayStr names = {0};
@@ -522,6 +594,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         ArrayPush(scratch.arena, names, S("drive-harddisk"));
         ArrayPush(scratch.arena, names, S("folder"));
     } else if (kind == P_FileKind_Directory) {
+        if (exact) P__PlaceIconNames(scratch.arena, path, &names);
         ArrayPush(scratch.arena, names, S("folder"));
     } else {
         String mime = key.length && key.value[0] == '.' ? MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1)) : (String){0};
@@ -541,7 +614,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     }
     b32 result = false;
     for (u64 i = 0; i < names.header.count && !result; ++i) {
-        String file = P__FindIcon(scratch.arena, names.v[i], size);
+        String file = P__FindIcon(scratch.arena, names.v[i], logical, wholeScale);
         result = file.length && P__DecodeIcon(arena, file, size, image);
     }
     ReleaseScratch(scratch);

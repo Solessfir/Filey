@@ -141,8 +141,9 @@ function b32 P__IconPixels(Arena *arena, HICON icon, P_Image *image)
     return result;
 }
 
-function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, b32 exact, P_Image *image)
+function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, f32 scale, b32 exact, P_Image *image)
 {
+    (void)scale;
     Scratch scratch = GetScratchEx(arena);
     // Type-keyed icons come from the name and attributes alone, so the shell does not open the file.
     // Shared generic keys use a neutral name, since the first file to request one decides it for all.
@@ -287,7 +288,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, false, image));
+    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));
 }
 
 // The Windows Imaging Component's, defined here so that windowscodecs.lib need not be linked.

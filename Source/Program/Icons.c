@@ -54,8 +54,8 @@ function void Prog__IconJob(P_Job *job)
         b32 thumbnail = request->size != input->iconSize && !request->plain;
         b32 loaded = false;
         if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &image);
-        else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, true, &image);
-        else ProfileScope("LoadIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, false, &image);
+        else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, true, &image);
+        else ProfileScope("LoadIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, false, &image);
         if (loaded) pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
         ReleaseScratch(scratch);
     }
@@ -226,6 +226,7 @@ function void Prog__SubmitIconJob(Prog_State *state, b32 thumbnails, u64 skip, u
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Icons;
     input->iconSize = state->iconSize;
+    input->iconScale = state->iconScale;
     input->icons = ArenaPushArray(&job->arena, count, Prog_IconRequest);
     for (u64 i = 0, seen = 0; i < state->iconRequests.header.count && input->iconCount < count; ++i) {
         Prog_IconRequest *source = &state->iconRequests.v[i];

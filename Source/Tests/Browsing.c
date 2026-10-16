@@ -681,12 +681,12 @@ function void TestFileIcons(TestFileFixture *fixture)
 
     P_Image image = {0};
     String file = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));
-    b32 loaded = P_LoadFileIcon(&arena, file, P_FileKind_File, 16, false, &image);
+    b32 loaded = P_LoadFileIcon(&arena, file, P_FileKind_File, 16, 1, false, &image);
 #if defined(_WIN32)
     Check(loaded);
 #endif
     Check(!loaded || (image.width > 0 && image.height > 0 && image.pixels != NULL));
-    loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, true, &image);
+    loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, 1, true, &image);
     Check(!loaded || (image.width > 0 && image.height > 0));
     // A picture is its own thumbnail.
     local_persist const char pixel[] = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\xda\x63\xfc\xcf\xc0\x50\x0f\x00\x04\x85\x01\x80\x84\xa9\x8c\x21\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
@@ -696,6 +696,29 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(P_LoadFileThumbnail(&arena, picture, P_FileKind_File, 64, false, &image) && image.pixels != NULL);
 #if defined(__linux__)
     Check(image.width == 1 && image.height == 1 && StrIsEqual(P_FileThumbnailKey(&arena, picture, P_FileKind_File), picture));
+    // A 16 at 125% is looked up as a 16 at scale 2: the theme's 16@2 directory, then by pixels, where a scalable 32 and up beats a 22.
+    P__IconDir doubled = { .size = 16, .scale = 2, .type = P__IconDirType_Fixed }, small = { .size = 16, .scale = 1, .type = P__IconDirType_Fixed };
+    P__IconDir mono = { .size = 22, .scale = 1, .type = P__IconDirType_Fixed };
+    P__IconDir scalable = { .size = 64, .minSize = 32, .maxSize = 512, .scale = 1, .type = P__IconDirType_Scalable };
+    Check(P__IconDirDistance(&doubled, 16, 2) == 0 && P__IconDirDistance(&small, 16, 1) == 0 && P__IconDirDistance(&small, 16, 2) == 16);
+    Check(P__IconDirDistance(&scalable, 16, 2) < P__IconDirDistance(&mono, 16, 2) && P__IconDirDistance(&mono, 22, 1) == 0);
+    // An SVG that only wraps a PNG draws the PNG, split over lines as Inkscape writes it; one that draws nothing fails.
+    String wrapped = Prog_JoinPath(&arena, fixture->path, S("wrapped.svg"));
+    Check(!P_WriteFile(&arena, wrapped, S("<svg width=\"16\" height=\"16\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">"
+                                         "<path d=\"M30 2h4v4h-4z\"/><image width=\"16\" height=\"16\" xlink:href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB\n"
+                                         "CAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"/></svg>")).code);
+    image = (P_Image){0};
+    Check(P__DecodeIcon(&arena, wrapped, 16, &image) && image.width == 1 && image.height == 1 && (image.pixels[0] >> 24) != 0);
+    Check(!P_WriteFile(&arena, wrapped, S("<svg width=\"16\" height=\"16\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M30 2h4v4h-4z\"/></svg>")).code);
+    Check(!P__DecodeIcon(&arena, wrapped, 16, &(P_Image){0}));
+    Check(P__TestRemovePath(fixture, S("wrapped.svg"), false));
+    // The home and the user's folders have their own icons, as GTK names them; other folders have none of their own.
+    ArrayStr placeIcons = {0};
+    P__PlaceIconNames(&arena, StrFromCStr(getenv("HOME")), &placeIcons);
+    Check(placeIcons.header.count && StrIsEqual(placeIcons.v[0], S("user-home")));
+    placeIcons = (ArrayStr){0};
+    P__PlaceIconNames(&arena, fixture->path, &placeIcons);
+    Check(placeIcons.header.count == 0);
 #endif
     // Without a thumbnail of its own, a file gets none rather than its icon when only a thumbnail will do.
     String plain = Prog_JoinPath(&arena, fixture->path, S("plain.bin"));

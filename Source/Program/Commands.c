@@ -1229,7 +1229,7 @@ function void Prog__MenuPrepend(Prog_State *state, P_MenuItem item, String icon)
 {
     P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 2, P_MenuItem);
     items[0] = item;
-    if (icon.length) P_LoadFileIcon(&state->menuArena, icon, P_FileKind_Directory, Max(state->iconSize, 16), true, &items[0].icon);
+    if (icon.length) P_LoadFileIcon(&state->menuArena, icon, P_FileKind_Directory, Max(state->iconSize, 16), state->iconScale, true, &items[0].icon);
     items[1] = (P_MenuItem){ .separator = true };
     for (u32 i = 0; i < state->menu.count; ++i) {
         items[i + 2] = state->menu.items[i];
