@@ -460,6 +460,28 @@ function void TestTextEditWords(void)
     Check(!Prog__EditKey(&state, &typed, &letter));
 }
 
+#if defined(_WIN32)
+// A folder picture opaque on noisy black loses the black that reaches its edges, and its darkened rim becomes see-through.
+function void TestFolderThumbnailBackground(void)
+{
+    Arena arena = {0};
+    enum { Size = 10 };
+    u32 *pixels = ArenaPushArray(&arena, Size * Size, u32);
+    for (u32 i = 0; i < Size * Size; ++i) {
+        u32 x = i % Size, y = i / Size;
+        b32 inside = x >= 2 && x < 8 && y >= 2 && y < 8;
+        pixels[i] = inside ? 0xFF3264FAu : 0xFF030102u;
+    }
+    pixels[4 * Size + 2] = 0xFF19327Du;
+    P_Image image = { pixels, Size, Size };
+    Check(P__ClearFolderBackground(&arena, &image));
+    Check(!pixels[0] && !pixels[Size * Size - 1] && !pixels[4 * Size + 1] && pixels[5 * Size + 5] == 0xFF3264FAu);
+    u32 rim = pixels[4 * Size + 2];
+    Check((rim >> 24) == 127 && (rim & 0xFF) >= 248 && ((rim >> 8) & 0xFF) >= 98 && ((rim >> 16) & 0xFF) >= 48);
+    ArenaRelease(&arena);
+}
+#endif
+
 function void TestContextMenuModel(void)
 {
     // sep, A, (unlabeled), sep, sep, B (disabled), C, sep
@@ -620,6 +642,9 @@ int main(void)
     TestContextMenuInline();
     TestRecentsRanking();
     TestTextEditWords();
+#if defined(_WIN32)
+    TestFolderThumbnailBackground();
+#endif
 
     if (CheckFailures != 0) {
         fprintf(stderr, "%d check(s) failed\n", CheckFailures);

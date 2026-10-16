@@ -202,14 +202,23 @@ function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
     return StrCopy(arena, path);
 }
 
+// The brightest of a straight RGBA pixel's color channels.
+function u32 P__Brightest(u32 p)
+{
+    return Max(Max(p & 0xFF, (p >> 8) & 0xFF), (p >> 16) & 0xFF);
+}
+
 // The shell's image factory gives a thumbnail where the file has one and its icon otherwise, at any size.
-// The shell's thumbnail cache gives some folders' pictures opaque on black instead of see-through. The black that reaches the edges is
-// cleared, which keeps what the folder's picture shows of its contents. Some of those pictures are only the folder's icon drawn small in
-// the middle, its shadow still dark around it; for those this returns false, so that the folder's own icon is shown instead.
+// The shell's thumbnail cache gives some folders' pictures opaque on black instead of see-through, and compressed, so that the black is
+// noisy near the folder. The near-black that reaches the edges is cleared, which keeps what the folder's picture shows of its contents,
+// and the folder's rim, which was blended with the black, gets its see-through back. Some of those pictures are only the folder's icon
+// drawn small in the middle, its shadow still dark around it; for those this returns false, so that the folder's own icon is shown instead.
 function b32 P__ClearFolderBackground(Arena *scratch, P_Image *image)
 {
+    // The compression's noise in the black stays under this.
+    enum { Dark = 24 };
     i64 count = (i64)image->width * image->height;
-    if (count <= 0 || image->pixels[0] != 0xFF000000u) return true;
+    if (count <= 0 || P__Brightest(image->pixels[0]) > Dark) return true;
     for (i64 i = 0; i < count; ++i) if ((image->pixels[i] >> 24) != 0xFF) return true;
     // Each pixel is cleared as it is pushed, so that none is pushed twice.
     u32 *stack = ArenaPushArrayNoZero(scratch, (u64)count, u32), *pixels = image->pixels;
@@ -217,15 +226,36 @@ function b32 P__ClearFolderBackground(Arena *scratch, P_Image *image)
     u32 w = (u32)image->width, h = (u32)image->height;
     for (u32 i = 0; i < (u32)count; ++i) {
         u32 x = i % w, y = i / w;
-        if ((x == 0 || y == 0 || x + 1 == w || y + 1 == h) && pixels[i] == 0xFF000000u) { pixels[i] = 0; stack[top++] = i; }
+        if ((x == 0 || y == 0 || x + 1 == w || y + 1 == h) && pixels[i] && P__Brightest(pixels[i]) <= Dark) { pixels[i] = 0; stack[top++] = i; }
     }
     while (top) {
         u32 at = stack[--top], x = at % w, y = at / w;
         u32 next[4] = { x > 0 ? at - 1 : UINT32_MAX, x + 1 < w ? at + 1 : UINT32_MAX, y > 0 ? at - w : UINT32_MAX, y + 1 < h ? at + w : UINT32_MAX };
         for (u32 n = 0; n < 4; ++n) {
-            if (next[n] != UINT32_MAX && pixels[next[n]] == 0xFF000000u) { pixels[next[n]] = 0; stack[top++] = next[n]; }
+            if (next[n] != UINT32_MAX && pixels[next[n]] && P__Brightest(pixels[next[n]]) <= Dark) { pixels[next[n]] = 0; stack[top++] = next[n]; }
         }
     }
+    // A rim pixel beside the cleared black is the folder's color darkened by it: as see-through as it is darker than its brightest neighbor.
+    u32 *rim = ArenaPushArrayNoZero(scratch, (u64)count, u32);
+    MemCopy(rim, pixels, (u64)count * sizeof(u32));
+    for (u32 i = 0; i < (u32)count; ++i) {
+        u32 x = i % w, y = i / w, own = P__Brightest(pixels[i]), brightest = 0;
+        b32 edge = false;
+        if (!pixels[i]) continue;
+        for (i32 dy = -1; dy <= 1; ++dy) for (i32 dx = -1; dx <= 1; ++dx) {
+            i64 nx = (i64)x + dx, ny = (i64)y + dy;
+            if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            u32 p = pixels[ny * w + nx];
+            if (!p) edge = true;
+            else brightest = Max(brightest, P__Brightest(p));
+        }
+        if (!edge || brightest <= own) continue;
+        u32 a = own * 255 / brightest, p = pixels[i];
+        if (!a) { rim[i] = 0; continue; }
+        u32 r = Min(255u, (p & 0xFF) * 255 / a), g = Min(255u, ((p >> 8) & 0xFF) * 255 / a), b = Min(255u, ((p >> 16) & 0xFF) * 255 / a);
+        rim[i] = (a << 24) | (b << 16) | (g << 8) | r;
+    }
+    MemCopy(pixels, rim, (u64)count * sizeof(u32));
     u32 x0 = w, y0 = h, x1 = 0, y1 = 0;
     for (u32 i = 0; i < (u32)count; ++i) {
         if (!pixels[i]) continue;
