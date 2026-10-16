@@ -2184,8 +2184,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, "Empty %S", Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
                 Prog__ApplyMenuPins(state);
-                // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled, and
-                // its rename, which edits a list row, is left out.
+                // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled,
+                // and its rename, which edits a list row, is left out.
                 for (u32 i = 0; i < state->menu.count; ++i) {
                     P_MenuItem *item = &state->menu.items[i];
                     if (StrIsEqual(item->verb, S("rename"))) item->label = (String){0};

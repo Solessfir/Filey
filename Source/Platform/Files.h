@@ -55,8 +55,8 @@ typedef struct P_DirectoryTotals {
 } P_DirectoryTotals;
 
 // Adds the items directly inside `path`, hidden ones included, to `totals`: its folders, its files and their bytes.
-// Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions, and on Linux
-// the folders of other file systems, as du -x does.
+// Appends to `subfolders`, in `arena`, the paths of the folders a walk goes on into, which leaves out links and junctions,
+// and on Linux the folders of other file systems, as du -x does.
 // False when `path` cannot be read. Touches the disk, so run it in a job.
 function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders);
 // Whether `path` is a folder the system makes up rather than stores, such as Linux's /proc, which a walk of the whole drive leaves out.
@@ -255,8 +255,8 @@ typedef struct P_Image {
 function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind);
 // The type key, except that files with their own icon (executables, shortcuts) are keyed by path.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
-// The system icon for `path`, at least `size` pixels when available, which the display's `scale` gave; Linux icon themes pick their
-// artwork by the logical size and the whole scale.
+// The system icon for `path`, at least `size` pixels when available, which the display's `scale` gave;
+// Linux icon themes pick their artwork by the logical size and the whole scale.
 // The image may be larger or smaller; scaling is left to the caller.
 // May touch the disk, so run it in a job.
 // `exact` asks for the icon of this very item, as for special folders such as the desktop, rather than the one of its type.

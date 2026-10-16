@@ -534,8 +534,8 @@ function void LinuxDragPointer(wl_fixed_t x, wl_fixed_t y)
     event->mods = Wl.mods;
 }
 
-// Files are taken as uri-lists, copied by default and moved when the source or the user asks for it; Filey's own drags move, as the drop
-// then decides by the keys held.
+// Files are taken as uri-lists, copied by default and moved when the source or the user asks for it.
+// Filey's own drags move, as the drop then decides by the keys held.
 function void LinuxAcceptDrag(void)
 {
     if (!Wl.dragOffer) return;
@@ -579,8 +579,8 @@ function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 ti
 function String LinuxClipboardReceive(Arena *arena, const char *mime);
 function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const char *mime);
 
-// Filey's own drops follow Explorer's keys, which compositors such as Hyprland do not pass on as the drop's action: Ctrl copies, Shift
-// moves, and otherwise files move within their file system and are copied onto another.
+// Filey's own drops follow Explorer's keys, which compositors such as Hyprland do not pass on as the drop's action:
+// Ctrl copies, Shift moves, and otherwise files move within their file system and are copied onto another.
 function b32 LinuxOwnDropMoves(String target)
 {
     if (Wl.mods & KeyMod_Control) return false;
@@ -944,8 +944,8 @@ function f32 LinuxHyprlandRounding(void)
     const char *rounding = strstr(reply, "\"int\":");
     if (!rounding) return 0;
     f32 radius = strtof(rounding + 6, NULL);
-    // Hyprland 0.46 added the power, and grows the radius with it so that corners look as round; drawn as a circle, a radius so grown
-    // matches powers other than 2 only roughly. Before it, corners were circles.
+    // Hyprland 0.46 added the power, and grows the radius with it so that corners look as round.
+    // Drawn as a circle, a radius so grown matches powers other than 2 only roughly. Before it, corners were circles.
     LinuxHyprlandAsk("j/getoption decoration:rounding_power", reply, sizeof(reply));
     const char *power = strstr(reply, "\"float\":");
     f32 grow = power ? strtof(power + 8, NULL) / 2.0f : 1.0f;

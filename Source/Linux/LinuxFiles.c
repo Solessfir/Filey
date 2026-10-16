@@ -590,8 +590,9 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
             }
             if (type == DT_DIR) {
                 ++totals->folders;
-                // A walk stays on its file system, as du -x does: /proc and the like, other drives mounted inside it and btrfs subvolumes,
-                // whose snapshots would each count the whole drive again, are counted as folders but left to their own walks.
+                // A walk stays on its file system, as du -x does.
+                // /proc and the like, other drives mounted inside it and btrfs subvolumes are counted as folders but left to their own walks;
+                // a snapshot subvolume would otherwise count the whole drive again.
                 if (!statted) statted = fstatat(dirfd(stream), name, &metadata, AT_SYMLINK_NOFOLLOW) == 0;
                 if (!device || !statted || metadata.st_dev == folder.st_dev) {
                     ArrayPush(arena, *subfolders, StrFormat(arena, "%S/%s", StrIsEqual(parent, S("/")) ? (String){0} : parent, name));

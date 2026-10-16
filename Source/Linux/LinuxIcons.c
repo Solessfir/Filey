@@ -329,9 +329,10 @@ function void P__LoadIconData(void)
     P__AddTheme(arena, bases, S("hicolor"), &none);
 }
 
-// 0 for a directory made for icons `size` logical pixels at `scale`, as the freedesktop spec matches them, else how far apart their pixel
-// sizes are, at least 1. Themes draw some sizes differently, as Win11's monochrome 22 between its colored 16 and 32, so a 16 at 125% is
-// looked up as GTK does, as a 16 at scale 2, rather than as the 20 pixels it is drawn at.
+// 0 for a directory made for icons `size` logical pixels at `scale`, as the freedesktop spec matches them;
+// else how far apart their pixel sizes are, at least 1.
+// Themes draw some sizes differently, as Win11's monochrome 22 between its colored 16 and 32,
+// so a 16 at 125% is looked up as GTK does, as a 16 at scale 2, rather than as the 20 pixels it is drawn at.
 function i32 P__IconDirDistance(const P__IconDir *dir, i32 size, i32 scale)
 {
     i32 low = dir->size, high = dir->size;

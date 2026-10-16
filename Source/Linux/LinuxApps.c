@@ -324,8 +324,8 @@ function P__App *P__ChosenApp(const P__AppData *data, String mime)
     return app;
 }
 
-// An executable ELF file, which runs rather than opens; xdg-open has no handler for programs. Executable scripts still open in their
-// editor, and so do the files of mounts that mark every file executable.
+// An executable ELF file, which runs rather than opens; xdg-open has no handler for programs.
+// Executable scripts still open in their editor, and so do the files of mounts that mark every file executable.
 function b32 P__IsProgram(const char *file, const struct stat *metadata)
 {
     if (!S_ISREG(metadata->st_mode) || access(file, X_OK) != 0) return false;
