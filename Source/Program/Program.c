@@ -1333,10 +1333,15 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             // The tab's contents sit a little below its middle.
             f32 tabTop = floorf(0.8f * scale + 0.5f);
             UI_SetNextChildrenPadding((UI_Padding){ tabInset, tabTop, floorf(2.4f * scale + 0.5f), 0 });
-            UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
+            UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_MouseClickable);
             UI_Interaction interaction = UI_InteractionFromBlock(tab);
-            if (interaction.pressed && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
+            if (interaction.pressed && interaction.button != MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
             if (interaction.clicked && interaction.button == MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, interaction.clickOrder);
+            // Its menu hangs under it, from a right click or, for the shown tab of the active panel, its hotkey.
+            UI_Vec2 menuAt = { tab->rect.x0, tab->rect.y1 + floorf(4.0f * scale + 0.5f) };
+            if (shown && state->currentPanel == state->activePanel) state->tabMenuAt = menuAt;
+            if (interaction.clicked && interaction.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_TabMenu, 0, 0, interaction.clickOrder)->at = menuAt;
+            b32 lit = shown && state->menuOpen && state->menuOpener == Prog_CommandKind_TabMenu && state->currentPanel == state->activePanel;
             if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->tabDrag && !state->tabDragCancelled) {
                 state->tabDrag = true;
                 state->tabDragKey = key;
@@ -1369,7 +1374,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         UI_SetNextBorderThickness(stroke);
                         // The shown tab is not washed, which also keeps its curved sides the same color as it.
                         b32 washed = hot && !shown && UI->hotKey != closeKey;
-                        UI_SetNextColors((UI_Colors){ .background = shown || washed ? theme->background : (R_Color){0}, .border = theme->tabBorder });
+                        UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : shown || washed ? theme->background : (R_Color){0}, .border = theme->tabBorder });
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
                         // Under the pointer another tab is washed in the selection color, unless the pointer is on its close button.
                         if (washed) {
@@ -1393,7 +1398,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         UI_SetNextFloatingOffset((UI_Vec2){ side ? tabWidth - tabInset - stroke : -tabInset - flare, height - flare - tabTop });
                         UI_SetNextPrefWidth(UI_Pixels(flare + stroke));
                         UI_SetNextPrefHeight(UI_Pixels(flare));
-                        UI_SetNextColors((UI_Colors){ .background = theme->background });
+                        UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : theme->background });
                         UI_Block *corner = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip);
                         UI_Parent(corner) {
                             UI_SetNextFloatingOffset((UI_Vec2){ side ? 0 : stroke - flare, -flare });

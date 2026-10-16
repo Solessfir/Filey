@@ -94,6 +94,8 @@ typedef struct P_FileOrder {
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
 // Starts another Filey window, a process of its own, showing the folder `path`.
 function P_FileError P_OpenWindow(Arena *arena, String path);
+// Starts the system's console in the folder `directory`: cmd.exe in the default terminal on Windows, the desktop's terminal on Linux.
+function P_FileError P_OpenConsole(Arena *arena, String directory);
 // Reports changes to the items of one folder, not of its subfolders, from a thread of its own.
 // {0} is a stopped watch.
 // `wake` runs on that thread when a change follows a call to P_DirectoryWatchTakeChanged.
@@ -327,6 +329,8 @@ function void P_ContextMenuClose(P_ContextMenu *menu);
 // Starts a drag of `names` inside `directory` and returns once they are dropped (true) or the drag is cancelled.
 // The system's drag loop runs inside this call and renders frames through the modal frame callback while the pointer is over the window, so call it outside a frame.
 function b32 P_DragFiles(String directory, const String *names, u64 count);
+// Opens the system's properties window for `names` inside `directory`; false where it has none, as on Linux.
+function b32 P_ShowProperties(String directory, const String *names, u64 count);
 // The folder that files dropped on the window go into, updated as the pointer moves; empty refuses drops.
 function void P_SetDropDirectory(String path);
 // While on, drops are not transferred: the folders among the dropped items are kept for P_TakeDroppedFolders, as a place to pin them is under the pointer.

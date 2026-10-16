@@ -391,6 +391,24 @@ command OpenContainingPathInTab {
     tooltip = "Open the target file or folder's real location in its containing folder in a new tab."
 }
 
+command OpenRelativePath {
+    label   = "Open Relative Path"
+    tooltip = "Open selected file from flattened hierarchy in its parent folder."
+    hotkey  = "Ctrl+Shift+E"
+}
+
+command OpenRelativePathInTab {
+    label   = "Open Relative Path In Tab"
+    tooltip = "Open selected file from flattened hierarchy in its parent folder in a new tab."
+}
+
+command SelectionInspect {
+    label   = "Inspect"
+    tooltip = "Open system properties window for the selected files."
+    hotkey  = "Alt+Enter"
+    repeat  = "false"
+}
+
 command CalcDirsContents {
     label   = "Refresh Folder Stats^reload,calculate,directory,contents,size,count"
     tooltip = "Refresh total child size and item count for the selected folders."
@@ -570,6 +588,20 @@ command TabCloseLeftTabs {
 command TabCloseRightTabs {
     label   = "Close Right Tabs^exit"
     tooltip = "Close all tabs to the right of the currently selected tab."
+}
+
+// Ctrl+Shift+W closes the window instead.
+command TabCloseAll {
+    label   = "Close All Tabs^exit,everything"
+    tooltip = "Close the panel and all open tabs in it."
+}
+
+// The shown tab's menu, which a right click on a tab opens too.
+command TabMenu {
+    label   = "Tab Menu"
+    tooltip = "Open dropdown menu for the selected tab."
+    hotkey  = "Ctrl+Shift+Down"
+    repeat  = "false"
 }
 
 command TabReopen {
@@ -806,6 +838,20 @@ command WindowMinimize {
     hotkey  = "Alt+M"
 }
 
+command ToggleFullscreen {
+    label   = "Toggle Fullscreen"
+    tooltip = "Toggle fullscreen mode, maximizing or restoring the current window."
+    hotkey  = "F11"
+    repeat  = "false"
+}
+
+command ConsoleOpen {
+    label   = "Open Console^command,prompt,terminal"
+    tooltip = "Open the OS native console on the currently opened file path."
+    hotkey  = "Ctrl+Alt+Enter"
+    repeat  = "false"
+}
+
 command WindowToggleMaximize {
 }
 
@@ -921,6 +967,14 @@ command GoToUp {
     label   = "GoTo Move Up"
     tooltip = "Navigate to the parent file path in GoTo."
     hotkey  = "Alt+Up"
+    scope   = "GoTo"
+}
+
+command GoToSelectInPanel {
+    label   = "GoTo Select In Panel"
+    tooltip = "Select the current file in GoTo in the background panel and close the GoTo window."
+    hotkey  = "Ctrl+Enter"
+    repeat  = "false"
     scope   = "GoTo"
 }
 

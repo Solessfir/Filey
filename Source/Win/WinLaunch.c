@@ -229,6 +229,25 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function P_FileError P_OpenConsole(Arena *arena, String directory)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *folder = P__FilePathWide(scratch.arena, directory);
+    wchar line[] = L"cmd.exe";
+    STARTUPINFOW startup = { .cb = sizeof(startup) };
+    PROCESS_INFORMATION process = {0};
+    P_FileError result = {0};
+    // Its own console, which Windows opens in the terminal the user set as the default.
+    if (folder && CreateProcessW(NULL, line, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, folder, &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    } else {
+        result = P__FileError(arena, folder ? GetLastError() : ERROR_INVALID_NAME);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_FileError P_OpenWindow(Arena *arena, String path)
 {
     Scratch scratch = GetScratchEx(arena);

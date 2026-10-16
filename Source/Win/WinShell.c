@@ -501,6 +501,20 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
     return result;
 }
 
+function b32 P_ShowProperties(String directory, const String *names, u64 count)
+{
+    if (!count) return false;
+    P__EnsureCom();
+    Scratch scratch = GetScratch();
+    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, directory));
+    IDataObject *data = NULL;
+    b32 result = folder && P__ShellChildren(folder, names, count, &P__IID_IDataObject, (void **)&data) && SUCCEEDED(SHMultiFileProperties(data, 0));
+    if (data) data->lpVtbl->Release(data);
+    if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function void P_ContextMenuWarm(String directory, String name)
 {
     Arena arena = {0};

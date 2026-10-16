@@ -1133,6 +1133,7 @@ typedef struct Prog_State {
     b32 swallowText;          // the next character comes from a key that ran a command
     Key hotkeyLead;           // the last key, when it starts a sequence such as "G G"
     UI_Vec2 mainMenuAt;       // where the main menu opens from its button, for its hotkey too
+    UI_Vec2 tabMenuAt;        // and the tab menu, under the active panel's shown tab
     enum8(Prog_CharacterKeys) characterKeys;
     // Select Typed Item: what was typed so far, and when its last character came; a pause starts it over.
     Prog_TextEdit typed;

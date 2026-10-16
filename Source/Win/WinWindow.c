@@ -34,6 +34,8 @@ typedef struct WinWindowState {
     b32 sizing;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
     HICON icons[2];     // the app icon at the window's size and at the small size, for its DPI
+    b32 fullscreen;     // over the whole monitor without its frame, to go back to `placement`
+    WINDOWPLACEMENT placement;
 } WinWindowState;
 
 global WinWindowState Win;
@@ -216,13 +218,13 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             LONG top = params->rgrc[0].top;
             DefWindowProcW(window, message, wParam, lParam);
             params->rgrc[0].top = top;
-            // A maximized window hangs its frame off the screen.
-            if (IsZoomed(window)) params->rgrc[0].top += WinFrameThickness();
+            // A maximized window hangs its frame off the screen; a full screen one has none.
+            if (IsZoomed(window) && !Win.fullscreen) params->rgrc[0].top += WinFrameThickness();
         } return 0;
 
         case WM_NCHITTEST: {
             LRESULT hit = DefWindowProcW(window, message, wParam, lParam);
-            if (hit != HTCLIENT || IsZoomed(window)) return hit;
+            if (hit != HTCLIENT || IsZoomed(window) || Win.fullscreen) return hit;
             POINT point = { (i16)LOWORD(lParam), (i16)HIWORD(lParam) };
             ScreenToClient(window, &point);
             return point.y < WinFrameThickness() ? HTTOP : HTCLIENT;
@@ -609,6 +611,25 @@ function b32 PlatformWindowHasButtons(void) { return true; }
 function b32 PlatformWindowIsMaximized(void) { return IsZoomed(Win.window) != 0; }
 function void PlatformWindowMinimize(void) { ShowWindow(Win.window, SW_MINIMIZE); }
 function void PlatformWindowToggleMaximize(void) { ShowWindow(Win.window, IsZoomed(Win.window) ? SW_RESTORE : SW_MAXIMIZE); }
+
+function void PlatformWindowToggleFullscreen(void)
+{
+    LONG_PTR style = GetWindowLongPtrW(Win.window, GWL_STYLE);
+    if (!Win.fullscreen) {
+        MONITORINFO monitor = { .cbSize = sizeof(monitor) };
+        Win.placement.length = sizeof(Win.placement);
+        if (!GetWindowPlacement(Win.window, &Win.placement) || !GetMonitorInfoW(MonitorFromWindow(Win.window, MONITOR_DEFAULTTONEAREST), &monitor)) return;
+        Win.fullscreen = true;
+        SetWindowLongPtrW(Win.window, GWL_STYLE, style & ~(LONG_PTR)WS_OVERLAPPEDWINDOW);
+        RECT r = monitor.rcMonitor;
+        SetWindowPos(Win.window, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    } else {
+        Win.fullscreen = false;
+        SetWindowLongPtrW(Win.window, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+        SetWindowPlacement(Win.window, &Win.placement);
+        SetWindowPos(Win.window, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+}
 function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
 
 function void PlatformWindowStartMove(void)

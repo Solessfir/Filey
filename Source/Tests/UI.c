@@ -89,6 +89,7 @@ function b32 PlatformWindowHasButtons(void) { return true; }
 function b32 PlatformWindowIsMaximized(void) { return false; }
 function void PlatformWindowMinimize(void) { ++TestWindowCalls[0]; }
 function void PlatformWindowToggleMaximize(void) { ++TestWindowCalls[1]; }
+function void PlatformWindowToggleFullscreen(void) {}
 function void PlatformWindowClose(void) { ++TestWindowCalls[2]; }
 function void PlatformWindowStartMove(void) { ++TestWindowCalls[3]; }
 

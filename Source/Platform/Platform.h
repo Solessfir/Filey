@@ -175,6 +175,8 @@ function b32  PlatformWindowHasButtons(void);
 function b32  PlatformWindowIsMaximized(void);
 function void PlatformWindowMinimize(void);
 function void PlatformWindowToggleMaximize(void);
+// Covers the whole screen without the system's frame, or goes back to how the window was.
+function void PlatformWindowToggleFullscreen(void);
 // Pushes CloseRequested, as the system's close does.
 function void PlatformWindowClose(void);
 // Called while the left button is down: the system moves the window with the pointer and keeps the release, so a MouseUp is pushed in its place.

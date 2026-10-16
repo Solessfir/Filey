@@ -107,6 +107,7 @@ typedef struct LinuxWindowState {
     // Not visible at all, for example on a hidden workspace, so nothing is drawn until that changes.
     b32 suspended;
     b32 maximized;
+    b32 fullscreen;
     // Tiling compositors cannot minimize; without that the window draws no buttons of its own.
     b32 noMinimize;
     // Frame pacing: the next frame waits for the compositor's callback for the last one, or for the deadline when it never comes.
@@ -732,13 +733,15 @@ function void ToplevelConfigure(void *data, struct xdg_toplevel *toplevel, i32 w
     Wl.pendingWidth = width;
     Wl.pendingHeight = height;
     b32 suspended = false;
-    b32 maximized = false;
+    b32 maximized = false, fullscreen = false;
     for (u32 *state = states->data; (u8 *)state < (u8 *)states->data + states->size; ++state) {
         suspended |= *state == XDG_TOPLEVEL_STATE_SUSPENDED;
         maximized |= *state == XDG_TOPLEVEL_STATE_MAXIMIZED;
+        fullscreen |= *state == XDG_TOPLEVEL_STATE_FULLSCREEN;
     }
     Wl.suspended = suspended;
     Wl.maximized = maximized;
+    Wl.fullscreen = fullscreen;
 }
 
 function void ToplevelClose(void *data, struct xdg_toplevel *toplevel)
@@ -1089,6 +1092,12 @@ function void PlatformWindowToggleMaximize(void)
 {
     if (Wl.maximized) xdg_toplevel_unset_maximized(Wl.toplevel);
     else xdg_toplevel_set_maximized(Wl.toplevel);
+}
+
+function void PlatformWindowToggleFullscreen(void)
+{
+    if (Wl.fullscreen) xdg_toplevel_unset_fullscreen(Wl.toplevel);
+    else xdg_toplevel_set_fullscreen(Wl.toplevel, NULL);
 }
 
 function void PlatformWindowStartMove(void)

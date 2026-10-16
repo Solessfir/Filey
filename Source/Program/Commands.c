@@ -343,7 +343,7 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     for (u32 i = 0; i < count && state->menuHighlight == UINT32_MAX; ++i) if (!state->menu.items[i].separator && !state->menu.items[i].disabled) state->menuHighlight = i;
 }
 
-// Key names as Commands.txt and the settings spell them, and shorter ones for showing.
+// Key names as Commands.txt and the settings spell them, and the ones chips show, with symbols for punctuation.
 global const char *Prog_KeyNames[Key_Count] = {
     [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
@@ -353,9 +353,9 @@ global const char *Prog_KeyNames[Key_Count] = {
     [Key_Keypad5] = "Keypad5", [Key_Keypad6] = "Keypad6", [Key_Keypad7] = "Keypad7", [Key_Keypad8] = "Keypad8", [Key_Keypad9] = "Keypad9",
 };
 global const char *Prog_KeyShortNames[Key_Count] = {
-    [Key_Escape] = "Esc", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
+    [Key_Escape] = "Escape", [Key_Enter] = "Enter", [Key_Tab] = "Tab", [Key_Backspace] = "Backspace", [Key_Delete] = "Delete", [Key_Insert] = "Insert",
     [Key_Space] = "Space", [Key_Left] = "Left", [Key_Right] = "Right", [Key_Up] = "Up", [Key_Down] = "Down", [Key_Home] = "Home", [Key_End] = "End",
-    [Key_PageUp] = "PgUp", [Key_PageDown] = "PgDn", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
+    [Key_PageUp] = "PageUp", [Key_PageDown] = "PageDown", [Key_ContextMenu] = "Menu", [Key_Comma] = ",",
     [Key_Equals] = "=", [Key_Minus] = "-", [Key_Slash] = "/", [Key_MouseX1] = "MouseX1", [Key_MouseX2] = "MouseX2",
     [Key_Keypad0] = "Keypad0", [Key_Keypad1] = "Keypad1", [Key_Keypad2] = "Keypad2", [Key_Keypad3] = "Keypad3", [Key_Keypad4] = "Keypad4",
     [Key_Keypad5] = "Keypad5", [Key_Keypad6] = "Keypad6", [Key_Keypad7] = "Keypad7", [Key_Keypad8] = "Keypad8", [Key_Keypad9] = "Keypad9",
@@ -454,7 +454,7 @@ function b32 Prog_ParseHotkey(String text, Prog_Hotkey *hotkey)
     return *key != Key_None;
 }
 
-// A key's name: "A", "F5", and the short names such as "PgUp" and "," for showing, or the ones Settings.txt reads back, such as "PageUp" and "Comma".
+// A key's name: "A", "F5", and the symbols such as "," and "=" for showing, or the names Settings.txt reads back, such as "Comma" and "Equals".
 function String Prog__KeyName(Arena *arena, Key key, b32 spelled)
 {
     if (key >= Key_A && key <= Key_Z) return StrFormat(arena, "%c", 'A' + (i32)(key - Key_A));
@@ -550,9 +550,10 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_ToggleCursorSelection, Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_OpenInRightSplit,
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_SelectionRestore, Prog_CommandKind_TrashRestoreAll,
-    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename,
+    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
+    Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
@@ -575,14 +576,14 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_PanelDown,
     Prog__PaletteGroup(Tabs),
     Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
-    Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabReopen, Prog_CommandKind_TabSelectNext, Prog_CommandKind_TabSelectPrev, Prog_CommandKind_TabSelect1,
+    Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll, Prog_CommandKind_TabReopen, Prog_CommandKind_TabSelectNext, Prog_CommandKind_TabSelectPrev, Prog_CommandKind_TabSelect1,
     Prog_CommandKind_TabSelect2, Prog_CommandKind_TabSelect3, Prog_CommandKind_TabSelect4, Prog_CommandKind_TabSelect5, Prog_CommandKind_TabSelect6,
-    Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabList,
+    Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabMenu, Prog_CommandKind_TabList,
     Prog__PaletteGroup(GoTo),
-    Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
+    Prog_CommandKind_GoToSelectInPanel, Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
-    Prog_CommandKind_WindowMinimize, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
+    Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
@@ -620,6 +621,8 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_Rename: case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
         case Prog_CommandKind_OpenContainingPathInTab:
             return focused;
+        case Prog_CommandKind_OpenRelativePath: case Prog_CommandKind_OpenRelativePathInTab: return focused && state->directory.expanded;
+        case Prog_CommandKind_SelectionInspect: return item;
         case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
         case Prog_CommandKind_SelectionMoveNextPanel:
             return item && panels > 1;
@@ -1062,6 +1065,18 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ZoomIn);
             Prog__Item(.kind = Prog_CommandKind_ZoomOut);
+        } break;
+        // The shown tab's: moving it, copies of it, and closing tabs.
+        case Prog_CommandKind_TabMenu: {
+            Prog__Item(.kind = Prog_CommandKind_TabShiftLeft, .icon = Icon_ChevronsLeft, .disabled = !Prog_CommandAvailable(state, Prog_CommandKind_TabShiftLeft));
+            Prog__Item(.kind = Prog_CommandKind_TabShiftRight, .icon = Icon_ChevronsRight, .disabled = !Prog_CommandAvailable(state, Prog_CommandKind_TabShiftRight));
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_TabDuplicate, .icon = Icon_Copy);
+            Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow, .label = S("Duplicate Tab To New Window"));
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
+            u8 closers[] = { Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs, Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll };
+            for (u32 i = 0; i < CArrayCount(closers); ++i) Prog__Item(.kind = closers[i], .icon = Icon_SquareX, .disabled = !Prog_CommandAvailable(state, (Prog_CommandKind)closers[i]));
         } break;
         case Prog_CommandKind_HistoryMenu: {
             // Newest first, as browsers list it.
@@ -1820,16 +1835,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->hasAnchor = true;
             } break;
             case Prog_CommandKind_OpenContainingPath:
-            case Prog_CommandKind_OpenContainingPathInTab: {
+            case Prog_CommandKind_OpenContainingPathInTab:
+            case Prog_CommandKind_OpenRelativePath:
+            case Prog_CommandKind_OpenRelativePathInTab: {
                 // The focused item shown in its own folder, selected; an expanded listing's items are in subfolders of the one shown.
                 if (state->loading || !state->hasFocus || state->focusedRow >= state->directory.count) break;
+                b32 inTab = command->kind == Prog_CommandKind_OpenContainingPathInTab || command->kind == Prog_CommandKind_OpenRelativePathInTab;
                 String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
                 String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
                 if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) break;
-                if (command->kind == Prog_CommandKind_OpenContainingPathInTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
+                if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
                 MemCopy(state->selectText, name.value, name.length);
                 state->selectLength = (u32)name.length;
-                if (command->kind == Prog_CommandKind_OpenContainingPath) {
+                if (!inTab) {
                     state->expanded = false;
                     Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
                 }
@@ -1857,6 +1875,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabShiftLeft: if (state->activeTab) Prog_MoveTab(state, state->activeTab, state->activeTab - 1); break;
             case Prog_CommandKind_TabShiftRight: Prog_MoveTab(state, state->activeTab, state->activeTab + 1); break;
             case Prog_CommandKind_TabClose: Prog_CloseTab(state, state->activeTab); break;
+            // The panel goes with all its tabs, which Reopen Closed Tab brings back; the last panel takes the window with it.
+            case Prog_CommandKind_TabCloseAll: {
+                if (state->panelCount <= 1) {
+                    PlatformWindowClose();
+                    break;
+                }
+                for (u32 i = 0; i < state->tabCount; ++i) {
+                    String path = Prog_TabPath(state, i);
+                    if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
+                }
+                Prog_ClosePanel(state, state->currentPanel);
+            } break;
             case Prog_CommandKind_TabCloseOthers:
             case Prog_CommandKind_TabCloseLeftTabs:
             case Prog_CommandKind_TabCloseRightTabs: {
@@ -2415,10 +2445,38 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
             case Prog_CommandKind_MainMenu:
-            case Prog_CommandKind_PanelMenu: {
-                if (command->kind == Prog_CommandKind_MainMenu && command->at.x == 0 && command->at.y == 0) command->at = state->mainMenuAt;
+            case Prog_CommandKind_PanelMenu:
+            case Prog_CommandKind_TabMenu: {
+                // From a hotkey they open where their button or tab would open them.
+                if (command->at.x == 0 && command->at.y == 0 && command->kind != Prog_CommandKind_PanelMenu) {
+                    command->at = command->kind == Prog_CommandKind_TabMenu ? state->tabMenuAt : state->mainMenuAt;
+                }
                 Prog__OpenProgramMenu(state, command);
             } break;
+            case Prog_CommandKind_SelectionInspect: {
+                if (state->loading) break;
+                Scratch scratch = GetScratch();
+                u64 count = 0;
+                String *names = ArenaPushArray(scratch.arena, Max(state->directory.count, (u64)1), String);
+                for (u64 i = 0; i < state->directory.count; ++i) {
+                    b32 wanted = state->selectedCount ? state->directory.entries[i].selected : state->hasFocus && i == state->focusedRow;
+                    if (wanted) names[count++] = state->directory.entries[i].file.name;
+                }
+                // Without a properties window of the system's, the inspector shows the details.
+                if (count && !P_ShowProperties(state->directory.path, names, count)) {
+                    state->previewShown = true;
+                    state->inspectorDetails = true;
+                }
+                ReleaseScratch(scratch);
+            } break;
+            case Prog_CommandKind_ConsoleOpen: {
+                P_FileError error = state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC) ? P_OpenConsole(&state->frameArena, state->directory.path) : (P_FileError){0};
+                if (error.code) {
+                    ArenaClear(&state->errorArena);
+                    state->error = StrFormat(&state->errorArena, "Open console: %S", error.message);
+                }
+            } break;
+            case Prog_CommandKind_ToggleFullscreen: PlatformWindowToggleFullscreen(); break;
             case Prog_CommandKind_HistoryGo: {
                 if (command->row < state->history.header.count) Prog_RequestDirectory(state, state->history.v[command->row], false, command->row);
             } break;
@@ -2680,7 +2738,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 // Go To's own hotkeys, such as Alt+Left for its back button.
                 const Prog_Hotkey *own = goTo ? Prog_FindHotkey(state, Prog_HotkeyScope_GoTo, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super)) : NULL;
                 if (own) {
-                    if (!event->isRepeat || !Prog_Commands[own->command].noRepeat) Prog_QueueCommand(state, own->command, 0, 0, order);
+                    // Select In Panel runs the highlighted row as Ctrl+Enter does.
+                    if (own->command == Prog_CommandKind_GoToSelectInPanel && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = KeyMod_Control;
+                    else if (!event->isRepeat || !Prog_Commands[own->command].noRepeat) Prog_QueueCommand(state, own->command, 0, 0, order);
                     continue;
                 }
                 // Tab in Go To puts the highlighted folder in the box, to go on into it.

@@ -298,6 +298,18 @@ function P_FileError P__OpenTerminal(Arena *arena, String directory)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function P_FileError P_OpenConsole(Arena *arena, String directory)
+{
+    return P__OpenTerminal(arena, directory);
+}
+
+// Desktops share no properties window.
+function b32 P_ShowProperties(String directory, const String *names, u64 count)
+{
+    (void)directory, (void)names, (void)count;
+    return false;
+}
+
 // The menu's items that start applications, by item index.
 typedef struct P__MenuData {
     String directory;
