@@ -171,7 +171,7 @@ function String P__MimeForName(String name, b32 folder)
     pthread_once(&P__iconsOnce, P__LoadIconData);
     Scratch scratch = GetScratch();
     String key = P_FileTypeKey(scratch.arena, name, P_FileKind_File);
-    String result = key.length > 1 && key.value[0] == '.' ? MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1)) : (String){0};
+    String result = key.length > 1 && key.value[0] == '.' ? MapsGet(P__Icons()->mimeByExtension, String, StrFrom(key, 1)) : (String){0};
     ReleaseScratch(scratch);
     return result.length ? result : S("application/octet-stream");
 }
@@ -309,7 +309,7 @@ function P__App *P__ChosenApp(const P__AppData *data, String mime)
     P__App *app = NULL;
     for (u32 i = 0; i < count && !app; ++i) {
         P__AppsFor(data, types[i], true, &app, 1);
-        String parents = MapsGet(P__icons.mimeParents, String, types[i]);
+        String parents = MapsGet(P__Icons()->mimeParents, String, types[i]);
         for (u64 from = 0, to = 0; to <= parents.length; ++to) {
             if (to < parents.length && parents.value[to] != ';') continue;
             String parent = StrFromTo(parents, from, (i64)to);

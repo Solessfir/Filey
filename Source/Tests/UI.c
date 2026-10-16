@@ -92,6 +92,7 @@ function b32 PlatformWindowIsMaximized(void) { return false; }
 function b32 PlatformWindowNeedsBorder(void) { return false; }
 function PlatformWindowInfo PlatformWindowGetInfo(void) { return (PlatformWindowInfo){0}; }
 function void PlatformWindowMinimize(void) { ++TestWindowCalls[0]; }
+function void P_WakeWindow(void) {}
 function void PlatformWindowToggleMaximize(void) { ++TestWindowCalls[1]; }
 function void PlatformWindowToggleFullscreen(void) {}
 function void PlatformWindowClose(void) { ++TestWindowCalls[2]; }

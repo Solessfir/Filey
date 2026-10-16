@@ -259,6 +259,8 @@ typedef struct P_Image {
 function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind);
 // The type key, except that files with their own icon (executables, shortcuts) are keyed by path.
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind);
+// Whether the system's icon theme changed since this was last asked, after which icons loaded before are out of date; it wakes the window.
+function b32 P_IconThemeChanged(void);
 // The system icon for `path`, at least `size` pixels when available, which the display's `scale` gave;
 // Linux icon themes pick their artwork by the logical size and the whole scale.
 // The image may be larger or smaller; scaling is left to the caller.

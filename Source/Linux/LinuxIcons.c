@@ -68,9 +68,10 @@ typedef struct P__IconTheme {
 
 typedef struct P__StrMap { MapHeader header; struct { String key; String value; } *v; } P__StrMap;
 
-// Loaded once on first use and read-only afterwards, so jobs share it without locks.
+// Read-only once made, so jobs share it without locks; a change of the configured theme makes a whole new one.
 typedef struct P__IconData {
     Arena arena;
+    String theme;               // the configured theme's name it was made for
     ArrayStr dataDirs;
     P__StrMap mimeByExtension;  // "txt" -> "text/plain"
     P__StrMap genericIcons;     // "text/plain" -> "text-x-generic"
@@ -79,8 +80,10 @@ typedef struct P__IconData {
     u64 themeCount;
 } P__IconData;
 
-global P__IconData P__icons;
+// ponytail: the data a theme change replaces is never freed, as a job may still read it; a few hundred kilobytes a change.
+global P__IconData *_Atomic P__iconData;
 global pthread_once_t P__iconsOnce = PTHREAD_ONCE_INIT;
+global atomic_bool P__iconThemeChanged;
 
 function String P__ReadFile(Arena *arena, String path)
 {
@@ -191,8 +194,9 @@ function ArrayStr P__DataDirs(Arena *arena)
     return result;
 }
 
-function void P__LoadMime(Arena *arena, ArrayStr dataDirs)
+function void P__LoadMime(P__IconData *data, ArrayStr dataDirs)
 {
+    Arena *arena = &data->arena;
     // Earlier directories win, and globs2 lists higher weights first, so the first entry wins.
     for (u64 d = 0; d < dataDirs.header.count; ++d) {
         String globs = P__ReadFile(arena, StrFormat(arena, "%S/mime/globs2", dataDirs.v[d]));
@@ -206,8 +210,8 @@ function void P__LoadMime(Arena *arena, ArrayStr dataDirs)
             if (StrIndexChar(extension, '.', SSF_None).exists || StrIndexChar(extension, '*', SSF_None).exists ||
                 StrIndexChar(extension, '?', SSF_None).exists || StrIndexChar(extension, '[', SSF_None).exists) continue;
             extension = P__Lower(arena, extension);
-            if (!MapsIndex(P__icons.mimeByExtension, extension).exists) {
-                MapsPut(arena, P__icons.mimeByExtension, extension, fields.v[1]);
+            if (!MapsIndex(data->mimeByExtension, extension).exists) {
+                MapsPut(arena, data->mimeByExtension, extension, fields.v[1]);
             }
         }
         String generic = P__ReadFile(arena, StrFormat(arena, "%S/mime/generic-icons", dataDirs.v[d]));
@@ -216,8 +220,8 @@ function void P__LoadMime(Arena *arena, ArrayStr dataDirs)
             Index colon = StrIndexChar(lines.v[i], ':', SSF_None);
             if (!colon.exists) continue;
             String mime = StrFromTo(lines.v[i], 0, (i64)colon.value);
-            if (!MapsIndex(P__icons.genericIcons, mime).exists) {
-                MapsPut(arena, P__icons.genericIcons, mime, P__Trim(StrFrom(lines.v[i], colon.value + 1)));
+            if (!MapsIndex(data->genericIcons, mime).exists) {
+                MapsPut(arena, data->genericIcons, mime, P__Trim(StrFrom(lines.v[i], colon.value + 1)));
             }
         }
         String subclasses = P__ReadFile(arena, StrFormat(arena, "%S/mime/subclasses", dataDirs.v[d]));
@@ -226,15 +230,23 @@ function void P__LoadMime(Arena *arena, ArrayStr dataDirs)
             Index space = StrIndexChar(lines.v[i], ' ', SSF_None);
             if (!space.exists) continue;
             String mime = StrFromTo(lines.v[i], 0, (i64)space.value), parent = P__Trim(StrFrom(lines.v[i], space.value + 1));
-            String parents = MapsGet(P__icons.mimeParents, String, mime);
-            MapsPut(arena, P__icons.mimeParents, mime, parents.length ? StrFormat(arena, "%S;%S", parents, parent) : parent);
+            String parents = MapsGet(data->mimeParents, String, mime);
+            MapsPut(arena, data->mimeParents, mime, parents.length ? StrFormat(arena, "%S;%S", parents, parent) : parent);
         }
     }
 }
 
-// ponytail: GTK settings.ini and kdeglobals only; reading gsettings/dconf would cover GNOME setups without them.
+// The icon theme the desktop is set to: GSettings', then GTK's settings.ini, then KDE's kdeglobals, then Adwaita.
 function String P__ConfiguredTheme(Arena *arena)
 {
+    // GTK on Wayland takes it from GSettings, which dconf reads back only where something set it, so GNOME's own default does not hide the files.
+    String arguments[] = { S("dconf"), S("read"), S("/org/gnome/desktop/interface/icon-theme") }, output = {0};
+    if (P_RunCommand(arena, (String){0}, arguments, CArrayCount(arguments), 1000, &output)) {
+        // "'Win11-dark'\n"
+        while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == '\'')) --output.length;
+        while (output.length && output.value[0] == '\'') output = StrFrom(output, 1);
+        if (output.length) return output;
+    }
     const char *home = getenv("HOME");
     const char *configHome = getenv("XDG_CONFIG_HOME");
     String config = configHome && configHome[0] ? StrFromCStr(configHome) : home && home[0] ? StrFormat(arena, "%s/.config", home) : (String){0};
@@ -251,8 +263,9 @@ function String P__ConfiguredTheme(Arena *arena)
     return S("Adwaita");
 }
 
-function void P__AddTheme(Arena *arena, ArrayStr bases, String name, ArrayStr *pending)
+function void P__AddTheme(P__IconData *data, ArrayStr bases, String name, ArrayStr *pending)
 {
+    Arena *arena = &data->arena;
     Scratch scratch = GetScratchEx(arena);
     P__IconTheme theme = {0};
     String indexText = {0};
@@ -291,7 +304,7 @@ function void P__AddTheme(Arena *arena, ArrayStr bases, String name, ArrayStr *p
         entry->type = StrIsEqual(type, S("Fixed")) ? P__IconDirType_Fixed
                     : StrIsEqual(type, S("Scalable")) ? P__IconDirType_Scalable : P__IconDirType_Threshold;
     }
-    P__icons.themes[P__icons.themeCount++] = theme;
+    data->themes[data->themeCount++] = theme;
     ArrayStr parents = StrSplit(arena, P__IniGet(index, section, S("Inherits")), ',');
     for (u64 i = 0; i < parents.header.count; ++i) {
         String parent = P__Trim(parents.v[i]);
@@ -299,12 +312,14 @@ function void P__AddTheme(Arena *arena, ArrayStr bases, String name, ArrayStr *p
     }
 }
 
-function void P__LoadIconData(void)
+function P__IconData *P__MakeIconData(String theme)
 {
-    Arena *arena = &P__icons.arena;
+    P__IconData *data = ArenaBootstrapStruct(P__IconData, arena);
+    Arena *arena = &data->arena;
+    data->theme = StrCopy(arena, theme);
     ArrayStr dataDirs = P__DataDirs(arena);
-    P__icons.dataDirs = dataDirs;
-    P__LoadMime(arena, dataDirs);
+    data->dataDirs = dataDirs;
+    P__LoadMime(data, dataDirs);
 
     ArrayStr bases = {0};
     const char *home = getenv("HOME");
@@ -313,21 +328,82 @@ function void P__LoadIconData(void)
 
     // Breadth-first over Inherits, each theme once, hicolor always last.
     enum { MaxThemes = 16 };
-    P__icons.themes = ArenaPushArray(arena, MaxThemes, P__IconTheme);
+    data->themes = ArenaPushArray(arena, MaxThemes, P__IconTheme);
     ArrayStr pending = {0};
-    ArrayPush(arena, pending, P__ConfiguredTheme(arena));
+    ArrayPush(arena, pending, data->theme);
     ArrayStr seen = {0};
-    for (u64 i = 0; i < pending.header.count && P__icons.themeCount < MaxThemes - 1; ++i) {
+    for (u64 i = 0; i < pending.header.count && data->themeCount < MaxThemes - 1; ++i) {
         String name = pending.v[i];
         b32 duplicate = StrIsEqual(name, S("hicolor"));
         for (u64 j = 0; j < seen.header.count && !duplicate; ++j) duplicate = StrIsEqual(seen.v[j], name);
         if (duplicate) continue;
         ArrayPush(arena, seen, name);
-        P__AddTheme(arena, bases, name, &pending);
+        P__AddTheme(data, bases, name, &pending);
     }
     ArrayStr none = {0};
-    P__AddTheme(arena, bases, S("hicolor"), &none);
+    P__AddTheme(data, bases, S("hicolor"), &none);
+    return data;
 }
+
+function void *P__WatchIconTheme(void *unused);
+
+function void P__LoadIconData(void)
+{
+    Scratch scratch = GetScratch();
+    atomic_store(&P__iconData, P__MakeIconData(P__ConfiguredTheme(scratch.arena)));
+    ReleaseScratch(scratch);
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, P__WatchIconTheme, NULL) == 0) pthread_detach(thread);
+}
+
+function P__IconData *P__Icons(void)
+{
+    pthread_once(&P__iconsOnce, P__LoadIconData);
+    return atomic_load(&P__iconData);
+}
+
+// The configured theme's files are watched, and when the name they give changes the theme's data is made again and the program told.
+function void *P__WatchIconTheme(void *unused)
+{
+    (void)unused;
+    const char *home = getenv("HOME"), *configHome = getenv("XDG_CONFIG_HOME");
+    Scratch scratch = GetScratch();
+    String config = configHome && configHome[0] ? StrFromCStr(configHome) : home && home[0] ? StrFormat(scratch.arena, "%s/.config", home) : (String){0};
+    i32 notify = config.length ? inotify_init1(IN_CLOEXEC) : -1;
+    local_persist const char *folders[] = { "gtk-3.0", "gtk-4.0", "dconf", "" };
+    for (u32 i = 0; notify >= 0 && i < CArrayCount(folders); ++i) {
+        char *path = P__FilePathCString(scratch.arena, folders[i][0] ? StrFormat(scratch.arena, "%S/%s", config, folders[i]) : config);
+        if (path) inotify_add_watch(notify, path, IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
+    }
+    ReleaseScratch(scratch);
+    alignas(struct inotify_event) char buffer[4096];
+    for (i64 length; notify >= 0 && (length = read(notify, buffer, sizeof(buffer))) > 0;) {
+        // Of the folder holding kdeglobals, every other file's writes come too, and are not the theme's.
+        b32 theirs = false;
+        for (char *at = buffer; at < buffer + length; at += sizeof(struct inotify_event) + ((struct inotify_event *)at)->len) {
+            const struct inotify_event *event = (const struct inotify_event *)at;
+            String name = event->len ? StrFromCStr(event->name) : (String){0};
+            theirs |= StrIsEqual(name, S("settings.ini")) || StrIsEqual(name, S("user")) || StrIsEqual(name, S("kdeglobals"));
+        }
+        if (!theirs) continue;
+        // A settings tool writes its files one after another; the name is read once they are all written.
+        struct timespec settle = { .tv_nsec = 200 * 1000000 };
+        nanosleep(&settle, NULL);
+        scratch = GetScratch();
+        String theme = P__ConfiguredTheme(scratch.arena);
+        if (!StrIsEqual(theme, P__Icons()->theme)) {
+            atomic_store(&P__iconData, P__MakeIconData(theme));
+            atomic_store(&P__iconThemeChanged, true);
+            P_WakeWindow();
+        }
+        ReleaseScratch(scratch);
+    }
+    if (notify >= 0) close(notify);
+    ReleaseThreadScratch();
+    return NULL;
+}
+
+function b32 P_IconThemeChanged(void) { return atomic_exchange(&P__iconThemeChanged, false); }
 
 // 0 for a directory made for icons `size` logical pixels at `scale`, as the freedesktop spec matches them;
 // else how far apart their pixel sizes are, at least 1.
@@ -350,9 +426,10 @@ function i32 P__IconDirDistance(const P__IconDir *dir, i32 size, i32 scale)
 function String P__FindIcon(Arena *arena, String name, i32 size, i32 scale)
 {
     local_persist const char *extensions[] = { "png", "svg" };
+    const P__IconData *icons = P__Icons();
     for (u32 pass = 0; pass < 2; ++pass)
-    for (u64 t = 0; t < P__icons.themeCount; ++t) {
-        const P__IconTheme *theme = &P__icons.themes[t];
+    for (u64 t = 0; t < icons->themeCount; ++t) {
+        const P__IconTheme *theme = &icons->themes[t];
         String best = {0};
         i32 bestDistance = pass == 0 ? 1 : INT32_MAX;
         for (u64 d = 0; d < theme->dirCount; ++d) {
@@ -667,14 +744,14 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
         places = names.header.count;
         ArrayPush(scratch.arena, names, S("folder"));
     } else {
-        String mime = key.length && key.value[0] == '.' ? MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1)) : (String){0};
+        String mime = key.length && key.value[0] == '.' ? MapsGet(P__Icons()->mimeByExtension, String, StrFrom(key, 1)) : (String){0};
         if (mime.length) {
             String icon = StrCopy(scratch.arena, mime);
             for (u64 i = 0; i < icon.length; ++i) {
                 if (icon.value[i] == '/') ((char *)icon.value)[i] = '-';
             }
             ArrayPush(scratch.arena, names, icon);
-            String generic = MapsGet(P__icons.genericIcons, String, mime);
+            String generic = MapsGet(P__Icons()->genericIcons, String, mime);
             Index slash = StrIndexChar(mime, '/', SSF_None);
             if (!generic.length && slash.exists) generic = StrFormat(scratch.arena, "%S-x-generic", StrFromTo(mime, 0, (i64)slash.value));
             if (generic.length) ArrayPush(scratch.arena, names, generic);
@@ -700,9 +777,10 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
 // ponytail: the untranslated <comment> only; pick the xml:lang one matching LANG when localization lands.
 function String P__MimeComment(Arena *arena, String mime)
 {
-    for (u64 d = 0; d < P__icons.dataDirs.header.count; ++d) {
+    const P__IconData *icons = P__Icons();
+    for (u64 d = 0; d < icons->dataDirs.header.count; ++d) {
         Scratch scratch = GetScratchEx(arena);
-        String xml = P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/mime/%S.xml", P__icons.dataDirs.v[d], mime));
+        String xml = P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/mime/%S.xml", icons->dataDirs.v[d], mime));
         Index open = StrIndexStr(xml, S("<comment>"), SSF_None);
         Index close = open.exists ? StrIndexStr(StrFrom(xml, open.value), S("</comment>"), SSF_None) : (Index){0};
         String result = {0};
@@ -741,7 +819,7 @@ function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)
     String key = P_FileTypeKey(scratch.arena, name, kind);
     String result = S("File");
     if (key.length > 1 && key.value[0] == '.') {
-        String mime = MapsGet(P__icons.mimeByExtension, String, StrFrom(key, 1));
+        String mime = MapsGet(P__Icons()->mimeByExtension, String, StrFrom(key, 1));
         String comment = mime.length ? P__MimeComment(arena, mime) : (String){0};
         result = comment.length ? comment : StrFormat(arena, "%S file", StrFrom(key, 1));
     }

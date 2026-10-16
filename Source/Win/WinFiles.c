@@ -519,6 +519,8 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
 function String P_TrashName(void) { return S("Recycle Bin"); }
+// ponytail: the shell's icons are taken as they are at startup; listen for its association and theme changes if they should show at once.
+function b32 P_IconThemeChanged(void) { return false; }
 
 function ArrayStr P_StartupPaths(Arena *arena)
 {
