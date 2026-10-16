@@ -76,12 +76,14 @@ function void Prog__ApplyMenuPins(Prog_State *state)
     u32 *order = ArenaPushArray(&state->frameArena, base.rootCount + 1, u32);
     b8 *taken = ArenaPushArray(&state->frameArena, base.rootCount + 1, b8);
     u32 pinned = 0;
+    // A command the menu holds twice, as some handlers add theirs twice, shows once, pinned.
     for (u64 p = 0; p < state->menuPins.header.count; ++p) {
+        b32 placed = false;
         for (u32 i = 0; i < base.rootCount; ++i) {
             if (taken[i] || base.items[i].separator || !StrIsEqual(base.items[i].label, state->menuPins.v[p])) continue;
             taken[i] = true;
-            order[pinned++] = i;
-            break;
+            if (!placed) order[pinned++] = i;
+            placed = true;
         }
     }
     u32 line = pinned && pinned < base.rootCount ? 1 : 0;
@@ -90,11 +92,13 @@ function void Prog__ApplyMenuPins(Prog_State *state)
     for (u32 i = 0; i < pinned; ++i) items[at++] = base.items[order[i]];
     if (line) items[at++] = (P_MenuItem){ .separator = true };
     for (u32 i = 0; i < base.rootCount; ++i) if (!taken[i]) items[at++] = base.items[i];
+    // The children follow the top level, which has the line more and the second copies fewer.
+    u32 roots = at;
     for (u32 i = base.rootCount; i < base.count; ++i) items[at++] = base.items[i];
-    for (u32 i = 0; i < at; ++i) if (items[i].childCount) items[i].firstChild += line;
+    for (u32 i = 0; i < at; ++i) if (items[i].childCount) items[i].firstChild = items[i].firstChild - base.rootCount + roots;
     state->menu.items = items;
-    state->menu.count = base.count + line;
-    state->menu.rootCount = base.rootCount + line;
+    state->menu.count = at;
+    state->menu.rootCount = roots;
     state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
     for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
 }
