@@ -4684,10 +4684,11 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                 UI_SetNextPrefHeight(UI_Pixels(knob));
                 UI_SetNextCornerRadius(knob * 0.5f);
                 UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                // A check on the knob while on; off, the track's color says it alone.
                 UI_SetNextFont(m->iconsSmall);
-                UI_SetNextText(value ? Icon_Check : Icon_X);
-                UI_SetNextColors((UI_Colors){ .background = value ? theme->text : theme->textDim, .text = value ? theme->textDim : theme->text });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawText);
+                UI_SetNextText(Icon_Check);
+                UI_SetNextColors((UI_Colors){ .background = value ? theme->text : theme->textDim, .text = theme->textDim });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | (value ? UI_Flag_DrawText : 0));
             }
         } break;
         case Prog_OptionControl_Stepper: {
