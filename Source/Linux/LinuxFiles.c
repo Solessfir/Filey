@@ -1303,6 +1303,41 @@ function ArrayStr P_PathRoots(Arena *arena)
     return result;
 }
 
+// A mount point as /proc lists it, whose spaces and other bytes are octal escapes ("\040").
+function String P__MountPoint(Arena *arena, String raw)
+{
+    StrBuilder point = {0};
+    for (u64 at = 0; at < raw.length; ++at) {
+        if (raw.value[at] == '\\' && at + 3 < raw.length) {
+            u32 value = (u32)(raw.value[at + 1] - '0') * 64 + (u32)(raw.value[at + 2] - '0') * 8 + (u32)(raw.value[at + 3] - '0');
+            StrBuildChar(arena, &point, (char)value);
+            at += 3;
+        } else {
+            StrBuildChar(arena, &point, raw.value[at]);
+        }
+    }
+    return point.buffer;
+}
+
+// Whether the file system mounted at `path` is on a local device, as /proc lists its source ("/dev/nvme0n1p3"), rather than a network
+// share, a lookup in which could wait for as long as the share does not answer.
+function b32 P__LocalMount(Arena *arena, String path)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String mounts = {0};
+    P_ReadFile(scratch.arena, S("/proc/self/mounts"), &mounts);
+    ArrayStr lines = StrSplit(scratch.arena, mounts, '\n');
+    b32 result = false;
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        ArrayStr fields = StrSplit(scratch.arena, lines.v[i], ' ');
+        if (fields.header.count < 3 || !StrIsEqual(P__MountPoint(scratch.arena, fields.v[1]), path)) continue;
+        // A later mount on the same point covers the earlier one.
+        result = fields.v[0].length > 5 && StrIsEqual(StrFromTo(fields.v[0], 0, 5), S("/dev/"));
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // "3.6 TB", in the binary units disks are listed by.
 function String P__ShortSize(Arena *arena, u64 bytes)
 {
@@ -1352,19 +1387,7 @@ function P_ArrayPlace P_Drives(Arena *arena)
     for (u64 i = 0; i < lines.header.count; ++i) {
         ArrayStr fields = StrSplit(scratch.arena, lines.v[i], ' ');
         if (fields.header.count < 3) continue;
-        // Spaces and other bytes in mount points are octal escapes ("\040").
-        String raw = fields.v[1];
-        StrBuilder point = {0};
-        for (u64 at = 0; at < raw.length; ++at) {
-            if (raw.value[at] == '\\' && at + 3 < raw.length) {
-                u32 value = (u32)(raw.value[at + 1] - '0') * 64 + (u32)(raw.value[at + 2] - '0') * 8 + (u32)(raw.value[at + 3] - '0');
-                StrBuildChar(scratch.arena, &point, (char)value);
-                at += 3;
-            } else {
-                StrBuildChar(scratch.arena, &point, raw.value[at]);
-            }
-        }
-        String path = point.buffer;
+        String path = P__MountPoint(scratch.arena, fields.v[1]);
         b32 root = StrIsEqual(path, S("/"));
         b32 wanted = root;
         local_persist const char *prefixes[] = { "/run/media/", "/media/", "/mnt/" };

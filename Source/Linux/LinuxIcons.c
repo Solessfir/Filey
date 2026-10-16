@@ -656,7 +656,8 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     String key = P_FileIconKey(scratch.arena, path, kind);
     if (kind == P_FileKind_Drive) {
         // A drive with Windows on it takes a theme's icon for one, as some themes name it, or else the usual one marked with Windows' logo.
-        windows = P_PathExists(StrFormat(scratch.arena, "%S/Windows/System32", path));
+        // Only a local drive is looked into, since a network share's lookup could hold up the icons behind it.
+        windows = P__LocalMount(scratch.arena, path) && P_PathExists(StrFormat(scratch.arena, "%S/Windows/System32", path));
         if (windows) {
             ArrayPush(scratch.arena, names, S("drive-harddisk-windows"));
             ArrayPush(scratch.arena, names, S("drive-windows"));
