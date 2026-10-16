@@ -785,9 +785,15 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
     }
     P__ProgressName(progress, name);
     u32 error = 0;
+    // Its whole size is taken first on another file system, so that a file too big for the drive fails before anything is written, and it
+    // lies in one piece. Not on its own, where the kernel may share the source's blocks, which takes no room.
+    struct stat placed;
+    if (info.st_size > 0 && fstat(out, &placed) == 0 && placed.st_dev != info.st_dev && fallocate(out, FALLOC_FL_KEEP_SIZE, 0, info.st_size) != 0 && errno == ENOSPC) {
+        error = ENOSPC;
+    }
     b32 kernelCopy = true;
     char buffer[65536];
-    for (;;) {
+    while (!error) {
         if (!P__Proceed(progress, cancel)) { error = ECANCELED; break; }
         ssize_t count = kernelCopy ? copy_file_range(in, NULL, out, NULL, Megabytes(8), 0) : read(in, buffer, sizeof(buffer));
         if (count < 0 && errno == EINTR) continue;

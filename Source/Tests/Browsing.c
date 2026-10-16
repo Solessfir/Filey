@@ -1335,6 +1335,19 @@ function void TestFileOperations(TestFileFixture *fixture)
         atomic_store(&run.progress.paused, true);
         P_RunLanes(2, TestPausedTransferLane, &run);
         Check(!run.early && !run.failed && atomic_load(&run.progress.doneItems) == 1 && TestListing(&arena, fixture, S("Parts")).header.count == 3);
+        // A file too big for another file system fails before anything is written, as /dev/shm is its own.
+        char shmDir[] = "/dev/shm/filey-tests-XXXXXX";
+        struct statvfs shm;
+        struct stat here, there;
+        if (statvfs("/dev/shm", &shm) == 0 && mkdtemp(shmDir)) {
+            String huge = Prog_JoinPath(&arena, parts, S("huge.bin"));
+            Check(!P_WriteFile(&arena, huge, S("")).code && truncate(P__TestNativePath(&arena, fixture, S("Parts/huge.bin")), (off_t)(shm.f_blocks * shm.f_frsize + Megabytes(64))) == 0);
+            if (stat(shmDir, &there) == 0 && stat(P__TestNativePath(&arena, fixture, S("Parts")), &here) == 0 && here.st_dev != there.st_dev) {
+                u64 start = PlatformNowMicroseconds();
+                Check(P_TransferItems(&arena, &huge, 1, StrFromCStr(shmDir), false, NULL, NULL, &token).code == ENOSPC && PlatformNowMicroseconds() - start < 1000000);
+            }
+            Check(rmdir(shmDir) == 0);
+        }
         TestRemoveTree(&arena, fixture, S("Parts"));
     }
 #endif
