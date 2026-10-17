@@ -2,6 +2,9 @@
 
 ## Next
 
+- Font picker: each family's name should show in that family, as a preview.
+- Popups and the wheel: the wheel over a popup, such as the font picker or Options, also scrolls the folder list behind it. In the popup itself it moves the highlighted row (the keyboard's) one by one, and scrolls the list only once that reaches its edge, where it should scroll the list.
+
 
 ## Look
 
@@ -48,7 +51,7 @@ Planned there, worth doing here first:
 ## Filey's own
 
 - Miller columns: Ctrl+Shift+7 (Toggle Miller Columns, also in the view menu) turns them on per panel, kept in the session. The shown folder's parents stand left of its list, as many as fit at 240 px a column, each with the folder on the way lit, and the focused folder's items right of it, empty for a file; a press in a side column goes to its folder with the item selected, a double press opens it, and Left and Right go up and into folders. Still to do: the side columns have no context menu, drags or rename, they list again only when they come back into view rather than following a watch, and the middle column shows names only.
-- Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, file states in the list, and better text and styling for what the path bar shows, which looks rough now.
+- Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, file states in the list, and better text and styling for what the path bar shows, which looks rough now. A folder of repositories, such as one holding every clone, could show each one's state in its row: the branch, uncommitted changes, and the commits to push and pull.
 - 3D model previews: the inspector draws OBJ, STL, PLY, glTF/GLB and binary FBX from a fixed view, flat-shaded and without textures; `.blend` files show the preview Blender embeds, through the system's thumbnailer where Blender is installed. Still to do: an orbit view, the same pictures as thumbnails in the icon views, text FBX, and Collada, 3DS, USD and 3MF.
 - Linux install and uninstall through a standalone `.sh` script, like https://github.com/Solessfir/razer-laptop-control's `install.sh`, documented in a README. `./Build.sh install` covers installing only, and the repository has no README yet.
 - Context menu editing: a shortcut in an open menu enters an edit mode, with a ghost panel beside the menu. Dragging an item into the panel hides it, and dragging it back shows it again. Items can be reordered in the menu, and a button restores the default. Hidden items and the order are saved with the pins. The sidebar's Places get the same editing.
