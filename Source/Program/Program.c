@@ -8788,16 +8788,19 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
         String folder = Prog__Ellipsize(frame, fine, P_NativePath(frame, setup->folder), boxWidth - floorf(17.6f * s + 0.5f));
         Prog__SetupText(folder, fine, theme->textDim, boxLeft + floorf(8.8f * s + 0.5f), boxTop + floorf(boxHeight * 0.5f));
-        // The switches, each after its name.
-        local_persist const String names[2] = { SInit("Desktop shortcut:"), SInit("Add to PATH:") };
-        local_persist const String tips[2] = { SInit("Creates a shortcut on the desktop for quick access to Filey."),
-                                                SInit("Allows Filey to be launched from the command line using Filey.exe.") };
-        b32 values[2] = { state->setupDesktop, state->setupOnPath };
-        f32 wide = floorf(45.6f * s + 0.5f), tall = floorf(28.8f * s + 0.5f), row = floorf(484.4f * s + 0.5f);
+        // The switches, each after its name, in two columns of two rows; the first column's second row is for the right-click entries.
+        local_persist const String names[3] = { SInit("Desktop shortcut:"), SInit("Add to PATH:"), SInit("Set as default:") };
+        local_persist const String tips[3] = { SInit("Creates a shortcut on the desktop for quick access to Filey."),
+                                                SInit("Allows Filey to be launched from the command line using Filey.exe."),
+                                                SInit("Opens folders with Filey and assigns it to the Win+E shortcut.") };
+        b32 values[3] = { state->setupDesktop, state->setupOnPath, state->setupDefault };
+        u32 columns[3] = { 0, 1, 1 }, rows[3] = { 0, 1, 0 };
+        f32 wide = floorf(45.6f * s + 0.5f), tall = floorf(28.8f * s + 0.5f);
         f32 labels[2] = { middle - floorf(225.6f * s + 0.5f), middle + floorf(18.4f * s + 0.5f) }, switches[2] = { middle - floorf(64.0f * s + 0.5f), middle + floorf(142.4f * s + 0.5f) };
-        for (u32 i = 0; i < 2; ++i) {
-            Prog__SetupText(names[i], medium, theme->textDim, labels[i], row + floorf(1.6f * s + 0.5f));
-            UI_SetNextFloatingOffset((UI_Vec2){ switches[i], row - floorf(tall * 0.5f) });
+        for (u32 i = 0; i < 3; ++i) {
+            f32 row = floorf((484.4f + 43.2f * (f32)rows[i]) * s + 0.5f);
+            Prog__SetupText(names[i], medium, theme->textDim, labels[columns[i]], row + floorf(1.6f * s + 0.5f));
+            UI_SetNextFloatingOffset((UI_Vec2){ switches[columns[i]], row - floorf(tall * 0.5f) });
             UI_SetNextPrefWidth(UI_Pixels(wide));
             UI_SetNextPrefHeight(UI_Pixels(tall));
             UI_Block *holder = UI_AddBlock(UI_Flag_Floating);
@@ -8812,7 +8815,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
             Prog__SetupText(note, fine, theme->textDim, middle - floorf(R_TextWidth(fine, note) * 0.5f), floorf(552.0f * s + 0.5f));
         }
         // Install, replace or change; changing does something only once a switch differs from the install.
-        b32 changed = state->setupDesktop != setup->desktopShortcut || state->setupOnPath != setup->onPath;
+        b32 changed = state->setupDesktop != setup->desktopShortcut || state->setupOnPath != setup->onPath || state->setupDefault != setup->setDefault;
         String word = !setup->installed ? S("Install") : setup->same ? S("Modify") : S("Install & Replace");
         String tip = !setup->installed ? StrFormat(frame, "This will install version %s on your PC.", FILEY_VERSION)
                    : setup->same ? S("This will apply modifications to the existing installation.")
@@ -8820,7 +8823,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         Prog__SetupButton(state, S("SetupInstall"), word, tip, Prog_CommandKind_SetupInstall, !setup->installed || !setup->same || changed, middle, floorf(608.0f * s + 0.5f), large, m);
         Prog__SetupLine(middle, floorf(646.4f * s + 0.5f), m);
         if (setup->installed) {
-            Prog__SetupButton(state, S("SetupUninstall"), S("Uninstall"), S("This will remove the current version from your PC, including its shortcuts and PATH changes."),
+            Prog__SetupButton(state, S("SetupUninstall"), S("Uninstall"), S("This will remove the current version from your PC, including its shortcuts, default program registration and PATH changes."),
                               Prog_CommandKind_SetupUninstall, true, middle, floorf(688.8f * s + 0.5f), large, m);
         }
         Prog__SetupButton(state, S("SetupBack"), S("Back"), (String){0}, Prog_CommandKind_SetupBack, true, middle, floorf((setup->installed ? 744.0f : 688.8f) * s + 0.5f), large, m);

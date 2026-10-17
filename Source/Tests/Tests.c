@@ -478,6 +478,19 @@ function void TestInstallPath(void)
     Check(P__PathHas(added, folder) && !P__PathHas(L"C:\\Tools;C:\\Users\\Me\\AppData\\Local\\Filey2", folder));
     Check(!lstrcmpW(P__EditPath(scratch.arena, added, folder, false), L"C:\\Tools;D:\\Bin"));
     Check(!lstrcmpW(P__EditPath(scratch.arena, folder, folder, false), L""));
+    // Set as default, written under a classes key of the test's own rather than the user's; taking it back leaves another program's command.
+    const wchar *classes = L"Software\\FileyTest\\Classes";
+    wchar *command = P__OpenCommand(scratch.arena, L"C:\\Users\\Me\\AppData\\Local\\Filey\\Filey.exe");
+    Check(!lstrcmpW(command, L"\"C:\\Users\\Me\\AppData\\Local\\Filey\\Filey.exe\" \"%1\""));
+    Check(!P__DefaultIs(HKEY_CURRENT_USER, classes, command));
+    Check(!P__SetDefault(HKEY_CURRENT_USER, classes, command, true) && P__DefaultIs(HKEY_CURRENT_USER, classes, command));
+    Check(!P__SetDefault(HKEY_CURRENT_USER, classes, command, false) && !P__DefaultIs(HKEY_CURRENT_USER, classes, command));
+    HKEY left = NULL;
+    Check(RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\FileyTest\\Classes\\Directory\\shell\\open", 0, KEY_READ, &left) != ERROR_SUCCESS);
+    Check(RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\FileyTest\\Classes\\CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}", 0, KEY_READ, &left) != ERROR_SUCCESS);
+    Check(!P__SetDefault(HKEY_CURRENT_USER, classes, L"\"C:\\Other.exe\" \"%1\"", true));
+    Check(!P__SetDefault(HKEY_CURRENT_USER, classes, command, false) && P__DefaultIs(HKEY_CURRENT_USER, classes, L"\"C:\\Other.exe\" \"%1\""));
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\FileyTest");
     ReleaseScratch(scratch);
 }
 

@@ -395,7 +395,7 @@ function P_FileError P_OpenConsole(Arena *arena, String directory)
 // Installing is Windows' alone; on Linux a package or `./Build.sh install` does it.
 function b32 P_CanInstall(void) { return false; }
 function P_Install P_InstallState(Arena *arena) { (void)arena; return (P_Install){0}; }
-function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath) { (void)desktopShortcut; (void)onPath; return P__FileError(arena, ENOTSUP); }
+function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath, b32 setDefault) { (void)desktopShortcut; (void)onPath; (void)setDefault; return P__FileError(arena, ENOTSUP); }
 function P_FileError P_Uninstall(Arena *arena) { return P__FileError(arena, ENOTSUP); }
 function b32 P_LoadAppIcon(Arena *arena, i32 size, P_Image *image) { (void)arena; (void)size; (void)image; return false; }
 

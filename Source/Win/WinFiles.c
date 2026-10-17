@@ -670,6 +670,9 @@ function ArrayStr P_StartupPaths(Arena *arena)
     for (i32 i = 1; arguments && i < count; ++i) {
         // Short 8.3 names, as in %TEMP%, become their long ones, the names the folders show under.
         wchar *argument = arguments[i];
+        // The shell quotes "%1", so a drive comes as "C:\", whose backslash the parsing took for an escaped quote; no path holds a quote.
+        i32 length = lstrlenW(argument);
+        if (length && argument[length - 1] == L'"') argument[length - 1] = 0;
         u32 needed = GetLongPathNameW(argument, NULL, 0);
         if (needed) {
             wchar *full = ArenaPushArrayNoZero(scratch.arena, needed, wchar);

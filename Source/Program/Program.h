@@ -1304,7 +1304,7 @@ typedef struct Prog_State {
     b32 setupOpen;
     Arena setupArena;
     P_Install setup;
-    b32 setupDesktop, setupOnPath;
+    b32 setupDesktop, setupOnPath, setupDefault;
     R_TextureHandle setupLogo;
     i32 setupLogoSize;
     const R_Font *setupFonts[3];

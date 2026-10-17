@@ -1120,6 +1120,72 @@ function u32 P__SetUserPath(Arena *arena, const wchar *folder, b32 on)
     return error;
 }
 
+// What Set as default writes under the user's classes: the open commands of folders and drives, and the command Win+E starts.
+#define P__UserClasses L"Software\\Classes"
+global const wchar *P__DefaultKeys[3] = { L"Directory\\shell", L"Drive\\shell", L"CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell" };
+global const wchar *P__DefaultVerbs[3] = { L"open", L"open", L"opennewwindow" };
+
+// Whether the command of `P__DefaultKeys[i]` under `classes` is `command`, which tells Filey's apart from what something else wrote.
+function b32 P__DefaultCommandIs(HKEY root, const wchar *classes, u32 i, const wchar *command)
+{
+    wchar key[512], value[1100];
+    DWORD size = sizeof(value);
+    swprintf(key, CArrayCount(key), L"%ls\\%ls\\%ls\\command", classes, P__DefaultKeys[i], P__DefaultVerbs[i]);
+    return RegGetValueW(root, key, NULL, RRF_RT_REG_SZ, NULL, value, &size) == ERROR_SUCCESS && CompareStringOrdinal(value, -1, command, -1, TRUE) == CSTR_EQUAL;
+}
+
+function b32 P__DefaultIs(HKEY root, const wchar *classes, const wchar *command)
+{
+    b32 result = true;
+    for (u32 i = 0; i < CArrayCount(P__DefaultKeys); ++i) result &= P__DefaultCommandIs(root, classes, i, command);
+    return result;
+}
+
+// Makes `command` what opens folders and drives and what Win+E starts, or takes back only the keys that still hold it, so that
+// Windows falls back to its own.
+function u32 P__SetDefault(HKEY root, const wchar *classes, const wchar *command, b32 on)
+{
+    u32 error = ERROR_SUCCESS;
+    for (u32 i = 0; i < CArrayCount(P__DefaultKeys) && !error; ++i) {
+        wchar shell[512], verb[512];
+        swprintf(shell, CArrayCount(shell), L"%ls\\%ls", classes, P__DefaultKeys[i]);
+        swprintf(verb, CArrayCount(verb), L"%ls\\%ls", shell, P__DefaultVerbs[i]);
+        b32 clsid = i == 2;
+        if (on) {
+            DWORD commandSize = (DWORD)(((u64)lstrlenW(command) + 1) * sizeof(wchar));
+            wchar commandKey[600];
+            swprintf(commandKey, CArrayCount(commandKey), L"%ls\\command", verb);
+            // The shell's default verb picks open over what Explorer would choose first.
+            if (!clsid) error = (u32)RegSetKeyValueW(root, shell, NULL, REG_SZ, L"open", sizeof(L"open"));
+            if (!error) error = (u32)RegSetKeyValueW(root, commandKey, NULL, REG_SZ, command, commandSize);
+            // An empty DelegateExecute makes Win+E run the command rather than Explorer's own handler.
+            if (!error && clsid) error = (u32)RegSetKeyValueW(root, commandKey, L"DelegateExecute", REG_SZ, L"", sizeof(L""));
+        } else if (P__DefaultCommandIs(root, classes, i, command)) {
+            if (clsid) {
+                wchar clsidKey[512];
+                swprintf(clsidKey, CArrayCount(clsidKey), L"%ls\\CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}", classes);
+                RegDeleteTreeW(root, clsidKey);
+            } else {
+                RegDeleteTreeW(root, verb);
+                wchar value[16];
+                DWORD size = sizeof(value);
+                if (RegGetValueW(root, shell, NULL, RRF_RT_REG_SZ, NULL, value, &size) == ERROR_SUCCESS && !lstrcmpiW(value, L"open")) RegDeleteKeyValueW(root, shell, NULL);
+            }
+        }
+    }
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+    return error;
+}
+
+// `"<executable>" "%1"`, the command the shell starts Filey with for a folder.
+function wchar *P__OpenCommand(Arena *arena, const wchar *executable)
+{
+    u64 length = (u64)lstrlenW(executable) + 8;
+    wchar *result = ArenaPushArray(arena, length, wchar);
+    swprintf(result, length, L"\"%ls\" \"%%1\"", executable);
+    return result;
+}
+
 // The product version in the executable `path`'s version resource.
 function String P__FileVersion(Arena *arena, const wchar *path)
 {
@@ -1160,13 +1226,14 @@ function P_Install P_InstallState(Arena *arena)
                 result.onPath = P__PathHas(P__UserPath(scratch.arena, key, &type), paths.folder);
                 RegCloseKey(key);
             }
+            result.setDefault = P__DefaultIs(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable));
         }
     }
     ReleaseScratch(scratch);
     return result;
 }
 
-function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath)
+function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath, b32 setDefault)
 {
     Scratch scratch = GetScratchEx(arena);
     P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
@@ -1182,6 +1249,7 @@ function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPat
     if (!error && paths.desktopLink && desktopShortcut && !P__WriteShortcut(paths.desktopLink, paths.executable, paths.folder)) error = ERROR_CANNOT_MAKE;
     if (!error && paths.desktopLink && !desktopShortcut && P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
     if (!error) error = P__SetUserPath(scratch.arena, paths.folder, onPath);
+    if (!error) error = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), setDefault);
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
@@ -1195,6 +1263,8 @@ function P_FileError P_Uninstall(Arena *arena)
         if (P__ShortcutStarts(scratch.arena, paths.startLink, paths.executable)) DeleteFileW(paths.startLink);
         if (P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
         error = P__SetUserPath(scratch.arena, paths.folder, false);
+        u32 defaultError = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), false);
+        if (!error) error = defaultError;
         DeleteFileW(paths.aside);
         // The running copy cannot be deleted, but it can move to the temporary folder, which is on the same drive under the profile, and its
         // folder then goes with it.
