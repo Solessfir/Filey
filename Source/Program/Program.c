@@ -7306,8 +7306,11 @@ function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32
 }
 
 // While a tab is dragged over a panel, its drop zones: beside it on the left and right with into it between them in the middle, above it at the top and below it at the bottom.
+// The tab's own panel has no "into", which would leave it where it is, and none at all while the tab is its only one, which a split would only move.
 function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Prog_Metrics *m)
 {
+    b32 own = Prog__PanelId(state) == state->tabDrop.fromPanel;
+    if (own && state->tabCount <= 1) return;
     f32 s = m->scale, width = panel.x1 - panel.x0, height = panel.y1 - panel.y0;
     f32 side = floorf(70 * s), middle = floorf(96 * s), tall = floorf(94 * s), gap = floorf(12 * s), wide = floorf(118 * s), low = floorf(66 * s);
     f32 cx = floorf(width * 0.5f), cy = floorf(top + (height - top) * 0.5f);
@@ -7319,6 +7322,7 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         { { cx - wide * 0.5f, height - low - gap, cx + wide * 0.5f, height - gap }, 2, false, 1, Prog_TabDrop_Bottom },
     };
     for (u32 i = 0; i < CArrayCount(zones); ++i) {
+        if (own && zones[i].drop == Prog_TabDrop_Into) continue;
         if (Prog__DropZone(zones[i].box, panel, zones[i].parts, zones[i].across, zones[i].target, m)) {
             state->tabDrop.kind = (u8)zones[i].drop;
             state->tabDrop.panel = Prog__PanelId(state);
