@@ -25,6 +25,7 @@ typedef struct WinWindowState {
 
     i32 width;
     i32 height;
+    i32 restoredWidth, restoredHeight;  // the content's size when last neither maximized nor minimized
     u32 dpi;
 
     wchar highSurrogate;
@@ -271,6 +272,7 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         case WM_SIZE: {
             Win.width = LOWORD(lParam);
             Win.height = HIWORD(lParam);
+            if (wParam == SIZE_RESTORED && !Win.fullscreen) Win.restoredWidth = Win.width, Win.restoredHeight = Win.height;
             PlatformEvent *event = PlatformPushEvent(PlatformEventKind_Resized);
             event->width = Win.width;
             event->height = Win.height;
@@ -542,9 +544,10 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     // Size the client area for the monitor the window landed on.
     Win.dpi = GetDpiForWindow(Win.window);
     WinSetIcons();
+    b32 given = desc.contentWidth > 0 && desc.contentHeight > 0;
     RECT rect = {
-        .right  = MulDiv(desc.width, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),
-        .bottom = MulDiv(desc.height, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),
+        .right  = given ? desc.contentWidth : MulDiv(desc.width, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),
+        .bottom = given ? desc.contentHeight : MulDiv(desc.height, (int)Win.dpi, USER_DEFAULT_SCREEN_DPI),
     };
     AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0, Win.dpi);
     // There is no caption above the client area.
@@ -557,7 +560,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     b32 dark = true;
     DwmSetWindowAttribute(Win.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     Win.background = CreateSolidBrush(RGB((desc.background >> 16) & 0xFF, (desc.background >> 8) & 0xFF, desc.background & 0xFF));
-    ShowWindow(Win.window, SW_SHOWDEFAULT);
+    ShowWindow(Win.window, desc.maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT);
     UpdateWindow(Win.window);
 
     // Shell context menus, drag and drop and the clipboard need OLE on this thread.
@@ -664,15 +667,22 @@ function void PlatformWindowToggleMaximize(void) { ShowWindow(Win.window, IsZoom
 // The content takes the size; the invisible frame at its sides and bottom is added to it.
 function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized)
 {
-    if (maximized) {
-        ShowWindow(Win.window, SW_MAXIMIZE);
-        return;
-    }
-    if (IsZoomed(Win.window)) ShowWindow(Win.window, SW_RESTORE);
+    if (maximized && IsZoomed(Win.window)) return;
+    if (!maximized && IsZoomed(Win.window)) ShowWindow(Win.window, SW_RESTORE);
+    // A maximized window takes the size first, which it goes back to when it is restored.
     RECT outer = {0}, inner = {0};
-    if (width <= 0 || height <= 0 || !GetWindowRect(Win.window, &outer) || !GetClientRect(Win.window, &inner)) return;
-    i32 frameWidth = (outer.right - outer.left) - (inner.right - inner.left), frameHeight = (outer.bottom - outer.top) - (inner.bottom - inner.top);
-    SetWindowPos(Win.window, NULL, 0, 0, width + frameWidth, height + frameHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    if (width > 0 && height > 0 && GetWindowRect(Win.window, &outer) && GetClientRect(Win.window, &inner)) {
+        i32 frameWidth = (outer.right - outer.left) - (inner.right - inner.left), frameHeight = (outer.bottom - outer.top) - (inner.bottom - inner.top);
+        SetWindowPos(Win.window, NULL, 0, 0, width + frameWidth, height + frameHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if (maximized) ShowWindow(Win.window, SW_MAXIMIZE);
+}
+
+function void PlatformWindowRestoredSize(i32 *width, i32 *height)
+{
+    b32 known = Win.restoredWidth > 0 && Win.restoredHeight > 0;
+    *width = known ? Win.restoredWidth : Win.width;
+    *height = known ? Win.restoredHeight : Win.height;
 }
 
 function void PlatformWindowToggleFullscreen(void)

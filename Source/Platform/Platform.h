@@ -145,6 +145,8 @@ typedef struct PlatformWindowDesc {
     String title;
     i32 width;     // logical pixels; scaled by the display scale
     i32 height;
+    i32 contentWidth, contentHeight;  // physical pixels the content opens at in place of width and height, when not 0, as a last run left it
+    b32 maximized;                    // opens maximized, at the content size when it is restored
     u32 background;  // 0xRRGGBB shown from the moment the window opens until the first frame
 } PlatformWindowDesc;
 
@@ -192,6 +194,8 @@ function void PlatformWindowToggleMaximize(void);
 // Gives the window a content `width` by `height` physical pixels, or maximizes it; a compositor that sizes the window itself, as a tiling
 // one does, keeps its own size.
 function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized);
+// The content's size in physical pixels as the window has it when it is neither maximized nor minimized.
+function void PlatformWindowRestoredSize(i32 *width, i32 *height);
 // Covers the whole screen without the system's frame, or goes back to how the window was.
 function void PlatformWindowToggleFullscreen(void);
 // Pushes CloseRequested, as the system's close does.

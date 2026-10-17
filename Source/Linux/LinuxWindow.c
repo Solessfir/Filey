@@ -1195,6 +1195,12 @@ function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized)
     Wl.height = (i32)((f32)height / Wl.scale + 0.5f);
     LinuxApplySize();
 }
+// ponytail: the current size, maximized or not; track the floating size from the configure events if restoring a maximized window's size matters.
+function void PlatformWindowRestoredSize(i32 *width, i32 *height)
+{
+    PlatformWindowInfo info = PlatformWindowGetInfo();
+    *width = info.width, *height = info.height;
+}
 function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
 
 function void PlatformWindowToggleMaximize(void)

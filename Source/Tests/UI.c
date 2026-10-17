@@ -98,6 +98,7 @@ function void PlatformWindowToggleFullscreen(void) {}
 function void PlatformWindowClose(void) { ++TestWindowCalls[2]; }
 function void PlatformWindowStartMove(void) { ++TestWindowCalls[3]; }
 function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized) {}
+function void PlatformWindowRestoredSize(i32 *width, i32 *height) { *width = *height = 0; }
 function ArrayStr PlatformFontFamilies(Arena *arena) { return (ArrayStr){0}; }
 
 #if defined(__linux__)

@@ -314,16 +314,20 @@ int main(void)
     b32 ok = false;
     R_Color background = Prog_ThemeCustom.window;
     u32 backgroundRgb = (u32)(background.r * 255.0f + 0.5f) << 16 | (u32)(background.g * 255.0f + 0.5f) << 8 | (u32)(background.b * 255.0f + 0.5f);
-    ProfileScope("OpenWindow") ok = PlatformWindowOpen((PlatformWindowDesc){ .title = S("Filey"), .width = 1280, .height = 800, .background = backgroundRgb });
+    // The window opens at the size the last run left it at, rather than growing to it once the settings are read.
+    Scratch startup = GetScratch();
+    String configDirectory = P_ConfigDirectory(startup.arena);
+    PlatformWindowDesc window = { .title = S("Filey"), .width = 1280, .height = 800, .background = backgroundRgb };
+    Prog_SessionWindow(configDirectory, &window);
+    ProfileScope("OpenWindow") ok = PlatformWindowOpen(window);
     if (!ok) {
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
     // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
-    Scratch startup = GetScratch();
     ArrayStr startPaths = P_StartupPaths(startup.arena);
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
-    if (ok) Prog_LoadSettings(&loop.state, P_ConfigDirectory(startup.arena), P_CacheDirectory(startup.arena));
+    if (ok) Prog_LoadSettings(&loop.state, configDirectory, P_CacheDirectory(startup.arena));
     // After the settings, so that these tabs start with their choices.
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.

@@ -1551,6 +1551,7 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
 function void Prog_LoadSettings(Prog_State *state, String configDirectory, String cacheDirectory);
+function void Prog_SessionWindow(String configDirectory, PlatformWindowDesc *desc);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);

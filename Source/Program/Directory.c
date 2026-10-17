@@ -2106,6 +2106,7 @@ function void Prog_InspectFolder(Prog_State *state, String path)
 }
 
 function b32 Prog__TakeNumber(String *text, u64 *value);
+function String Prog__ApplyWindowLine(String text);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
 
 // The tab's trail, when it goes on from the folder shown, or This PC shows; empty otherwise.
@@ -2419,6 +2420,8 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Scratch session = GetScratch();
     String text = {0};
     if (P_ReadFile(session.arena, Prog_JoinPath(session.arena, configDirectory, Prog_SessionFile), &text)) {
+        // The window's size comes back whatever the start opens, the last run's panels or the folders it was given.
+        text = Prog__ApplyWindowLine(text);
         ArrayStr lines = StrSplit(session.arena, text, '\n');
         for (u64 l = 0; l < lines.header.count; ++l) {
             String line = lines.v[l];
@@ -3707,11 +3710,41 @@ function void Prog_LoadLayouts(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
-// What a layout keeps: the window's content size and whether it is maximized, then the session's panels, tabs and sidebar.
+// What a layout and the session on exit keep: the window's content size, as it is when not maximized, and whether it is maximized, then
+// the session's panels, tabs and sidebar.
 function String Prog_LayoutText(Arena *arena, Prog_State *state)
 {
-    PlatformWindowInfo window = PlatformWindowGetInfo();
-    return StrFormat(arena, "window %d %d %u\n%S", window.width, window.height, PlatformWindowIsMaximized() ? 1u : 0u, Prog_SessionText(arena, state));
+    i32 width, height;
+    PlatformWindowRestoredSize(&width, &height);
+    return StrFormat(arena, "window %d %d %u\n%S", width, height, PlatformWindowIsMaximized() ? 1u : 0u, Prog_SessionText(arena, state));
+}
+
+// The window's size and maximized state as the last run's session left them, for the window to open at.
+function void Prog_SessionWindow(String configDirectory, PlatformWindowDesc *desc)
+{
+    if (!configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    String text = {0};
+    if (P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, Prog_SessionFile), &text) && text.length > 7 && StrIsEqual(StrFromTo(text, 0, 7), S("window "))) {
+        String rest = StrFrom(text, 7);
+        u64 width = 0, height = 0, maximized = 0;
+        if (Prog__TakeNumber(&rest, &width) && Prog__TakeNumber(&rest, &height) && Prog__TakeNumber(&rest, &maximized) && width < 65536 && height < 65536) {
+            desc->contentWidth = (i32)width, desc->contentHeight = (i32)height, desc->maximized = maximized != 0;
+        }
+    }
+    ReleaseScratch(scratch);
+}
+
+// Sizes the window from the "window" line `text` starts with, when it does, and gives the text after it.
+function String Prog__ApplyWindowLine(String text)
+{
+    Index end = StrIndexChar(text, '\n', SSF_CountOnFail);
+    String first = StrFromTo(text, 0, (i64)end.value);
+    if (first.length <= 7 || !StrIsEqual(StrFromTo(first, 0, 7), S("window "))) return text;
+    String rest = StrFrom(first, 7);
+    u64 width = 0, height = 0, maximized = 0;
+    if (Prog__TakeNumber(&rest, &width) && Prog__TakeNumber(&rest, &height) && Prog__TakeNumber(&rest, &maximized)) PlatformWindowSetSize((i32)width, (i32)height, maximized != 0);
+    return StrFrom(text, Min(end.value + 1, text.length));
 }
 
 // Gives the layout named `name`, matched without case, the text `text`, after the others when it is new, or with `remove` takes it out;
@@ -3755,15 +3788,7 @@ function b32 Prog_ApplyLayout(Prog_State *state, String name)
     for (u64 i = 0; i < state->layoutNames.header.count && !text.length; ++i) if (Prog__EqualFolded(state->layoutNames.v[i], name)) text = state->layoutTexts.v[i];
     if (!text.length) return false;
     Scratch scratch = GetScratch();
-    text = StrCopy(scratch.arena, text);
-    Index end = StrIndexChar(text, '\n', SSF_CountOnFail);
-    String first = StrFromTo(text, 0, (i64)end.value);
-    if (first.length > 7 && StrIsEqual(StrFromTo(first, 0, 7), S("window "))) {
-        String rest = StrFrom(first, 7);
-        u64 width = 0, height = 0, maximized = 0;
-        if (Prog__TakeNumber(&rest, &width) && Prog__TakeNumber(&rest, &height) && Prog__TakeNumber(&rest, &maximized)) PlatformWindowSetSize((i32)width, (i32)height, maximized != 0);
-        text = StrFrom(text, Min(end.value + 1, text.length));
-    }
+    text = Prog__ApplyWindowLine(StrCopy(scratch.arena, text));
     // Every inspector's panel, then the panels but the shown one, then its tabs but the shown one.
     Prog_CloseMenu(state);
     if (state->renaming) Prog__EndRename(state, false);
@@ -4749,7 +4774,7 @@ function void Prog_Release(Prog_State *state)
     // The session is written while the panels still hold it.
     if (state->configDirectory.length && state->panelCount) {
         Scratch scratch = GetScratch();
-        P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SessionFile), Prog_SessionText(scratch.arena, state));
+        P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SessionFile), Prog_LayoutText(scratch.arena, state));
         ReleaseScratch(scratch);
     }
     // Watch threads wake the window, like the workers, so they stop first.
