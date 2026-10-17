@@ -1762,6 +1762,23 @@ function u64 Prog__SelectedPaths(Prog_State *state, Arena *arena, String **paths
     return at;
 }
 
+function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b32 archive, u64 size)
+{
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Preview;
+    input->path = StrCopy(&job->arena, path);
+    input->folder = folder;
+    input->archive = archive;
+    input->showHidden = state->showHidden;
+    input->hex = state->inspectorHex;
+    input->size = size;
+    state->hexSize = size;
+    job->input = input;
+    state->previewJob = job;
+    P_JobSubmit(job);
+}
+
 // Starts loading the preview of the active panel's focused item when it is another than the one shown; a folder is listed in the inspector's panel.
 // While the keyboard is in that panel, the item is still its owner's; once the inspector no longer lists a folder, the keyboard goes back to the owner.
 function void Prog__UpdatePreview(Prog_State *state)
@@ -1780,15 +1797,26 @@ function void Prog__UpdatePreview(Prog_State *state)
         return;
     }
     String want = {0};
-    b32 folder = false;
-    u64 size = 0;
+    b32 folder = false, archive = false;
+    u64 size = 0, stamp = 0;
     if (!state->loading && state->hasFocus && state->focusedRow < state->directory.count) {
         const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
         want = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
         folder = entry->file.kind == P_FileKind_Directory;
+        archive = Prog_PreviewsArchive(state, entry);
         size = entry->file.size;
+        stamp = archive ? entry->file.size ^ (u64)entry->file.modifiedTimeUnix : 0;
     }
-    if (StrIsEqual(want, state->previewPath)) return;
+    if (StrIsEqual(want, state->previewPath)) {
+        // An archive that changed, as when files are dropped into it, is counted again; its list stays where it is and its old totals show
+        // until the new ones come.
+        if (!archive || stamp == state->previewStamp) return;
+        state->previewStamp = stamp;
+        if (state->previewJob) P_RequestCancel(&state->previewJob->cancelToken);
+        Prog__SubmitPreview(state, want, false, true, size);
+        return;
+    }
+    state->previewStamp = stamp;
     if (state->previewJob) P_RequestCancel(&state->previewJob->cancelToken);
     state->previewJob = NULL;
     ArenaClear(&state->previewArena);
@@ -1797,8 +1825,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
-    state->previewFolder = folder;
-    state->previewHex = state->previewArchive = false;
+    state->previewFolder = folder || archive;
+    state->previewHex = state->previewArchive = state->previewArchiveCounted = false;
     state->hexPages = NULL;
     state->hexPageCount = 0;
     state->hexSize = 0;
@@ -1811,19 +1839,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewLineCount = state->previewRowColumns = 0;
     state->inspectorResetScroll = true;
     if (!want.length) return;
-    if (folder) Prog_ListInInspector(state, want);
-    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
-    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
-    input->kind = Prog_JobKind_Preview;
-    input->path = StrCopy(&job->arena, want);
-    input->folder = folder;
-    input->showHidden = state->showHidden;
-    input->hex = state->inspectorHex;
-    input->size = size;
-    state->hexSize = size;
-    job->input = input;
-    state->previewJob = job;
-    P_JobSubmit(job);
+    if (folder || archive) Prog_ListInInspector(state, want);
+    Prog__SubmitPreview(state, want, folder, archive, size);
 }
 
 // Zooms the inspector's image a fifth of its size in or out from the scale it shows, down to no smaller than fitting the view.

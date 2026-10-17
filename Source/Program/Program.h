@@ -364,6 +364,7 @@ typedef struct Prog_JobInput {
     b32 inTab;             // Reveal: shown in a new tab
     b32 move;
     b32 folder;
+    b32 archive;           // Preview: an archive the inspector's panel lists, which the job counts
     b32 confirm;           // EmptyTrash and Delete: the system asks first
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
@@ -463,6 +464,9 @@ typedef struct Prog_Preview {
     String text;
     b32 hex;                        // the text is the first page of a file that is neither text nor a picture, shown as hex
     b32 archive;                    // the text lists what an archive holds
+    // An archive the inspector's panel lists: all it holds, not complete when there was more than was counted.
+    P_DirectoryTotals archiveTotals;
+    b32 archiveCounted;
 } Prog_Preview;
 
 // How the inspector sizes an image: shrunk to fit its view, at its own size, or at a scale set with the zoom commands.
@@ -1175,6 +1179,9 @@ typedef struct Prog_State {
     u64 hexPageCount;
     P_Job *hexPageJob;        // the page on its way, one at a time
     b32 previewArchive;       // previewText lists an archive's contents, shown the same way
+    P_DirectoryTotals previewArchiveTotals;  // an archive the inspector's panel lists, once previewArchiveCounted
+    b32 previewArchiveCounted;
+    u64 previewStamp;         // the archive's size and modified time as counted, so that a change counts it again
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
     // The view is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;
@@ -1378,6 +1385,9 @@ function String Prog_EntryParent(String name);
 function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function String Prog_HexDump(Arena *arena, String bytes, b32 cut);
 function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 cut);
+function P_DirectoryTotals Prog_ArchiveTotals(const P_FileArray *items);
+function b32 Prog_PreviewsArchive(const Prog_State *state, const Prog_Entry *entry);
+function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed);
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks);
 function i32 Prog_EntryScore(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);

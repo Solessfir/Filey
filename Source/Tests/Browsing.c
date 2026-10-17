@@ -794,6 +794,18 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(sawFolder && sawFile);
     String listing = Prog_ArchiveListing(&arena, &items, false);
     Check(StrIsEqual(StrFromTo(listing, 0, 23), S("1 folder, 1 file, 2 B\n\n")) && TestEndsWith(listing, S("       2 B  docs/a.txt\n")));
+    // The inspector sums it up over its list; folders only in the paths of files count too.
+    P_DirectoryTotals totals = Prog_ArchiveTotals(&items);
+    Check(totals.folders == 1 && totals.files == 1 && totals.bytes == 2 && totals.complete);
+    Check(StrIsEqual(Prog_ArchiveSummary(&arena, totals, 1), S("1 folder, 1 file, 2 B, packed to 1 B (50% smaller)")));
+    P_FileArray implied = {0};
+    ArrayPush(&arena, implied, ((P_File){ .name = S("a/b/c.txt"), .size = 10, .kind = P_FileKind_File }));
+    ArrayPush(&arena, implied, ((P_File){ .name = S("a/d.txt"), .size = 10, .kind = P_FileKind_File }));
+    totals = Prog_ArchiveTotals(&implied);
+    Check(totals.folders == 2 && totals.files == 2 && totals.bytes == 20);
+    Check(StrIsEqual(Prog_ArchiveSummary(&arena, totals, 30), S("2 folders, 2 files, 20 B, packed to 30 B (no smaller)")));
+    totals.complete = false;
+    Check(StrIsEqual(Prog_ArchiveSummary(&arena, totals, 30), S("Over 4 items, packed to 30 B")));
     Check(!P_ListArchive(&arena, plain, 100, NULL, &items) && !items.header.count);
     // The archive opens as a folder: a level of it at a time, files taken out of it, a copy to open or preview, and files added to it.
     {

@@ -799,13 +799,40 @@ function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, Ar
 
 // What an archive holds, a line each in its order: the size right aligned, then the path inside it, a folder's ending in '/'; first a line
 // with the counts and the total size, and `cut` adds a last line saying there is more.
+// What the items of an archive come to: its folders, with entries of their own or only in the paths of what they hold, each once, then its
+// files and their size.
+function P_DirectoryTotals Prog_ArchiveTotals(const P_FileArray *items)
+{
+    P_DirectoryTotals result = { .complete = true };
+    Scratch scratch = GetScratch();
+    struct { MapHeader header; struct { String key; u64 value; } *v; } folders = {0};
+    for (u64 i = 0; i < items->header.count; ++i) {
+        String name = items->v[i].name;
+        b32 folder = items->v[i].kind == P_FileKind_Directory;
+        if (!folder) ++result.files, result.bytes += items->v[i].size;
+        for (u64 at = 0; at <= name.length; ++at) {
+            if (at < name.length ? name.value[at] != '/' : !folder) continue;
+            String above = StrFromTo(name, 0, (i64)at);
+            if (MapsIndex(folders, above).exists) continue;
+            MapsPut(scratch.arena, folders, above, 1);
+            ++result.folders;
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// Whether the inspector lists `entry`, a row of the current panel, as a folder because it is an archive. One inside an archive, which the
+// panel cannot go into, and every file while the inspector shows bytes are previewed as files.
+function b32 Prog_PreviewsArchive(const Prog_State *state, const Prog_Entry *entry)
+{
+    return entry->file.kind != P_FileKind_Directory && Prog_IsArchiveName(entry->file.name) && !state->directory.archive && !state->inspectorHex;
+}
+
 function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 cut)
 {
-    u64 folders = 0, files = 0, bytes = 0;
-    for (u64 i = 0; i < items->header.count; ++i) {
-        if (items->v[i].kind == P_FileKind_Directory) ++folders;
-        else ++files, bytes += items->v[i].size;
-    }
+    P_DirectoryTotals totals = Prog_ArchiveTotals(items);
+    u64 folders = totals.folders, files = totals.files, bytes = totals.bytes;
     StrBuilder text = {0};
     StrBuildStr(arena, &text, StrFormat(arena, "%" PRIu64 " %s, %" PRIu64 " %s, %S\n\n", folders, folders == 1 ? "folder" : "folders", files,
                                         files == 1 ? "file" : "files", Prog_FormatSize(arena, bytes)));
@@ -1709,8 +1736,16 @@ function void Prog__DirectoryJob(P_Job *job)
         String start = {0};
         P_Image image = {0};
         P_FileArray items = {0};
-        u32 *model = !input->hex && !input->folder ? Prog_ModelPreview(&job->arena, path, input->size, &job->cancelToken) : NULL;
-        if (input->hex && !input->folder) {
+        u32 *model = !input->hex && !input->folder && !input->archive ? Prog_ModelPreview(&job->arena, path, input->size, &job->cancelToken) : NULL;
+        if (input->archive) {
+            // Counted up to the same limit as a listing; short of it, that is all there is.
+            if (!P_IsCancelled(&job->cancelToken)) {
+                P_ListArchive(&job->arena, path, Prog_PreviewArchiveItems, &job->cancelToken, &items);
+                result->archiveTotals = Prog_ArchiveTotals(&items);
+                result->archiveTotals.complete = items.header.count < Prog_PreviewArchiveItems;
+                result->archiveCounted = true;
+            }
+        } else if (input->hex && !input->folder) {
             result->hex = P_ReadFileStart(&job->arena, path, Prog_HexPageBytes, &result->text);
         } else if (!input->folder && Prog__IsArchive(path) && P_ListArchive(&job->arena, path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
             result->text = Prog_ArchiveListing(&job->arena, &items, items.header.count >= Prog_PreviewArchiveItems);
@@ -3966,6 +4001,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewTextFocus = false;
                 state->previewHex = false;
                 state->previewArchive = preview->archive;
+                state->previewArchiveTotals = preview->archiveTotals;
+                state->previewArchiveCounted = preview->archiveCounted;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
                 u32 lines = 0;

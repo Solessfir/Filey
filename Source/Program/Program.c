@@ -6822,6 +6822,22 @@ function void Prog__LeaveInspectorPanel(Prog_State *state, u64 owner)
     UI->keySeed = Prog_PanelKeySeed(owner);
 }
 
+// What the inspector says over an archive's list: what it holds in all, then its own size, `packed`, and how much of its contents' size the
+// packing saves.
+function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed)
+{
+    String size = Prog_FormatSize(arena, packed);
+    if (!totals.complete) return StrFormat(arena, "Over %S items, packed to %S", Prog__FormatCount(arena, totals.folders + totals.files), size);
+    StrBuilder text = {0};
+    if (totals.folders) StrBuildFormat(arena, &text, "%S %s, ", Prog__FormatCount(arena, totals.folders), totals.folders == 1 ? "folder" : "folders");
+    StrBuildFormat(arena, &text, "%S %s, %S, packed to %S", Prog__FormatCount(arena, totals.files), totals.files == 1 ? "file" : "files",
+                   Prog_FormatSize(arena, totals.bytes), size);
+    u32 saved = totals.bytes > packed ? (u32)((f64)(totals.bytes - packed) * 100.0 / (f64)totals.bytes + 0.5) : 0;
+    if (saved) StrBuildFormat(arena, &text, " (%u%% smaller)", saved);
+    else StrBuildStr(arena, &text, S(" (no smaller)"));
+    return text.buffer;
+}
+
 // A folder in the inspector: the list of the inspector's panel, worked as a panel's, with its column titles in Details and its status bar under it.
 function void Prog__InspectorList(Prog_State *state, const Prog_Metrics *m)
 {
@@ -7046,7 +7062,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
     b32 text = entry && !state->previewPicture && ((state->previewText.length && state->previewLines) || state->previewHex);
     b32 image = entry && state->previewImage;
-    b32 folder = entry && entry->file.kind == P_FileKind_Directory;
+    b32 archive = entry && Prog_PreviewsArchive(state, entry);
+    b32 folder = entry && (entry->file.kind == P_FileKind_Directory || archive);
     UI_SetNextPrefWidth(below ? UI_Flex() : UI_Pixels(inner));
     UI_SetNextPrefHeight(below ? UI_Pixels(inner) : UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -7125,6 +7142,10 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         } else if (image) {
             Prog__InspectorImage(state, m);
         } else if (folder) {
+            if (archive) {
+                String summary = state->previewArchiveCounted ? Prog_ArchiveSummary(&state->frameArena, state->previewArchiveTotals, entry->file.size) : S("Counting...");
+                Prog__Label(summary, UI_Flex(), m->row, m->inset, theme->textDim, 0);
+            }
             Prog__InspectorList(state, m);
         } else {
             UI_SetNextPrefWidth(UI_Flex());
