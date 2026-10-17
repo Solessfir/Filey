@@ -738,9 +738,9 @@ function void TestProgramVirtualRows(void)
         Prog_BuildUI(&state, &TestUIFont, &TestUIFont, 1);
         UI_EndFrame();
         UI_Block *list = UI__Find(listKey);
-        // The rows, and past them the overscroll's room, which once laid out leaves the last row at the top.
+        // The rows, and past them the overscroll's room, which once laid out is half the view.
         f32 tall = (f32)state.directory.count * Prog_RowHeight(&TestUIFont), view = list ? list->rect.y1 - list->rect.y0 : 0;
-        Check(list && (list->contentSize.y == tall || (frame && list->contentSize.y == tall + view - Prog_RowHeight(&TestUIFont))));
+        Check(list && (list->contentSize.y == tall || (frame && list->contentSize.y == tall + floorf(view * 0.5f))));
         if (!list) break;
         u64 rows = 0, retained = 0;
         for (UI_Block *child = list->first; child; child = child->next) {

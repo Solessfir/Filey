@@ -3459,9 +3459,9 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
         // Cells that sit lower in their slot, as Columns' do, reach past the last one.
         if (lines && item.y1 > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(item.y1 - pitch.y));
-        // A list longer than its view scrolls on until its last line is at the top.
+        // A list longer than its view scrolls on by half the view, so that its last line stops just above the middle.
         f32 viewHeight = list->rect.y1 - list->rect.y0;
-        if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(viewHeight - pitch.y));
+        if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > 2 * pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(floorf(viewHeight * 0.5f)));
         if (!state->viewCount && !state->loading) {
             // Centered a little below the top.
             String empty = state->directory.count ? S("All items are currently hidden by view settings.") : S("This folder is empty.");
