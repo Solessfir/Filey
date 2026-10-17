@@ -673,6 +673,8 @@ function ArrayStr P_StartupPaths(Arena *arena)
         // The shell quotes "%1", so a drive comes as "C:\", whose backslash the parsing took for an escaped quote; no path holds a quote.
         i32 length = lstrlenW(argument);
         if (length && argument[length - 1] == L'"') argument[length - 1] = 0;
+        // Win+E passes its own shell folder, "::{52205fd8-...}", which starts Filey as it starts without a folder.
+        if (argument[0] == L':' && argument[1] == L':') continue;
         u32 needed = GetLongPathNameW(argument, NULL, 0);
         if (needed) {
             wchar *full = ArenaPushArrayNoZero(scratch.arena, needed, wchar);
