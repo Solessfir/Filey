@@ -646,7 +646,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
-    Prog_CommandKind_TypesPopupOpen,
+    Prog_CommandKind_TypesPopupOpen, Prog_CommandKind_FilesPopupOpen, Prog_CommandKind_FilesPopupPrev, Prog_CommandKind_FilesPopupNext,
     Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
     Prog_CommandKind_BookmarksToggle,
@@ -736,6 +736,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
         case Prog_CommandKind_SelectionMoveNextPanel:
             return item && panels > 1;
+        case Prog_CommandKind_FilesPopupPrev: case Prog_CommandKind_FilesPopupNext: return state->filesOpen;
         case Prog_CommandKind_Back: return state->historyAt > 0;
         case Prog_CommandKind_Forward: return state->historyAt + 1 < state->history.header.count;
         case Prog_CommandKind_Up: return Prog_UpPath(state->directory.path).length != 0;
@@ -1994,6 +1995,60 @@ function b32 Prog_InspectorSelection(const Prog_State *state, Arena *arena, Stri
     return text->length > 0;
 }
 
+// The folder dropdown's rows the search finds, by their places in its listing, in its order.
+function u32 Prog_FilesMatches(const Prog_State *state, u32 *out)
+{
+    String typed = Prog_EditText(&state->filesSearch);
+    u32 count = 0;
+    for (u64 i = 0; i < state->filesCount && i < UINT32_MAX; ++i) {
+        if (!typed.length || Prog_FuzzyScore(state->filesItems[i].file.name, (String){0}, typed, NULL, NULL) > 0) out[count++] = (u32)i;
+    }
+    return count;
+}
+
+function void Prog__CloseFilesPopup(Prog_State *state)
+{
+    state->filesOpen = false;
+    if (state->filesJob) P_RequestCancel(&state->filesJob->cancelToken);
+    state->filesJob = NULL;
+}
+
+// The folder of the crumb ending at `end` of the crumbs' `path`: a drive's crumb is its root.
+function String Prog__CrumbFolder(String path, u64 end)
+{
+    String folder = StrFromTo(path, 0, (i64)end);
+    return folder.length == 2 && folder.value[1] == ':' ? StrFromTo(path, 0, 3) : folder;
+}
+
+// Opens the dropdown of crumb `at` of the `count` ending at `ends` in `path`, listing its folder in a job, with the next crumb's folder marked.
+function void Prog__OpenFilesPopup(Prog_State *state, String path, const u64 *ends, u32 count, u32 at)
+{
+    Prog_CloseMenu(state);
+    state->typesOpen = false;
+    Prog__CloseFilesPopup(state);
+    ArenaClear(&state->filesArena);
+    state->filesFolder = StrCopy(&state->filesArena, Prog__CrumbFolder(path, ends[at]));
+    state->filesChild = at + 1 < count ? StrCopy(&state->filesArena, StrFromTo(path, ends[at] + 1, (i64)ends[at + 1])) : (String){0};
+    state->filesOpen = true;
+    state->filesListed = false;
+    state->filesItems = NULL;
+    state->filesCount = 0;
+    state->filesWidest = 0;
+    state->filesSearch.length = state->filesSearch.cursor = state->filesSearch.anchor = 0;
+    ++state->filesSearch.version;
+    state->filesHighlight = 0;
+    state->filesLit = state->filesReveal = false;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_FilesList;
+    input->path = StrCopy(&job->arena, state->filesFolder);
+    input->showHidden = state->showHidden;
+    input->showSystem = state->showSystem;
+    job->input = input;
+    state->filesJob = job;
+    P_JobSubmit(job);
+}
+
 function b32 Prog_ProcessCommands(Prog_State *state)
 {
     b32 changed = state->commandFirst != NULL;
@@ -2870,6 +2925,38 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_ApplyFilter(state, false);
                 if (command->target) state->typesOpen = false;
             } break;
+            case Prog_CommandKind_FilesPopupOpen:
+            case Prog_CommandKind_FilesPopupPrev:
+            case Prog_CommandKind_FilesPopupNext: {
+                String path;
+                u64 shownEnd, ends[128];
+                u32 count = state->loading ? 0 : Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends)), open = UINT32_MAX, want = UINT32_MAX;
+                for (u32 i = 0; state->filesOpen && i < count; ++i) if (StrIsEqual(Prog__CrumbFolder(path, ends[i]), state->filesFolder)) open = i;
+                if (command->kind == Prog_CommandKind_FilesPopupOpen) {
+                    // Its hotkey, or a click on the separator after the open crumb, closes it again.
+                    for (u32 i = 0; i < count && want == UINT32_MAX; ++i) if (ends[i] == (command->target ? command->target : shownEnd)) want = i;
+                    if (!command->target && want == UINT32_MAX && count) want = count - 1;
+                    if (state->filesOpen && (!command->target || want == open)) {
+                        want = UINT32_MAX;
+                        Prog__CloseFilesPopup(state);
+                    }
+                } else if (open != UINT32_MAX) {
+                    want = command->kind == Prog_CommandKind_FilesPopupPrev ? (open ? open - 1 : UINT32_MAX) : (open + 1 < count ? open + 1 : UINT32_MAX);
+                }
+                if (want != UINT32_MAX) Prog__OpenFilesPopup(state, path, ends, count, want);
+            } break;
+            case Prog_CommandKind_FilesPopupActivate: {
+                if (!state->filesOpen || !state->filesListed) break;
+                u32 *rows = ArenaPushArray(&state->frameArena, Max(state->filesCount, (u64)1), u32);
+                u32 found = Prog_FilesMatches(state, rows);
+                u64 row = command->row != UINT64_MAX ? command->row : state->filesHighlight < found ? rows[state->filesHighlight] : UINT64_MAX;
+                if (row >= state->filesCount) break;
+                const P_File *file = &state->filesItems[row].file;
+                Prog_GoToItem item = { .path = Prog_JoinPath(&state->frameArena, state->filesFolder, file->name), .file = file->kind != P_FileKind_Directory };
+                Prog__CloseFilesPopup(state);
+                Prog__GoToOpen(state, item);
+            } break;
+            case Prog_CommandKind_FilesPopupClose: Prog__CloseFilesPopup(state); break;
             case Prog_CommandKind_ToggleFolders:
             case Prog_CommandKind_ToggleFiles: {
                 if (command->kind == Prog_CommandKind_ToggleFolders) state->hideFolders = !state->hideFolders;
@@ -2952,6 +3039,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;
     // The Types popup lists the active panel's types, the new ones once the listing changes under it.
     if (state->typesOpen) Prog_GatherTypes(state);
+    // The folder dropdown closes once its crumb is gone from the path bar, as after going to another folder.
+    if (state->filesOpen && !state->loading) {
+        String path;
+        u64 shownEnd, ends[128];
+        u32 count = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends));
+        b32 there = false;
+        for (u32 i = 0; i < count && !there; ++i) there = StrIsEqual(Prog__CrumbFolder(path, ends[i]), state->filesFolder);
+        if (!there) Prog__CloseFilesPopup(state);
+    }
     // Files dropped where the system leaves them to Filey go as a paste does, with its progress, questions about taken names and undo.
     String dropFolder = {0};
     b32 dropMove = false;
@@ -3189,6 +3285,40 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             } else {
                 Prog__EditKey(state, &state->typesSearch, event);
                 if (state->typesSearch.version != version) state->typesHighlight = 0;
+            }
+            continue;
+        }
+        // The folder dropdown takes the keyboard: typing finds in it, Up and Down move the highlight, Enter goes to or opens what it lights, its own
+        // hotkeys move it to the crumbs beside, and Escape or the hotkey that opened it close it.
+        if (state->filesOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_Text) {
+                Prog__EditInsert(&state->filesSearch, event->codepoint);
+                state->filesHighlight = 0;
+                state->filesLit = state->filesReveal = true;
+                continue;
+            }
+            KeyMods held = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
+            const Prog_Hotkey *own = Prog_FindHotkey(state, Prog_HotkeyScope_Files, Key_None, event->key, held);
+            const Prog_Hotkey *browser = Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, held);
+            u32 *rows = ArenaPushArray(&state->frameArena, Max(state->filesCount, (u64)1), u32);
+            u32 count = Prog_FilesMatches(state, rows), version = state->filesSearch.version;
+            if (own) {
+                Prog_QueueCommand(state, own->command, 0, 0, order);
+            } else if (event->key == Key_Escape || (browser && browser->command == Prog_CommandKind_FilesPopupOpen && !event->isRepeat)) {
+                Prog_QueueCommand(state, Prog_CommandKind_FilesPopupClose, 0, 0, order);
+                state->swallowText = true;
+            } else if (event->key == Key_Enter && !event->isRepeat) {
+                if (count) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupActivate, UINT64_MAX, 0, order);
+            } else if ((event->key == Key_Up || event->key == Key_Down) && count) {
+                u32 at = Min(state->filesHighlight, count - 1);
+                state->filesHighlight = event->key == Key_Up ? (at ? at - 1 : count - 1) : (at + 1 < count ? at + 1 : 0);
+                state->filesLit = state->filesReveal = true;
+            } else {
+                Prog__EditKey(state, &state->filesSearch, event);
+                if (state->filesSearch.version != version) {
+                    state->filesHighlight = 0;
+                    state->filesLit = state->filesReveal = true;
+                }
             }
             continue;
         }

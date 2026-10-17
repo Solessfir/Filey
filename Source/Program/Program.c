@@ -1638,6 +1638,30 @@ function u64 Prog__CrumbStart(const Prog_State *state, String path, b32 *drive)
     return slash.exists ? slash.value + 1 : 0;
 }
 
+// The path the crumbs show: the trail of folders visited below the shown one goes on past it.
+function String Prog__CrumbsPath(Prog_State *state, u64 *shownEnd)
+{
+    String shown = state->directory.path;
+    b32 thisPC = StrIsEqual(shown, Prog_ThisPC);
+    String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
+    *shownEnd = thisPC ? 0 : shown.length;
+    while (*shownEnd > 2 && shown.value[*shownEnd - 1] == '/') --*shownEnd;
+    return trail.length ? trail : thisPC ? (String){0} : shown;
+}
+
+function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 *ends, u32 max)
+{
+    *path = Prog__CrumbsPath(state, shownEnd);
+    b32 drive;
+    u32 count = 0;
+    for (u64 at = Prog__CrumbStart(state, *path, &drive); at < path->length && count < max;) {
+        u64 end = at + StrIndexChar(StrFrom(*path, at), '/', SSF_CountOnFail).value;
+        if (end > at) ends[count++] = end;
+        at = end + 1;
+    }
+    return count;
+}
+
 // The name the sidebar gives the drive `path` is on, or its letter.
 function String Prog__DriveName(const Prog_State *state, String path)
 {
@@ -1676,13 +1700,9 @@ function String Prog__GoToWhere(Prog_State *state, String path)
 function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    String shown = state->directory.path;
-    b32 thisPC = StrIsEqual(shown, Prog_ThisPC);
-    // The trail of folders visited below the shown one goes on past it.
-    String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
-    String path = trail.length ? trail : thisPC ? (String){0} : shown;
-    u64 shownEnd = thisPC ? 0 : shown.length;
-    while (shownEnd > 2 && shown.value[shownEnd - 1] == '/') --shownEnd;
+    b32 thisPC = StrIsEqual(state->directory.path, Prog_ThisPC);
+    u64 shownEnd;
+    String path = Prog__CrumbsPath(state, &shownEnd);
     b32 drive;
     u64 start = Prog__CrumbStart(state, path, &drive);
     if (drive || thisPC) {
@@ -1699,15 +1719,42 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         String segment = StrFromTo(path, at, (i64)end);
         b32 current = end == shownEnd;
         if (segment.length) {
-            if (at > start || drive) Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), Prog__StripHeight(m), theme->textDim, 0.5f, m);
+            // The separator after a crumb opens that crumb's folder dropdown; while it is open, it is drawn turned down inside the crumb.
+            b32 afterOpen = at > start && state->filesOpen && StrIsEqual(Prog__CrumbFolder(path, at - 1), state->filesFolder);
+            if (at > start && !afterOpen) {
+                UI_Interaction separator = Prog__TextButton(StrFormat(&state->frameArena, "CrumbSeparator/%S", StrFromTo(path, 0, (i64)at - 1)), Icon_ChevronRight,
+                                                            m->iconsSmall, UI_Pixels(floorf(m->line * 1.6f)), m->bar * 0.75f, 0, theme->textDim, theme->text,
+                                                            theme->textDim, true, m);
+                if (separator.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupOpen, 0, 0, separator.clickOrder)->target = at - 1;
+            } else if (drive && at == start) {
+                Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), Prog__StripHeight(m), theme->textDim, 0.5f, m);
+            }
             if (drive && at == 0) segment = Prog__DriveName(state, path);
             else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
             // A walk through the whole tree is marked after the folder walked.
             if (current && state->expanded) segment = StrFormat(&state->frameArena, "%S [...]", segment);
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
-            UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
-                                                          theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
-            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, end, 0, interaction.clickOrder);
+            if (state->filesOpen && StrIsEqual(Prog__CrumbFolder(path, end), state->filesFolder)) {
+                b32 more = end < path.length;
+                f32 chevron = floorf(m->line * 1.6f);
+                UI_SetNextPrefWidth(UI_Pixels(m->gap * 0.5f + R_TextWidth(m->font, segment) + (more ? chevron : m->gap * 0.5f)));
+                UI_SetNextPrefHeight(UI_Pixels(m->bar * 0.75f));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextChildrenPadding((UI_Padding){ m->gap * 0.5f, 0, more ? 0 : m->gap * 0.5f, 0 });
+                UI_SetNextCornerRadius(floorf(6.4f * m->scale + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_Block *lit = UI_AddBlockFromKey(UI_KeyFromStr(0, identity), UI_Flag_DrawBackground);
+                UI_Parent(lit) {
+                    Prog__Label(segment, UI_TextContent(), m->bar * 0.75f, 0, theme->text, 0);
+                    if (more) Prog__SmallIcon(Icon_ChevronDown, chevron, m->bar * 0.75f, theme->text, 0.5f, m);
+                }
+                state->filesAnchor = lit->rect;
+            } else {
+                UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
+                                                              theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, end, 0, interaction.clickOrder);
+            }
         }
         at = end + 1;
     }
@@ -5366,6 +5413,145 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// The folder dropdown under its crumb: a box that finds in the folder's listing over a row for each item it finds, as wide as the widest name
+// needs, the folder the path goes on into marked with an arrow. A click on a row goes to its folder or opens its file. It reaches down to the
+// window's bottom at most, and only the rows in sight are built.
+function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->filesOpen) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    f32 s = m->scale;
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupClose, 0, 0, outside.pressOrder);
+    u32 *rows = ArenaPushArray(frame, Max(state->filesCount, (u64)1), u32);
+    u32 count = Prog_FilesMatches(state, rows);
+    if (state->filesHighlight >= count) state->filesHighlight = count ? count - 1 : 0;
+    if (state->filesListed && state->filesWidest <= 0) {
+        state->filesWidest = 1;
+        for (u64 i = 0; i < state->filesCount; ++i) state->filesWidest = MaxF32(state->filesWidest, R_TextWidth(m->font, state->filesItems[i].file.name));
+    }
+    f32 pad = floorf(6.4f * s + 0.5f), fieldHeight = floorf(32.0f * s + 0.5f), pitch = floorf(25.6f * s + 0.5f), line = MaxF32(1, floorf(1.6f * s + 0.5f));
+    f32 radius = floorf(8.0f * s + 0.5f), button = floorf(28.0f * s + 0.5f), above = floorf(2.4f * s + 0.5f), iconSize = (f32)state->iconSize;
+    // Under its crumb; before the first layout has placed the crumb, under the top of the window.
+    R_Rect anchor = state->filesAnchor;
+    f32 x = anchor.x1 > anchor.x0 ? anchor.x0 : view.x0 + m->bar * 4, y = anchor.y1 > anchor.y0 ? anchor.y1 + floorf(2.4f * s + 0.5f) : view.y0 + m->bar * 2;
+    f32 width = MinF32(MaxF32(floorf(188.0f * s + 0.5f), state->filesWidest + floorf(69.6f * s + 0.5f)), view.x1 - view.x0 - 2 * pad);
+    x = MaxF32(view.x0, MinF32(x, view.x1 - width - pad));
+    u32 fits = (u32)MaxF32(1, floorf((view.y1 - pad - y - fieldHeight - line - above - pad) / pitch)), visible = Min(Max(count, 1u), fits);
+    f32 listHeight = (f32)visible * pitch, height = fieldHeight + line + above + listHeight + pad;
+    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
+    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilesPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_MouseClickable);
+    UI_Parent(box) {
+        UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(fieldHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(field) {
+            Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(fieldHeight));
+            Prog__Icon(Icon_Search, floorf(24.0f * s + 0.5f), fieldHeight, theme->textDim, 0, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                f32 top = floorf((fieldHeight - m->line) * 0.5f);
+                if (!state->filesSearch.length) {
+                    u64 n = state->filesCount;
+                    String many = n >= 1000000 ? StrFormat(frame, "%.1fM", (f64)n / 1e6) : n >= 1000 ? StrFormat(frame, "%.1fK", (f64)n / 1e3) : StrFormat(frame, "%" PRIu64, n);
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(StrFormat(frame, "Filter %S files...", many));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->filesSearch, 0, top, true, 0, m);
+            }
+            UI_Interaction close = Prog__TextButton(S("FilesClose"), Icon_X, m->icons, UI_Pixels(button), fieldHeight, 0, theme->textDim, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupClose, 0, 0, close.clickOrder);
+            Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, above, pad, pad });
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(listHeight + above + pad));
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        b32 scrolls = count > visible;
+        UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilesList")), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
+        // The highlight the keyboard moved scrolls into sight.
+        if (state->filesReveal && list->rect.y1 > list->rect.y0) {
+            f32 top = (f32)state->filesHighlight * pitch;
+            if (top < list->scrollOffset.y) list->scrollOffset.y = top;
+            if (top + pitch > list->scrollOffset.y + listHeight) list->scrollOffset.y = top + pitch - listHeight;
+            state->filesReveal = false;
+        }
+        // The pointer lights the row it moves onto; a still pointer leaves the keyboard's highlight alone.
+        b32 moved = UI->mouse.x != state->filesMouse.x || UI->mouse.y != state->filesMouse.y;
+        state->filesMouse = UI->mouse;
+        String typed = Prog_EditText(&state->filesSearch);
+        f32 rowWidth = width - 2 * pad - (scrolls ? Prog__ScrollGutter(m) : 0), shown = list->scrollShown.y;
+        u32 first = (u32)MinF32((f32)count, MaxF32(0, floorf(shown / pitch))), last = Min(count, first + visible + 1);
+        UI_Parent(list) {
+            for (u32 i = first; i < last; ++i) {
+                const Prog_Entry *entry = &state->filesItems[rows[i]];
+                f32 rowY = (f32)i * pitch - shown;
+                // Rows are parted by a line, and lit between the lines.
+                if (i) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY });
+                    UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+                    UI_SetNextPrefHeight(UI_Pixels(line));
+                    UI_SetNextColors((UI_Colors){ .background = theme->separator });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
+                UI_Key rowKey = UI_KeyFromStr(0, StrFormat(frame, "Files/%S", entry->file.name));
+                if (UI->hotKey == rowKey && moved && UI__Contains(list->rect, UI->mouse)) {
+                    state->filesHighlight = i;
+                    state->filesLit = true;
+                }
+                b32 lit = state->filesLit && i == state->filesHighlight;
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, rowY + line });
+                UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+                UI_SetNextPrefHeight(UI_Pixels(pitch - line));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(6.4f * s + 0.5f), 0, floorf(10.4f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_Block *row = UI_AddBlockFromKey(rowKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
+                UI_Interaction pick = UI_InteractionFromBlock(row);
+                if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupActivate, rows[i], 0, pick.clickOrder);
+                UI_Parent(row) {
+                    const Prog_Icon *icon = Prog_FileIcon(state, state->filesFolder, entry);
+                    UI_SetNextPrefWidth(UI_Pixels(iconSize + floorf(8.0f * s + 0.5f)));
+                    UI_SetNextPrefHeight(UI_Pixels(pitch - line));
+                    if (icon) UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ iconSize, iconSize }, (R_Color){ 1, 1, 1, 1 });
+                    UI_AddBlock(icon ? UI_Flag_DrawImage : 0);
+                    u8 *marks = typed.length ? ArenaPushArray(frame, entry->file.name.length + 1, u8) : NULL;
+                    if (marks) Prog_FuzzyScore(entry->file.name, (String){0}, typed, marks, NULL);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(pitch - line));
+                    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((pitch - line - m->line) * 0.5f), 0, 0 });
+                    UI_Block *name = UI_AddBlock(UI_Flag_Clip);
+                    UI_Parent(name) Prog__MarkedText(entry->file.name, marks, m->font, m->line, theme->text);
+                    if (state->filesChild.length && StrIsEqual(entry->file.name, state->filesChild)) Prog__Icon(Icon_ArrowLeft, 0, pitch - line, theme->text, 0.5f, m);
+                }
+            }
+            // The rows float, so the list scrolls by a stand-in as tall as they are.
+            Prog__Spacer(UI_Pixels(rowWidth), UI_Pixels((f32)count * pitch));
+        }
+        if (scrolls) Prog__ScrollBar(list, pitch, S("FilesList"), 1, m);
+    }
+}
+
 function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
 {
     R_Rect anchor = state->zoomAnchor;
@@ -7266,6 +7452,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__Transfers(state, m);
     Prog__ContextMenu(state, m);
     Prog__TypesPopup(state, m);
+    Prog__FilesPopup(state, m);
     Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
     Prog__HotkeyQuestion(state, m);

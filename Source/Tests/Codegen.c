@@ -63,7 +63,7 @@ function void TestCodegenParse(void)
         { S("command A {\n    repeat = \"maybe\"\n}"), S("line 2: repeat is \"true\" or \"false\"") },
         { S("command A {\n"), S("line 1: missing `}` for command A") },
         { S("command A {\n    hotkey = \"F5\"\n}\ncommand B {\n    hotkey = \"F5\"\n}"), S("hotkey F5 is bound twice (A, B)") },
-        { S("command A {\n    scope = \"Browser\"\n}"), S("line 2: scope is \"Text\", \"Rename\" or \"GoTo\"") },
+        { S("command A {\n    scope = \"Browser\"\n}"), S("line 2: scope is \"Text\", \"Rename\", \"GoTo\" or \"Files\"") },
     };
     for (u32 i = 0; i < CArrayCount(failures); ++i) {
         Codegen_ArrayCommand ignored = {0};

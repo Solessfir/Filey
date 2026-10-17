@@ -6,7 +6,7 @@
 //     tooltip = "One sentence."
 //     hotkey  = "Ctrl+Shift+Key"               repeatable; Key is a Key_ name without the prefix; "G G" is G pressed twice
 //     repeat  = "false"                        ignore auto-repeat key events
-//     scope   = "Rename"                       where its hotkeys work: "Text" boxes, the rename box or "GoTo"; the browser when omitted
+//     scope   = "Rename"                       where its hotkeys work: "Text" boxes, the rename box, "GoTo" or the folder dropdown, "Files"; the browser when omitted
 // }
 //
 // Hotkeys match modifiers exactly, so every accepted combination is listed.
@@ -659,6 +659,36 @@ command TypesUntoggleAll {
 
 // Escape, its close button or a click away from it.
 command TypesPopupClose {
+}
+
+// From a separator of the path bar, target is where the crumb before it ends in the path the crumbs show; its hotkey opens the shown folder's.
+command FilesPopupOpen {
+    label   = "Open Folder Dropdown^directory,files"
+    tooltip = "Open folder dropdown from the path header."
+    hotkey  = "Alt+Down"
+    repeat  = "false"
+}
+
+command FilesPopupPrev {
+    label   = "Open Left Folder Dropdown^files,popup,directory"
+    tooltip = "Open the folder dropdown for the parent directory to the left of the current one."
+    hotkey  = "Alt+Left"
+    scope   = "Files"
+}
+
+command FilesPopupNext {
+    label   = "Open Right Folder Dropdown^files,popup,directory"
+    tooltip = "Open the folder dropdown for the next child directory to the right of the current one."
+    hotkey  = "Alt+Right"
+    scope   = "Files"
+}
+
+// The folder dropdown's row `row`, by its place in the listing, or the highlighted one for UINT64_MAX: a folder is gone to, a file opened.
+command FilesPopupActivate {
+}
+
+// Escape, its close button or a click away from it.
+command FilesPopupClose {
 }
 
 command ToggleFolders {

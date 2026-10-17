@@ -151,8 +151,8 @@ function b32 Codegen_ParseCommands(Arena *arena, String text, Codegen_ArrayComma
                 if (!Codegen__ParseHotkey(value, &hotkey)) message = S("hotkeys look like \"Ctrl+Shift+Key\"");
                 else ArrayPush(arena, command->hotkeys, hotkey);
             } else if (StrIsEqual(key, S("scope"))) {
-                if (StrIsEqual(value, S("Text")) || StrIsEqual(value, S("Rename")) || StrIsEqual(value, S("GoTo"))) command->scope = value;
-                else message = S("scope is \"Text\", \"Rename\" or \"GoTo\"");
+                if (StrIsEqual(value, S("Text")) || StrIsEqual(value, S("Rename")) || StrIsEqual(value, S("GoTo")) || StrIsEqual(value, S("Files"))) command->scope = value;
+                else message = S("scope is \"Text\", \"Rename\", \"GoTo\" or \"Files\"");
             } else {
                 message = S("unknown key; expected label, tooltip, hotkey, repeat or scope");
             }

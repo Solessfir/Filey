@@ -92,12 +92,14 @@ struct Prog_ViewSettings {
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
 
-// Where a command's hotkeys work: the browser, any text box, the rename box (before the text box's) or Go To. A key may mean a command in each.
+// Where a command's hotkeys work: the browser, any text box, the rename box (before the text box's), Go To or the folder dropdown.
+// A key may mean a command in each.
 typedef enum Prog_HotkeyScope {
     Prog_HotkeyScope_Browser,
     Prog_HotkeyScope_Text,
     Prog_HotkeyScope_Rename,
     Prog_HotkeyScope_GoTo,
+    Prog_HotkeyScope_Files,
     Prog_HotkeyScope_Count,
 } Prog_HotkeyScope;
 
@@ -222,6 +224,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Undo,
     Prog_JobKind_HexPage,
     Prog_JobKind_Git,
+    Prog_JobKind_FilesList,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -684,6 +687,12 @@ typedef struct Prog_GoToListed {
     P_File *files;
     u64 count;
 } Prog_GoToListed;
+
+// A folder dropdown's listing: folders, then files, each by name.
+typedef struct Prog_FilesListed {
+    Prog_Entry *items;
+    u64 count;
+} Prog_FilesListed;
 
 // Sidebar sections, in display order.
 typedef enum Prog_Group {
@@ -1211,6 +1220,23 @@ typedef struct Prog_State {
     R_Rect typesAnchor;
     Arena typesArena;
     u64 typesListing;
+    // The folder dropdown under a crumb of the path bar: the crumb's folder and the one the path goes on into from it, which its listing marks;
+    // a box that finds in the listing once a job brings it, and the highlighted row, unlit until the keyboard moves it or the marked one is lit.
+    b32 filesOpen;
+    Arena filesArena;            // filesFolder and filesChild
+    String filesFolder, filesChild;
+    Arena filesListArena;        // the job's, which holds filesItems
+    Prog_Entry *filesItems;
+    u64 filesCount;
+    b32 filesListed;
+    P_Job *filesJob;
+    Prog_TextEdit filesSearch;
+    u32 filesHighlight;          // among the rows the search finds
+    b32 filesLit;
+    b32 filesReveal;             // the highlight scrolls into sight at the next build
+    R_Rect filesAnchor;          // the open crumb, as the last build laid it out
+    f32 filesWidest;             // the widest name of the listing, measured once it arrives
+    UI_Vec2 filesMouse;          // where the pointer was at the last build
     String *typeNames;
     u64 *typeCounts;
     u64 *typeFirsts;
@@ -1303,6 +1329,8 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
 function b32 Prog_TakeCompletions(Prog_State *state);
 function String Prog_ParentPath(String path);
 function String Prog_JoinPath(Arena *arena, String path, String name);
+// The path the crumbs show, where the shown folder ends in it, and where each crumb ends, up to `max`; none in This PC.
+function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 *ends, u32 max);
 // A picture of Prog_PreviewSize squared of the 3D model in the file of `size` bytes at `path`; NULL for a file that is not one or does not read.
 function u32 *Prog_ModelPreview(Arena *arena, String path, u64 size, const P_CancelToken *cancel);
 function String Prog_FormatSize(Arena *arena, u64 bytes);

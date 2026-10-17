@@ -1442,6 +1442,21 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    if (input->kind == Prog_JobKind_FilesList) {
+        // What the list would show of it, sorted as a list by name sorts it, folders first.
+        Prog_FilesListed *result = ArenaPushStruct(&job->arena, Prog_FilesListed);
+        P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+        u64 count = listing.files.header.count, kept = 0;
+        Prog_Entry *entries = ArenaPushArray(&job->arena, Max(count, (u64)1), Prog_Entry), *sorted = ArenaPushArrayNoZero(&job->arena, Max(count, (u64)1), Prog_Entry);
+        for (u64 i = 0; i < count; ++i) {
+            const P_File *file = &listing.files.v[i];
+            if ((input->showHidden || !file->hidden) && (input->showSystem || !file->system)) entries[kept++].file = *file;
+        }
+        result->items = Prog__SortEntries(entries, sorted, kept, Prog_Sort_Name, false, Prog_FolderSort_First, &job->cancelToken);
+        result->count = result->items ? kept : 0;
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_Inspect) {
         Prog_Inspected *result = ArenaPushStruct(&job->arena, Prog_Inspected);
         result->created = P_FileCreatedTime(input->path);
@@ -3677,7 +3692,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview ||
+                         input->kind == Prog_JobKind_FilesList;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             Prog__ReleaseJob(job);
@@ -3885,6 +3901,26 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 job->arena = (Arena){0};
                 state->gotoListing = *(Prog_GoToListed *)job->result;
                 state->gotoListed = true;
+                changed = true;
+            }
+        } else if (input->kind == Prog_JobKind_FilesList) {
+            if (state->filesJob == job) state->filesJob = NULL;
+            if (job->result && state->filesOpen && StrIsEqual(input->path, state->filesFolder) && !P_IsCancelled(&job->cancelToken)) {
+                ArenaRelease(&state->filesListArena);
+                state->filesListArena = job->arena;
+                job->arena = (Arena){0};
+                const Prog_FilesListed *listed = job->result;
+                state->filesItems = listed->items;
+                state->filesCount = listed->count;
+                state->filesListed = true;
+                state->filesWidest = 0;
+                // The folder the path goes on into is lit, until something is typed.
+                for (u64 i = 0; state->filesChild.length && !Prog_EditText(&state->filesSearch).length && i < listed->count; ++i) {
+                    if (StrIsEqual(listed->items[i].file.name, state->filesChild)) {
+                        state->filesHighlight = (u32)i;
+                        state->filesLit = state->filesReveal = true;
+                    }
+                }
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_Inspect) {
@@ -4219,6 +4255,8 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->tipArena);
     ArenaRelease(&state->gotoArena);
     ArenaRelease(&state->gotoHistoryArena);
+    ArenaRelease(&state->filesArena);
+    ArenaRelease(&state->filesListArena);
     ArenaRelease(&state->knownArena);
     Prog_IndexRelease(&state->index);
     Prog_IndexRelease(&state->savedIndex);

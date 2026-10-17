@@ -1046,6 +1046,49 @@ function void TestFilter(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Waits until the folder dropdown has its listing.
+function b32 TestWaitFilesPopup(Prog_State *state)
+{
+    for (u64 start = PlatformNowMicroseconds(); state->filesOpen && !state->filesListed && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        Prog_TakeCompletions(state);
+    }
+    return state->filesOpen && state->filesListed;
+}
+
+// The folder dropdown of the path bar's crumbs: its hotkey opens the shown folder's, the keys beside move it along the crumbs with the folder
+// the path goes on into lit, typing finds in it, and Enter goes to what it lights.
+function void TestFilesPopup(TestFileFixture *fixture)
+{
+    Check(P__TestMakeDirectory(fixture, S("Drop")) && P__TestMakeDirectory(fixture, S("Drop/Inner")) && P__TestMakeDirectory(fixture, S("Drop/Other")));
+    Check(P__TestWriteFile(fixture, S("Drop/zeta.txt"), 1, false) && P__TestWriteFile(fixture, S("Drop/Inner/deep.txt"), 1, false));
+    Arena arena = {0};
+    String drop = Prog_JoinPath(&arena, fixture->path, S("Drop")), inner = Prog_JoinPath(&arena, drop, S("Inner"));
+    Prog_State state = {0};
+    Check(Prog_Init(&state, inner, NULL, NULL) && state.jobs.initialized);
+    Check(TestWaitDirectory(&state));
+    TestRenameKey(&state, Key_Down, KeyMod_Alt);
+    Check(TestWaitFilesPopup(&state) && StrIsEqual(state.filesFolder, inner) && state.filesCount == 1 && !state.filesLit && !state.filesChild.length);
+    TestRenameKey(&state, Key_Left, KeyMod_Alt);
+    Check(TestWaitFilesPopup(&state) && StrIsEqual(state.filesFolder, drop) && StrIsEqual(state.filesChild, S("Inner")) && StrIsEqual(state.directory.path, inner));
+    Check(state.filesCount == 3 && state.filesLit && StrIsEqual(state.filesItems[state.filesHighlight].file.name, S("Inner")) && StrIsEqual(state.filesItems[2].file.name, S("zeta.txt")));
+    TestRenameKey(&state, Key_Right, KeyMod_Alt);
+    Check(TestWaitFilesPopup(&state) && StrIsEqual(state.filesFolder, inner));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.filesOpen);
+    TestRenameKey(&state, Key_Down, KeyMod_Alt);
+    TestRenameKey(&state, Key_Left, KeyMod_Alt);
+    Check(TestWaitFilesPopup(&state));
+    TestRenameType(&state, S("oth"));
+    u32 rows[4];
+    Check(Prog_FilesMatches(&state, rows) == 1 && state.filesHighlight == 0 && state.filesLit);
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(TestWaitDirectory(&state) && !state.filesOpen && StrIsEqual(state.directory.path, Prog_JoinPath(&arena, drop, S("Other"))));
+    Prog_Release(&state);
+    ArenaRelease(&arena);
+    Check(P__TestRemovePath(fixture, S("Drop/Inner/deep.txt"), false) && P__TestRemovePath(fixture, S("Drop/Inner"), true) && P__TestRemovePath(fixture, S("Drop/Other"), true));
+    Check(P__TestRemovePath(fixture, S("Drop/zeta.txt"), false) && P__TestRemovePath(fixture, S("Drop"), true));
+}
+
 function void TestExpand(TestFileFixture *fixture)
 {
     Check(StrIsEqual(Prog_EntryLeaf(S("a/b/c.txt")), S("c.txt")) && StrIsEqual(Prog_EntryParent(S("a/b/c.txt")), S("a/b")));
@@ -2630,6 +2673,7 @@ function void TestBrowsing(void)
         P__TestDropForwarding(&fixture);
         P__TestNeighborQuery(&fixture);
 #endif
+        TestFilesPopup(&fixture);
     }
     P__TestRemoveFixture(&fixture);
 }
