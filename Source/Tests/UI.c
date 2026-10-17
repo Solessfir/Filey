@@ -694,10 +694,10 @@ function void TestThumbnailSlots(void)
     state.iconSize = 16;
     for (u64 frame = 1; frame < 4; ++frame) {
         state.ui.frameIndex = frame;
-        Prog_ThumbnailSlot *small = Prog__ThumbnailSlot(&state, 192), *large = Prog__ThumbnailSlot(&state, 384);
-        Check(small != large && small->atlas.size == 192 && large->atlas.size == 384);
-        if (frame == 1) MapsPut(&small->arena, small->map, S("kept"), ((Prog_Icon){ .state = Prog_IconState_Loaded }));
-        Check(MapsGetPtrNull(small->map, S("kept")) != NULL);
+        Prog_ThumbnailSlot *lower = Prog__ThumbnailSlot(&state, 192), *large = Prog__ThumbnailSlot(&state, 384);
+        Check(lower != large && lower->atlas.size == 192 && large->atlas.size == 384);
+        if (frame == 1) MapsPut(&lower->arena, lower->map, S("kept"), ((Prog_Icon){ .state = Prog_IconState_Loaded }));
+        Check(MapsGetPtrNull(lower->map, S("kept")) != NULL);
     }
     // A third tier, as while a panel zooms, takes the free slot, and a fourth the one drawn from longest ago, whose picture shows meanwhile.
     state.ui.frameIndex = 4;

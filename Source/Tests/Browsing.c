@@ -1429,6 +1429,7 @@ function b32 TestWaitCount(Prog_State *state, u64 count)
     return state->directory.count == count;
 }
 
+#if defined(__linux__)
 // The transfer slot that waits on a question about a taken name, once one does, or UINT32_MAX after five seconds.
 function u32 TestAskingTransfer(Prog_State *state)
 {
@@ -1442,6 +1443,7 @@ function void TestWaitTransfer(Prog_State *state, u32 slot)
 {
     for (u64 start = PlatformNowMicroseconds(); state->transfers[slot].job && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(state);
 }
+#endif
 
 function void TestProgramFileCommands(TestFileFixture *fixture)
 {
@@ -1484,7 +1486,8 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) != UINT64_MAX);
     Check(!TestHasFile(&arena, fixture, S("Commands"), S("a.txt")));
 
-    // Pasting where the name is taken asks first, and the answer is carried out: here the file is replaced.
+    // Pasting where the name is taken asks first, and the answer is carried out: here the file is replaced. Windows leaves taken names to the shell's own question.
+#if defined(__linux__)
     {
         String other = Prog_JoinPath(&arena, root, S("a.txt")), inside = Prog_JoinPath(&arena, Prog_JoinPath(&arena, root, S("New folder")), S("a.txt")), contents = {0};
         Check(!P_WriteFile(&arena, other, S("newer")).code);
@@ -1499,7 +1502,6 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
             TestWaitTransfer(&state, asked);
         }
         Check(TestWaitCount(&state, 1) && P_ReadFile(&arena, inside, &contents) && StrIsEqual(contents, S("newer")));
-#if defined(__linux__)
         // A drop goes the same way, and Escape cancels the copy waiting on its question.
         Check(!P_WriteFile(&arena, other, S("newest")).code);
         ArrayStr dropped = {0};
@@ -1514,7 +1516,6 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
             TestWaitTransfer(&state, asked);
         }
         Check(TestWaitCount(&state, 1) && P_ReadFile(&arena, inside, &contents) && StrIsEqual(contents, S("newer")) && !state.error.length);
-#endif
         P_CancelToken token = {0};
         Check(!P_DeleteItems(&arena, &other, 1, false, &token).code);
         // The refresh the folder's watch defers for the files that changed comes before the next steps.
@@ -1523,6 +1524,7 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
         Prog_TakeCompletions(&state);
         Check(TestWaitDirectory(&state));
     }
+#endif
 
     // Copy As Path puts the system's form of the path on the clipboard.
     Prog_SelectRow(&state, 0, 0);
@@ -1838,7 +1840,7 @@ function void TestWindowFrame(Prog_State *state, PlatformEvent *events, u32 coun
 function void TestPanelsFrame(Prog_State *state, b32 move, f32 x, f32 y, u64 now)
 {
     PlatformEvent event = { .kind = PlatformEventKind_MouseMove, .x = x, .y = y };
-    TestWindowFrame(state, &event, move, now);
+    TestWindowFrame(state, &event, move ? 1 : 0, now);
 }
 
 // The inspector's text is selected with the pointer, a word with a double click and a line with a third, and Ctrl+C copies it rather than the file.
