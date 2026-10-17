@@ -1427,6 +1427,17 @@ function b32 P__NamedByUuid(Arena *arena, String name, String device)
     return StrIsEqual(StrFrom(linked, at.exists ? at.value + 1 : 0), StrFrom(device, slash.exists ? slash.value + 1 : 0));
 }
 
+function b32 P_RealPath(Arena *arena, String path, String *real)
+{
+    *real = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, path), resolved[PATH_MAX];
+    b32 result = native && realpath(native, resolved);
+    if (result) *real = StrCopy(arena, StrFromCStr(resolved));
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // The model of the disk `device` is on, as sysfs gives it under the disk that holds a partition; empty where there is none.
 function String P__DiskModel(Arena *arena, String device)
 {

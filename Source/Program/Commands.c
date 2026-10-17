@@ -2139,18 +2139,23 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_OpenRelativePath:
             case Prog_CommandKind_OpenRelativePathInTab: {
                 // The focused item shown in its own folder, selected; an expanded listing's items are in subfolders of the one shown.
+                // The containing path is where it really is, a shortcut's or link's target, which a job finds, as a slow drive may take a while to say.
                 if (state->loading || !state->hasFocus || state->focusedRow >= state->directory.count) break;
                 b32 inTab = command->kind == Prog_CommandKind_OpenContainingPathInTab || command->kind == Prog_CommandKind_OpenRelativePathInTab;
                 String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
-                String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
-                if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) break;
-                if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
-                MemCopy(state->selectText, name.value, name.length);
-                state->selectLength = (u32)name.length;
-                if (!inTab) {
-                    state->expanded = false;
-                    Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
+                if (command->kind == Prog_CommandKind_OpenRelativePath || command->kind == Prog_CommandKind_OpenRelativePathInTab) {
+                    Prog_ShowInFolder(state, path, inTab);
+                    break;
                 }
+                P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                input->kind = Prog_JobKind_Reveal;
+                input->panel = Prog__PanelId(state);
+                input->generation = state->generation;
+                input->path = StrCopy(&job->arena, path);
+                input->inTab = inTab;
+                job->input = input;
+                P_JobSubmit(job);
             } break;
             case Prog_CommandKind_CalcDirsContents: {
                 if (state->loading) break;

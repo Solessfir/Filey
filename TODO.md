@@ -21,7 +21,7 @@ Already in Filey under another name: SelectionActivate (OpenFocused), SelectionC
 Missing, by the reference's group:
 
 - Palette: CmdWindowToggleDetails (the button next to close), QuickCommandsOpen (Quick).
-- Folder: OpenInWindow, SelectionPasteLink, SelectionCopyAsPathSmart, PanelHeaderDirInTab, OpenPathOptionsPopup. OpenContainingPath only opens the parent folder, like OpenRelativePath; it should go to a link's target.
+- Folder: OpenInWindow, SelectionPasteLink, SelectionCopyAsPathSmart, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - View: ToggleSepFilesFolders.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.

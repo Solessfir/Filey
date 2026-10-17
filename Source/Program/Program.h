@@ -225,6 +225,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_HexPage,
     Prog_JobKind_Git,
     Prog_JobKind_FilesList,
+    Prog_JobKind_Reveal,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -360,6 +361,7 @@ typedef struct Prog_JobInput {
     u64 offset;            // HexPage: where its page starts in the file
     b32 hex;               // Preview: the file's bytes, whatever it holds
     u64 size;              // Preview: the file's size
+    b32 inTab;             // Reveal: shown in a new tab
     b32 move;
     b32 folder;
     b32 confirm;           // EmptyTrash and Delete: the system asks first

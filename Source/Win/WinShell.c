@@ -374,6 +374,58 @@ function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
     return (ArrayStr){0};
 }
 
+global const CLSID P__CLSID_ShellLink = { 0x00021401, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+global const IID P__IID_IShellLinkW = { 0x000214F9, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+global const IID P__IID_IPersistFile = { 0x0000010B, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+
+function b32 P_RealPath(Arena *arena, String path, String *real)
+{
+    *real = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    String at = path;
+    // A shortcut names its target inside it; one to something that is no file, such as a Control Panel item, has no path and stays itself.
+    String tail = path.length >= 4 ? StrFrom(path, path.length - 4) : (String){0};
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    if (wide && tail.length && tail.value[0] == '.' && (tail.value[1] | 0x20) == 'l' && (tail.value[2] | 0x20) == 'n' && (tail.value[3] | 0x20) == 'k') {
+        P__EnsureCom();
+        IShellLinkW *link = NULL;
+        IPersistFile *file = NULL;
+        wchar target[2048] = {0};
+        if (SUCCEEDED(CoCreateInstance(&P__CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &P__IID_IShellLinkW, (void **)&link))) {
+            if (SUCCEEDED(link->lpVtbl->QueryInterface(link, &P__IID_IPersistFile, (void **)&file)) && SUCCEEDED(file->lpVtbl->Load(file, wide, STGM_READ)) &&
+                SUCCEEDED(link->lpVtbl->GetPath(link, target, (i32)CArrayCount(target), NULL, 0)) && target[0]) {
+                at = P__FileStringWide(scratch.arena, target, lstrlenW(target));
+            }
+            if (file) file->lpVtbl->Release(file);
+            link->lpVtbl->Release(link);
+        }
+    }
+    // Symbolic links and junctions on the way end where the file system takes them.
+    wchar *where = P__FilePathWide(scratch.arena, at);
+    HANDLE handle = where ? CreateFileW(where, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL)
+                          : INVALID_HANDLE_VALUE;
+    b32 result = handle != INVALID_HANDLE_VALUE;
+    if (result) {
+        u32 length = GetFinalPathNameByHandleW(handle, NULL, 0, FILE_NAME_NORMALIZED);
+        wchar *final = length ? ArenaPushArray(scratch.arena, (u64)length + 1, wchar) : NULL;
+        if (final && GetFinalPathNameByHandleW(handle, final, length + 1, FILE_NAME_NORMALIZED) <= length) {
+            // Without the long-path prefix: "\\?\C:\..." is "C:\...", and "\\?\UNC\server\share" is "\\server\share".
+            wchar *start = final;
+            if (!wcsncmp(final, L"\\\\?\\UNC\\", 8)) {
+                start = final + 6;
+                start[0] = L'\\';
+            } else if (!wcsncmp(final, L"\\\\?\\", 4)) {
+                start = final + 4;
+            }
+            at = P__FileStringWide(scratch.arena, start, lstrlenW(start));
+        }
+        CloseHandle(handle);
+        *real = P_AbsolutePath(arena, at);
+    }
+    ReleaseScratch(scratch);
+    return result && real->length;
+}
+
 function ArrayStr P_TakeDroppedFolders(Arena *arena)
 {
     ArrayStr result = {0};

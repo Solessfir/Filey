@@ -1442,6 +1442,12 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    if (input->kind == Prog_JobKind_Reveal) {
+        String *real = ArenaPushStruct(&job->arena, String);
+        if (!P_RealPath(&job->arena, input->path, real)) *real = input->path;
+        job->result = real;
+        return;
+    }
     if (input->kind == Prog_JobKind_FilesList) {
         // What the list would show of it, sorted as a list by name sorts it, folders first.
         Prog_FilesListed *result = ArenaPushStruct(&job->arena, Prog_FilesListed);
@@ -3502,6 +3508,20 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     if (activate) Prog_SelectTab(state, at);
 }
 
+// Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`.
+function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
+{
+    String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
+    if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) return;
+    if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
+    MemCopy(state->selectText, name.value, name.length);
+    state->selectLength = (u32)name.length;
+    if (!inTab) {
+        state->expanded = false;
+        Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
+    }
+}
+
 function void Prog_SelectTab(Prog_State *state, u32 index)
 {
     Prog__EnsureTab(state);
@@ -3961,6 +3981,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->gotoListed = true;
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_Reveal) {
+            if (job->result && input->generation == state->generation) Prog_ShowInFolder(state, *(String *)job->result, input->inTab);
+            changed = true;
         } else if (input->kind == Prog_JobKind_FilesList) {
             if (state->filesJob == job) state->filesJob = NULL;
             if (job->result && state->filesOpen && StrIsEqual(input->path, state->filesFolder) && !P_IsCancelled(&job->cancelToken)) {

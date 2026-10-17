@@ -241,6 +241,9 @@ function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *conte
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output);
 // Whether anything is at `path`, a link itself included.
 function b32 P_PathExists(String path);
+// Where the item at `path` really is: a shortcut's or link's target, with the links on the way to it followed; false when that cannot be told,
+// as for a link whose target is gone.
+function b32 P_RealPath(Arena *arena, String path, String *real);
 // Waits `milliseconds`, for a job that waits on something outside the program.
 function void P_Sleep(u32 milliseconds);
 // Waits up to `milliseconds` until nothing is left at any of `paths`, as after the shell started moving them; false when something still is.

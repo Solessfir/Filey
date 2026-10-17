@@ -1143,6 +1143,40 @@ function void TestEvenPanels(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Open Containing Path: an item's real location, where a link points; a file's is its own path, and a missing one has none.
+function void TestContainingPath(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String real = {0}, file = Prog_JoinPath(&arena, fixture->path, S("Folder2/inside.txt"));
+    Check(P_RealPath(&arena, file, &real) && TestEndsWith(real, S("/Folder2/inside.txt")));
+    Check(!P_RealPath(&arena, Prog_JoinPath(&arena, fixture->path, S("missing.txt")), &real));
+#if defined(__linux__)
+    String link = Prog_JoinPath(&arena, fixture->path, S("inside-link"));
+    Check(symlink(P__FilePathCString(&arena, file), P__FilePathCString(&arena, link)) == 0);
+    Check(P_RealPath(&arena, link, &real) && TestEndsWith(real, S("/Folder2/inside.txt")));
+    Check(P__TestRemovePath(fixture, S("inside-link"), false));
+#endif
+    // The command shows the focused item of an expanded listing selected in the folder it really is in.
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL) && state.jobs.initialized);
+    Check(TestWaitDirectory(&state));
+    TestBrowsingCommand(&state, Prog_CommandKind_StartExpandedSearch, 0);
+    TestRenameType(&state, S("inside"));
+    Check(state.directory.expanded && state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder2/inside.txt")));
+    // Run while the filter is up: Enter would open the file in its program.
+    TestBrowsingCommand(&state, Prog_CommandKind_OpenContainingPath, 0);
+    b32 shown = false;
+    for (u64 start = PlatformNowMicroseconds(); !shown && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        Prog_TakeCompletions(&state);
+        TestWaitDirectory(&state);
+        shown = TestEndsWith(state.directory.path, S("/Folder2")) && state.hasFocus && state.focusedRow < state.directory.count &&
+                StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("inside.txt"));
+    }
+    Check(shown);
+    Prog_Release(&state);
+    ArenaRelease(&arena);
+}
+
 function void TestExpand(TestFileFixture *fixture)
 {
     Check(StrIsEqual(Prog_EntryLeaf(S("a/b/c.txt")), S("c.txt")) && StrIsEqual(Prog_EntryParent(S("a/b/c.txt")), S("a/b")));
@@ -2729,6 +2763,7 @@ function void TestBrowsing(void)
         TestFilter(&fixture);
         TestQuickAccessFilter(&fixture);
         TestEvenPanels(&fixture);
+        TestContainingPath(&fixture);
         TestExpand(&fixture);
         TestWatch(&fixture);
         TestMeasure(&fixture);
