@@ -26,6 +26,7 @@ function String Prog_CommandTooltip(Prog_CommandKind kind) { return Prog__Comman
 // Whether `kind` does anything on this system; the palette leaves out those that do not, as system files where files are never marked so.
 function b32 Prog_CommandApplies(Prog_CommandKind kind)
 {
+    if (kind == Prog_CommandKind_SetupOpen) return P_CanInstall();
     return kind != Prog_CommandKind_ToggleSystemFiles || P_HasSystemFiles();
 }
 
@@ -675,7 +676,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
-    Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen,
+    Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
     Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleHidden, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
@@ -1267,6 +1268,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
+            if (P_CanInstall()) Prog__Item(.kind = Prog_CommandKind_SetupOpen, .icon = Icon_HardDriveDownload);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .icon = Icon_Blend, .toggle = true, .checked = state->transparent);
             Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .icon = Icon_Palette, .toggle = true, .checked = state->debugTheme);
@@ -1977,6 +1979,38 @@ function void Prog__OpenColorPicker(Prog_State *state, Prog_Option option)
     state->colorOption = (u8)option;
     R_Color color = Prog_OptionColor(state, option);
     Prog_RgbToHsb(color, &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
+}
+
+// Reads the install for the Filey Setup page, whose switches then show it; a first install starts with the PATH on.
+function void Prog__ReadSetup(Prog_State *state)
+{
+    ArenaClear(&state->setupArena);
+    state->setup = P_InstallState(&state->setupArena);
+    state->setupDesktop = state->setup.installed && state->setup.desktopShortcut;
+    state->setupOnPath = !state->setup.installed || state->setup.onPath;
+}
+
+// The Filey Setup page, in place of the panels, with the logo drawn from the executable's own icon at the page's size.
+function void Prog__OpenSetup(Prog_State *state)
+{
+    if (!P_CanInstall()) return;
+    Prog_CloseMenu(state);
+    state->paletteOpen = false;
+    state->setupOpen = true;
+    Prog__ReadSetup(state);
+    i32 size = (i32)floorf(128.0f * (state->iconScale > 0 ? state->iconScale : 1.0f) + 0.5f);
+    if (state->setupLogoSize != size) {
+        R_TextureRelease(state->setupLogo);
+        state->setupLogo = (R_TextureHandle){0};
+        state->setupLogoSize = 0;
+        Scratch scratch = GetScratch();
+        P_Image image = {0};
+        if (P_LoadAppIcon(scratch.arena, size, &image)) {
+            state->setupLogo = R_TextureCreateRGBA(image.width, image.height, image.pixels);
+            state->setupLogoSize = size;
+        }
+        ReleaseScratch(scratch);
+    }
 }
 
 // The option highlighted in Options, Prog_Option_Count for none or in another list.
@@ -2738,6 +2772,22 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteHighlight = 0;
                 state->paletteWheeled = false;
             } break;
+            case Prog_CommandKind_SetupOpen: Prog__OpenSetup(state); break;
+            case Prog_CommandKind_SetupToggle: {
+                if (command->row == 0) state->setupDesktop = !state->setupDesktop;
+                if (command->row == 1) state->setupOnPath = !state->setupOnPath;
+            } break;
+            case Prog_CommandKind_SetupInstall:
+            case Prog_CommandKind_SetupUninstall: {
+                b32 install = command->kind == Prog_CommandKind_SetupInstall;
+                P_FileError error = install ? P_InstallApply(&state->frameArena, state->setupDesktop, state->setupOnPath) : P_Uninstall(&state->frameArena);
+                if (error.code) {
+                    ArenaClear(&state->errorArena);
+                    state->error = StrFormat(&state->errorArena, "%s: %S", install ? "Install" : "Uninstall", error.message);
+                }
+                Prog__ReadSetup(state);
+            } break;
+            case Prog_CommandKind_SetupBack: state->setupOpen = false; break;
             case Prog_CommandKind_ExplorerOpen: {
                 // A folder inside an archive opens the archive's folder, and This PC the system's own start.
                 String folder = state->directory.path, archive = {0}, inner = {0};
@@ -3528,6 +3578,11 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         if (state->tabDrag && event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) {
             state->tabDrag = false;
             state->tabDragCancelled = true;
+            continue;
+        }
+        // Filey Setup takes the keyboard while it shows, and Escape goes back to the panels.
+        if (state->setupOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_SetupBack, 0, 0, order);
             continue;
         }
         // The schemes' dropdown takes the keyboard: Up and Down move its highlight, Enter shows that scheme and Escape closes it.

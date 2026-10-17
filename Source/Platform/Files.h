@@ -287,6 +287,29 @@ typedef struct P_Image {
     i32 height;
 } P_Image;
 
+// Installing Filey for this user, which only Windows has: the running executable copied into a folder of its own under the roaming
+// application data, a Start menu shortcut to that copy, and on request a desktop shortcut and the folder on the user's PATH. Nothing
+// needs elevation, and only what the install made is taken away again.
+typedef struct P_Install {
+    String folder;         // where the copy goes
+    String version;        // the installed copy's, when there is one
+    b32 installed;         // a copy is there
+    b32 running;           // the running executable is that copy
+    b32 same;              // the copy has the running executable's bytes
+    b32 desktopShortcut;   // a desktop shortcut to the copy is there
+    b32 onPath;            // the folder is on the user's PATH
+} P_Install;
+
+function b32 P_CanInstall(void);
+// Reads the files and the registry.
+function P_Install P_InstallState(Arena *arena);
+// Installs, replacing a copy that is there, or changes the shortcuts and the PATH of the install; the running process goes on running
+// from where it started, and the shortcuts start the copy.
+function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath);
+function P_FileError P_Uninstall(Arena *arena);
+// The application's own icon at `size` pixels.
+function b32 P_LoadAppIcon(Arena *arena, i32 size, P_Image *image);
+
 // Key shared by files of one type: lowercase ".ext", or the folder and extensionless-file keys.
 // Pure string work, safe while building UI.
 function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind);

@@ -80,3 +80,4 @@ square-check
 pause
 play
 star-filled
+hard-drive-download

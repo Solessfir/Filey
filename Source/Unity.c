@@ -72,6 +72,10 @@ typedef struct Prog_Loop {
     Arena monoArena;
     R_Font mono;
     f32 monoPixels;
+    // The Setup page's text at its three sizes, made while it shows, and the scale they were made for.
+    Arena setupArena;
+    R_Font setupFonts[3];
+    f32 setupScale;
     // The families the fonts were last made from.
     Prog_FontName fontName, monoName;
     b32 running;
@@ -214,6 +218,21 @@ function void Prog__Frame(void *user, PlatformEventList events)
             }
             state->monoFont = loop->mono.atlas.u64[0] ? &loop->mono : NULL;
         }
+        // The Setup page's 20, 14 and 11 point text, in the interface's font, gone again with the page.
+        if (state->setupOpen != (loop->setupScale == scale)) {
+            for (u32 i = 0; i < CArrayCount(loop->setupFonts); ++i) R_TextureRelease(loop->setupFonts[i].atlas);
+            ArenaRelease(&loop->setupArena);
+            MemZero(loop->setupFonts, sizeof(loop->setupFonts));
+            loop->setupScale = 0;
+            if (state->setupOpen) {
+                local_persist const f32 points[3] = { 20, 14, 11 };
+                String family = state->font.length ? StrMake(state->font.text, state->font.length) : S("Segoe UI");
+                b32 made = true;
+                for (u32 i = 0; i < CArrayCount(points); ++i) made = made && R_FontCreate(&loop->setupArena, family, points[i] * (96.0f / 72.0f) * scale, &loop->setupFonts[i]);
+                if (made) loop->setupScale = scale;
+            }
+        }
+        for (u32 i = 0; i < CArrayCount(state->setupFonts); ++i) state->setupFonts[i] = loop->setupScale > 0 ? &loop->setupFonts[i] : NULL;
         state->ui.animate = !state->animationsOff;
         ProfileScope("BuildUI") {
             UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());

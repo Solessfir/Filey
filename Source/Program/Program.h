@@ -2,6 +2,11 @@
 
 #include "../Platform/Files.h"
 
+// The version Filey shows; a release build passes its own through EXTRA_CFLAGS.
+#ifndef FILEY_VERSION
+#define FILEY_VERSION "0.1.0"
+#endif
+
 // The first values match P_FileOrderKey, which carries them to the platform.
 // The platform does not know folder totals, so files open in name order under the rest.
 typedef enum Prog_Sort {
@@ -1294,6 +1299,15 @@ typedef struct Prog_State {
     ArrayStr layoutNames, layoutTexts;
     // The Save Layout box while open, with the name typed into it.
     b32 layoutSaving;
+    // Filey Setup, a page in place of the panels while open, on Windows only: the install as it was found, its switches as set on the page,
+    // the logo, and the page's text at its three sizes, which the frame makes while it is open.
+    b32 setupOpen;
+    Arena setupArena;
+    P_Install setup;
+    b32 setupDesktop, setupOnPath;
+    R_TextureHandle setupLogo;
+    i32 setupLogoSize;
+    const R_Font *setupFonts[3];
     Prog_TextEdit layoutName;
     // What the layouts ask first, about the layout named `layoutAskName`.
     enum8(Prog_LayoutAsk) layoutAsk;

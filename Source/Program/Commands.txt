@@ -1471,6 +1471,25 @@ command ExplorerOpen {
     tooltip = "Open the OS native file explorer on the currently opened file path."
 }
 
+command SetupOpen {
+    label   = "Filey Setup^install,uninstall,shortcut,start menu,desktop,path"
+    tooltip = "Install or uninstall Filey, with options to create Desktop and Start menu shortcuts and add it to the PATH."
+}
+
+// A switch of the Filey Setup page; carries 0 for the desktop shortcut and 1 for the PATH.
+command SetupToggle {
+}
+
+// Installs Filey, or applies the page's switches to the install.
+command SetupInstall {
+}
+
+command SetupUninstall {
+}
+
+command SetupBack {
+}
+
 // The Save Layout box's buttons; carries 0 for Save, 1 for Update and 2 for Cancel.
 command LayoutSaveButton {
 }

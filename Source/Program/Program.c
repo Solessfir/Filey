@@ -5562,6 +5562,35 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     return result;
 }
 
+// A switch `wide` by `tall` with a knob `inset` from its edges, on while `on`, which reports its clicks.
+function UI_Interaction Prog__Switch(UI_Key key, b32 on, f32 wide, f32 tall, f32 inset, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 knob = tall - 2 * inset;
+    UI_SetNextPrefWidth(UI_Pixels(wide));
+    UI_SetNextPrefHeight(UI_Pixels(tall));
+    UI_SetNextCornerRadius(tall * 0.5f);
+    UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * m->scale + 0.5f)));
+    UI_SetNextColors((UI_Colors){ .background = on ? theme->selection : theme->track, .border = theme->outline });
+    UI_Block *toggle = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (on ? 0 : UI_Flag_DrawBorder));
+    UI_Interaction result = UI_InteractionFromBlock(toggle);
+    // The knob slides across, easing; the color changes at once.
+    f32 knobX = UI_Animate(UI_KeyFromStr(key, S("Knob")), on ? wide - inset - knob : inset, on ? wide - inset - knob : inset);
+    UI_Parent(toggle) {
+        UI_SetNextFloatingOffset((UI_Vec2){ floorf(knobX + 0.5f), inset });
+        UI_SetNextPrefWidth(UI_Pixels(knob));
+        UI_SetNextPrefHeight(UI_Pixels(knob));
+        UI_SetNextCornerRadius(knob * 0.5f);
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        // A check on the knob while on; off, the track's color says it alone.
+        UI_SetNextFont(m->iconsSmall);
+        UI_SetNextText(Icon_Check);
+        UI_SetNextColors((UI_Colors){ .background = on ? theme->text : theme->textDim, .text = theme->textDim });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | (on ? UI_Flag_DrawText : 0));
+    }
+    return result;
+}
+
 // The control at the right of `option`'s row: a switch, a stepper with its value between - and +,
 // a slider dragged along its track, or a choice that moves on to its next value.
 function void Prog__OptionControl(Prog_State *state, Prog_Option option, const Prog_Metrics *m)
@@ -5573,30 +5602,9 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
     i32 value = Prog_OptionValue(state, option);
     switch (desc->control) {
         case Prog_OptionControl_Switch: {
-            f32 wide = floorf(41.6f * s + 0.5f), tall = floorf(22.4f * s + 0.5f), inset = floorf(1.6f * s + 0.5f), knob = tall - 2 * inset;
-            UI_SetNextPrefWidth(UI_Pixels(wide));
-            UI_SetNextPrefHeight(UI_Pixels(tall));
-            UI_SetNextCornerRadius(tall * 0.5f);
-            UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = value ? theme->selection : theme->track, .border = theme->outline });
-            UI_Block *toggle = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSwitch/%u", (u32)option)),
-                                                  UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (value ? 0 : UI_Flag_DrawBorder));
-            UI_Interaction interaction = UI_InteractionFromBlock(toggle);
+            UI_Interaction interaction = Prog__Switch(UI_KeyFromStr(0, StrFormat(frame, "OptionSwitch/%u", (u32)option)), value, floorf(41.6f * s + 0.5f), floorf(22.4f * s + 0.5f),
+                                                      floorf(1.6f * s + 0.5f), m);
             if (interaction.clicked) Prog__QueueOption(state, option, !value, interaction.clickOrder, false);
-            // The knob slides across, easing; the color changes at once.
-            f32 knobX = UI_Animate(UI_KeyFromStr(toggle->key, S("Knob")), value ? wide - inset - knob : inset, value ? wide - inset - knob : inset);
-            UI_Parent(toggle) {
-                UI_SetNextFloatingOffset((UI_Vec2){ floorf(knobX + 0.5f), inset });
-                UI_SetNextPrefWidth(UI_Pixels(knob));
-                UI_SetNextPrefHeight(UI_Pixels(knob));
-                UI_SetNextCornerRadius(knob * 0.5f);
-                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                // A check on the knob while on; off, the track's color says it alone.
-                UI_SetNextFont(m->iconsSmall);
-                UI_SetNextText(Icon_Check);
-                UI_SetNextColors((UI_Colors){ .background = value ? theme->text : theme->textDim, .text = theme->textDim });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | (value ? UI_Flag_DrawText : 0));
-            }
         } break;
         case Prog_OptionControl_Stepper: {
             f32 cell = floorf(28.8f * s + 0.5f);
@@ -8637,6 +8645,188 @@ function u64 Prog__FocusOwner(const Prog_State *state, u64 id)
     return at != UINT32_MAX && state->panels[at].inspectorOf ? state->panels[at].inspectorOf : id;
 }
 
+// The window's outline, where no system border draws it, over everything as Windows' border is,
+// in the color of the top border the title bar draws, and round where the compositor rounds the window.
+function void Prog__WindowBorder(const Prog_Metrics *m)
+{
+    if (!PlatformWindowNeedsBorder()) return;
+    R_Rect view = UI->root->rect;
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_SetNextCornerRadius(PlatformWindowGetInfo().cornerRadius);
+    UI_SetNextBorderThickness(m->separator);
+    UI_SetNextColors((UI_Colors){ .border = Prog_CurrentTheme()->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder | UI_Flag_KeepCorners);
+}
+
+// The window's buttons at the top right of the Setup page, as the title strip has them.
+function void Prog__SetupWindowButtons(Prog_State *state, f32 scale, const Prog_Metrics *m)
+{
+    if (!PlatformWindowHasButtons()) return;
+    R_Rect view = UI->root->rect;
+    f32 controlWidth = floorf(40.8f * scale + 0.5f), height = Prog__TitleStripHeight(m) - m->separator;
+    UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - controlWidth * 3, 0 });
+    UI_SetNextPrefWidth(UI_Pixels(controlWidth * 3));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_Block *buttons = UI_AddBlock(UI_Flag_Floating);
+    UI_Parent(buttons) {
+        Prog_WindowButton maximize = PlatformWindowIsMaximized() ? Prog_WindowButton_Restore : Prog_WindowButton_Maximize;
+        Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, height, scale, m);
+        Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, height, scale, m);
+        Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, height, scale, m);
+    }
+}
+
+// A line of `text` in `font` floating at `x`, with its middle at `y`, in the Setup page.
+function UI_Block *Prog__SetupText(String text, const R_Font *font, R_Color color, f32 x, f32 y)
+{
+    f32 height = font->lineHeight;
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf(x + 0.5f), floorf(y - height * 0.5f + 0.5f) });
+    UI_SetNextPrefWidth(UI_Pixels(ceilf(R_TextWidth(font, text))));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFont(font);
+    UI_SetNextColors((UI_Colors){ .text = color });
+    UI_SetNextText(text);
+    return UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+}
+
+// One of the Setup page's buttons: its word in the large text, centered at `y`, lighter under the pointer and dimmer while it would do nothing.
+function void Prog__SetupButton(Prog_State *state, String identity, String word, String tip, Prog_CommandKind command, b32 enabled, f32 middle, f32 y,
+                                const R_Font *font, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, identity);
+    f32 width = ceilf(R_TextWidth(font, word)) + 2 * m->gap, height = font->lineHeight + m->gap;
+    R_Color dim = theme->textDim, under = theme->background;
+    R_Color color = !enabled ? (R_Color){ under.r + (dim.r - under.r) * 0.8f, under.g + (dim.g - under.g) * 0.8f, under.b + (dim.b - under.b) * 0.8f, 1 }
+                  : UI->hotKey == key ? theme->text : dim;
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf(middle - width * 0.5f + 0.5f), floorf(y - height * 0.5f + 0.5f) });
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextFont(font);
+    UI_SetNextColors((UI_Colors){ .text = color });
+    UI_SetNextText(word);
+    UI_Interaction interaction = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawText | (enabled ? UI_Flag_LeftMouseClickable : 0)));
+    if (enabled && interaction.clicked) Prog_QueueCommand(state, command, 0, 0, interaction.clickOrder);
+    if (enabled && tip.length) Prog__PopupTooltip(state, tip);
+}
+
+// The Setup page's lines across it, fading out at their ends.
+function void Prog__SetupLine(f32 middle, f32 y, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 half = floorf(356.0f * m->scale + 0.5f), thick = MaxF32(1, floorf(1.6f * m->scale + 0.5f));
+    // ponytail: the fade is a few steps of the line's color, as the renderer has no gradients.
+    for (u32 step = 0; step < 4; ++step) {
+        f32 inset = half * (f32)step * 0.06f;
+        R_Color color = theme->tabBorder;
+        color.a *= (f32)(step + 1) / 4.0f;
+        UI_SetNextFloatingOffset((UI_Vec2){ floorf(middle - half + inset + 0.5f), floorf(y + 0.5f) });
+        UI_SetNextPrefWidth(UI_Pixels(floorf(2 * (half - inset) + 0.5f)));
+        UI_SetNextPrefHeight(UI_Pixels(thick));
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+}
+
+// Filey Setup, in place of the panels: the logo over the version, a line, where the install goes and its switches, then the buttons that
+// install it or change it, uninstall it and go back. A press on the page's empty space moves the window.
+function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    R_Rect view = UI->root->rect;
+    f32 s = m->scale, middle = floorf((view.x1 - view.x0) * 0.5f);
+    const R_Font *large = state->setupFonts[0] ? state->setupFonts[0] : m->font, *medium = state->setupFonts[1] ? state->setupFonts[1] : m->font;
+    const R_Font *fine = state->setupFonts[2] ? state->setupFonts[2] : m->font;
+    const P_Install *setup = &state->setup;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *page = UI_AddBlockFromKey(UI_KeyFromStr(0, S("SetupPage")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
+    UI_Interaction drag = UI_InteractionFromBlock(page);
+    if (drag.pressed) Prog_QueueCommand(state, Prog_CommandKind_WindowMove, 0, 0, drag.pressOrder);
+    UI_Parent(page) {
+        f32 logo = floorf(128.0f * s + 0.5f);
+        if (state->setupLogo.u64[0]) {
+            UI_SetNextFloatingOffset((UI_Vec2){ middle - floorf(logo * 0.5f), floorf(51.6f * s + 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(logo));
+            UI_SetNextPrefHeight(UI_Pixels(logo));
+            UI_SetNextImage(state->setupLogo, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ logo, logo }, (R_Color){ 1, 1, 1, 1 });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+        }
+        String name = S("Filey");
+        Prog__SetupText(name, large, theme->icon, middle - floorf(R_TextWidth(large, name) * 0.5f), floorf(217.6f * s + 0.5f));
+        // What runs and what is installed: the version in a brighter color.
+        String before, version, after;
+        if (setup->running) {
+            before = S("Installed version "), version = S(FILEY_VERSION), after = S(".");
+        } else if (!setup->installed) {
+            before = S("Standalone version "), version = S(FILEY_VERSION), after = S(".");
+        } else if (setup->same) {
+            before = S("The same version is already installed at:"), version = after = (String){0};
+        } else {
+            before = S("A different version ("), version = setup->version.length ? setup->version : S("unknown"), after = S(") is installed.");
+        }
+        f32 lineWidth = R_TextWidth(medium, before) + R_TextWidth(medium, version) + R_TextWidth(medium, after), x = middle - floorf(lineWidth * 0.5f), y = floorf(282.8f * s + 0.5f);
+        Prog__SetupText(before, medium, theme->textDim, x, y);
+        if (version.length) Prog__SetupText(version, medium, theme->icon, x + R_TextWidth(medium, before), y);
+        if (after.length) Prog__SetupText(after, medium, theme->textDim, x + R_TextWidth(medium, before) + R_TextWidth(medium, version), y);
+        Prog__SetupLine(middle, floorf(318.4f * s + 0.5f), m);
+        // Where it goes, which is always the same folder.
+        f32 boxWidth = floorf(504.0f * s + 0.5f), boxLeft = middle - floorf(boxWidth * 0.5f), boxTop = floorf(393.6f * s + 0.5f), boxHeight = floorf(44.8f * s + 0.5f);
+        Prog__SetupText(setup->installed ? S("Installed Path:") : S("Install Path:"), large, theme->textDim, boxLeft, floorf(360.8f * s + 0.5f));
+        UI_SetNextFloatingOffset((UI_Vec2){ boxLeft, boxTop });
+        UI_SetNextPrefWidth(UI_Pixels(boxWidth));
+        UI_SetNextPrefHeight(UI_Pixels(boxHeight));
+        UI_SetNextCornerRadius(floorf(2.4f * s + 0.5f));
+        UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * s + 0.5f)));
+        UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = theme->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        String folder = Prog__Ellipsize(frame, fine, P_NativePath(frame, setup->folder), boxWidth - floorf(17.6f * s + 0.5f));
+        Prog__SetupText(folder, fine, theme->textDim, boxLeft + floorf(8.8f * s + 0.5f), boxTop + floorf(boxHeight * 0.5f));
+        // The switches, each after its name.
+        local_persist const String names[2] = { SInit("Desktop shortcut:"), SInit("Add to PATH:") };
+        local_persist const String tips[2] = { SInit("Creates a shortcut on the desktop for quick access to Filey."),
+                                                SInit("Allows Filey to be launched from the command line using Filey.exe.") };
+        b32 values[2] = { state->setupDesktop, state->setupOnPath };
+        f32 wide = floorf(45.6f * s + 0.5f), tall = floorf(28.8f * s + 0.5f), row = floorf(484.4f * s + 0.5f);
+        f32 labels[2] = { middle - floorf(225.6f * s + 0.5f), middle + floorf(18.4f * s + 0.5f) }, switches[2] = { middle - floorf(64.0f * s + 0.5f), middle + floorf(142.4f * s + 0.5f) };
+        for (u32 i = 0; i < 2; ++i) {
+            Prog__SetupText(names[i], medium, theme->textDim, labels[i], row + floorf(1.6f * s + 0.5f));
+            UI_SetNextFloatingOffset((UI_Vec2){ switches[i], row - floorf(tall * 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(wide));
+            UI_SetNextPrefHeight(UI_Pixels(tall));
+            UI_Block *holder = UI_AddBlock(UI_Flag_Floating);
+            UI_Parent(holder) {
+                UI_Interaction flip = Prog__Switch(UI_KeyFromStr(0, StrFormat(frame, "SetupSwitch/%u", i)), values[i], wide, tall, floorf(2.4f * s + 0.5f), m);
+                if (flip.clicked) Prog_QueueCommand(state, Prog_CommandKind_SetupToggle, i, 0, flip.clickOrder);
+                Prog__PopupTooltip(state, tips[i]);
+            }
+        }
+        if (!setup->installed) {
+            String note = S("All options can be enabled or disabled after install.");
+            Prog__SetupText(note, fine, theme->textDim, middle - floorf(R_TextWidth(fine, note) * 0.5f), floorf(552.0f * s + 0.5f));
+        }
+        // Install, replace or change; changing does something only once a switch differs from the install.
+        b32 changed = state->setupDesktop != setup->desktopShortcut || state->setupOnPath != setup->onPath;
+        String word = !setup->installed ? S("Install") : setup->same ? S("Modify") : S("Install & Replace");
+        String tip = !setup->installed ? StrFormat(frame, "This will install version %s on your PC.", FILEY_VERSION)
+                   : setup->same ? S("This will apply modifications to the existing installation.")
+                                 : StrFormat(frame, "This will overwrite the existing version %S with version %s.", setup->version, FILEY_VERSION);
+        Prog__SetupButton(state, S("SetupInstall"), word, tip, Prog_CommandKind_SetupInstall, !setup->installed || !setup->same || changed, middle, floorf(608.0f * s + 0.5f), large, m);
+        Prog__SetupLine(middle, floorf(646.4f * s + 0.5f), m);
+        if (setup->installed) {
+            Prog__SetupButton(state, S("SetupUninstall"), S("Uninstall"), S("This will remove the current version from your PC, including its shortcuts and PATH changes."),
+                              Prog_CommandKind_SetupUninstall, true, middle, floorf(688.8f * s + 0.5f), large, m);
+        }
+        Prog__SetupButton(state, S("SetupBack"), S("Back"), (String){0}, Prog_CommandKind_SetupBack, true, middle, floorf((setup->installed ? 744.0f : 688.8f) * s + 0.5f), large, m);
+    }
+}
+
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->iconsPending = 0;
@@ -8679,6 +8869,14 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     UI->root->props.childrenPadding = (UI_Padding){0};
     UI->root->props.childrenLayout = UI_Layout_Horizontal;
     R_Rect view = UI->root->rect;
+    if (state->setupOpen) {
+        Prog__SetupPage(state, m);
+        Prog__SetupWindowButtons(state, scale, m);
+        Prog__Tooltip(state, m);
+        Prog__WindowBorder(m);
+        state->hotkeyChipShown = false;
+        return;
+    }
     // The sidebar slides in and out from the left edge, its contents moving with it rather than squeezing.
     f32 full = m->sidebar + m->separator;
     f32 shown = UI_Slide(UI_KeyFromStr(0, S("SidebarSlide")), state->sidebarHidden ? 0.0f : 1.0f, Prog__SlideCap(m) / MaxF32(full, 1));
@@ -8745,17 +8943,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__ColorPicker(state, m);
     Prog__LayoutSaveBox(state, m);
     Prog__LayoutQuestion(state, m);
-    // The window's outline, where no system border draws it, over everything as Windows' border is,
-    // in the color of the top border the title bar draws, and round where the compositor rounds the window.
-    if (PlatformWindowNeedsBorder()) {
-        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-        UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
-        UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-        UI_SetNextCornerRadius(PlatformWindowGetInfo().cornerRadius);
-        UI_SetNextBorderThickness(m->separator);
-        UI_SetNextColors((UI_Colors){ .border = Prog_CurrentTheme()->tabBorder });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder | UI_Flag_KeepCorners);
-    }
+    Prog__WindowBorder(m);
     // A chip being rebound that went out of sight, with its menu or its palette row, stops.
     if (state->hotkeyKind && !state->hotkeyChipShown) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, 0);
     state->hotkeyChipShown = false;

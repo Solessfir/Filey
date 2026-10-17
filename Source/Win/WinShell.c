@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <winioctl.h>
+#include <winver.h>
 #pragma pop_macro("function")
 
 global const IID P__IID_IShellFolder  = { 0x000214E6, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
@@ -970,4 +971,253 @@ function String P_ConfigDirectory(Arena *arena)
     b32 ok = wide && (CreateDirectoryW(wide, NULL) || GetLastError() == ERROR_ALREADY_EXISTS);
     ReleaseScratch(scratch);
     return ok ? result : (String){0};
+}
+
+// The install: Filey.exe in "Filey" under the roaming application data, and its shortcuts in the Start menu and on the desktop.
+global const GUID P__FolderPrograms = { 0xA77F5D77, 0x2E2B, 0x44C3, { 0xA6, 0xA2, 0xAB, 0xA6, 0x01, 0x05, 0x4A, 0x51 } };
+
+typedef struct P__InstallPaths {
+    wchar *folder, *executable, *aside, *running;
+    wchar *startLink, *desktopLink;  // NULL where the system has no such folder
+} P__InstallPaths;
+
+function b32 P_CanInstall(void) { return true; }
+
+function P__InstallPaths P__InstallPathsGet(Arena *arena)
+{
+    P__InstallPaths result = {0};
+    String roaming = P__KnownFolder(arena, &P__FolderRoamingData), programs = P__KnownFolder(arena, &P__FolderPrograms), desktop = P__KnownFolder(arena, &P__FolderDesktop);
+    wchar running[1024];
+    u32 length = GetModuleFileNameW(NULL, running, (u32)CArrayCount(running));
+    if (!roaming.length || !length || length >= CArrayCount(running)) return result;
+    result.folder = P__FilePathWide(arena, StrFormat(arena, "%S/Filey", roaming));
+    result.executable = P__FilePathWide(arena, StrFormat(arena, "%S/Filey/Filey.exe", roaming));
+    // A copy that was running when another replaced it is moved aside here, and goes once nothing runs it.
+    result.aside = P__FilePathWide(arena, StrFormat(arena, "%S/Filey/Filey.old.exe", roaming));
+    result.running = ArenaPushArray(arena, (u64)length + 1, wchar);
+    MemCopy(result.running, running, (u64)length * sizeof(wchar));
+    if (programs.length) result.startLink = P__FilePathWide(arena, StrFormat(arena, "%S/Filey.lnk", programs));
+    if (desktop.length) result.desktopLink = P__FilePathWide(arena, StrFormat(arena, "%S/Filey.lnk", desktop));
+    return result;
+}
+
+// Whether two full paths name one file, as Windows compares names: without regard to case.
+function b32 P__SamePathWide(const wchar *a, const wchar *b)
+{
+    return a && b && CompareStringOrdinal(a, -1, b, -1, TRUE) == CSTR_EQUAL;
+}
+
+// Whether the shortcut `link` starts `target`, so that one the user made for something else is left alone.
+function b32 P__ShortcutStarts(Arena *arena, const wchar *link, const wchar *target)
+{
+    if (!link || GetFileAttributesW(link) == INVALID_FILE_ATTRIBUTES) return false;
+    Scratch scratch = GetScratchEx(arena);
+    String real = {0};
+    wchar *started = P_RealPath(scratch.arena, P__FileStringWide(scratch.arena, link, lstrlenW(link)), &real) ? P__FilePathWide(scratch.arena, real) : NULL;
+    b32 result = P__SamePathWide(started, target);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function b32 P__WriteShortcut(const wchar *link, const wchar *target, const wchar *folder)
+{
+    P__EnsureCom();
+    IShellLinkW *shell = NULL;
+    IPersistFile *file = NULL;
+    b32 result = false;
+    if (SUCCEEDED(CoCreateInstance(&P__CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &P__IID_IShellLinkW, (void **)&shell))) {
+        shell->lpVtbl->SetPath(shell, target);
+        shell->lpVtbl->SetWorkingDirectory(shell, folder);
+        shell->lpVtbl->SetDescription(shell, L"Filey");
+        shell->lpVtbl->SetIconLocation(shell, target, 0);
+        if (SUCCEEDED(shell->lpVtbl->QueryInterface(shell, &P__IID_IPersistFile, (void **)&file))) {
+            result = SUCCEEDED(file->lpVtbl->Save(file, link, TRUE));
+            file->lpVtbl->Release(file);
+        }
+        shell->lpVtbl->Release(shell);
+    }
+    return result;
+}
+
+// The user's PATH from the registry, with its type, or NULL without one.
+function wchar *P__UserPath(Arena *arena, HKEY key, DWORD *type)
+{
+    DWORD size = 0;
+    *type = REG_EXPAND_SZ;
+    if (RegQueryValueExW(key, L"Path", NULL, type, NULL, &size) != ERROR_SUCCESS || (*type != REG_SZ && *type != REG_EXPAND_SZ)) {
+        *type = REG_EXPAND_SZ;
+        return NULL;
+    }
+    wchar *result = ArenaPushArray(arena, size / sizeof(wchar) + 2, wchar);
+    if (RegQueryValueExW(key, L"Path", NULL, type, (u8 *)result, &size) != ERROR_SUCCESS) return NULL;
+    result[size / sizeof(wchar)] = 0;
+    return result;
+}
+
+// Whether the PATH entry `entry`, `length` characters long, is `folder`, with or without a backslash at its end.
+function b32 P__PathEntryIs(const wchar *entry, i32 length, const wchar *folder)
+{
+    while (length > 0 && (entry[length - 1] == L'\\' || entry[length - 1] == L' ')) --length;
+    i32 folderLength = lstrlenW(folder);
+    return length == folderLength && CompareStringOrdinal(entry, length, folder, folderLength, TRUE) == CSTR_EQUAL;
+}
+
+function b32 P__PathHas(const wchar *path, const wchar *folder)
+{
+    for (const wchar *at = path; at && *at;) {
+        const wchar *end = at;
+        while (*end && *end != L';') ++end;
+        if (P__PathEntryIs(at, (i32)(end - at), folder)) return true;
+        at = *end ? end + 1 : end;
+    }
+    return false;
+}
+
+// The PATH `path` with `folder` at its end or taken out, every other entry as it was.
+function wchar *P__EditPath(Arena *arena, const wchar *path, const wchar *folder, b32 on)
+{
+    u64 length = path ? (u64)lstrlenW(path) : 0, folderLength = (u64)lstrlenW(folder), out = 0;
+    wchar *result = ArenaPushArray(arena, length + folderLength + 2, wchar);
+    for (const wchar *at = path; at && *at;) {
+        const wchar *end = at;
+        while (*end && *end != L';') ++end;
+        if (!P__PathEntryIs(at, (i32)(end - at), folder)) {
+            if (out) result[out++] = L';';
+            MemCopy(result + out, at, (u64)(end - at) * sizeof(wchar));
+            out += (u64)(end - at);
+        }
+        at = *end ? end + 1 : end;
+    }
+    if (on) {
+        if (out) result[out++] = L';';
+        MemCopy(result + out, folder, folderLength * sizeof(wchar));
+        out += folderLength;
+    }
+    result[out] = 0;
+    return result;
+}
+
+// Puts `folder` on the user's PATH or takes it off, and tells running programs.
+function u32 P__SetUserPath(Arena *arena, const wchar *folder, b32 on)
+{
+    HKEY key = NULL;
+    u32 error = (u32)RegCreateKeyExW(HKEY_CURRENT_USER, L"Environment", 0, NULL, 0, KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, NULL);
+    if (error != ERROR_SUCCESS) return error;
+    Scratch scratch = GetScratchEx(arena);
+    DWORD type;
+    wchar *path = P__UserPath(scratch.arena, key, &type);
+    if (on != P__PathHas(path, folder)) {
+        wchar *changed = P__EditPath(scratch.arena, path, folder, on);
+        error = (u32)RegSetValueExW(key, L"Path", 0, type, (const u8 *)changed, (DWORD)(((u64)lstrlenW(changed) + 1) * sizeof(wchar)));
+        if (error == ERROR_SUCCESS) SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Environment", SMTO_ABORTIFHUNG, 1000, NULL);
+    }
+    ReleaseScratch(scratch);
+    RegCloseKey(key);
+    return error;
+}
+
+// The product version in the executable `path`'s version resource.
+function String P__FileVersion(Arena *arena, const wchar *path)
+{
+    DWORD unused = 0, size = GetFileVersionInfoSizeW(path, &unused);
+    if (!size) return (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    void *info = ArenaPushArray(scratch.arena, size, u8);
+    wchar *value = NULL;
+    UINT length = 0;
+    String result = {0};
+    if (GetFileVersionInfoW(path, 0, size, info) && VerQueryValueW(info, L"\\StringFileInfo\\040904B0\\ProductVersion", (void **)&value, &length) && length) {
+        result = P__FileStringWide(arena, value, lstrlenW(value));
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function P_Install P_InstallState(Arena *arena)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
+    P_Install result = {0};
+    if (paths.folder) {
+        DeleteFileW(paths.aside);
+        result.folder = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, paths.folder, lstrlenW(paths.folder)));
+        result.installed = GetFileAttributesW(paths.executable) != INVALID_FILE_ATTRIBUTES;
+        result.running = P__SamePathWide(paths.running, paths.executable);
+        if (result.installed) {
+            result.version = P__FileVersion(arena, paths.executable);
+            String mine = {0}, theirs = {0};
+            result.same = result.running || (P_ReadFile(scratch.arena, P__FileStringWide(scratch.arena, paths.running, lstrlenW(paths.running)), &mine) &&
+                                             P_ReadFile(scratch.arena, P__FileStringWide(scratch.arena, paths.executable, lstrlenW(paths.executable)), &theirs) &&
+                                             StrIsEqual(mine, theirs));
+            result.desktopShortcut = P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable);
+            HKEY key = NULL;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Environment", 0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
+                DWORD type;
+                result.onPath = P__PathHas(P__UserPath(scratch.arena, key, &type), paths.folder);
+                RegCloseKey(key);
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
+    u32 error = paths.folder ? ERROR_SUCCESS : ERROR_PATH_NOT_FOUND;
+    if (!error && !CreateDirectoryW(paths.folder, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) error = GetLastError();
+    // A copy that another Filey runs cannot be written over, but it can be moved aside.
+    if (!error && !P__SamePathWide(paths.running, paths.executable)) {
+        DeleteFileW(paths.aside);
+        if (GetFileAttributesW(paths.executable) != INVALID_FILE_ATTRIBUTES && !DeleteFileW(paths.executable)) MoveFileExW(paths.executable, paths.aside, MOVEFILE_REPLACE_EXISTING);
+        if (!CopyFileW(paths.running, paths.executable, FALSE)) error = GetLastError();
+    }
+    if (!error && paths.startLink && !P__WriteShortcut(paths.startLink, paths.executable, paths.folder)) error = ERROR_CANNOT_MAKE;
+    if (!error && paths.desktopLink && desktopShortcut && !P__WriteShortcut(paths.desktopLink, paths.executable, paths.folder)) error = ERROR_CANNOT_MAKE;
+    if (!error && paths.desktopLink && !desktopShortcut && P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
+    if (!error) error = P__SetUserPath(scratch.arena, paths.folder, onPath);
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+function P_FileError P_Uninstall(Arena *arena)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
+    u32 error = paths.folder ? ERROR_SUCCESS : ERROR_PATH_NOT_FOUND;
+    if (!error) {
+        if (P__ShortcutStarts(scratch.arena, paths.startLink, paths.executable)) DeleteFileW(paths.startLink);
+        if (P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
+        error = P__SetUserPath(scratch.arena, paths.folder, false);
+        DeleteFileW(paths.aside);
+        // The running copy cannot be deleted, but it can move to the temporary folder, which is on the same drive under the profile, and its
+        // folder then goes with it.
+        // ponytail: a temporary folder on another drive leaves the copy where it is, until it is uninstalled from another Filey.
+        if (P__SamePathWide(paths.running, paths.executable)) {
+            wchar temp[MAX_PATH + 1], moved[MAX_PATH + 40];
+            u32 length = GetTempPathW((u32)CArrayCount(temp), temp);
+            if (length && length < CArrayCount(temp)) {
+                swprintf(moved, CArrayCount(moved), L"%lsFiley-%lu.exe", temp, GetCurrentProcessId());
+                MoveFileExW(paths.executable, moved, MOVEFILE_REPLACE_EXISTING);
+            }
+        } else {
+            DeleteFileW(paths.executable);
+        }
+        if (!error && GetFileAttributesW(paths.executable) != INVALID_FILE_ATTRIBUTES) error = ERROR_SHARING_VIOLATION;
+        // Only an empty folder goes, so nothing put there by hand is lost.
+        RemoveDirectoryW(paths.folder);
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+function b32 P_LoadAppIcon(Arena *arena, i32 size, P_Image *image)
+{
+    // The executable's own icon resource, which Windows scales from its nearest size.
+    HICON icon = (HICON)LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR);
+    b32 result = icon && P__IconPixels(arena, icon, image);
+    if (icon) DestroyIcon(icon);
+    return result;
 }
