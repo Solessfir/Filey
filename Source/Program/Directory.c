@@ -2563,6 +2563,50 @@ function u32 Prog__PanelsInOrder(const Prog_State *state, u32 node, u64 *out, u3
     return Prog__PanelsInOrder(state, split->second, out, count);
 }
 
+// How many panels the splits of `kind` at `node` lay side by side: a split of that kind adds up its two sides, and anything else is one.
+function u32 Prog__RunLength(const Prog_State *state, u32 node, Prog_SplitKind kind)
+{
+    if (node >= Prog_MaxSplits) return 0;
+    const Prog_Split *split = &state->splits[node];
+    return split->kind == kind ? Prog__RunLength(state, split->first, kind) + Prog__RunLength(state, split->second, kind) : 1;
+}
+
+// Gives each of the panels side by side in the run of splits that `node` heads the same room, and with `all` the runs inside them too.
+function void Prog__EvenSplits(Prog_State *state, u32 node, b32 all)
+{
+    if (node >= Prog_MaxSplits) return;
+    Prog_Split *split = &state->splits[node];
+    if (split->kind != Prog_SplitKind_Horizontal && split->kind != Prog_SplitKind_Vertical) return;
+    u32 first = Prog__RunLength(state, split->first, (Prog_SplitKind)split->kind), second = Prog__RunLength(state, split->second, (Prog_SplitKind)split->kind);
+    split->ratio = (f32)first / (f32)Max(first + second, 1u);
+    if (all || (split->first < Prog_MaxSplits && state->splits[split->first].kind == split->kind)) Prog__EvenSplits(state, split->first, all);
+    if (all || (split->second < Prog_MaxSplits && state->splits[split->second].kind == split->kind)) Prog__EvenSplits(state, split->second, all);
+}
+
+// The split that holds layout node `node`, or UINT32_MAX for the root.
+function u32 Prog__SplitParent(const Prog_State *state, u32 node)
+{
+    for (u32 i = 0; i < Prog_MaxSplits; ++i) {
+        const Prog_Split *split = &state->splits[i];
+        if ((split->kind == Prog_SplitKind_Horizontal || split->kind == Prog_SplitKind_Vertical) && (split->first == node || split->second == node)) return i;
+    }
+    return UINT32_MAX;
+}
+
+// Gives the panels beside the active one in its row or column the same room, or with `all` every panel of the layout in its own.
+function void Prog_EvenPanels(Prog_State *state, b32 all)
+{
+    if (all) {
+        Prog__EvenSplits(state, 0, true);
+        return;
+    }
+    // A panel's inspector is laid out inside it.
+    const Prog_Panel *panel = &state->panels[state->activePanel];
+    u32 run = Prog__SplitParent(state, Prog__SplitOf(state, panel->inspectorOf ? panel->inspectorOf : panel->id));
+    for (u32 up; run != UINT32_MAX && (up = Prog__SplitParent(state, run)) != UINT32_MAX && state->splits[up].kind == state->splits[run].kind;) run = up;
+    if (run != UINT32_MAX) Prog__EvenSplits(state, run, false);
+}
+
 // Splits panel `index` in two along `kind`, the new panel `before` it or after it, and makes the new one, which shows `path`, active.
 // Returns the new panel's index, or UINT32_MAX when there is no room.
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path)

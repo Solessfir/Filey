@@ -1338,6 +1338,16 @@ command TogglePanelZoom {
     repeat  = "false"
 }
 
+command PanelEvenSiblings {
+    label   = "Even Panel Siblings^equal,window"
+    tooltip = "Even viewport size of all panels in the current panels layout group."
+}
+
+command PanelEvenAll {
+    label   = "Even All Panels^equal,window"
+    tooltip = "Even viewport size of all panels."
+}
+
 command PanelSelectNext {
     label   = "Next Panel^focus,switch,cycle"
     tooltip = "Move to the next panel."

@@ -662,7 +662,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
-    Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
+    Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_PanelEvenSiblings, Prog_CommandKind_PanelEvenAll, Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
     Prog__PaletteGroup(Tabs),
     Prog_CommandKind_TabNew, Prog_CommandKind_TabClose, Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
@@ -734,6 +734,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
         case Prog_CommandKind_SelectionMoveNextPanel:
             return item && panels > 1;
+        case Prog_CommandKind_PanelEvenSiblings: case Prog_CommandKind_PanelEvenAll: return panels > 1;
         case Prog_CommandKind_FilesPopupPrev: case Prog_CommandKind_FilesPopupNext: return state->filesOpen;
         case Prog_CommandKind_Back: return state->historyAt > 0;
         case Prog_CommandKind_Forward: return state->historyAt + 1 < state->history.header.count;
@@ -2484,6 +2485,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String path = Prog_TabPath(state, state->activeTab);
                 Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_SplitRight ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, path);
             } break;
+            case Prog_CommandKind_PanelEvenSiblings: Prog_EvenPanels(state, false); break;
+            case Prog_CommandKind_PanelEvenAll: Prog_EvenPanels(state, true); break;
             case Prog_CommandKind_TogglePanelZoom: {
                 // The panel the keyboard is in, or the one whose inspector it is in.
                 u64 owner = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;

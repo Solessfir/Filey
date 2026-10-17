@@ -1117,6 +1117,32 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Evening panels: three split off one after another to the right share the row evenly, and a column split inside one keeps its own share
+// until all panels are evened.
+function void TestEvenPanels(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL) && state.jobs.initialized);
+    Check(TestWaitDirectory(&state));
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitBottom, 0);
+    Check(state.panelCount == 4 && state.splits[0].kind == Prog_SplitKind_Horizontal);
+    state.splits[0].ratio = 0.7f;
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelEvenSiblings, 0);
+    // The active panel is in the column, which is evened alone.
+    u32 row = state.splits[0].second, column = Prog__SplitParent(&state, Prog__SplitOf(&state, state.panels[state.activePanel].id));
+    Check(state.splits[0].ratio == 0.7f && state.splits[column].kind == Prog_SplitKind_Vertical && state.splits[column].ratio == 0.5f);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectPrev, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectPrev, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelEvenSiblings, 0);
+    Check(fabsf(state.splits[0].ratio - 1.0f / 3.0f) < 1e-5f && state.splits[row].kind == Prog_SplitKind_Horizontal && state.splits[row].ratio == 0.5f);
+    state.splits[0].ratio = state.splits[column].ratio = 0.8f;
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelEvenAll, 0);
+    Check(fabsf(state.splits[0].ratio - 1.0f / 3.0f) < 1e-5f && state.splits[column].ratio == 0.5f);
+    Prog_Release(&state);
+}
+
 function void TestExpand(TestFileFixture *fixture)
 {
     Check(StrIsEqual(Prog_EntryLeaf(S("a/b/c.txt")), S("c.txt")) && StrIsEqual(Prog_EntryParent(S("a/b/c.txt")), S("a/b")));
@@ -2702,6 +2728,7 @@ function void TestBrowsing(void)
         TestRename(&fixture);
         TestFilter(&fixture);
         TestQuickAccessFilter(&fixture);
+        TestEvenPanels(&fixture);
         TestExpand(&fixture);
         TestWatch(&fixture);
         TestMeasure(&fixture);
