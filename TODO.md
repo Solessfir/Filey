@@ -20,7 +20,7 @@ Missing, by the reference's group:
 - Folder: OpenInWindow, SelectionPasteLink, SelectionCopyAsPathSmart, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.
-- Options: the Font and Inspector Font rows pick from the installed families (DirectWrite's system collection, fontconfig on Linux). Still missing are Long Path Support, color scheme editing, and checkboxes in the icon views.
+- Options: the Font and Inspector Font rows pick from the installed families (DirectWrite's system collection, fontconfig on Linux). The Color Scheme choice takes custom schemes (`Schemes.txt`), and its second row opens the scheme's color groups, with a fork and a delete button, each color changed with a hue, saturation, brightness and red, green, blue picker; with System Light / Dark Scheme on, a scheme for each mode. Still to do there: a pass against the reference's own scheme editor and picker, measured once it can be captured, as these follow its strings rather than its look. Still missing are Long Path Support and checkboxes in the icon views.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow.
 - Misc: ConfigCreate/Open, QuickAccessFilterRevert (the filter's Enter and Escape are there), viewport and group options. Install is the reference's own setup and stays out.
 

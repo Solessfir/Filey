@@ -2369,6 +2369,23 @@ function void TestSettings(void)
         Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
         Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 2 && Prog_ThemeUser.background.r == Prog_ThemeLight.background.r);
+        // A custom scheme by its name, its colors over the neutral scheme, among the choices after the built-in ones; a fork of it shows
+        // in its place, and the picker changes its colors.
+        Prog_SetScheme(&look, S("Mine"), S("background = #102030\nnonsense = #ffffff\n"), false);
+        Prog_ApplySettings(&look, S("theme = mine\n"));
+        Check(look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
+        u32 schemeChoices = 0;
+        Prog_OptionChoices(&look, Prog_Option_ColorScheme, &look.frameArena, &schemeChoices);
+        Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look) && look.schemeNames.header.count == 2 && StrIsEqual(look.schemeNames.v[1], S("Mine Copy")));
+        Check(look.scheme == Prog_BuiltInSchemes + 1 && Prog_ThemeUser.background.b > 0.18f);
+        look.colorPicking = true;
+        look.colorOption = Prog_Option_ColorBackground;
+        Prog_PickColor(&look, 3, 1);
+        Check(Prog_OptionColor(Prog_Option_ColorBackground).r == 1);
+        Prog_PickColor(&look, 0, 0);
+        Prog_PickColor(&look, 1, 1);
+        Prog_PickColor(&look, 2, 1);
+        Check(Prog_OptionColor(Prog_Option_ColorBackground).r == 1 && Prog_OptionColor(Prog_Option_ColorBackground).g == 0 && Prog_OptionColor(Prog_Option_ColorBackground).b == 0);
         // The pointer's options and their defaults.
         Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
         Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));

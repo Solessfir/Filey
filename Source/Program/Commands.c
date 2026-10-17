@@ -1968,6 +1968,16 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
     P_JobSubmit(job);
 }
 
+// The color picker for the color of `option`; a built-in scheme is copied first, as only custom ones change.
+function void Prog__OpenColorPicker(Prog_State *state, Prog_Option option)
+{
+    if (state->scheme < Prog_BuiltInSchemes && !Prog_ForkScheme(state)) return;
+    state->colorPicking = true;
+    state->colorOption = (u8)option;
+    R_Color color = Prog_OptionColor(option);
+    Prog_RgbToHsb(color, &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
+}
+
 // Asks about the layout named `name` before going on.
 function void Prog__LayoutAsk(Prog_State *state, Prog_LayoutAsk ask, String name)
 {
@@ -2012,6 +2022,11 @@ function void Prog__LayoutAnswer(Prog_State *state, b32 yes)
         state->layoutSaving = false;
     }
     if (ask == Prog_LayoutAsk_Delete) Prog_SetLayout(state, name, (String){0}, true);
+    // A deleted scheme that was shown gives way to the reference's dark one.
+    if (ask == Prog_LayoutAsk_DeleteScheme) {
+        Prog_SetScheme(state, name, (String){0}, true);
+        if (Prog__EqualFolded(StrMake(state->schemeName.text, state->schemeName.length), name)) Prog_SetOptionText(state, Prog_Option_ColorScheme, S("fullmoon"));
+    }
 }
 
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
@@ -2713,6 +2728,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_LayoutAnswer: Prog__LayoutAnswer(state, command->row != 0); break;
             case Prog_CommandKind_FontPickerOpen: Prog__OpenFontPicker(state, (Prog_Option)command->row); break;
+            case Prog_CommandKind_ColorPickerOpen: Prog__OpenColorPicker(state, (Prog_Option)command->row); break;
+            case Prog_CommandKind_ColorPickerSet: if (state->colorPicking) Prog_PickColor(state, (u32)command->row, (f32)((f64)command->target / 1e6)); break;
+            case Prog_CommandKind_ColorPickerClose: Prog_CloseColorPicker(state); break;
+            case Prog_CommandKind_SchemeFork: Prog_ForkScheme(state); break;
+            case Prog_CommandKind_SchemeDelete: {
+                if (state->scheme >= Prog_BuiltInSchemes) Prog__LayoutAsk(state, Prog_LayoutAsk_DeleteScheme, StrMake(state->schemeName.text, state->schemeName.length));
+            } break;
             case Prog_CommandKind_MillerSelect: Prog__MillerSelect(state, (u32)command->target, command->row, command->pressCount >= 2); break;
             case Prog_CommandKind_DeselectAll: {
                 for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = false;
@@ -2996,6 +3018,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     i32 value = Prog_OptionValue(state, option);
                     if (desc->control == Prog_OptionControl_Switch) Prog_SetOption(state, option, !value);
                     if (desc->control == Prog_OptionControl_Font) Prog__OpenFontPicker(state, option);
+                    if (desc->control == Prog_OptionControl_Expand) state->colorsExpanded = !state->colorsExpanded;
+                    if (desc->control == Prog_OptionControl_Color) Prog__OpenColorPicker(state, option);
                     u32 choices = 0;
                     Prog_OptionChoices(state, option, &state->frameArena, &choices);
                     if (desc->control == Prog_OptionControl_Choice && choices) Prog_SetOption(state, option, (value + 1) % (i32)choices);
@@ -3453,6 +3477,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         if (state->tabDrag && event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) {
             state->tabDrag = false;
             state->tabDragCancelled = true;
+            continue;
+        }
+        if (state->colorPicking && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_KeyDown && (event->key == Key_Escape || event->key == Key_Enter)) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, order);
             continue;
         }
         // What the layouts ask takes the keyboard, Enter going ahead and Escape not; the Save Layout box takes typing, with Enter saving and

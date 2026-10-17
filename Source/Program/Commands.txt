@@ -1487,6 +1487,25 @@ command LayoutAnswer {
 command FontPickerOpen {
 }
 
+// The color picker for an option's color; carries the option.
+command ColorPickerOpen {
+}
+
+// A color picker slider; carries the channel (hue, saturation, brightness, red, green, blue) and, as its target, the value in millionths.
+command ColorPickerSet {
+}
+
+command ColorPickerClose {
+}
+
+// Makes an editable copy of the shown color scheme and switches to it.
+command SchemeFork {
+}
+
+// Asks before deleting the shown custom color scheme.
+command SchemeDelete {
+}
+
 command SortByName {
     label   = "Sort By Name^order"
     tooltip = "Sort folder contents by name, treating neighbor digits as numbers."

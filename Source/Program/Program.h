@@ -521,6 +521,32 @@ typedef enum Prog_Option {
     Prog_Option_InlineSubmenus,
     Prog_Option_SystemScheme,
     Prog_Option_ColorScheme,
+    Prog_Option_LightScheme,
+    Prog_Option_DarkScheme,
+    Prog_Option_ColorGroups,
+    Prog_Option_ColorWindow,
+    Prog_Option_ColorCaption,
+    Prog_Option_ColorBackground,
+    Prog_Option_ColorPanel,
+    Prog_Option_ColorMenu,
+    Prog_Option_ColorTrack,
+    Prog_Option_ColorInner,
+    Prog_Option_ColorBorder,
+    Prog_Option_ColorOutline,
+    Prog_Option_ColorSeparator,
+    Prog_Option_ColorAlternateRow,
+    Prog_Option_ColorIcon,
+    Prog_Option_ColorIconDisabled,
+    Prog_Option_ColorText,
+    Prog_Option_ColorTextDim,
+    Prog_Option_ColorTextHeading,
+    Prog_Option_ColorDanger,
+    Prog_Option_ColorAccent,
+    Prog_Option_ColorSelection,
+    Prog_Option_ColorMarquee,
+    Prog_Option_ColorTextMatch,
+    Prog_Option_ColorHover,
+    Prog_Option_ColorFocus,
     Prog_Option_AlternatingRows,
     Prog_Option_InactiveOpacity,
     Prog_Option_ShowFileExtension,
@@ -566,6 +592,8 @@ typedef enum Prog_OptionControl {
     Prog_OptionControl_Slider,
     Prog_OptionControl_Choice,
     Prog_OptionControl_Font,  // a font family's name, chosen from the installed ones
+    Prog_OptionControl_Expand,  // opens and closes the rows after it
+    Prog_OptionControl_Color,   // one of the scheme's colors, which the color picker changes
     Prog_OptionControl_Count,
 } Prog_OptionControl;
 
@@ -713,10 +741,13 @@ typedef enum Prog_LayoutAsk {
     Prog_LayoutAsk_None,
     Prog_LayoutAsk_Overwrite,
     Prog_LayoutAsk_Delete,
+    Prog_LayoutAsk_DeleteScheme,
     Prog_LayoutAsk_Count,
 } Prog_LayoutAsk;
 
 #define Prog_MaxLayouts 64
+// Default, the reference's dark scheme and the light one, which the custom schemes follow.
+#define Prog_BuiltInSchemes 3
 
 // The installed font families, sorted by name and each once.
 typedef struct Prog_FontsListed {
@@ -1111,7 +1142,18 @@ typedef struct Prog_State {
     // What Settings.txt last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.
     u32 settingInspectorFontSize;
     u8 settingInspectorLayout;  // its value + 1, 0 before any
-    u8 scheme;                  // the settings' Color Scheme, by its place in Prog_OptionSchemes
+    u8 scheme;                  // the settings' Color Scheme, by its place among the built-in schemes and then the custom ones
+    u8 lightScheme;             // the one the system's light mode brings, as `scheme`
+    Prog_FontName schemeName, lightSchemeName;  // their names
+    // Custom color schemes, kept in Schemes.txt: their names and their colors as "field = #rrggbbaa" lines.
+    Arena schemesArena;
+    ArrayStr schemeNames, schemeTexts;
+    b32 colorsExpanded;         // Options shows the scheme's colors
+    u64 settingsHash;           // Settings.txt and Schemes.txt as last applied
+    // The color picker while open: the option of the color it changes, and that color as hue, saturation and brightness from 0 to 1.
+    b32 colorPicking;
+    enum8(Prog_Option) colorOption;
+    f32 pickerHue, pickerSaturation, pickerBrightness;
     b32 systemScheme;           // the system's light or dark choice picks the light scheme or that one
     // How the lists look: the space between their items and how much inactive panels show, as offsets from the default 4 and 60 so that
     // {0} has them, square corners and every other row tinted.
@@ -1460,6 +1502,13 @@ function b32 Prog_ApplyLayout(Prog_State *state, String name);
 function u32 Prog_LayoutMatches(const Prog_State *state, u32 *out);
 function u32 Prog_FontMatches(const Prog_State *state, u32 *out);
 function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String text);
+function void Prog_LoadSchemes(Prog_State *state);
+function void Prog_SetScheme(Prog_State *state, String name, String text, b32 remove);
+function b32 Prog_ForkScheme(Prog_State *state);
+function void Prog_PickColor(Prog_State *state, u32 channel, f32 value);
+function void Prog_CloseColorPicker(Prog_State *state);
+function R_Color Prog_OptionColor(Prog_Option option);
+function void Prog_RgbToHsb(R_Color color, f32 *hue, f32 *saturation, f32 *brightness);
 function b32 Prog_PreviewsArchive(const Prog_State *state, const Prog_Entry *entry);
 function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed);
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks);

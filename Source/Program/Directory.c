@@ -2454,12 +2454,29 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
     P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
 }
 
-// Settings.txt, or the defaults without it.
+// What Settings.txt and Schemes.txt hold, as a hash, which tells whether either has changed since they were applied.
+function u64 Prog__SettingsHash(Prog_State *state, String *settings, Arena *arena)
+{
+    String schemes = {0};
+    *settings = (String){0};
+    if (state->configDirectory.length) {
+        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Settings.txt")), settings);
+        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Schemes.txt")), &schemes);
+    }
+    u64 hash = UINT64_C(14695981039346656037);
+    for (u64 i = 0; i < settings->length; ++i) hash = (hash ^ (u8)settings->value[i]) * UINT64_C(1099511628211);
+    hash = (hash ^ 0xFF) * UINT64_C(1099511628211);
+    for (u64 i = 0; i < schemes.length; ++i) hash = (hash ^ (u8)schemes.value[i]) * UINT64_C(1099511628211);
+    return hash;
+}
+
+// Settings.txt, or the defaults without it, with the custom schemes it can name read again first.
 function void Prog_ReloadSettingsFile(Prog_State *state)
 {
     Scratch scratch = GetScratch();
     String text = {0};
-    if (state->configDirectory.length) P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.txt")), &text);
+    state->settingsHash = Prog__SettingsHash(state, &text, scratch.arena);
+    Prog_LoadSchemes(state);
     Prog_ApplySettings(state, text);
     ReleaseScratch(scratch);
 }
@@ -4036,9 +4053,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     Prog__EnsurePanel(state);
     u32 active = state->activePanel;
     // Saved settings apply at once.
+    // The index is written into the same folder while a walk goes on, so only a change to the settings or the schemes applies them again.
     if (P_DirectoryWatchTakeChanged(&state->configWatch)) {
-        Prog_ReloadSettingsFile(state);
-        changed = true;
+        Scratch scratch = GetScratch();
+        String text = {0};
+        if (Prog__SettingsHash(state, &text, scratch.arena) != state->settingsHash) {
+            Prog_ReloadSettingsFile(state);
+            changed = true;
+        }
+        ReleaseScratch(scratch);
     }
     // Every panel watches its folder.
     for (u32 panel = 0; panel < state->panelCount; ++panel) {
