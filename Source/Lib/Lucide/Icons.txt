@@ -79,3 +79,4 @@ funnel
 square-check
 pause
 play
+star-filled

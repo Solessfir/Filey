@@ -5855,7 +5855,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const String groupNames[] = { SInit("Quick"), SInit("Folder"), SInit("View"), SInit("Sort"), SInit("Inspector"), SInit("Panels"), SInit("Tabs"), SInit("Go To"), SInit("Misc"),
                                                     SInit("Options"), SInit("Rename"), SInit("Text"), SInit("Scroll") };
-        const String groupIcons[] = { Icon_Star, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
+        const String groupIcons[] = { Icon_StarFilled, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
                                                     Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextCursorInput, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
         // Room on the right for the scroll bar while there is one.
@@ -5926,9 +5926,14 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                                 Prog__MarkedText(tooltip, tooltipMarks, m->detail, m->detail->lineHeight, highlighted ? theme->text : described);
                             }
                         }
-                        // The highlighted row's buttons bring back its default hotkeys once they changed and add a new one; then its chips,
-                        // which a click rebinds.
+                        // The highlighted row's buttons star it into Quick or out of it, bring back its default hotkeys once they changed and add a
+                        // new one; then its chips, which a click rebinds.
                         if (highlighted) {
+                            b32 quick = Prog_IsQuick(state, (Prog_CommandKind)at.kind);
+                            UI_Interaction star = Prog__TextButton(StrFormat(&state->frameArena, "PaletteQuick/%u", (u32)at.kind), quick ? Icon_StarFilled : Icon_Star, m->icons,
+                                                                   UI_Pixels(slot), face, 0, theme->text, theme->text, theme->iconDisabled, true, m);
+                            if (star.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteQuickToggle, at.kind, 0, star.clickOrder);
+                            Prog__PopupTooltip(state, quick ? S("Remove from Quick.") : S("Add to Quick."));
                             if (Prog_HotkeysChanged(state, (Prog_CommandKind)at.kind)) {
                                 UI_Interaction restore = Prog__TextButton(StrFormat(&state->frameArena, "PaletteRestore/%u", (u32)at.kind), Icon_RotateCcw, m->icons, UI_Pixels(slot), face, 0,
                                                                           theme->text, theme->text, theme->iconDisabled, true, m);

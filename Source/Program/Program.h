@@ -980,6 +980,9 @@ typedef struct Prog_State {
     // before they were put in that order.
     Arena menuPinArena;
     ArrayStr menuPins;
+    // The palette's Quick group: the starred commands by name, in the order they were starred.
+    Arena quickArena;
+    ArrayStr quickCommands;
     P_ContextMenu menuBase;
     UI_Vec2 menuPointer;      // where the pointer was in the last build, as only its moving decides the highlight
     b32 menuPointerMoved;
@@ -1302,8 +1305,8 @@ typedef struct Prog_State {
     u32 recentOrdinal;             // the last one's, counting up across runs
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[4];            // bookmarks, recents, folder views, menu pins
-    b32 saveAgain[4];
+    b32 saving[5];            // bookmarks, recents, folder views, menu pins, quick commands
+    b32 saveAgain[5];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.txt.
     Arena folderViewArena;
     ArrayStr folderViews;

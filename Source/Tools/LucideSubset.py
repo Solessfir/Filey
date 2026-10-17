@@ -1,8 +1,10 @@
 # Subsets the Lucide icon font to the icons in Source/Lib/Lucide/Icons.txt, remapped to consecutive codepoints from U+E000 so the app rasterizes them as one range, and writes Source/Lib/Lucide/Lucide.ttf, its LICENSE and Source/Meta/Icons.meta.h.
+# A name ending in "-filled" is that icon solid: its outline without the strokes' inner edge, as for a filled star, which Lucide does not draw.
 # Needs fontTools (pip install fonttools).
 #
 #   python Source/Tools/LucideSubset.py <extracted lucide-static npm package>
 
+import copy
 import json
 import pathlib
 import shutil
@@ -10,6 +12,8 @@ import sys
 
 from fontTools import subset
 from fontTools.ttLib import TTFont
+from fontTools.ttLib.tables._g_l_y_f import GlyphCoordinates
+from fontTools.ttLib.tables.ttProgram import Program
 
 FIRST_RUNE = 0xE000
 
@@ -22,13 +26,16 @@ if len(set(names)) != len(names):
     sys.exit("Icons.txt lists an icon twice")
 version = json.loads((source / "package.json").read_text())["version"]
 codepoints = json.loads((source / "font" / "codepoints.json").read_text())
-missing = [name for name in names if name not in codepoints]
+FILLED = "-filled"
+base = lambda name: name[:-len(FILLED)] if name.endswith(FILLED) else name
+missing = [name for name in names if base(name) not in codepoints]
 if missing:
     sys.exit(f"Unknown icons: {', '.join(missing)}")
 
 font = TTFont(source / "font" / "lucide.ttf")
 cmap = font.getBestCmap()
-glyphs = [cmap[codepoints[name]] for name in names]
+bases = list(dict.fromkeys(cmap[codepoints[base(name)]] for name in names))
+glyphs = bases
 
 options = subset.Options()
 options.glyph_names = False
@@ -49,6 +56,40 @@ for name in font.getGlyphOrder():
     glyph.coordinates.translate((shift, 0))
     glyph.recalcBounds(glyf)
     font["hmtx"][name] = (advance, glyph.xMin)
+
+# The solid icons: each keeps the contour with the largest bounds, which for a stroked closed shape is its outline.
+glyphs = []
+order = font.getGlyphOrder()
+for name in names:
+    stroked = cmap[codepoints[base(name)]]
+    if not name.endswith(FILLED):
+        glyphs.append(stroked)
+        continue
+    glyph = glyf[stroked]
+    ends = list(glyph.endPtsOfContours)
+    starts = [0] + [end + 1 for end in ends[:-1]]
+    def area(i):
+        points = glyph.coordinates[starts[i]:ends[i] + 1]
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        return (max(xs) - min(xs)) * (max(ys) - min(ys))
+    outer = max(range(len(ends)), key=area)
+    solid = copy.deepcopy(glyph)
+    solid.coordinates = GlyphCoordinates(glyph.coordinates[starts[outer]:ends[outer] + 1])
+    solid.flags = glyph.flags[starts[outer]:ends[outer] + 1]
+    solid.endPtsOfContours = [ends[outer] - starts[outer]]
+    solid.numberOfContours = 1
+    solid.program = Program()
+    solid.program.fromBytecode(b"")
+    filled = stroked + ".filled"
+    glyf[filled] = solid
+    solid.recalcBounds(glyf)
+    font["hmtx"][filled] = font["hmtx"][stroked]
+    # Setting a glyph in glyf adds it to the order that glyf shares with the font.
+    if filled not in order:
+        order.append(filled)
+    glyphs.append(filled)
+font.setGlyphOrder(order)
+font["maxp"].numGlyphs = len(order)
 
 for table in font["cmap"].tables:
     if table.isUnicode():

@@ -631,12 +631,10 @@ function b32 Prog__ContainsFolded(String text, String needle)
     return false;
 }
 
-// The palette's groups and their commands. Quick holds the most used commands, which their own groups then leave out.
+// The palette's groups and their commands. Quick holds the starred commands, Prog_State.quickCommands, which their own groups then leave out.
 #define Prog__PaletteGroup(name) ((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_##name)
 global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Quick),
-    Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_TogglePreview, Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_TabNew,
-    Prog_CommandKind_TabClose, Prog_CommandKind_OpenOptions, Prog_CommandKind_ToggleHidden,
     Prog__PaletteGroup(Folder),
     Prog_CommandKind_ToggleCursorSelection, Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_OpenInRightSplit,
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
@@ -647,7 +645,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_TypesPopupOpen, Prog_CommandKind_FilesPopupOpen, Prog_CommandKind_FilesPopupPrev, Prog_CommandKind_FilesPopupNext,
-    Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
+    Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
@@ -658,16 +656,16 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Inspector),
-    Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
+    Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
     Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
-    Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
+    Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
     Prog__PaletteGroup(Tabs),
-    Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
+    Prog_CommandKind_TabNew, Prog_CommandKind_TabClose, Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
     Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll, Prog_CommandKind_TabReopen, Prog_CommandKind_TabSelectNext, Prog_CommandKind_TabSelectPrev, Prog_CommandKind_TabSelect1,
     Prog_CommandKind_TabSelect2, Prog_CommandKind_TabSelect3, Prog_CommandKind_TabSelect4, Prog_CommandKind_TabSelect5, Prog_CommandKind_TabSelect6,
     Prog_CommandKind_TabSelect7, Prog_CommandKind_TabSelect8, Prog_CommandKind_TabSelectLast, Prog_CommandKind_TabMenu, Prog_CommandKind_TabList,
@@ -678,8 +676,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Options),
-    Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
-    Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
+    Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
+    Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleHidden, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
     Prog_CommandKind_ToggleSortRecents,
     Prog__PaletteGroup(Rename),
     Prog_CommandKind_RenameInsertIncrementalID, Prog_CommandKind_RenameInsertCurrentDate, Prog_CommandKind_RenameInsertCreateDate,
@@ -774,13 +772,38 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
     }
 }
 
+// The command named `name`, or None.
+function Prog_CommandKind Prog__CommandNamed(String name)
+{
+    for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) if (StrIsEqual(Prog_Commands[kind].name, name)) return (Prog_CommandKind)kind;
+    return Prog_CommandKind_None;
+}
+
+function b32 Prog_IsQuick(const Prog_State *state, Prog_CommandKind kind)
+{
+    for (u64 i = 0; i < state->quickCommands.header.count; ++i) if (StrIsEqual(state->quickCommands.v[i], Prog_Commands[kind].name)) return true;
+    return false;
+}
+
 function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 {
     String text = Prog_EditText(&state->palette);
     i32 scores[Prog_MaxPaletteRows];
     u32 count = 0, group = 0;
+    // The tree, with the starred commands in Quick, its first group, and out of their own.
+    u16 items[CArrayCount(Prog_PaletteTree) + 64];
+    u32 itemCount = 0;
     for (u32 i = 0; i < CArrayCount(Prog_PaletteTree); ++i) {
         u32 item = Prog_PaletteTree[i];
+        if (item < Prog_CommandKind_Count && Prog_IsQuick(state, (Prog_CommandKind)item)) continue;
+        items[itemCount++] = (u16)item;
+        for (u64 q = 0; item == Prog__PaletteGroup(Quick) && q < state->quickCommands.header.count && q < 64; ++q) {
+            Prog_CommandKind kind = Prog__CommandNamed(state->quickCommands.v[q]);
+            if (kind && Prog_Commands[kind].label.length) items[itemCount++] = (u16)kind;
+        }
+    }
+    for (u32 i = 0; i < itemCount; ++i) {
+        u32 item = items[i];
         if (item >= Prog_CommandKind_Count) {
             group = item - Prog_CommandKind_Count;
             if (!text.length) out[count++] = (Prog_PaletteRow){ (u8)group, Prog_CommandKind_None };
@@ -2632,6 +2655,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (bind && command->target >= count) list[n++] = bound;
                 if (command->kind == Prog_CommandKind_HotkeyRestore) n = Prog_DefaultHotkeysOf(kind, list, CArrayCount(list));
                 Prog_SetHotkeys(state, kind, list, n);
+            } break;
+            case Prog_CommandKind_PaletteQuickToggle: {
+                if (command->row <= Prog_CommandKind_None || command->row >= Prog_CommandKind_Count) break;
+                // A star adds the command at Quick's end; taken out, it goes back to its own group.
+                String name = Prog_Commands[command->row].name;
+                b32 was = Prog_IsQuick(state, (Prog_CommandKind)command->row);
+                String *names = ArenaPushArray(&state->frameArena, state->quickCommands.header.count + 1, String);
+                u64 count = 0;
+                for (u64 i = 0; i < state->quickCommands.header.count; ++i) if (!StrIsEqual(state->quickCommands.v[i], name)) names[count++] = state->quickCommands.v[i];
+                if (!was) names[count++] = name;
+                Prog__SetList(&state->quickArena, &state->quickCommands, names, count);
+                Prog__SaveList(state, Prog_QuickCommandsFile, state->quickCommands);
             } break;
             case Prog_CommandKind_MenuPinToggle: {
                 if (state->menuOpen && command->row < state->menu.count) {

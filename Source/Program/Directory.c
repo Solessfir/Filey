@@ -1989,6 +1989,7 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 #define Prog_RecentsFile   S("Recents.txt")
 #define Prog_FolderViewsFile S("FolderViews.txt")
 #define Prog_MenuPinsFile S("MenuPins.txt")
+#define Prog_QuickCommandsFile S("QuickCommands.txt")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
 // What a first visit scores.
@@ -1998,7 +1999,7 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 // The save slot of each list file.
 function u32 Prog__SaveSlot(String file)
 {
-    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : 0;
+    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -2168,6 +2169,15 @@ function void Prog__LoadRecents(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
+// The palette's Quick group before anything is starred: the most used commands.
+function void Prog__DefaultQuick(Prog_State *state)
+{
+    local_persist const String quick[] = {
+        SInit("ToggleExpandFolder"), SInit("TogglePreview"), SInit("SplitRight"), SInit("SplitBottom"), SInit("TabNew"), SInit("TabClose"), SInit("OpenOptions"), SInit("ToggleHidden"),
+    };
+    Prog__SetList(&state->quickArena, &state->quickCommands, quick, CArrayCount(quick));
+}
+
 // Loads the bookmarks and recents saved in `configDirectory`, which keeps them from then on.
 // Without a bookmarks file, the user's desktop, documents, downloads and pictures start as bookmarks.
 function void Prog_LoadSettings(Prog_State *state, String configDirectory)
@@ -2208,6 +2218,8 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
     Prog__LoadRecents(state);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog__LoadList(state, Prog_MenuPinsFile, &state->menuPinArena, &state->menuPins, &found);
+    Prog__LoadList(state, Prog_QuickCommandsFile, &state->quickArena, &state->quickCommands, &found);
+    if (!found) Prog__DefaultQuick(state);
     Prog_ReloadSettingsFile(state);
     // Recents kept only for a run start empty.
     if (state->storeRecents != Prog_StoreRecents_Persistent) Prog__SetRecents(state, NULL, NULL, 0);
@@ -2416,6 +2428,8 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
         ArenaRelease(&state->thumbnailJobsArena);
         return false;
     }
+    // Settings loaded after replace it with the starred commands.
+    Prog__DefaultQuick(state);
     Prog__EnsureTab(state);
     Arena temporary = {0};
     String absolute = P_AbsolutePath(&temporary, path);
@@ -3961,12 +3975,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->error = StrFormat(&state->errorArena, "Save %S: %S", input->path, error->message);
                 changed = true;
             }
-            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile };
+            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
                 state->saveAgain[slot] = false;
-                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : state->bookmarks);
+                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
@@ -4251,6 +4265,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->undoArena);
     ArenaRelease(&state->redoArena);
     ArenaRelease(&state->menuPinArena);
+    ArenaRelease(&state->quickArena);
     ArenaRelease(&state->sizeArena);
     ArenaRelease(&state->tipArena);
     ArenaRelease(&state->gotoArena);

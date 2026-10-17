@@ -661,6 +661,10 @@ command TypesUntoggleAll {
 command TypesPopupClose {
 }
 
+// The star on the palette's highlighted row: command `row` joins the Quick group, or leaves it.
+command PaletteQuickToggle {
+}
+
 // From a separator of the path bar, target is where the crumb before it ends in the path the crumbs show; its hotkey opens the shown folder's.
 command FilesPopupOpen {
     label   = "Open Folder Dropdown^directory,files"

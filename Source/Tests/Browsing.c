@@ -2074,6 +2074,16 @@ function void TestPanels(TestFileFixture *fixture)
         for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) {
             Check(seen[kind] == (Prog_Commands[kind].label.length && Prog_CommandApplies((Prog_CommandKind)kind) ? 1u : 0u));
         }
+        // A star moves a command into Quick, at its end, and out of its own group; taken out again, it goes back.
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteQuickToggle, Prog_CommandKind_ToggleFullscreen);
+        u32 starred = Prog_PaletteMatches(&state, matches), quickAt = UINT32_MAX, inQuick = 0;
+        for (u32 i = 0; i < starred; ++i) {
+            if (matches[i].kind == Prog_CommandKind_ToggleFullscreen) quickAt = matches[i].group == Prog_CommandGroup_Quick ? i : UINT32_MAX - 1;
+            inQuick += matches[i].group == Prog_CommandGroup_Quick && matches[i].kind ? 1u : 0u;
+        }
+        Check(starred == all && quickAt == inQuick && Prog_IsQuick(&state, Prog_CommandKind_ToggleFullscreen));
+        TestBrowsingCommand(&state, Prog_CommandKind_PaletteQuickToggle, Prog_CommandKind_ToggleFullscreen);
+        Check(!Prog_IsQuick(&state, Prog_CommandKind_ToggleFullscreen) && Prog_PaletteMatches(&state, matches) == all);
         state.paletteExpanded = 0;
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
         Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > groups && matches[1].group == Prog_CommandGroup_Quick && matches[1].kind != Prog_CommandKind_None);
