@@ -2,6 +2,7 @@
 // Type names come from the same MIME database.
 // Requires LinuxFiles.c.
 
+#include <math.h>
 #include <pthread.h>
 
 // Third-party decoders (Lib/): stb_image v2.30 (nothings/stb 2c980bb) for PNG and nanosvg (memononen/nanosvg 239e102) for SVG.
@@ -76,6 +77,7 @@ typedef struct P__IconData {
     P__StrMap mimeByExtension;  // "txt" -> "text/plain"
     P__StrMap genericIcons;     // "text/plain" -> "text-x-generic"
     P__StrMap mimeParents;      // "text/x-patch" -> "text/plain", several separated by ";"
+    P__StrMap thumbnailers;     // "video/mp4" -> the Exec line of the installed thumbnailer that pictures it
     P__IconTheme *themes;       // lookup order: configured theme, what it inherits, hicolor
     u64 themeCount;
 } P__IconData;
@@ -312,6 +314,34 @@ function void P__AddTheme(P__IconData *data, ArrayStr bases, String name, ArrayS
     }
 }
 
+// The installed thumbnailers, which Nautilus and Nemo run too: each .thumbnailer file's Exec line for the MIME types it lists, the earlier
+// data directory's first, without those whose program is not on PATH.
+function void P__LoadThumbnailers(P__IconData *data, ArrayStr dataDirs)
+{
+    Arena *arena = &data->arena;
+    Scratch scratch = GetScratchEx(arena);
+    for (u64 d = 0; d < dataDirs.header.count; ++d) {
+        String folder = StrFormat(scratch.arena, "%S/thumbnailers", dataDirs.v[d]);
+        char *native = P__FilePathCString(scratch.arena, folder);
+        DIR *stream = native ? opendir(native) : NULL;
+        for (struct dirent *entry; stream && (entry = readdir(stream));) {
+            String name = StrFromCStr(entry->d_name), suffix = S(".thumbnailer");
+            if (name.length <= suffix.length || !StrIsEqual(StrFrom(name, name.length - suffix.length), suffix)) continue;
+            P__StrMap ini = P__IniParse(scratch.arena, P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/%S", folder, name)));
+            String section = S("Thumbnailer Entry"), exec = P__IniGet(ini, section, S("Exec")), program = P__IniGet(ini, section, S("TryExec"));
+            if (!program.length) program = StrFromTo(exec, 0, (i64)StrIndexChar(exec, ' ', SSF_CountOnFail).value);
+            u32 error = 0;
+            if (!exec.length || !P__FindExecutable(scratch.arena, program, &error)) continue;
+            ArrayStr types = StrSplit(scratch.arena, P__IniGet(ini, section, S("MimeType")), ';');
+            for (u64 t = 0; t < types.header.count; ++t) {
+                if (types.v[t].length && !MapsIndex(data->thumbnailers, types.v[t]).exists) MapsPut(arena, data->thumbnailers, StrCopy(arena, types.v[t]), StrCopy(arena, exec));
+            }
+        }
+        if (stream) closedir(stream);
+    }
+    ReleaseScratch(scratch);
+}
+
 function P__IconData *P__MakeIconData(String theme)
 {
     P__IconData *data = ArenaBootstrapStruct(P__IconData, arena);
@@ -320,6 +350,7 @@ function P__IconData *P__MakeIconData(String theme)
     ArrayStr dataDirs = P__DataDirs(arena);
     data->dataDirs = dataDirs;
     P__LoadMime(data, dataDirs);
+    P__LoadThumbnailers(data, dataDirs);
 
     ArrayStr bases = {0};
     const char *home = getenv("HOME");
@@ -555,10 +586,240 @@ function b32 P__IsPicture(String typeKey)
     return false;
 }
 
+// The Exec line of the thumbnailer that pictures files of `typeKey`'s type, or empty without one.
+function String P__ThumbnailerFor(String typeKey)
+{
+    if (typeKey.length < 2 || typeKey.value[0] != '.') return (String){0};
+    const P__IconData *icons = P__Icons();
+    String mime = MapsGet(icons->mimeByExtension, String, StrFrom(typeKey, 1));
+    return mime.length ? MapsGet(icons->thumbnailers, String, mime) : (String){0};
+}
+
 function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind)
 {
     String key = P_FileIconKey(arena, path, kind);
-    return kind == P_FileKind_File && P__IsPicture(key) ? StrCopy(arena, path) : key;
+    return kind == P_FileKind_File && (P__IsPicture(key) || P__ThumbnailerFor(key).length) ? StrCopy(arena, path) : key;
+}
+
+// MD5 (RFC 1321), which the thumbnail cache names its files by.
+function void P__Md5(String data, u8 digest[16])
+{
+    local_persist const u32 shifts[64] = {
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+        4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    };
+    u32 sines[64];
+    for (u32 i = 0; i < 64; ++i) sines[i] = (u32)(u64)(fabs(sin((f64)(i + 1))) * 4294967296.0);
+    u32 state[4] = { 0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u };
+    // The message, a 1 bit, zeros to 56 bytes past a block's start and its length in bits, block by block.
+    u64 blocks = (data.length + 8) / 64 + 1;
+    for (u64 b = 0; b < blocks; ++b) {
+        u8 block[64];
+        for (u32 i = 0; i < 64; ++i) {
+            u64 at = b * 64 + i;
+            block[i] = at < data.length ? (u8)data.value[at] : at == data.length ? 0x80 : 0;
+        }
+        if (b + 1 == blocks) for (u32 i = 0; i < 8; ++i) block[56 + i] = (u8)(((u64)data.length * 8) >> (8 * i));
+        u32 words[16];
+        for (u32 i = 0; i < 16; ++i) words[i] = (u32)block[i * 4] | (u32)block[i * 4 + 1] << 8 | (u32)block[i * 4 + 2] << 16 | (u32)block[i * 4 + 3] << 24;
+        u32 a = state[0], b2 = state[1], c = state[2], d = state[3];
+        for (u32 i = 0; i < 64; ++i) {
+            u32 f, g;
+            if (i < 16) f = (b2 & c) | (~b2 & d), g = i;
+            else if (i < 32) f = (d & b2) | (~d & c), g = (5 * i + 1) % 16;
+            else if (i < 48) f = b2 ^ c ^ d, g = (3 * i + 5) % 16;
+            else f = c ^ (b2 | ~d), g = (7 * i) % 16;
+            u32 sum = a + f + sines[i] + words[g];
+            a = d, d = c, c = b2;
+            b2 += (sum << shifts[i]) | (sum >> (32 - shifts[i]));
+        }
+        state[0] += a, state[1] += b2, state[2] += c, state[3] += d;
+    }
+    for (u32 i = 0; i < 16; ++i) digest[i] = (u8)(state[i / 4] >> (8 * (i % 4)));
+}
+
+// The name the thumbnail cache keeps the file at `uri` under: its URI's MD5 in hex, with ".png".
+function String P__ThumbnailName(Arena *arena, String uri)
+{
+    u8 digest[16];
+    P__Md5(uri, digest);
+    StrBuilder name = {0};
+    for (u32 i = 0; i < 16; ++i) StrBuildStr(arena, &name, StrFormat(arena, "%02x", digest[i]));
+    StrBuildStr(arena, &name, S(".png"));
+    return name.buffer;
+}
+
+// The CRC of a PNG chunk's type and data.
+function u32 P__Crc32(const u8 *bytes, u64 count)
+{
+    u32 crc = 0xFFFFFFFFu;
+    for (u64 i = 0; i < count; ++i) {
+        crc ^= bytes[i];
+        for (u32 k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
+    }
+    return ~crc;
+}
+
+// The text of the PNG's tEXt chunk `keyword`, or empty without one.
+function String P__PngText(String png, String keyword)
+{
+    for (u64 at = 8; at + 12 <= png.length;) {
+        const u8 *chunk = (const u8 *)png.value + at;
+        u64 length = (u64)chunk[0] << 24 | (u64)chunk[1] << 16 | (u64)chunk[2] << 8 | chunk[3];
+        if (at + 12 + length > png.length) break;
+        String data = StrMake(png.value + at + 8, length);
+        if (MemCompare(chunk + 4, "tEXt", 4) == 0 && data.length > keyword.length && data.value[keyword.length] == 0 && StrIsEqual(StrFromTo(data, 0, (i64)keyword.length), keyword)) {
+            return StrFrom(data, keyword.length + 1);
+        }
+        at += 12 + length;
+    }
+    return (String){0};
+}
+
+// `png` with tEXt chunks of `count` keywords and texts after its header, or empty when it is not a PNG.
+function String P__PngWithText(Arena *arena, String png, const String *keywords, const String *texts, u32 count)
+{
+    local_persist const u8 signature[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+    // The signature, then IHDR's 13 bytes inside its length, type and CRC.
+    u64 header = 8 + 25;
+    if (png.length < header || MemCompare(png.value, signature, 8) != 0 || MemCompare(png.value + 12, "IHDR", 4) != 0) return (String){0};
+    StrBuilder out = {0};
+    StrBuildStr(arena, &out, StrFromTo(png, 0, (i64)header));
+    for (u32 i = 0; i < count; ++i) {
+        u64 length = keywords[i].length + 1 + texts[i].length;
+        u8 *chunk = ArenaPushArrayNoZero(arena, length + 12, u8);
+        chunk[0] = (u8)(length >> 24), chunk[1] = (u8)(length >> 16), chunk[2] = (u8)(length >> 8), chunk[3] = (u8)length;
+        MemCopy(chunk + 4, "tEXt", 4);
+        MemCopy(chunk + 8, keywords[i].value, keywords[i].length);
+        chunk[8 + keywords[i].length] = 0;
+        MemCopy(chunk + 9 + keywords[i].length, texts[i].value, texts[i].length);
+        u32 crc = P__Crc32(chunk + 4, length + 4);
+        chunk[8 + length] = (u8)(crc >> 24), chunk[9 + length] = (u8)(crc >> 16), chunk[10 + length] = (u8)(crc >> 8), chunk[11 + length] = (u8)crc;
+        StrBuildStr(arena, &out, StrMake((const char *)chunk, length + 12));
+    }
+    StrBuildStr(arena, &out, StrFrom(png, header));
+    return out.buffer;
+}
+
+// Runs `args` with its output thrown away and waits for it, killing it past `seconds`; true once it exits with 0.
+function b32 P__RunAndWait(char *const *args, u32 seconds)
+{
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) return false;
+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+    pid_t child = 0;
+    b32 started = posix_spawn(&child, args[0], &actions, NULL, args, environ) == 0, result = false;
+    posix_spawn_file_actions_destroy(&actions);
+    for (u64 waited = 0; started;) {
+        i32 status = 0;
+        pid_t done = waitpid(child, &status, WNOHANG);
+        if (done == child) {
+            result = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+            break;
+        }
+        if (done < 0 && errno != EINTR) break;
+        if (waited >= (u64)seconds * 1000) {
+            kill(child, SIGKILL);
+            while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+            break;
+        }
+        struct timespec pause = { 0, 10 * 1000 * 1000 };
+        nanosleep(&pause, NULL);
+        waited += 10;
+    }
+    return result;
+}
+
+// The freedesktop thumbnail cache's sizes and the folders each is kept in.
+global const struct { i32 size; const char *folder; } P__thumbnailSizes[] = { { 128, "normal" }, { 256, "large" }, { 512, "x-large" }, { 1024, "xx-large" } };
+
+// The picture the installed thumbnailer `exec` makes of the file at `path`, of at least `size` pixels where it can: from the thumbnail cache
+// Nautilus and Nemo share when it holds one made since the file last changed, else made now and put there for them too.
+// ponytail: runs thumbnailers unsandboxed, as Nemo does, and retries ones that failed on every look; keep fail/ entries if they are slow.
+function b32 P__LoadThumbnailerPicture(Arena *arena, String path, String exec, i32 size, P_Image *image)
+{
+    Scratch scratch = GetScratchEx(arena);
+    b32 result = false;
+    struct stat info;
+    const char *home = getenv("HOME"), *cache = getenv("XDG_CACHE_HOME");
+    String base = cache && cache[0] ? StrFromCStr(cache) : home && home[0] ? StrFormat(scratch.arena, "%s/.cache", home) : (String){0};
+    String root = base.length ? StrFormat(scratch.arena, "%S/thumbnails", base) : (String){0};
+    char *native = P__FilePathCString(scratch.arena, path);
+    if (!root.length || !native || stat(native, &info) != 0) {
+        ReleaseScratch(scratch);
+        return false;
+    }
+    String uri = P__FileUri(scratch.arena, P_AbsolutePath(scratch.arena, path)), name = P__ThumbnailName(scratch.arena, uri);
+    String mtime = StrFormat(scratch.arena, "%lld", (long long)info.st_mtime), png = {0};
+    u32 first = 0;
+    while (first + 1 < CArrayCount(P__thumbnailSizes) && P__thumbnailSizes[first].size < size) ++first;
+    // A cached one of this size or larger, made since the file last changed.
+    for (u32 s = first; s < CArrayCount(P__thumbnailSizes) && !png.length; ++s) {
+        String data = P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/%s/%S", root, P__thumbnailSizes[s].folder, name));
+        if (data.length && StrIsEqual(P__PngText(data, S("Thumb::MTime")), mtime) && StrIsEqual(P__PngText(data, S("Thumb::URI")), uri)) png = data;
+    }
+    if (!png.length) {
+        // Made into a file of its own beside the cached ones, which is put in place under the cache's name once it is tagged.
+        local_persist atomic_uint taken;
+        String folder = StrFormat(scratch.arena, "%S/%s", root, P__thumbnailSizes[first].folder);
+        String temporary = StrFormat(scratch.arena, "%S/.filey-%d-%u.png", folder, (i32)getpid(), atomic_fetch_add(&taken, 1));
+        mkdir(P__FilePathCString(scratch.arena, base), 0700);
+        mkdir(P__FilePathCString(scratch.arena, root), 0700);
+        mkdir(P__FilePathCString(scratch.arena, folder), 0700);
+        // The Exec line's words, its codes replaced: %i the file, %u its URI, %o the picture to write and %s its size.
+        // ponytail: words are split at spaces without quotes, which no installed thumbnailer uses.
+        ArrayStr words = StrSplit(scratch.arena, exec, ' ');
+        char **args = ArenaPushArray(scratch.arena, words.header.count + 1, char *);
+        u32 count = 0;
+        for (u64 w = 0; w < words.header.count; ++w) {
+            String word = words.v[w];
+            if (!word.length) continue;
+            StrBuilder built = {0};
+            for (u64 at = 0; at < word.length; ++at) {
+                char c = word.value[at], code = at + 1 < word.length ? word.value[at + 1] : 0;
+                if (c != '%' || !code) { StrBuildChar(scratch.arena, &built, c); continue; }
+                ++at;
+                if (code == 'i') StrBuildStr(scratch.arena, &built, P_AbsolutePath(scratch.arena, path));
+                else if (code == 'u') StrBuildStr(scratch.arena, &built, uri);
+                else if (code == 'o') StrBuildStr(scratch.arena, &built, temporary);
+                else if (code == 's') StrBuildStr(scratch.arena, &built, StrFormat(scratch.arena, "%d", P__thumbnailSizes[first].size));
+                else if (code == '%') StrBuildChar(scratch.arena, &built, '%');
+            }
+            args[count++] = P__FilePathCString(scratch.arena, built.buffer);
+        }
+        u32 error = 0;
+        char *program = count ? P__FindExecutable(scratch.arena, StrFromCStr(args[0]), &error) : NULL;
+        if (program) {
+            args[0] = program;
+            char *made = P__FilePathCString(scratch.arena, temporary);
+            if (P__RunAndWait(args, 15)) {
+                String produced = P__ReadFile(scratch.arena, temporary);
+                String keywords[] = { S("Thumb::URI"), S("Thumb::MTime") }, texts[] = { uri, mtime };
+                String tagged = P__PngWithText(scratch.arena, produced, keywords, texts, 2);
+                png = tagged.length ? tagged : produced;
+                // Into the cache under its name, readable by the user alone, as the cache's files are.
+                i32 out = tagged.length ? open(made, O_WRONLY | O_TRUNC | O_CLOEXEC, 0600) : -1;
+                b32 written = out >= 0 && write(out, tagged.value, tagged.length) == (ssize_t)tagged.length;
+                if (out >= 0) {
+                    fchmod(out, 0600);
+                    written = close(out) == 0 && written;
+                }
+                if (written) rename(made, P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/%S", folder, name)));
+            }
+            unlink(made);
+        }
+    }
+    i32 width = 0, height = 0, channels = 0;
+    u8 *pixels = png.length ? stbi_load_from_memory((const u8 *)png.value, (i32)png.length, &width, &height, &channels, 4) : NULL;
+    if (pixels) {
+        *image = (P_Image){ ArenaPushArrayNoZero(arena, (u64)width * (u64)height, u32), width, height };
+        MemCopy(image->pixels, pixels, (u64)width * (u64)height * 4);
+        stbi_image_free(pixels);
+        result = true;
+    }
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
@@ -623,6 +884,10 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
                 result = true;
             }
         }
+    }
+    if (!result && kind == P_FileKind_File) {
+        String exec = P__ThumbnailerFor(P_FileTypeKey(scratch.arena, path, kind));
+        if (exec.length) result = P__LoadThumbnailerPicture(arena, path, exec, size, image);
     }
     ReleaseScratch(scratch);
     return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));

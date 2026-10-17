@@ -14,6 +14,7 @@
 #include <sys/statvfs.h>
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
+#include <spawn.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <time.h>
@@ -612,7 +613,8 @@ function String P__PercentEncode(Arena *arena, String path)
     StrBuilder encoded = {0};
     for (u64 i = 0; i < path.length; ++i) {
         u8 c = (u8)path.value[i];
-        b32 plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' || c == '_' || c == '.' || c == '~';
+        // What GLib leaves as it is in a file URI, so that the thumbnail cache's names, hashed from the URI, are the ones other programs use.
+        b32 plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || (c && strchr("!$&'()*+,-./:=@_~", c));
         if (plain) StrBuildChar(arena, &encoded, (char)c);
         else StrBuildStr(arena, &encoded, StrFormat(arena, "%%%02X", c));
     }

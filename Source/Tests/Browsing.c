@@ -2424,6 +2424,53 @@ function void TestTrash(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+#if defined(__linux__)
+// Thumbnails that installed thumbnailers make, through the cache Nautilus and Nemo share, kept inside the fixture here.
+function void TestThumbnailers(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    // The cache's names are the MD5 of the file's URI, as the thumbnail spec's own example has it, and its URIs are escaped as GLib does.
+    Check(StrIsEqual(P__ThumbnailName(&arena, S("")), S("d41d8cd98f00b204e9800998ecf8427e.png")));
+    Check(StrIsEqual(P__ThumbnailName(&arena, S("file:///home/jens/photos/me.png")), S("c6ee772d9e49320e97ec29a7eb5b1697.png")));
+    Check(StrIsEqual(P__FileUri(&arena, S("/a b/Gold & Co (1).mp4")), S("file:///a%20b/Gold%20&%20Co%20(1).mp4")));
+    // A cached picture is tagged with the file's URI and modification time, which the PNG keeps readable.
+    local_persist const u8 dot[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0,
+        0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99, 0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    };
+    String png = StrMake((const char *)dot, sizeof(dot)), keywords[] = { S("Thumb::URI"), S("Thumb::MTime") }, texts[] = { S("file:///x"), S("42") };
+    String tagged = P__PngWithText(&arena, png, keywords, texts, 2);
+    Check(StrIsEqual(P__PngText(tagged, S("Thumb::MTime")), S("42")) && StrIsEqual(P__PngText(tagged, S("Thumb::URI")), S("file:///x")));
+    i32 width = 0, height = 0, channels = 0;
+    u8 *pixels = stbi_load_from_memory((const u8 *)tagged.value, (i32)tagged.length, &width, &height, &channels, 4);
+    Check(pixels && width == 1 && height == 1);
+    stbi_image_free(pixels);
+    // A thumbnailer's picture goes into the cache, which answers the next look without it.
+    String source = Prog_JoinPath(&arena, fixture->path, S("made.png")), video = Prog_JoinPath(&arena, fixture->path, S("clip.mp4"));
+    String cache = Prog_JoinPath(&arena, fixture->path, S("cache"));
+    Check(!P_WriteFile(&arena, source, png).code && !P_WriteFile(&arena, video, S("not really a video")).code);
+    const char *previous = getenv("XDG_CACHE_HOME");
+    String saved = previous ? StrCopy(&arena, StrFromCStr(previous)) : (String){0};
+    setenv("XDG_CACHE_HOME", P__FilePathCString(&arena, cache), 1);
+    P_Image image = {0};
+    Check(P__LoadThumbnailerPicture(&arena, video, StrFormat(&arena, "cp %S %%o", source), 200, &image) && image.width == 1);
+    String cached = StrFormat(&arena, "%S/thumbnails/large/%S", cache, P__ThumbnailName(&arena, P__FileUri(&arena, video))), contents = {0};
+    Check(P_ReadFile(&arena, cached, &contents) && P__PngText(contents, S("Thumb::URI")).length && TestListing(&arena, fixture, S("cache/thumbnails/large")).header.count == 1);
+    image = (P_Image){0};
+    Check(P__LoadThumbnailerPicture(&arena, video, S("false"), 200, &image) && image.width == 1);
+    // One that fails leaves nothing behind.
+    Check(!P__LoadThumbnailerPicture(&arena, source, S("false %o"), 200, &image) && TestListing(&arena, fixture, S("cache/thumbnails/large")).header.count == 1);
+    if (saved.length) setenv("XDG_CACHE_HOME", P__FilePathCString(&arena, saved), 1);
+    else unsetenv("XDG_CACHE_HOME");
+    TestRemoveTree(&arena, fixture, S("cache"));
+    P_CancelToken token = {0};
+    String made[] = { source, video };
+    Check(!P_DeleteItems(&arena, made, 2, false, &token).code);
+    ArenaRelease(&arena);
+}
+#endif
+
 function void TestBrowsing(void)
 {
     TestFileFixture fixture = {0};
@@ -2435,6 +2482,7 @@ function void TestBrowsing(void)
 #if defined(__linux__)
         P__TestOpenPath(&fixture);
         TestApps(&fixture);
+        TestThumbnailers(&fixture);
 #endif
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);
