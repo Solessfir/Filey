@@ -4196,7 +4196,7 @@ function void Prog__HotkeyQuestion(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("HotkeyQuestionCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("HotkeyQuestionCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, outside.pressOrder);
     String title = S("Delete assigned hotkey?");
@@ -5059,7 +5059,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
     u32 matches[Prog_MaxTabs];
@@ -5282,7 +5282,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
     u32 count;
@@ -5311,9 +5311,9 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
     // As the palette, the box reaches down to the bottom margin with the row after those that fit cut off.
     u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
-    // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top.
-    if (highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
-    if (highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
+    // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top, unless the wheel scrolled it.
+    if (!state->paletteWheeled && highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
+    if (!state->paletteWheeled && highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
     state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
     u32 first = state->gotoScroll, shown = Min(rowCount - first, visible + 1);
     // It opens a tenth smaller and grows into place, easing with a 31 ms time constant, while it fades in from nothing.
@@ -5836,7 +5836,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TypesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TypesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_TypesPopupClose, 0, 0, outside.pressOrder);
     u32 *rows = ArenaPushArray(frame, Max(state->typeCount, 1u), u32);
@@ -5964,7 +5964,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupClose, 0, 0, outside.pressOrder);
     u32 *rows = ArenaPushArray(frame, Max(state->filesCount, (u64)1), u32);
@@ -6223,7 +6223,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
     u32 matches[Prog_MaxLayouts];
@@ -6340,7 +6340,7 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
     u32 *matches = ArenaPushArray(&state->frameArena, state->fontCount + 1, u32);
@@ -6351,8 +6351,8 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
     u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
-    if (state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
-    if (state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
+    if (!state->paletteWheeled && state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
+    if (!state->paletteWheeled && state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
     u32 first = state->paletteScroll, shown = Min(count - Min(first, count), visible);
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
@@ -6476,7 +6476,7 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
     // A press anywhere else closes it, going no further.
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("SchemesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable));
+    UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("SchemesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, outside.pressOrder);
     Prog__DropShadow(x, y, width, height, radius, 1, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -6573,7 +6573,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPickerCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPickerCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, outside.pressOrder);
     f32 s = m->scale, pad = floorf(12.0f * s + 0.5f), row = floorf(28.0f * s + 0.5f), head = floorf(32.0f * s + 0.5f), swatch = floorf(40.0f * s + 0.5f);
@@ -6679,7 +6679,7 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSaveCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSaveCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, outside.pressOrder);
     f32 s = m->scale, line = m->separator;
@@ -6749,7 +6749,7 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
     UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.35f } });
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutAskCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutAskCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, outside.pressOrder);
     String name = StrMake((const char *)state->layoutAskName, state->layoutAskLength);
@@ -6828,7 +6828,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
     // The Options popup is the palette with options in its rows.
@@ -6846,11 +6846,11 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     if (!state->paletteCompact) row = MaxF32(row, floorf(4.8f * s + 0.5f) + m->line + floorf(2.4f * s + 0.5f) + m->detail->lineHeight + line);
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
     // The box reaches down to the bottom margin, with as many rows as fit and the next one cut off under them, with lines between them.
-    // The list scrolls only as far as keeps the highlight wholly in sight.
+    // The list scrolls only as far as keeps the highlight wholly in sight, unless the wheel scrolled it.
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
     u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
-    if (state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
-    if (state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
+    if (!state->paletteWheeled && state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
+    if (!state->paletteWheeled && state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
     // The rows slide to where the scroll stops rather than jump.
     f32 scrolled = count > visible ? UI_Animate(UI_KeyFromStr(0, S("PaletteScroll")), (f32)state->paletteScroll, (f32)state->paletteScroll) : 0;
@@ -7187,7 +7187,7 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
     UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.35f } });
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeleteCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeleteCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, outside.pressOrder);
     String title = state->confirmEmptyTrash ? StrFormat(&state->frameArena, "Permanently delete everything in the %S?", Prog_PathName(state, state->confirmPaths[0]))
@@ -7231,7 +7231,7 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
     // The panels blur what is behind the menu as it was before any of them, so that joined ones read as one sheet of glass, with no panel's
     // shadow or tint in another's blur.
     UI_SetNextBlurSource(1);
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuCatcher")), UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_TakesWheel);
     UI_Interaction interaction = UI_InteractionFromBlock(catcher);
     if (interaction.pressed) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, interaction.pressOrder);
     state->menuPointerMoved = UI->mouse.x != state->menuPointer.x || UI->mouse.y != state->menuPointer.y;

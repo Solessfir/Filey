@@ -1955,6 +1955,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
     state->palette = (Prog_TextEdit){0};
     state->fontOption = (u8)option;
     state->paletteHighlight = 0;
+    state->paletteWheeled = false;
     const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
     for (u64 i = 0; i < state->fontCount; ++i) {
         if (Prog__EqualFolded(state->fontNames[i], StrMake(font->text, font->length))) state->paletteHighlight = (u32)i + 1;
@@ -2735,6 +2736,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteMode = Prog_PaletteMode_Layouts;
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
+                state->paletteWheeled = false;
             } break;
             case Prog_CommandKind_ExplorerOpen: {
                 // A folder inside an archive opens the archive's folder, and This PC the system's own start.
@@ -2978,6 +2980,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
+                state->paletteWheeled = false;
             } break;
             case Prog_CommandKind_GoTo:
             case Prog_CommandKind_EditPath: {
@@ -3178,6 +3181,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
+                state->paletteWheeled = false;
             } break;
             case Prog_CommandKind_OptionSet: {
                 if (command->pressCount) Prog_PreviewOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
@@ -3556,22 +3560,20 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
         if (state->paletteOpen) {
-            // The wheel moves Go To's highlight three rows a notch.
+            // The wheel scrolls the list three rows a notch, leaving the highlight where it is until the keyboard moves it; over a slider
+            // that takes the wheel, it is the slider's alone. The list's end is kept when it is built.
             if (event->kind == PlatformEventKind_MouseWheel && state->paletteMode != Prog_PaletteMode_Tabs) {
-                Prog_PaletteRow rows[Prog_MaxPaletteRows];
-                u32 count;
-                String folder;
-                u8 found[Prog_Option_Count];
-                u32 layouts[Prog_MaxLayouts];
-                if (state->paletteMode == Prog_PaletteMode_GoTo) Prog_GoToMatches(state, &count, &folder);
-                else if (state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, found);
-                else if (state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
-                else if (state->paletteMode == Prog_PaletteMode_Fonts) count = Prog_FontMatches(state, ArenaPushArray(&state->frameArena, state->fontCount + 1, u32));
-                else count = Prog_PaletteMatches(state, rows);
-                i64 at = (state->paletteHighlight == UINT32_MAX ? -1 : (i64)state->paletteHighlight) - (i64)(event->wheelY * 3);
-                state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
+                UI_Block *hot = UI__Find(UI->hotKey);
+                if (hot && FlagExists(hot->flags, UI_Flag_TakesWheel) && !FlagExists(hot->flags, UI_Flag_Floating)) continue;
+                f32 turn = state->reverseScroll ? -1.0f : 1.0f;
+                i64 rows = (i64)(event->wheelY * 3 * turn);
+                if (!rows && event->wheelY != 0) rows = event->wheelY * turn > 0 ? 1 : -1;
+                u32 *scroll = state->paletteMode == Prog_PaletteMode_GoTo ? &state->gotoScroll : &state->paletteScroll;
+                *scroll = (u32)Max((i64)*scroll - rows, (i64)0);
+                state->paletteWheeled = true;
                 continue;
             }
+            if (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown) state->paletteWheeled = false;
             if (event->kind == PlatformEventKind_Text) {
                 u32 kept = Prog__HighlightedOption(state);
                 Prog__EditInsert(&state->palette, event->codepoint);

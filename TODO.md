@@ -3,7 +3,6 @@
 ## Next
 
 - Font picker: each family's name should show in that family, as a preview.
-- Popups and the wheel: the wheel over a popup, such as the font picker or Options, also scrolls the folder list behind it. In the popup itself it moves the highlighted row (the keyboard's) one by one, and scrolls the list only once that reaches its edge, where it should scroll the list.
 
 
 ## Look
