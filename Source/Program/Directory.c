@@ -2710,8 +2710,52 @@ function void Prog__ActivatePanel(Prog_State *state, u32 index)
 }
 
 // Stops and frees what the current panel holds, leaving it empty.
+// The current panel's Miller column listing `path` this frame. Its listing is asked for when there is none yet, or when it comes back into view
+// a while after the last; the items listed before stay until the new ones come. The one shown least recently is taken for a new folder.
+function Prog_MillerColumn *Prog_MillerList(Prog_State *state, String path)
+{
+    u64 now = PlatformNowMicroseconds();
+    Prog_MillerColumn *column = NULL, *oldest = NULL;
+    for (u32 i = 0; i < Prog_MillerSlots && !column; ++i) {
+        Prog_MillerColumn *slot = &state->millerColumns.v[i];
+        if (slot->path.length && StrIsEqual(slot->path, path) && slot->hidden == state->showHidden) column = slot;
+        else if (!oldest || slot->usedFrame < oldest->usedFrame) oldest = slot;
+    }
+    if (!column) {
+        column = oldest;
+        if (column->job) P_RequestCancel(&column->job->cancelToken);
+        ArenaRelease(&column->arena);
+        ArenaClear(&column->pathArena);
+        *column = (Prog_MillerColumn){ .pathArena = column->pathArena, .hidden = state->showHidden };
+        column->path = StrCopy(&column->pathArena, path);
+    }
+    b32 back = column->usedFrame + 1 < UI->frameIndex;
+    column->usedFrame = UI->frameIndex;
+    if (back) column->revealed = false;
+    if (!column->job && (!column->listed || (back && now - Min(column->listedAt, now) > UINT64_C(2000000)))) {
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_FilesList;
+        input->panel = Prog__PanelId(state);
+        input->miller = true;
+        input->path = StrCopy(&job->arena, path);
+        input->showHidden = state->showHidden;
+        input->showSystem = state->showSystem;
+        job->input = input;
+        column->job = job;
+        P_JobSubmit(job);
+    }
+    return column;
+}
+
 function void Prog__ReleaseCurrentPanel(Prog_State *state)
 {
+    for (u32 i = 0; i < Prog_MillerSlots; ++i) {
+        Prog_MillerColumn *column = &state->millerColumns.v[i];
+        if (column->job) P_RequestCancel(&column->job->cancelToken);
+        ArenaRelease(&column->arena);
+        ArenaRelease(&column->pathArena);
+    }
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
     if (state->measureJob) P_RequestCancel(&state->measureJob->cancelToken);
     P_DirectoryWatchStop(&state->watch);
@@ -3412,6 +3456,7 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
         if (numbers[p] == UINT32_MAX) continue;
         Prog__UsePanel(state, p);
         StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", numbers[p], state->zoom, state->activeTab));
+        if (state->miller) StrBuildStr(arena, &text, StrFormat(arena, "miller %u 1\n", numbers[p]));
         StrBuildStr(arena, &text, StrFormat(arena, "order %u %u %u %u\n", numbers[p], (u32)state->sort, state->descending ? 1u : 0u, (u32)state->folderSort));
         StrBuildStr(arena, &text, StrFormat(arena, "columns %u %S\n", numbers[p], Prog_ColumnsText(arena, state->columnSet)));
         // Its inspector's, from the inspector's panel while it is open.
@@ -3450,7 +3495,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     Prog_Split splits[Prog_MaxSplits] = {0};
     u32 splitPanel[Prog_MaxSplits] = {0};
     typedef struct { b32 sticky, expanded, hideFolders, hideFiles; String text; } Filter;
-    struct { u32 zoom, activeTab, tabCount; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
+    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
     u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0, sidebarWidth = 0;
     b32 valid = false;
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
@@ -3484,6 +3529,8 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             }
         } else if (StrIsEqual(word, S("columns"))) {
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount) Prog_ParseColumns(rest, &panels[a].view.columns);
+        } else if (StrIsEqual(word, S("miller"))) {
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b)) panels[a].miller = b != 0;
         } else if (StrIsEqual(word, S("inspector"))) {
             u64 g = 0;
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) &&
@@ -3532,6 +3579,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             Prog__ActivatePanel(state, p);
             Prog__EnsureTab(state);
             state->zoom = panels[p].zoom;
+            state->miller = panels[p].miller;
             state->sort = panels[p].view.sort;
             state->descending = panels[p].view.descending;
             state->folderSort = panels[p].view.folders;
@@ -3969,7 +4017,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
         b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview ||
-                         input->kind == Prog_JobKind_FilesList;
+                         (input->kind == Prog_JobKind_FilesList && !input->miller);
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             Prog__ReleaseJob(job);
@@ -4187,6 +4235,22 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Reveal) {
             if (job->result && input->generation == state->generation) Prog_ShowInFolder(state, *(String *)job->result, input->inTab);
             changed = true;
+        } else if (input->kind == Prog_JobKind_FilesList && input->miller) {
+            for (u32 i = 0; i < Prog_MillerSlots; ++i) {
+                Prog_MillerColumn *column = &state->millerColumns.v[i];
+                if (column->job != job) continue;
+                column->job = NULL;
+                if (!job->result || P_IsCancelled(&job->cancelToken)) continue;
+                ArenaRelease(&column->arena);
+                column->arena = job->arena;
+                job->arena = (Arena){0};
+                const Prog_FilesListed *listed = job->result;
+                column->items = listed->items;
+                column->count = listed->count;
+                column->listed = true;
+                column->listedAt = PlatformNowMicroseconds();
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_FilesList) {
             if (state->filesJob == job) state->filesJob = NULL;
             if (job->result && state->filesOpen && StrIsEqual(input->path, state->filesFolder) && !P_IsCancelled(&job->cancelToken)) {

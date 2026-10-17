@@ -1446,6 +1446,16 @@ command ViewXLIcons {
     hotkey  = "Ctrl+Shift+6"
 }
 
+command ToggleMillerColumns {
+    label   = "Toggle Miller Columns^view,layout,columns,finder,parents,hierarchy"
+    tooltip = "Toggle columns of the parent folders on the left and of the focused folder's contents on the right."
+    hotkey  = "Ctrl+Shift+7"
+}
+
+// A Miller column's row pressed; carries the row, the column's slot as its target and the press count.
+command MillerSelect {
+}
+
 command SortByName {
     label   = "Sort By Name^order"
     tooltip = "Sort folder contents by name, treating neighbor digits as numbers."

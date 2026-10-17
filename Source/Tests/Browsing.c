@@ -2319,8 +2319,10 @@ function void TestPanels(TestFileFixture *fixture)
         state.hideFiles = true;
         // And the sidebar's width, dragged past its widest, which it is held to.
         Prog_QueueCommand(&state, Prog_CommandKind_ResizeSidebar, 0, 0, 0)->target = 900000;
+        // And its Miller columns.
+        Prog_QueueCommand(&state, Prog_CommandKind_ToggleMillerColumns, 0, 0, 0);
         Prog_ProcessCommands(&state);
-        Check(state.sidebarWidth == Prog_SidebarMax);
+        Check(state.sidebarWidth == Prog_SidebarMax && state.miller);
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
@@ -2331,8 +2333,10 @@ function void TestPanels(TestFileFixture *fixture)
         Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
         Check(StrIsEqual(Prog_EditText(&restored.filter), S("al pha")) && restored.hideFiles && !restored.filterSticky);
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
+        Check(restored.miller);
         Prog_Release(&restored);
         ArenaRelease(&sessionArena);
+        state.miller = false;
     }
     // Moving a panel's only tab away closes that panel.
     Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Strip, .panel = right, .slot = 0, .fromPanel = alone, .fromSlot = 0 });

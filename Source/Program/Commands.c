@@ -650,7 +650,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
-    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_FolderViewToggle,
+    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_FolderViewToggle,
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
@@ -1207,6 +1207,8 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ViewMediumIcons, .checked = zoom >= Prog_ZoomIcons && zoom < Prog_ZoomLarge);
             Prog__Item(.kind = Prog_CommandKind_ViewLargeIcons, .checked = zoom >= Prog_ZoomLarge && zoom < Prog_ZoomMax);
             Prog__Item(.kind = Prog_CommandKind_ViewXLIcons, .checked = zoom >= Prog_ZoomMax);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_ToggleMillerColumns, .checked = state->miller);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ZoomIn);
             Prog__Item(.kind = Prog_CommandKind_ZoomOut);
@@ -1881,6 +1883,28 @@ function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *
 }
 
 // Filey's own file commands; Windows context menus run the shell's versions instead.
+// A press on row `row` of Miller column `slot` goes to that column's folder with the item selected, as a press on it there would; a double
+// press opens the item.
+function void Prog__MillerSelect(Prog_State *state, u32 slot, u64 row, b32 open)
+{
+    if (slot >= Prog_MillerSlots || row >= state->millerColumns.v[slot].count || state->renaming) return;
+    const Prog_MillerColumn *column = &state->millerColumns.v[slot];
+    const Prog_Entry *entry = &column->items[row];
+    String path = Prog_JoinPath(&state->frameArena, column->path, entry->file.name), name = StrCopy(&state->frameArena, entry->file.name);
+    String folder = StrCopy(&state->frameArena, column->path), archive = {0}, inner = {0};
+    b32 opensAsFolder = entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(name) && !Prog_ArchiveSplit(folder, &archive, &inner));
+    if (open && opensAsFolder) {
+        Prog_RequestDirectory(state, path, true, 0);
+    } else if (open) {
+        Prog__AddRecent(state, path, true, entry->file.hidden);
+        Prog_OpenFile(state, path);
+    } else if (name.length <= sizeof(state->selectText)) {
+        MemCopy(state->selectText, name.value, name.length);
+        state->selectLength = (u32)name.length;
+        Prog_RequestDirectory(state, folder, true, 0);
+    }
+}
+
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
 {
     if (state->loading || state->renaming) return;
@@ -2544,6 +2568,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewMediumIcons: state->zoom = Prog_ZoomIcons; state->revealFocus = true; break;
             case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomLarge; state->revealFocus = true; break;
             case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomMax; state->revealFocus = true; break;
+            case Prog_CommandKind_ToggleMillerColumns: state->miller = !state->miller; state->revealFocus = true; break;
+            case Prog_CommandKind_MillerSelect: Prog__MillerSelect(state, (u32)command->target, command->row, command->pressCount >= 2); break;
             case Prog_CommandKind_DeselectAll: {
                 for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = false;
                 state->selectedCount = 0;
@@ -2581,6 +2607,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 static_assert(CArrayCount(moves) == Prog_CommandKind_ScrollScrollExtendSelectDown - Prog_CommandKind_ScrollSelectPrev + 1, "a move for each command");
                 u8 way = moves[command->kind - Prog_CommandKind_ScrollSelectPrev].way;
                 KeyMods how = moves[command->kind - Prog_CommandKind_ScrollSelectPrev].how;
+                // Miller columns go up to the parent with Left and into the focused folder with Right.
+                if (state->miller && !how && (way == Left || way == Right) && !state->loading) {
+                    if (way == Left) {
+                        String up = Prog_UpPath(state->directory.path);
+                        if (up.length) Prog__PassToDirectory(state, up);
+                    } else if (state->hasFocus && state->focusedRow < state->directory.count) {
+                        const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
+                        if (entry->file.kind == P_FileKind_Directory || Prog_PreviewsArchive(state, entry)) Prog_OpenRow(state, state->focusedRow);
+                    }
+                    break;
+                }
                 if (!state->loading && state->viewCount) {
                     // Moves through the rows the filter shows.
                     u64 row = state->hasFocus ? Prog_ViewPosition(state, state->focusedRow) : 0;

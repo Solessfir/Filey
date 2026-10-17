@@ -336,6 +336,7 @@ typedef struct Prog_JobInput {
     enum8(Prog_FolderSort) folderSort;
     b32 showHidden;
     b32 showSystem;
+    b32 miller;            // FilesList: for a Miller column of `panel`, rather than the folder dropdown
     b32 expanded;
     Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
@@ -705,6 +706,26 @@ typedef struct Prog_FilesListed {
     u64 count;
 } Prog_FilesListed;
 
+// A folder a Miller column lists beside the panel's own list: one of the shown folder's parents, or the folder the focus is on.
+typedef struct Prog_MillerColumn {
+    Arena arena;        // its items', the job's taken over
+    Arena pathArena;
+    String path;
+    P_Job *job;         // its listing on its way
+    Prog_Entry *items;
+    u64 count;
+    b32 listed;
+    b32 revealed;       // its lit row was scrolled into sight since it came into view
+    b32 hidden;         // it was listed with hidden items shown
+    u64 listedAt;       // when its listing arrived; one shown again after a while is listed again
+    u64 usedFrame;      // the frame it was last shown in; the one unused longest is listed over
+} Prog_MillerColumn;
+
+#define Prog_MillerSlots 8
+typedef struct Prog_MillerColumns {
+    Prog_MillerColumn v[Prog_MillerSlots];
+} Prog_MillerColumns;
+
 // Sidebar sections, in display order.
 typedef enum Prog_Group {
     Prog_Group_Recents,
@@ -842,6 +863,7 @@ typedef struct Prog_Tab {
 //   columnSet: the details columns, see Prog_PanelColumns; listScrolls: its items ran past the bottom in the last layout
 //   inspectorView: how its inspector lists folders, kept while the inspector's panel is closed
 //   ownView, ownSettings: while a folder's kept view applies, the panel's own, which the next folder without one gets back
+//   miller, millerColumns: Miller columns are on, and the folders they list
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -852,7 +874,8 @@ typedef struct Prog_Tab {
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(Prog_ColumnSet, columnSet) X(b32, listScrolls) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView) \
-    X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime)
+    X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
+    X(b32, miller) X(Prog_MillerColumns, millerColumns)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {

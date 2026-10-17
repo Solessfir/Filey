@@ -2,7 +2,6 @@
 
 ## Next
 
-- Miller columns, when asked.
 - LayoutsSave/Load (custom layouts for Load On Startup), then ExplorerOpen.
 - Font pickers, with the system's font families listed on both platforms.
 
@@ -40,7 +39,6 @@ Shipped there, missing here:
 
 Planned there, worth doing here first:
 
-- Miller columns: each opened folder adds a column to the right. Decided: its own view toggle (a command with a hotkey, saved per panel), outside the zoom ladder, so Ctrl+wheel steps the other views as now; the column right of the shown folder lists the focused folder's contents and stays empty for a file, whose preview stays in the inspector.
 - Multiline names in the icon views, and larger thumbnails that use the grid's room.
 - Command-line arguments beyond folders (open in a new tab of the running window).
 - Virtual folders (Recycle Bin, Control Panel and other shell namespaces) listed like real ones, and MTP devices (phones, cameras) on both platforms.
@@ -51,6 +49,7 @@ Planned there, worth doing here first:
 
 ## Filey's own
 
+- Miller columns: Ctrl+Shift+7 (Toggle Miller Columns, also in the view menu) turns them on per panel, kept in the session. The shown folder's parents stand left of its list, as many as fit at 240 px a column, each with the folder on the way lit, and the focused folder's items right of it, empty for a file; a press in a side column goes to its folder with the item selected, a double press opens it, and Left and Right go up and into folders. Still to do: the side columns have no context menu, drags or rename, they list again only when they come back into view rather than following a watch, and the middle column shows names only.
 - Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, file states in the list, and better text and styling for what the path bar shows, which looks rough now.
 - 3D model previews: the inspector draws OBJ, STL, PLY, glTF/GLB and binary FBX from a fixed view, flat-shaded and without textures; `.blend` files show the preview Blender embeds, through the system's thumbnailer where Blender is installed. Still to do: an orbit view, the same pictures as thumbnails in the icon views, text FBX, and Collada, 3DS, USD and 3MF.
 - Linux install and uninstall through a standalone `.sh` script, like https://github.com/Solessfir/razer-laptop-control's `install.sh`, documented in a README. `./Build.sh install` covers installing only, and the repository has no README yet.

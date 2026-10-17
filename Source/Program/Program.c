@@ -2944,7 +2944,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     if (state->resetScroll) { list->scrollOffset = list->scrollShown = (UI_Vec2){0}; state->resetScroll = false; }
 
     // The grid: one item per line in Details and List, and as many cells as fit across in Columns and the icon views, stretched to fill the line.
-    Prog_View view = Prog_ZoomView(state->zoom);
+    // Miller columns list the panel's folder by name.
+    Prog_View view = state->miller ? Prog_View_List : Prog_ZoomView(state->zoom);
     f32 width = MaxF32(1, list->rect.x1 - list->rect.x0), inner = MaxF32(1, width - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
     u64 perLine = 1;
     UI_Vec2 pitch = { width, m->row };
@@ -7264,6 +7265,107 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     }
 }
 
+// A Miller column: the items of `column`'s folder by name, with `lit`, the one on the way to the panel's folder, marked as selected.
+function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column, String lit, f32 width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    u32 slot = (u32)(column - state->millerColumns.v);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, floorf(4.8f * m->scale + 0.5f), m->inset, 0 });
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "Miller/%S", column->path)), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
+    if (!column->listed) {
+        UI_Parent(list) Prog__Label(S("Loading..."), UI_Flex(), m->row, m->gap, theme->textDim, 0);
+        return;
+    }
+    u64 litRow = UINT64_MAX;
+    for (u64 i = 0; lit.length && i < column->count && litRow == UINT64_MAX; ++i) if (StrIsEqual(column->items[i].file.name, lit)) litRow = i;
+    f32 pitch = m->row, height = MaxF32(0, list->rect.y1 - list->rect.y0);
+    // The lit row is brought into sight the first time the column has room to show it.
+    if (!column->revealed && height > 0) {
+        if (litRow != UINT64_MAX && (f32)(litRow + 1) * pitch > height) list->scrollOffset.y = list->scrollShown.y = MaxF32(0, (f32)litRow * pitch + pitch * 0.5f - height * 0.5f);
+        column->revealed = true;
+    }
+    // Only the rows near the view get blocks.
+    u64 first = (u64)(MaxF32(0, MinF32(list->scrollOffset.y, list->scrollShown.y)) / pitch), end = column->count;
+    first = first > 2 ? first - 2 : 0;
+    end = Min(end, first + (u64)((height + fabsf(list->scrollOffset.y - list->scrollShown.y)) / pitch) + 6);
+    UI_Parent(list) {
+        if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch));
+        for (u64 row = Min(first, column->count); row < end; ++row) {
+            const Prog_Entry *entry = &column->items[row];
+            UI_Key key = UI_KeyFromStr(list->key, entry->file.name);
+            b32 hot = UI->hotKey == key, folder = entry->file.kind == P_FileKind_Directory;
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(pitch));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_Block *line = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable);
+            UI_Interaction press = UI_InteractionFromBlock(line);
+            if (press.pressed && press.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_MillerSelect, row, press.pressCount, press.pressOrder)->target = slot;
+            UI_Parent(line) {
+                Prog__ItemBox(Prog__ItemLook(row == litRow, hot, false), UI_Percent(1), m);
+                const Prog_Icon *icon = Prog_PathIcon(state, Prog_JoinPath(frame, column->path, entry->file.name), entry->file.kind);
+                f32 size = (f32)state->iconSize;
+                if (icon) {
+                    UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));
+                    UI_SetNextPrefHeight(UI_Pixels(pitch));
+                    UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
+                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, entry->file.hidden ? 0.35f : 1 });
+                    UI_AddBlock(UI_Flag_DrawImage);
+                } else {
+                    Prog__Icon(folder ? Icon_Folder : Icon_File, m->iconSlot - m->gap, pitch, theme->icon, 1, m);
+                }
+                Prog__Label(entry->file.name, UI_Flex(), pitch, m->gap, entry->file.hidden ? theme->textDim : theme->text, 0);
+                // A folder goes on into another column.
+                if (folder) Prog__Icon(Icon_ChevronRight, m->iconSlot - m->gap, pitch, theme->iconDisabled, 0.5f, m);
+            }
+        }
+        if (end < column->count) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(column->count - end) * pitch));
+    }
+}
+
+// Miller columns: the shown folder's parents left of its list and the focused folder's items right of it, as many as fit at a column's
+// width, which they share. The focus on a file leaves the right column empty, as its preview is the inspector's.
+function void Prog__MillerView(Prog_State *state, f32 width, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    u32 fit = (u32)MaxF32(1, floorf(width / floorf(240.0f * m->scale + 0.5f)));
+    String parents[Prog_MillerSlots] = {0};
+    u32 parentCount = 0;
+    for (String at = state->directory.path; fit >= 3 && parentCount < Min(fit - 2, (u32)Prog_MillerSlots - 2);) {
+        String up = Prog_UpPath(at);
+        if (!up.length || StrIsEqual(up, at) || StrIsEqual(up, Prog_ThisPC)) break;
+        parents[parentCount++] = up;
+        at = up;
+    }
+    String next = {0};
+    if (fit >= 2 && !state->loading && state->hasFocus && state->focusedRow < state->directory.count) {
+        const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
+        if (entry->file.kind == P_FileKind_Directory || Prog_PreviewsArchive(state, entry)) next = Prog_JoinPath(frame, state->directory.path, entry->file.name);
+    }
+    u32 count = parentCount + 1 + (fit >= 2 ? 1 : 0);
+    f32 share = floorf((width - (f32)(count - 1) * m->separator) / (f32)count), own = width - (f32)(count - 1) * (share + m->separator);
+    for (u32 i = parentCount; i-- > 0;) {
+        String below = i ? parents[i - 1] : state->directory.path;
+        Prog__MillerColumnUI(state, Prog_MillerList(state, parents[i]), Prog__FolderName(below), share, m);
+        Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
+    }
+    UI_Block *middle = Prog__Box(UI_Pixels(own), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+    UI_Parent(middle) {
+        Prog_Columns columns = Prog__Columns(state, m->scale, own - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
+        Prog__List(state, &columns, m);
+    }
+    if (fit < 2) return;
+    Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
+    if (next.length) Prog__MillerColumnUI(state, Prog_MillerList(state, next), (String){0}, share, m);
+    else Prog__Box(UI_Pixels(share), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+}
+
 // The key seed of panel `id`'s blocks; a nonzero parent keeps it from depending on the seed in use.
 function UI_Key Prog_PanelKeySeed(u64 id)
 {
@@ -7333,13 +7435,17 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
             UI_Block *listSide = Prog__Box(below ? UI_Flex() : UI_Pixels(listWidth), below ? UI_Pixels(mainHeight - previewHeight) : UI_Flex(), UI_Layout_Vertical, theme->background, 0);
             UI_Parent(listSide) {
                 Prog__Toolbar(state, m);
-                UI_Block *listColumn = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Vertical, theme->background, 0);
+                UI_Block *listColumn = Prog__Box(UI_Flex(), UI_Flex(), state->miller ? UI_Layout_Horizontal : UI_Layout_Vertical, theme->background, 0);
                 UI_Parent(listColumn) {
-                    if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
-                        Prog__Header(state, &columns, m);
-                        Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
+                    if (state->miller) {
+                        Prog__MillerView(state, below ? width : listWidth, m);
+                    } else {
+                        if (Prog_ZoomView(state->zoom) == Prog_View_Details) {
+                            Prog__Header(state, &columns, m);
+                            Prog__Box(UI_Flex(), UI_Pixels(floorf(4.8f * scale + 0.5f)), UI_Layout_Horizontal, theme->background, 0);
+                        }
+                        Prog__List(state, &columns, m);
                     }
-                    Prog__List(state, &columns, m);
                 }
                 if (shown > 0.01f) {
                     UI_SetNextPrefWidth(UI_Flex());
