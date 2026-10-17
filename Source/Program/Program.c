@@ -2926,7 +2926,15 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, f32 opacit
         UI_SetNextCornerRadius(floorf(thick * 0.5f));
         UI_SetNextOpacity(opacity);
         UI_SetNextColors((UI_Colors){ .background = theme->track });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        UI_Block *bar = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(UI->frameArena, "%S/ScrollThumb", name)), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
+        // Dragged, the thumb follows the pointer from where it was taken, and the view scrolls with it at once.
+        local_persist f32 grab;
+        UI_Interaction drag = UI_InteractionFromBlock(bar);
+        if (drag.pressed) grab = UI->mouse.y - (view->rect.y0 + head + at);
+        if (drag.active && track > thumb) {
+            f32 share = MinF32(MaxF32((UI->mouse.y - grab - view->rect.y0 - head) / (track - thumb), 0), 1);
+            view->scrollOffset.y = view->scrollShown.y = floorf(share * (content - viewHeight) + 0.5f);
+        }
         f32 size = floorf(16.0f * s + 0.5f);
         for (u32 down = 0; down < 2; ++down) {
             b32 end = down ? view->scrollOffset.y >= content - viewHeight - 0.5f : view->scrollOffset.y <= 0.5f;
