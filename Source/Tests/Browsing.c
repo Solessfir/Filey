@@ -818,13 +818,13 @@ function void TestFileIcons(TestFileFixture *fixture)
         String out = {0}, name = S("a.txt"), contents = {0};
         Check(!P_CreateItem(&arena, fixture->path, S("Out"), true, &out).code);
         out = Prog_JoinPath(&arena, fixture->path, S("Out"));
-        Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, out, NULL).code);
+        Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, out, NULL, NULL).code);
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, out, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
         String copy = Prog_ArchiveCopy(&arena, Prog_JoinPath(&arena, folder, S("a.txt")), NULL);
         Check(copy.length && P_ReadFile(&arena, copy, &contents) && StrIsEqual(contents, S("hi")));
         String note = Prog_JoinPath(&arena, out, S("note.txt"));
         Check(!P_WriteFile(&arena, note, S("new")).code);
-        Check(!P_AddToArchive(&arena, archive, S("docs"), &note, 1, NULL).code);
+        Check(!P_AddToArchive(&arena, archive, S("docs"), &note, 1, NULL, NULL).code);
         docs = P_EnumerateArchive(&arena, archive, S("docs"), NULL);
         Check(docs.files.header.count == 2 && P_EnumerateArchive(&arena, archive, (String){0}, NULL).files.header.count == 1);
         // The program lists the folder from the archive, and a transfer out of it takes the file out.
@@ -834,16 +834,25 @@ function void TestFileIcons(TestFileFixture *fixture)
         Prog_Release(&listed);
         // A name the system's code page has no letters for goes in as it is.
         String unicode = Prog_JoinPath(&arena, out, S("ünï 日本.txt"));
-        Check(!P_WriteFile(&arena, unicode, S("u")).code && !P_AddToArchive(&arena, archive, (String){0}, &unicode, 1, NULL).code);
+        Check(!P_WriteFile(&arena, unicode, S("u")).code && !P_AddToArchive(&arena, archive, (String){0}, &unicode, 1, NULL, NULL).code);
         top = P_EnumerateArchive(&arena, archive, (String){0}, NULL);
         Check(top.files.header.count == 2 && (StrIsEqual(top.files.v[0].name, S("ünï 日本.txt")) || StrIsEqual(top.files.v[1].name, S("ünï 日本.txt"))));
+        // An add counts its progress, and a cancelled one leaves the archive as it was, with nothing beside it.
+        P_Progress counted = {0};
+        String more = Prog_JoinPath(&arena, out, S("more.txt"));
+        Check(!P_WriteFile(&arena, more, S("more")).code && !P_AddToArchive(&arena, archive, (String){0}, &more, 1, &counted, NULL).code);
+        Check(atomic_load(&counted.doneItems) == 1 && atomic_load(&counted.totalBytes) > 4 && atomic_load(&counted.doneBytes) >= 4);
+        P_CancelToken stop = {0};
+        P_RequestCancel(&stop);
+        Check(P_AddToArchive(&arena, archive, (String){0}, &note, 1, NULL, &stop).code && P_EnumerateArchive(&arena, archive, (String){0}, NULL).files.header.count == 3);
+        Check(!P_PathExists(Prog_JoinPath(&arena, fixture->path, S(".pack.zip.part"))));
         String moved = {0}, from = Prog_JoinPath(&arena, folder, S("note.txt"));
         Check(!P_CreateItem(&arena, fixture->path, S("Out2"), true, &moved).code);
         Prog_JobInput transfer = { .kind = Prog_JobKind_Transfer, .paths = &from, .pathCount = 1, .path = Prog_JoinPath(&arena, fixture->path, S("Out2")) };
         ArrayStr placed = {0};
         Check(!Prog__Transfer(&arena, &transfer, &placed, NULL).code);
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, transfer.path, S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
-        Check(P__TestRemovePath(fixture, S("Out/a.txt"), false) && P__TestRemovePath(fixture, S("Out/note.txt"), false) && P__TestRemovePath(fixture, S("Out/ünï 日本.txt"), false) &&
+        Check(P__TestRemovePath(fixture, S("Out/a.txt"), false) && P__TestRemovePath(fixture, S("Out/note.txt"), false) && P__TestRemovePath(fixture, S("Out/ünï 日本.txt"), false) && P__TestRemovePath(fixture, S("Out/more.txt"), false) &&
               P__TestRemovePath(fixture, S("Out"), true));
         Check(P__TestRemovePath(fixture, S("Out2/note.txt"), false) && P__TestRemovePath(fixture, S("Out2"), true));
         // A tar.gz rewritten to add a file stays a gzipped tar, as tar itself reads it back.
@@ -852,7 +861,7 @@ function void TestFileIcons(TestFileFixture *fixture)
         Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fixture->path, S("inside-tar.txt")), S("t")).code);
         Check(P_RunCommand(&arena, fixture->path, make, CArrayCount(make), 10000, &output));
         String added = Prog_JoinPath(&arena, fixture->path, S("pixel.png"));
-        Check(!P_AddToArchive(&arena, tarred, (String){0}, &added, 1, NULL).code);
+        Check(!P_AddToArchive(&arena, tarred, (String){0}, &added, 1, NULL, NULL).code);
         const String list[] = { S("tar"), S("-tzf"), S("box.tar.gz") };
         Check(P_RunCommand(&arena, fixture->path, list, CArrayCount(list), 10000, &output) && StrIndexStr(output, S("inside-tar.txt"), SSF_None).exists &&
               StrIndexStr(output, S("pixel.png"), SSF_None).exists);
@@ -862,7 +871,7 @@ function void TestFileIcons(TestFileFixture *fixture)
         String sevened = Prog_JoinPath(&arena, fixture->path, S("box.7z"));
         const String pack[] = { S("tar"), S("-a"), S("-cf"), S("box.7z"), S("inside-tar.txt") };
         Check(P_RunCommand(&arena, fixture->path, pack, CArrayCount(pack), 10000, &output));
-        Check(!P_AddToArchive(&arena, sevened, (String){0}, &added, 1, NULL).code && P_EnumerateArchive(&arena, sevened, (String){0}, NULL).files.header.count == 2);
+        Check(!P_AddToArchive(&arena, sevened, (String){0}, &added, 1, NULL, NULL).code && P_EnumerateArchive(&arena, sevened, (String){0}, NULL).files.header.count == 2);
         Check(P__TestRemovePath(fixture, S("box.7z"), false));
 #endif
         Check(P__TestRemovePath(fixture, S("box.tar.gz"), false) && P__TestRemovePath(fixture, S("inside-tar.txt"), false));

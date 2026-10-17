@@ -6049,7 +6049,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         b32 asking = transfer->job && atomic_load(&progress->asking), paused = atomic_load(&progress->paused);
         u64 items = atomic_load(&progress->totalItems), doneItems = atomic_load(&progress->doneItems);
         u64 bytes = atomic_load(&progress->totalBytes), doneBytes = atomic_load(&progress->doneBytes);
-        // Windows shows its own progress, so its transfers leave the counts at zero and never show here.
+        // Windows shows its own progress for copies outside archives, which leave the counts at zero and never show here.
         if (!transfer->job || !items || (!asking && now - transfer->started < UINT64_C(400000))) continue;
         String target = StrMake((const char *)transfer->target, transfer->targetLength);
         f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0);

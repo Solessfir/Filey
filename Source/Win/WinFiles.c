@@ -63,8 +63,8 @@ enum { P__ArchiveCancelled = ERROR_CANCELLED, P__ArchiveUnsupported = ERROR_NOT_
 
 #include "Platform/PlatformArchive.c"
 
-// Writes the item at `path` on disk into `writer` as `name`, a folder with all it holds; linked folders are left out, as they can lead in circles.
-function u32 P__ArchiveWritePath(void *writer, String path, String name, const P_CancelToken *cancel)
+// Linked folders are left out, as they can lead in circles.
+function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progress *progress, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
     if (P_IsCancelled(cancel)) return ERROR_CANCELLED;
@@ -75,40 +75,113 @@ function u32 P__ArchiveWritePath(void *writer, String path, String name, const P
     WIN32_FILE_ATTRIBUTE_DATA info = {0};
     u32 error = native && GetFileAttributesExW(native, GetFileExInfoStandard, &info) ? 0 : GetLastError();
     b32 folder = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    u64 bytes = ((u64)info.nFileSizeHigh << 32) | info.nFileSizeLow;
+    if (!error && !folder && !writer) atomic_fetch_add(&progress->totalBytes, bytes);
     if (!error && !(folder && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))) {
-        HANDLE file = folder ? INVALID_HANDLE_VALUE : CreateFileW(native, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
-                                                               FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-        if (!folder && file == INVALID_HANDLE_VALUE) error = GetLastError();
-        if (!error) {
+        HANDLE file = folder || !writer ? INVALID_HANDLE_VALUE : CreateFileW(native, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                                                                          FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+        if (!folder && writer && file == INVALID_HANDLE_VALUE) error = GetLastError();
+        if (!error && writer) {
             u64 ticks = ((u64)info.ftLastWriteTime.dwHighDateTime << 32) | info.ftLastWriteTime.dwLowDateTime;
             void *entry = a->entryNew();
             a->entrySetPath(entry, inside);
             a->entrySetFiletype(entry, folder ? 0040000 : 0100000);
             a->entrySetPerm(entry, folder ? 0755 : 0644);
-            a->entrySetSize(entry, folder ? 0 : (i64)(((u64)info.nFileSizeHigh << 32) | info.nFileSizeLow));
+            a->entrySetSize(entry, folder ? 0 : (i64)bytes);
             a->entrySetMtime(entry, (i64)(ticks / 10000000) - INT64_C(11644473600), (i64)(ticks % 10000000) * 100);
             if (a->writeHeader(writer, entry) < P__ArchiveWarn) error = ERROR_WRITE_FAULT;
             a->entryFree(entry);
         }
         if (file != INVALID_HANDLE_VALUE) {
+            P__ProgressName(progress, StrFrom(name, StrIndexChar(name, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
             u8 *buffer = ArenaPushArrayNoZero(scratch.arena, 65536, u8);
             for (DWORD got = 0; !error;) {
                 if (!ReadFile(file, buffer, 65536, &got, NULL)) error = GetLastError();
                 else if (!got) break;
                 else if (a->writeData(writer, buffer, got) != (i64)got) error = ERROR_WRITE_FAULT;
+                atomic_fetch_add(&progress->doneBytes, (u64)got);
+                if (!error && !P__Proceed(progress, cancel)) error = ERROR_CANCELLED;
             }
             CloseHandle(file);
-        } else if (!error) {
+        } else if (!error && folder) {
             P_DirectoryResult children = P_EnumerateDirectory(scratch.arena, path, cancel);
             error = children.cancelled ? ERROR_CANCELLED : children.errorCode;
             for (u64 i = 0; i < children.files.header.count && !error; ++i) {
                 String child = children.files.v[i].name;
-                error = P__ArchiveWritePath(writer, StrFormat(scratch.arena, "%S/%S", path, child), StrFormat(scratch.arena, "%S/%S", name, child), cancel);
+                error = P__ArchiveWritePath(writer, StrFormat(scratch.arena, "%S/%S", path, child), StrFormat(scratch.arena, "%S/%S", name, child), progress, cancel);
             }
         }
     }
     ReleaseScratch(scratch);
     return error;
+}
+
+// Each folder up to `path` is made in turn where it is missing; the last one tells whether all are there.
+function u32 P__ArchiveMakeFolders(String path)
+{
+    Scratch scratch = GetScratch();
+    u32 error = 0;
+    for (u64 at = 1; at <= path.length; ++at) {
+        if (at < path.length && path.value[at] != '/') continue;
+        wchar *wide = P__FilePathWide(scratch.arena, StrFromTo(path, 0, (i64)at));
+        error = !wide ? ERROR_INVALID_NAME : CreateDirectoryW(wide, NULL) || GetLastError() == ERROR_ALREADY_EXISTS ? 0 : GetLastError();
+    }
+    ReleaseScratch(scratch);
+    return error;
+}
+
+// Written beside its place and moved there once complete, so that a file cut short never takes the name.
+function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel)
+{
+    P__Archive *a = &P__archive;
+    Scratch scratch = GetScratch();
+    String part = StrFormat(scratch.arena, "%S.part", path);
+    Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+    u32 error = slash.exists && slash.value ? P__ArchiveMakeFolders(StrFromTo(path, 0, (i64)slash.value)) : 0;
+    wchar *wide = P__FilePathWide(scratch.arena, part);
+    HANDLE file = !error && wide ? CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL) : INVALID_HANDLE_VALUE;
+    if (!error && file == INVALID_HANDLE_VALUE) error = wide ? GetLastError() : ERROR_INVALID_NAME;
+    const void *block = NULL;
+    u64 size = 0;
+    i64 offset = 0;
+    i32 status = 0;
+    while (file != INVALID_HANDLE_VALUE && !error && (status = a->readBlock(reader, &block, &size, &offset)) == 0) {
+        // A sparse entry's blocks start past the end of what is written.
+        LARGE_INTEGER at = { .QuadPart = offset };
+        DWORD wrote = 0;
+        if (!SetFilePointerEx(file, at, NULL, FILE_BEGIN) || !WriteFile(file, block, (DWORD)size, &wrote, NULL) || wrote != size) error = GetLastError();
+        P__ArchiveAdvance(progress, reader, read);
+        if (!error && !P__Proceed(progress, cancel)) error = ERROR_CANCELLED;
+    }
+    if (!error && status < 0) error = ERROR_READ_FAULT;
+    if (file != INVALID_HANDLE_VALUE) {
+        u64 ticks = (u64)(modified + INT64_C(11644473600)) * 10000000;
+        FILETIME time = { (DWORD)ticks, (DWORD)(ticks >> 32) };
+        if (modified > 0) SetFileTime(file, NULL, NULL, &time);
+        CloseHandle(file);
+    }
+    if (!error) error = P_ReplaceFile(scratch.arena, part, path).code;
+    if (error && wide) DeleteFileW(wide);
+    ReleaseScratch(scratch);
+    return error;
+}
+
+function u64 P__ArchiveFileSize(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    WIN32_FILE_ATTRIBUTE_DATA info = {0};
+    u64 result = wide && GetFileAttributesExW(wide, GetFileExInfoStandard, &info) ? ((u64)info.nFileSizeHigh << 32) | info.nFileSizeLow : 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function void P__ArchiveRemove(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    if (wide) DeleteFileW(wide);
+    ReleaseScratch(scratch);
 }
 
 function String P_AbsolutePath(Arena *arena, String path)

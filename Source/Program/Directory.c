@@ -762,7 +762,7 @@ function String Prog_ArchiveCopy(Arena *arena, String path, const P_CancelToken 
     if (P_PathExists(copy)) return copy;
     String made = {0};
     if (!P_IsDirectory(into) && (P_CreateItem(arena, run, hex, true, &made).code || !StrIsEqual(made, hex))) return (String){0};
-    return !P_ExtractArchive(arena, archive, within, &name, 1, into, cancel).code && P_PathExists(copy) ? copy : (String){0};
+    return !P_ExtractArchive(arena, archive, within, &name, 1, into, NULL, cancel).code && P_PathExists(copy) ? copy : (String){0};
 }
 
 // Copies or moves as P_TransferItems does, and copies into and out of archives: out of one by taking the items out, into one by adding
@@ -779,19 +779,19 @@ function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, Ar
     for (u64 i = 0; i < input->pathCount; ++i) names[i] = Prog_EntryLeaf(input->paths[i]);
     P_FileError result = {0};
     if (!into) {
-        result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, input->path, cancel);
+        result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, input->path, input->progress, cancel);
     } else {
         const String *sources = input->paths;
         if (outOf) {
             String run = P_RunFolder(scratch.arena), made = {0};
             result = run.length ? P_CreateItem(scratch.arena, run, S("transfer"), true, &made) : (P_FileError){ .code = 1, .message = S("No temporary folder to take the items out into") };
             String through = Prog_JoinPath(scratch.arena, run, made);
-            if (!result.code) result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, through, cancel);
+            if (!result.code) result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, through, input->progress, cancel);
             String *taken = ArenaPushArray(scratch.arena, Max(input->pathCount, (u64)1), String);
             for (u64 i = 0; i < input->pathCount; ++i) taken[i] = Prog_JoinPath(scratch.arena, through, names[i]);
             sources = taken;
         }
-        if (!result.code) result = P_AddToArchive(arena, toArchive, toInner, sources, input->pathCount, cancel);
+        if (!result.code) result = P_AddToArchive(arena, toArchive, toInner, sources, input->pathCount, input->progress, cancel);
     }
     ReleaseScratch(scratch);
     return result;

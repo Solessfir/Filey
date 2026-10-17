@@ -1,8 +1,16 @@
 // libarchive, which reads and writes archives on both platforms: Linux loads the system's, Windows its own copy, archiveint.dll, which its
 // tar and Explorer use. It is loaded when first needed, so that it is not a build dependency. Each platform's files include this after giving
 // it what differs there: P__ArchiveSymbol, which loads the library, P__ArchiveNativePath with the names of the open functions that take such
-// paths, and the error codes P__ArchiveCancelled, P__ArchiveUnsupported and P__ArchiveFailed. They define P__ArchiveWritePath after it.
-function u32 P__ArchiveWritePath(void *writer, String path, String name, const P_CancelToken *cancel);
+// paths, and the error codes P__ArchiveCancelled, P__ArchiveUnsupported and P__ArchiveFailed. They define the file system's part after it.
+
+// Writes the item at `path` on disk into `writer` as `name`, a folder with all it holds; with no writer, only adds its size to the progress.
+function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progress *progress, const P_CancelToken *cancel);
+// Writes the data of `reader`'s entry to a new file at `path`, its folders made first, with the time `modified`; nothing is left of it when it
+// fails or is cancelled.
+function u32 P__ArchiveWriteFile(void *reader, String path, i64 modified, u64 *read, P_Progress *progress, const P_CancelToken *cancel);
+function u32 P__ArchiveMakeFolders(String path);
+function u64 P__ArchiveFileSize(String path);
+function void P__ArchiveRemove(String path);
 
 // Writing, which adds to archives, is loaded with the rest and only needed then.
 typedef struct P__Archive {
@@ -22,6 +30,7 @@ typedef struct P__Archive {
     const char *(*error)(void *);
     i32 (*format)(void *);
     i32 (*filterCode)(void *, i32);
+    i64 (*filterBytes)(void *, i32);
     void *(*writeNew)(void);
     i32 (*writeFormat)(void *, i32);
     i32 (*writeFilter)(void *, i32);
@@ -62,6 +71,7 @@ function b32 P__LoadArchive(void)
     *(void **)&a->error = P__ArchiveSymbol("archive_error_string");
     *(void **)&a->format = P__ArchiveSymbol("archive_format");
     *(void **)&a->filterCode = P__ArchiveSymbol("archive_filter_code");
+    *(void **)&a->filterBytes = P__ArchiveSymbol("archive_filter_bytes");
     *(void **)&a->writeNew = P__ArchiveSymbol("archive_write_new");
     *(void **)&a->writeFormat = P__ArchiveSymbol("archive_write_set_format");
     *(void **)&a->writeFilter = P__ArchiveSymbol("archive_write_add_filter");
@@ -80,10 +90,37 @@ function b32 P__LoadArchive(void)
     *(void **)&a->entrySetSize = P__ArchiveSymbol("archive_entry_set_size");
     *(void **)&a->entrySetMtime = P__ArchiveSymbol("archive_entry_set_mtime");
     a->loaded = a->readNew && a->supportFilterAll && a->supportFormatAll && a->openFilename && a->nextHeader && a->pathname && a->size && a->filetype && a->free &&
-                a->mtime && a->readBlock && a->error && a->format && a->filterCode;
+                a->mtime && a->readBlock && a->error && a->format && a->filterCode && a->filterBytes;
     a->writable = a->loaded && a->writeNew && a->writeFormat && a->writeFilter && a->writeOptions && a->writeOpen && a->writeHeader && a->writeData && a->writeClose && a->writeFree &&
                   a->entryNew && a->entryFree && a->entrySetPath && a->entryCopyStat && a->entrySetFiletype && a->entrySetPerm && a->entrySetSize && a->entrySetMtime;
     return a->loaded;
+}
+
+// Puts `name` up as the item being worked on, for the program to show.
+function void P__ProgressName(P_Progress *progress, String name)
+{
+    atomic_fetch_add(&progress->nameVersion, 1);
+    u64 length = 0;
+    for (; length < name.length && length + 1 < CArrayCount(progress->name); ++length) atomic_store_explicit(&progress->name[length], name.value[length], memory_order_relaxed);
+    atomic_store_explicit(&progress->name[length], 0, memory_order_relaxed);
+    atomic_fetch_add(&progress->nameVersion, 1);
+}
+
+// Waits while the program has the operation paused; false once it is cancelled.
+function b32 P__Proceed(P_Progress *progress, const P_CancelToken *cancel)
+{
+    while (atomic_load(&progress->paused) && !P_IsCancelled(cancel)) P_Sleep(50);
+    return !P_IsCancelled(cancel);
+}
+
+// Counts how far `reader` has moved on through its archive file since `*read`, UINT64_MAX before the first time, as done. A step back, as
+// from a 7z's index at its end to its data at the start, only moves the mark.
+function void P__ArchiveAdvance(P_Progress *progress, void *reader, u64 *read)
+{
+    i64 at = P__archive.filterBytes(reader, -1);
+    if (at < 0) return;
+    if (*read != UINT64_MAX && (u64)at > *read) atomic_fetch_add(&progress->doneBytes, (u64)at - *read);
+    *read = (u64)at;
 }
 
 // A reader of the archive at `path`, open, or NULL.
@@ -105,14 +142,26 @@ function void *P__ArchiveRead(String path)
     return reader;
 }
 
-// The next entry's path inside the archive, without "./" before it or '/' after a folder's, with whether it is a folder; false at the end.
-// ARCHIVE_OK is 0 and ARCHIVE_WARN -20, which still gives the entry.
+// libarchive's codes for the formats and filters it writes, and what an archive's name says it is when it has nothing in it to tell.
+enum { P__ArchiveTar = 0x30000, P__ArchiveZip = 0x50000, P__Archive7z = 0xE0000 };
+enum { P__FilterGzip = 1, P__FilterBzip2 = 2, P__FilterXz = 6, P__FilterZstd = 14 };
+
+// The next entry's path inside the archive, without "./" before it or '/' after a folder's, with whether it is a folder; false at the end
+// or once cancelled. ARCHIVE_OK is 0 and ARCHIVE_WARN -20, which still gives the entry.
 enum { P__ArchiveWarn = -20 };
-function b32 P__ArchiveNext(void *reader, void **entry, String *name, b32 *folder)
+function b32 P__ArchiveNext(void *reader, void **entry, String *name, b32 *folder, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
+    // What is left of the last entry is read through here where skipping it means unpacking it anyway, in a compressed stream or a 7z, so
+    // that a cancel need not wait for a large one; a zip or a plain tar skips it with a seek.
+    if (*entry && (a->filterCode(reader, 0) > 0 || (a->format(reader) & 0xFF0000) == P__Archive7z)) {
+        const void *block = NULL;
+        u64 size = 0;
+        i64 offset = 0;
+        while (!P_IsCancelled(cancel) && a->readBlock(reader, &block, &size, &offset) == 0) {}
+    }
     i32 status = 0;
-    while ((status = a->nextHeader(reader, entry)) == 0 || status == P__ArchiveWarn) {
+    while (!P_IsCancelled(cancel) && ((status = a->nextHeader(reader, entry)) == 0 || status == P__ArchiveWarn)) {
         const char *path = a->pathname(*entry);
         if (!path) continue;
         String inner = StrFromCStr(path);
@@ -126,9 +175,140 @@ function b32 P__ArchiveNext(void *reader, void **entry, String *name, b32 *folde
     return false;
 }
 
-// libarchive's codes for the formats and filters it writes, and what an archive's name says it is when it has nothing in it to tell.
-enum { P__ArchiveTar = 0x30000, P__ArchiveZip = 0x50000, P__Archive7z = 0xE0000 };
-enum { P__FilterGzip = 1, P__FilterBzip2 = 2, P__FilterXz = 6, P__FilterZstd = 14 };
+function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
+{
+    *files = (P_FileArray){0};
+    if (!P__LoadArchive()) return false;
+    P__Archive *a = &P__archive;
+    void *reader = P__ArchiveRead(path), *entry = NULL;
+    String inner = {0};
+    b32 folder = false;
+    while (reader && files->header.count < limit && P__ArchiveNext(reader, &entry, &inner, &folder, cancel)) {
+        ArrayPush(arena, *files, ((P_File){ .name = StrCopy(arena, inner), .size = folder ? 0 : (u64)Max(a->size(entry), (i64)0),
+                                             .kind = folder ? P_FileKind_Directory : P_FileKind_File }));
+    }
+    if (reader) a->free(reader);
+    return files->header.count != 0;
+}
+
+function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, String inner, const P_CancelToken *cancel)
+{
+    P_DirectoryResult result = {0};
+    P__Archive *a = &P__archive;
+    void *reader = P__LoadArchive() ? P__ArchiveRead(archive) : NULL, *entry = NULL;
+    if (!reader) {
+        P_FileError error = P__FileError(arena, P__archive.loaded ? P__ArchiveFailed : P__ArchiveUnsupported);
+        result.errorCode = error.code;
+        result.errorString = P__archive.loaded ? error.message : S("libarchive is not installed");
+        return result;
+    }
+    // The level's folders, met as entries of their own or only in the paths of what they hold, each listed once.
+    struct { MapHeader header; struct { String key; u64 value; } *v; } seen = {0};
+    String name = {0};
+    b32 folder = false;
+    while (P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
+        String rest = name;
+        if (inner.length) {
+            if (name.length <= inner.length + 1 || name.value[inner.length] != '/' || !StrIsEqual(StrFromTo(name, 0, (i64)inner.length), inner)) continue;
+            rest = StrFrom(name, inner.length + 1);
+        }
+        Index slash = StrIndexChar(rest, '/', SSF_None);
+        String child = slash.exists ? StrFromTo(rest, 0, (i64)slash.value) : rest;
+        b32 deeper = slash.exists, isFolder = deeper || folder;
+        u64 at = MapsGet(seen, u64, child);
+        if (!at) {
+            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            at = result.files.header.count;
+            MapsPut(arena, seen, result.files.v[at - 1].name, at);
+        }
+        if (!deeper) {
+            P_File *file = &result.files.v[at - 1];
+            file->size = isFolder ? 0 : (u64)Max(a->size(entry), (i64)0);
+            file->modifiedTimeUnix = a->mtime(entry);
+            file->metadataValid = true;
+            file->hidden = child.value[0] == '.';
+        }
+    }
+    result.cancelled = P_IsCancelled(cancel);
+    a->free(reader);
+    return result;
+}
+
+// `name` numbered for attempt `n`: the name itself, then "stem (2).ext" for files and "name (2)" for folders.
+function String P__NumberedString(Arena *arena, String name, b32 folder, u32 n)
+{
+    if (n == 1) return name;
+    Index dot = folder ? (Index){0} : StrIndexChar(name, '.', SSF_SearchBackwards);
+    String stem = dot.exists && dot.value ? StrFromTo(name, 0, (i64)dot.value) : name;
+    String extension = dot.exists && dot.value ? StrFrom(name, dot.value) : (String){0};
+    return StrFormat(arena, "%S (%u)%S", stem, n, extension);
+}
+
+// Whether a path from inside an archive stays below the folder it is taken out into: not absolute, not on a drive, and no ".." part, with
+// either slash between parts, as Windows takes both.
+function b32 P__ArchivePathSafe(String path)
+{
+    if (path.length && (path.value[0] == '/' || path.value[0] == '\\' || (path.length > 1 && path.value[1] == ':'))) return false;
+    for (u64 at = 0, start = 0; at <= path.length; ++at) {
+        if (at < path.length && path.value[at] != '/' && path.value[at] != '\\') continue;
+        if (at - start == 2 && path.value[start] == '.' && path.value[start + 1] == '.') return false;
+        start = at + 1;
+    }
+    return true;
+}
+
+// The progress counts the archive file read through, as the time it takes follows that more than the size of what is taken out.
+function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, P_Progress *progress,
+                                      const P_CancelToken *cancel)
+{
+    if (!P__LoadArchive()) return P__FileError(arena, P__ArchiveUnsupported);
+    P__Archive *a = &P__archive;
+    P_Progress none = {0};
+    if (!progress) progress = &none;
+    Scratch scratch = GetScratchEx(arena);
+    // Each item goes under its own name, or a numbered one where that is taken, as copies do.
+    String *placed = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+    for (u64 k = 0; k < count; ++k) {
+        for (u32 n = 1; n < 10000; ++n) {
+            placed[k] = P__NumberedString(scratch.arena, names[k], false, n);
+            if (!P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, placed[k]))) break;
+        }
+    }
+    atomic_fetch_add(&progress->totalItems, count);
+    atomic_fetch_add(&progress->totalBytes, P__ArchiveFileSize(archive));
+    void *reader = P__ArchiveRead(archive), *entry = NULL;
+    u32 error = reader ? 0 : P__ArchiveFailed;
+    u64 read = UINT64_MAX;
+    String name = {0};
+    b32 folder = false;
+    while (!error && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
+        P__ArchiveAdvance(progress, reader, &read);
+        if (!P__Proceed(progress, cancel)) break;
+        String rest = name;
+        if (inner.length) {
+            if (name.length <= inner.length + 1 || name.value[inner.length] != '/' || !StrIsEqual(StrFromTo(name, 0, (i64)inner.length), inner)) continue;
+            rest = StrFrom(name, inner.length + 1);
+        }
+        u64 k = 0;
+        for (; k < count; ++k) {
+            if (StrIsEqual(rest, names[k]) || (rest.length > names[k].length && rest.value[names[k].length] == '/' && StrIsEqual(StrFromTo(rest, 0, (i64)names[k].length), names[k]))) break;
+        }
+        // Links and devices are left out, and so is anything that would land outside the folder.
+        u32 type = a->filetype(entry) & 0170000;
+        if (k == count || !P__ArchivePathSafe(rest) || (type != 0100000 && type != 0040000)) continue;
+        ArenaMark mark = ArenaGetMark(scratch.arena);
+        String target = StrFormat(scratch.arena, "%S/%S%S", directory, placed[k], StrFrom(rest, names[k].length));
+        P__ProgressName(progress, StrFrom(rest, StrIndexChar(rest, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
+        if (type == 0040000) error = P__ArchiveMakeFolders(target);
+        else error = P__ArchiveWriteFile(reader, target, a->mtime(entry), &read, progress, cancel);
+        ArenaRestore(mark);
+    }
+    if (!error && P_IsCancelled(cancel)) error = P__ArchiveCancelled;
+    if (!error) atomic_fetch_add(&progress->doneItems, count);
+    if (reader) a->free(reader);
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
 
 function void P__ArchiveKindOf(String path, i32 *format, i32 *filter)
 {
@@ -191,10 +371,13 @@ function void *P__ArchiveWriter(void *reader, String path, String like)
     return writer;
 }
 
-function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, const P_CancelToken *cancel)
+// The progress counts the archive file read through as it is copied over, then the items added.
+function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, P_Progress *progress, const P_CancelToken *cancel)
 {
     if (!P__LoadArchive() || !P__archive.writable) return P__FileError(arena, P__ArchiveUnsupported);
     P__Archive *a = &P__archive;
+    P_Progress none = {0};
+    if (!progress) progress = &none;
     Scratch scratch = GetScratchEx(arena);
     // Where each item goes inside, and the new archive beside the old one until it is complete.
     String *names = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
@@ -202,14 +385,19 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
         String leaf = StrFrom(paths[k], StrIndexChar(paths[k], '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
         names[k] = inner.length ? StrFormat(scratch.arena, "%S/%S", inner, leaf) : leaf;
     }
+    atomic_fetch_add(&progress->totalItems, count);
+    atomic_fetch_add(&progress->totalBytes, P__ArchiveFileSize(archive));
+    u32 error = 0;
+    for (u64 k = 0; k < count && !error; ++k) error = P__ArchiveWritePath(NULL, paths[k], names[k], progress, cancel);
     Index slash = StrIndexChar(archive, '/', SSF_SearchBackwards);
     String part = slash.exists ? StrFormat(scratch.arena, "%S/.%S.part", StrFromTo(archive, 0, (i64)slash.value), StrFrom(archive, slash.value + 1)) : (String){0};
-    void *reader = P__ArchiveRead(archive), *writer = NULL, *entry = NULL;
-    u32 error = reader && part.length ? 0 : P__ArchiveFailed;
+    void *reader = error ? NULL : P__ArchiveRead(archive), *writer = NULL, *entry = NULL;
+    if (!error && (!reader || !part.length)) error = P__ArchiveFailed;
+    u64 read = UINT64_MAX;
     String name = {0};
     b32 folder = false;
     // Everything already there is copied over, but for what the new items replace.
-    while (!error && P__ArchiveNext(reader, &entry, &name, &folder)) {
+    while (!error && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
         if (!writer && !(writer = P__ArchiveWriter(reader, part, archive))) error = P__ArchiveUnsupported;
         b32 replaced = false;
         for (u64 k = 0; k < count && !replaced; ++k) {
@@ -222,11 +410,14 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
         i64 offset = 0;
         while (!error && a->readBlock(reader, &block, &size, &offset) == 0) {
             if (a->writeData(writer, block, size) != (i64)size) error = P__ArchiveFailed;
+            P__ArchiveAdvance(progress, reader, &read);
+            if (!P__Proceed(progress, cancel)) error = P__ArchiveCancelled;
         }
-        if (P_IsCancelled(cancel)) error = P__ArchiveCancelled;
+        P__ArchiveAdvance(progress, reader, &read);
     }
+    if (!error && P_IsCancelled(cancel)) error = P__ArchiveCancelled;
     if (!error && !writer && !(writer = P__ArchiveWriter(NULL, part, archive))) error = P__ArchiveUnsupported;
-    for (u64 k = 0; k < count && !error; ++k) error = P__ArchiveWritePath(writer, paths[k], names[k], cancel);
+    for (u64 k = 0; k < count && !error; ++k) error = P__ArchiveWritePath(writer, paths[k], names[k], progress, cancel);
     if (writer && a->writeClose(writer) != 0 && !error) error = P__ArchiveFailed;
     if (writer) a->writeFree(writer);
     if (reader) a->free(reader);
@@ -234,7 +425,8 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
     P_FileError result = {0};
     if (!error) result = P_ReplaceFile(arena, part, archive);
     else result = P__FileError(arena, error);
-    if (result.code && writer) P_DeleteItems(scratch.arena, &part, 1, false, NULL);
+    if (result.code && writer) P__ArchiveRemove(part);
+    if (!result.code) atomic_fetch_add(&progress->doneItems, count);
     ReleaseScratch(scratch);
     return result;
 }

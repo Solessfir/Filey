@@ -49,15 +49,18 @@ function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelT
 // Archives open as folders. One level of the folder `inner`, empty for the top, in the archive file `archive`, as P_EnumerateDirectory gives
 // a folder's: each item by its own name, the folders it is in left out.
 function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, String inner, const P_CancelToken *cancel);
+typedef struct P_Progress P_Progress;
 // Copies the items `names` of the folder `inner` in `archive` into the folder `directory` on disk, folders with all they hold. A name taken
-// there gets a new one, as copies do.
-function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, const P_CancelToken *cancel);
+// there gets a new one, as copies do. `progress`, which may be NULL, counts the archive read through and pauses as transfers do.
+function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, P_Progress *progress,
+                                      const P_CancelToken *cancel);
 // Copies the items at `paths` on disk into the folder `inner` of `archive`, in place of what has their names there. The archive is rewritten
-// beside it and put in place once complete; formats libarchive cannot write, such as RAR, fail.
-function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, const P_CancelToken *cancel);
+// beside it and put in place once complete, so that a cancel leaves it as it was; formats libarchive cannot write, such as RAR, fail.
+function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, P_Progress *progress, const P_CancelToken *cancel);
 // Whether P_AddToArchive writes the archive `archive`, by its name alone: zip, 7z and tar, not RAR or cabinets, which no free library writes.
 function b32 P_ArchiveWritable(String archive);
-// Starts dragging the items `names` of the folder `inner` in `archive`, which a drop copies out. Linux takes them out into P_RunFolder first.
+// Starts dragging the items `names` of the folder `inner` in `archive`, which a drop copies out. Linux takes them out into P_RunFolder first;
+// Windows drags them from the shell's archive folders.
 function b32 P_DragArchiveItems(String archive, String inner, const String *names, u64 count);
 // Whether `path` is a folder on disk.
 function b32 P_IsDirectory(String path);
