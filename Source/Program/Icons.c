@@ -1,6 +1,6 @@
 // File icon cache.
 // Rows look icons up by key while building UI; unknown keys are queued and loaded by background jobs, then packed into RGBA atlas pages on the main thread.
-// Each frame's icons load in one job, and its thumbnails, which the shell makes slowly, in a few more that run side by side.
+// Each frame's icons load in one job, and its thumbnails, which the shell or a thumbnailer makes slowly, in a few more on workers of their own.
 
 #define Prog_IconPageSize 512
 
@@ -53,7 +53,7 @@ function void Prog__IconJob(P_Job *job)
         P_Image image = {0};
         b32 thumbnail = request->size != input->iconSize && !request->plain;
         b32 loaded = false;
-        if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &image);
+        if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
         else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, true, &image);
         else ProfileScope("LoadIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, false, &image);
         if (loaded) pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
@@ -222,7 +222,7 @@ function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String direct
 function void Prog__SubmitIconJob(Prog_State *state, b32 thumbnails, u64 skip, u64 count)
 {
     if (!count) return;
-    P_Job *job = P_JobCreate(&state->jobs, Prog__IconJob);
+    P_Job *job = P_JobCreate(thumbnails ? &state->thumbnailJobs : &state->jobs, Prog__IconJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Icons;
     input->iconSize = state->iconSize;
@@ -246,7 +246,7 @@ function void Prog_SubmitIconRequests(Prog_State *state)
     if (!total) return;
     for (u64 i = 0; i < total; ++i) thumbnails += state->iconRequests.v[i].size != state->iconSize && !state->iconRequests.v[i].plain;
     Prog__SubmitIconJob(state, false, 0, total - thumbnails);
-    u64 lanes = Max((u64)1, (u64)state->jobs.threadCount), share = (thumbnails + lanes - 1) / lanes;
+    u64 lanes = Max((u64)1, (u64)state->thumbnailJobs.threadCount), share = (thumbnails + lanes - 1) / lanes;
     for (u64 first = 0; first < thumbnails; first += share) Prog__SubmitIconJob(state, true, first, Min(share, thumbnails - first));
     state->iconRequests = (Prog_ArrayIconRequest){0};
 }

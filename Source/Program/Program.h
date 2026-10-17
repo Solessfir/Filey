@@ -886,6 +886,10 @@ typedef struct Prog_State {
     Arena jobsArena;
     UI_Context ui;
     P_JobQueue jobs;
+    // Thumbnails, which thumbnailers can take seconds a file to make, have workers of their own, so that listings, file operations and icons
+    // never wait behind them.
+    Arena thumbnailJobsArena;
+    P_JobQueue thumbnailJobs;
     Prog_Command *commandFirst;
     Prog_Command *commandLast;
     // The current panel's fields; see Prog_TabFields and Prog_PanelFields.

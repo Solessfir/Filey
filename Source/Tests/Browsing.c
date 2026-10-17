@@ -693,7 +693,7 @@ function void TestFileIcons(TestFileFixture *fixture)
     String picture = Prog_JoinPath(&arena, fixture->path, S("pixel.png"));
     Check(!P_WriteFile(&arena, picture, StrMake(pixel, sizeof(pixel) - 1)).code);
     image = (P_Image){0};
-    Check(P_LoadFileThumbnail(&arena, picture, P_FileKind_File, 64, false, &image) && image.pixels != NULL);
+    Check(P_LoadFileThumbnail(&arena, picture, P_FileKind_File, 64, false, NULL, &image) && image.pixels != NULL);
 #if defined(__linux__)
     Check(image.width == 1 && image.height == 1 && StrIsEqual(P_FileThumbnailKey(&arena, picture, P_FileKind_File), picture));
     // A 16 at 125% is looked up as a 16 at scale 2: the theme's 16@2 directory, then by pixels, where a scalable 32 and up beats a 22.
@@ -741,7 +741,7 @@ function void TestFileIcons(TestFileFixture *fixture)
     String plain = Prog_JoinPath(&arena, fixture->path, S("plain.bin"));
     Check(!P_WriteFile(&arena, plain, S("\x01\x02")).code);
     image = (P_Image){0};
-    Check(!P_LoadFileThumbnail(&arena, plain, P_FileKind_File, 64, true, &image));
+    Check(!P_LoadFileThumbnail(&arena, plain, P_FileKind_File, 64, true, NULL, &image));
     // Its bytes then show as hex rows: offset, hex in two groups of eight, characters; fewer to a row where the view is narrow.
     String dump = Prog_HexRowText(&arena, (const u8 *)"AB\x00", 3, 0, 16, Prog_HexPlaces(3));
     Check(StrIsEqual(StrFromTo(dump, 0, 18), S("0000  41 42 00    ")) && TestEndsWith(dump, S("    AB.")) && dump.length == 4 + 2 + 49 + 1 + 3);
@@ -2540,13 +2540,20 @@ function void TestThumbnailers(TestFileFixture *fixture)
     String saved = previous ? StrCopy(&arena, StrFromCStr(previous)) : (String){0};
     setenv("XDG_CACHE_HOME", P__FilePathCString(&arena, cache), 1);
     P_Image image = {0};
-    Check(P__LoadThumbnailerPicture(&arena, video, StrFormat(&arena, "cp %S %%o", source), 200, &image) && image.width == 1);
+    Check(P__LoadThumbnailerPicture(&arena, video, StrFormat(&arena, "cp %S %%o", source), 200, NULL, &image) && image.width == 1);
     String cached = StrFormat(&arena, "%S/thumbnails/large/%S", cache, P__ThumbnailName(&arena, P__FileUri(&arena, video))), contents = {0};
     Check(P_ReadFile(&arena, cached, &contents) && P__PngText(contents, S("Thumb::URI")).length && TestListing(&arena, fixture, S("cache/thumbnails/large")).header.count == 1);
     image = (P_Image){0};
-    Check(P__LoadThumbnailerPicture(&arena, video, S("false"), 200, &image) && image.width == 1);
+    Check(P__LoadThumbnailerPicture(&arena, video, S("false"), 200, NULL, &image) && image.width == 1);
+    // One still running when its job is cancelled is stopped rather than waited for.
+    P_CancelToken stop = {0};
+    P_RequestCancel(&stop);
+    u32 error = 0;
+    char *sleeper[] = { P__FindExecutable(&arena, S("sleep"), &error), "30", NULL };
+    u64 started = PlatformNowMicroseconds();
+    Check(sleeper[0] && !P__RunAndWait(sleeper, 15, &stop) && PlatformNowMicroseconds() - started < 1000000);
     // One that fails leaves nothing behind.
-    Check(!P__LoadThumbnailerPicture(&arena, source, S("false %o"), 200, &image) && TestListing(&arena, fixture, S("cache/thumbnails/large")).header.count == 1);
+    Check(!P__LoadThumbnailerPicture(&arena, source, S("false %o"), 200, NULL, &image) && TestListing(&arena, fixture, S("cache/thumbnails/large")).header.count == 1);
     if (saved.length) setenv("XDG_CACHE_HOME", P__FilePathCString(&arena, saved), 1);
     else unsetenv("XDG_CACHE_HOME");
     TestRemoveTree(&arena, fixture, S("cache"));

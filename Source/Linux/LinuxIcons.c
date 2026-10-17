@@ -701,8 +701,8 @@ function String P__PngWithText(Arena *arena, String png, const String *keywords,
     return out.buffer;
 }
 
-// Runs `args` with its output thrown away and waits for it, killing it past `seconds`; true once it exits with 0.
-function b32 P__RunAndWait(char *const *args, u32 seconds)
+// Runs `args` with its output thrown away and waits for it, killing it past `seconds` or once `cancel` is; true once it exits with 0.
+function b32 P__RunAndWait(char *const *args, u32 seconds, const P_CancelToken *cancel)
 {
     posix_spawn_file_actions_t actions;
     if (posix_spawn_file_actions_init(&actions) != 0) return false;
@@ -719,7 +719,7 @@ function b32 P__RunAndWait(char *const *args, u32 seconds)
             break;
         }
         if (done < 0 && errno != EINTR) break;
-        if (waited >= (u64)seconds * 1000) {
+        if (waited >= (u64)seconds * 1000 || (cancel && P_IsCancelled(cancel))) {
             kill(child, SIGKILL);
             while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
             break;
@@ -737,7 +737,7 @@ global const struct { i32 size; const char *folder; } P__thumbnailSizes[] = { { 
 // The picture the installed thumbnailer `exec` makes of the file at `path`, of at least `size` pixels where it can: from the thumbnail cache
 // Nautilus and Nemo share when it holds one made since the file last changed, else made now and put there for them too.
 // ponytail: runs thumbnailers unsandboxed, as Nemo does, and retries ones that failed on every look; keep fail/ entries if they are slow.
-function b32 P__LoadThumbnailerPicture(Arena *arena, String path, String exec, i32 size, P_Image *image)
+function b32 P__LoadThumbnailerPicture(Arena *arena, String path, String exec, i32 size, const P_CancelToken *cancel, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
     b32 result = false;
@@ -793,7 +793,7 @@ function b32 P__LoadThumbnailerPicture(Arena *arena, String path, String exec, i
         if (program) {
             args[0] = program;
             char *made = P__FilePathCString(scratch.arena, temporary);
-            if (P__RunAndWait(args, 15)) {
+            if (P__RunAndWait(args, 15, cancel)) {
                 String produced = P__ReadFile(scratch.arena, temporary);
                 String keywords[] = { S("Thumb::URI"), S("Thumb::MTime") }, texts[] = { uri, mtime };
                 String tagged = P__PngWithText(scratch.arena, produced, keywords, texts, 2);
@@ -862,7 +862,7 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
 }
 
 // ponytail: decodes the whole picture every time; read the freedesktop cache (~/.cache/thumbnails, md5 of the file URI) first if big photo folders feel slow.
-function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image)
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, const P_CancelToken *cancel, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
     b32 result = false;
@@ -887,7 +887,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
     }
     if (!result && kind == P_FileKind_File) {
         String exec = P__ThumbnailerFor(P_FileTypeKey(scratch.arena, path, kind));
-        if (exec.length) result = P__LoadThumbnailerPicture(arena, path, exec, size, image);
+        if (exec.length) result = P__LoadThumbnailerPicture(arena, path, exec, size, cancel, image);
     }
     ReleaseScratch(scratch);
     return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));

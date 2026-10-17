@@ -271,8 +271,9 @@ function b32 P__ClearFolderBackground(Arena *scratch, P_Image *image)
     return x0 <= x1 && (x1 - x0 + 1) * 2 > w && (y1 - y0 + 1) * 2 > h;
 }
 
-function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, P_Image *image)
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, const P_CancelToken *cancel, P_Image *image)
 {
+    (void)cancel;
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
     b32 result = false;

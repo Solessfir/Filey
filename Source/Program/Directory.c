@@ -1544,11 +1544,11 @@ function void Prog__DirectoryJob(P_Job *job)
         } else if (!P_IsCancelled(&job->cancelToken)) {
             // A file without a picture of its own, such as a program or an archive, shows its bytes.
             Scratch scratch = GetScratchEx(&job->arena);
-            b32 hex = !input->folder && !P_LoadFileThumbnail(scratch.arena, input->path, P_FileKind_File, Prog_PreviewSize, true, &image);
+            b32 hex = !input->folder && !P_LoadFileThumbnail(scratch.arena, input->path, P_FileKind_File, Prog_PreviewSize, true, &job->cancelToken, &image);
             if (hex) {
                 result->text = start;
                 result->hex = true;
-            } else if (image.pixels || P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, false, &image)) {
+            } else if (image.pixels || P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, false, &job->cancelToken, &image)) {
                 result->pixels = Prog_ResizeIcon(&job->arena, image, Prog_PreviewSize);
                 result->width = result->height = Prog_PreviewSize;
             }
@@ -2386,6 +2386,13 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
 {
     if (!P_JobsInit(&state->jobs, &state->jobsArena, 0, wake, user)) {
         ArenaRelease(&state->jobsArena);
+        return false;
+    }
+    // Two for thumbnails, which also keeps a slow disk from being read for many at once.
+    if (!P_JobsInit(&state->thumbnailJobs, &state->thumbnailJobsArena, 2, wake, user)) {
+        P_JobsShutdown(&state->jobs);
+        ArenaRelease(&state->jobsArena);
+        ArenaRelease(&state->thumbnailJobsArena);
         return false;
     }
     Prog__EnsureTab(state);
@@ -3661,7 +3668,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_JobSubmit(job);
         }
     }
-    for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL;) {
+    for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
         b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview;
@@ -4173,6 +4180,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->menuArena);
     P_DirectoryWatchStop(&state->configWatch);
     ArenaRelease(&state->configWatch.arena);
+    P_JobsShutdown(&state->thumbnailJobs);
     P_JobsShutdown(&state->jobs);
     // Shutting down drops saves still waiting in the queue, and the workers are done, so the lists are written once more here.
     if (state->configDirectory.length) {
@@ -4192,6 +4200,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->thumbnailBeforeArena);
     ArenaRelease(&state->folderPictureArena);
     ArenaRelease(&state->jobsArena);
+    ArenaRelease(&state->thumbnailJobsArena);
     ArenaRelease(&state->closedArena);
     ArenaRelease(&state->confirmArena);
     ArenaRelease(&state->placesArena);
