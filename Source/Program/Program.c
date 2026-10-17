@@ -546,6 +546,9 @@ global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SIni
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
 global const String Prog_OptionBackdrops[] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
+    [Prog_Option_Font] = { SInit("Font"), SInit("The system-installed font name that is applied to the entire UI."), Prog_OptionControl_Font, 0, 0, NULL, 0, SInit("font") },
+    [Prog_Option_InspectorFont] = { SInit("Inspector Font"), SInit("The system-installed font used when previewing text contents in the inspector."), Prog_OptionControl_Font, 0, 0,
+                                    NULL, 0, SInit("inspector.font") },
     [Prog_Option_FontSize] = { SInit("Font Size"), SInit("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, SInit("scale") },
     [Prog_Option_InspectorFontSize] = { SInit("Inspector Font Size"), SInit("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
                                         Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, SInit("inspector.fontSize") },
@@ -775,6 +778,17 @@ function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option o
     for (u64 i = 0; i < state->layoutNames.header.count; ++i) all[desc->choiceCount + i] = state->layoutNames.v[i];
     *count = desc->choiceCount + (u32)state->layoutNames.header.count;
     return all;
+}
+
+// Sets an option that takes a name, such as a font's, to `text`; an empty one goes back to the default.
+function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String text)
+{
+    if (option >= Prog_Option_Count) return;
+    const Prog_OptionDesc *desc = &Prog_Options[option];
+    Scratch scratch = GetScratch();
+    if (state->configDirectory.length) Prog__WriteSetting(state, desc->setting, text);
+    else Prog_ApplySettings(state, StrFormat(scratch.arena, "%S = %S", desc->setting, text));
+    ReleaseScratch(scratch);
 }
 
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
@@ -5284,6 +5298,23 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         } break;
+        case Prog_OptionControl_Font: {
+            // The family's name, which a click lets be chosen from the installed ones.
+            const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
+            String name = font->length ? StrMake(font->text, font->length) : S("Default");
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)option));
+            b32 hot = UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = hot ? theme->textDim : theme->inner, .text = font->length ? theme->text : theme->textDim });
+            UI_SetNextText(Prog__Ellipsize(frame, m->font, name, width - 2 * radius));
+            UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
+            UI_Interaction interaction = UI_InteractionFromBlock(box);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_FontPickerOpen, (u64)option, 0, interaction.clickOrder);
+        } break;
         case Prog_OptionControl_Choice: {
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
             b32 hot = UI->hotKey == key;
@@ -5907,6 +5938,125 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
+// The font picker: the installed families by name in the palette's box, which the typed text narrows, the default first, and the one the
+// option has highlighted when it opens; the rows scroll to keep the highlight in sight.
+function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
+    u32 *matches = ArenaPushArray(&state->frameArena, state->fontCount + 1, u32);
+    u32 count = Prog_FontMatches(state, matches);
+    state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
+    f32 s = m->scale, line = m->separator;
+    f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line;
+    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
+    f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
+    u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
+    if (state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
+    if (state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
+    state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
+    u32 first = state->paletteScroll, shown = Min(count - Min(first, count), visible);
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
+    f32 listHeight = (f32)Max(shown, 1u) * row - line + 2 * pad;
+    f32 height = field + line + listHeight + line + footer;
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
+    f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
+    Prog__DropShadow(x, top, width, height, radius, opacity, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    const Prog_FontName *current = state->fontOption == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
+    UI_Parent(panel) {
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.8f * s + 0.5f), 0, floorf(8.0f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, 0);
+        box->props.cornerRadius = radius;
+        box->props.shape = R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight;
+        UI_Parent(box) {
+            Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(field));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                if (!state->palette.length) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(state->fontOption == Prog_Option_InspectorFont ? S("Select the inspector's font...") : S("Select a font..."));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+            }
+            UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        f32 side = floorf(6.4f * s + 0.5f);
+        UI_SetNextChildrenPadding((UI_Padding){ side, pad, side, pad });
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
+        UI_Parent(list) {
+            if (!count) Prog__Label(state->fontsJob ? S("Listing the installed fonts...") : S("No font has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
+            for (u32 i = first; i < first + shown; ++i) {
+                b32 standard = matches[i] == UINT32_MAX;
+                String name = standard ? S("Default") : state->fontNames[matches[i]];
+                b32 chosen = standard ? !current->length : Prog__EqualFolded(name, StrMake(current->text, current->length));
+                UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Font/%S", name));
+                b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
+                f32 face = row - line;
+                R_Color washed = theme->selection;
+                washed.a *= 0.35f;
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(face));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(10.4f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
+                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
+                UI_Interaction interaction = UI_InteractionFromBlock(entry);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
+                UI_Parent(entry) {
+                    u8 *marks = state->palette.length ? ArenaPushArray(&state->frameArena, name.length + 1, u8) : NULL;
+                    if (marks) Prog_FilterMatch(name, Prog_EditText(&state->palette), marks);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(face));
+                    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((face - m->line) * 0.5f), 0, 0 });
+                    UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
+                    UI_Parent(texts) Prog__MarkedText(name, marks, m->font, m->line, standard && !highlighted ? theme->textDim : theme->text);
+                    // The family the option has now.
+                    if (chosen) Prog__Icon(Icon_Check, floorf(24.0f * s + 0.5f), face, theme->text, 0.5f, m);
+                }
+                if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+            }
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
+        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
+        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background.a < 1 ? (R_Color){0} : theme->menu, radius, m);
+    }
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+}
+
 // A button of the layouts' boxes: a filled face with its label, dimmed and taking no clicks while it would do nothing.
 function b32 Prog__LayoutButton(Prog_State *state, String key, String label, b32 able, const Prog_Metrics *m)
 {
@@ -6073,6 +6223,10 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     }
     if (state->paletteMode == Prog_PaletteMode_Layouts) {
         Prog__LayoutsPicker(state, m);
+        return;
+    }
+    if (state->paletteMode == Prog_PaletteMode_Fonts) {
+        Prog__FontsPicker(state, m);
         return;
     }
     const Prog_Theme *theme = Prog_CurrentTheme();

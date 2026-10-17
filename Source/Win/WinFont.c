@@ -39,3 +39,22 @@ function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 
     };
     return true;
 }
+
+typedef struct WinFamilyList {
+    Arena *arena;
+    ArrayStr *names;
+} WinFamilyList;
+
+function void WinFamilyFound(void *user, const wchar *name, u32 length)
+{
+    WinFamilyList *list = user;
+    ArrayPush(list->arena, *list->names, P__FileStringWide(list->arena, name, (i32)length));
+}
+
+function ArrayStr PlatformFontFamilies(Arena *arena)
+{
+    ArrayStr result = {0};
+    WinFamilyList list = { arena, &result };
+    WinFontFamilies(WinFamilyFound, &list);
+    return result;
+}

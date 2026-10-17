@@ -179,3 +179,28 @@ extern "C" b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSiz
     SafeRelease(factory);
     return ok;
 }
+
+extern "C" void WinFontFamilies(WinFontFamilyFn *each, void *user)
+{
+    IDWriteFactory *factory = nullptr;
+    IDWriteFontCollection *collection = nullptr;
+    if (SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown **>(&factory))) &&
+        SUCCEEDED(factory->GetSystemFontCollection(&collection, FALSE))) {
+        UINT32 count = collection->GetFontFamilyCount();
+        for (UINT32 i = 0; i < count; ++i) {
+            IDWriteFontFamily *family = nullptr;
+            IDWriteLocalizedStrings *names = nullptr;
+            UINT32 index = 0, length = 0;
+            BOOL english = FALSE;
+            wchar name[256];
+            if (SUCCEEDED(collection->GetFontFamily(i, &family)) && SUCCEEDED(family->GetFamilyNames(&names))) {
+                if (FAILED(names->FindLocaleName(L"en-us", &index, &english)) || !english) index = 0;
+                if (SUCCEEDED(names->GetStringLength(index, &length)) && length < 256 && SUCCEEDED(names->GetString(index, name, length + 1))) each(user, name, length);
+            }
+            SafeRelease(names);
+            SafeRelease(family);
+        }
+    }
+    SafeRelease(collection);
+    SafeRelease(factory);
+}

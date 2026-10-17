@@ -269,3 +269,5 @@ typedef struct PlatformFontSource {
 // Rasterizes a contiguous codepoint range of a font at a pixel size.
 // Everything is allocated from `arena`.
 function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font);
+// The font families installed on the system, by the names a PlatformFontSource takes, in no order and possibly more than once.
+function ArrayStr PlatformFontFamilies(Arena *arena);

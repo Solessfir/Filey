@@ -2,7 +2,6 @@
 
 ## Next
 
-- Font pickers, with the system's font families listed on both platforms.
 
 ## Look
 
@@ -21,7 +20,7 @@ Missing, by the reference's group:
 - Folder: OpenInWindow, SelectionPasteLink, SelectionCopyAsPathSmart, PanelHeaderDirInTab, OpenPathOptionsPopup.
 - Sort: DateDeleted and OriginalLocation (with a Recycle Bin view), FreeSpace, FileSystem and PercentFull (with a drives view), VolumeUsage and FolderUsage (with the usage columns). Dates sort by whole seconds; the reference keeps finer times, so items saved in the same second can come out in another order.
 - Inspector: its text view reads the first 1 MB.
-- Options: still missing are the font pickers (`font` and `inspector.font` in Settings.txt take a family's name), Long Path Support, color scheme editing, and checkboxes in the icon views.
+- Options: the Font and Inspector Font rows pick from the installed families (DirectWrite's system collection, fontconfig on Linux). Still missing are Long Path Support, color scheme editing, and checkboxes in the icon views.
 - Tabs: OpenTabOptionsPopup, TabOpenInWindow.
 - Misc: ConfigCreate/Open, QuickAccessFilterRevert (the filter's Enter and Escape are there), viewport and group options. Install is the reference's own setup and stays out.
 

@@ -1483,6 +1483,10 @@ command LayoutDelete {
 command LayoutAnswer {
 }
 
+// The font picker for an option's font; carries the option.
+command FontPickerOpen {
+}
+
 command SortByName {
     label   = "Sort By Name^order"
     tooltip = "Sort folder contents by name, treating neighbor digits as numbers."

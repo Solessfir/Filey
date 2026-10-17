@@ -1630,6 +1630,26 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = real;
         return;
     }
+    if (input->kind == Prog_JobKind_Fonts) {
+        // Sorted by name, each family once, though a system lists some more than once.
+        Prog_FontsListed *result = ArenaPushStruct(&job->arena, Prog_FontsListed);
+        ArrayStr found = PlatformFontFamilies(&job->arena);
+        String *names = ArenaPushArray(&job->arena, Max(found.header.count, (u64)1), String);
+        u64 count = 0;
+        for (u64 i = 0; i < found.header.count; ++i) {
+            String name = found.v[i];
+            u64 at = count;
+            while (at && Prog_CompareNames(names[at - 1], name) > 0) --at;
+            if ((at && Prog__EqualFolded(names[at - 1], name)) || !name.length || name.value[0] == '@') continue;
+            MemMove(&names[at + 1], &names[at], (count - at) * sizeof(String));
+            names[at] = name;
+            ++count;
+        }
+        result->names = names;
+        result->count = count;
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_FilesList) {
         // What the list would show of it, sorted as a list by name sorts it, folders first.
         Prog_FilesListed *result = ArenaPushStruct(&job->arena, Prog_FilesListed);
@@ -2186,6 +2206,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
 function void Prog__EnsureTab(Prog_State *state);
 function void Prog__EnsurePanel(Prog_State *state);
 function void Prog__EndRename(Prog_State *state, b32 commit);
+function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 
 // Bookmarks and recents, one path per line in the config folder.
 #define Prog_BookmarksFile S("Bookmarks.txt")
@@ -4131,7 +4152,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
         b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview ||
-                         (input->kind == Prog_JobKind_FilesList && !input->miller);
+                         (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
             Prog__ReleaseJob(job);
@@ -4349,6 +4370,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Reveal) {
             if (job->result && input->generation == state->generation) Prog_ShowInFolder(state, *(String *)job->result, input->inTab);
             changed = true;
+        } else if (input->kind == Prog_JobKind_Fonts) {
+            if (state->fontsJob == job) state->fontsJob = NULL;
+            if (job->result && !P_IsCancelled(&job->cancelToken)) {
+                ArenaRelease(&state->fontsArena);
+                state->fontsArena = job->arena;
+                job->arena = (Arena){0};
+                const Prog_FontsListed *listed = job->result;
+                state->fontNames = listed->names;
+                state->fontCount = listed->count;
+                // The picker, open meanwhile, goes to the family the option has.
+                if (state->paletteOpen && state->paletteMode == Prog_PaletteMode_Fonts && !state->palette.length) Prog__OpenFontPicker(state, (Prog_Option)state->fontOption);
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_FilesList && input->miller) {
             for (u32 i = 0; state->millerColumns && i < Prog_MillerSlots; ++i) {
                 Prog_MillerColumn *column = &state->millerColumns->v[i];

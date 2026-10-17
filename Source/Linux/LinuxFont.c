@@ -85,3 +85,19 @@ function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 
     }
     return ok;
 }
+
+function ArrayStr PlatformFontFamilies(Arena *arena)
+{
+    ArrayStr result = {0};
+    FcPattern *pattern = FcPatternCreate();
+    FcObjectSet *objects = FcObjectSetBuild(FC_FAMILY, (char *)0);
+    FcFontSet *fonts = pattern && objects ? FcFontList(NULL, pattern, objects) : NULL;
+    for (i32 i = 0; fonts && i < fonts->nfont; ++i) {
+        FcChar8 *family = NULL;
+        if (FcPatternGetString(fonts->fonts[i], FC_FAMILY, 0, &family) == FcResultMatch && family) ArrayPush(arena, result, StrCopy(arena, StrFromCStr((const char *)family)));
+    }
+    if (fonts) FcFontSetDestroy(fonts);
+    if (objects) FcObjectSetDestroy(objects);
+    if (pattern) FcPatternDestroy(pattern);
+    return result;
+}

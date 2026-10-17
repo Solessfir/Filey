@@ -226,6 +226,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Git,
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
+    Prog_JobKind_Fonts,
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -504,12 +505,15 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_GoTo,
     Prog_PaletteMode_Options,
     Prog_PaletteMode_Layouts,
+    Prog_PaletteMode_Fonts,
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
 
 // The options the Options popup lists, each kept in Settings.txt.
 typedef enum Prog_Option {
+    Prog_Option_Font,
     Prog_Option_FontSize,
+    Prog_Option_InspectorFont,
     Prog_Option_InspectorFontSize,
     Prog_Option_Spacing,
     Prog_Option_Animations,
@@ -561,6 +565,7 @@ typedef enum Prog_OptionControl {
     Prog_OptionControl_Stepper,
     Prog_OptionControl_Slider,
     Prog_OptionControl_Choice,
+    Prog_OptionControl_Font,  // a font family's name, chosen from the installed ones
     Prog_OptionControl_Count,
 } Prog_OptionControl;
 
@@ -712,6 +717,12 @@ typedef enum Prog_LayoutAsk {
 } Prog_LayoutAsk;
 
 #define Prog_MaxLayouts 64
+
+// The installed font families, sorted by name and each once.
+typedef struct Prog_FontsListed {
+    String *names;
+    u64 count;
+} Prog_FontsListed;
 
 typedef struct Prog_FilesListed {
     Prog_Entry *items;
@@ -1229,6 +1240,12 @@ typedef struct Prog_State {
     enum8(Prog_LayoutAsk) layoutAsk;
     u8 layoutAskName[256];
     u32 layoutAskLength;
+    // The installed font families once listed, which the font picker offers for the option `fontOption`.
+    Arena fontsArena;
+    String *fontNames;
+    u64 fontCount;
+    P_Job *fontsJob;
+    enum8(Prog_Option) fontOption;
     // The layout Load On Startup names, which takes the place of `startup` while there is one.
     u8 startupLayout[256];
     u32 startupLayoutLength;
@@ -1441,6 +1458,8 @@ function String Prog_LayoutText(Arena *arena, Prog_State *state);
 function void Prog_SetLayout(Prog_State *state, String name, String text, b32 remove);
 function b32 Prog_ApplyLayout(Prog_State *state, String name);
 function u32 Prog_LayoutMatches(const Prog_State *state, u32 *out);
+function u32 Prog_FontMatches(const Prog_State *state, u32 *out);
+function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String text);
 function b32 Prog_PreviewsArchive(const Prog_State *state, const Prog_Entry *entry);
 function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed);
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks);

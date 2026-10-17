@@ -849,6 +849,23 @@ function u32 Prog_LayoutMatches(const Prog_State *state, u32 *out)
     return count;
 }
 
+// The font picker's rows: the default first while nothing is typed, as UINT32_MAX, then the families whose names hold the text, then those
+// with its letters in order. `out` takes one more than there are families.
+function u32 Prog_FontMatches(const Prog_State *state, u32 *out)
+{
+    String text = Prog_EditText(&state->palette);
+    u32 count = 0;
+    if (!text.length) out[count++] = UINT32_MAX;
+    for (u32 tier = 0; tier < 2; ++tier) {
+        for (u64 i = 0; i < state->fontCount; ++i) {
+            String name = state->fontNames[i];
+            b32 named = Prog__ContainsFolded(name, text), letters = !named && Prog_FilterMatch(name, text, NULL);
+            if ((tier == 0 && named) || (tier == 1 && letters)) out[count++] = (u32)i;
+        }
+    }
+    return count;
+}
+
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
 {
     String text = Prog_EditText(&state->palette);
@@ -1929,6 +1946,28 @@ function String Prog__TrimSpaces(String text)
     return text;
 }
 
+// The font picker for `option`, on the family it has; the families are listed in a job the first time.
+function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
+{
+    Prog_CloseMenu(state);
+    state->paletteOpen = true;
+    state->paletteMode = Prog_PaletteMode_Fonts;
+    state->palette = (Prog_TextEdit){0};
+    state->fontOption = (u8)option;
+    state->paletteHighlight = 0;
+    const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
+    for (u64 i = 0; i < state->fontCount; ++i) {
+        if (Prog__EqualFolded(state->fontNames[i], StrMake(font->text, font->length))) state->paletteHighlight = (u32)i + 1;
+    }
+    if (state->fontNames || state->fontsJob) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Fonts;
+    job->input = input;
+    state->fontsJob = job;
+    P_JobSubmit(job);
+}
+
 // Asks about the layout named `name` before going on.
 function void Prog__LayoutAsk(Prog_State *state, Prog_LayoutAsk ask, String name)
 {
@@ -2673,6 +2712,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->row < count) Prog__LayoutAsk(state, Prog_LayoutAsk_Delete, state->layoutNames.v[matches[command->row]]);
             } break;
             case Prog_CommandKind_LayoutAnswer: Prog__LayoutAnswer(state, command->row != 0); break;
+            case Prog_CommandKind_FontPickerOpen: Prog__OpenFontPicker(state, (Prog_Option)command->row); break;
             case Prog_CommandKind_MillerSelect: Prog__MillerSelect(state, (u32)command->target, command->row, command->pressCount >= 2); break;
             case Prog_CommandKind_DeselectAll: {
                 for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = false;
@@ -2955,6 +2995,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     const Prog_OptionDesc *desc = &Prog_Options[option];
                     i32 value = Prog_OptionValue(state, option);
                     if (desc->control == Prog_OptionControl_Switch) Prog_SetOption(state, option, !value);
+                    if (desc->control == Prog_OptionControl_Font) Prog__OpenFontPicker(state, option);
                     u32 choices = 0;
                     Prog_OptionChoices(state, option, &state->frameArena, &choices);
                     if (desc->control == Prog_OptionControl_Choice && choices) Prog_SetOption(state, option, (value + 1) % (i32)choices);
@@ -2966,6 +3007,22 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     state->paletteOpen = false;
                     if (chosen < count) Prog_SelectTab(state, tabs[chosen]);
+                    break;
+                }
+                if (state->paletteMode == Prog_PaletteMode_Fonts) {
+                    u32 *found = ArenaPushArray(&state->frameArena, state->fontCount + 1, u32);
+                    u32 count = Prog_FontMatches(state, found);
+                    u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                    if (chosen >= count) break;
+                    // The default clears the setting; back in Options, the option stays highlighted.
+                    Prog_Option option = (Prog_Option)state->fontOption;
+                    Prog_SetOptionText(state, option, found[chosen] == UINT32_MAX ? (String){0} : state->fontNames[found[chosen]]);
+                    state->paletteMode = Prog_PaletteMode_Options;
+                    state->palette = (Prog_TextEdit){0};
+                    u8 options[Prog_Option_Count];
+                    u32 shown = Prog_OptionMatches(state, options);
+                    state->paletteHighlight = 0;
+                    for (u32 i = 0; i < shown; ++i) if (options[i] == option) state->paletteHighlight = i;
                     break;
                 }
                 if (state->paletteMode == Prog_PaletteMode_Layouts) {
@@ -3424,6 +3481,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 if (state->paletteMode == Prog_PaletteMode_GoTo) Prog_GoToMatches(state, &count, &folder);
                 else if (state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, found);
                 else if (state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
+                else if (state->paletteMode == Prog_PaletteMode_Fonts) count = Prog_FontMatches(state, ArenaPushArray(&state->frameArena, state->fontCount + 1, u32));
                 else count = Prog_PaletteMatches(state, rows);
                 i64 at = (state->paletteHighlight == UINT32_MAX ? -1 : (i64)state->paletteHighlight) - (i64)(event->wheelY * 3);
                 state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
@@ -3443,6 +3501,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 u32 layouts[Prog_MaxLayouts];
                 if (!goTo && state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, options);
                 else if (!goTo && state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
+                else if (!goTo && state->paletteMode == Prog_PaletteMode_Fonts) count = Prog_FontMatches(state, ArenaPushArray(&state->frameArena, state->fontCount + 1, u32));
                 else if (!goTo) count = state->paletteMode == Prog_PaletteMode_Tabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
                 // In Options, Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
                 if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && (event->key == Key_Left || event->key == Key_Right)) {
