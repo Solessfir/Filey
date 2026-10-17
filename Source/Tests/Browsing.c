@@ -2334,6 +2334,13 @@ function void TestPanels(TestFileFixture *fixture)
         Check(StrIsEqual(Prog_EditText(&restored.filter), S("al pha")) && restored.hideFiles && !restored.filterSticky);
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
         Check(restored.miller);
+        // A layout keeps the same, and puts a window that has other tabs back the way it was; a deleted one no longer applies.
+        Prog_SetLayout(&restored, S("Two"), Prog_LayoutText(&sessionArena, &state), false);
+        Prog_OpenTab(&restored, fixture->path, restored.tabCount, true);
+        Check(restored.layoutNames.header.count == 1 && Prog_ApplyLayout(&restored, S("two")) && TestWaitDirectory(&restored) && restored.panelCount == state.panelCount);
+        Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
+        Prog_SetLayout(&restored, S("TWO"), (String){0}, true);
+        Check(!restored.layoutNames.header.count && !Prog_ApplyLayout(&restored, S("Two")));
         Prog_Release(&restored);
         ArenaRelease(&sessionArena);
         state.miller = false;

@@ -661,6 +661,20 @@ function b32 PlatformWindowNeedsBorder(void) { return false; }
 function void PlatformWindowMinimize(void) { ShowWindow(Win.window, SW_MINIMIZE); }
 function void PlatformWindowToggleMaximize(void) { ShowWindow(Win.window, IsZoomed(Win.window) ? SW_RESTORE : SW_MAXIMIZE); }
 
+// The content takes the size; the invisible frame at its sides and bottom is added to it.
+function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized)
+{
+    if (maximized) {
+        ShowWindow(Win.window, SW_MAXIMIZE);
+        return;
+    }
+    if (IsZoomed(Win.window)) ShowWindow(Win.window, SW_RESTORE);
+    RECT outer = {0}, inner = {0};
+    if (width <= 0 || height <= 0 || !GetWindowRect(Win.window, &outer) || !GetClientRect(Win.window, &inner)) return;
+    i32 frameWidth = (outer.right - outer.left) - (inner.right - inner.left), frameHeight = (outer.bottom - outer.top) - (inner.bottom - inner.top);
+    SetWindowPos(Win.window, NULL, 0, 0, width + frameWidth, height + frameHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 function void PlatformWindowToggleFullscreen(void)
 {
     LONG_PTR style = GetWindowLongPtrW(Win.window, GWL_STYLE);

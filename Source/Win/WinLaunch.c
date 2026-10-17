@@ -201,6 +201,16 @@ function b32 P__LaunchWithNeighbors(const wchar *path, P_FileOrder order)
     return result;
 }
 
+// Explorer itself, as folders may be set to open in another file manager.
+function P_FileError P_OpenFileExplorer(Arena *arena, String path)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *folder = path.length ? P__FilePathWide(scratch.arena, path) : NULL;
+    HINSTANCE launched = ShellExecuteW(NULL, L"open", L"explorer.exe", folder, NULL, SW_SHOWNORMAL);
+    ReleaseScratch(scratch);
+    return (INT_PTR)launched > 32 ? (P_FileError){0} : P__FileError(arena, GetLastError());
+}
+
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
 {
     Scratch scratch = GetScratchEx(arena);

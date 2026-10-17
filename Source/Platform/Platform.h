@@ -189,6 +189,9 @@ function void PlatformSetCursor(PlatformCursor cursor);
 function b32  PlatformWindowNeedsBorder(void);
 function void PlatformWindowMinimize(void);
 function void PlatformWindowToggleMaximize(void);
+// Gives the window a content `width` by `height` physical pixels, or maximizes it; a compositor that sizes the window itself, as a tiling
+// one does, keeps its own size.
+function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized);
 // Covers the whole screen without the system's frame, or goes back to how the window was.
 function void PlatformWindowToggleFullscreen(void);
 // Pushes CloseRequested, as the system's close does.

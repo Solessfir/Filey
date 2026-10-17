@@ -376,6 +376,17 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     return P__OpenPath(arena, &P__apps, path);
 }
 
+function P_FileError P_OpenFileExplorer(Arena *arena, String path)
+{
+    pthread_once(&P__appsOnce, P__LoadGlobalApps);
+    P__App *chosen = P__ChosenApp(&P__apps, S("inode/directory")), *apps[32];
+    if (chosen && StrIsEqual(chosen->id, S("filey.desktop"))) chosen = NULL;
+    u64 count = P__AppsFor(&P__apps, S("inode/directory"), false, apps, CArrayCount(apps));
+    for (u64 i = 0; i < count && !chosen; ++i) if (!StrIsEqual(apps[i]->id, S("filey.desktop"))) chosen = apps[i];
+    if (chosen) return P__LaunchApp(arena, chosen, &path, 1, path);
+    return P__OpenPath(arena, &P__apps, path);
+}
+
 function P_FileError P_OpenConsole(Arena *arena, String directory)
 {
     return P__OpenTerminal(arena, directory);

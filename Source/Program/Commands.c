@@ -675,6 +675,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
     Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleHidden, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
@@ -833,6 +834,21 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
 
 // The tabs the palette's text finds in its tab mode, best first: folder names holding it as typed, then paths that do, then names holding its letters in order.
 // `out` has room for Prog_MaxTabs; returns how many it holds.
+// The saved layouts the palette's text finds: those whose names hold it, then those whose names have its letters in order.
+function u32 Prog_LayoutMatches(const Prog_State *state, u32 *out)
+{
+    String text = Prog_EditText(&state->palette);
+    u32 count = 0;
+    for (u32 tier = 0; tier < 2; ++tier) {
+        for (u32 i = 0; i < state->layoutNames.header.count && i < Prog_MaxLayouts; ++i) {
+            String name = state->layoutNames.v[i];
+            b32 named = Prog__ContainsFolded(name, text), letters = !named && Prog_FilterMatch(name, text, NULL);
+            if ((tier == 0 && named) || (tier == 1 && letters)) out[count++] = i;
+        }
+    }
+    return count;
+}
+
 function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
 {
     String text = Prog_EditText(&state->palette);
@@ -1887,8 +1903,8 @@ function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *
 // press opens the item.
 function void Prog__MillerSelect(Prog_State *state, u32 slot, u64 row, b32 open)
 {
-    if (slot >= Prog_MillerSlots || row >= state->millerColumns.v[slot].count || state->renaming) return;
-    const Prog_MillerColumn *column = &state->millerColumns.v[slot];
+    if (!state->millerColumns || slot >= Prog_MillerSlots || row >= state->millerColumns->v[slot].count || state->renaming) return;
+    const Prog_MillerColumn *column = &state->millerColumns->v[slot];
     const Prog_Entry *entry = &column->items[row];
     String path = Prog_JoinPath(&state->frameArena, column->path, entry->file.name), name = StrCopy(&state->frameArena, entry->file.name);
     String folder = StrCopy(&state->frameArena, column->path), archive = {0}, inner = {0};
@@ -1903,6 +1919,60 @@ function void Prog__MillerSelect(Prog_State *state, u32 slot, u64 row, b32 open)
         state->selectLength = (u32)name.length;
         Prog_RequestDirectory(state, folder, true, 0);
     }
+}
+
+// `text` without the spaces around it.
+function String Prog__TrimSpaces(String text)
+{
+    while (text.length && text.value[0] == ' ') text = StrFrom(text, 1);
+    while (text.length && text.value[text.length - 1] == ' ') --text.length;
+    return text;
+}
+
+// Asks about the layout named `name` before going on.
+function void Prog__LayoutAsk(Prog_State *state, Prog_LayoutAsk ask, String name)
+{
+    state->layoutAsk = (u8)ask;
+    state->layoutAskLength = (u32)Min(name.length, (u64)sizeof(state->layoutAskName));
+    MemCopy(state->layoutAskName, name.value, state->layoutAskLength);
+}
+
+function b32 Prog__LayoutNamed(const Prog_State *state, String name)
+{
+    for (u64 i = 0; i < state->layoutNames.header.count; ++i) if (Prog__EqualFolded(state->layoutNames.v[i], name)) return true;
+    return false;
+}
+
+// The Save Layout box's buttons: Save keeps the layout under the typed name, asking first where a layout has it, Update overwrites the one
+// that has it, and Cancel closes the box.
+function void Prog__LayoutSaveButton(Prog_State *state, u32 button)
+{
+    String name = Prog__TrimSpaces(Prog_EditText(&state->layoutName));
+    if (button == 2) {
+        state->layoutSaving = false;
+        return;
+    }
+    b32 taken = Prog__LayoutNamed(state, name);
+    if (!name.length || (button == 1 && !taken)) return;
+    if (button == 0 && taken) {
+        Prog__LayoutAsk(state, Prog_LayoutAsk_Overwrite, name);
+        return;
+    }
+    Prog_SetLayout(state, StrCopy(&state->frameArena, name), Prog_LayoutText(&state->frameArena, state), false);
+    state->layoutSaving = false;
+}
+
+function void Prog__LayoutAnswer(Prog_State *state, b32 yes)
+{
+    String name = StrCopy(&state->frameArena, StrMake((const char *)state->layoutAskName, state->layoutAskLength));
+    Prog_LayoutAsk ask = (Prog_LayoutAsk)state->layoutAsk;
+    state->layoutAsk = Prog_LayoutAsk_None;
+    if (!yes) return;
+    if (ask == Prog_LayoutAsk_Overwrite) {
+        Prog_SetLayout(state, name, Prog_LayoutText(&state->frameArena, state), false);
+        state->layoutSaving = false;
+    }
+    if (ask == Prog_LayoutAsk_Delete) Prog_SetLayout(state, name, (String){0}, true);
 }
 
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
@@ -2569,6 +2639,40 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomLarge; state->revealFocus = true; break;
             case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomMax; state->revealFocus = true; break;
             case Prog_CommandKind_ToggleMillerColumns: state->miller = !state->miller; state->revealFocus = true; break;
+            case Prog_CommandKind_LayoutsSave: {
+                Prog_CloseMenu(state);
+                state->paletteOpen = false;
+                state->layoutSaving = true;
+                state->layoutName = (Prog_TextEdit){0};
+            } break;
+            case Prog_CommandKind_LayoutsLoad: {
+                Prog_CloseMenu(state);
+                state->paletteOpen = true;
+                state->paletteMode = Prog_PaletteMode_Layouts;
+                state->palette = (Prog_TextEdit){0};
+                state->paletteHighlight = 0;
+            } break;
+            case Prog_CommandKind_ExplorerOpen: {
+                // A folder inside an archive opens the archive's folder, and This PC the system's own start.
+                String folder = state->directory.path, archive = {0}, inner = {0};
+                if (state->directory.archive && Prog_ArchiveSplit(folder, &archive, &inner)) folder = Prog_ParentPath(archive);
+                if (StrIsEqual(folder, Prog_ThisPC)) folder = (String){0};
+                P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                input->panel = Prog__PanelId(state);
+                input->kind = Prog_JobKind_Open;
+                input->explorer = true;
+                input->path = StrCopy(&job->arena, folder);
+                job->input = input;
+                P_JobSubmit(job);
+            } break;
+            case Prog_CommandKind_LayoutSaveButton: Prog__LayoutSaveButton(state, (u32)command->row); break;
+            case Prog_CommandKind_LayoutDelete: {
+                u32 matches[Prog_MaxLayouts];
+                u32 count = Prog_LayoutMatches(state, matches);
+                if (command->row < count) Prog__LayoutAsk(state, Prog_LayoutAsk_Delete, state->layoutNames.v[matches[command->row]]);
+            } break;
+            case Prog_CommandKind_LayoutAnswer: Prog__LayoutAnswer(state, command->row != 0); break;
             case Prog_CommandKind_MillerSelect: Prog__MillerSelect(state, (u32)command->target, command->row, command->pressCount >= 2); break;
             case Prog_CommandKind_DeselectAll: {
                 for (u64 i = 0; i < state->directory.count; ++i) state->directory.entries[i].selected = false;
@@ -2851,7 +2955,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     const Prog_OptionDesc *desc = &Prog_Options[option];
                     i32 value = Prog_OptionValue(state, option);
                     if (desc->control == Prog_OptionControl_Switch) Prog_SetOption(state, option, !value);
-                    if (desc->control == Prog_OptionControl_Choice) Prog_SetOption(state, option, (value + 1) % (i32)desc->choiceCount);
+                    u32 choices = 0;
+                    Prog_OptionChoices(state, option, &state->frameArena, &choices);
+                    if (desc->control == Prog_OptionControl_Choice && choices) Prog_SetOption(state, option, (value + 1) % (i32)choices);
                     break;
                 }
                 if (state->paletteMode == Prog_PaletteMode_Tabs) {
@@ -2860,6 +2966,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     state->paletteOpen = false;
                     if (chosen < count) Prog_SelectTab(state, tabs[chosen]);
+                    break;
+                }
+                if (state->paletteMode == Prog_PaletteMode_Layouts) {
+                    u32 found[Prog_MaxLayouts];
+                    u32 count = Prog_LayoutMatches(state, found);
+                    u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
+                    state->paletteOpen = false;
+                    if (chosen < count) Prog_ApplyLayout(state, StrCopy(&state->frameArena, state->layoutNames.v[found[chosen]]));
                     break;
                 }
                 Prog_PaletteRow rows[Prog_MaxPaletteRows];
@@ -3284,6 +3398,20 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             state->tabDragCancelled = true;
             continue;
         }
+        // What the layouts ask takes the keyboard, Enter going ahead and Escape not; the Save Layout box takes typing, with Enter saving and
+        // Escape closing it.
+        if (state->layoutAsk && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 1, 0, order);
+            else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, order);
+            continue;
+        }
+        if (state->layoutSaving && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_Text) Prog__EditInsert(&state->layoutName, event->codepoint);
+            else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, order);
+            else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, order);
+            else Prog__EditKey(state, &state->layoutName, event);
+            continue;
+        }
         // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
         if (state->paletteOpen) {
             // The wheel moves Go To's highlight three rows a notch.
@@ -3292,8 +3420,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 u32 count;
                 String folder;
                 u8 found[Prog_Option_Count];
+                u32 layouts[Prog_MaxLayouts];
                 if (state->paletteMode == Prog_PaletteMode_GoTo) Prog_GoToMatches(state, &count, &folder);
                 else if (state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, found);
+                else if (state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
                 else count = Prog_PaletteMatches(state, rows);
                 i64 at = (state->paletteHighlight == UINT32_MAX ? -1 : (i64)state->paletteHighlight) - (i64)(event->wheelY * 3);
                 state->paletteHighlight = at <= 0 || !count ? 0 : (u32)Min(at, (i64)count - 1);
@@ -3310,7 +3440,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 String folder = {0};
                 Prog_GoToItem *found = goTo ? Prog_GoToMatches(state, &count, &folder) : NULL;
                 u8 options[Prog_Option_Count];
+                u32 layouts[Prog_MaxLayouts];
                 if (!goTo && state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, options);
+                else if (!goTo && state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
                 else if (!goTo) count = state->paletteMode == Prog_PaletteMode_Tabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
                 // In Options, Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
                 if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && (event->key == Key_Left || event->key == Key_Right)) {
@@ -3318,7 +3450,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     const Prog_OptionDesc *desc = &Prog_Options[option];
                     i32 step = desc->control == Prog_OptionControl_Slider ? Max((desc->most - desc->least) / 20, 1) : 1, value = Prog_OptionValue(state, option);
                     if (event->key == Key_Left) step = -step;
-                    if (desc->control == Prog_OptionControl_Choice) value = (value + step + (i32)desc->choiceCount) % (i32)desc->choiceCount;
+                    u32 choices = 0;
+                    Prog_OptionChoices(state, option, &state->frameArena, &choices);
+                    if (desc->control == Prog_OptionControl_Choice && choices) value = (value + step + (i32)choices) % (i32)choices;
                     else value += step;
                     Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, 0, order)->target = (u64)(i64)value;
                     continue;

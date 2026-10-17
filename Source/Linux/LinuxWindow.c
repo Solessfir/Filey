@@ -1181,6 +1181,20 @@ function b32 PlatformWindowIsMaximized(void) { return Wl.maximized; }
 // Maximized tells nothing here: Hyprland reports every window maximized, so that programs leave out their frames.
 function b32 PlatformWindowNeedsBorder(void) { return !Wl.fullscreen; }
 function void PlatformWindowMinimize(void) { xdg_toplevel_set_minimized(Wl.toplevel); }
+
+// Only a size the compositor leaves to the window, as when it floats, takes.
+function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized)
+{
+    if (maximized) {
+        xdg_toplevel_set_maximized(Wl.toplevel);
+        return;
+    }
+    if (Wl.maximized) xdg_toplevel_unset_maximized(Wl.toplevel);
+    if (width <= 0 || height <= 0 || Wl.pendingWidth > 0 || Wl.fullscreen) return;
+    Wl.width = (i32)((f32)width / Wl.scale + 0.5f);
+    Wl.height = (i32)((f32)height / Wl.scale + 0.5f);
+    LinuxApplySize();
+}
 function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
 
 function void PlatformWindowToggleMaximize(void)

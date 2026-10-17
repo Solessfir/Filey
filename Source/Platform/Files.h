@@ -113,6 +113,9 @@ typedef struct P_FileOrder {
 // May block while the application starts.
 // Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
+// Opens the system's own file manager on the folder `path`: Explorer on Windows, and on Linux the application the desktop opens folders with,
+// Filey's own entry left out.
+function P_FileError P_OpenFileExplorer(Arena *arena, String path);
 // Starts another Filey window, a process of its own, showing the folder `path`.
 function P_FileError P_OpenWindow(Arena *arena, String path);
 // Starts the system's console in the folder `directory`: cmd.exe in the default terminal on Windows, the desktop's terminal on Linux.

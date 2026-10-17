@@ -353,7 +353,14 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("menus.inline"))) {
             state->menuInline = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("startup"))) {
-            for (u32 i = 0; i < Prog_Startup_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStartups[i])) state->startup = (u8)i;
+            // Any other value names a saved layout.
+            state->startupLayoutLength = 0;
+            b32 known = false;
+            for (u32 i = 0; i < Prog_Startup_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStartups[i])) state->startup = (u8)i, known = true;
+            if (!known && value.length <= sizeof(state->startupLayout)) {
+                MemCopy(state->startupLayout, value.value, value.length);
+                state->startupLayoutLength = (u32)value.length;
+            }
         } else if (StrIsEqual(name, S("newtab"))) {
             for (u32 i = 0; i < Prog_NewTab_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabs[i])) state->newTab = (u8)i;
         } else if (StrIsEqual(name, S("recents.store"))) {
@@ -607,7 +614,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), SInit("inspector.layout") },
     [Prog_Option_HighlightCode] = { SInit("Highlight Code"), SInit("Color keywords, strings, comments and numbers of code in the inspector."), Prog_OptionControl_Switch, 0, 1,
                                     Prog_OptionSwitch, 2, SInit("inspector.highlight") },
-    [Prog_Option_LoadOnStartup] = { SInit("Load On Startup"), SInit("Previous session or location to load on startup."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_LoadOnStartup] = { SInit("Load On Startup"), SInit("Previous session, location, or custom layout to load on startup."), Prog_OptionControl_Choice, 0, 0,
                                     Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
     [Prog_Option_NewTabShow] = { SInit("New Tab Show"), SInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), SInit("newtab") },
@@ -671,7 +678,11 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_ShowRecents: return state->showRecents;
         case Prog_Option_SortRecents: return state->sortRecents;
-        case Prog_Option_LoadOnStartup: return state->startup;
+        case Prog_Option_LoadOnStartup: {
+            String layout = StrMake((const char *)state->startupLayout, state->startupLayoutLength);
+            for (u64 i = 0; layout.length && i < state->layoutNames.header.count; ++i) if (Prog__EqualFolded(state->layoutNames.v[i], layout)) return Prog_Startup_Count + (i32)i;
+            return state->startup;
+        }
         case Prog_Option_NewTabShow: return state->newTab;
         case Prog_Option_VSync: return !state->noVSync;
         case Prog_Option_HighlightCode: return !state->noHighlight;
@@ -753,14 +764,29 @@ function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 valu
     if (option == Prog_Option_InactiveOpacity) state->inactiveShift = value - 60;
 }
 
+// The choices of `option`: its table's, and for Load On Startup the saved layouts after them.
+function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option option, Arena *arena, u32 *count)
+{
+    const Prog_OptionDesc *desc = &Prog_Options[option];
+    *count = desc->choiceCount;
+    if (option != Prog_Option_LoadOnStartup || !state->layoutNames.header.count) return desc->choices;
+    String *all = ArenaPushArray(arena, desc->choiceCount + state->layoutNames.header.count, String);
+    for (u32 i = 0; i < desc->choiceCount; ++i) all[i] = desc->choices[i];
+    for (u64 i = 0; i < state->layoutNames.header.count; ++i) all[desc->choiceCount + i] = state->layoutNames.v[i];
+    *count = desc->choiceCount + (u32)state->layoutNames.header.count;
+    return all;
+}
+
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
 {
     if (option >= Prog_Option_Count) return;
     const Prog_OptionDesc *desc = &Prog_Options[option];
-    i32 least = desc->choices ? 0 : desc->least, most = desc->choices ? (i32)desc->choiceCount - 1 : desc->most;
-    value = Min(Max(value, least), most);
     Scratch scratch = GetScratch();
-    String text = desc->choices ? desc->choices[value] : option == Prog_Option_FontSize ? StrFormat(scratch.arena, "%.4f", (f64)value / 9.0) : StrFormat(scratch.arena, "%d", value);
+    u32 choiceCount = 0;
+    const String *choices = Prog_OptionChoices(state, option, scratch.arena, &choiceCount);
+    i32 least = choices ? 0 : desc->least, most = choices ? (i32)choiceCount - 1 : desc->most;
+    value = Min(Max(value, least), most);
+    String text = choices ? choices[value] : option == Prog_Option_FontSize ? StrFormat(scratch.arena, "%.4f", (f64)value / 9.0) : StrFormat(scratch.arena, "%d", value);
     if (state->configDirectory.length) {
         Prog__WriteSetting(state, desc->setting, text);
     } else {
@@ -5146,6 +5172,8 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return S("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return S("Vertical");
     if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return S("Last Session");
+    // A layout keeps its own name.
+    if (option == Prog_Option_LoadOnStartup && !StrIsEqual(name, S("root")) && !StrIsEqual(name, S("home"))) return name;
     if (option == Prog_Option_CharacterKeyAction) {
         if (StrIsEqual(name, S("filter"))) return S("Type In Filter");
         if (StrIsEqual(name, S("hotkey"))) return S("Trigger Hotkey");
@@ -5268,11 +5296,13 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->textDim : theme->outline });
             UI_Block *choice = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
             UI_Interaction interaction = UI_InteractionFromBlock(choice);
-            if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)desc->choiceCount, interaction.clickOrder, false);
+            u32 choiceCount = 0;
+            const String *choices = Prog_OptionChoices(state, option, frame, &choiceCount);
+            if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)choiceCount, interaction.clickOrder, false);
             UI_Parent(choice) {
                 f32 chevron = floorf(20.8f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
-                Prog__Label(Prog__OptionName(frame, option, desc->choices[Min((u32)value, desc->choiceCount - 1)]), UI_Flex(), height, 0, theme->text, 0.5f);
+                Prog__Label(Prog__OptionName(frame, option, choices[Min((u32)value, choiceCount - 1)]), UI_Flex(), height, 0, theme->text, 0.5f);
                 Prog__Icon(Icon_ChevronRight, chevron, height, theme->icon, 0.5f, m);
             }
         } break;
@@ -5760,6 +5790,254 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
 
 function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m);
 
+// Load Layout: the saved layouts by name in the palette's box, which the typed text narrows, with a button on the highlighted one that
+// deletes it.
+function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
+    u32 matches[Prog_MaxLayouts];
+    u32 count = Prog_LayoutMatches(state, matches);
+    state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
+    f32 s = m->scale, line = m->separator;
+    f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line;
+    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f);
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
+    f32 listHeight = (f32)Max(count, 1u) * row - line + 2 * pad;
+    f32 height = field + line + listHeight + line + footer;
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
+    f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
+    Prog__DropShadow(x, top, width, height, radius, opacity, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.8f * s + 0.5f), 0, floorf(8.0f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, 0);
+        box->props.cornerRadius = radius;
+        box->props.shape = R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight;
+        UI_Parent(box) {
+            Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(field));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                if (!state->palette.length) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(S("Select a layout..."));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+            }
+            UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        f32 side = floorf(6.4f * s + 0.5f);
+        UI_SetNextChildrenPadding((UI_Padding){ side, pad, side, pad });
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
+        UI_Parent(list) {
+            if (!count) {
+                Prog__Label(state->layoutNames.header.count ? S("No layout has that name") : S("No layouts saved yet; Save Layout keeps one"), UI_Flex(), row - line,
+                            floorf(8.0f * s + 0.5f), theme->textDim, 0);
+            }
+            for (u32 i = 0; i < count; ++i) {
+                String name = state->layoutNames.v[matches[i]];
+                UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Layout/%S", name));
+                b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
+                f32 face = row - line;
+                R_Color washed = theme->selection;
+                washed.a *= 0.35f;
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(face));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(10.4f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
+                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
+                UI_Interaction interaction = UI_InteractionFromBlock(entry);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
+                UI_Parent(entry) {
+                    u8 *marks = state->palette.length ? ArenaPushArray(&state->frameArena, name.length + 1, u8) : NULL;
+                    if (marks) Prog_FilterMatch(name, Prog_EditText(&state->palette), marks);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(face));
+                    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((face - m->line) * 0.5f), 0, 0 });
+                    UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
+                    UI_Parent(texts) Prog__MarkedText(name, marks, m->font, m->line, theme->text);
+                    if (highlighted || hot) {
+                        UI_Interaction drop = Prog__TextButton(StrFormat(&state->frameArena, "LayoutDelete/%S", name), Icon_Trash2, m->icons, UI_Pixels(floorf(24.0f * s + 0.5f)), face, 0,
+                                                               theme->text, theme->text, theme->iconDisabled, true, m);
+                        if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutDelete, i, 0, drop.clickOrder);
+                        Prog__PopupTooltip(state, S("Delete layout."));
+                    }
+                }
+                if (i + 1 < count) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+            }
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
+        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
+        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background.a < 1 ? (R_Color){0} : theme->menu, radius, m);
+    }
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+}
+
+// A button of the layouts' boxes: a filled face with its label, dimmed and taking no clicks while it would do nothing.
+function b32 Prog__LayoutButton(Prog_State *state, String key, String label, b32 able, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale;
+    UI_Key id = UI_KeyFromStr(0, key);
+    b32 hot = able && UI->hotKey == id;
+    R_Color face = theme->track;
+    if (!able) face.a *= 0.5f;
+    UI_SetNextPrefWidth(UI_Pixels(floorf(96.0f * s + 0.5f)));
+    UI_SetNextPrefHeight(UI_Pixels(floorf(24.0f * s + 0.5f)));
+    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+    UI_SetNextBorderThickness(hot ? 1.2f * s : 0);
+    UI_SetNextColors((UI_Colors){ .background = face, .border = theme->textDim, .text = able ? theme->text : theme->textDim });
+    UI_SetNextText(label);
+    UI_Block *button = UI_AddBlockFromKey(id, UI_Flag_DrawBackground | UI_Flag_DrawText | (hot ? UI_Flag_DrawBorder : 0) | (able ? UI_Flag_LeftMouseClickable : 0));
+    return able && UI_InteractionFromBlock(button).clicked;
+}
+
+// The Save Layout box: its title, the name being typed, and Save, Update, which only a taken name allows, and Cancel.
+function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->layoutSaving) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSaveCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, outside.pressOrder);
+    f32 s = m->scale, line = m->separator;
+    f32 head = floorf(32.0f * s + 0.5f), field = floorf(36.8f * s + 0.5f), band = floorf(43.2f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, floorf(32.8f * s + 0.5f), s)), height = head + line + field + line + band;
+    f32 x = floorf((view.x1 - view.x0 - width) * 0.5f), top = 2 * m->bar + floorf(11.2f * s + 0.5f);
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("LayoutSaveReveal")));
+    Prog__DropShadow(x, top, width, height, radius, opacity, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSave")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    String name = Prog__TrimSpaces(Prog_EditText(&state->layoutName));
+    b32 taken = false;
+    for (u64 i = 0; i < state->layoutNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->layoutNames.v[i], name);
+    UI_Parent(panel) {
+        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
+        UI_Parent(title) Prog__Label(S("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
+        UI_Parent(box) {
+            if (!state->layoutName.length) {
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                UI_SetNextPrefHeight(UI_Pixels(m->line));
+                UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                UI_SetNextText(S("Type a new or existing layout name to update..."));
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+            }
+            Prog__EditContents(&state->layoutName, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        // The buttons end as far from the outline as from the inside of the box.
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, floorf(11.2f * s + 0.5f), 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(band), UI_Layout_Horizontal, theme->background, 0);
+        UI_Parent(buttons) {
+            Prog__Spacer(UI_Flex(), UI_Pixels(band));
+            f32 apart = floorf(6.4f * s + 0.5f);
+            if (Prog__LayoutButton(state, S("LayoutSaveSave"), S("Save"), name.length != 0, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, 0);
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
+            if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), S("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
+            if (Prog__LayoutButton(state, S("LayoutSaveCancel"), S("Cancel"), true, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
+        }
+    }
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+}
+
+// What the layouts ask before overwriting or deleting one, over everything, with a button to go ahead and one not to.
+function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->layoutAsk) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_SetNextColors((UI_Colors){ .background = { 0, 0, 0, 0.35f } });
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutAskCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, outside.pressOrder);
+    String name = StrMake((const char *)state->layoutAskName, state->layoutAskLength);
+    b32 deleting = state->layoutAsk == Prog_LayoutAsk_Delete;
+    String title = deleting ? StrFormat(&state->frameArena, "Delete the layout \"%S\"?", name) : StrFormat(&state->frameArena, "Overwrite the existing layout \"%S\"?", name);
+    f32 width = floorf(MinF32(MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, m->line * 20), view.x1 - view.x0 - 2 * m->inset));
+    f32 height = floorf(m->row + m->bar + m->inset * 3);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf((view.x1 - view.x0 - width) * 0.5f), floorf((view.y1 - view.y0 - height) * 0.4f) });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, m->inset });
+    UI_SetNextCornerRadius(m->radius * 2);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->hover });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutAsk")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
+        Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
+        UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
+        UI_Parent(buttons) {
+            Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
+            UI_Interaction cancel = Prog__TextButton(S("LayoutAskCancel"), S("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
+            if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, cancel.clickOrder);
+            Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
+            UI_Interaction confirm = Prog__TextButton(S("LayoutAskConfirm"), deleting ? S("Delete") : S("Overwrite"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset,
+                                                      theme->danger, theme->danger, theme->textDim, true, m);
+            if (confirm.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 1, 0, confirm.clickOrder);
+        }
+    }
+}
+
 // The palette, Go To, Search Tabs or Options while open, and for a moment after they close as they fade out.
 function void Prog__Palette(Prog_State *state, const Prog_Metrics *m)
 {
@@ -5791,6 +6069,10 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     }
     if (state->paletteMode == Prog_PaletteMode_Tabs) {
         Prog__TabSearch(state, m);
+        return;
+    }
+    if (state->paletteMode == Prog_PaletteMode_Layouts) {
+        Prog__LayoutsPicker(state, m);
         return;
     }
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -7270,7 +7552,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Arena *frame = &state->frameArena;
-    u32 slot = (u32)(column - state->millerColumns.v);
+    u32 slot = (u32)(column - state->millerColumns->v);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -7710,6 +7992,8 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__HotkeyQuestion(state, m);
     Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);
+    Prog__LayoutSaveBox(state, m);
+    Prog__LayoutQuestion(state, m);
     // The window's outline, where no system border draws it, over everything as Windows' border is,
     // in the color of the top border the title bar draws, and round where the compositor rounds the window.
     if (PlatformWindowNeedsBorder()) {

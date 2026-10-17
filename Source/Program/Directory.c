@@ -1507,7 +1507,8 @@ function void Prog__DirectoryJob(P_Job *job)
         // A file inside an archive opens from its copy taken out.
         String copy = input->kind == Prog_JobKind_Open ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
         if (!P_IsCancelled(&job->cancelToken)) {
-            *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
+            *error = input->explorer ? P_OpenFileExplorer(&job->arena, input->path)
+                   : input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
         }
         job->result = error;
@@ -2391,6 +2392,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory)
     if (!configDirectory.length) return;
     b32 found = false;
     Prog__LoadList(state, Prog_BookmarksFile, &state->bookmarkArena, &state->bookmarks, &found);
+    Prog_LoadLayouts(state);
     // The sidebar's groups stay open or closed from the last run, whatever the window starts with.
     Scratch session = GetScratch();
     String text = {0};
@@ -2603,7 +2605,10 @@ function String Prog_HomePath(Arena *arena)
 // A start without folders to open: the last run's panels and tabs, or the place the settings name.
 function void Prog_StartUp(Prog_State *state)
 {
-    if (state->startup == Prog_Startup_LastSession) {
+    // A layout that is gone leaves the last run's panels.
+    String layout = StrMake((const char *)state->startupLayout, state->startupLayoutLength);
+    if (layout.length && Prog_ApplyLayout(state, layout)) return;
+    if (state->startup == Prog_Startup_LastSession || layout.length) {
         Prog_LoadSession(state);
         return;
     }
@@ -2715,9 +2720,10 @@ function void Prog__ActivatePanel(Prog_State *state, u32 index)
 function Prog_MillerColumn *Prog_MillerList(Prog_State *state, String path)
 {
     u64 now = PlatformNowMicroseconds();
+    if (!state->millerColumns) state->millerColumns = ArenaPushStruct(&state->millerArena, Prog_MillerColumns);
     Prog_MillerColumn *column = NULL, *oldest = NULL;
     for (u32 i = 0; i < Prog_MillerSlots && !column; ++i) {
-        Prog_MillerColumn *slot = &state->millerColumns.v[i];
+        Prog_MillerColumn *slot = &state->millerColumns->v[i];
         if (slot->path.length && StrIsEqual(slot->path, path) && slot->hidden == state->showHidden) column = slot;
         else if (!oldest || slot->usedFrame < oldest->usedFrame) oldest = slot;
     }
@@ -2750,12 +2756,13 @@ function Prog_MillerColumn *Prog_MillerList(Prog_State *state, String path)
 
 function void Prog__ReleaseCurrentPanel(Prog_State *state)
 {
-    for (u32 i = 0; i < Prog_MillerSlots; ++i) {
-        Prog_MillerColumn *column = &state->millerColumns.v[i];
+    for (u32 i = 0; state->millerColumns && i < Prog_MillerSlots; ++i) {
+        Prog_MillerColumn *column = &state->millerColumns->v[i];
         if (column->job) P_RequestCancel(&column->job->cancelToken);
         ArenaRelease(&column->arena);
         ArenaRelease(&column->pathArena);
     }
+    ArenaRelease(&state->millerArena);
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
     if (state->measureJob) P_RequestCancel(&state->measureJob->cancelToken);
     P_DirectoryWatchStop(&state->watch);
@@ -3627,6 +3634,113 @@ function void Prog_LoadSession(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
+#define Prog_LayoutsFile S("Layouts.txt")
+
+// The layouts saved in Layouts.txt, each a "layout" line with its name, its text, and an "end" line.
+function void Prog_LoadLayouts(Prog_State *state)
+{
+    ArenaClear(&state->layoutsArena);
+    state->layoutNames = state->layoutTexts = (ArrayStr){0};
+    if (!state->configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    String text = {0}, name = {0};
+    StrBuilder body = {0};
+    b32 inside = false;
+    ArrayStr lines = P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_LayoutsFile), &text) ? StrSplit(scratch.arena, text, '\n') : (ArrayStr){0};
+    for (u64 l = 0; l < lines.header.count; ++l) {
+        String line = lines.v[l];
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (!inside && line.length > 7 && StrIsEqual(StrFromTo(line, 0, 7), S("layout "))) {
+            name = StrFrom(line, 7);
+            body = (StrBuilder){0};
+            inside = true;
+        } else if (inside && StrIsEqual(line, S("end"))) {
+            if (name.length && state->layoutNames.header.count < Prog_MaxLayouts) {
+                ArrayPush(&state->layoutsArena, state->layoutNames, StrCopy(&state->layoutsArena, name));
+                ArrayPush(&state->layoutsArena, state->layoutTexts, StrCopy(&state->layoutsArena, body.buffer));
+            }
+            inside = false;
+        } else if (inside) {
+            StrBuildStr(scratch.arena, &body, line);
+            StrBuildChar(scratch.arena, &body, '\n');
+        }
+    }
+    ReleaseScratch(scratch);
+}
+
+// What a layout keeps: the window's content size and whether it is maximized, then the session's panels, tabs and sidebar.
+function String Prog_LayoutText(Arena *arena, Prog_State *state)
+{
+    PlatformWindowInfo window = PlatformWindowGetInfo();
+    return StrFormat(arena, "window %d %d %u\n%S", window.width, window.height, PlatformWindowIsMaximized() ? 1u : 0u, Prog_SessionText(arena, state));
+}
+
+// Gives the layout named `name`, matched without case, the text `text`, after the others when it is new, or with `remove` takes it out;
+// Layouts.txt is written again at once, as this happens only from a command.
+function void Prog_SetLayout(Prog_State *state, String name, String text, b32 remove)
+{
+    Arena kept = {0};
+    ArrayStr names = {0}, texts = {0};
+    b32 placed = false;
+    for (u64 i = 0; i < state->layoutNames.header.count; ++i) {
+        b32 same = Prog__EqualFolded(state->layoutNames.v[i], name);
+        placed |= same;
+        if (same && remove) continue;
+        ArrayPush(&kept, names, StrCopy(&kept, same ? name : state->layoutNames.v[i]));
+        ArrayPush(&kept, texts, StrCopy(&kept, same ? text : state->layoutTexts.v[i]));
+    }
+    if (!placed && !remove && names.header.count < Prog_MaxLayouts) {
+        ArrayPush(&kept, names, StrCopy(&kept, name));
+        ArrayPush(&kept, texts, StrCopy(&kept, text));
+    }
+    ArenaRelease(&state->layoutsArena);
+    state->layoutsArena = kept;
+    state->layoutNames = names;
+    state->layoutTexts = texts;
+    if (!state->configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    StrBuilder file = {0};
+    for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "layout %S\n%Send\n", names.v[i], texts.v[i]));
+    P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_LayoutsFile), file.buffer);
+    if (error.code) {
+        ArenaClear(&state->errorArena);
+        state->error = StrFormat(&state->errorArena, "Save layouts: %S", error.message);
+    }
+    ReleaseScratch(scratch);
+}
+
+// Puts the window in the layout named `name`: its size, then its panels and tabs in place of the shown ones, which are closed first.
+function b32 Prog_ApplyLayout(Prog_State *state, String name)
+{
+    String text = {0};
+    for (u64 i = 0; i < state->layoutNames.header.count && !text.length; ++i) if (Prog__EqualFolded(state->layoutNames.v[i], name)) text = state->layoutTexts.v[i];
+    if (!text.length) return false;
+    Scratch scratch = GetScratch();
+    text = StrCopy(scratch.arena, text);
+    Index end = StrIndexChar(text, '\n', SSF_CountOnFail);
+    String first = StrFromTo(text, 0, (i64)end.value);
+    if (first.length > 7 && StrIsEqual(StrFromTo(first, 0, 7), S("window "))) {
+        String rest = StrFrom(first, 7);
+        u64 width = 0, height = 0, maximized = 0;
+        if (Prog__TakeNumber(&rest, &width) && Prog__TakeNumber(&rest, &height) && Prog__TakeNumber(&rest, &maximized)) PlatformWindowSetSize((i32)width, (i32)height, maximized != 0);
+        text = StrFrom(text, Min(end.value + 1, text.length));
+    }
+    // Every inspector's panel, then the panels but the shown one, then its tabs but the shown one.
+    Prog_CloseMenu(state);
+    if (state->renaming) Prog__EndRename(state, false);
+    u64 keep = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
+    u64 owners[Prog_MaxPanels] = {0};
+    u32 ownerCount = 0;
+    for (u32 i = 0; i < state->panelCount; ++i) if (!state->panels[i].inspectorOf) owners[ownerCount++] = state->panels[i].id;
+    for (u32 i = 0; i < ownerCount; ++i) Prog_DropInspectorPanel(state, owners[i]);
+    for (u32 guard = 0; state->panelCount > 1 && guard < Prog_MaxPanels; ++guard) Prog_ClosePanel(state, Prog_PanelIndex(state, keep) == 0 ? 1 : 0);
+    Prog__ActivatePanel(state, 0);
+    for (u32 guard = 0; state->tabCount > 1 && guard < Prog_MaxTabs; ++guard) Prog_CloseTab(state, state->activeTab ? 0 : 1);
+    b32 result = Prog_RestoreSession(state, text);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 Prog__AnyMeasuring(const Prog_State *state)
 {
     b32 result = state->measureJob != NULL;
@@ -4236,8 +4350,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job->result && input->generation == state->generation) Prog_ShowInFolder(state, *(String *)job->result, input->inTab);
             changed = true;
         } else if (input->kind == Prog_JobKind_FilesList && input->miller) {
-            for (u32 i = 0; i < Prog_MillerSlots; ++i) {
-                Prog_MillerColumn *column = &state->millerColumns.v[i];
+            for (u32 i = 0; state->millerColumns && i < Prog_MillerSlots; ++i) {
+                Prog_MillerColumn *column = &state->millerColumns->v[i];
                 if (column->job != job) continue;
                 column->job = NULL;
                 if (!job->result || P_IsCancelled(&job->cancelToken)) continue;

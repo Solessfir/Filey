@@ -1456,6 +1456,33 @@ command ToggleMillerColumns {
 command MillerSelect {
 }
 
+command LayoutsSave {
+    label   = "Save Layout^window,panels,sidebar,store,preset"
+    tooltip = "Save the current window layout: window dimensions, panels, sidebar, etc."
+}
+
+command LayoutsLoad {
+    label   = "Load Layout^window,panels,sidebar,restore,preset"
+    tooltip = "Load layout and apply it to the current window."
+}
+
+command ExplorerOpen {
+    label   = "Open File Explorer^native,system,shell,manager"
+    tooltip = "Open the OS native file explorer on the currently opened file path."
+}
+
+// The Save Layout box's buttons; carries 0 for Save, 1 for Update and 2 for Cancel.
+command LayoutSaveButton {
+}
+
+// A layout's delete button in Load Layout; carries its row.
+command LayoutDelete {
+}
+
+// The answer to what the layouts asked; carries 1 to go ahead.
+command LayoutAnswer {
+}
+
 command SortByName {
     label   = "Sort By Name^order"
     tooltip = "Sort folder contents by name, treating neighbor digits as numbers."

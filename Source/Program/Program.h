@@ -337,6 +337,7 @@ typedef struct Prog_JobInput {
     b32 showHidden;
     b32 showSystem;
     b32 miller;            // FilesList: for a Miller column of `panel`, rather than the folder dropdown
+    b32 explorer;          // Open: the folder `path` in the system's file manager
     b32 expanded;
     Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
@@ -502,6 +503,7 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_Tabs,
     Prog_PaletteMode_GoTo,
     Prog_PaletteMode_Options,
+    Prog_PaletteMode_Layouts,
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
 
@@ -701,6 +703,16 @@ typedef struct Prog_GoToListed {
 } Prog_GoToListed;
 
 // A folder dropdown's listing: folders, then files, each by name.
+// What the layouts ask before they go on: overwriting a saved layout, or deleting one.
+typedef enum Prog_LayoutAsk {
+    Prog_LayoutAsk_None,
+    Prog_LayoutAsk_Overwrite,
+    Prog_LayoutAsk_Delete,
+    Prog_LayoutAsk_Count,
+} Prog_LayoutAsk;
+
+#define Prog_MaxLayouts 64
+
 typedef struct Prog_FilesListed {
     Prog_Entry *items;
     u64 count;
@@ -863,7 +875,7 @@ typedef struct Prog_Tab {
 //   columnSet: the details columns, see Prog_PanelColumns; listScrolls: its items ran past the bottom in the last layout
 //   inspectorView: how its inspector lists folders, kept while the inspector's panel is closed
 //   ownView, ownSettings: while a folder's kept view applies, the panel's own, which the next folder without one gets back
-//   miller, millerColumns: Miller columns are on, and the folders they list
+//   miller, millerColumns: Miller columns are on, and the folders they list, made in millerArena once they first show
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -875,7 +887,7 @@ typedef struct Prog_Tab {
     X(f32, statusRight) X(Prog_ColumnSet, columnSet) X(b32, listScrolls) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
-    X(b32, miller) X(Prog_MillerColumns, millerColumns)
+    X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
@@ -1207,6 +1219,19 @@ typedef struct Prog_State {
     b32 previewArchiveCounted;
     u64 previewStamp;         // the archive's size and modified time as counted, so that a change counts it again
     u64 previewSubmitted;     // when the preview's job started, so that a quick one shows no progress
+    // Saved layouts, kept in Layouts.txt: their names, and their texts, a window line before a session's.
+    Arena layoutsArena;
+    ArrayStr layoutNames, layoutTexts;
+    // The Save Layout box while open, with the name typed into it.
+    b32 layoutSaving;
+    Prog_TextEdit layoutName;
+    // What the layouts ask first, about the layout named `layoutAskName`.
+    enum8(Prog_LayoutAsk) layoutAsk;
+    u8 layoutAskName[256];
+    u32 layoutAskLength;
+    // The layout Load On Startup names, which takes the place of `startup` while there is one.
+    u8 startupLayout[256];
+    u32 startupLayoutLength;
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
     // The view is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;
@@ -1411,6 +1436,11 @@ function b32 Prog_FilterMatch(String name, String filter, u8 *marks);
 function String Prog_HexDump(Arena *arena, String bytes, b32 cut);
 function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 cut);
 function P_DirectoryTotals Prog_ArchiveTotals(const P_FileArray *items);
+function void Prog_LoadLayouts(Prog_State *state);
+function String Prog_LayoutText(Arena *arena, Prog_State *state);
+function void Prog_SetLayout(Prog_State *state, String name, String text, b32 remove);
+function b32 Prog_ApplyLayout(Prog_State *state, String name);
+function u32 Prog_LayoutMatches(const Prog_State *state, u32 *out);
 function b32 Prog_PreviewsArchive(const Prog_State *state, const Prog_Entry *entry);
 function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed);
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks);
@@ -1433,6 +1463,7 @@ function f32 Prog_ColumnShare(Prog_ColumnKind kind);
 function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 column, u64 value);
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count];
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
+function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option option, Arena *arena, u32 *count);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
 function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count);
