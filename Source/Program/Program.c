@@ -6068,7 +6068,8 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
-                String title = StrFormat(&state->frameArena, "%s %" PRIu64 " item%s to %S", transfer->move ? "Moving" : "Copying", items, items == 1 ? "" : "s", target);
+                String title = transfer->opening ? StrFormat(&state->frameArena, "Extracting %S to open it", target)
+                             : StrFormat(&state->frameArena, "%s %" PRIu64 " item%s to %S", transfer->move ? "Moving" : "Copying", items, items == 1 ? "" : "s", target);
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
                 // Lucide draws these larger than its cross, which the smaller icons bring to its size.
                 UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", i), paused ? Icon_Play : Icon_Pause, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
@@ -7183,6 +7184,30 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                         : StrFormat(&state->frameArena, "%S, %S", entry->type, Prog_FormatSize(&state->frameArena, entry->file.size));
                     Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
                     Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+                    // A file inside an archive is taken out before it shows, which a large one takes a while for.
+                    P_Progress *taking = state->previewJob ? ((Prog_JobInput *)state->previewJob->input)->progress : NULL;
+                    u64 total = taking ? atomic_load(&taking->totalBytes) : 0, done = total ? Min(atomic_load(&taking->doneBytes), total) : 0;
+                    if (total && UI->nowMicroseconds - Min(state->previewSubmitted, UI->nowMicroseconds) >= 400000) {
+                        f32 part = (f32)((f64)done / (f64)total), barWidth = floorf(MinF32(room, m->line * 16)), barHeight = MaxF32(3, floorf(4 * m->scale));
+                        Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
+                        Prog__Label(StrFormat(&state->frameArena, "Extracting it from the archive to preview, %u%%", (u32)(part * 100)), UI_Flex(), m->row, 0, theme->text, 0);
+                        UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                        UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                        UI_SetNextCornerRadius(barHeight * 0.5f);
+                        UI_SetNextColors((UI_Colors){ .background = theme->track });
+                        UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_Clip);
+                        UI_Parent(track) {
+                            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                            UI_SetNextPrefWidth(UI_Pixels(floorf(barWidth * part)));
+                            UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                            UI_SetNextCornerRadius(barHeight * 0.5f);
+                            UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                        }
+                        Prog__Label(StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, done), Prog_FormatSize(&state->frameArena, total)), UI_Flex(), m->row, 0,
+                                    theme->textDim, 0);
+                    }
+                    if (taking) UI_KeepAnimating();
                 }
             }
         }

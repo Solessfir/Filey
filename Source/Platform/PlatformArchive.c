@@ -14,7 +14,7 @@ function void P__ArchiveRemove(String path);
 
 // Writing, which adds to archives, is loaded with the rest and only needed then.
 typedef struct P__Archive {
-    b32 tried, loaded, writable;
+    b32 loaded, writable;
     void *(*readNew)(void);
     i32 (*supportFilterAll)(void *);
     i32 (*supportFormatAll)(void *);
@@ -50,14 +50,13 @@ typedef struct P__Archive {
     void (*entrySetMtime)(void *, i64, i64);
 } P__Archive;
 global P__Archive P__archive;
+global atomic_uint P__archiveLoad;  // 0 before the first try, 1 while one job loads it, 2 once it is loaded or missing
 
-function b32 P__LoadArchive(void)
+function void P__LoadArchiveSymbols(void)
 {
     P__Archive *a = &P__archive;
-    if (a->tried) return a->loaded;
-    a->tried = true;
     *(void **)&a->readNew = P__ArchiveSymbol("archive_read_new");
-    if (!a->readNew) return false;
+    if (!a->readNew) return;
     *(void **)&a->supportFilterAll = P__ArchiveSymbol("archive_read_support_filter_all");
     *(void **)&a->supportFormatAll = P__ArchiveSymbol("archive_read_support_format_all");
     *(void **)&a->openFilename = P__ArchiveSymbol(P__ArchiveOpenReadName);
@@ -93,7 +92,18 @@ function b32 P__LoadArchive(void)
                 a->mtime && a->readBlock && a->error && a->format && a->filterCode && a->filterBytes;
     a->writable = a->loaded && a->writeNew && a->writeFormat && a->writeFilter && a->writeOptions && a->writeOpen && a->writeHeader && a->writeData && a->writeClose && a->writeFree &&
                   a->entryNew && a->entryFree && a->entrySetPath && a->entryCopyStat && a->entrySetFiletype && a->entrySetPerm && a->entrySetSize && a->entrySetMtime;
-    return a->loaded;
+}
+
+// Jobs that want it at the same time wait for the first one to load it.
+function b32 P__LoadArchive(void)
+{
+    u32 untried = 0;
+    if (atomic_compare_exchange_strong(&P__archiveLoad, &untried, 1)) {
+        P__LoadArchiveSymbols();
+        atomic_store(&P__archiveLoad, 2);
+    }
+    while (atomic_load(&P__archiveLoad) != 2) P_Sleep(1);
+    return P__archive.loaded;
 }
 
 // Puts `name` up as the item being worked on, for the program to show.
@@ -152,9 +162,10 @@ enum { P__ArchiveWarn = -20 };
 function b32 P__ArchiveNext(void *reader, void **entry, String *name, b32 *folder, const P_CancelToken *cancel)
 {
     P__Archive *a = &P__archive;
-    // What is left of the last entry is read through here where skipping it means unpacking it anyway, in a compressed stream or a 7z, so
-    // that a cancel need not wait for a large one; a zip or a plain tar skips it with a seek.
-    if (*entry && (a->filterCode(reader, 0) > 0 || (a->format(reader) & 0xFF0000) == P__Archive7z)) {
+    // What is left of the last entry is read through here where skipping it means unpacking it anyway, in a compressed stream, so that a
+    // cancel need not wait for a large one; a zip or a plain tar skips it with a seek, and a 7z that is only listed without unpacking.
+    // ponytail: skipping to a later entry of a solid 7z unpacks the ones before it without a cancel; read them through here when that shows.
+    if (*entry && a->filterCode(reader, 0) > 0) {
         const void *block = NULL;
         u64 size = 0;
         i64 offset = 0;

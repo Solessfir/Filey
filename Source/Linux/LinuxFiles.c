@@ -108,6 +108,10 @@ function i64 P_NowUnix(void)
 }
 
 // The system's libarchive; every Arch system has it, as pacman uses it.
+// libarchive turns names into the thread's character set, which is ASCII until a locale is chosen, so a thread that opens an archive
+// switches to UTF-8 first; names are UTF-8 everywhere else here anyway. It is made while the library loads, which one job does.
+global locale_t P__archiveLocale;
+
 function void *P__ArchiveSymbol(const char *name)
 {
     local_persist b32 tried;
@@ -115,17 +119,14 @@ function void *P__ArchiveSymbol(const char *name)
     if (!tried) {
         tried = true;
         library = dlopen("libarchive.so.13", RTLD_NOW | RTLD_LOCAL);
+        P__archiveLocale = newlocale(LC_CTYPE_MASK, "C.UTF-8", (locale_t)0);
     }
     return library ? dlsym(library, name) : NULL;
 }
 
-// libarchive turns names into the thread's character set, which is ASCII until a locale is chosen, so a thread that opens an archive
-// switches to UTF-8 first; names are UTF-8 everywhere else here anyway.
 function const void *P__ArchiveNativePath(Arena *arena, String path)
 {
-    local_persist locale_t utf8;
-    if (!utf8) utf8 = newlocale(LC_CTYPE_MASK, "C.UTF-8", (locale_t)0);
-    if (utf8) uselocale(utf8);
+    if (P__archiveLocale) uselocale(P__archiveLocale);
     return P__FilePathCString(arena, path);
 }
 

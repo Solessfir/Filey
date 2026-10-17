@@ -749,7 +749,7 @@ function String Prog__WatchedFolder(Prog_State *state)
 // A copy on disk of the file at `path` inside an archive, taken out into this run's folder the first time and kept for the next; empty for
 // a file that is not in one or does not come out. Each archive folder gets a folder of its own there, named by a hash of its path.
 // ponytail: a copy is kept while the archive changes under it; its modified time in the hash would take the change.
-function String Prog_ArchiveCopy(Arena *arena, String path, const P_CancelToken *cancel)
+function String Prog_ArchiveCopy(Arena *arena, String path, P_Progress *progress, const P_CancelToken *cancel)
 {
     String archive = {0}, inner = {0};
     if (!Prog_InArchive(path, &archive, &inner) || !inner.length) return (String){0};
@@ -762,7 +762,7 @@ function String Prog_ArchiveCopy(Arena *arena, String path, const P_CancelToken 
     if (P_PathExists(copy)) return copy;
     String made = {0};
     if (!P_IsDirectory(into) && (P_CreateItem(arena, run, hex, true, &made).code || !StrIsEqual(made, hex))) return (String){0};
-    return !P_ExtractArchive(arena, archive, within, &name, 1, into, NULL, cancel).code && P_PathExists(copy) ? copy : (String){0};
+    return !P_ExtractArchive(arena, archive, within, &name, 1, into, progress, cancel).code && P_PathExists(copy) ? copy : (String){0};
 }
 
 // Copies or moves as P_TransferItems does, and copies into and out of archives: out of one by taking the items out, into one by adding
@@ -1505,7 +1505,7 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_Open || input->kind == Prog_JobKind_Rename) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         // A file inside an archive opens from its copy taken out.
-        String copy = input->kind == Prog_JobKind_Open ? Prog_ArchiveCopy(&job->arena, input->path, &job->cancelToken) : (String){0};
+        String copy = input->kind == Prog_JobKind_Open ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
         if (!P_IsCancelled(&job->cancelToken)) {
             *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
@@ -1721,7 +1721,7 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_HexPage) {
-        String *bytes = ArenaPushStruct(&job->arena, String), copy = Prog_ArchiveCopy(&job->arena, input->path, &job->cancelToken);
+        String *bytes = ArenaPushStruct(&job->arena, String), copy = Prog_ArchiveCopy(&job->arena, input->path, NULL, &job->cancelToken);
         if (!P_ReadFileAt(&job->arena, copy.length ? copy : input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
         job->result = bytes;
         return;
@@ -1731,7 +1731,7 @@ function void Prog__DirectoryJob(P_Job *job)
         // With the inspector set to hex, every file's bytes.
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         // A file inside an archive is read from its copy taken out, but for one too large to be worth it.
-        String copy = !input->folder && input->size <= Prog_ArchivePreviewBytes ? Prog_ArchiveCopy(&job->arena, input->path, &job->cancelToken) : (String){0};
+        String copy = !input->folder && input->size <= Prog_ArchivePreviewBytes ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
         String path = copy.length ? copy : input->path;
         String start = {0};
         P_Image image = {0};
@@ -4061,6 +4061,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             changed = true;
         } else if (input->kind == Prog_JobKind_Open) {
+            for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
+                if (state->transfers[i].job == job) state->transfers[i].job = NULL;
+            }
             P_FileError *error = job->result;
             if (error && error->code) {
                 ArenaClear(&state->errorArena);
@@ -4464,6 +4467,32 @@ function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods)
     state->hasFocus = true;
 }
 
+// Opens the file at `path` in its program, from a job. One inside an archive is taken out first, with a card of how far that is when there is
+// a free slot for it.
+function void Prog_OpenFile(Prog_State *state, String path)
+{
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_Open;
+    input->generation = state->generation;
+    input->sort = state->directory.sort;
+    input->descending = state->directory.descending;
+    input->path = StrCopy(&job->arena, path);
+    String archive = {0}, inner = {0};
+    for (u32 i = 0; Prog_ArchiveSplit(path, &archive, &inner) && inner.length && i < Prog_MaxTransfers; ++i) {
+        Prog_Transfer *transfer = &state->transfers[i];
+        if (transfer->job) continue;
+        String name = Prog_EntryLeaf(path);
+        *transfer = (Prog_Transfer){ .job = job, .opening = true, .started = PlatformNowMicroseconds(), .targetLength = (u32)Min(name.length, sizeof(transfer->target)) };
+        MemCopy(transfer->target, name.value, transfer->targetLength);
+        input->progress = &transfer->progress;
+        break;
+    }
+    job->input = input;
+    P_JobSubmit(job);
+}
+
 function void Prog_OpenRow(Prog_State *state, u64 row)
 {
     if (state->loading || row >= state->directory.count) return;
@@ -4474,16 +4503,7 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
         Prog_RequestDirectory(state, path, true, 0);
     } else {
         Prog__AddRecent(state, path, true, entry->file.hidden);
-        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
-        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
-        input->panel = Prog__PanelId(state);
-        input->kind = Prog_JobKind_Open;
-        input->generation = state->generation;
-        input->sort = state->directory.sort;
-        input->descending = state->directory.descending;
-        input->path = StrCopy(&job->arena, path);
-        job->input = input;
-        P_JobSubmit(job);
+        Prog_OpenFile(state, path);
     }
 }
 

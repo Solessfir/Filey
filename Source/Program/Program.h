@@ -390,6 +390,7 @@ typedef struct Prog_Transfer {
     P_Job *job;          // NULL for a free slot
     P_Progress progress;
     b32 move;
+    b32 opening;         // a file taken out of an archive to open it, rather than a copy
     b32 answerAll;       // the next answer about a taken name answers the rest too
     u64 started;         // quick ones finish before they would show
     u8 target[256];      // the target folder's name
@@ -1182,6 +1183,7 @@ typedef struct Prog_State {
     P_DirectoryTotals previewArchiveTotals;  // an archive the inspector's panel lists, once previewArchiveCounted
     b32 previewArchiveCounted;
     u64 previewStamp;         // the archive's size and modified time as counted, so that a change counts it again
+    u64 previewSubmitted;     // when the preview's job started, so that a quick one shows no progress
     // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
     // The view is dragged to move it.
     enum8(Prog_ImageScale) imageScaleMode;

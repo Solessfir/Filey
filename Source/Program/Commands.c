@@ -1188,14 +1188,7 @@ function void Prog__GoToOpen(Prog_State *state, Prog_GoToItem item)
         if (item.path.length && !StrIsEqual(item.path, state->directory.path)) Prog_RequestDirectory(state, item.path, true, 0);
         return;
     }
-    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
-    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
-    input->panel = Prog__PanelId(state);
-    input->kind = Prog_JobKind_Open;
-    input->generation = state->generation;
-    input->path = StrCopy(&job->arena, item.path);
-    job->input = input;
-    P_JobSubmit(job);
+    Prog_OpenFile(state, item.path);
 }
 
 // Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
@@ -1773,7 +1766,11 @@ function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b3
     input->showHidden = state->showHidden;
     input->hex = state->inspectorHex;
     input->size = size;
+    // A file inside an archive is taken out first, which the inspector shows the progress of.
+    String within = {0}, inside = {0};
+    if (!folder && !archive && Prog_ArchiveSplit(path, &within, &inside) && inside.length) input->progress = ArenaPushStruct(&job->arena, P_Progress);
     state->hexSize = size;
+    state->previewSubmitted = PlatformNowMicroseconds();
     job->input = input;
     state->previewJob = job;
     P_JobSubmit(job);
