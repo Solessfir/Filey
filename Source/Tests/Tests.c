@@ -648,6 +648,7 @@ int main(void)
     TestCodegenParse();
     TestHotkeyDispatch();
     TestProgramVirtualRows();
+    TestThumbnailSlots();
     TestJobs();
     TestLanes();
     TestBrowsing();

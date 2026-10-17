@@ -303,6 +303,16 @@ typedef struct Prog_Icon {
 
 typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon value; } *v; } Prog_IconMap;
 
+// The thumbnails of one tier: their atlas's size is the tier, 0 for a slot not in use.
+typedef struct Prog_ThumbnailSlot {
+    Arena arena;
+    Prog_IconMap map;
+    Prog_IconAtlas atlas;
+    u64 drawn;  // the frame it was last drawn in
+} Prog_ThumbnailSlot;
+
+#define Prog_ThumbnailSlots 3
+
 // What a measure of a folder's tree has counted so far, readable while it runs; `pending` is the folders of it left to list, 0 once it is done.
 typedef struct Prog_TreeTotals {
     atomic_uint_fast64_t folders, files, bytes;
@@ -926,14 +936,10 @@ typedef struct Prog_State {
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
     Prog_IconAtlas iconAtlas;
     // Thumbnails for the icon views, keyed by P_FileThumbnailKey, loaded at the tier of sizes at or above what the zoom draws and scaled down
-    // to it, so that most zoom steps load nothing. A new tier keeps the last one's, which are drawn until the new ones come; a full atlas
-    // drops them all, and the items still shown ask again.
-    Arena thumbnailArena;
-    Prog_IconMap thumbnails;
-    Prog_IconAtlas thumbnailAtlas;
-    Arena thumbnailBeforeArena;
-    Prog_IconMap thumbnailsBefore;
-    Prog_IconAtlas thumbnailBeforeAtlas;
+    // to it, so that most zoom steps load nothing. Each tier in use has a slot of its own, so that panels zoomed apart keep theirs; a new
+    // tier takes the slot drawn from longest ago, and until its thumbnails come another slot's are drawn. A full atlas drops its slot's
+    // thumbnails, and the items still shown ask again.
+    Prog_ThumbnailSlot thumbnailSlots[Prog_ThumbnailSlots];
     // The tab list's folder pictures, at their one size.
     Arena folderPictureArena;
     Prog_IconMap folderPictures;

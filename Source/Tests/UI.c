@@ -687,6 +687,30 @@ function void TestGoToScore(void)
     Check(Prog_EntryScore(S("abc/zzz.txt"), S("abc"), marks) == 413 && marks[0] && marks[2] && !marks[3] && !marks[4]);
 }
 
+// Panels zoomed to different tiers keep each tier's thumbnails, frame after frame, rather than taking one slot from each other.
+function void TestThumbnailSlots(void)
+{
+    Prog_State state = {0};
+    state.iconSize = 16;
+    for (u64 frame = 1; frame < 4; ++frame) {
+        state.ui.frameIndex = frame;
+        Prog_ThumbnailSlot *small = Prog__ThumbnailSlot(&state, 192), *large = Prog__ThumbnailSlot(&state, 384);
+        Check(small != large && small->atlas.size == 192 && large->atlas.size == 384);
+        if (frame == 1) MapsPut(&small->arena, small->map, S("kept"), ((Prog_Icon){ .state = Prog_IconState_Loaded }));
+        Check(MapsGetPtrNull(small->map, S("kept")) != NULL);
+    }
+    // A third tier, as while a panel zooms, takes the free slot, and a fourth the one drawn from longest ago, whose picture shows meanwhile.
+    state.ui.frameIndex = 4;
+    Prog__ThumbnailSlot(&state, 384);
+    Prog_ThumbnailSlot *third = Prog__ThumbnailSlot(&state, 512);
+    Check(Prog__ThumbnailElsewhere(&state, third, S("kept")) != NULL);
+    state.ui.frameIndex = 5;
+    Prog__ThumbnailSlot(&state, 512);
+    Prog__ThumbnailSlot(&state, 384);
+    Check(Prog__ThumbnailSlot(&state, 768)->atlas.size == 768 && !Prog__ThumbnailElsewhere(&state, NULL, S("kept")));
+    for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) ArenaRelease(&state.thumbnailSlots[i].arena);
+}
+
 function void TestProgramVirtualRows(void)
 {
     Prog_State state = {0};

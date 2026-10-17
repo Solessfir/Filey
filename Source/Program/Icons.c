@@ -121,15 +121,15 @@ function void Prog__ResetAtlas(Prog_IconAtlas *atlas, i32 size, i32 pageSize, u3
     atlas->pageCount = 0;  // pages are kept and reused
 }
 
-// Drops every thumbnail, when the atlas is full or the icons start over; the items still shown ask for theirs again.
-// ponytail: whole-cache reset; evict the least recently drawn instead if large folders at XL size thrash it.
-function void Prog__ResetThumbnails(Prog_State *state, i32 size)
+// Drops a slot's thumbnails, when its atlas is full, the icons start over or the slot is taken for another tier; the items still shown ask
+// for theirs again.
+function void Prog__ResetThumbnails(Prog_ThumbnailSlot *slot, i32 size)
 {
-    state->thumbnails = (Prog_IconMap){0};
-    ArenaClear(&state->thumbnailArena);
+    slot->map = (Prog_IconMap){0};
+    ArenaClear(&slot->arena);
     // At most 64 MB of pages.
     i32 pageSize = 2048;
-    Prog__ResetAtlas(&state->thumbnailAtlas, size, pageSize, (u32)Max((i64)1, (i64)(UINT64_C(64) << 20) / ((i64)pageSize * pageSize * 4)));
+    Prog__ResetAtlas(&slot->atlas, size, pageSize, (u32)Max((i64)1, (i64)(UINT64_C(64) << 20) / ((i64)pageSize * pageSize * 4)));
 }
 
 // The size thumbnails load at for `size`: the next of a few tiers, each half again the last, so that what is drawn is never scaled down by
@@ -141,24 +141,32 @@ function i32 Prog__ThumbnailTier(i32 size)
     return size;
 }
 
-// Starts loading thumbnails at `tier`, keeping the current ones to draw until theirs come.
-function void Prog__ThumbnailTierChange(Prog_State *state, i32 tier)
+// The slot holding `tier`'s thumbnails, marked drawn this frame: its own, or else the one drawn from longest ago, started over for it.
+function Prog_ThumbnailSlot *Prog__ThumbnailSlot(Prog_State *state, i32 tier)
 {
-    Arena arena = state->thumbnailBeforeArena;
-    Prog_IconAtlas atlas = state->thumbnailBeforeAtlas;
-    state->thumbnailBeforeArena = state->thumbnailArena;
-    state->thumbnailsBefore = state->thumbnails;
-    state->thumbnailBeforeAtlas = state->thumbnailAtlas;
-    state->thumbnailArena = arena;
-    state->thumbnailAtlas = atlas;
-    Prog__ResetThumbnails(state, tier);
+    Prog_ThumbnailSlot *result = NULL, *oldest = &state->thumbnailSlots[0];
+    for (u32 i = 0; i < Prog_ThumbnailSlots && !result; ++i) {
+        Prog_ThumbnailSlot *slot = &state->thumbnailSlots[i];
+        if (slot->atlas.size == tier) result = slot;
+        else if (!slot->atlas.size || (oldest->atlas.size && slot->drawn < oldest->drawn)) oldest = slot;
+    }
+    if (!result) {
+        result = oldest;
+        Prog__ResetThumbnails(result, tier);
+    }
+    result->drawn = state->ui.frameIndex;
+    return result;
 }
 
-// The last tier's picture for `key`, or NULL.
-function const Prog_Icon *Prog__ThumbnailBefore(Prog_State *state, String key)
+// `key`'s picture at another tier, drawn until its own comes, or NULL.
+function const Prog_Icon *Prog__ThumbnailElsewhere(Prog_State *state, const Prog_ThumbnailSlot *own, String key)
 {
-    const Prog_Icon *icon = MapsGetPtrNull(state->thumbnailsBefore, key);
-    return icon && icon->state == Prog_IconState_Loaded ? icon : NULL;
+    for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) {
+        const Prog_ThumbnailSlot *slot = &state->thumbnailSlots[i];
+        const Prog_Icon *icon = slot != own && slot->atlas.size ? MapsGetPtrNull(slot->map, key) : NULL;
+        if (icon && icon->state == Prog_IconState_Loaded) return icon;
+    }
+    return NULL;
 }
 
 // Drops every cached icon, e.g. when the display scale changes the icon size.
@@ -170,9 +178,7 @@ function void Prog__ResetIcons(Prog_State *state, i32 size)
     Prog__ResetAtlas(&state->iconAtlas, size, Prog_IconPageSize, 8);
     state->spinnerSize = 0;
     ArenaClear(&state->iconArena);
-    Prog__ResetThumbnails(state, 0);
-    state->thumbnailsBefore = (Prog_IconMap){0};
-    ArenaClear(&state->thumbnailBeforeArena);
+    for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) Prog__ResetThumbnails(&state->thumbnailSlots[i], 0);
     state->folderPictures = (Prog_IconMap){0};
     ArenaClear(&state->folderPictureArena);
     state->folderPictureAtlas.size = 0;
@@ -182,15 +188,14 @@ function void Prog__ResetIcons(Prog_State *state, i32 size)
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size)
 {
     if (state->iconSize <= 0 || size <= 0) return NULL;
-    i32 tier = Prog__ThumbnailTier(size);
-    if (tier != state->thumbnailAtlas.size) Prog__ThumbnailTierChange(state, tier);
+    Prog_ThumbnailSlot *slot = Prog__ThumbnailSlot(state, Prog__ThumbnailTier(size));
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     P_FileKind kind = entry->drive ? P_FileKind_Drive : entry->file.kind;
     // A file that changes, such as a screenshot shown while it is still being written, gets its picture again.
     String key = StrFormat(&state->frameArena, "%S|%lld|%llu", P_FileThumbnailKey(&state->frameArena, path, kind), (long long)entry->file.modifiedTimeUnix,
                            (unsigned long long)entry->file.size);
-    const Prog_Icon *icon = Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, kind, tier, false, false);
-    return icon ? icon : Prog__ThumbnailBefore(state, key);
+    const Prog_Icon *icon = Prog__LookUpIcon(state, &slot->arena, &slot->map, key, path, kind, slot->atlas.size, false, false);
+    return icon ? icon : Prog__ThumbnailElsewhere(state, slot, key);
 }
 
 // The picture of the folder at `path`, as its thumbnail shows it, at `size` squared, for the tab list.
@@ -209,13 +214,13 @@ function const Prog_Icon *Prog_FolderPicture(Prog_State *state, String path, i32
 // The icon of `entry`'s type at its thumbnail's tier, shared by every item of that type, for the icon views to show until the thumbnail comes.
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size)
 {
-    i32 tier = Prog__ThumbnailTier(size);
-    if (state->iconSize <= 0 || size <= 0 || tier != state->thumbnailAtlas.size) return NULL;
+    if (state->iconSize <= 0 || size <= 0) return NULL;
+    Prog_ThumbnailSlot *slot = Prog__ThumbnailSlot(state, Prog__ThumbnailTier(size));
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     P_FileKind kind = entry->drive ? P_FileKind_Drive : entry->file.kind;
     String key = StrFormat(&state->frameArena, "type:%S", P_FileIconKey(&state->frameArena, path, kind));
-    const Prog_Icon *icon = Prog__LookUpIcon(state, &state->thumbnailArena, &state->thumbnails, key, path, kind, tier, false, true);
-    return icon ? icon : Prog__ThumbnailBefore(state, key);
+    const Prog_Icon *icon = Prog__LookUpIcon(state, &slot->arena, &slot->map, key, path, kind, slot->atlas.size, false, true);
+    return icon ? icon : Prog__ThumbnailElsewhere(state, slot, key);
 }
 
 // A job for `count` of the queued requests that are thumbnails, or that are not, from the `skip`th of those on.
@@ -351,15 +356,17 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
             if (!pixels[i] || !Prog__PlaceIcon(&state->folderPictureAtlas, picture, pixels[i])) picture->state = Prog_IconState_Failed;
             continue;
         }
-        // Thumbnails and their stand-ins of a size the zoom has left are dropped; the items ask again at the new size.
-        if (thumbnail && request->size != state->thumbnailAtlas.size) continue;
-        Prog_IconMap *map = thumbnail ? &state->thumbnails : &state->icons;
+        // Thumbnails and their stand-ins of a tier no slot holds any longer are dropped; the items ask again at theirs.
+        Prog_ThumbnailSlot *slot = NULL;
+        for (u32 t = 0; thumbnail && t < Prog_ThumbnailSlots; ++t) if (state->thumbnailSlots[t].atlas.size == request->size) slot = &state->thumbnailSlots[t];
+        if (thumbnail && !slot) continue;
+        Prog_IconMap *map = slot ? &slot->map : &state->icons;
         Prog_Icon *icon = MapsGetPtrNull(*map, request->key);
         if (icon == NULL) continue;
         if (pixels[i] == NULL) {
             icon->state = Prog_IconState_Failed;
-        } else if (!Prog__PlaceIcon(thumbnail ? &state->thumbnailAtlas : &state->iconAtlas, icon, pixels[i])) {
-            if (thumbnail) Prog__ResetThumbnails(state, request->size);
+        } else if (!Prog__PlaceIcon(slot ? &slot->atlas : &state->iconAtlas, icon, pixels[i])) {
+            if (slot) Prog__ResetThumbnails(slot, request->size);
             else icon->state = Prog_IconState_Failed;
         }
     }

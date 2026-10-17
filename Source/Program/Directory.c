@@ -4196,8 +4196,7 @@ function void Prog_Release(Prog_State *state)
     UI_Release(&state->ui);
     ArenaRelease(&state->frameArena);
     ArenaRelease(&state->iconArena);
-    ArenaRelease(&state->thumbnailArena);
-    ArenaRelease(&state->thumbnailBeforeArena);
+    for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) ArenaRelease(&state->thumbnailSlots[i].arena);
     ArenaRelease(&state->folderPictureArena);
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->thumbnailJobsArena);
