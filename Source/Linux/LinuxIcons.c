@@ -33,8 +33,16 @@
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_GIF
 #define STBI_ONLY_BMP
+#define STBI_ONLY_TGA
+#define STBI_ONLY_PSD
+#define STBI_ONLY_HDR
+#define STBI_ONLY_PNM
 #define STBI_NO_STDIO
 #include "Lib/stb/stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_STATIC
+#define STBI_WRITE_NO_STDIO
+#include "Lib/stb/stb_image_write.h"
 #define NANOSVG_IMPLEMENTATION
 #include "Lib/nanosvg/nanosvg.h"
 #define NANOSVGRAST_IMPLEMENTATION
@@ -576,10 +584,13 @@ function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
     return P_FileTypeKey(arena, path, kind);
 }
 
-// Pictures stb_image decodes are their own thumbnails; every other file shows its type's icon.
+// Pictures stb_image decodes are their own thumbnails; a PSD by the merged image it is saved with, and an HDR one toned down to 8 bits.
 function b32 P__IsPicture(String typeKey)
 {
-    local_persist const String pictures[] = { SInit(".png"), SInit(".jpg"), SInit(".jpeg"), SInit(".jpe"), SInit(".gif"), SInit(".bmp") };
+    local_persist const String pictures[] = {
+        SInit(".png"), SInit(".jpg"), SInit(".jpeg"), SInit(".jpe"), SInit(".gif"), SInit(".bmp"), SInit(".tga"), SInit(".psd"), SInit(".hdr"),
+        SInit(".ppm"), SInit(".pgm"), SInit(".pnm"),
+    };
     for (u64 i = 0; i < CArrayCount(pictures); ++i) {
         if (StrIsEqual(typeKey, pictures[i])) return true;
     }
@@ -794,45 +805,14 @@ function String P__StoreThumbnail(Arena *arena, const P__ThumbnailEntry *entry, 
     return tagged;
 }
 
-// `pixels` (width by height, RGBA in memory order) as a PNG.
-// ponytail: its data is stored rather than deflated, three times or so the size of a compressed one; compress it if the cache grows large.
+// `pixels` (width by height, RGBA in memory order) as a PNG, compressed by stb_image_write.
 function String P__EncodePng(Arena *arena, const u32 *pixels, i32 width, i32 height)
 {
-    // Each row with filter byte 0, in zlib's stored blocks of at most 65535 bytes, then the data's Adler-32.
-    u64 row = 1 + (u64)width * 4, raw = row * (u64)height, blocks = Max((raw + 65534) / 65535, (u64)1);
-    u64 zlib = 2 + raw + blocks * 5 + 4;
-    u8 *z = ArenaPushArrayNoZero(arena, zlib, u8), *at = z;
-    *at++ = 0x78, *at++ = 0x01;
-    u32 a = 1, b = 0;
-    for (u64 done = 0, block = 0; block < blocks; ++block) {
-        u64 length = Min(raw - done, (u64)65535);
-        *at++ = block + 1 == blocks;
-        *at++ = (u8)length, *at++ = (u8)(length >> 8), *at++ = (u8)~length, *at++ = (u8)(~length >> 8);
-        for (u64 i = 0; i < length; ++i, ++done) {
-            u64 y = done / row, x = done % row;
-            u8 byte = x == 0 ? 0 : ((const u8 *)(pixels + y * (u64)width))[x - 1];
-            *at++ = byte;
-            a = (a + byte) % 65521, b = (b + a) % 65521;
-        }
-    }
-    u32 adler = b << 16 | a;
-    *at++ = (u8)(adler >> 24), *at++ = (u8)(adler >> 16), *at++ = (u8)(adler >> 8), *at++ = (u8)adler;
-    StrBuilder png = {0};
-    local_persist const u8 signature[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
-    StrBuildStr(arena, &png, StrMake((const char *)signature, 8));
-    u8 header[13] = { (u8)(width >> 24), (u8)(width >> 16), (u8)(width >> 8), (u8)width, (u8)(height >> 24), (u8)(height >> 16), (u8)(height >> 8), (u8)height, 8, 6, 0, 0, 0 };
-    struct { const char *type; const u8 *data; u64 length; } chunks[] = { { "IHDR", header, 13 }, { "IDAT", z, zlib }, { "IEND", NULL, 0 } };
-    for (u32 c = 0; c < CArrayCount(chunks); ++c) {
-        u64 length = chunks[c].length;
-        u8 *chunk = ArenaPushArrayNoZero(arena, length + 12, u8);
-        chunk[0] = (u8)(length >> 24), chunk[1] = (u8)(length >> 16), chunk[2] = (u8)(length >> 8), chunk[3] = (u8)length;
-        MemCopy(chunk + 4, chunks[c].type, 4);
-        if (length) MemCopy(chunk + 8, chunks[c].data, length);
-        u32 crc = P__Crc32(chunk + 4, length + 4);
-        chunk[8 + length] = (u8)(crc >> 24), chunk[9 + length] = (u8)(crc >> 16), chunk[10 + length] = (u8)(crc >> 8), chunk[11 + length] = (u8)crc;
-        StrBuildStr(arena, &png, StrMake((const char *)chunk, length + 12));
-    }
-    return png.buffer;
+    i32 length = 0;
+    u8 *png = stbi_write_png_to_mem((const u8 *)pixels, width * 4, width, height, 4, &length);
+    String result = png && length > 0 ? StrCopy(arena, StrMake((const char *)png, (u64)length)) : (String){0};
+    STBIW_FREE(png);
+    return result;
 }
 
 // `pixels` (RGBA, width by height) shrunk to fit a `side` square, each pixel the average of those it covers, weighted by their alpha.

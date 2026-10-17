@@ -82,7 +82,7 @@ Source/
 ├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering
 ├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Icons.c: file icon cache and atlas; Program.c: UI
 ├─ Meta/       generated tables (Commands.meta.h) and icon codepoints (Icons.meta.h)
-├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG), nanosvg (SVG, Linux icons)
+├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG, JPEG, GIF, BMP, TGA, PSD, HDR, PNM), stb_image_write (PNG, for the Linux thumbnail cache), nanosvg (SVG, Linux icons)
 ├─ Resources/  app icon (Filey.svg master, generated Filey.ico and Icons/ sizes), Filey.rc for the Windows executable, filey.desktop
 ├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter; IconBake.py: app icon sizes; Compare/: side-by-side screenshots against the reference
 ├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)

@@ -2511,6 +2511,18 @@ function void TestTrash(TestFileFixture *fixture)
 }
 
 #if defined(__linux__)
+// Where stb_image_write's writers put what they write, for pictures the tests make.
+typedef struct TestSink {
+    Arena *arena;
+    StrBuilder out;
+} TestSink;
+
+function void TestSinkWrite(void *context, void *data, int size)
+{
+    TestSink *sink = context;
+    StrBuildStr(sink->arena, &sink->out, StrMake((const char *)data, (u64)size));
+}
+
 // Thumbnails that installed thumbnailers make, through the cache Nautilus and Nemo share, kept inside the fixture here.
 function void TestThumbnailers(TestFileFixture *fixture)
 {
@@ -2550,7 +2562,7 @@ function void TestThumbnailers(TestFileFixture *fixture)
     for (u32 i = 0; i < 300 * 200; ++i) gradient[i] = 0xFF000000u | (i % 300) | (i / 300) << 8;
     String encoded = P__EncodePng(&arena, gradient, 300, 200), photo = Prog_JoinPath(&arena, fixture->path, S("photo.png"));
     pixels = stbi_load_from_memory((const u8 *)encoded.value, (i32)encoded.length, &width, &height, &channels, 4);
-    Check(pixels && width == 300 && height == 200 && MemCompare(pixels, gradient, 300 * 200 * 4) == 0);
+    Check(pixels && width == 300 && height == 200 && MemCompare(pixels, gradient, 300 * 200 * 4) == 0 && encoded.length < 300 * 200);
     stbi_image_free(pixels);
     Check(!P_WriteFile(&arena, photo, encoded).code);
     image = (P_Image){0};
@@ -2559,6 +2571,12 @@ function void TestThumbnailers(TestFileFixture *fixture)
     Check(P_ReadFile(&arena, shrunk, &contents) && P__PngText(contents, S("Thumb::MTime")).length);
     image = (P_Image){0};
     Check(P_LoadFileThumbnail(&arena, photo, P_FileKind_File, 100, true, NULL, &image) && image.width == 128);
+    // Formats past PNG and JPEG that stb_image reads go the same way, as a TGA here.
+    TestSink sink = { .arena = &arena };
+    String targa = Prog_JoinPath(&arena, fixture->path, S("photo.tga"));
+    Check(stbi_write_tga_to_func(TestSinkWrite, &sink, 300, 200, 4, gradient) && !P_WriteFile(&arena, targa, sink.out.buffer).code);
+    image = (P_Image){0};
+    Check(P_LoadFileThumbnail(&arena, targa, P_FileKind_File, 100, true, NULL, &image) && image.width == 128 && image.height == 85);
     // One still running when its job is cancelled is stopped rather than waited for.
     P_CancelToken stop = {0};
     P_RequestCancel(&stop);
@@ -2572,8 +2590,8 @@ function void TestThumbnailers(TestFileFixture *fixture)
     else unsetenv("XDG_CACHE_HOME");
     TestRemoveTree(&arena, fixture, S("cache"));
     P_CancelToken token = {0};
-    String made[] = { source, video, photo };
-    Check(!P_DeleteItems(&arena, made, 3, false, &token).code);
+    String made[] = { source, video, photo, targa };
+    Check(!P_DeleteItems(&arena, made, 4, false, &token).code);
     ArenaRelease(&arena);
 }
 #endif
