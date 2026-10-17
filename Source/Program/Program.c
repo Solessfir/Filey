@@ -7125,21 +7125,39 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         UI_Parent(body) {
             Prog__Sidebar(state, m);
             Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
-            // The edge drags to resize the sidebar, by a grip wider than the line, lit while the pointer is on it or drags it.
-            UI_Key key = UI_KeyFromStr(0, S("SidebarEdge"));
-            b32 lit = UI->hotKey == key || UI->activeKey == key;
-            if (lit) state->cursor = PlatformCursor_ResizeHorizontal;
-            f32 grip = floorf(6.4f * scale + 0.5f);
-            UI_SetNextFloatingOffset((UI_Vec2){ width - grip, 0 });
-            UI_SetNextPrefWidth(UI_Pixels(grip));
-            UI_SetNextPrefHeight(UI_Pixels(body->rect.y1 > body->rect.y0 ? body->rect.y1 - body->rect.y0 : height));
-            UI_SetNextColors((UI_Colors){ .background = theme->selection });
-            UI_Interaction drag = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0)));
-            if (drag.active && drag.isDragging) {
-                Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_ResizeSidebar, 0, 0, 0);
-                command->target = (u64)(MaxF32(UI->mouse.x - column->rect.x0, 0) / scale * 1000.0f);
-            }
         }
+    }
+}
+
+// The sidebar's edge line, from `y0` down, ends at `x`. It drags by a grip 2 px wider than the line on each side, built over the panels so
+// that its right side takes the pointer from them, and lights a round-ended band a pixel past each side of the line: dimly under the pointer, fully when pressed.
+// The line keeps where it was taken under the pointer.
+function void Prog__SidebarEdge(Prog_State *state, f32 left, f32 x, f32 y0, f32 y1, f32 scale, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Key key = UI_KeyFromStr(0, S("SidebarEdge"));
+    b32 hot = UI->hotKey == key, active = UI->activeKey == key;
+    if (hot || active) state->cursor = PlatformCursor_ResizeHorizontal;
+    f32 reach = floorf(1.6f * scale + 0.5f), glow = floorf(0.8f * scale + 0.5f), line = x - m->separator;
+    if (hot || active) {
+        // The dim light is opaque, the selection at 35% over the list's background, so that the line does not show through it.
+        R_Color color = theme->selection, under = theme->background;
+        if (!active) color = (R_Color){ under.r + (color.r - under.r) * 0.35f, under.g + (color.g - under.g) * 0.35f, under.b + (color.b - under.b) * 0.35f, 1 };
+        UI_SetNextFloatingOffset((UI_Vec2){ line - glow - UI->root->rect.x0, y0 - UI->root->rect.y0 });
+        UI_SetNextPrefWidth(UI_Pixels(m->separator + 2 * glow));
+        UI_SetNextPrefHeight(UI_Pixels(y1 - y0));
+        UI_SetNextCornerRadius(m->separator * 0.5f + glow);
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+    UI_SetNextFloatingOffset((UI_Vec2){ line - reach - UI->root->rect.x0, y0 - UI->root->rect.y0 });
+    UI_SetNextPrefWidth(UI_Pixels(m->separator + 2 * reach));
+    UI_SetNextPrefHeight(UI_Pixels(y1 - y0));
+    UI_Interaction drag = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable));
+    if (drag.pressed) state->sidebarGrab = UI->mouse.x - line;
+    if (drag.active && drag.isDragging) {
+        Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_ResizeSidebar, 0, 0, 0);
+        command->target = (u64)(MaxF32(UI->mouse.x - state->sidebarGrab - left, 0) / scale * 1000.0f);
     }
 }
 
@@ -7230,6 +7248,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         UI_Parent(holder) Prog__PanelUI(state, zoomIndex, rect, area, scale, m);
     }
     UI->keySeed = 0;
+    if (sidebar > 0) Prog__SidebarEdge(state, view.x0 + sidebar - full, view.x0 + sidebar, view.y0 + m->separator + Prog__TitleStripHeight(m), view.y1, scale, m);
     Prog__UsePanel(state, state->activePanel);
     // Under a moving pointer, the panel it is over takes the keyboard, as a click there would, and one the keyboard switched to keeps it
     // until the pointer moves. A panel's inspector counts as the panel; nothing switches while a press, a text box or a popup has the input.
