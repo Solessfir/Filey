@@ -1256,6 +1256,10 @@ typedef struct Prog_State {
     u64 confirmCount;
     // Sidebar.
     b32 sidebarHidden;
+    // The Quick Access filter: what its box holds, which leaves the sidebar the items whose names it finds, and whether the box has the keyboard.
+    Prog_TextEdit sidebarFilter;
+    b32 sidebarFiltering;
+    R_Rect sidebarFilterRect;  // the box, as the last build laid it out
     f32 sidebarWidth;         // logical pixels its edge was dragged to; 0 for the default
     f32 sidebarGrab;          // how far right of its edge line the pointer took it
     PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags

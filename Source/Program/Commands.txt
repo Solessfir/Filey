@@ -947,6 +947,21 @@ command ToggleQuickAccess {
     hotkey  = "Ctrl+B"
 }
 
+command StartQuickAccessFilter {
+    label   = "Filter Quick Access^sidebar,find,search"
+    tooltip = "Start filtering items in the Quick Access sidebar."
+    hotkey  = "Alt+F"
+    repeat  = "false"
+}
+
+// Enter in the Quick Access filter: the keyboard goes back to the list, and the filter stays.
+command QuickAccessFilterApply {
+}
+
+// Escape or the box's clear button: the filter is cleared.
+command QuickAccessFilterCancel {
+}
+
 command BookmarksToggle {
     label   = "Toggle Folder Bookmark^save,directory"
     tooltip = "Toggle storing the currently open file path in the bookmarked section."

@@ -1089,6 +1089,34 @@ function void TestFilesPopup(TestFileFixture *fixture)
     Check(P__TestRemovePath(fixture, S("Drop/zeta.txt"), false) && P__TestRemovePath(fixture, S("Drop"), true));
 }
 
+// The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
+// filter and hands the keyboard back, and Escape clears it.
+function void TestQuickAccessFilter(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL) && state.jobs.initialized);
+    Check(TestWaitDirectory(&state));
+    state.sidebarHidden = true;
+    TestRenameKey(&state, Key_F, KeyMod_Alt);
+    Check(state.sidebarFiltering && !state.sidebarHidden);
+    // Each character comes after its key, as typing sends them.
+    TestRenameKey(&state, Key_D, 0);
+    TestRenameType(&state, S("d"));
+    TestRenameKey(&state, Key_L, 0);
+    TestRenameType(&state, S("l"));
+    Check(StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dl")) && !state.filtering && !state.filter.length);
+    Check(Prog__SidebarFinds(&state, S("Downloads")) && !Prog__SidebarFinds(&state, S("Desktop")));
+    u64 focused = state.focusedRow;
+    TestRenameKey(&state, Key_Enter, 0);
+    Check(!state.sidebarFiltering && state.sidebarFilter.length == 2 && StrIsEqual(state.directory.path, fixture->path));
+    TestRenameKey(&state, Key_Down, 0);
+    Check(state.focusedRow != focused || state.directory.count < 2);
+    TestBrowsingCommand(&state, Prog_CommandKind_StartQuickAccessFilter, 0);
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.sidebarFiltering && !state.sidebarFilter.length && Prog__SidebarFinds(&state, S("Desktop")));
+    Prog_Release(&state);
+}
+
 function void TestExpand(TestFileFixture *fixture)
 {
     Check(StrIsEqual(Prog_EntryLeaf(S("a/b/c.txt")), S("c.txt")) && StrIsEqual(Prog_EntryParent(S("a/b/c.txt")), S("a/b")));
@@ -2663,6 +2691,7 @@ function void TestBrowsing(void)
         TestSidebar(&fixture);
         TestRename(&fixture);
         TestFilter(&fixture);
+        TestQuickAccessFilter(&fixture);
         TestExpand(&fixture);
         TestWatch(&fixture);
         TestMeasure(&fixture);

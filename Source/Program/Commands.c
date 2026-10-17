@@ -674,7 +674,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(GoTo),
     Prog_CommandKind_GoToSelectInPanel, Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
     Prog__PaletteGroup(Misc),
-    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
+    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog__PaletteGroup(Options),
@@ -2193,6 +2193,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
             case Prog_CommandKind_ToggleQuickAccess: {
                 state->sidebarHidden = !state->sidebarHidden;
+                if (state->sidebarHidden) state->sidebarFiltering = false;
+            } break;
+            case Prog_CommandKind_StartQuickAccessFilter: {
+                Prog_CloseMenu(state);
+                state->sidebarHidden = false;
+                state->sidebarFiltering = true;
+            } break;
+            case Prog_CommandKind_QuickAccessFilterApply: state->sidebarFiltering = false; break;
+            case Prog_CommandKind_QuickAccessFilterCancel: {
+                state->sidebarFiltering = false;
+                state->sidebarFilter.length = state->sidebarFilter.cursor = state->sidebarFilter.anchor = 0;
+                ++state->sidebarFilter.version;
             } break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
             case Prog_CommandKind_InspectorToggleWordWrap: state->inspectorWrap = !state->inspectorWrap; break;
@@ -3287,6 +3299,28 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 if (state->typesSearch.version != version) state->typesHighlight = 0;
             }
             continue;
+        }
+        // The Quick Access filter's box takes the keyboard: typing finds sidebar items, Enter keeps what it found and hands the keyboard back,
+        // and Escape clears it. A press anywhere else hands the keyboard back and goes on.
+        if (state->sidebarFiltering) {
+            if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->sidebarFilterRect, (UI_Vec2){ event->x, event->y })) {
+                state->sidebarFiltering = false;
+            } else if (event->kind == PlatformEventKind_Text) {
+                Prog__EditInsert(&state->sidebarFilter, event->codepoint);
+                continue;
+            } else if (event->kind == PlatformEventKind_KeyDown) {
+                if (event->key == Key_Escape) {
+                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
+                    state->swallowText = true;
+                    continue;
+                }
+                if (event->key == Key_Enter) {
+                    if (!event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterApply, 0, 0, order);
+                    continue;
+                }
+                // Other hotkeys still reach the browser.
+                if (Prog__EditKey(state, &state->sidebarFilter, event) || Prog__TypesInBox(event->key, event->mods)) continue;
+            }
         }
         // The folder dropdown takes the keyboard: typing finds in it, Up and Down move the highlight, Enter goes to or opens what it lights, its own
         // hotkeys move it to the crumbs beside, and Escape or the hotkey that opened it close it.

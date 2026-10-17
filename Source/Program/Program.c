@@ -3342,7 +3342,7 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
         if (icon.length) Prog__Icon(icon, slot, m->row, color, 0, m);
         else Prog__DriveGlyph(slot, m->row, color, m);
         Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
-        Prog__Icon(Prog_GroupOpen(state, group) ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
+        Prog__Icon(Prog_GroupOpen(state, group) || state->sidebarFilter.length ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
     }
 }
 
@@ -3473,7 +3473,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
 // shows them at once); null while it is shut, when the items need no blocks.
 function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Prog_Metrics *m)
 {
-    b32 open = Prog_GroupOpen(state, group);
+    // A filter shows what it finds in every group.
+    b32 open = Prog_GroupOpen(state, group) || state->sidebarFilter.length;
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupBody/%u", (u32)group));
     UI_Block *last = UI__Find(key);
     f32 full = last ? last->contentSize.y : 0;
@@ -3485,7 +3486,60 @@ function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Pr
     return UI_AddBlockFromKey(key, UI_Flag_Clip);
 }
 
-// Quick Access: recently shown folders, bookmarks, drives and the user's folders, each under a title that opens and closes it.
+// Whether the Quick Access filter leaves the sidebar the item named `name`.
+function b32 Prog__SidebarFinds(const Prog_State *state, String name)
+{
+    return !state->sidebarFilter.length || Prog_FilterMatch(name, Prog_EditText(&state->sidebarFilter), NULL);
+}
+
+// The Quick Access filter's box over the sections: a press starts filtering, and while it holds text a button clears it.
+function void Prog__SidebarFilterBox(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 strip = Prog__StripHeight(m);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(strip));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("SidebarFilter")), UI_Flag_LeftMouseClickable);
+    UI_Interaction press = UI_InteractionFromBlock(filter);
+    if (press.pressed && !state->sidebarFiltering) Prog_QueueCommand(state, Prog_CommandKind_StartQuickAccessFilter, 0, 0, press.pressOrder);
+    state->sidebarFilterRect = filter->rect;
+    UI_Parent(filter) {
+        Prog__Spacer(UI_Pixels(floorf(9.6f * m->scale + 0.5f)), UI_Pixels(strip));
+        Prog__Icon(Icon_Search, 0, strip, theme->textDim, 0, m);
+        f32 pad = floorf(8.8f * m->scale + 0.5f);
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(strip));
+        UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+        UI_Parent(text) {
+            f32 top = floorf((strip - m->line) * 0.5f);
+            if (!state->sidebarFilter.length) {
+                UI_SetNextFloatingOffset((UI_Vec2){ pad, top });
+                UI_SetNextPrefHeight(UI_Pixels(m->line));
+                UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                UI_SetNextText(S("Filter..."));
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+            }
+            if (state->sidebarFilter.length || state->sidebarFiltering) Prog__EditContents(&state->sidebarFilter, pad, top, state->sidebarFiltering, 0, m);
+        }
+        if (state->sidebarFilter.length) {
+            UI_Interaction clear = Prog__TextButton(S("SidebarFilterClear"), Icon_X, m->icons, UI_Pixels(floorf(24.0f * m->scale + 0.5f)), strip, 0, theme->textDim, theme->text,
+                                                    theme->iconDisabled, true, m);
+            if (clear.clicked) Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, clear.clickOrder);
+        }
+        // A line across the whole sidebar under the box, level with the toolbar's.
+        f32 side = floorf(m->gap * 0.75f);
+        UI_SetNextFloatingOffset((UI_Vec2){ -side, strip - m->separator });
+        UI_SetNextPrefWidth(UI_Pixels(m->sidebar));
+        UI_SetNextPrefHeight(UI_Pixels(m->separator));
+        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+    }
+}
+
+// Quick Access: recently shown folders, bookmarks, drives and the user's folders, each under a title that opens and closes it. A filter leaves
+// each section the items whose names it finds, and the sections without any out.
 function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3497,29 +3551,16 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = theme->panel });
     UI_Block *sidebar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
     UI_Parent(sidebar) {
-        // ponytail: the filter box is a placeholder until Filter Quick Access is implemented.
-        f32 strip = Prog__StripHeight(m);
-        UI_Block *filter = Prog__Box(UI_Flex(), UI_Pixels(strip), UI_Layout_Horizontal, (R_Color){0}, 0);
-        UI_Parent(filter) {
-            Prog__Spacer(UI_Pixels(floorf(9.6f * m->scale + 0.5f)), UI_Pixels(strip));
-            Prog__Icon(Icon_Search, 0, strip, theme->textDim, 0, m);
-            Prog__LabelPadded(S("Filter..."), UI_Flex(), strip, floorf(8.8f * m->scale + 0.5f), 0, theme->textDim, 0);
-            // A line across the whole sidebar under the box, level with the toolbar's.
-            f32 side = floorf(m->gap * 0.75f);
-            UI_SetNextFloatingOffset((UI_Vec2){ -side, strip - m->separator });
-            UI_SetNextPrefWidth(UI_Pixels(m->sidebar));
-            UI_SetNextPrefHeight(UI_Pixels(m->separator));
-            UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-        }
+        Prog__SidebarFilterBox(state, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
-        Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
-        UI_Block *body = Prog__GroupBody(state, Prog_Group_Recents, m);
+        u64 indices[Prog_ShownRecentCount];
+        u32 shown = 0, listed = Prog_ShownRecents(state, indices);
+        for (u32 n = 0; n < listed; ++n) if (Prog__SidebarFinds(state, Prog_PathName(state, state->recents.v[indices[n]]))) indices[shown++] = indices[n];
+        if (shown || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
+        UI_Block *body = shown || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Recents, m) : NULL;
         if (body) UI_Parent(body) {
             // Each row eases to its place by its folder, so that one opened again travels up over the others while they move down to make
             // room for it; a folder new to the list starts in its place.
-            u64 indices[Prog_ShownRecentCount];
-            u32 shown = Prog_ShownRecents(state, indices);
             f32 slid[Prog_ShownRecentCount], placed[Prog_ShownRecentCount];
             for (u32 n = 0; n < shown; ++n) {
                 placed[n] = (f32)n * m->row;
@@ -3540,15 +3581,18 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                 }
             }
         }
-        Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
+        u64 count = state->bookmarks.header.count, found = 0;
+        for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, state->bookmarks.v[i])) ? 1 : 0;
+        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
         // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
-        R_Rect title = sidebar->last->rect, zone = title;
-        u64 count = state->bookmarks.header.count, before = count;
+        R_Rect title = sidebar->last ? sidebar->last->rect : (R_Rect){0}, zone = title;
+        u64 before = count;
         f32 lineY = title.y1;
-        body = Prog__GroupBody(state, Prog_Group_Bookmarks, m);
+        body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Bookmarks, m) : NULL;
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < count; ++i) {
                 String path = state->bookmarks.v[i];
+                if (!Prog__SidebarFinds(state, Prog_PathName(state, path))) continue;
                 // One whose folder is gone, renamed or deleted elsewhere or on a drive taken away, is faded rather than dropped.
                 b32 missing = false;
                 for (u64 j = 0; j < state->missingBookmarks.header.count && !missing; ++j) missing = StrIsEqual(state->missingBookmarks.v[j], path);
@@ -3563,7 +3607,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                 }
             }
         }
-        b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1;
+        // Not while filtering, which leaves bookmarks out from between the others.
+        b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1 && !state->sidebarFilter.length;
         state->bookmarkGap = P_DropPending() && inZone && !state->dropPlace.length ? before + 1 : 0;
         if (state->bookmarkGap) {
             f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
@@ -3575,20 +3620,24 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
         state->bookmarkDropShown = state->bookmarkGap;
-        Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
-        body = Prog__GroupBody(state, Prog_Group_Storage, m);
+        found = 0;
+        for (u64 i = 0; i < state->drives.header.count; ++i) found += Prog__SidebarFinds(state, state->drives.v[i].name) ? 1 : 0;
+        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
+        body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Storage, m) : NULL;
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
                 const P_Place *drive = &state->drives.v[i];
-                Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
+                if (Prog__SidebarFinds(state, drive->name)) Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
             }
         }
-        Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
-        body = Prog__GroupBody(state, Prog_Group_Places, m);
+        found = 0;
+        for (u64 i = 0; i < state->places.header.count; ++i) found += Prog__SidebarFinds(state, state->places.v[i].name) ? 1 : 0;
+        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
+        body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Places, m) : NULL;
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->places.header.count; ++i) {
                 const P_Place *place = &state->places.v[i];
-                Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, false, m);
+                if (Prog__SidebarFinds(state, place->name)) Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, false, m);
             }
         }
     }
