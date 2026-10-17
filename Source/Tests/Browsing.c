@@ -1949,15 +1949,31 @@ function void TestTabs(TestFileFixture *fixture)
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 1 && TestEndsWith(found[0].path, S("/Empty")) && !found[0].file);
     // A file is found as well, by its name.
-    String fileName = {0};
-    for (u64 i = 0; i < state.index.count && !fileName.length; ++i) {
-        if (state.index.flags[i] & Prog_IndexFlag_File) fileName = Prog_IndexName(&state.index, i);
+    String fileName = {0}, hiddenName = {0};
+    for (u64 i = 0; i < state.index.count; ++i) {
+        if (!(state.index.flags[i] & Prog_IndexFlag_File)) continue;
+        String *pick = Prog__GoToHidden(&state.index, (u32)i) ? &hiddenName : &fileName;
+        if (!pick->length) *pick = Prog_IndexName(&state.index, i);
     }
     Check(fileName.length);
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Prog__EditReplace(&state.palette, (const u8 *)fileName.value, (u32)fileName.length);
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 1 && found[0].file && TestEndsWith(found[0].path, fileName));
+    // A hidden one, or one inside a hidden folder, only while the hidden items show.
+    if (hiddenName.length) {
+        b32 shown = state.showHidden;
+        for (u32 pass = 0; pass < 2; ++pass) {
+            state.showHidden = pass == 1;
+            TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+            Prog__EditReplace(&state.palette, (const u8 *)hiddenName.value, (u32)hiddenName.length);
+            found = Prog_GoToMatches(&state, &offered, &folder);
+            b32 offeredHidden = false;
+            for (u32 i = 0; i < offered; ++i) offeredHidden |= TestEndsWith(found[i].path, hiddenName);
+            Check(offeredHidden == (pass == 1));
+        }
+        state.showHidden = shown;
+    }
     // A drive is found by the name it is shown by, which its folder does not have.
     state.drives.v[0].name = S("Samsung Test Drive");
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);

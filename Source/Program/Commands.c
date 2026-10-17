@@ -945,6 +945,16 @@ typedef struct Prog__GoToLook {
     u32 *foundCount;            // per block
 } Prog__GoToLook;
 
+// Whether the index's `entry` is hidden or inside a hidden folder, a name starting with "." counting as hidden.
+function b32 Prog__GoToHidden(const Prog_Index *index, u32 entry)
+{
+    for (u32 at = entry; at < index->count && index->parents[at] != UINT32_MAX; at = index->parents[at]) {
+        String name = Prog_IndexName(index, at);
+        if ((index->flags[at] & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.')) return true;
+    }
+    return false;
+}
+
 function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
 {
     const Prog_Index *index = look->index;
@@ -970,6 +980,7 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
         char made[1024];
         i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text);
         if (score <= 0 || Prog__GoToRank(score) >= look->floor) continue;
+        if (!look->state->showHidden && Prog__GoToHidden(index, entry)) continue;
         found[count++] = (Prog__GoToFound){ entry, score };
     }
     look->foundCount[block] = count;
@@ -1035,7 +1046,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         // The few close at hand and what is right inside them match by their path too, the rest of the index by their name only.
         Arena *arena = &state->gotoFoundArena;
         String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
-        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby + drives || state->gotoIndex != index) {
+        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby + drives || state->gotoIndex != index || state->gotoShowHidden != state->showHidden) {
             ArenaClear(arena);
             state->gotoPool = ArenaPushArray(arena, Prog_GoToPool, Prog_GoToItem);
             state->gotoRanks = ArenaPushArray(arena, Prog_GoToPool, u16);
@@ -1045,6 +1056,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             state->gotoScanFrame = UINT64_MAX;
             state->gotoNearby = nearby + drives;
             state->gotoIndex = index;
+            state->gotoShowHidden = state->showHidden;
             state->gotoSeen = (Prog_PathSet){0};
             state->gotoNearbyNames = (Prog_PathSet){0};
             state->gotoNearbyPaths = (Prog_PathSet){0};

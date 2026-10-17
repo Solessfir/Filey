@@ -1257,6 +1257,7 @@ typedef struct Prog_State {
     u64 gotoScanFrame;        // the UI frame that looked last
     u64 gotoNearby;
     const Prog_Index *gotoIndex;
+    b32 gotoShowHidden;            // what the shown tab showed of the hidden items when the pool was filled
     Prog_PathSet gotoNearbyNames;  // the names of the folders close at hand, which the index finds again only under them
     Prog_PathSet gotoNearbyPaths;
     Prog_PathSet gotoSeen;
