@@ -702,6 +702,101 @@ function b32 Prog__IsArchive(String path)
     return false;
 }
 
+// Whether the file named `name` is an archive that opens as a folder.
+function b32 Prog_IsArchiveName(String name)
+{
+    local_persist const String endings[] = {
+        SInit(".zip"), SInit(".jar"), SInit(".7z"), SInit(".rar"), SInit(".tar"), SInit(".tgz"), SInit(".tar.gz"), SInit(".tbz2"), SInit(".tar.bz2"), SInit(".txz"),
+        SInit(".tar.xz"), SInit(".tar.zst"), SInit(".cab"),
+    };
+    for (u32 i = 0; i < CArrayCount(endings); ++i) {
+        if (name.length > endings[i].length && Prog__EqualFolded(StrFrom(name, name.length - endings[i].length), endings[i])) return true;
+    }
+    return false;
+}
+
+// Splits a path that goes into an archive, "C:/x/a.zip/docs", into the archive file and the path inside it, empty at its top; false for any
+// other. Only the names are read, so a folder merely named like an archive is told apart by Prog_InArchive, which looks at the disk.
+function b32 Prog_ArchiveSplit(String path, String *archive, String *inner)
+{
+    for (u64 at = 0; at < path.length;) {
+        u64 end = at + StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail).value;
+        if (end > at && Prog_IsArchiveName(StrFromTo(path, at, (i64)end))) {
+            *archive = StrFromTo(path, 0, (i64)end);
+            *inner = StrFrom(path, end + 1);
+            while (inner->length && inner->value[inner->length - 1] == '/') --inner->length;
+            return true;
+        }
+        at = end + 1;
+    }
+    return false;
+}
+
+// Prog_ArchiveSplit where the archive is a file rather than a folder of that name. Reads the disk, so for jobs.
+function b32 Prog_InArchive(String path, String *archive, String *inner)
+{
+    return Prog_ArchiveSplit(path, archive, inner) && P_PathExists(*archive) && !P_IsDirectory(*archive);
+}
+
+// The folder a panel watches for its listing to change: the shown one, or for a folder inside an archive the one the archive is in, where it
+// changes as the archive file is written.
+function String Prog__WatchedFolder(Prog_State *state)
+{
+    String archive = {0}, inner = {0};
+    return state->directory.archive && Prog_ArchiveSplit(state->directory.path, &archive, &inner) ? Prog_ParentPath(archive) : state->directory.path;
+}
+
+// A copy on disk of the file at `path` inside an archive, taken out into this run's folder the first time and kept for the next; empty for
+// a file that is not in one or does not come out. Each archive folder gets a folder of its own there, named by a hash of its path.
+// ponytail: a copy is kept while the archive changes under it; its modified time in the hash would take the change.
+function String Prog_ArchiveCopy(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    String archive = {0}, inner = {0};
+    if (!Prog_InArchive(path, &archive, &inner) || !inner.length) return (String){0};
+    String run = P_RunFolder(arena);
+    if (!run.length) return (String){0};
+    String name = Prog_EntryLeaf(inner), within = Prog_EntryParent(inner), folder = StrFormat(arena, "%S/%S", archive, within);
+    u64 hash = UINT64_C(14695981039346656037);
+    for (u64 i = 0; i < folder.length; ++i) hash = (hash ^ (u8)folder.value[i]) * UINT64_C(1099511628211);
+    String hex = StrFormat(arena, "%016" PRIx64, hash), into = Prog_JoinPath(arena, run, hex), copy = Prog_JoinPath(arena, into, name);
+    if (P_PathExists(copy)) return copy;
+    String made = {0};
+    if (!P_IsDirectory(into) && (P_CreateItem(arena, run, hex, true, &made).code || !StrIsEqual(made, hex))) return (String){0};
+    return !P_ExtractArchive(arena, archive, within, &name, 1, into, cancel).code && P_PathExists(copy) ? copy : (String){0};
+}
+
+// Copies or moves as P_TransferItems does, and copies into and out of archives: out of one by taking the items out, into one by adding
+// them, where items of another archive go by way of this run's folder. A move into or out of an archive copies, so that the archive and the
+// files it was made from both stay whole.
+function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, ArrayStr *placed, const P_CancelToken *cancel)
+{
+    String toArchive = {0}, toInner = {0}, fromArchive = {0}, fromInner = {0};
+    b32 into = Prog_InArchive(input->path, &toArchive, &toInner);
+    b32 outOf = input->pathCount && Prog_InArchive(Prog_ParentPath(input->paths[0]), &fromArchive, &fromInner);
+    if (!into && !outOf) return P_TransferItems(arena, input->paths, input->pathCount, input->path, input->move, input->progress, placed, cancel);
+    Scratch scratch = GetScratchEx(arena);
+    String *names = ArenaPushArray(scratch.arena, Max(input->pathCount, (u64)1), String);
+    for (u64 i = 0; i < input->pathCount; ++i) names[i] = Prog_EntryLeaf(input->paths[i]);
+    P_FileError result = {0};
+    if (!into) {
+        result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, input->path, cancel);
+    } else {
+        const String *sources = input->paths;
+        if (outOf) {
+            String run = P_RunFolder(scratch.arena), made = {0};
+            result = run.length ? P_CreateItem(scratch.arena, run, S("transfer"), true, &made) : (P_FileError){ .code = 1, .message = S("No temporary folder to take the items out into") };
+            String through = Prog_JoinPath(scratch.arena, run, made);
+            if (!result.code) result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, through, cancel);
+            String *taken = ArenaPushArray(scratch.arena, Max(input->pathCount, (u64)1), String);
+            for (u64 i = 0; i < input->pathCount; ++i) taken[i] = Prog_JoinPath(scratch.arena, through, names[i]);
+            sources = taken;
+        }
+        if (!result.code) result = P_AddToArchive(arena, toArchive, toInner, sources, input->pathCount, cancel);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // What an archive holds, a line each in its order: the size right aligned, then the path inside it, a folder's ending in '/'; first a line
 // with the counts and the total size, and `cut` adds a last line saying there is more.
 function String Prog_ArchiveListing(Arena *arena, const P_FileArray *items, b32 cut)
@@ -1382,8 +1477,10 @@ function void Prog__DirectoryJob(P_Job *job)
     Prog_JobInput *input = job->input;
     if (input->kind == Prog_JobKind_Open || input->kind == Prog_JobKind_Rename) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        // A file inside an archive opens from its copy taken out.
+        String copy = input->kind == Prog_JobKind_Open ? Prog_ArchiveCopy(&job->arena, input->path, &job->cancelToken) : (String){0};
         if (!P_IsCancelled(&job->cancelToken)) {
-            *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, input->path, (P_FileOrder){ input->sort, (b8)input->descending })
+            *error = input->kind == Prog_JobKind_Open ? P_OpenPath(&job->arena, copy.length ? copy : input->path, (P_FileOrder){ input->sort, (b8)input->descending })
                                                       : P_RenamePath(&job->arena, input->path, input->name, input->newName);
         }
         job->result = error;
@@ -1508,7 +1605,9 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_FilesList) {
         // What the list would show of it, sorted as a list by name sorts it, folders first.
         Prog_FilesListed *result = ArenaPushStruct(&job->arena, Prog_FilesListed);
-        P_DirectoryResult listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+        String archive = {0}, inner = {0};
+        P_DirectoryResult listing = Prog_InArchive(input->path, &archive, &inner) ? P_EnumerateArchive(&job->arena, archive, inner, &job->cancelToken)
+                                                                                 : P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
         u64 count = listing.files.header.count, kept = 0;
         Prog_Entry *entries = ArenaPushArray(&job->arena, Max(count, (u64)1), Prog_Entry), *sorted = ArenaPushArrayNoZero(&job->arena, Max(count, (u64)1), Prog_Entry);
         for (u64 i = 0; i < count; ++i) {
@@ -1549,7 +1648,7 @@ function void Prog__DirectoryJob(P_Job *job)
         P_FileError *error = &result->error;
         if (P_IsCancelled(&job->cancelToken)) {
         } else if (input->kind == Prog_JobKind_Transfer) {
-            ProfileScope("TransferItems") *error = P_TransferItems(&job->arena, input->paths, input->pathCount, input->path, input->move, input->progress, &result->placed, &job->cancelToken);
+            ProfileScope("TransferItems") *error = Prog__Transfer(&job->arena, input, &result->placed, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_Delete) {
             ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, input->confirm, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_EmptyTrash) {
@@ -1595,8 +1694,8 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_HexPage) {
-        String *bytes = ArenaPushStruct(&job->arena, String);
-        if (!P_ReadFileAt(&job->arena, input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
+        String *bytes = ArenaPushStruct(&job->arena, String), copy = Prog_ArchiveCopy(&job->arena, input->path, &job->cancelToken);
+        if (!P_ReadFileAt(&job->arena, copy.length ? copy : input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
         job->result = bytes;
         return;
     }
@@ -1604,23 +1703,26 @@ function void Prog__DirectoryJob(P_Job *job)
         // A 3D model's picture, else text where the start of the file reads as text, else the system's picture of it.
         // With the inspector set to hex, every file's bytes.
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
+        // A file inside an archive is read from its copy taken out, but for one too large to be worth it.
+        String copy = !input->folder && input->size <= Prog_ArchivePreviewBytes ? Prog_ArchiveCopy(&job->arena, input->path, &job->cancelToken) : (String){0};
+        String path = copy.length ? copy : input->path;
         String start = {0};
         P_Image image = {0};
         P_FileArray items = {0};
-        u32 *model = !input->hex && !input->folder ? Prog_ModelPreview(&job->arena, input->path, input->size, &job->cancelToken) : NULL;
+        u32 *model = !input->hex && !input->folder ? Prog_ModelPreview(&job->arena, path, input->size, &job->cancelToken) : NULL;
         if (input->hex && !input->folder) {
-            result->hex = P_ReadFileStart(&job->arena, input->path, Prog_HexPageBytes, &result->text);
-        } else if (!input->folder && Prog__IsArchive(input->path) && P_ListArchive(&job->arena, input->path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
+            result->hex = P_ReadFileStart(&job->arena, path, Prog_HexPageBytes, &result->text);
+        } else if (!input->folder && Prog__IsArchive(path) && P_ListArchive(&job->arena, path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
             result->text = Prog_ArchiveListing(&job->arena, &items, items.header.count >= Prog_PreviewArchiveItems);
             result->archive = true;
         } else if (model) {
             // Before the text, which OBJ and glTF files read as.
             result->pixels = model;
             result->width = result->height = Prog_PreviewSize;
-        } else if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
+        } else if (!input->folder && P_ReadFileStart(&job->arena, path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
-                   P_LoadImageFile(&job->arena, input->path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+                   P_LoadImageFile(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
             result->width = image.width;
             result->height = image.height;
@@ -1628,11 +1730,11 @@ function void Prog__DirectoryJob(P_Job *job)
         } else if (!P_IsCancelled(&job->cancelToken)) {
             // A file without a picture of its own, such as a program or an archive, shows its bytes.
             Scratch scratch = GetScratchEx(&job->arena);
-            b32 hex = !input->folder && !P_LoadFileThumbnail(scratch.arena, input->path, P_FileKind_File, Prog_PreviewSize, true, &job->cancelToken, &image);
+            b32 hex = !input->folder && !P_LoadFileThumbnail(scratch.arena, path, P_FileKind_File, Prog_PreviewSize, true, &job->cancelToken, &image);
             if (hex) {
                 result->text = start;
                 result->hex = true;
-            } else if (image.pixels || P_LoadFileThumbnail(scratch.arena, input->path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, false, &job->cancelToken, &image)) {
+            } else if (image.pixels || P_LoadFileThumbnail(scratch.arena, path, input->folder ? P_FileKind_Directory : P_FileKind_File, Prog_PreviewSize, false, &job->cancelToken, &image)) {
                 result->pixels = Prog_ResizeIcon(&job->arena, image, Prog_PreviewSize);
                 result->width = result->height = Prog_PreviewSize;
             }
@@ -1722,7 +1824,11 @@ function void Prog__DirectoryJob(P_Job *job)
         else result->cancelled = true;
         return;
     }
-    ProfileScope("EnumerateDirectory") listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+    // A folder inside an archive is listed from the archive.
+    String archive = {0}, inner = {0};
+    result->archive = Prog_InArchive(input->path, &archive, &inner);
+    ProfileScope("EnumerateDirectory") listing = result->archive ? P_EnumerateArchive(&job->arena, archive, inner, &job->cancelToken)
+                                                                 : P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
     result->hidden = listing.hidden;
@@ -1877,8 +1983,8 @@ function b32 Prog_ShowsThumbnails(const Prog_State *state)
 function void Prog__MeasureFolders(Prog_State *state)
 {
     b32 all = Prog_MeasuresFolders(state);
-    // Drives are not walked to be measured, and the bin knows its folders' sizes.
-    if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path)) return;
+    // Drives are not walked to be measured, the bin knows its folders' sizes, and an archive's folders are not on disk.
+    if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path) || state->directory.archive) return;
     // Not while a walk through the whole tree is on its way, which counts them itself.
     if (state->measureJob || (state->directoryJob && ((Prog_JobInput *)state->directoryJob->input)->expanded)) return;
     u64 count = 0;
@@ -3611,7 +3717,7 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
     state->restoreScroll = true;
     if (state->directory.path.length) {
         // The tab's folder may have changed while it was hidden.
-        P_DirectoryWatchStart(&state->watch, state->directory.path, state->jobs.wake, state->jobs.wakeUser);
+        P_DirectoryWatchStart(&state->watch, Prog__WatchedFolder(state), state->jobs.wake, state->jobs.wakeUser);
         Prog_Reload(state);
     } else if (state->historyAt < state->history.header.count) {
         Prog_RequestDirectory(state, state->history.v[state->historyAt], false, state->historyAt);
@@ -4270,7 +4376,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     Prog__MeasureFolders(state);
                     // ponytail: changes between enumerating and starting the watch are missed; start it before the listing if that shows.
                     if (!samePath || !state->watch.native) {
-                        P_DirectoryWatchStart(&state->watch, state->directory.path, state->jobs.wake, state->jobs.wakeUser);
+                        P_DirectoryWatchStart(&state->watch, Prog__WatchedFolder(state), state->jobs.wake, state->jobs.wakeUser);
                         state->watchDirty = false;
                     }
                     if (renamePicked) Prog_BeginRename(state, pickRow);
@@ -4326,7 +4432,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
     if (state->loading || row >= state->directory.count) return;
     Prog_Entry *entry = &state->directory.entries[row];
     String path = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
-    if (entry->file.kind == P_FileKind_Directory) {
+    // An archive opens as a folder, but for one inside another, which opens in its program.
+    if (entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(entry->file.name) && !state->directory.archive)) {
         Prog_RequestDirectory(state, path, true, 0);
     } else {
         Prog__AddRecent(state, path, true, entry->file.hidden);

@@ -43,6 +43,74 @@ function P_FileError P__FileError(Arena *arena, u32 code)
     return (P_FileError){.code = code, .message = text};
 }
 
+// The libarchive Windows ships for its tar and Explorer, taken only from the system folder.
+function void *P__ArchiveSymbol(const char *name)
+{
+    local_persist b32 tried;
+    local_persist HMODULE library;
+    if (!tried) {
+        tried = true;
+        library = LoadLibraryExW(L"archiveint.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    }
+    return library ? (void *)GetProcAddress(library, name) : NULL;
+}
+
+function const void *P__ArchiveNativePath(Arena *arena, String path) { return P__FilePathWide(arena, path); }
+
+#define P__ArchiveOpenReadName "archive_read_open_filename_w"
+#define P__ArchiveOpenWriteName "archive_write_open_filename_w"
+enum { P__ArchiveCancelled = ERROR_CANCELLED, P__ArchiveUnsupported = ERROR_NOT_SUPPORTED, P__ArchiveFailed = ERROR_WRITE_FAULT };
+
+#include "Platform/PlatformArchive.c"
+
+// Writes the item at `path` on disk into `writer` as `name`, a folder with all it holds; linked folders are left out, as they can lead in circles.
+function u32 P__ArchiveWritePath(void *writer, String path, String name, const P_CancelToken *cancel)
+{
+    P__Archive *a = &P__archive;
+    if (P_IsCancelled(cancel)) return ERROR_CANCELLED;
+    Scratch scratch = GetScratch();
+    wchar *native = P__FilePathWide(scratch.arena, path);
+    char *inside = ArenaPushArray(scratch.arena, name.length + 1, char);
+    MemCopy(inside, name.value, name.length);
+    WIN32_FILE_ATTRIBUTE_DATA info = {0};
+    u32 error = native && GetFileAttributesExW(native, GetFileExInfoStandard, &info) ? 0 : GetLastError();
+    b32 folder = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (!error && !(folder && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))) {
+        HANDLE file = folder ? INVALID_HANDLE_VALUE : CreateFileW(native, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                                                               FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+        if (!folder && file == INVALID_HANDLE_VALUE) error = GetLastError();
+        if (!error) {
+            u64 ticks = ((u64)info.ftLastWriteTime.dwHighDateTime << 32) | info.ftLastWriteTime.dwLowDateTime;
+            void *entry = a->entryNew();
+            a->entrySetPath(entry, inside);
+            a->entrySetFiletype(entry, folder ? 0040000 : 0100000);
+            a->entrySetPerm(entry, folder ? 0755 : 0644);
+            a->entrySetSize(entry, folder ? 0 : (i64)(((u64)info.nFileSizeHigh << 32) | info.nFileSizeLow));
+            a->entrySetMtime(entry, (i64)(ticks / 10000000) - INT64_C(11644473600), (i64)(ticks % 10000000) * 100);
+            if (a->writeHeader(writer, entry) < P__ArchiveWarn) error = ERROR_WRITE_FAULT;
+            a->entryFree(entry);
+        }
+        if (file != INVALID_HANDLE_VALUE) {
+            u8 *buffer = ArenaPushArrayNoZero(scratch.arena, 65536, u8);
+            for (DWORD got = 0; !error;) {
+                if (!ReadFile(file, buffer, 65536, &got, NULL)) error = GetLastError();
+                else if (!got) break;
+                else if (a->writeData(writer, buffer, got) != (i64)got) error = ERROR_WRITE_FAULT;
+            }
+            CloseHandle(file);
+        } else if (!error) {
+            P_DirectoryResult children = P_EnumerateDirectory(scratch.arena, path, cancel);
+            error = children.cancelled ? ERROR_CANCELLED : children.errorCode;
+            for (u64 i = 0; i < children.files.header.count && !error; ++i) {
+                String child = children.files.v[i].name;
+                error = P__ArchiveWritePath(writer, StrFormat(scratch.arena, "%S/%S", path, child), StrFormat(scratch.arena, "%S/%S", name, child), cancel);
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+    return error;
+}
+
 function String P_AbsolutePath(Arena *arena, String path)
 {
     Scratch scratch = GetScratchEx(arena);
@@ -623,6 +691,30 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+function b32 P_IsDirectory(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
+    DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
+    ReleaseScratch(scratch);
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+function String P_RunFolder(Arena *arena)
+{
+    wchar temporary[MAX_PATH] = {0};
+    u32 length = GetTempPathW((u32)CArrayCount(temporary), temporary);
+    if (!length || length >= CArrayCount(temporary)) return (String){0};
+    String base = P_AbsolutePath(arena, P__FileStringWide(arena, temporary, (i32)length));
+    while (base.length > 3 && base.value[base.length - 1] == '/') --base.length;
+    String filey = StrFormat(arena, "%S/Filey", base), folder = StrFormat(arena, "%S/%u", filey, (u32)GetCurrentProcessId());
+    Scratch scratch = GetScratchEx(arena);
+    CreateDirectoryW(P__FilePathWide(scratch.arena, filey), NULL);
+    CreateDirectoryW(P__FilePathWide(scratch.arena, folder), NULL);
+    ReleaseScratch(scratch);
+    return P_IsDirectory(folder) ? folder : (String){0};
 }
 
 function b32 P_PathExists(String path)

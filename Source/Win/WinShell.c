@@ -107,9 +107,10 @@ function IShellFolder *P__ShellFolder(const wchar *path)
 
 global const IID P__IID_IShellFolder2 = { 0x93F2F68C, 0x1D1B, 0x11D3, { 0xA3, 0x0E, 0x00, 0xC0, 0x4F, 0x79, 0xAB, 0xD1 } };
 global const SHCOLUMNID P__KeySize = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 12 };
+global const SHCOLUMNID P__KeyModified = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 14 };
 
-// What `folder` holds, inside an archive the shell opens as a folder, below `prefix`, and then inside each of its folders.
-function void P__ListArchiveFolder(Arena *arena, IShellFolder2 *folder, String prefix, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
+// What `folder` holds, inside an archive the shell opens as a folder, below `prefix`, and with `deep` then inside each of its folders.
+function void P__ListArchiveFolder(Arena *arena, IShellFolder2 *folder, String prefix, u64 limit, b32 deep, const P_CancelToken *cancel, P_FileArray *files)
 {
     IEnumIDList *items = NULL;
     if (FAILED(folder->lpVtbl->EnumObjects(folder, NULL, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN, &items)) || !items) return;
@@ -129,12 +130,19 @@ function void P__ListArchiveFolder(Arena *arena, IShellFolder2 *folder, String p
                 else if (size.vt == VT_UI4) bytes = size.ulVal;
                 else if (size.vt == VT_I8) bytes = (u64)Max(size.llVal, (i64)0);
             }
+            VARIANT when = {0};
+            i64 modified = 0;
+            if (SUCCEEDED(folder->lpVtbl->GetDetailsEx(folder, child, &P__KeyModified, &when)) && when.vt == VT_DATE) {
+                // Days since 1899-12-30, as the shell gives dates; 25569 of them reach 1970.
+                modified = (i64)((when.date - 25569.0) * 86400.0);
+            }
             String name = StrFormat(arena, "%S%S", prefix, P__FileStringWide(arena, wide, lstrlenW(wide)));
-            ArrayPush(arena, *files, ((P_File){ .name = name, .size = bytes, .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            ArrayPush(arena, *files, ((P_File){ .name = name, .size = bytes, .modifiedTimeUnix = modified, .kind = isFolder ? P_FileKind_Directory : P_FileKind_File,
+                                                .metadataValid = modified != 0 }));
             CoTaskMemFree(wide);
             IShellFolder2 *inner = NULL;
-            if (isFolder && SUCCEEDED(folder->lpVtbl->BindToObject(folder, child, NULL, &P__IID_IShellFolder2, (void **)&inner))) {
-                P__ListArchiveFolder(arena, inner, StrFormat(arena, "%S/", name), limit, cancel, files);
+            if (deep && isFolder && SUCCEEDED(folder->lpVtbl->BindToObject(folder, child, NULL, &P__IID_IShellFolder2, (void **)&inner))) {
+                P__ListArchiveFolder(arena, inner, StrFormat(arena, "%S/", name), limit, deep, cancel, files);
                 inner->lpVtbl->Release(inner);
             }
         }
@@ -152,11 +160,81 @@ function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelT
     IShellFolder2 *archive = NULL;
     b32 result = folder && SUCCEEDED(folder->lpVtbl->QueryInterface(folder, &P__IID_IShellFolder2, (void **)&archive));
     if (result) {
-        P__ListArchiveFolder(arena, archive, (String){0}, limit, cancel, files);
+        P__ListArchiveFolder(arena, archive, (String){0}, limit, true, cancel, files);
         archive->lpVtbl->Release(archive);
         result = files->header.count != 0;
     }
     if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The shell opens archives as folders, and parses paths that go on inside them.
+function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, String inner, const P_CancelToken *cancel)
+{
+    P_DirectoryResult result = {0};
+    P__EnsureCom();
+    Scratch scratch = GetScratchEx(arena);
+    String path = inner.length ? StrFormat(scratch.arena, "%S/%S", archive, inner) : archive;
+    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, path));
+    IShellFolder2 *listed = NULL;
+    if (folder && SUCCEEDED(folder->lpVtbl->QueryInterface(folder, &P__IID_IShellFolder2, (void **)&listed))) {
+        P__ListArchiveFolder(arena, listed, (String){0}, UINT64_MAX, false, cancel, &result.files);
+        listed->lpVtbl->Release(listed);
+        result.cancelled = P_IsCancelled(cancel);
+    } else {
+        P_FileError error = P__FileError(arena, ERROR_PATH_NOT_FOUND);
+        result.errorCode = error.code;
+        result.errorString = error.message;
+    }
+    if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+global const CLSID P__CLSID_FileOperation = { 0x3AD05575, 0x8857, 0x4850, { 0x92, 0x77, 0x11, 0xB8, 0x5B, 0xDB, 0x8E, 0x09 } };
+global const IID P__IID_IFileOperation = { 0x947AAB5F, 0x0A5C, 0x4C13, { 0xB4, 0xD6, 0x4B, 0xF7, 0x83, 0x6F, 0xC9, 0xF8 } };
+global const IID P__IID_IShellItemPath = { 0x43826D1E, 0xE718, 0x42EE, { 0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE } };
+
+// Copies the items at `from` into the folder at `to` as Explorer does, whose shell items take archives on either side.
+function P_FileError P__ShellCopy(Arena *arena, const String *from, u64 count, String to, u32 flags, const P_CancelToken *cancel)
+{
+    if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
+    P__EnsureCom();
+    Scratch scratch = GetScratchEx(arena);
+    IFileOperation *operation = NULL;
+    IShellItem *target = NULL;
+    wchar *where = P__FilePathWide(scratch.arena, to);
+    HRESULT status = where ? CoCreateInstance(&P__CLSID_FileOperation, NULL, CLSCTX_ALL, &P__IID_IFileOperation, (void **)&operation) : E_INVALIDARG;
+    if (SUCCEEDED(status)) status = SHCreateItemFromParsingName(where, NULL, &P__IID_IShellItemPath, (void **)&target);
+    if (SUCCEEDED(status)) {
+        // Without a window, as in the headless tests, it shows nothing.
+        if (P__shellOwner) operation->lpVtbl->SetOwnerWindow(operation, P__shellOwner);
+        operation->lpVtbl->SetOperationFlags(operation, flags | FOF_NOCONFIRMMKDIR | FOF_NOERRORUI);
+        for (u64 i = 0; i < count && SUCCEEDED(status); ++i) {
+            IShellItem *item = NULL;
+            wchar *wide = P__FilePathWide(scratch.arena, from[i]);
+            status = wide ? SHCreateItemFromParsingName(wide, NULL, &P__IID_IShellItemPath, (void **)&item) : E_INVALIDARG;
+            if (SUCCEEDED(status)) status = operation->lpVtbl->CopyItem(operation, item, target, NULL, NULL);
+            if (item) item->lpVtbl->Release(item);
+        }
+        if (SUCCEEDED(status)) status = operation->lpVtbl->PerformOperations(operation);
+        BOOL aborted = FALSE;
+        if (SUCCEEDED(status) && SUCCEEDED(operation->lpVtbl->GetAnyOperationsAborted(operation, &aborted)) && aborted) status = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+    }
+    if (target) target->lpVtbl->Release(target);
+    if (operation) operation->lpVtbl->Release(operation);
+    ReleaseScratch(scratch);
+    if (SUCCEEDED(status)) return (P_FileError){0};
+    return P__FileError(arena, HRESULT_FACILITY(status) == FACILITY_WIN32 ? (u32)HRESULT_CODE(status) : (u32)status);
+}
+
+function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, const P_CancelToken *cancel)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String *from = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+    for (u64 i = 0; i < count; ++i) from[i] = inner.length ? StrFormat(scratch.arena, "%S/%S/%S", archive, inner, names[i]) : StrFormat(scratch.arena, "%S/%S", archive, names[i]);
+    P_FileError result = P__ShellCopy(arena, from, count, directory, FOF_RENAMEONCOLLISION, cancel);
     ReleaseScratch(scratch);
     return result;
 }
@@ -351,6 +429,11 @@ typedef struct P__Drop {
     b32 takesFolders;     // drops are kept for the program instead of going to `wanted`
     Arena droppedArena;
     ArrayStr dropped;     // folders dropped while `takesFolders` was on, until the program takes them
+    // A folder inside an archive takes no drop from another program, so its files are kept for the program, which adds them itself.
+    b32 keepsFiles;       // `bound` is such a folder
+    Arena filesArena;
+    ArrayStr files;       // dropped there, until the program takes them
+    String filesDirectory;
 } P__Drop;
 
 global P__Drop P__drop;
@@ -368,10 +451,34 @@ function b32 P_DropPending(void) { return P__drop.data != NULL; }
 
 function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
 {
-    (void)arena;
-    *directory = (String){0};
+    ArrayStr result = {0};
+    for (u64 i = 0; i < P__drop.files.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.files.v[i]));
+    *directory = StrCopy(arena, P__drop.filesDirectory);
     *move = false;
-    return (ArrayStr){0};
+    P__drop.files = (ArrayStr){0};
+    P__drop.filesDirectory = (String){0};
+    ArenaClear(&P__drop.filesArena);
+    return result;
+}
+
+// Whether `path` goes on inside a file, as a folder inside an archive does: a folder above it is a file on disk.
+function b32 P__InsideFile(String path)
+{
+    Scratch scratch = GetScratch();
+    b32 result = false;
+    for (u64 at = 3; at < path.length && !result; ++at) {
+        if (path.value[at] != '/') continue;
+        wchar *wide = P__FilePathWide(scratch.arena, StrFromTo(path, 0, (i64)at));
+        DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
+        result = attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+    }
+    if (!result && path.length) {
+        wchar *wide = P__FilePathWide(scratch.arena, path);
+        DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
+        result = attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+    }
+    ReleaseScratch(scratch);
+    return result;
 }
 
 global const CLSID P__CLSID_ShellLink = { 0x00021401, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
@@ -458,6 +565,30 @@ function void P__DropKeepFolders(IDataObject *data)
     ReleaseStgMedium(&medium);
 }
 
+// Keeps the files of a drop into a folder inside an archive for P_TakeDroppedFiles.
+function void P__DropKeepFiles(IDataObject *data)
+{
+    FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM medium = {0};
+    if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) return;
+    HDROP drop = (HDROP)medium.hGlobal;
+    ArenaClear(&P__drop.filesArena);
+    P__drop.files = (ArrayStr){0};
+    P__drop.filesDirectory = StrCopy(&P__drop.filesArena, P__drop.bound);
+    u32 count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
+    for (u32 i = 0; i < count; ++i) {
+        wchar path[1024];
+        u32 length = DragQueryFileW(drop, i, path, (u32)CArrayCount(path));
+        if (!length || length >= CArrayCount(path)) continue;
+        String file = P__FileStringWide(&P__drop.filesArena, path, (i32)length);
+        for (u64 at = 0; at < file.length; ++at) {
+            if (file.value[at] == '\\') ((char *)file.value)[at] = '/';
+        }
+        ArrayPush(&P__drop.filesArena, P__drop.files, file);
+    }
+    ReleaseStgMedium(&medium);
+}
+
 function b32 P__DropHasFiles(IDataObject *data)
 {
     FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
@@ -506,8 +637,9 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
         ArenaClear(&P__drop.boundArena);
         P__drop.bound = StrCopy(&P__drop.boundArena, P__drop.wanted);
         P__drop.entered = true;
+        P__drop.keepsFiles = P__InsideFile(P__drop.bound);
         Scratch scratch = GetScratch();
-        IShellFolder *folder = P__drop.bound.length ? P__ShellFolder(P__FilePathWide(scratch.arena, P__drop.bound)) : NULL;
+        IShellFolder *folder = P__drop.bound.length && !P__drop.keepsFiles ? P__ShellFolder(P__FilePathWide(scratch.arena, P__drop.bound)) : NULL;
         IDropTarget *shell = NULL;
         if (folder && SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IDropTarget, (void **)&shell))) {
             DWORD entered = allowed;
@@ -517,7 +649,9 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
         if (folder) folder->lpVtbl->Release(folder);
         ReleaseScratch(scratch);
     }
-    if (P__drop.shell) {
+    if (P__drop.keepsFiles) {
+        *effect = P__DropHasFiles(P__drop.data) ? allowed & DROPEFFECT_COPY : DROPEFFECT_NONE;
+    } else if (P__drop.shell) {
         *effect = allowed;
         if (FAILED(P__drop.shell->lpVtbl->DragOver(P__drop.shell, keys, point, effect))) *effect = DROPEFFECT_NONE;
     }
@@ -529,6 +663,9 @@ function b32 P__DropDrop(DWORD keys, POINTL point, DWORD *effect)
     b32 result = false;
     if (P__drop.takesFolders && *effect != DROPEFFECT_NONE) {
         P__DropKeepFolders(P__drop.data);
+        result = true;
+    } else if (P__drop.keepsFiles && *effect != DROPEFFECT_NONE) {
+        P__DropKeepFiles(P__drop.data);
         result = true;
     } else if (P__drop.shell && *effect != DROPEFFECT_NONE) {
         result = SUCCEEDED(P__drop.shell->lpVtbl->Drop(P__drop.shell, P__drop.data, keys, point, effect));
@@ -557,6 +694,15 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
         data->lpVtbl->Release(data);
     }
     if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The shell's own data object of an archive's items extracts them where they are dropped.
+function b32 P_DragArchiveItems(String archive, String inner, const String *names, u64 count)
+{
+    Scratch scratch = GetScratch();
+    b32 result = P_DragFiles(inner.length ? StrFormat(scratch.arena, "%S/%S", archive, inner) : archive, names, count);
     ReleaseScratch(scratch);
     return result;
 }

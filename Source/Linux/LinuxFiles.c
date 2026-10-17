@@ -1,5 +1,6 @@
 #include <dirent.h>
 #include <dlfcn.h>
+#include <locale.h>
 #include <limits.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -106,73 +107,93 @@ function i64 P_NowUnix(void)
     return (i64)time(NULL);
 }
 
-// libarchive, loaded when first needed so that it is not a build dependency; every Arch system has it, as pacman uses it.
-typedef struct P__Archive {
-    b32 tried, loaded;
-    void *(*readNew)(void);
-    i32 (*supportFilterAll)(void *);
-    i32 (*supportFormatAll)(void *);
-    i32 (*openFilename)(void *, const char *, u64);
-    i32 (*nextHeader)(void *, void **);
-    const char *(*pathname)(void *);
-    i64 (*size)(void *);
-    u32 (*filetype)(void *);
-    i32 (*free)(void *);
-} P__Archive;
-global P__Archive P__archive;
-
-function b32 P__LoadArchive(void)
+// The system's libarchive; every Arch system has it, as pacman uses it.
+function void *P__ArchiveSymbol(const char *name)
 {
-    P__Archive *a = &P__archive;
-    if (a->tried) return a->loaded;
-    a->tried = true;
-    void *library = dlopen("libarchive.so.13", RTLD_NOW | RTLD_LOCAL);
-    if (!library) return false;
-    *(void **)&a->readNew = dlsym(library, "archive_read_new");
-    *(void **)&a->supportFilterAll = dlsym(library, "archive_read_support_filter_all");
-    *(void **)&a->supportFormatAll = dlsym(library, "archive_read_support_format_all");
-    *(void **)&a->openFilename = dlsym(library, "archive_read_open_filename");
-    *(void **)&a->nextHeader = dlsym(library, "archive_read_next_header");
-    *(void **)&a->pathname = dlsym(library, "archive_entry_pathname_utf8");
-    *(void **)&a->size = dlsym(library, "archive_entry_size");
-    *(void **)&a->filetype = dlsym(library, "archive_entry_filetype");
-    *(void **)&a->free = dlsym(library, "archive_read_free");
-    a->loaded = a->readNew && a->supportFilterAll && a->supportFormatAll && a->openFilename && a->nextHeader && a->pathname && a->size && a->filetype && a->free;
-    return a->loaded;
+    local_persist b32 tried;
+    local_persist void *library;
+    if (!tried) {
+        tried = true;
+        library = dlopen("libarchive.so.13", RTLD_NOW | RTLD_LOCAL);
+    }
+    return library ? dlsym(library, name) : NULL;
 }
+
+// libarchive turns names into the thread's character set, which is ASCII until a locale is chosen, so a thread that opens an archive
+// switches to UTF-8 first; names are UTF-8 everywhere else here anyway.
+function const void *P__ArchiveNativePath(Arena *arena, String path)
+{
+    local_persist locale_t utf8;
+    if (!utf8) utf8 = newlocale(LC_CTYPE_MASK, "C.UTF-8", (locale_t)0);
+    if (utf8) uselocale(utf8);
+    return P__FilePathCString(arena, path);
+}
+
+#define P__ArchiveOpenReadName "archive_read_open_filename"
+#define P__ArchiveOpenWriteName "archive_write_open_filename"
+enum { P__ArchiveCancelled = ECANCELED, P__ArchiveUnsupported = ENOSYS, P__ArchiveFailed = EIO };
+
+#include "Platform/PlatformArchive.c"
 
 function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
 {
     *files = (P_FileArray){0};
     if (!P__LoadArchive()) return false;
     P__Archive *a = &P__archive;
-    Scratch scratch = GetScratchEx(arena);
-    char *cpath = P__FilePathCString(scratch.arena, path);
-    void *archive = cpath ? a->readNew() : NULL;
-    b32 result = false;
-    if (archive) {
-        a->supportFilterAll(archive);
-        a->supportFormatAll(archive);
-        // ARCHIVE_OK is 0 and ARCHIVE_WARN -20, which still gives the entry; the data of each entry is skipped by the next header.
-        if (a->openFilename(archive, cpath, 65536) == 0) {
-            void *entry = NULL;
-            i32 status = 0;
-            while (files->header.count < limit && !P_IsCancelled(cancel) && ((status = a->nextHeader(archive, &entry)) == 0 || status == -20)) {
-                const char *name = a->pathname(entry);
-                if (!name) continue;
-                String inner = StrMake(name, strlen(name));
-                if (inner.length >= 2 && inner.value[0] == '.' && inner.value[1] == '/') inner = StrFrom(inner, 2);
-                b32 folder = (a->filetype(entry) & 0170000) == 0040000;
-                while (inner.length && inner.value[inner.length - 1] == '/') --inner.length;
-                if (!inner.length) continue;
-                ArrayPush(arena, *files, ((P_File){ .name = StrCopy(arena, inner), .size = folder ? 0 : (u64)Max(a->size(entry), (i64)0),
-                                                     .kind = folder ? P_FileKind_Directory : P_FileKind_File }));
-            }
-        }
-        a->free(archive);
+    void *reader = P__ArchiveRead(path), *entry = NULL;
+    String inner = {0};
+    b32 folder = false;
+    // The data of each entry is skipped by the next header.
+    while (reader && files->header.count < limit && !P_IsCancelled(cancel) && P__ArchiveNext(reader, &entry, &inner, &folder)) {
+        ArrayPush(arena, *files, ((P_File){ .name = StrCopy(arena, inner), .size = folder ? 0 : (u64)Max(a->size(entry), (i64)0),
+                                             .kind = folder ? P_FileKind_Directory : P_FileKind_File }));
     }
-    ReleaseScratch(scratch);
-    result = files->header.count != 0;
+    if (reader) a->free(reader);
+    return files->header.count != 0;
+}
+
+function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, String inner, const P_CancelToken *cancel)
+{
+    P_DirectoryResult result = {0};
+    P__Archive *a = &P__archive;
+    void *reader = P__LoadArchive() ? P__ArchiveRead(archive) : NULL, *entry = NULL;
+    if (!reader) {
+        result.errorCode = P__archive.loaded ? (u32)(errno ? errno : EIO) : ENOSYS;
+        result.errorString = P__archive.loaded ? StrFormat(arena, "%s", strerror((i32)result.errorCode)) : S("libarchive is not installed");
+        return result;
+    }
+    // The level's folders, met as entries of their own or only in the paths of what they hold, each listed once.
+    struct { MapHeader header; struct { String key; u64 value; } *v; } seen = {0};
+    String name = {0};
+    b32 folder = false;
+    for (u64 count = 0; P__ArchiveNext(reader, &entry, &name, &folder); ++count) {
+        if ((count & 1023) == 1023 && P_IsCancelled(cancel)) {
+            result.cancelled = true;
+            break;
+        }
+        String rest = name;
+        if (inner.length) {
+            if (name.length <= inner.length + 1 || name.value[inner.length] != '/' || !StrIsEqual(StrFromTo(name, 0, (i64)inner.length), inner)) continue;
+            rest = StrFrom(name, inner.length + 1);
+        }
+        Index slash = StrIndexChar(rest, '/', SSF_None);
+        String child = slash.exists ? StrFromTo(rest, 0, (i64)slash.value) : rest;
+        b32 deeper = slash.exists, isFolder = deeper || folder;
+        u64 at = MapsGet(seen, u64, child);
+        if (!at) {
+            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            at = result.files.header.count;
+            MapsPut(arena, seen, result.files.v[at - 1].name, at);
+        }
+        if (!deeper) {
+            P_File *file = &result.files.v[at - 1];
+            file->size = isFolder ? 0 : (u64)Max(a->size(entry), (i64)0);
+            file->modifiedTimeUnix = a->mtime(entry);
+            file->metadataValid = true;
+            file->hidden = child.value[0] == '.';
+        }
+    }
+    a->free(reader);
     return result;
 }
 
@@ -346,6 +367,23 @@ function b32 LinuxStartDrag(String directory, const String *names, u64 count);
 function b32 P_DragFiles(String directory, const String *names, u64 count)
 {
     return LinuxStartDrag(directory, names, count);
+}
+
+function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, const P_CancelToken *cancel);
+function String P_RunFolder(Arena *arena);
+
+// A drop takes files, so the items are taken out into a folder of their own first.
+// ponytail: that holds the window while a large item is taken out; taking it out when the target asks for the data would not.
+function b32 P_DragArchiveItems(String archive, String inner, const String *names, u64 count)
+{
+    Arena arena = {0};
+    String run = P_RunFolder(&arena);
+    local_persist u32 drags;
+    String folder = run.length ? StrFormat(&arena, "%S/drag-%u", run, ++drags) : (String){0};
+    char *native = folder.length ? P__FilePathCString(&arena, folder) : NULL;
+    b32 result = native && mkdir(native, 0700) == 0 && !P_ExtractArchive(&arena, archive, inner, names, count, folder, NULL).code && LinuxStartDrag(folder, names, count);
+    ArenaRelease(&arena);
+    return result;
 }
 
 // Where dropped files go; the window's drop handler reads it.
@@ -693,6 +731,161 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
     if (parent >= 0) close(parent);
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+// Makes the folders of `path` that are missing, the last one included.
+function b32 P__MakeFolders(char *path)
+{
+    for (char *at = path + 1; *at; ++at) {
+        if (*at != '/') continue;
+        *at = 0;
+        b32 made = mkdir(path, 0777) == 0 || errno == EEXIST;
+        *at = '/';
+        if (!made) return false;
+    }
+    return mkdir(path, 0777) == 0 || errno == EEXIST;
+}
+
+// Whether a path from inside an archive stays below the folder it is taken out into: not absolute and no ".." part.
+function b32 P__ArchivePathSafe(String path)
+{
+    if (path.length && path.value[0] == '/') return false;
+    for (u64 at = 0; at < path.length;) {
+        u64 end = at + StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail).value;
+        if (end - at == 2 && path.value[at] == '.' && path.value[at + 1] == '.') return false;
+        at = end + 1;
+    }
+    return true;
+}
+
+function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, const P_CancelToken *cancel)
+{
+    if (!P__LoadArchive()) return P__FileError(arena, ENOSYS);
+    P__Archive *a = &P__archive;
+    Scratch scratch = GetScratchEx(arena);
+    // Each item goes under its own name, or a numbered one where that is taken, as copies do.
+    String *placed = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+    for (u64 k = 0; k < count; ++k) {
+        for (u32 n = 1; n < 10000; ++n) {
+            placed[k] = StrFromCStr(P__NumberedName(scratch.arena, names[k], false, n));
+            if (!P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, placed[k]))) break;
+        }
+    }
+    void *reader = P__ArchiveRead(archive), *entry = NULL;
+    u32 error = reader ? 0 : (u32)(errno ? errno : EIO);
+    String name = {0};
+    b32 folder = false;
+    while (!error && reader && P__ArchiveNext(reader, &entry, &name, &folder)) {
+        if (P_IsCancelled(cancel)) {
+            error = ECANCELED;
+            break;
+        }
+        String rest = name;
+        if (inner.length) {
+            if (name.length <= inner.length + 1 || name.value[inner.length] != '/' || !StrIsEqual(StrFromTo(name, 0, (i64)inner.length), inner)) continue;
+            rest = StrFrom(name, inner.length + 1);
+        }
+        u64 k = 0;
+        for (; k < count; ++k) {
+            if (StrIsEqual(rest, names[k]) || (rest.length > names[k].length && rest.value[names[k].length] == '/' && StrIsEqual(StrFromTo(rest, 0, (i64)names[k].length), names[k]))) break;
+        }
+        // Links and devices are left out, and so is anything that would land outside the folder.
+        u32 type = a->filetype(entry) & 0170000;
+        if (k == count || !P__ArchivePathSafe(rest) || (type != 0100000 && type != 0040000)) continue;
+        ArenaMark mark = ArenaGetMark(scratch.arena);
+        String target = StrFormat(scratch.arena, "%S/%S%S", directory, placed[k], StrFrom(rest, names[k].length));
+        char *native = P__FilePathCString(scratch.arena, target);
+        if (!native) error = EINVAL;
+        else if (type == 0040000) error = P__MakeFolders(native) ? 0 : (u32)errno;
+        else {
+            char *slash = strrchr(native, '/');
+            if (slash && slash != native) {
+                *slash = 0;
+                if (!P__MakeFolders(native)) error = (u32)errno;
+                *slash = '/';
+            }
+            i32 file = error ? -1 : open(native, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+            if (!error && file < 0) error = (u32)errno;
+            const void *block = NULL;
+            u64 size = 0;
+            i64 offset = 0;
+            i32 status = 0;
+            while (file >= 0 && !error && (status = a->readBlock(reader, &block, &size, &offset)) == 0) {
+                if (pwrite(file, block, size, (off_t)offset) != (ssize_t)size) error = (u32)errno;
+            }
+            if (!error && status < 0 && status != 1) error = EIO;
+            if (file >= 0 && close(file) != 0 && !error) error = (u32)errno;
+        }
+        ArenaRestore(mark);
+    }
+    if (reader) a->free(reader);
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+// Writes the item at `path` on disk into `writer` as `name`, a folder with all it holds; links are left out.
+function u32 P__ArchiveWritePath(void *writer, String path, String name, const P_CancelToken *cancel)
+{
+    P__Archive *a = &P__archive;
+    if (P_IsCancelled(cancel)) return ECANCELED;
+    Scratch scratch = GetScratch();
+    char *native = P__FilePathCString(scratch.arena, path), *inside = P__FilePathCString(scratch.arena, name);
+    struct stat info = {0};
+    u32 error = native && inside && lstat(native, &info) == 0 ? 0 : (u32)errno;
+    if (!error && (S_ISREG(info.st_mode) || S_ISDIR(info.st_mode))) {
+        void *entry = a->entryNew();
+        a->entrySetPath(entry, inside);
+        a->entryCopyStat(entry, &info);
+        if (a->writeHeader(writer, entry) < P__ArchiveWarn) error = EIO;
+        a->entryFree(entry);
+        if (!error && S_ISREG(info.st_mode)) {
+            i32 file = open(native, O_RDONLY | O_CLOEXEC);
+            if (file < 0) error = (u32)errno;
+            char buffer[65536];
+            ssize_t got = 0;
+            while (file >= 0 && !error && (got = read(file, buffer, sizeof(buffer))) > 0) {
+                if (a->writeData(writer, buffer, (u64)got) != got) error = EIO;
+            }
+            if (!error && got < 0) error = (u32)errno;
+            if (file >= 0) close(file);
+        } else if (!error) {
+            DIR *folder = opendir(native);
+            if (!folder) error = (u32)errno;
+            for (struct dirent *item; folder && !error && (item = readdir(folder)) != NULL;) {
+                if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
+                error = P__ArchiveWritePath(writer, StrFormat(scratch.arena, "%S/%s", path, item->d_name), StrFormat(scratch.arena, "%S/%s", name, item->d_name), cancel);
+            }
+            if (folder) closedir(folder);
+        }
+    }
+    ReleaseScratch(scratch);
+    return error;
+}
+
+function b32 P_IsDirectory(String path)
+{
+    Scratch scratch = GetScratch();
+    char *native = P__FilePathCString(scratch.arena, path);
+    struct stat info = {0};
+    b32 result = native && stat(native, &info) == 0 && S_ISDIR(info.st_mode);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function String P_RunFolder(Arena *arena)
+{
+    const char *base = getenv("TMPDIR");
+    if (!base || !*base) base = "/tmp";
+    String filey = StrFormat(arena, "%s/filey-%u", base, (u32)getuid()), folder = StrFormat(arena, "%S/%d", filey, (i32)getpid());
+    Scratch scratch = GetScratchEx(arena);
+    char *top = P__FilePathCString(scratch.arena, filey), *own = P__FilePathCString(scratch.arena, folder);
+    mkdir(top, 0700);
+    // Only a folder of this user's, not a link another user left in its place.
+    struct stat info = {0};
+    b32 ours = lstat(top, &info) == 0 && S_ISDIR(info.st_mode) && info.st_uid == getuid();
+    if (ours) mkdir(own, 0700);
+    ReleaseScratch(scratch);
+    return ours && P_IsDirectory(folder) ? folder : (String){0};
 }
 
 // Puts `name` up as the file being copied, for the program to show.
@@ -1695,6 +1888,9 @@ function P_FileError P_ReplaceFile(Arena *arena, String from, String to)
     Scratch scratch = GetScratchEx(arena);
     char *source = P__FilePathCString(scratch.arena, from), *target = P__FilePathCString(scratch.arena, to);
     u32 code = EINVAL;
+    // The new file keeps the permissions of the one it replaces.
+    struct stat info = {0};
+    if (source && target && stat(target, &info) == 0) chmod(source, info.st_mode & 07777);
     if (source && target) code = rename(source, target) == 0 ? 0 : (u32)errno;
     ReleaseScratch(scratch);
     return code ? P__FileError(arena, code) : (P_FileError){0};

@@ -46,6 +46,23 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
 // Up to `limit` items inside an archive (zip, 7z, rar, tar and the like), each named by its path inside it with '/' between folders, folders
 // as P_FileKind_Directory; false, with none, when the system cannot read it as an archive or finds nothing in it. Slow; run it in a job.
 function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files);
+// Archives open as folders. One level of the folder `inner`, empty for the top, in the archive file `archive`, as P_EnumerateDirectory gives
+// a folder's: each item by its own name, the folders it is in left out.
+function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, String inner, const P_CancelToken *cancel);
+// Copies the items `names` of the folder `inner` in `archive` into the folder `directory` on disk, folders with all they hold. A name taken
+// there gets a new one, as copies do.
+function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, const P_CancelToken *cancel);
+// Copies the items at `paths` on disk into the folder `inner` of `archive`, in place of what has their names there. The archive is rewritten
+// beside it and put in place once complete; formats libarchive cannot write, such as RAR, fail.
+function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, const P_CancelToken *cancel);
+// Whether P_AddToArchive writes the archive `archive`, by its name alone: zip, 7z and tar, not RAR or cabinets, which no free library writes.
+function b32 P_ArchiveWritable(String archive);
+// Starts dragging the items `names` of the folder `inner` in `archive`, which a drop copies out. Linux takes them out into P_RunFolder first.
+function b32 P_DragArchiveItems(String archive, String inner, const String *names, u64 count);
+// Whether `path` is a folder on disk.
+function b32 P_IsDirectory(String path);
+// A folder of this run's own under the system's temporary folder, for files taken out of archives, created when missing; empty when it cannot be.
+function String P_RunFolder(Arena *arena);
 
 typedef struct P_DirectoryTotals {
     u64 folders;
@@ -357,6 +374,7 @@ function void P_SetDropTakesFolders(b32 takes);
 function ArrayStr P_TakeDroppedFolders(Arena *arena);
 // A drag, Filey's own or another program's, is over the window.
 function b32 P_DropPending(void);
-// Where the system leaves dropped files to Filey, as on Linux, the files dropped into a folder since the last call, copied into `arena`,
-// with that folder and whether they move, for the program to copy or move as a paste does; empty on Windows, whose shell carries drops out.
+// Where the system leaves dropped files to Filey, as on Linux and for a folder inside an archive on Windows, the files dropped into a folder
+// since the last call, copied into `arena`, with that folder and whether they move, for the program to copy or move as a paste does.
+// Windows' shell carries other drops out itself.
 function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move);

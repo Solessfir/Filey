@@ -402,6 +402,8 @@ typedef struct Prog_Transfer {
 // How many of the recents the sidebar and Go To show.
 #define Prog_ShownRecentCount 10
 #define Prog_PreviewBytes (1 << 20)
+// The largest file inside an archive that is taken out to be previewed.
+#define Prog_ArchivePreviewBytes (UINT64_C(256) << 20)
 // A file shown as hex is read a page at a time as its rows come into sight, up to Prog_HexRows rows; past that the view would need more
 // precision than its float scroll offset has.
 #define Prog_HexPageBytes (1 << 20)
@@ -781,6 +783,7 @@ typedef struct Prog_Directory {
     b32 hidden;       // the folder itself, as P_DirectoryResult says
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
+    b32 archive;      // a folder inside an archive, listed from it
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
     String *parents;
     u32 parentCount;

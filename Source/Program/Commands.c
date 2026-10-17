@@ -1991,9 +1991,10 @@ function void Prog_DragSelection(Prog_State *state)
     for (u64 i = 0; i < state->directory.count && count < state->selectedCount; ++i) {
         if (state->directory.entries[i].selected) rows[count++] = i;
     }
-    String folder = Prog__RowsFolder(state, scratch.arena, rows, &count, names);
+    String folder = Prog__RowsFolder(state, scratch.arena, rows, &count, names), archive = {0}, inner = {0};
     state->dragging = true;
-    P_DragFiles(folder, names, count);
+    if (state->directory.archive && Prog_ArchiveSplit(folder, &archive, &inner)) P_DragArchiveItems(archive, inner, names, count);
+    else P_DragFiles(folder, names, count);
     state->dragging = false;
     // The system's drag loop took the button release.
     UI_CancelActive();
@@ -3090,6 +3091,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     Prog__UsePanel(state, state->activePanel);
     if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false;
+    String archive = {0}, inner = {0};
+    if (Prog_ArchiveSplit(drop, &archive, &inner) && !P_ArchiveWritable(archive)) drop = (String){0}, intoPanel = false;
     P_SetDropDirectory(drop);
     state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;
     // The Types popup lists the active panel's types, the new ones once the listing changes under it.

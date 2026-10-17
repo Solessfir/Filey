@@ -795,6 +795,66 @@ function void TestFileIcons(TestFileFixture *fixture)
     String listing = Prog_ArchiveListing(&arena, &items, false);
     Check(StrIsEqual(StrFromTo(listing, 0, 23), S("1 folder, 1 file, 2 B\n\n")) && TestEndsWith(listing, S("       2 B  docs/a.txt\n")));
     Check(!P_ListArchive(&arena, plain, 100, NULL, &items) && !items.header.count);
+    // The archive opens as a folder: a level of it at a time, files taken out of it, a copy to open or preview, and files added to it.
+    {
+        P_DirectoryResult top = P_EnumerateArchive(&arena, archive, (String){0}, NULL), docs = P_EnumerateArchive(&arena, archive, S("docs"), NULL);
+        Check(!top.errorCode && top.files.header.count == 1 && StrIsEqual(top.files.v[0].name, S("docs")) && top.files.v[0].kind == P_FileKind_Directory);
+        Check(!docs.errorCode && docs.files.header.count == 1 && StrIsEqual(docs.files.v[0].name, S("a.txt")) && docs.files.v[0].size == 2);
+        String within = {0}, inside = {0}, folder = Prog_JoinPath(&arena, archive, S("docs"));
+        Check(Prog_ArchiveSplit(folder, &within, &inside) && StrIsEqual(within, archive) && StrIsEqual(inside, S("docs")));
+        Check(Prog_InArchive(archive, &within, &inside) && !inside.length && !Prog_ArchiveSplit(fixture->path, &within, &inside));
+        String out = {0}, name = S("a.txt"), contents = {0};
+        Check(!P_CreateItem(&arena, fixture->path, S("Out"), true, &out).code);
+        out = Prog_JoinPath(&arena, fixture->path, S("Out"));
+        Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, out, NULL).code);
+        Check(P_ReadFile(&arena, Prog_JoinPath(&arena, out, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
+        String copy = Prog_ArchiveCopy(&arena, Prog_JoinPath(&arena, folder, S("a.txt")), NULL);
+        Check(copy.length && P_ReadFile(&arena, copy, &contents) && StrIsEqual(contents, S("hi")));
+        String note = Prog_JoinPath(&arena, out, S("note.txt"));
+        Check(!P_WriteFile(&arena, note, S("new")).code);
+        Check(!P_AddToArchive(&arena, archive, S("docs"), &note, 1, NULL).code);
+        docs = P_EnumerateArchive(&arena, archive, S("docs"), NULL);
+        Check(docs.files.header.count == 2 && P_EnumerateArchive(&arena, archive, (String){0}, NULL).files.header.count == 1);
+        // The program lists the folder from the archive, and a transfer out of it takes the file out.
+        Prog_State listed = {0};
+        Check(Prog_Init(&listed, folder, NULL, NULL) && listed.jobs.initialized);
+        Check(TestWaitDirectory(&listed) && listed.directory.archive && listed.directory.count == 2 && !listed.directory.error.code);
+        Prog_Release(&listed);
+        // A name the system's code page has no letters for goes in as it is.
+        String unicode = Prog_JoinPath(&arena, out, S("ünï 日本.txt"));
+        Check(!P_WriteFile(&arena, unicode, S("u")).code && !P_AddToArchive(&arena, archive, (String){0}, &unicode, 1, NULL).code);
+        top = P_EnumerateArchive(&arena, archive, (String){0}, NULL);
+        Check(top.files.header.count == 2 && (StrIsEqual(top.files.v[0].name, S("ünï 日本.txt")) || StrIsEqual(top.files.v[1].name, S("ünï 日本.txt"))));
+        String moved = {0}, from = Prog_JoinPath(&arena, folder, S("note.txt"));
+        Check(!P_CreateItem(&arena, fixture->path, S("Out2"), true, &moved).code);
+        Prog_JobInput transfer = { .kind = Prog_JobKind_Transfer, .paths = &from, .pathCount = 1, .path = Prog_JoinPath(&arena, fixture->path, S("Out2")) };
+        ArrayStr placed = {0};
+        Check(!Prog__Transfer(&arena, &transfer, &placed, NULL).code);
+        Check(P_ReadFile(&arena, Prog_JoinPath(&arena, transfer.path, S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
+        Check(P__TestRemovePath(fixture, S("Out/a.txt"), false) && P__TestRemovePath(fixture, S("Out/note.txt"), false) && P__TestRemovePath(fixture, S("Out/ünï 日本.txt"), false) &&
+              P__TestRemovePath(fixture, S("Out"), true));
+        Check(P__TestRemovePath(fixture, S("Out2/note.txt"), false) && P__TestRemovePath(fixture, S("Out2"), true));
+        // A tar.gz rewritten to add a file stays a gzipped tar, as tar itself reads it back.
+        String output = {0}, tarred = Prog_JoinPath(&arena, fixture->path, S("box.tar.gz"));
+        const String make[] = { S("tar"), S("-czf"), S("box.tar.gz"), S("inside-tar.txt") };
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fixture->path, S("inside-tar.txt")), S("t")).code);
+        Check(P_RunCommand(&arena, fixture->path, make, CArrayCount(make), 10000, &output));
+        String added = Prog_JoinPath(&arena, fixture->path, S("pixel.png"));
+        Check(!P_AddToArchive(&arena, tarred, (String){0}, &added, 1, NULL).code);
+        const String list[] = { S("tar"), S("-tzf"), S("box.tar.gz") };
+        Check(P_RunCommand(&arena, fixture->path, list, CArrayCount(list), 10000, &output) && StrIndexStr(output, S("inside-tar.txt"), SSF_None).exists &&
+              StrIndexStr(output, S("pixel.png"), SSF_None).exists);
+        Check(P_ArchiveWritable(tarred) && P_ArchiveWritable(S("a.7z")) && !P_ArchiveWritable(S("a.rar")) && !P_ArchiveWritable(S("a.cab")));
+#if defined(_WIN32)
+        // Windows' tar makes a 7z too, which then takes a file as well.
+        String sevened = Prog_JoinPath(&arena, fixture->path, S("box.7z"));
+        const String pack[] = { S("tar"), S("-a"), S("-cf"), S("box.7z"), S("inside-tar.txt") };
+        Check(P_RunCommand(&arena, fixture->path, pack, CArrayCount(pack), 10000, &output));
+        Check(!P_AddToArchive(&arena, sevened, (String){0}, &added, 1, NULL).code && P_EnumerateArchive(&arena, sevened, (String){0}, NULL).files.header.count == 2);
+        Check(P__TestRemovePath(fixture, S("box.7z"), false));
+#endif
+        Check(P__TestRemovePath(fixture, S("box.tar.gz"), false) && P__TestRemovePath(fixture, S("inside-tar.txt"), false));
+    }
     Check(P__TestRemovePath(fixture, S("pack.zip"), false));
     Check(P__TestRemovePath(fixture, S("pixel.png"), false));
     Check(P__TestRemovePath(fixture, S("plain.bin"), false));
