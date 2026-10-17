@@ -1770,6 +1770,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
     state->previewAnchor = state->previewCaret = 0;
+    state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
     state->previewFolder = folder;
     state->previewHex = state->previewArchive = false;
@@ -1973,13 +1974,23 @@ function void Prog_DragSelection(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
-// The text selected in the inspector's text view, when it has some.
-function b32 Prog_InspectorSelection(const Prog_State *state, String *text)
+// The text selected in the inspector's text view, when it has some: with its filter on, only of the lines it shows, in `arena`.
+function b32 Prog_InspectorSelection(const Prog_State *state, Arena *arena, String *text)
 {
     u64 from = Min(state->previewAnchor, state->previewCaret), to = Min(Max(state->previewAnchor, state->previewCaret), state->previewText.length);
     if (!state->previewShown || state->previewHex || from >= to) return false;
-    *text = StrFromTo(state->previewText, from, (i64)to);
-    return true;
+    if (!Prog_EditText(&state->inspectorFilter).length || !state->previewKept) {
+        *text = StrFromTo(state->previewText, from, (i64)to);
+        return true;
+    }
+    StrBuilder kept = {0};
+    for (u32 i = 0; i < state->previewKeptCount; ++i) {
+        u32 line = state->previewKept[i];
+        u64 a = Max(from, (u64)state->previewLines[line]), b = Min(to, (u64)state->previewLines[line + 1]);
+        if (a < b) StrBuildStr(arena, &kept, StrFromTo(state->previewText, a, (i64)b));
+    }
+    *text = kept.buffer;
+    return text->length > 0;
 }
 
 function b32 Prog_ProcessCommands(Prog_State *state)
@@ -2425,6 +2436,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_SelectAll:
             case Prog_CommandKind_ToggleSelectAll: {
+                // All of the inspector's text, after a press on it.
+                if (command->kind == Prog_CommandKind_SelectAll && state->previewTextFocus && state->previewShown && !state->previewHex && state->previewText.length) {
+                    state->previewAnchor = 0;
+                    state->previewCaret = state->previewText.length;
+                    break;
+                }
                 if (!state->loading) {
                     b32 select = command->kind == Prog_CommandKind_SelectAll || state->selectedCount < state->viewCount || !state->viewCount;
                     for (u64 i = 0; i < state->viewCount; ++i) state->directory.entries[state->view[i]].selected = select;
@@ -2861,7 +2878,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CopySelection: {
                 // The inspector's selected text, while it has some, rather than the files.
                 String selected;
-                if (Prog_InspectorSelection(state, &selected)) PlatformClipboardSetText(selected);
+                if (Prog_InspectorSelection(state, &state->frameArena, &selected)) PlatformClipboardSetText(selected);
                 else Prog__FileCommand(state, command->kind);
             } break;
             case Prog_CommandKind_CutSelection:
@@ -3029,8 +3046,11 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             continue;
         }
         if (event->kind == PlatformEventKind_KeyDown) state->swallowText = false;
-        // A press anywhere but on the inspector's text drops what is selected in it.
-        if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->inspectorTextRect, (UI_Vec2){ event->x, event->y })) state->previewAnchor = state->previewCaret;
+        // A press anywhere but on the inspector's text drops what is selected in it, and gives Select All back to the files.
+        if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->inspectorTextRect, (UI_Vec2){ event->x, event->y })) {
+            state->previewAnchor = state->previewCaret;
+            state->previewTextFocus = false;
+        }
         // A chip being rebound takes the next key with its modifiers, which run nothing; Escape stops it, and stops the delete question.
         if ((state->hotkeyKind || state->hotkeyAsking) && event->kind == PlatformEventKind_KeyDown) {
             b32 modifier = event->key == Key_Shift || event->key == Key_Control || event->key == Key_Alt || event->key == Key_Super;

@@ -6403,6 +6403,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     if (hit != UINT64_MAX && press.pressed) {
         state->previewAnchor = state->previewCaret = hit;
         state->previewClicks = press.pressCount;
+        state->previewTextFocus = true;
         if (press.pressCount == 2) {
             while (state->previewAnchor > 0 && Prog__WordByte((u8)text.value[state->previewAnchor - 1])) --state->previewAnchor;
             while (state->previewCaret < text.length && Prog__WordByte((u8)text.value[state->previewCaret])) ++state->previewCaret;
@@ -6412,6 +6413,12 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         }
     } else if (hit != UINT64_MAX && dragging && state->previewClicks < 2) {
         state->previewCaret = hit;
+        // Holding the pointer past the top or bottom edge scrolls, faster the further out it is, as the lists' boxes do.
+        f32 over = UI->mouse.y < view->rect.y0 ? UI->mouse.y - view->rect.y0 : UI->mouse.y > view->rect.y1 ? UI->mouse.y - view->rect.y1 : 0;
+        if (over != 0) {
+            view->scrollOffset.y = MaxF32(0, view->scrollOffset.y + over * 0.25f);
+            UI_KeepAnimating();
+        }
     }
     Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }

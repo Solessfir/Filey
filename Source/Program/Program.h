@@ -1163,6 +1163,7 @@ typedef struct Prog_State {
     // the pointer while it drags. A press outside inspectorTextRect, the view's last layout, drops it.
     u64 previewAnchor, previewCaret;
     u32 previewClicks;        // of the press that made it: a drag moves the caret after a single one, not a word's or a line's
+    b32 previewTextFocus;     // pressed on last, so that Select All selects all of its text rather than the files
     R_Rect inspectorTextRect;
     // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks,
     // in inspectorFontSize points (0 for Prog_InspectorFontSize).

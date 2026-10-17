@@ -1848,7 +1848,10 @@ function void TestInspectorSelection(TestFileFixture *fixture)
     String created = {0};
     Check(!P_CreateItem(&arena, fixture->path, S("Selecting"), true, &created).code);
     String folder = Prog_JoinPath(&arena, fixture->path, S("Selecting"));
-    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, folder, S("note.txt")), S("hello world\nsecond line\n")).code);
+    StrBuilder note = {0};
+    StrBuildStr(&arena, &note, S("hello world\nsecond line\n"));
+    for (u32 i = 0; i < 200; ++i) StrBuildStr(&arena, &note, StrFormat(&arena, "row %u\n", i));
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, folder, S("note.txt")), note.buffer).code);
     Prog_State state = {0};
     Check(Prog_Init(&state, folder, NULL, NULL));
     if (state.jobs.initialized && TestWaitDirectory(&state) && state.directory.count == 1) {
@@ -1875,7 +1878,7 @@ function void TestInspectorSelection(TestFileFixture *fixture)
         TestWindowFrame(&state, drag, 1, now++);
         TestWindowFrame(&state, release, 1, now++);
         String selected = {0};
-        Check(Prog_InspectorSelection(&state, &selected) && StrIsEqual(selected, S("hello")));
+        Check(Prog_InspectorSelection(&state, &arena, &selected) && StrIsEqual(selected, S("hello")));
         PlatformEvent copy[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_C, .mods = KeyMod_Control } };
         TestWindowFrame(&state, copy, 1, now++);
         Check(StrIsEqual(TestClipboard, S("hello")));
@@ -1883,13 +1886,31 @@ function void TestInspectorSelection(TestFileFixture *fixture)
         PlatformEvent click[] = { { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x + 8.1f * cell, .y = y }, { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x + 8.1f * cell, .y = y } };
         TestWindowFrame(&state, click, 2, now++);
         TestWindowFrame(&state, click, 2, now++);
-        Check(Prog_InspectorSelection(&state, &selected) && StrIsEqual(selected, S("world")));
+        Check(Prog_InspectorSelection(&state, &arena, &selected) && StrIsEqual(selected, S("world")));
         TestWindowFrame(&state, click, 2, now++);
-        Check(Prog_InspectorSelection(&state, &selected) && StrIsEqual(selected, S("hello world\n")));
+        Check(Prog_InspectorSelection(&state, &arena, &selected) && StrIsEqual(selected, S("hello world\n")));
+        // Ctrl+A after a press on the text selects all of it; with the filter on, only the lines it shows are copied.
+        PlatformEvent all[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_A, .mods = KeyMod_Control } };
+        TestWindowFrame(&state, all, 1, now++);
+        Check(Prog_InspectorSelection(&state, &arena, &selected) && StrIsEqual(selected, note.buffer));
+        Prog__EditReplace(&state.inspectorFilter, (const u8 *)"second", 6);
+        TestWindowFrame(&state, NULL, 0, now++);
+        TestWindowFrame(&state, copy, 1, now++);
+        Check(StrIsEqual(TestClipboard, S("second line\n")));
+        TestBrowsingCommand(&state, Prog_CommandKind_InspectorRemoveFilter, 0);
+        TestWindowFrame(&state, NULL, 0, now++);
+        // Holding the pointer below the view while dragging scrolls it on, and the selection with it.
+        PlatformEvent below[] = { { .kind = PlatformEventKind_MouseMove, .x = x, .y = rect.y1 + 200 } };
+        TestWindowFrame(&state, press, 2, now++);
+        TestWindowFrame(&state, below, 1, now++);
+        for (u32 i = 0; i < 20; ++i) TestWindowFrame(&state, NULL, 0, now++);
+        u32 inView = (u32)((rect.y1 - rect.y0) / pitch);
+        Check(inView + 2 < state.previewLineCount && state.previewCaret > state.previewLines[inView + 2]);
+        TestWindowFrame(&state, release, 1, now++);
         // A press outside the text drops it.
         PlatformEvent away[] = { { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = rect.x0 - 40, .y = y }, { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = rect.x0 - 40, .y = y } };
         TestWindowFrame(&state, away, 2, now++);
-        Check(!Prog_InspectorSelection(&state, &selected));
+        Check(!Prog_InspectorSelection(&state, &arena, &selected));
     }
     Prog_Release(&state);
     TestRemoveTree(&arena, fixture, S("Selecting"));
