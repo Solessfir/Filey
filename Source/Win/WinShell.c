@@ -973,7 +973,7 @@ function String P_ConfigDirectory(Arena *arena)
     return ok ? result : (String){0};
 }
 
-// The install: Filey.exe in "Filey" under the roaming application data, and its shortcuts in the Start menu and on the desktop.
+// The install: Filey.exe in "Filey" under the local application data, beside the settings, and its shortcuts in the Start menu and on the desktop.
 global const GUID P__FolderPrograms = { 0xA77F5D77, 0x2E2B, 0x44C3, { 0xA6, 0xA2, 0xAB, 0xA6, 0x01, 0x05, 0x4A, 0x51 } };
 
 typedef struct P__InstallPaths {
@@ -986,14 +986,14 @@ function b32 P_CanInstall(void) { return true; }
 function P__InstallPaths P__InstallPathsGet(Arena *arena)
 {
     P__InstallPaths result = {0};
-    String roaming = P__KnownFolder(arena, &P__FolderRoamingData), programs = P__KnownFolder(arena, &P__FolderPrograms), desktop = P__KnownFolder(arena, &P__FolderDesktop);
+    String local = P__KnownFolder(arena, &P__FolderLocalData), programs = P__KnownFolder(arena, &P__FolderPrograms), desktop = P__KnownFolder(arena, &P__FolderDesktop);
     wchar running[1024];
     u32 length = GetModuleFileNameW(NULL, running, (u32)CArrayCount(running));
-    if (!roaming.length || !length || length >= CArrayCount(running)) return result;
-    result.folder = P__FilePathWide(arena, StrFormat(arena, "%S/Filey", roaming));
-    result.executable = P__FilePathWide(arena, StrFormat(arena, "%S/Filey/Filey.exe", roaming));
+    if (!local.length || !length || length >= CArrayCount(running)) return result;
+    result.folder = P__FilePathWide(arena, StrFormat(arena, "%S/Filey", local));
+    result.executable = P__FilePathWide(arena, StrFormat(arena, "%S/Filey/Filey.exe", local));
     // A copy that was running when another replaced it is moved aside here, and goes once nothing runs it.
-    result.aside = P__FilePathWide(arena, StrFormat(arena, "%S/Filey/Filey.old.exe", roaming));
+    result.aside = P__FilePathWide(arena, StrFormat(arena, "%S/Filey/Filey.old.exe", local));
     result.running = ArenaPushArray(arena, (u64)length + 1, wchar);
     MemCopy(result.running, running, (u64)length * sizeof(wchar));
     if (programs.length) result.startLink = P__FilePathWide(arena, StrFormat(arena, "%S/Filey.lnk", programs));

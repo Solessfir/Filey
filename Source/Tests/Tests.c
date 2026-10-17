@@ -471,11 +471,11 @@ function void TestTextEditWords(void)
 function void TestInstallPath(void)
 {
     Scratch scratch = GetScratch();
-    const wchar *folder = L"C:\\Users\\Me\\AppData\\Roaming\\Filey";
+    const wchar *folder = L"C:\\Users\\Me\\AppData\\Local\\Filey";
     Check(!lstrcmpW(P__EditPath(scratch.arena, NULL, folder, true), folder));
-    Check(!lstrcmpW(P__EditPath(scratch.arena, L"C:\\Tools;%USERPROFILE%\\bin", folder, true), L"C:\\Tools;%USERPROFILE%\\bin;C:\\Users\\Me\\AppData\\Roaming\\Filey"));
-    const wchar *added = L"C:\\Tools;c:\\users\\me\\appdata\\roaming\\filey\\;D:\\Bin";
-    Check(P__PathHas(added, folder) && !P__PathHas(L"C:\\Tools;C:\\Users\\Me\\AppData\\Roaming\\Filey2", folder));
+    Check(!lstrcmpW(P__EditPath(scratch.arena, L"C:\\Tools;%USERPROFILE%\\bin", folder, true), L"C:\\Tools;%USERPROFILE%\\bin;C:\\Users\\Me\\AppData\\Local\\Filey"));
+    const wchar *added = L"C:\\Tools;c:\\users\\me\\appdata\\local\\filey\\;D:\\Bin";
+    Check(P__PathHas(added, folder) && !P__PathHas(L"C:\\Tools;C:\\Users\\Me\\AppData\\Local\\Filey2", folder));
     Check(!lstrcmpW(P__EditPath(scratch.arena, added, folder, false), L"C:\\Tools;D:\\Bin"));
     Check(!lstrcmpW(P__EditPath(scratch.arena, folder, folder, false), L""));
     ReleaseScratch(scratch);
