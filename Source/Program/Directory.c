@@ -3326,11 +3326,6 @@ function Prog_ViewSettings Prog_CurrentView(const Prog_State *state)
     return (Prog_ViewSettings){ state->zoom, state->sort, state->descending, state->folderSort, state->columnSet };
 }
 
-function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b)
-{
-    return a.zoom == b.zoom && a.sort == b.sort && a.descending == b.descending && a.folders == b.folders && Prog__SameColumns(a.columns, b.columns);
-}
-
 function void Prog__SetCurrentView(Prog_State *state, Prog_ViewSettings view)
 {
     state->zoom = view.zoom;
@@ -3433,20 +3428,16 @@ function void Prog__RestoreOwnView(Prog_State *state)
     if (resort) Prog_Reload(state);
 }
 
-// Keeps the shown folder's view, or lets it go back to the panel's own.
+// Locks the shown folder's view as the panel shows it, or unlocks it. What the panel shows stays either way, so that a view changed
+// while locked is kept by unlocking and locking again; the panel's own comes back in the next folder without a lock.
 function void Prog_ToggleFolderView(Prog_State *state)
 {
     String path = state->directory.path;
     Prog_ViewSettings view;
     if (!path.length) return;
-    if (!Prog_FolderView(state, path, &view)) {
-        // What the panel shows now is its own too, which folders without a kept view go on with.
-        Prog__SetFolderView(state, path, true);
-        Prog__ApplyFolderView(state, path);
-        return;
-    }
-    Prog__SetFolderView(state, path, false);
-    Prog__RestoreOwnView(state);
+    b32 locked = Prog_FolderView(state, path, &view);
+    Prog__SetFolderView(state, path, !locked);
+    if (!locked) Prog__ApplyFolderView(state, path);
 }
 
 function void Prog_ClearFolderViews(Prog_State *state)
@@ -3456,15 +3447,6 @@ function void Prog_ClearFolderViews(Prog_State *state)
     Prog__RestoreOwnView(state);
 }
 
-// A folder with a kept view keeps what the panel changes of it.
-function void Prog_KeepFolderView(Prog_State *state)
-{
-    Prog_ViewSettings view;
-    // Not while another folder is on its way, whose view the panel already has.
-    if (state->directoryJob && !StrIsEqual(((Prog_JobInput *)state->directoryJob->input)->path, state->directory.path)) return;
-    if (!Prog_FolderView(state, state->directory.path, &view)) return;
-    if (!Prog__SameView(view, Prog_CurrentView(state))) Prog__SetFolderView(state, state->directory.path, true);
-}
 
 
 // The digits at the start of `*text`, which moves past them and one space.
@@ -3504,10 +3486,12 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     for (u32 p = 0; p < state->panelCount; ++p) {
         if (numbers[p] == UINT32_MAX) continue;
         Prog__UsePanel(state, p);
-        StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", numbers[p], state->zoom, state->activeTab));
+        // The panel's own view, not a locked folder's, which comes back with the folder.
+        Prog_ViewSettings own = state->ownView ? state->ownSettings : Prog_CurrentView(state);
+        StrBuildStr(arena, &text, StrFormat(arena, "panel %u %u %u\n", numbers[p], own.zoom, state->activeTab));
         if (state->miller) StrBuildStr(arena, &text, StrFormat(arena, "miller %u 1\n", numbers[p]));
-        StrBuildStr(arena, &text, StrFormat(arena, "order %u %u %u %u\n", numbers[p], (u32)state->sort, state->descending ? 1u : 0u, (u32)state->folderSort));
-        StrBuildStr(arena, &text, StrFormat(arena, "columns %u %S\n", numbers[p], Prog_ColumnsText(arena, state->columnSet)));
+        StrBuildStr(arena, &text, StrFormat(arena, "order %u %u %u %u\n", numbers[p], (u32)own.sort, own.descending ? 1u : 0u, (u32)own.folders));
+        StrBuildStr(arena, &text, StrFormat(arena, "columns %u %S\n", numbers[p], Prog_ColumnsText(arena, own.columns)));
         // Its inspector's, from the inspector's panel while it is open.
         Prog_ViewSettings inspector = state->inspectorView;
         u32 inner = Prog_InspectorPanel(state, state->panels[p].id, false);
@@ -3627,6 +3611,8 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             }
             Prog__ActivatePanel(state, p);
             Prog__EnsureTab(state);
+            // The saved view is the panel's own, which a locked folder's, from the start's first folder, would otherwise stand in for.
+            state->ownView = false;
             state->zoom = panels[p].zoom;
             state->miller = panels[p].miller;
             state->sort = panels[p].view.sort;

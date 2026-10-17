@@ -1560,7 +1560,6 @@ function String Prog_ColumnsText(Arena *arena, Prog_ColumnSet set);
 function b32 Prog_ParseColumns(String word, Prog_ColumnSet *set);
 function void Prog_ToggleFolderView(Prog_State *state);
 function void Prog_ClearFolderViews(Prog_State *state);
-function void Prog_KeepFolderView(Prog_State *state);
 function Prog_ColumnSet Prog_PanelColumns(const Prog_State *state);
 function f32 Prog_ColumnShare(Prog_ColumnKind kind);
 function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 column, u64 value);

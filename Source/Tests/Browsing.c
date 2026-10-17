@@ -474,10 +474,11 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(Prog_ZoomStepped(200, true) == 300 && Prog_ZoomFromSaved(2) == 200 && Prog_ZoomFromSaved(10) == 685 && Prog_ZoomFromSaved(16) == 1000 && Prog_ZoomFromSaved(650) == 650);
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, before);
     }
-    // A folder keeps its view: it opens with it and follows what changes in it, while a folder without one gets the panel's own back.
+    // A locked folder opens with its view, while a folder without one gets the panel's own back. What changes while it is shown stays
+    // out of the lock, which takes a new view only when unlocked, which keeps what is shown, and locked again.
     {
         Arena kept = {0};
-        String here = StrCopy(&kept, state.directory.path);
+        String here = StrCopy(&kept, state.directory.path), empty = Prog_JoinPath(&kept, here, S("Empty"));
         u32 ownZoom = state.zoom;
         Prog_Sort ownSort = state.sort;
         b32 ownDescending = state.descending;
@@ -488,16 +489,29 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_Sort, ownSort == Prog_Sort_Size ? Prog_Sort_Name : Prog_Sort_Size);
         Check(TestWaitDirectory(&state));
         Prog_Sort changed = state.sort;
-        // Its columns too.
         TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created);
+        Check(Prog_FolderView(&state, here, &view) && view.zoom == ownZoom && view.sort == ownSort && view.columns.count == 0);
+        // Unlocked and locked again, it keeps what is shown.
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
+        Check(!Prog_FolderView(&state, here, &view) && state.zoom == Prog_ZoomStepped(ownZoom, true) && state.sort == changed);
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
         Check(Prog_FolderView(&state, here, &view) && view.zoom == Prog_ZoomStepped(ownZoom, true) && view.sort == changed && view.columns.count == 6);
-        Prog_RequestDirectory(&state, Prog_JoinPath(&kept, here, S("Empty")), true, 0);
+        Prog_RequestDirectory(&state, empty, true, 0);
         Check(TestWaitDirectory(&state) && state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, here) && state.zoom == Prog_ZoomStepped(ownZoom, true) && state.sort == changed && state.columnSet.count == 6);
+        // A change while locked lasts until the folder is left.
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
+        Prog_RequestDirectory(&state, empty, true, 0);
+        Check(TestWaitDirectory(&state) && state.zoom == ownZoom);
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && state.zoom == Prog_ZoomStepped(ownZoom, true));
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
+        Prog_RequestDirectory(&state, empty, true, 0);
         Check(TestWaitDirectory(&state) && !Prog_FolderView(&state, here, &view));
         Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state));
         // The columns read back as written; a line from before the columns keeps the defaults.
         Prog_ColumnSet written = { .count = 3, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size, Prog_ColumnKind_Created }, .shares = { 0, 0.125f, 0 } }, read = {0};
         Check(Prog_ParseColumns(Prog_ColumnsText(&kept, written), &read) && read.count == 3 && read.kinds[2] == Prog_ColumnKind_Created && read.shares[1] == 0.125f);

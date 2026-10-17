@@ -3488,7 +3488,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     // The schemes' dropdown goes with the Options it opened from.
     if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0;
     Prog_SubmitIconRequests(state);
-    Prog_KeepFolderView(state);
     // The header spinner turns while folders are being measured.
     Prog__UpdatePreview(state);
     // Transfers redraw while they run, for their progress and questions.
