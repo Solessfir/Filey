@@ -2001,7 +2001,7 @@ function void TestTabs(TestFileFixture *fixture)
               (u8)loaded->flags[i] == state.index.flags[i]);
     }
     ArenaRelease(&load.arena);
-    // The options write their lines into Settings.txt, over the commented-out defaults, and apply at once; each keeps the others.
+    // The options write their lines into Settings.conf, over the commented-out defaults, and apply at once; each keeps the others.
     {
         Prog_SetOption(&state, Prog_Option_FontSize, 10);
         Prog_SetOption(&state, Prog_Option_Animations, 0);
@@ -2015,7 +2015,7 @@ function void TestTabs(TestFileFixture *fixture)
         Check(Prog_OptionValue(&state, Prog_Option_FontSize) == 10 && state.uiScale > 1.1f && state.animationsOff);
         Check(state.inspectorLayout == Prog_InspectorLayout_Below && Prog_OptionValue(&state, Prog_Option_PopupBlur) == 100);
         String settings = {0};
-        Check(P_ReadFile(&driveArena, Prog_JoinPath(&driveArena, cache, S("Settings.txt")), &settings));
+        Check(P_ReadFile(&driveArena, Prog_JoinPath(&driveArena, cache, S("Settings.conf")), &settings));
         ArrayStr lines = StrSplit(&driveArena, settings, '\n');
         u32 animations = 0, layouts = 0;
         for (u64 i = 0; i < lines.header.count; ++i) {
@@ -2602,9 +2602,9 @@ function void TestSidebar(TestFileFixture *fixture)
         Check(TestEndsWith(state.recents.v[0], S("/Empty")) && StrIsEqual(state.recents.v[1], fixture->path) && state.recentRanks[1].score == Prog_RecentScoreNew);
         Prog_Release(&state);
     }
-    Check(P__TestRemovePath(fixture, S("Config/Bookmarks.txt"), false));
-    Check(P__TestRemovePath(fixture, S("Config/Recents.txt"), false));
-    Check(P__TestRemovePath(fixture, S("Config/Session.txt"), false));
+    Check(P__TestRemovePath(fixture, S("Config/Bookmarks.conf"), false));
+    Check(P__TestRemovePath(fixture, S("Config/Recents.conf"), false));
+    Check(P__TestRemovePath(fixture, S("Config/Session.conf"), false));
     Check(P__TestRemovePath(fixture, S("Config"), true));
     ArenaRelease(&arena);
 }

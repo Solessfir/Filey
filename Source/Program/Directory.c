@@ -2209,13 +2209,13 @@ function void Prog__EndRename(Prog_State *state, b32 commit);
 function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 
 // Bookmarks and recents, one path per line in the config folder.
-#define Prog_BookmarksFile S("Bookmarks.txt")
+#define Prog_BookmarksFile S("Bookmarks.conf")
 // The window's panels and their tabs, and which sidebar groups are open, kept in the config folder between runs.
-#define Prog_SessionFile S("Session.txt")
-#define Prog_RecentsFile   S("Recents.txt")
-#define Prog_FolderViewsFile S("FolderViews.txt")
-#define Prog_MenuPinsFile S("MenuPins.txt")
-#define Prog_QuickCommandsFile S("QuickCommands.txt")
+#define Prog_SessionFile S("Session.conf")
+#define Prog_RecentsFile   S("Recents.conf")
+#define Prog_FolderViewsFile S("FolderViews.conf")
+#define Prog_MenuPinsFile S("MenuPins.conf")
+#define Prog_QuickCommandsFile S("QuickCommands.conf")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
 // What a first visit scores.
@@ -2455,14 +2455,14 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
 }
 
-// What Settings.txt and Schemes.txt hold, as a hash, which tells whether either has changed since they were applied.
+// What Settings.conf and Schemes.conf hold, as a hash, which tells whether either has changed since they were applied.
 function u64 Prog__SettingsHash(Prog_State *state, String *settings, Arena *arena)
 {
     String schemes = {0};
     *settings = (String){0};
     if (state->configDirectory.length) {
-        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Settings.txt")), settings);
-        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Schemes.txt")), &schemes);
+        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Settings.conf")), settings);
+        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Schemes.conf")), &schemes);
     }
     u64 hash = UINT64_C(14695981039346656037);
     for (u64 i = 0; i < settings->length; ++i) hash = (hash ^ (u8)settings->value[i]) * UINT64_C(1099511628211);
@@ -2471,7 +2471,7 @@ function u64 Prog__SettingsHash(Prog_State *state, String *settings, Arena *aren
     return hash;
 }
 
-// Settings.txt, or the defaults without it, with the custom schemes it can name read again first.
+// Settings.conf, or the defaults without it, with the custom schemes it can name read again first.
 function void Prog_ReloadSettingsFile(Prog_State *state)
 {
     Scratch scratch = GetScratch();
@@ -3345,7 +3345,7 @@ function u32 Prog_ZoomStepped(u32 zoom, b32 up)
     return zoom >= Prog_ZoomList ? zoom - Prog_ZoomList : 0;
 }
 
-// A zoom read from Session.txt or FolderViews.txt; files from before zoom counted tenths of a percent hold a level from 0 to 16.
+// A zoom read from Session.conf or FolderViews.conf; files from before zoom counted tenths of a percent hold a level from 0 to 16.
 function u32 Prog_ZoomFromSaved(u64 value)
 {
     if (value < 3) return (u32)value * Prog_ZoomList;
@@ -3353,7 +3353,7 @@ function u32 Prog_ZoomFromSaved(u64 value)
     return (u32)Min(value, (u64)Prog_ZoomMax);
 }
 
-// A FolderViews.txt line: its zoom, sort, whether that is descending, the folder sort and the columns, then the path, which may hold spaces;
+// A FolderViews.conf line: its zoom, sort, whether that is descending, the folder sort and the columns, then the path, which may hold spaces;
 // lines from before the folder sort and the columns have only the first three. False when `line` is not one.
 function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String *path)
 {
@@ -3673,9 +3673,9 @@ function void Prog_LoadSession(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
-#define Prog_LayoutsFile S("Layouts.txt")
+#define Prog_LayoutsFile S("Layouts.conf")
 
-// The layouts saved in Layouts.txt, each a "layout" line with its name, its text, and an "end" line.
+// The layouts saved in Layouts.conf, each a "layout" line with its name, its text, and an "end" line.
 function void Prog_LoadLayouts(Prog_State *state)
 {
     ArenaClear(&state->layoutsArena);
@@ -3715,7 +3715,7 @@ function String Prog_LayoutText(Arena *arena, Prog_State *state)
 }
 
 // Gives the layout named `name`, matched without case, the text `text`, after the others when it is new, or with `remove` takes it out;
-// Layouts.txt is written again at once, as this happens only from a command.
+// Layouts.conf is written again at once, as this happens only from a command.
 function void Prog_SetLayout(Prog_State *state, String name, String text, b32 remove)
 {
     Arena kept = {0};

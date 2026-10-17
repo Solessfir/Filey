@@ -514,7 +514,7 @@ typedef enum Prog_PaletteMode {
     Prog_PaletteMode_Count,
 } Prog_PaletteMode;
 
-// The options the Options popup lists, each kept in Settings.txt.
+// The options the Options popup lists, each kept in Settings.conf.
 typedef enum Prog_Option {
     Prog_Option_Font,
     Prog_Option_FontSize,
@@ -617,9 +617,9 @@ typedef struct Prog_OptionDesc {
     String tooltip;
     enum8(Prog_OptionControl) control;
     i32 least, most;         // a stepper's or slider's values; a choice's are its names, from 0
-    const String *choices;   // the names, as Settings.txt has them, of a choice's values
+    const String *choices;   // the names, as Settings.conf has them, of a choice's values
     u32 choiceCount;
-    String setting;          // its name in Settings.txt
+    String setting;          // its name in Settings.conf
 } Prog_OptionDesc;
 
 // What a start without folders to open shows: the last run's panels and tabs, This PC or the home folder.
@@ -1082,7 +1082,7 @@ typedef struct Prog_State {
     u32 menuTopSerial;
     u32 menuSerial;           // counts the menus opened, which keys their rows' scrolling afresh
     b32 menuReveal;           // the keyboard moved the highlight, which the list scrolls to
-    // The system menu commands pinned to the top of every system menu, by label, saved as MenuPins.txt; menuBase is the open menu's items
+    // The system menu commands pinned to the top of every system menu, by label, saved as MenuPins.conf; menuBase is the open menu's items
     // before they were put in that order.
     Arena menuPinArena;
     ArrayStr menuPins;
@@ -1157,13 +1157,13 @@ typedef struct Prog_State {
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
     u32 fitColumn;            // the active panel's column, by its place + 1, that the next build sizes to its values; UINT32_MAX all of them
     u64 listBytes, volumeBytes;  // what the usage columns of the list being built are shares of: its items' bytes and its drive's
-    // What Settings.txt last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.
+    // What Settings.conf last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.
     u32 settingInspectorFontSize;
     u8 settingInspectorLayout;  // its value + 1, 0 before any
     u8 scheme;                  // the settings' Color Scheme, by its place among the built-in schemes and then the custom ones
     u8 lightScheme;             // the one the system's light mode brings, as `scheme`
     Prog_FontName schemeName, lightSchemeName;  // their names
-    // Custom color schemes, kept in Schemes.txt: their names and their colors as "Group = #rrggbb" lines.
+    // Custom color schemes, kept in Schemes.conf: their names and their colors as "Group = #rrggbb" lines.
     Arena schemesArena;
     ArrayStr schemeNames, schemeTexts;
     u32 schemeGroups[Prog_ColorGroupCount];      // the shown scheme's colors as 0xRRGGBB, by Prog_Option_ColorClear's order
@@ -1171,7 +1171,7 @@ typedef struct Prog_State {
     // The schemes' dropdown under a scheme option while open: that option + 1, and its highlighted row.
     u8 schemesOpen;
     u32 schemesHighlight;
-    u64 settingsHash;           // Settings.txt and Schemes.txt as last applied
+    u64 settingsHash;           // Settings.conf and Schemes.conf as last applied
     // The color picker while open: the option of the color it changes, and that color as hue, saturation and brightness from 0 to 1.
     b32 colorPicking;
     enum8(Prog_Option) colorOption;
@@ -1192,7 +1192,7 @@ typedef struct Prog_State {
     b32 doubleClickToParent;
     b32 noOverscroll;
     b32 reverseScroll;
-    // What the lists show: names without their extensions, and the system's own files; settingHidden is what Settings.txt last set the
+    // What the lists show: names without their extensions, and the system's own files; settingHidden is what Settings.conf last set the
     // hidden items to, + 1, which the shown tab then takes.
     b32 hideExtensions;
     b32 showSystem;
@@ -1294,7 +1294,7 @@ typedef struct Prog_State {
     b32 previewArchiveCounted;
     u64 previewStamp;         // the archive's size and modified time as counted, so that a change counts it again
     u64 previewSubmitted;     // when the preview's job started, so that a quick one shows no progress
-    // Saved layouts, kept in Layouts.txt: their names, and their texts, a window line before a session's.
+    // Saved layouts, kept in Layouts.conf: their names, and their texts, a window line before a session's.
     Arena layoutsArena;
     ArrayStr layoutNames, layoutTexts;
     // The Save Layout box while open, with the name typed into it.
@@ -1463,13 +1463,13 @@ typedef struct Prog_State {
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
     b32 saving[5];            // bookmarks, recents, folder views, menu pins, quick commands
     b32 saveAgain[5];
-    // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.txt.
+    // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.conf.
     Arena folderViewArena;
     ArrayStr folderViews;
     // See-through window with the glass theme, and what Windows draws behind it; the app applies both to the window.
     b32 transparent;
     enum8(PlatformBackdrop) glassBackdrop;
-    // Settings.txt in the config folder: the UI scale and hotkeys here, colors in the custom theme; its folder's watch applies edits as they are saved.
+    // Settings.conf in the config folder: the UI scale and hotkeys here, colors in the custom theme; its folder's watch applies edits as they are saved.
     f32 uiScale;              // 0 is 1
     Prog_Hotkey userHotkeys[256];
     u32 userHotkeyCount;

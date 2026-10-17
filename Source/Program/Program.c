@@ -361,7 +361,7 @@ function f32 Prog__ParseNumber(String value)
     return value.length ? number : -1;
 }
 
-// The words Settings.txt has for the choices of the start, new tabs and recents.
+// The words Settings.conf has for the choices of the start, new tabs and recents.
 global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { SInit("persistent"), SInit("session"), SInit("never") };
 global const String Prog_OptionStartups[Prog_Startup_Count] = { SInit("session"), SInit("root"), SInit("home") };
 global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { SInit("root"), SInit("home"), SInit("current") };
@@ -887,12 +887,12 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
     }
 }
 
-// Sets `name = value` in Settings.txt, over the line that sets it or that names it commented out, else at its end, and applies the file.
+// Sets `name = value` in Settings.conf, over the line that sets it or that names it commented out, else at its end, and applies the file.
 function void Prog__WriteSetting(Prog_State *state, String name, String value)
 {
     if (!state->configDirectory.length) return;
     Scratch scratch = GetScratch();
-    String path = Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.txt"));
+    String path = Prog_JoinPath(scratch.arena, state->configDirectory, S("Settings.conf"));
     String text = {0};
     if (!P_ReadFile(scratch.arena, path, &text)) text = Prog_SettingsTemplate(scratch.arena, state);
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
@@ -927,7 +927,7 @@ function void Prog__WriteSetting(Prog_State *state, String name, String value)
     Prog_ReloadSettingsFile(state);
 }
 
-// Sets `option` to `value`, kept within what it takes, in Settings.txt; without a config folder only for this run.
+// Sets `option` to `value`, kept within what it takes, in Settings.conf; without a config folder only for this run.
 // Shows `option` at `value` for now, without saving it, as while a slider is dragged; only the numbers have this.
 function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 value)
 {
@@ -958,9 +958,9 @@ function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option o
     return all;
 }
 
-#define Prog_SchemesFile S("Schemes.txt")
+#define Prog_SchemesFile S("Schemes.conf")
 
-// The custom schemes saved in Schemes.txt, each a "scheme" line with its name, its colors, and an "end" line.
+// The custom schemes saved in Schemes.conf, each a "scheme" line with its name, its colors, and an "end" line.
 function void Prog_LoadSchemes(Prog_State *state)
 {
     ArenaClear(&state->schemesArena);
@@ -992,7 +992,7 @@ function void Prog_LoadSchemes(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
-// Gives the custom scheme named `name` the colors `text`, after the others when it is new, or with `remove` takes it out; Schemes.txt is
+// Gives the custom scheme named `name` the colors `text`, after the others when it is new, or with `remove` takes it out; Schemes.conf is
 // written again at once, as this happens only from a command.
 function void Prog_SetScheme(Prog_State *state, String name, String text, b32 remove)
 {
@@ -1153,7 +1153,7 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
     }
 }
 
-// Gives `kind` the hotkeys `hotkeys` in Settings.txt, in place of its defaults; without a config folder only for this run.
+// Gives `kind` the hotkeys `hotkeys` in Settings.conf, in place of its defaults; without a config folder only for this run.
 function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count)
 {
     Scratch scratch = GetScratch();
@@ -5537,7 +5537,7 @@ function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value
     Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, preview ? 1 : 0, order)->target = (u64)(i64)value;
 }
 
-// A choice's name as the popup shows it: longer words where Settings.txt has shorter ones, else with a capital first letter.
+// A choice's name as the popup shows it: longer words where Settings.conf has shorter ones, else with a capital first letter.
 function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
 {
     if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return S("Local Disks");

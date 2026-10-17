@@ -220,7 +220,7 @@ def fixture():
         with open(os.path.join(root, name), 'wb') as f: f.write(b'a' * size)
     Image.new('RGB', (64, 48), (200, 80, 40)).save(os.path.join(root, 'photo.png'))
     config = os.path.join(OUT, 'Config'); os.makedirs(config, exist_ok=True)
-    settings = os.path.join(config, 'Settings.txt')
+    settings = os.path.join(config, 'Settings.conf')
     if not os.path.exists(settings):
         with open(settings, 'w') as f: f.write('theme = fullmoon\n')
     return root, config

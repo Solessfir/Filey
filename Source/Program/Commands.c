@@ -482,7 +482,7 @@ function b32 Prog_ParseHotkey(String text, Prog_Hotkey *hotkey)
     return *key != Key_None;
 }
 
-// A key's name: "A", "F5", and the symbols such as "," and "=" for showing, or the names Settings.txt reads back, such as "Comma" and "Equals".
+// A key's name: "A", "F5", and the symbols such as "," and "=" for showing, or the names Settings.conf reads back, such as "Comma" and "Equals".
 function String Prog__KeyName(Arena *arena, Key key, b32 spelled)
 {
     if (key >= Key_A && key <= Key_Z) return StrFormat(arena, "%c", 'A' + (i32)(key - Key_A));
@@ -535,7 +535,7 @@ function u32 Prog_HotkeyTexts(Arena *arena, const Prog_State *state, Prog_Comman
     return count;
 }
 
-// `hotkeys` as a hotkey.<Command> line of Settings.txt takes them, "Ctrl+Comma, F6", or "none".
+// `hotkeys` as a hotkey.<Command> line of Settings.conf takes them, "Ctrl+Comma, F6", or "none".
 function String Prog_HotkeyListSetting(Arena *arena, const Prog_Hotkey *hotkeys, u32 count)
 {
     StrBuilder out = {0};
@@ -2531,7 +2531,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_OpenSettings: {
                 // A first open writes every setting there is, commented out at its default.
                 if (!state->configDirectory.length) break;
-                String path = Prog_JoinPath(&state->frameArena, state->configDirectory, S("Settings.txt"));
+                String path = Prog_JoinPath(&state->frameArena, state->configDirectory, S("Settings.conf"));
                 String existing = {0};
                 if (!P_ReadFile(&state->frameArena, path, &existing)) P_WriteFile(&state->frameArena, path, Prog_SettingsTemplate(&state->frameArena, state));
                 P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
