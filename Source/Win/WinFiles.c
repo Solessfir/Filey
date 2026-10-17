@@ -616,6 +616,7 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
     u64 keptCount = 0;
     if (placed) *placed = (ArrayStr){0};
     u32 error = 0;
+    b32 duplicate = false;
     for (u64 i = 0; i < count && !error; ++i) {
         String path = paths[i];
         while (path.length > 3 && (path.value[path.length - 1] == '/' || path.value[path.length - 1] == '\\')) --path.length;
@@ -623,6 +624,7 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         Index backslash = StrIndexChar(path, '\\', SSF_SearchBackwards);
         u64 cut = Max(slash.exists ? slash.value : 0, backslash.exists ? backslash.value : 0);
         String parent = StrFromTo(path, 0, (i64)cut);
+        duplicate |= P__PathWithin(parent, directory) && P__PathWithin(directory, parent);
         if (P__PathWithin(directory, path)) error = ERROR_INVALID_PARAMETER;
         else if (!(move && P__PathWithin(parent, directory) && P__PathWithin(directory, parent))) {
             keptFrom[keptCount] = i;
@@ -630,8 +632,12 @@ function P_FileError P_TransferItems(Arena *arena, const String *paths, u64 coun
         }
     }
     String *keptPlaced = placed ? ArenaPushArray(arena, Max(keptCount, (u64)1), String) : NULL;
+    b32 asks = !duplicate && P__shellOwner;
     P_FileError result = error ? P__FileError(arena, error)
-                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION, NULL, keptPlaced);
+                       // A copy into the folder it is in is named anew, as Explorer's "- Copy"; elsewhere a taken name asks whether to replace,
+                       // skip or keep both, in the shell's own window, where there is a window to own it.
+                       : P__ShellFileOperation(arena, move ? FO_MOVE : FO_COPY, kept, keptCount, directory, FOF_ALLOWUNDO | (asks ? 0 : FOF_RENAMEONCOLLISION),
+                                               asks ? P__shellOwner : NULL, keptPlaced);
     // Items moved into the folder they are in stay where they were.
     if (placed && !error) {
         for (u64 i = 0; i < count; ++i) ArrayPush(arena, *placed, StrCopy(arena, paths[i]));
