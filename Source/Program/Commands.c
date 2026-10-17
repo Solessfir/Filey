@@ -906,7 +906,7 @@ function i32 Prog__GoToScore(const Prog_State *state, String name, String path, 
 }
 
 // Go To's search ranks matches by score; ranks of Prog_GoToRanks and above tie, which only long texts of several words reach.
-enum { Prog_GoToRanks = 8192, Prog_GoToPool = 2048 };
+enum { Prog_GoToRanks = 8192, Prog_GoToPool = 2048, Prog_GoToPlaceBonus = 50, Prog_GoToRecentBonus = 30 };
 
 function u16 Prog__GoToRank(i32 score)
 {
@@ -1070,6 +1070,10 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 MapsPut(arena, state->gotoNearbyPaths, path, true);
                 i32 score = Prog__GoToScore(state, name, path, text);
                 if (score <= 0 || MapsGetPtrNull(state->gotoSeen, path)) continue;
+                // The user's own places and bookmarks outrank a name a few letters shorter, and recent folders a little less.
+                b32 placed = i >= recents || Prog_IsBookmarked(state, path);
+                for (u64 k = 0; k < known && !placed; ++k) placed = StrIsEqual(state->knownFolders.v[k], path);
+                score += placed ? Prog_GoToPlaceBonus : Prog_GoToRecentBonus;
                 MapsPut(arena, state->gotoSeen, path, true);
                 Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, false, (b8)(name.length && name.value[0] == '.'), {0}, NULL }, Prog__GoToRank(score));
             }
