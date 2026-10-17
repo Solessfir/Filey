@@ -759,6 +759,17 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(Prog_SyntaxLine(Prog_Syntax_Json, S("{ \"key\": \"value\", \"n\": 12 }"), 0, tokens) == 0 && tokens[2] == Prog_Token_Keyword && tokens[10] == Prog_Token_String);
     Check(Prog_SyntaxLine(Prog_Syntax_Python, S("x = '''doc"), 0, NULL) != 0 && Prog_SyntaxLine(Prog_Syntax_Markdown, S("# Title"), 0, tokens) == 0 && tokens[2] == Prog_Token_Heading);
     Check(Prog_SyntaxForPath(S("C:/x/Thing.CPP")) == Prog_Syntax_C && Prog_SyntaxForPath(S("/a/b.py")) == Prog_Syntax_Python && Prog_SyntaxForPath(S("/a/notes.txt")) == Prog_Syntax_None);
+    // Batch files: keywords in any case, variables and arguments, quoted strings, and REM, :: and label lines.
+    Check(Prog_SyntaxForPath(S("C:/x/Build.BAT")) == Prog_Syntax_Batch && Prog_SyntaxForPath(S("C:/x/run.cmd")) == Prog_Syntax_Batch && Prog_SyntaxForPath(S("/a/b.sh")) == Prog_Syntax_Shell);
+    Check(Prog_SyntaxLine(Prog_Syntax_Batch, S("IF exist \"%ROOT%\" set X=%~dp0 & echo %%a 50%"), 0, tokens) == 0);
+    Check(tokens[0] == Prog_Token_Keyword && tokens[3] == Prog_Token_Keyword && tokens[9] == Prog_Token_String && tokens[16] == Prog_Token_String && tokens[18] == Prog_Token_Keyword);
+    Check(tokens[23] == Prog_Token_Plain && tokens[24] == Prog_Token_Number && tokens[28] == Prog_Token_Number && tokens[29] == Prog_Token_Plain && tokens[32] == Prog_Token_Keyword);
+    Check(tokens[37] == Prog_Token_Number && tokens[39] == Prog_Token_Number && tokens[40] == Prog_Token_Plain && tokens[43] == Prog_Token_Plain);
+    Check(Prog_SyntaxLine(Prog_Syntax_Batch, S("@rem off"), 0, tokens) == 0 && tokens[5] == Prog_Token_Comment);
+    Check(Prog_SyntaxLine(Prog_Syntax_Batch, S(":: note"), 0, tokens) == 0 && tokens[3] == Prog_Token_Comment);
+    Check(Prog_SyntaxLine(Prog_Syntax_Batch, S(":loop"), 0, tokens) == 0 && tokens[1] == Prog_Token_Heading);
+    Check(Prog_SyntaxLine(Prog_Syntax_Batch, S("for %%A in (%*) do"), 0, tokens) == 0 && tokens[12] == Prog_Token_Number && tokens[13] == Prog_Token_Number && tokens[14] == Prog_Token_Plain);
+    Check(Prog_SyntaxLine(Prog_Syntax_Batch, S("remove.exe"), 0, tokens) == 0 && tokens[0] == Prog_Token_Plain);
     // A repository's branch comes from its HEAD file; the counts from git, here a repository without an upstream.
     Check(StrIsEqual(Prog_GitBranch(S("ref: refs/heads/main\n")), S("main")) && StrIsEqual(Prog_GitBranch(S("0123456789abcdef\n")), S("0123456")));
     String made = {0};

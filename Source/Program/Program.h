@@ -435,6 +435,7 @@ typedef enum Prog_Syntax {
     Prog_Syntax_Lua,
     Prog_Syntax_Shell,
     Prog_Syntax_PowerShell,
+    Prog_Syntax_Batch,     // Windows .bat and .cmd
     Prog_Syntax_Json,
     Prog_Syntax_Ini,       // INI, TOML, YAML and other key files
     Prog_Syntax_Markdown,

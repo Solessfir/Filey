@@ -732,6 +732,10 @@ typedef struct Prog__SyntaxDesc {
 } Prog__SyntaxDesc;
 
 global const Prog__SyntaxDesc Prog__Syntaxes[Prog_Syntax_Count] = {
+    // Batch keywords are matched lowercased, as the language ignores case.
+    [Prog_Syntax_Batch] = { {0}, {0}, {0}, {0},
+        SInit(" if else for in do goto call exit set setlocal endlocal echo not exist defined errorlevel equ neq lss leq gtr geq shift pushd popd cd chdir "
+          "start pause cls title mkdir md rmdir rd del erase copy move ren rename type choice timeout nul on off enabledelayedexpansion enableextensions ") },
     [Prog_Syntax_C] = { SInit("//"), {0}, SInit("/*"), SInit("*/"),
         SInit(" alignas alignof auto bool break case catch char char8_t char16_t char32_t class const consteval constexpr constinit const_cast continue co_await co_return "
           "co_yield decltype default delete do double dynamic_cast else enum explicit export extern false final float for friend goto if inline int long mutable "
@@ -794,6 +798,7 @@ function Prog_Syntax Prog_SyntaxForPath(String path)
         { " lua ", Prog_Syntax_Lua },
         { " sh bash zsh fish ksh ", Prog_Syntax_Shell },
         { " ps1 psm1 psd1 ", Prog_Syntax_PowerShell },
+        { " bat cmd ", Prog_Syntax_Batch },
         { " json jsonc json5 uproject uplugin code-workspace ", Prog_Syntax_Json },
         { " ini toml cfg conf properties yaml yml editorconfig gitignore gitattributes gitconfig gitmodules desktop ", Prog_Syntax_Ini },
         { " md markdown ", Prog_Syntax_Markdown },
@@ -853,6 +858,58 @@ function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classe
             while (end < n && t[end] != '`') ++end;
             if (end >= n) break;
             Prog__MarkTokens(classes, at, end + 1, Prog_Token_String);
+            at = end;
+        }
+        return Prog__Open_None;
+    }
+    if (syntax == Prog_Syntax_Batch) {
+        // REM and :: lines are comments, :name lines labels; a leading @ only keeps the line from being echoed.
+        u64 start = lead < n && t[lead] == '@' ? lead + 1 : lead;
+        b32 rem = start + 3 <= n && (t[start] | 0x20) == 'r' && (t[start + 1] | 0x20) == 'e' && (t[start + 2] | 0x20) == 'm' &&
+                  (start + 3 == n || t[start + 3] == ' ' || t[start + 3] == '\t');
+        if (rem || Prog__StartsAt(line, start, S("::"))) {
+            Prog__MarkTokens(classes, 0, n, Prog_Token_Comment);
+            return Prog__Open_None;
+        }
+        if (start < n && t[start] == ':') {
+            Prog__MarkTokens(classes, 0, n, Prog_Token_Heading);
+            return Prog__Open_None;
+        }
+        for (u64 at = 0; at < n;) {
+            u8 c = t[at];
+            u64 end = at + 1;
+            Prog_Token kind = Prog_Token_Plain;
+            if (c == '"') {
+                while (end < n && t[end] != '"') ++end;
+                end = Min(end + 1, n);
+                kind = Prog_Token_String;
+            } else if (c == '%' && end < n) {
+                // %% before a loop's letter, %1, %* and %~dp0 for arguments, %name% for a variable; a lone % is plain.
+                if (t[end] == '%') end = Min(end + 2, n);
+                else if ((t[end] >= '0' && t[end] <= '9') || t[end] == '*') end += 1;
+                else if (t[end] == '~') {
+                    for (++end; end < n && Prog__IdentChar(t[end]) && !(t[end] >= '0' && t[end] <= '9'); ++end) {}
+                    end = Min(end + 1, n);
+                } else {
+                    while (end < n && t[end] != '%' && t[end] != ' ') ++end;
+                    end = end < n && t[end] == '%' ? end + 1 : at + 1;
+                }
+                kind = end > at + 1 ? Prog_Token_Number : Prog_Token_Plain;
+            } else if (c == '!') {
+                while (end < n && t[end] != '!' && t[end] != ' ') ++end;
+                if (end < n && t[end] == '!' && end > at + 1) kind = Prog_Token_Number, ++end;
+                else end = at + 1;
+            } else if (Prog__IdentChar(c)) {
+                while (end < n && Prog__IdentChar(t[end])) ++end;
+                char word[34];
+                if (classes && end - at < 32) {
+                    word[0] = ' ';
+                    for (u64 i = at; i < end; ++i) word[i - at + 1] = (char)(t[i] >= 'A' && t[i] <= 'Z' ? t[i] + 32 : t[i]);
+                    word[end - at + 1] = ' ';
+                    if (StrIndexStr(desc->keywords, StrMake(word, end - at + 2), SSF_None).exists) kind = Prog_Token_Keyword;
+                }
+            }
+            Prog__MarkTokens(classes, at, end, kind);
             at = end;
         }
         return Prog__Open_None;
