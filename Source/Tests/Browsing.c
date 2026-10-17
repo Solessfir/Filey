@@ -1819,16 +1819,81 @@ function void TestTabs(TestFileFixture *fixture)
     ArenaRelease(&driveArena);
 }
 
-// One frame of the window, with the pointer moved to `x`, `y` when `move` is set, and the commands it queued run.
-function void TestPanelsFrame(Prog_State *state, b32 move, f32 x, f32 y, u64 now)
+// One frame of a 1200 by 800 window as the app runs it: `events` taken in, the commands they queued run, the UI built and laid out,
+// and the commands it queued run.
+function void TestWindowFrame(Prog_State *state, PlatformEvent *events, u32 count, u64 now)
 {
-    PlatformEvent event = { .kind = PlatformEventKind_MouseMove, .x = x, .y = y };
+    PlatformEventList list = count ? TestUIEvents(events, count) : (PlatformEventList){0};
     ArenaClear(&state->frameArena);
     state->ui.defaultFont = &TestUIFont;
-    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, 1200, 800 }, move ? TestUIEvents(&event, 1) : (PlatformEventList){0}, now);
+    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, 1200, 800 }, list, now);
+    Prog_HandleInput(state, list);
+    Prog_ProcessCommands(state);
     Prog_BuildUI(state, &TestUIFont, &TestUIFont, 1);
     UI_EndFrame();
     Prog_ProcessCommands(state);
+}
+
+// One frame of the window, with the pointer moved to `x`, `y` when `move` is set.
+function void TestPanelsFrame(Prog_State *state, b32 move, f32 x, f32 y, u64 now)
+{
+    PlatformEvent event = { .kind = PlatformEventKind_MouseMove, .x = x, .y = y };
+    TestWindowFrame(state, &event, move, now);
+}
+
+// The inspector's text is selected with the pointer, a word with a double click and a line with a third, and Ctrl+C copies it rather than the file.
+function void TestInspectorSelection(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String created = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Selecting"), true, &created).code);
+    String folder = Prog_JoinPath(&arena, fixture->path, S("Selecting"));
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, folder, S("note.txt")), S("hello world\nsecond line\n")).code);
+    Prog_State state = {0};
+    Check(Prog_Init(&state, folder, NULL, NULL));
+    if (state.jobs.initialized && TestWaitDirectory(&state) && state.directory.count == 1) {
+        Prog_SelectRow(&state, 0, 0);
+        state.previewShown = true;
+        state.inspectorHideNumbers = true;
+        u64 start = PlatformNowMicroseconds(), now = 1;
+        do {
+            TestWindowFrame(&state, NULL, 0, now++);
+            Prog_TakeCompletions(&state);
+            P__TestPause();
+        } while (!state.previewLines && PlatformNowMicroseconds() - start < Millions(5));
+        // The text view is laid out in the first frame that has it, and its place is known from the next.
+        TestWindowFrame(&state, NULL, 0, now++);
+        TestWindowFrame(&state, NULL, 0, now++);
+        R_Rect rect = state.inspectorTextRect;
+        Check(state.previewLines && rect.x1 > rect.x0);
+        f32 pitch = floorf((f32)Prog_InspectorFontSize + 6.8f + 0.5f), cell = R_TextWidth(&TestUIFont, S("M"));
+        f32 x = rect.x0 + floorf(9.6f + 0.5f), y = rect.y0 + floorf(13.6f + 0.5f) + pitch * 0.5f;
+        PlatformEvent press[] = { { .kind = PlatformEventKind_MouseMove, .x = x + 0.1f * cell, .y = y }, { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x + 0.1f * cell, .y = y } };
+        PlatformEvent drag[] = { { .kind = PlatformEventKind_MouseMove, .x = x + 5.1f * cell, .y = y } };
+        PlatformEvent release[] = { { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x + 5.1f * cell, .y = y } };
+        TestWindowFrame(&state, press, 2, now++);
+        TestWindowFrame(&state, drag, 1, now++);
+        TestWindowFrame(&state, release, 1, now++);
+        String selected = {0};
+        Check(Prog_InspectorSelection(&state, &selected) && StrIsEqual(selected, S("hello")));
+        PlatformEvent copy[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_C, .mods = KeyMod_Control } };
+        TestWindowFrame(&state, copy, 1, now++);
+        Check(StrIsEqual(TestClipboard, S("hello")));
+        // A double click on "world" selects the word, and a third click its line.
+        PlatformEvent click[] = { { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x + 8.1f * cell, .y = y }, { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x + 8.1f * cell, .y = y } };
+        TestWindowFrame(&state, click, 2, now++);
+        TestWindowFrame(&state, click, 2, now++);
+        Check(Prog_InspectorSelection(&state, &selected) && StrIsEqual(selected, S("world")));
+        TestWindowFrame(&state, click, 2, now++);
+        Check(Prog_InspectorSelection(&state, &selected) && StrIsEqual(selected, S("hello world\n")));
+        // A press outside the text drops it.
+        PlatformEvent away[] = { { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = rect.x0 - 40, .y = y }, { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = rect.x0 - 40, .y = y } };
+        TestWindowFrame(&state, away, 2, now++);
+        Check(!Prog_InspectorSelection(&state, &selected));
+    }
+    Prog_Release(&state);
+    TestRemoveTree(&arena, fixture, S("Selecting"));
+    ArenaRelease(&arena);
 }
 
 // Splitting makes a second panel with its own listing; a command from a panel's UI makes it active, and closing a panel's only tab closes the panel.
@@ -2487,6 +2552,7 @@ function void TestBrowsing(void)
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);
         TestPanels(&fixture);
+        TestInspectorSelection(&fixture);
         TestUndo(&fixture);
         TestSettings();
         TestSidebar(&fixture);

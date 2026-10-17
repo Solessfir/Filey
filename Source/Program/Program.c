@@ -6068,6 +6068,25 @@ function u32 Prog__TextCells(String text)
     return cells;
 }
 
+// The offset in `text`, one row of the inspector, nearest to `cell` cells from its start, between its characters.
+function u64 Prog__OffsetAtCell(String text, f32 cell)
+{
+    u32 cells = 0;
+    for (u64 i = 0; i < text.length;) {
+        u32 width = text.value[i] == '\t' ? 4 - cells % 4 : 1;
+        if (cell < (f32)cells + (f32)width * 0.5f) return i;
+        cells += width;
+        do ++i; while (i < text.length && ((u8)text.value[i] & 0xC0) == 0x80);
+    }
+    return text.length;
+}
+
+// Letters, digits and underscores, and any byte of a character past ASCII, which a double click selects runs of.
+function b32 Prog__WordByte(u8 c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c >= 0x80;
+}
+
 // The rows `line` takes wrapped at `columns` cells: a space that does not fit starts the next row, and a word that does not is moved to it whole,
 // unless it is the row's only one. `starts`, when not NULL, gets where each of the first `room` rows starts.
 function u32 Prog__WrapLine(String line, u32 columns, u32 *starts, u32 room)
@@ -6254,13 +6273,19 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     // The text stops short of the right edge, leaving the scroll bar room.
     f32 margin = floorf(32.8f * s + 0.5f);
     UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(13.6f * s + 0.5f), margin, floorf(4.0f * s + 0.5f) });
-    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText")), UI_Flag_Clip | UI_Flag_Scrollable);
+    // Its text is selected by dragging over it, a word by a double click and a line by a third.
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText")), UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_LeftMouseClickable);
+    UI_Interaction press = UI_InteractionFromBlock(view);
+    b32 dragging = UI->activeKey == view->key;
+    state->inspectorTextRect = view->rect;
+    if (UI->hotKey == view->key || dragging) state->cursor = PlatformCursor_Text;
     if (state->inspectorResetScroll) {
         view->scrollOffset = view->scrollShown = (UI_Vec2){0};
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
     String text = state->previewText;
+    u64 selectFrom = Min(state->previewAnchor, state->previewCaret), selectTo = Max(state->previewAnchor, state->previewCaret);
     u32 lineCount = state->previewLineCount;
     // The lines the filter keeps, picked again when it changes; the rows are then worked out again too.
     String filter = Prog_EditText(&state->inspectorFilter);
@@ -6299,6 +6324,13 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     u32 rowCount = columns ? state->previewRows[shownCount] : shownCount;
     f32 from = MinF32(view->scrollOffset.y, view->scrollShown.y), to = MaxF32(view->scrollOffset.y, view->scrollShown.y) + (view->rect.y1 - view->rect.y0);
     u32 first = Min((u32)MaxF32(0, floorf(from / pitch)), rowCount), last = Min((u32)MaxF32(0, ceilf(to / pitch)) + 1, rowCount);
+    // The row and cell under the pointer, among the rows in sight; above them it is the first one's start, and below the last one's end.
+    f32 pointerRow = floorf((UI->mouse.y - view->rect.y0 - floorf(13.6f * s + 0.5f) + view->scrollShown.y) / pitch);
+    f32 pointerCell = (UI->mouse.x - view->rect.x0 - left) / cell;
+    if (pointerRow < (f32)first) pointerCell = -1;
+    if (pointerRow >= (f32)last) pointerCell = 1e9f;
+    u32 hitRow = last > first ? (u32)MinF32(MaxF32(pointerRow, (f32)first), (f32)(last - 1)) : UINT32_MAX, hitLine = 0;
+    u64 hit = UINT64_MAX;
     UI_Parent(view) {
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch));
         // The shown line holding the first row in sight.
@@ -6327,11 +6359,29 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             u32 lineRow = columns ? state->previewRows[shown] : shown;
             for (u32 r = row - lineRow; r < rows && row < last; ++r, ++row) {
                 u64 end = r + 1 < rows ? starts[r + 1] : whole.length;
+                u64 lineStart = state->previewLines[line], rowFrom = lineStart + starts[r], rowTo = lineStart + end;
+                if (row == hitRow) {
+                    hit = rowFrom + Prog__OffsetAtCell(StrFromTo(whole, starts[r], (i64)end), pointerCell);
+                    hitLine = line;
+                }
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(pitch));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                 UI_Block *rowBlock = UI_AddBlock(UI_Flag_Clip);
                 UI_Parent(rowBlock) {
+                    // What of the row is selected, behind its text, and a cell more for the line break when the selection goes on past it.
+                    if (selectFrom < selectTo && selectTo > rowFrom && selectFrom <= rowTo) {
+                        u64 a = Max(selectFrom, rowFrom), b = Min(selectTo, rowTo);
+                        f32 x0 = (f32)Prog__TextCells(StrFromTo(whole, starts[r], (i64)(a - lineStart))) * cell;
+                        f32 x1 = (f32)Prog__TextCells(StrFromTo(whole, starts[r], (i64)(b - lineStart))) * cell + (selectTo > rowTo && r + 1 == rows ? cell : 0);
+                        if (x1 > x0) {
+                            UI_SetNextFloatingOffset((UI_Vec2){ left + x0, 0 });
+                            UI_SetNextPrefWidth(UI_Pixels(x1 - x0));
+                            UI_SetNextPrefHeight(UI_Pixels(pitch));
+                            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                        }
+                    }
                     // The number shows on a line's first row, right-aligned against the gap before the text.
                     if (numbered && r == 0) {
                         UI_SetNextFont(m->detail);
@@ -6346,6 +6396,19 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             }
         }
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
+    }
+    if (hit != UINT64_MAX && press.pressed) {
+        state->previewAnchor = state->previewCaret = hit;
+        state->previewClicks = press.pressCount;
+        if (press.pressCount == 2) {
+            while (state->previewAnchor > 0 && Prog__WordByte((u8)text.value[state->previewAnchor - 1])) --state->previewAnchor;
+            while (state->previewCaret < text.length && Prog__WordByte((u8)text.value[state->previewCaret])) ++state->previewCaret;
+        } else if (press.pressCount >= 3) {
+            state->previewAnchor = state->previewLines[hitLine];
+            state->previewCaret = state->previewLines[hitLine + 1];
+        }
+    } else if (hit != UINT64_MAX && dragging && state->previewClicks < 2) {
+        state->previewCaret = hit;
     }
     Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }
@@ -7086,6 +7149,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tooltipPath = (String){0};
     state->cursor = PlatformCursor_Arrow;
     state->inspectorRect = (R_Rect){0};
+    state->inspectorTextRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
     ArenaClear(&state->dropPlaceArena);
     state->dropPlace = (String){0};

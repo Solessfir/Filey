@@ -366,6 +366,7 @@ function void LinuxSetCursor(u32 serial)
         [PlatformCursor_Arrow] = { "default", "left_ptr" },
         [PlatformCursor_ResizeHorizontal] = { "ew-resize", "col-resize", "sb_h_double_arrow" },
         [PlatformCursor_ResizeVertical] = { "ns-resize", "row-resize", "sb_v_double_arrow" },
+        [PlatformCursor_Text] = { "text", "xterm" },
     };
     struct wl_cursor *cursor = NULL;
     for (u32 i = 0; i < 3 && !cursor && names[Wl.cursor][i]; ++i) cursor = wl_cursor_theme_get_cursor(Wl.cursorTheme, names[Wl.cursor][i]);

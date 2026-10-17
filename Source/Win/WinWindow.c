@@ -214,6 +214,7 @@ function HCURSOR WinCursor(PlatformCursor cursor)
 {
     local_persist const LPCWSTR shapes[PlatformCursor_Count] = {
         [PlatformCursor_Arrow] = (LPCWSTR)IDC_ARROW, [PlatformCursor_ResizeHorizontal] = (LPCWSTR)IDC_SIZEWE, [PlatformCursor_ResizeVertical] = (LPCWSTR)IDC_SIZENS,
+        [PlatformCursor_Text] = (LPCWSTR)IDC_IBEAM,
     };
     return LoadCursorW(NULL, shapes[cursor < PlatformCursor_Count ? cursor : PlatformCursor_Arrow]);
 }

@@ -180,6 +180,7 @@ typedef enum PlatformCursor {
     PlatformCursor_Arrow,
     PlatformCursor_ResizeHorizontal,  // over an edge that drags sideways
     PlatformCursor_ResizeVertical,    // over an edge that drags up and down
+    PlatformCursor_Text,              // over text that can be selected
     PlatformCursor_Count,
 } PlatformCursor;
 // The pointer's shape over the window's content; the system keeps its own over the window's frame.

@@ -1159,6 +1159,11 @@ typedef struct Prog_State {
     u32 previewLineCount;
     u32 *previewRows;         // the first wrapped row of each line, and the total, at previewRowColumns characters across
     u32 previewRowColumns;
+    // Text selected in the inspector's text view, from previewAnchor to previewCaret as offsets into previewText; the caret follows
+    // the pointer while it drags. A press outside inspectorTextRect, the view's last layout, drops it.
+    u64 previewAnchor, previewCaret;
+    u32 previewClicks;        // of the press that made it: a drag moves the caret after a single one, not a word's or a line's
+    R_Rect inspectorTextRect;
     // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks,
     // in inspectorFontSize points (0 for Prog_InspectorFontSize).
     b32 inspectorWrap;

@@ -3692,6 +3692,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             } else if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
+                state->previewAnchor = state->previewCaret = 0;
                 state->previewHex = false;
                 state->previewArchive = preview->archive;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
