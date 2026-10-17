@@ -8,9 +8,8 @@
 
 ## Look
 
-- Text is 2-4 px wider over a word than the reference's.
-- The tab outline is 2 px; the reference's is about 1.5 px.
-- The tab close × comes from the icon font and is softer than the reference's.
+- The path bar's separators are a pixel wider than the reference's and the gaps around them 2 px wider, so later crumbs sit a few pixels to the right; words themselves now measure the same.
+- The shown tab's top right corner is a little sharper than the reference's, and its bottom right curve starts a row early.
 
 ## Command palette parity
 

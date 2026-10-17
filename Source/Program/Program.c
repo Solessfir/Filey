@@ -1357,6 +1357,33 @@ function void Prog__TabPlaceholder(f32 width, f32 height, f32 radius, f32 stroke
 // A panel's tab strip `width` wide: one tab per slot, the shown one filled like the toolbar it joins, the others parted by faint lines.
 // Tabs share the strip's width up to a fixed size, and dragging one moves it between the others.
 // In the title bar (`caption`) the strip's empty space moves the window; `lead` puts the sidebar button first while the sidebar is hidden, and `controls` the window buttons last.
+// The tab's close cross, centered in the block being built, `width` by `height`: two crisp diagonal strokes drawn a pixel at a time, each row two
+// solid pixels with a faint one on either side, rather than the icon font's softer glyph.
+function void Prog__CloseCross(f32 width, f32 height, R_Color color, const Prog_Metrics *m)
+{
+    f32 s = m->scale, size = floorf(8.0f * s + 0.5f), half = 0.628f * s, reach = 5.6f * s;
+    i32 columns = (i32)size, rows = (i32)size + 1;
+    f32 left = floorf((width - size) * 0.5f), top = floorf((height - (f32)rows) * 0.5f), cx = size * 0.5f, cy = (f32)rows * 0.5f;
+    for (i32 y = 0; y < rows; ++y) {
+        for (i32 x = 0; x < columns; ++x) {
+            f32 px = (f32)x + 0.5f - cx, py = (f32)y + 0.5f - cy, ink = 0;
+            // Each stroke by its distance across from the pixel's middle, faded where it ends.
+            for (u32 stroke = 0; stroke < 2; ++stroke) {
+                f32 across = fabsf(stroke ? px + py : px - py) * 0.70710678f, along = fabsf(stroke ? px - py : px + py) * 0.70710678f;
+                ink += UI__Clamp((half - across) * 1.16f + 0.5f, 0, 1) * UI__Clamp(reach - along, 0, 1);
+            }
+            if (ink < 0.04f) continue;
+            R_Color shade = color;
+            shade.a *= MinF32(ink, 1);
+            UI_SetNextFloatingOffset((UI_Vec2){ left + (f32)x, top + (f32)y });
+            UI_SetNextPrefWidth(UI_Pixels(1));
+            UI_SetNextPrefHeight(UI_Pixels(1));
+            UI_SetNextColors((UI_Colors){ .background = shade });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
+    }
+}
+
 function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead, b32 controls, f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -1375,7 +1402,8 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     UI_Block *strip = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TabStrip")), UI_Flag_DrawBackground);
     UI_Parent(strip) {
         if (caption) Prog__Caption(state, S("Caption"), width, bar, -top);
-        f32 stroke = m->separator;
+        // The tab's outline, a little thinner than the strip's line, runs a pixel in from its sides.
+        f32 stroke = 1.2f * scale, edge = floorf(0.8f * scale + 0.5f);
         f32 button = floorf(m->bar * 0.75f);
         f32 leadWidth = lead ? button + m->inset : floorf(6.0f * scale + 0.5f);
         UI_SetNextPrefWidth(UI_Pixels(leadWidth));
@@ -1443,7 +1471,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             f32 tabInset = floorf(14.0f * scale);
             // The tab's contents sit a little below its middle.
             f32 tabTop = floorf(0.8f * scale + 0.5f);
-            UI_SetNextChildrenPadding((UI_Padding){ tabInset, tabTop, floorf(2.4f * scale + 0.5f), 0 });
+            UI_SetNextChildrenPadding((UI_Padding){ tabInset, tabTop, floorf(5.6f * scale + 0.5f), 0 });
             UI_Block *tab = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_MouseClickable);
             UI_Interaction interaction = UI_InteractionFromBlock(tab);
             if (interaction.pressed && interaction.button != MouseButton_Middle) Prog_QueueCommand(state, Prog_CommandKind_SelectTab, i, 0, interaction.pressOrder);
@@ -1478,8 +1506,8 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                     }
                     UI_Parent(outline) {
-                        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-                        UI_SetNextPrefWidth(UI_Pixels(tabWidth));
+                        UI_SetNextFloatingOffset((UI_Vec2){ edge, 0 });
+                        UI_SetNextPrefWidth(UI_Pixels(tabWidth - 2 * edge));
                         UI_SetNextPrefHeight(UI_Pixels(height + hang));
                         UI_SetNextCornerRadius(tabRadius);
                         UI_SetNextBorderThickness(stroke);
@@ -1501,18 +1529,19 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                     }
                 }
                 // The shown tab's sides curve out into the strip's bottom line: a square of the tab's color with a quarter of a strip-colored circle cut from it.
-                // Each square also covers the tab's own border column, which the circle's border takes over.
+                // Each square also covers the tab's own border columns, which the circle's border takes over.
                 // Next to a hovered tab the side stays straight, so that the curve does not cut into the hovered tab's corner.
                 if (shown) {
                     for (u32 side = 0; side < 2; ++side) {
                         if (Prog__TabHot(state, side ? (i64)i + 1 : (i64)i - 1)) continue;
-                        UI_SetNextFloatingOffset((UI_Vec2){ side ? tabWidth - tabInset - stroke : -tabInset - flare, height - flare - tabTop });
-                        UI_SetNextPrefWidth(UI_Pixels(flare + stroke));
+                        f32 cover = ceilf(stroke) + edge;
+                        UI_SetNextFloatingOffset((UI_Vec2){ side ? tabWidth - tabInset - cover : -tabInset - flare, height - flare - tabTop });
+                        UI_SetNextPrefWidth(UI_Pixels(flare + cover));
                         UI_SetNextPrefHeight(UI_Pixels(flare));
                         UI_SetNextColors((UI_Colors){ .background = lit ? theme->selection : theme->background });
                         UI_Block *corner = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip);
                         UI_Parent(corner) {
-                            UI_SetNextFloatingOffset((UI_Vec2){ side ? 0 : stroke - flare, -flare });
+                            UI_SetNextFloatingOffset((UI_Vec2){ side ? cover - ceilf(stroke) : stroke - flare, -flare });
                             UI_SetNextPrefWidth(UI_Pixels(flare * 2));
                             UI_SetNextPrefHeight(UI_Pixels(flare * 2));
                             UI_SetNextCornerRadius(flare);
@@ -1544,16 +1573,15 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                     b32 closeHot = UI->hotKey == closeKey;
                     R_Color wash = theme->selection;
                     wash.a *= 0.35f;
-                    UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
-                    UI_SetNextPrefHeight(UI_Pixels(floorf(23.2f * scale + 0.5f)));
-                    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                    f32 closeWidth = Prog__ToolbarButtonWidth(m), closeHeight = floorf(23.2f * scale + 0.5f);
+                    UI_SetNextPrefWidth(UI_Pixels(closeWidth));
+                    UI_SetNextPrefHeight(UI_Pixels(closeHeight));
                     UI_SetNextCornerRadius(floorf(5.6f * scale + 0.5f));
-                    UI_SetNextFont(m->icons);
-                    UI_SetNextColors((UI_Colors){ .background = wash, .text = closeHot ? theme->text : theme->icon });
-                    UI_SetNextText(Icon_X);
-                    UI_Block *close = UI_AddBlockFromKey(closeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (closeHot ? UI_Flag_DrawBackground : 0));
+                    UI_SetNextColors((UI_Colors){ .background = wash });
+                    UI_Block *close = UI_AddBlockFromKey(closeKey, UI_Flag_LeftMouseClickable | (closeHot ? UI_Flag_DrawBackground : 0));
                     UI_Interaction closing = UI_InteractionFromBlock(close);
                     if (closing.clicked) Prog_QueueCommand(state, Prog_CommandKind_CloseTabAt, i, 0, closing.clickOrder);
+                    UI_Parent(close) Prog__CloseCross(closeWidth, closeHeight, closeHot ? theme->text : theme->icon, m);
                 }
             }
             // Lines part the tabs that are neither shown nor hovered, centered on the tabs.
