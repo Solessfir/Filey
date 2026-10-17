@@ -368,6 +368,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             MemCopy(font->text, value.value, font->length);
         } else if (StrIsEqual(name, S("vsync"))) {
             state->noVSync = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("inspector.highlight"))) {
+            state->noHighlight = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("checkboxes"))) {
             state->showCheckboxes = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("trash.confirm"))) {
@@ -495,7 +497,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Subfolder sizes, measured by walking them, and on which drives: solid-state, spinning and network.\n"
                                 "# folders.size = true\n# folders.size.ssd = true\n# folders.size.hdd = false\n# folders.size.network = false\n\n"
                                 "# Easing for menus and scrolling, and the fading caret.\n# animations = true\n\n"
-                                "# The inspector's text size in points, 8 to 16, and where it sits: auto, right or below.\n# inspector.fontSize = 10\n# inspector.layout = auto\n\n"
+                                "# The inspector's text size in points, 8 to 16, where it sits (auto, right or below), and whether it colors code by its language.\n"
+                                "# inspector.fontSize = 10\n# inspector.layout = auto\n# inspector.highlight = true\n\n"
                                 "# The font families of the UI and of the inspector's text, by name; a family the system lacks falls back to its default.\n"
                                 "# font = Segoe UI\n# inspector.font = Consolas\n\n"
                                 "# Colors of the default theme, as #rrggbb or #rrggbbaa.\n"));
@@ -602,6 +605,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                          Prog_OptionControl_Choice, 0, 0, Prog_OptionCharacterKeys, Prog_CharacterKeys_Count, SInit("keys.character") },
     [Prog_Option_InspectorLayout] = { SInit("Inspector Layout"), SInit("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), SInit("inspector.layout") },
+    [Prog_Option_HighlightCode] = { SInit("Highlight Code"), SInit("Color keywords, strings, comments and numbers of code in the inspector."), Prog_OptionControl_Switch, 0, 1,
+                                    Prog_OptionSwitch, 2, SInit("inspector.highlight") },
     [Prog_Option_LoadOnStartup] = { SInit("Load On Startup"), SInit("Previous session or location to load on startup."), Prog_OptionControl_Choice, 0, 0,
                                     Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
     [Prog_Option_NewTabShow] = { SInit("New Tab Show"), SInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
@@ -669,6 +674,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_LoadOnStartup: return state->startup;
         case Prog_Option_NewTabShow: return state->newTab;
         case Prog_Option_VSync: return !state->noVSync;
+        case Prog_Option_HighlightCode: return !state->noHighlight;
         case Prog_Option_LoadThumbnails: return state->thumbnailMode == Prog_Thumbnails_Never ? 0 : state->thumbnailMode == Prog_Thumbnails_Always ? 2 : 1;
         case Prog_Option_CalcFolderSizes: return !state->noFolderSizes;
         case Prog_Option_CalcFolderSizesSSD: return !state->noFolderSizesSolidState;
@@ -6622,7 +6628,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             if (whole.length && whole.value[whole.length - 1] == '\r') --whole.length;
             u8 *matched = filter.length ? ArenaPushArray(&state->frameArena, whole.length + 1, u8) : NULL;
             if (matched) Prog_FilterMatch(whole, filter, matched);
-            u8 *tokens = state->previewLineStates ? ArenaPushArrayNoZero(&state->frameArena, whole.length + 1, u8) : NULL;
+            u8 *tokens = state->previewLineStates && !state->noHighlight ? ArenaPushArrayNoZero(&state->frameArena, whole.length + 1, u8) : NULL;
             if (tokens) Prog_SyntaxLine(state->previewSyntax, whole, state->previewLineStates[line], tokens);
             u32 starts[256];
             u32 rows = columns ? Min(Prog__WrapLine(whole, columns, starts, CArrayCount(starts)), (u32)CArrayCount(starts)) : 1;

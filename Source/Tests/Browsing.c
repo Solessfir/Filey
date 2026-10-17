@@ -2274,6 +2274,9 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
         Prog_ApplySettings(&look, S("trash.confirm = off\n"));
         Check(look.noTrashConfirm && !Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
+        Check(Prog_OptionValue(&look, Prog_Option_HighlightCode));
+        Prog_ApplySettings(&look, S("inspector.highlight = false\n"));
+        Check(look.noHighlight && !Prog_OptionValue(&look, Prog_Option_HighlightCode));
         // Names without their extensions, a folder's kept whole, and a dot file's too.
         Prog_ApplySettings(&look, S("files.extensions = off\nfiles.hidden = on\n"));
         Prog_Entry file = { .file = { .name = S("Report.final.pdf"), .kind = P_FileKind_File } }, folder = { .file = { .name = S("v1.2"), .kind = P_FileKind_Directory } };

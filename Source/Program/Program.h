@@ -534,6 +534,7 @@ typedef enum Prog_Option {
     Prog_Option_ReverseScroll,
     Prog_Option_CharacterKeyAction,
     Prog_Option_InspectorLayout,
+    Prog_Option_HighlightCode,
     Prog_Option_LoadOnStartup,
     Prog_Option_NewTabShow,
     Prog_Option_VSync,
@@ -1091,6 +1092,7 @@ typedef struct Prog_State {
     enum8(Prog_StoreRecents) storeRecents;
     b32 showRecents, sortRecents;
     b32 noVSync;
+    b32 noHighlight;          // inspector.highlight = false: the inspector shows code in one color
     // The families of the UI's text and of the inspector's, by name.
     Prog_FontName font, inspectorFont;
     b32 noFolderSizes;
