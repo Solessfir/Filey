@@ -6734,11 +6734,14 @@ function void Prog__RoundDashedOutline(f32 x, f32 y, f32 width, f32 height, f32 
 }
 
 // The card of the item's details, at the inspector's top right: its name with buttons to fold and close the card, then what it is.
-function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, const Prog_Metrics *m)
+// The card of the inspected item's details at the pane's top right, reaching left as far as the toolbar's controls let it, at `room` from
+// the pane's left, up to a width that holds most paths.
+function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry, f32 paneWidth, f32 room, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 s = m->scale, width = floorf(244.0f * s + 0.5f), head = floorf(32.0f * s + 0.5f), row = floorf(20.8f * s + 0.5f);
-    f32 pad = floorf(4.8f * s + 0.5f), left = floorf(13.6f * s + 0.5f), right = floorf(18.4f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
+    f32 s = m->scale, head = floorf(32.0f * s + 0.5f), row = floorf(20.8f * s + 0.5f), margin = floorf(9.6f * s + 0.5f);
+    f32 width = floorf(MinF32(MaxF32(paneWidth - margin - room - floorf(8.0f * s + 0.5f), 244.0f * s), 358.4f * s) + 0.5f);
+    f32 top = floorf(3.2f * s + 0.5f), bottom = floorf(6.4f * s + 0.5f), left = floorf(13.6f * s + 0.5f), right = floorf(12.8f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
     Arena *frame = &state->frameArena;
     b32 folder = entry->file.kind == P_FileKind_Directory;
     String path = P_NativePath(frame, Prog_JoinPath(frame, state->directory.path, entry->file.name));
@@ -6756,8 +6759,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = S("Created"), values[count++] = created;
     labels[count] = S("Modified"), values[count++] = Prog_EntryModified(frame, entry);
-    f32 height = head + (state->inspectorDetailsFolded ? 0 : m->separator + (f32)count * row + 2 * pad);
-    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - floorf(22.4f * s + 0.5f), floorf(4.8f * s + 0.5f) });
+    f32 height = head + (state->inspectorDetailsFolded ? 0 : m->separator + (f32)count * row + top + bottom);
+    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -6766,19 +6769,20 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
     UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorDetails")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(card) {
-        UI_SetNextChildrenPadding((UI_Padding){ left, 0, floorf(4.8f * s + 0.5f), 0 });
+        UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
         UI_Parent(title) {
             Prog__Label(entry->file.name, UI_Flex(), head, 0, theme->text, 0);
             Prog__ToolbarButton(state, S("InspectorDetailsClose"), Icon_SquareX, Prog_CommandKind_InspectorToggleDetails, true, m);
+            Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(head));
             UI_Interaction fold = Prog__TextButton(S("InspectorDetailsFold"), state->inspectorDetailsFolded ? Icon_ChevronRight : Icon_ChevronDown, m->icons,
                                                    UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, true, m);
             if (fold.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorFoldDetails, 0, 0, fold.clickOrder);
         }
         if (!state->inspectorDetailsFolded) {
             Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
-            Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+            Prog__Spacer(UI_Flex(), UI_Pixels(top));
             for (u32 i = 0; i < count; ++i) {
                 UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
                 UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -6794,7 +6798,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
             }
         }
     }
-    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - floorf(22.4f * s + 0.5f), floorf(4.8f * s + 0.5f) });
+    UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextCornerRadius(radius);
@@ -7070,6 +7074,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Inspector")), UI_Flag_DrawBackground | UI_Flag_Clip);
     state->inspectorRect = pane->rect;
+    f32 room = 0;
     UI_Parent(pane) {
         UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(toolbar) {
@@ -7128,7 +7133,11 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                     Prog__LeaveInspectorPanel(state, owner);
                 }
             }
-            Prog__Spacer(UI_Flex(), UI_Pixels(bar));
+            // Where the controls end, which the card of the details reaches to.
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(bar));
+            UI_Block *rest = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorToolbarRest")), 0);
+            room = rest->rect.x0 - pane->rect.x0;
             // The item's name, and beside it the button for the card of its details.
             String name = entry ? entry->file.name : Prog_PathName(state, state->directory.path);
             Prog__Label(name, UI_TextContent(), bar, 0, theme->text, 0);
@@ -7179,8 +7188,11 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         }
         // The footer: the text's filter, then its encoding, its line count and its size in points; a folder's list has its own status bar.
         f32 radius = floorf(10.4f * s + 0.5f);
-        UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
-        UI_Block *footer = folder ? NULL : Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
+        UI_Block *footer = NULL;
+        if (!folder) {
+            UI_SetNextChildrenPadding((UI_Padding){ -radius, 0, -radius, 0 });
+            footer = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
+        }
         if (footer) UI_Parent(footer) {
             if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
@@ -7223,7 +7235,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 }
             }
         }
-        if (entry && state->inspectorDetails) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, m);
+        if (entry && state->inspectorDetails) Prog__InspectorDetails(state, entry, pane->rect.x1 - pane->rect.x0, room, m);
     }
 }
 
