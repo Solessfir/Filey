@@ -2404,12 +2404,13 @@ function void Prog__DefaultQuick(Prog_State *state)
     Prog__SetList(&state->quickArena, &state->quickCommands, quick, CArrayCount(quick));
 }
 
-// Loads the bookmarks and recents saved in `configDirectory`, which keeps them from then on.
+// Loads the bookmarks and recents saved in `configDirectory`, which keeps them from then on; the drive index is kept in `cacheDirectory`.
 // Without a bookmarks file, the user's desktop, documents, downloads and pictures start as bookmarks.
-function void Prog_LoadSettings(Prog_State *state, String configDirectory)
+function void Prog_LoadSettings(Prog_State *state, String configDirectory, String cacheDirectory)
 {
     ArenaClear(&state->settingsArena);
     state->configDirectory = StrCopy(&state->settingsArena, configDirectory);
+    state->cacheDirectory = StrCopy(&state->settingsArena, cacheDirectory);
     if (!configDirectory.length) return;
     b32 found = false;
     Prog__LoadList(state, Prog_BookmarksFile, &state->bookmarkArena, &state->bookmarks, &found);
@@ -4116,11 +4117,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (!root.length) continue;
             Prog_IndexAdd(index, root, UINT32_MAX, 0);
         }
-        if (state->configDirectory.length) {
+        if (state->cacheDirectory.length) {
             P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
             Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
             input->kind = Prog_JobKind_IndexLoad;
-            input->name = Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile);
+            input->name = Prog_JoinPath(&job->arena, state->cacheDirectory, Prog_IndexFile);
             job->input = input;
             state->indexLoadJob = job;
             P_JobSubmit(job);
@@ -4143,11 +4144,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             state->indexDone = true;
             // The walk replaces the last run's, on disk too.
             Prog_IndexRelease(&state->savedIndex);
-            if (state->configDirectory.length) {
+            if (state->cacheDirectory.length) {
                 P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
                 Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
                 input->kind = Prog_JobKind_IndexFinish;
-                input->name = Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile);
+                input->name = Prog_JoinPath(&job->arena, state->cacheDirectory, Prog_IndexFile);
                 input->path = StrFormat(&job->arena, "%S.walk", input->name);
                 job->input = input;
                 P_JobSubmit(job);
@@ -4165,7 +4166,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             input->room = Prog_MaxIndexed - index->count;
             input->restart = batch[0] == 0;
-            if (state->configDirectory.length) input->name = StrFormat(&job->arena, "%S.walk", Prog_JoinPath(&job->arena, state->configDirectory, Prog_IndexFile));
+            if (state->cacheDirectory.length) input->name = StrFormat(&job->arena, "%S.walk", Prog_JoinPath(&job->arena, state->cacheDirectory, Prog_IndexFile));
             job->input = input;
             state->indexJob = job;
             P_JobSubmit(job);

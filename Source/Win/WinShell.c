@@ -952,7 +952,8 @@ function P_ArrayPlace P_Drives(Arena *arena)
     return result;
 }
 
-function String P_ConfigDirectory(Arena *arena)
+// "Filey" under the known folder, or FILEY_CONFIG_DIR when set, created when missing.
+function String P__AppDirectory(Arena *arena, const GUID *folder)
 {
     wchar override[1024];
     u32 length = GetEnvironmentVariableW(L"FILEY_CONFIG_DIR", override, (u32)CArrayCount(override));
@@ -962,9 +963,9 @@ function String P_ConfigDirectory(Arena *arena)
         result = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, override, (i32)length));
         ReleaseScratch(scratch);
     } else {
-        String local = P__KnownFolder(arena, &P__FolderLocalData);
-        if (!local.length) return local;
-        result = StrFormat(arena, "%S/Filey", local);
+        String known = P__KnownFolder(arena, folder);
+        if (!known.length) return known;
+        result = StrFormat(arena, "%S/Filey", known);
     }
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, result);
@@ -973,7 +974,10 @@ function String P_ConfigDirectory(Arena *arena)
     return ok ? result : (String){0};
 }
 
-// The install: Filey.exe in "Filey" under the local application data, beside the settings, and its shortcuts in the Start menu and on the desktop.
+function String P_CacheDirectory(Arena *arena) { return P__AppDirectory(arena, &P__FolderLocalData); }
+function String P_ConfigDirectory(Arena *arena) { return P__AppDirectory(arena, &P__FolderRoamingData); }
+
+// The install: Filey.exe in "Filey" under the local application data, beside the drive index, and its shortcuts in the Start menu and on the desktop.
 global const GUID P__FolderPrograms = { 0xA77F5D77, 0x2E2B, 0x44C3, { 0xA6, 0xA2, 0xAB, 0xA6, 0x01, 0x05, 0x4A, 0x51 } };
 
 typedef struct P__InstallPaths {

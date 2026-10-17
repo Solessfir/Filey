@@ -1435,6 +1435,7 @@ typedef struct Prog_State {
     // Bookmarked and recently shown folders, saved in configDirectory when the app sets one.
     Arena settingsArena;
     String configDirectory;
+    String cacheDirectory;  // the drive index's folder
     Arena bookmarkArena;
     ArrayStr bookmarks;
     // Where a drag over the bookmarks would pin its folders: one more than the position, or 0 when it is elsewhere.
@@ -1548,7 +1549,7 @@ function i32 Prog_EntryScore(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
-function void Prog_LoadSettings(Prog_State *state, String configDirectory);
+function void Prog_LoadSettings(Prog_State *state, String configDirectory, String cacheDirectory);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);

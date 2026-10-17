@@ -323,7 +323,7 @@ int main(void)
     Scratch startup = GetScratch();
     ArrayStr startPaths = P_StartupPaths(startup.arena);
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
-    if (ok) Prog_LoadSettings(&loop.state, P_ConfigDirectory(startup.arena));
+    if (ok) Prog_LoadSettings(&loop.state, P_ConfigDirectory(startup.arena), P_CacheDirectory(startup.arena));
     // After the settings, so that these tabs start with their choices.
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.

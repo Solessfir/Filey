@@ -1604,10 +1604,11 @@ function P_ArrayPlace P_Drives(Arena *arena)
     return result;
 }
 
-function String P_ConfigDirectory(Arena *arena)
+// "filey" under $<variable> or ~/<fallback>, or FILEY_CONFIG_DIR when set, created when missing.
+function String P__AppDirectory(Arena *arena, const char *variable, const char *fallback)
 {
-    const char *override = getenv("FILEY_CONFIG_DIR"), *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
-    String base = config && config[0] == '/' ? StrFromCStr(config) : home && home[0] == '/' ? StrFormat(arena, "%s/.config", home) : (String){0};
+    const char *override = getenv("FILEY_CONFIG_DIR"), *config = getenv(variable), *home = getenv("HOME");
+    String base = config && config[0] == '/' ? StrFromCStr(config) : home && home[0] == '/' ? StrFormat(arena, "%s/%s", home, fallback) : (String){0};
     String result = override && override[0] == '/' ? P_AbsolutePath(arena, StrFromCStr(override)) : base.length ? StrFormat(arena, "%S/filey", base) : (String){0};
     if (!result.length) return result;
     Scratch scratch = GetScratchEx(arena);
@@ -1616,6 +1617,9 @@ function String P_ConfigDirectory(Arena *arena)
     ReleaseScratch(scratch);
     return ok ? result : (String){0};
 }
+
+function String P_ConfigDirectory(Arena *arena) { return P__AppDirectory(arena, "XDG_CONFIG_HOME", ".config"); }
+function String P_CacheDirectory(Arena *arena) { return P__AppDirectory(arena, "XDG_CACHE_HOME", ".cache"); }
 
 function b32 P_ReadFile(Arena *arena, String path, String *contents)
 {

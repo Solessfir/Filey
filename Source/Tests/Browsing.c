@@ -1931,13 +1931,13 @@ function void TestTabs(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state));
     u64 shownEmpty = TestEntryIndex(&state, S("Empty"));
     Check(StrIsEqual(state.directory.path, fixture->path) && shownEmpty != UINT64_MAX && state.directory.entries[shownEmpty].selected);
-    // The drive index walks everything below the drives, writing itself to the settings folder as it goes, and Go To finds folders and files by name.
+    // The drive index walks everything below the drives, writing itself to the cache folder as it goes, and Go To finds folders and files by name.
     Arena driveArena = {0};
     ArrayPush(&driveArena, state.drives, ((P_Place){ .path = fixture->path }));
     String created = {0};
     Check(!P_CreateItem(&driveArena, fixture->path, S("Cache"), true, &created).code);
     String cache = Prog_JoinPath(&driveArena, fixture->path, created);
-    state.configDirectory = cache;
+    state.configDirectory = state.cacheDirectory = cache;
     start = PlatformNowMicroseconds();
     do {
         Prog_TakeCompletions(&state);
@@ -2037,7 +2037,7 @@ function void TestTabs(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteClose, 0);
         Prog_ApplySettings(&state, S(""));
     }
-    state.configDirectory = (String){0};
+    state.configDirectory = state.cacheDirectory = (String){0};
     state.drives = (P_ArrayPlace){0};
     Prog_Release(&state);
     Check(!P_DeleteItems(&driveArena, &cache, 1, false, NULL).code);
@@ -2557,7 +2557,7 @@ function void TestSidebar(TestFileFixture *fixture)
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
     if (state.jobs.initialized) {
-        Prog_LoadSettings(&state, config);
+        Prog_LoadSettings(&state, config, config);
         Check(TestWaitDirectory(&state));
         // A first run starts with the user's folders bookmarked.
         u64 seeded = state.bookmarks.header.count;
@@ -2579,7 +2579,7 @@ function void TestSidebar(TestFileFixture *fixture)
         Prog_Release(&state);
         state = (Prog_State){0};
         Check(Prog_Init(&state, fixture->path, NULL, NULL));
-        Prog_LoadSettings(&state, config);
+        Prog_LoadSettings(&state, config, config);
         Check(state.bookmarks.header.count == seeded + 1 && Prog_IsBookmarked(&state, fixture->path));
         // Opened as often, the later ranks first.
         Check(state.recents.header.count == 2 && StrIsEqual(state.recents.v[0], fixture->path) && TestEndsWith(state.recents.v[1], S("/Empty")));

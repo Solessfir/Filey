@@ -255,6 +255,8 @@ function P_ArrayPlace P_Drives(Arena *arena);
 // The folder Filey keeps its settings in, created when missing; empty when there is none.
 // FILEY_CONFIG_DIR, when set, names the folder instead, for portable or test setups.
 function String P_ConfigDirectory(Arena *arena);
+// The folder for what is kept for this machine only, such as the drive index; the settings folder when FILEY_CONFIG_DIR is set.
+function String P_CacheDirectory(Arena *arena);
 // The whole file; false when it cannot be read.
 function b32 P_ReadFile(Arena *arena, String path, String *contents);
 // Reads at most `limit` bytes from the start of the file at `path`.
