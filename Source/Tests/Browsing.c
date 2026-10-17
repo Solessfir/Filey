@@ -2368,24 +2368,37 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 4 && Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 60 && Prog_OptionValue(&look, Prog_Option_RoundCorners));
         Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
-        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 2 && Prog_ThemeUser.background.r == Prog_ThemeLight.background.r);
-        // A custom scheme by its name, its colors over the neutral scheme, among the choices after the built-in ones; a fork of it shows
-        // in its place, and the picker changes its colors.
-        Prog_SetScheme(&look, S("Mine"), S("background = #102030\nnonsense = #ffffff\n"), false);
+        // "light" is the first light scheme, whose background is white.
+        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 1 && Prog_ThemeUser.background.r == 1 && look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x3E3F40);
+        // The default theme is the one its colors make, and the full moon scheme's popups and disabled icons come from its surface, background,
+        // icon and disabled colors.
+        Prog_Theme made = Prog__ThemeFromScheme(Prog_SchemeColors[0]);
+        Check(!MemCompare(&Prog_ThemeCustom, &made, sizeof(made)));
+        Prog_ApplySettings(&look, S("theme = FullMoon\n"));
+        Check(look.scheme == 4 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA3);
+        // A custom scheme by its name, its colors over the default scheme's, among the choices after the built-in ones; a fork of it shows
+        // in its place named as the first free custom one, and the picker changes its colors.
+        Prog_SetScheme(&look, S("Mine"), S("Background = #102030\nnonsense = #ffffff\n"), false);
         Prog_ApplySettings(&look, S("theme = mine\n"));
         Check(look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
         u32 schemeChoices = 0;
         Prog_OptionChoices(&look, Prog_Option_ColorScheme, &look.frameArena, &schemeChoices);
-        Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look) && look.schemeNames.header.count == 2 && StrIsEqual(look.schemeNames.v[1], S("Mine Copy")));
-        Check(look.scheme == Prog_BuiltInSchemes + 1 && Prog_ThemeUser.background.b > 0.18f);
+        Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look, Prog_BuiltInSchemes, Prog_Option_ColorScheme) && look.schemeNames.header.count == 2);
+        Check(StrIsEqual(look.schemeNames.v[1], S("Custom 1")) && look.scheme == Prog_BuiltInSchemes + 1 && Prog_ThemeUser.background.b > 0.18f);
+        // A fork of a built-in scheme takes the next number.
+        Check(Prog_ForkScheme(&look, 2, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[2], S("Custom 2")));
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0xFDF6E3);
         look.colorPicking = true;
         look.colorOption = Prog_Option_ColorBackground;
         Prog_PickColor(&look, 3, 1);
-        Check(Prog_OptionColor(Prog_Option_ColorBackground).r == 1);
+        Check(Prog_OptionColor(&look, Prog_Option_ColorBackground).r == 1 && Prog_ThemeUser.background.r == 1);
         Prog_PickColor(&look, 0, 0);
         Prog_PickColor(&look, 1, 1);
         Prog_PickColor(&look, 2, 1);
-        Check(Prog_OptionColor(Prog_Option_ColorBackground).r == 1 && Prog_OptionColor(Prog_Option_ColorBackground).g == 0 && Prog_OptionColor(Prog_Option_ColorBackground).b == 0);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0xFF0000);
+        // Closing the picker keeps the colors in the scheme, by the groups' names.
+        Prog_CloseColorPicker(&look);
+        Check(StrIndexStr(look.schemeTexts.v[2], S("Background = #FF0000\n"), SSF_None).exists);
         // The pointer's options and their defaults.
         Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
         Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));

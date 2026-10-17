@@ -1968,14 +1968,44 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
     P_JobSubmit(job);
 }
 
-// The color picker for the color of `option`; a built-in scheme is copied first, as only custom ones change.
+// The color picker for the color of `option`, which only a custom scheme has.
 function void Prog__OpenColorPicker(Prog_State *state, Prog_Option option)
 {
-    if (state->scheme < Prog_BuiltInSchemes && !Prog_ForkScheme(state)) return;
+    if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorMatchDisabledSelection) return;
     state->colorPicking = true;
     state->colorOption = (u8)option;
-    R_Color color = Prog_OptionColor(option);
+    R_Color color = Prog_OptionColor(state, option);
     Prog_RgbToHsb(color, &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
+}
+
+// The option highlighted in Options, Prog_Option_Count for none or in another list.
+function u32 Prog__HighlightedOption(Prog_State *state)
+{
+    if (state->paletteMode != Prog_PaletteMode_Options) return Prog_Option_Count;
+    u8 found[Prog_Option_Count];
+    u32 count = Prog_OptionMatches(state, found);
+    return state->paletteHighlight < count ? found[state->paletteHighlight] : Prog_Option_Count;
+}
+
+// After the typed text changes, the first row is highlighted, but Options keeps the option `kept` it had where that still shows.
+function void Prog__KeepHighlight(Prog_State *state, u32 kept)
+{
+    state->paletteHighlight = 0;
+    if (kept >= Prog_Option_Count) return;
+    u8 found[Prog_Option_Count];
+    u32 count = Prog_OptionMatches(state, found);
+    for (u32 i = 0; i < count; ++i) if (found[i] == kept) state->paletteHighlight = i;
+}
+
+// The schemes' dropdown under `option`, highlighting the scheme it shows, or closed when it is open there.
+function void Prog__OpenSchemes(Prog_State *state, Prog_Option option)
+{
+    if (state->schemesOpen == option + 1) {
+        state->schemesOpen = 0;
+        return;
+    }
+    state->schemesOpen = (u8)(option + 1);
+    state->schemesHighlight = (u32)Prog_OptionValue(state, option);
 }
 
 // Asks about the layout named `name` before going on.
@@ -2731,9 +2761,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColorPickerOpen: Prog__OpenColorPicker(state, (Prog_Option)command->row); break;
             case Prog_CommandKind_ColorPickerSet: if (state->colorPicking) Prog_PickColor(state, (u32)command->row, (f32)((f64)command->target / 1e6)); break;
             case Prog_CommandKind_ColorPickerClose: Prog_CloseColorPicker(state); break;
-            case Prog_CommandKind_SchemeFork: Prog_ForkScheme(state); break;
+            case Prog_CommandKind_SchemesOpen: Prog__OpenSchemes(state, (Prog_Option)command->row); break;
+            case Prog_CommandKind_SchemesPick: {
+                u32 count = 0;
+                const String *names = state->schemesOpen ? Prog_OptionChoices(state, (Prog_Option)(state->schemesOpen - 1), &state->frameArena, &count) : NULL;
+                if (command->row < count) Prog_SetOptionText(state, (Prog_Option)(state->schemesOpen - 1), names[command->row]);
+                state->schemesOpen = 0;
+            } break;
+            case Prog_CommandKind_SchemeFork: {
+                if (state->schemesOpen) Prog_ForkScheme(state, (u32)command->row, (Prog_Option)(state->schemesOpen - 1));
+                state->schemesOpen = 0;
+            } break;
             case Prog_CommandKind_SchemeDelete: {
-                if (state->scheme >= Prog_BuiltInSchemes) Prog__LayoutAsk(state, Prog_LayoutAsk_DeleteScheme, StrMake(state->schemeName.text, state->schemeName.length));
+                u64 custom = command->row - Min(command->row, (u64)Prog_BuiltInSchemes);
+                if (command->row >= Prog_BuiltInSchemes && custom < state->schemeNames.header.count) Prog__LayoutAsk(state, Prog_LayoutAsk_DeleteScheme, state->schemeNames.v[custom]);
+                state->schemesOpen = 0;
             } break;
             case Prog_CommandKind_MillerSelect: Prog__MillerSelect(state, (u32)command->target, command->row, command->pressCount >= 2); break;
             case Prog_CommandKind_DeselectAll: {
@@ -3022,7 +3064,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (desc->control == Prog_OptionControl_Color) Prog__OpenColorPicker(state, option);
                     u32 choices = 0;
                     Prog_OptionChoices(state, option, &state->frameArena, &choices);
-                    if (desc->control == Prog_OptionControl_Choice && choices) Prog_SetOption(state, option, (value + 1) % (i32)choices);
+                    // A scheme opens the schemes' dropdown.
+                    b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
+                    if (desc->control == Prog_OptionControl_Choice && schemes) Prog__OpenSchemes(state, option);
+                    else if (desc->control == Prog_OptionControl_Choice && choices) Prog_SetOption(state, option, (value + 1) % (i32)choices);
                     break;
                 }
                 if (state->paletteMode == Prog_PaletteMode_Tabs) {
@@ -3368,6 +3413,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     state->bookmarkDrop = state->bookmarkDropShown;
     P_SetDropTakesFolders(state->bookmarkDrop != 0);
+    // The schemes' dropdown goes with the Options it opened from.
+    if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0;
     Prog_SubmitIconRequests(state);
     Prog_KeepFolderView(state);
     // The header spinner turns while folders are being measured.
@@ -3479,6 +3526,16 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             state->tabDragCancelled = true;
             continue;
         }
+        // The schemes' dropdown takes the keyboard: Up and Down move its highlight, Enter shows that scheme and Escape closes it.
+        if (state->schemesOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            u32 count = 0;
+            Prog_OptionChoices(state, (Prog_Option)(state->schemesOpen - 1), &state->frameArena, &count);
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) state->schemesOpen = 0;
+            else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_SchemesPick, state->schemesHighlight, 0, order);
+            else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Up && count) state->schemesHighlight = (state->schemesHighlight + count - 1) % count;
+            else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Down && count) state->schemesHighlight = (state->schemesHighlight + 1) % count;
+            continue;
+        }
         if (state->colorPicking && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
             if (event->kind == PlatformEventKind_KeyDown && (event->key == Key_Escape || event->key == Key_Enter)) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, order);
             continue;
@@ -3516,8 +3573,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 continue;
             }
             if (event->kind == PlatformEventKind_Text) {
+                u32 kept = Prog__HighlightedOption(state);
                 Prog__EditInsert(&state->palette, event->codepoint);
-                state->paletteHighlight = 0;
+                Prog__KeepHighlight(state, kept);
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 Prog_PaletteRow matches[Prog_MaxPaletteRows];
                 u32 tabs[Prog_MaxTabs];
@@ -3544,7 +3602,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     Prog_QueueCommand(state, Prog_CommandKind_OptionSet, (u64)option, 0, order)->target = (u64)(i64)value;
                     continue;
                 }
-                u32 version = state->palette.version;
+                u32 version = state->palette.version, kept = Prog__HighlightedOption(state);
                 // Go To's own hotkeys, such as Alt+Left for its back button.
                 const Prog_Hotkey *own = goTo ? Prog_FindHotkey(state, Prog_HotkeyScope_GoTo, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super)) : NULL;
                 if (own) {
@@ -3588,7 +3646,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(state, &state->palette, event);
-                if (state->palette.version != version) state->paletteHighlight = 0;
+                if (state->palette.version != version) Prog__KeepHighlight(state, kept);
             }
             continue;
         }

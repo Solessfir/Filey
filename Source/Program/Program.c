@@ -32,33 +32,65 @@ typedef struct Prog_Theme {
     R_Color danger;        // actions that cannot be undone
     R_Color icon;
     R_Color iconDisabled;
+    R_Color file;          // the names of files in the lists
+    R_Color folder;        // and of folders
+    R_Color contentHover;  // the text of an item under the pointer
+    R_Color contentSelection;
+    R_Color contentDisabledSelection;  // of a selected item that would do nothing now
+    R_Color outlineHover;  // the edge of a control under the pointer
+    R_Color outlineSelection;          // of one on a selected row
+    R_Color outlineDisabledSelection;
+    R_Color matchHover;    // letters a filter matched, in an item under the pointer
+    R_Color matchSelection;
+    R_Color matchDisabledSelection;
+    // Grays whose brightness is an amount: how much of the selection color washes an item under the pointer, and how much shows of a
+    // hidden item and of one that would do nothing now.
+    R_Color hoverAmount;
+    R_Color hiddenAmount;
+    R_Color disabledAmount;
 } Prog_Theme;
 
-// The neutral "custom" scheme.
+#define Prog_Hex(v) { (((v) >> 16) & 255) / 255.0f, (((v) >> 8) & 255) / 255.0f, ((v) & 255) / 255.0f, 1 }
+
+// The neutral default scheme, as Prog__ThemeFromScheme makes it from its colors.
 global const Prog_Theme Prog_ThemeCustom = {
-    .window       = Prog_Gray(25),
-    .background   = Prog_Gray(25),
-    .inner        = Prog_Gray(25),
-    .caption      = Prog_Gray(31),
-    .menu         = Prog_Gray(31),
-    .panel        = Prog_Gray(31),
-    .alternateRow = Prog_Gray(28),
-    .separator    = Prog_Gray(28),
-    .hover        = Prog_Gray(80),
-    .selection    = Prog_Gray(80),
-    .focus        = Prog_Gray(80),
-    .tabBorder    = Prog_Gray(56),
-    .text         = Prog_Rgb(221, 222, 224),
-    .textDim      = Prog_Rgb(107, 112, 120),
-    .textHeading  = Prog_Gray(162),
-    .textMatch    = Prog_Rgb(0, 170, 255),
-    .marquee      = Prog_Rgb(0, 173, 238),
-    .accent       = Prog_Rgb(0, 121, 166),
-    .track        = Prog_Rgb(56, 60, 61),
-    .outline      = Prog_Gray(31),
-    .danger       = Prog_Rgb(255, 99, 88),
-    .icon         = Prog_Gray(154),
-    .iconDisabled = Prog_Gray(70),
+    .window                   = Prog_Hex(0x191919),
+    .background               = Prog_Hex(0x191919),
+    .inner                    = Prog_Hex(0x191919),
+    .caption                  = Prog_Hex(0x1F1F1F),
+    .menu                     = Prog_Hex(0x1F1F1F),
+    .panel                    = Prog_Hex(0x1F1F1F),
+    .alternateRow             = Prog_Hex(0x1C1C1C),
+    .separator                = Prog_Hex(0x1C1C1C),
+    .hover                    = Prog_Hex(0x595959),
+    .selection                = Prog_Hex(0x505050),
+    .focus                    = Prog_Hex(0x505050),
+    .tabBorder                = Prog_Hex(0x383838),
+    .text                     = Prog_Hex(0xDDDEE0),
+    .textDim                  = Prog_Hex(0x6B7078),
+    .textHeading              = Prog_Hex(0xA2A2A2),
+    .textMatch                = Prog_Hex(0x00AAFF),
+    .marquee                  = Prog_Hex(0x00ADEE),
+    .accent                   = Prog_Hex(0x0079A6),
+    .track                    = Prog_Hex(0x383C3D),
+    .outline                  = Prog_Hex(0x1F1F1F),
+    .danger                   = Prog_Hex(0xFF6358),
+    .icon                     = Prog_Hex(0x9A9A9A),
+    .iconDisabled             = Prog_Hex(0x464646),
+    .file                     = Prog_Hex(0xDDDEE0),
+    .folder                   = Prog_Hex(0xDDDEE0),
+    .contentHover             = Prog_Hex(0xDDDEE0),
+    .contentSelection         = Prog_Hex(0xDDDEE0),
+    .contentDisabledSelection = Prog_Hex(0xA4A5A6),
+    .outlineHover             = Prog_Hex(0x757C80),
+    .outlineSelection         = Prog_Hex(0xA5AEB3),
+    .outlineDisabledSelection = Prog_Hex(0x464A4D),
+    .matchHover               = Prog_Hex(0x00B9FF),
+    .matchSelection           = Prog_Hex(0x00AAFF),
+    .matchDisabledSelection   = Prog_Hex(0x44B8E3),
+    .hoverAmount              = Prog_Hex(0x595959),
+    .hiddenAmount             = Prog_Hex(0x595959),
+    .disabledAmount           = Prog_Hex(0x595959),
 };
 
 #define Prog_White(a) { 1, 1, 1, (a) }
@@ -90,6 +122,20 @@ global const Prog_Theme Prog_ThemeGlass = {
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Gray(160),
     .iconDisabled = Prog_Gray(90),
+    .file         = Prog_Rgb(221, 222, 224),
+    .folder       = Prog_Rgb(221, 222, 224),
+    .contentHover = Prog_Rgb(221, 222, 224),
+    .contentSelection = Prog_Rgb(221, 222, 224),
+    .contentDisabledSelection = Prog_Gray(164),
+    .outlineHover = Prog_White(0.3f),
+    .outlineSelection = Prog_White(0.5f),
+    .outlineDisabledSelection = Prog_White(0.15f),
+    .matchHover   = Prog_Rgb(0, 185, 255),
+    .matchSelection = Prog_Rgb(0, 170, 255),
+    .matchDisabledSelection = Prog_Rgb(68, 184, 227),
+    .hoverAmount  = Prog_Gray(89),
+    .hiddenAmount = Prog_Gray(89),
+    .disabledAmount = Prog_Gray(89),
 };
 
 // A distinct loud color for every role, so that screenshots show which surface draws where.
@@ -117,63 +163,70 @@ global const Prog_Theme Prog_ThemeDebug = {
     .danger       = Prog_Rgb(255, 99, 88),
     .icon         = Prog_Rgb(255, 230, 120),
     .iconDisabled = Prog_Rgb(120, 100, 60),
+    .file         = Prog_Rgb(120, 255, 120),
+    .folder       = Prog_Rgb(120, 160, 255),
+    .contentHover = Prog_Rgb(255, 120, 255),
+    .contentSelection = Prog_Rgb(255, 255, 120),
+    .contentDisabledSelection = Prog_Rgb(180, 180, 90),
+    .outlineHover = Prog_Rgb(0, 255, 160),
+    .outlineSelection = Prog_Rgb(255, 160, 0),
+    .outlineDisabledSelection = Prog_Rgb(120, 80, 0),
+    .matchHover   = Prog_Rgb(255, 0, 128),
+    .matchSelection = Prog_Rgb(128, 255, 0),
+    .matchDisabledSelection = Prog_Rgb(90, 160, 40),
+    .hoverAmount  = Prog_Gray(89),
+    .hiddenAmount = Prog_Gray(89),
+    .disabledAmount = Prog_Gray(89),
 };
 
-#define Prog_Hex(v) { (((v) >> 16) & 255) / 255.0f, (((v) >> 8) & 255) / 255.0f, ((v) & 255) / 255.0f, 1 }
-
-// The reference's built-in dark scheme, for comparing the two side by side.
-global const Prog_Theme Prog_ThemeFullmoon = {
-    .window       = Prog_Hex(0x151515),
-    .background   = Prog_Hex(0x191B1C),
-    .inner        = Prog_Hex(0x1B1B1C),
-    .caption      = Prog_Hex(0x272A2B),
-    .menu         = Prog_Hex(0x1F2223),
-    .panel        = Prog_Hex(0x1F2223),
-    .alternateRow = Prog_Hex(0x1D1F21),
-    .separator    = Prog_Hex(0x202324),
-    .hover        = Prog_Hex(0x595959),
-    .selection    = Prog_Hex(0x0079A6),
-    .focus        = Prog_Hex(0x0079A6),
-    .tabBorder    = Prog_Hex(0x343A3B),
-    .text         = Prog_Hex(0xDDDEE0),
-    .textDim      = Prog_Hex(0x6B7078),
-    .textHeading  = Prog_Hex(0xA3A5A6),
-    .textMatch    = Prog_Hex(0x00ADEE),
-    .marquee      = Prog_Hex(0x00ADEE),
-    .accent       = Prog_Hex(0x0079A6),
-    .track        = Prog_Hex(0x383C3D),
-    .outline      = Prog_Hex(0x464A4D),
-    .danger       = Prog_Hex(0xFF6666),
-    .icon         = Prog_Hex(0x9A9C9D),
-    .iconDisabled = Prog_Hex(0x464849),
+// The built-in schemes' colors, in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's order of the groups.
+global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = {
+    { 0x191919, 0x1F1F1F, 0x191919, 0x1F1F1F, 0x383C3D, 0x191919, 0x383838, 0x1F1F1F, 0x1C1C1C, 0x1C1C1C, 0x9A9A9A, 0xDDDEE0, 0x6B7078, 0x999999, 0xDDDEE0, 0xDDDEE0, 0xFF6358, 0x0079A6, 0x505050, 0x00ADEE, 0x00AAFF, 0x595959, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
+    { 0xFFFFFF, 0xEBEBEB, 0xFFFFFF, 0xF8F8F8, 0xDADBDE, 0xFFFFFF, 0xD8D8D9, 0xC6C6C7, 0xF7F7F7, 0xFBFBFB, 0x909293, 0x3E3F40, 0x8A8A8C, 0x828485, 0x3E3F40, 0x3E3F40, 0xFF6666, 0x00ADEE, 0x00ADEE, 0x0093CC, 0x0078CC, 0x808080, 0x666666, 0x666666, 0x1A6480, 0xFFFFFF, 0xFFFFFF, 0xB3B3B3, 0xE6E6E6, 0xE0E0E3, 0x0050FF, 0x0050FF, 0x7397E6 },
+    { 0xFDF8E9, 0xE6DEC9, 0xFDF6E3, 0xEEE8D5, 0xD6D1BF, 0xF7F1DD, 0xCCC8BC, 0xC4C0B5, 0xF2ECD9, 0xF7F1DE, 0x8F8B84, 0x595854, 0x8F897E, 0x8F8B84, 0x595854, 0x595854, 0xFF6666, 0x00ADEE, 0x00ADEE, 0x0093CC, 0x0065EE, 0x999999, 0x737373, 0x8C8C8C, 0x155066, 0xF7F7F7, 0xFFFFFF, 0xB3AFA5, 0xE0E0E0, 0xD9D9D9, 0x0050FF, 0x0050FF, 0x7397E6 },
+    { 0x313135, 0x44454A, 0x37383C, 0x3D3E42, 0x585A60, 0x36363B, 0x515257, 0x6B6C73, 0x3D3E42, 0x3A3C40, 0xABACAF, 0xE7E8EB, 0x959599, 0xABACAF, 0xE7E8EB, 0xE7E8EB, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x333333, 0x757575, 0x4D4D4D, 0xE7E8EB, 0xF8F9FB, 0xC9CACC, 0x82848C, 0xB8B8B8, 0x6B6C73, 0x00B9FF, 0x00B9FF, 0x009DD9 },
+    { 0x151515, 0x272A2B, 0x191B1C, 0x1F2223, 0x383C3D, 0x1B1B1C, 0x343A3B, 0x464A4D, 0x202324, 0x1D1F21, 0x9A9C9D, 0xDDDEE0, 0x6B7078, 0x9A9C9D, 0xDDDEE0, 0xDDDEE0, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
+    { 0x002730, 0x003C4D, 0x002B36, 0x003442, 0x004E63, 0x002F3B, 0x265561, 0x2D6270, 0x003340, 0x002F3B, 0x9DAFB4, 0xF2F2F2, 0x6B8F99, 0x9DAFB4, 0xF2F2F2, 0xF2F2F2, 0xBF616A, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x404040, 0x666666, 0x4D4D4D, 0xF2F2F2, 0xF2F2F2, 0xCCCCCC, 0x387B8C, 0xB3B3B3, 0x2D6270, 0x00B9FF, 0x00B9FF, 0x009DD9 },
+    { 0x002047, 0x001D42, 0x002451, 0x00204A, 0x1F4370, 0x001F47, 0x2D4462, 0x365275, 0x00295C, 0x002757, 0xA1ABB7, 0xE7E7E7, 0x6B7F99, 0xA1ABB7, 0xE7E7E7, 0xE7E7E7, 0xFF4D4D, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x666666, 0x666666, 0xE7E7E7, 0xF2F2F2, 0xBDBDBD, 0x4D73A6, 0xA6A6A6, 0x41628C, 0x00B9FF, 0x00B9FF, 0x009ED9 },
 };
 
-// A light scheme, for the system's light mode.
-global const Prog_Theme Prog_ThemeLight = {
-    .window       = Prog_Hex(0xE9EBED),
-    .background   = Prog_Hex(0xF7F8F9),
-    .inner        = Prog_Hex(0xEEF0F2),
-    .caption      = Prog_Hex(0xE4E6E9),
-    .menu         = Prog_Hex(0xFFFFFF),
-    .panel        = Prog_Hex(0xEDEFF1),
-    .alternateRow = Prog_Hex(0xEFF1F3),
-    .separator    = Prog_Hex(0xE3E5E8),
-    .hover        = Prog_Hex(0xC9CED4),
-    .selection    = Prog_Hex(0xC7E3F2),
-    .focus        = Prog_Hex(0x0079A6),
-    .tabBorder    = Prog_Hex(0xCDD1D6),
-    .text         = Prog_Hex(0x1C1E21),
-    .textDim      = Prog_Hex(0x6B7078),
-    .textHeading  = Prog_Hex(0x50555C),
-    .textMatch    = Prog_Hex(0x0079A6),
-    .marquee      = Prog_Hex(0x0079A6),
-    .accent       = Prog_Hex(0x0079A6),
-    .track        = Prog_Hex(0xD5D9DD),
-    .outline      = Prog_Hex(0xBFC4CA),
-    .danger       = Prog_Hex(0xD9342B),
-    .icon         = Prog_Hex(0x5B6068),
-    .iconDisabled = Prog_Hex(0xA7ACB2),
-};
+function R_Color Prog__HexColor(u32 hex) { return (R_Color){ (f32)((hex >> 16) & 255) / 255.0f, (f32)((hex >> 8) & 255) / 255.0f, (f32)(hex & 255) / 255.0f, 1 }; }
+
+// `from` moved toward `to` by `amount`, from 0 to 1, or each channel scaled by `scale` when `to` is negative, to the nearest byte.
+function u32 Prog__ShiftHex(u32 from, i64 to, f32 amount)
+{
+    u32 result = 0;
+    for (u32 shift = 0; shift < 24; shift += 8) {
+        f32 a = (f32)((from >> shift) & 255), b = to < 0 ? a * amount : (f32)(((u64)to >> shift) & 255), mixed = to < 0 ? b : a + (b - a) * amount;
+        result |= (u32)floorf(UI__Clamp(mixed, 0, 255) + 0.5f) << shift;
+    }
+    return result;
+}
+
+// The theme a scheme's colors make: the popups have the surface's, the focus outline the selection's, and the disabled icons the
+// icons' faded into the background by the disabled amount; the sections' titles show a little brighter than their color.
+function Prog_Theme Prog__ThemeFromScheme(const u32 *groups)
+{
+#define Prog__Group(name) groups[Prog_Option_Color##name - Prog_Option_ColorClear]
+#define Prog__GroupColor(name) Prog__HexColor(Prog__Group(name))
+    Prog_Theme theme = {
+        .window = Prog__GroupColor(Clear), .background = Prog__GroupColor(Background), .inner = Prog__GroupColor(Inner), .caption = Prog__GroupColor(Caption),
+        .menu = Prog__GroupColor(Surface), .panel = Prog__GroupColor(Surface), .alternateRow = Prog__GroupColor(AlternatingRow), .separator = Prog__GroupColor(Separator),
+        .hover = Prog__GroupColor(Hover), .selection = Prog__GroupColor(Selection), .focus = Prog__GroupColor(Selection), .tabBorder = Prog__GroupColor(Border),
+        .text = Prog__GroupColor(Text), .textDim = Prog__GroupColor(Secondary), .textHeading = Prog__HexColor(Prog__ShiftHex(Prog__Group(Group), -1, 1.06f)),
+        .textMatch = Prog__GroupColor(Match), .marquee = Prog__GroupColor(RectSelection), .accent = Prog__GroupColor(Progress), .track = Prog__GroupColor(Foreground),
+        .outline = Prog__GroupColor(Outline), .danger = Prog__GroupColor(Warning), .icon = Prog__GroupColor(IconTint),
+        .iconDisabled = Prog__HexColor(Prog__ShiftHex(Prog__Group(Background), Prog__Group(IconTint), (f32)(Prog__Group(Disabled) & 255) / 255.0f)),
+        .file = Prog__GroupColor(File), .folder = Prog__GroupColor(Folder), .contentHover = Prog__GroupColor(ContentHover), .contentSelection = Prog__GroupColor(ContentSelection),
+        .contentDisabledSelection = Prog__GroupColor(ContentDisabledSelection), .outlineHover = Prog__GroupColor(OutlineHover), .outlineSelection = Prog__GroupColor(OutlineSelection),
+        .outlineDisabledSelection = Prog__GroupColor(OutlineDisabledSelection), .matchHover = Prog__GroupColor(MatchHover), .matchSelection = Prog__GroupColor(MatchSelection),
+        .matchDisabledSelection = Prog__GroupColor(MatchDisabledSelection), .hoverAmount = Prog__GroupColor(Hover), .hiddenAmount = Prog__GroupColor(Hidden),
+        .disabledAmount = Prog__GroupColor(Disabled),
+    };
+#undef Prog__GroupColor
+#undef Prog__Group
+    return theme;
+}
 
 global const Prog_Theme *Prog_Theme_ = &Prog_ThemeCustom;
 
@@ -204,6 +257,9 @@ global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
     Prog__ThemeColor(separator), Prog__ThemeColor(hover), Prog__ThemeColor(selection), Prog__ThemeColor(focus), Prog__ThemeColor(tabBorder),
     Prog__ThemeColor(text), Prog__ThemeColor(textDim), Prog__ThemeColor(textHeading), Prog__ThemeColor(textMatch),
     Prog__ThemeColor(marquee), Prog__ThemeColor(accent), Prog__ThemeColor(track), Prog__ThemeColor(outline), Prog__ThemeColor(danger), Prog__ThemeColor(icon), Prog__ThemeColor(iconDisabled),
+    Prog__ThemeColor(file), Prog__ThemeColor(folder), Prog__ThemeColor(contentHover), Prog__ThemeColor(contentSelection), Prog__ThemeColor(contentDisabledSelection),
+    Prog__ThemeColor(outlineHover), Prog__ThemeColor(outlineSelection), Prog__ThemeColor(outlineDisabledSelection), Prog__ThemeColor(matchHover), Prog__ThemeColor(matchSelection),
+    Prog__ThemeColor(matchDisabledSelection), Prog__ThemeColor(hoverAmount), Prog__ThemeColor(hiddenAmount), Prog__ThemeColor(disabledAmount),
 #undef Prog__ThemeColor
 };
 static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_Color) == sizeof(Prog_Theme));
@@ -234,17 +290,28 @@ function b32 Prog__ParseColor(String text, R_Color *color)
 }
 
 // The built-in schemes, before the custom ones.
-global const String Prog_OptionSchemes[] = { SInit("default"), SInit("fullmoon"), SInit("light") };
+global const String Prog_OptionSchemes[] = { SInit("default"), SInit("sirius"), SInit("pollux"), SInit("eridanus"), SInit("fullmoon"), SInit("regulus"), SInit("altair") };
 static_assert(CArrayCount(Prog_OptionSchemes) == Prog_BuiltInSchemes, "the built-in schemes counted");
+static_assert(Prog_Option_ColorMatchDisabledSelection - Prog_Option_ColorClear + 1 == Prog_ColorGroupCount, "the color groups counted");
 
-// Gives `theme` the scheme named `name`: a built-in one, or a custom one's colors over the neutral scheme; returns its place among the
-// built-in schemes and then the custom ones, 0 for an unknown name.
-function u8 Prog__UseScheme(const Prog_State *state, String name, Prog_Theme *theme)
+// The groups' names in a custom scheme's lines.
+global const char *const Prog_ColorGroupNames[Prog_ColorGroupCount] = {
+    "Clear", "Caption", "Background", "Surface", "Foreground", "Inner", "Border", "Outline", "Separator", "AlternatingRow", "IconTint", "Text", "Secondary", "Group",
+    "File", "Folder", "Warning", "Progress", "Selection", "RectSelection", "Match", "Hidden", "Hover", "Disabled", "ContentHover", "ContentSelection",
+    "ContentDisabledSelection", "OutlineHover", "OutlineSelection", "OutlineDisabledSelection", "MatchHover", "MatchSelection", "MatchDisabledSelection",
+};
+
+// Gives `groups` the colors of the scheme named `name`: a built-in one, or a custom one's over the default scheme's; "light" is the first light
+// one. Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name.
+function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
 {
-    *theme = Prog_ThemeCustom;
-    if (Prog__EqualFolded(name, S("fullmoon"))) *theme = Prog_ThemeFullmoon;
-    if (Prog__EqualFolded(name, S("light"))) *theme = Prog_ThemeLight;
-    for (u32 i = 0; i < CArrayCount(Prog_OptionSchemes); ++i) if (Prog__EqualFolded(name, Prog_OptionSchemes[i])) return (u8)i;
+    MemCopy(groups, Prog_SchemeColors[0], sizeof(Prog_SchemeColors[0]));
+    if (Prog__EqualFolded(name, S("light"))) name = S("sirius");
+    for (u32 i = 0; i < CArrayCount(Prog_OptionSchemes); ++i) {
+        if (!Prog__EqualFolded(name, Prog_OptionSchemes[i])) continue;
+        MemCopy(groups, Prog_SchemeColors[i], sizeof(Prog_SchemeColors[i]));
+        return (u8)i;
+    }
     for (u64 i = 0; i < state->schemeNames.header.count; ++i) {
         if (!Prog__EqualFolded(state->schemeNames.v[i], name)) continue;
         String text = state->schemeTexts.v[i];
@@ -258,8 +325,9 @@ function u8 Prog__UseScheme(const Prog_State *state, String name, Prog_Theme *th
             while (field.length && field.value[field.length - 1] == ' ') --field.length;
             while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
             R_Color color;
-            for (u64 c = 0; c < CArrayCount(Prog_ThemeColors); ++c) {
-                if (StrIsEqual(field, StrFromCStr(Prog_ThemeColors[c].name)) && Prog__ParseColor(value, &color)) *(R_Color *)((u8 *)theme + Prog_ThemeColors[c].offset) = color;
+            for (u32 g = 0; g < Prog_ColorGroupCount; ++g) {
+                if (!StrIsEqual(field, StrFromCStr(Prog_ColorGroupNames[g])) || !Prog__ParseColor(value, &color)) continue;
+                groups[g] = (u32)(color.r * 255 + 0.5f) << 16 | (u32)(color.g * 255 + 0.5f) << 8 | (u32)(color.b * 255 + 0.5f);
             }
         }
         return (u8)(CArrayCount(Prog_OptionSchemes) + i);
@@ -267,16 +335,11 @@ function u8 Prog__UseScheme(const Prog_State *state, String name, Prog_Theme *th
     return 0;
 }
 
-// The colors of `theme` as a custom scheme's lines.
-function String Prog_SchemeText(Arena *arena, const Prog_Theme *theme)
+// The colors `groups` as a custom scheme's lines.
+function String Prog_SchemeText(Arena *arena, const u32 *groups)
 {
     StrBuilder text = {0};
-    for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
-        R_Color color = *(const R_Color *)((const u8 *)theme + Prog_ThemeColors[i].offset);
-        u32 r = (u32)(color.r * 255 + 0.5f), g = (u32)(color.g * 255 + 0.5f), b = (u32)(color.b * 255 + 0.5f), a = (u32)(color.a * 255 + 0.5f);
-        StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
-                                           : StrFormat(arena, "%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
-    }
+    for (u32 g = 0; g < Prog_ColorGroupCount; ++g) StrBuildStr(arena, &text, StrFormat(arena, "%s = #%06X\n", Prog_ColorGroupNames[g], groups[g]));
     return text.buffer;
 }
 
@@ -320,7 +383,9 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
     Prog_ThemeUser = Prog_ThemeCustom;
-    state->scheme = state->lightScheme = 0;
+    MemCopy(state->schemeGroups, Prog_SchemeColors[0], sizeof(state->schemeGroups));
+    state->scheme = 0;
+    state->lightScheme = 1;
     state->schemeName.length = state->lightSchemeName.length = 0;
     Prog_ThemeGlassUser = Prog_ThemeGlass;
     Prog_GlassBlur = 24;
@@ -380,12 +445,13 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, backdrops[i])) state->glassBackdrop = (u8)i;
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
-            state->scheme = Prog__UseScheme(state, value, &Prog_ThemeUser);
+            state->scheme = Prog__UseScheme(state, value, state->schemeGroups);
+            Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
             state->schemeName.length = (u32)Min(value.length, (u64)sizeof(state->schemeName.text));
             MemCopy(state->schemeName.text, value.value, state->schemeName.length);
         } else if (StrIsEqual(name, S("theme.light"))) {
-            Prog_Theme unused;
-            state->lightScheme = Prog__UseScheme(state, value, &unused);
+            u32 unused[Prog_ColorGroupCount];
+            state->lightScheme = Prog__UseScheme(state, value, unused);
             state->lightSchemeName.length = (u32)Min(value.length, (u64)sizeof(state->lightSchemeName.text));
             MemCopy(state->lightSchemeName.text, value.value, state->lightSchemeName.length);
         } else if (StrIsEqual(name, S("theme.system"))) {
@@ -504,7 +570,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     }
     ReleaseScratch(scratch);
     // The system's light mode brings the light scheme, its dark mode the one chosen.
-    if (state->systemScheme && !P_PrefersDarkColors()) Prog__UseScheme(state, state->lightSchemeName.length ? StrMake(state->lightSchemeName.text, state->lightSchemeName.length) : S("light"), &Prog_ThemeUser);
+    if (state->systemScheme && !P_PrefersDarkColors()) {
+        Prog__UseScheme(state, state->lightSchemeName.length ? StrMake(state->lightSchemeName.text, state->lightSchemeName.length) : S("light"), state->schemeGroups);
+        Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
+    }
     // The inspector's text size and layout change with the file, and keep what its controls set otherwise.
     if (inspectorFontSize != state->settingInspectorFontSize) state->inspectorFontSize = state->settingInspectorFontSize = inspectorFontSize;
     // Hidden items too, which the shown tab takes when the file changes them, listing its folder again; that includes a listing still on
@@ -529,8 +598,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\", switches true or false; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
-                                "# \"fullmoon\" starts from the reference's scheme and \"light\" from a light one; colors set before this line are replaced.\n# theme = default\n"
-                                "# With theme.system on, the system's light mode brings the light scheme instead.\n# theme.system = false\n\n"
+                                "# A scheme by its name: default, sirius, pollux, eridanus, fullmoon, regulus, altair or a custom one; colors set before this line are replaced.\n# theme = default\n"
+                                "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = sirius\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
@@ -594,32 +663,6 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 
 // The options of the Options popup, in its order.
 global const String Prog_OptionSwitch[] = { SInit("false"), SInit("true") };
-// The theme field each color group's option changes.
-global const u64 Prog_OptionColorFields[] = {
-    [Prog_Option_ColorWindow] = offsetof(Prog_Theme, window),
-    [Prog_Option_ColorCaption] = offsetof(Prog_Theme, caption),
-    [Prog_Option_ColorBackground] = offsetof(Prog_Theme, background),
-    [Prog_Option_ColorPanel] = offsetof(Prog_Theme, panel),
-    [Prog_Option_ColorMenu] = offsetof(Prog_Theme, menu),
-    [Prog_Option_ColorTrack] = offsetof(Prog_Theme, track),
-    [Prog_Option_ColorInner] = offsetof(Prog_Theme, inner),
-    [Prog_Option_ColorBorder] = offsetof(Prog_Theme, tabBorder),
-    [Prog_Option_ColorOutline] = offsetof(Prog_Theme, outline),
-    [Prog_Option_ColorSeparator] = offsetof(Prog_Theme, separator),
-    [Prog_Option_ColorAlternateRow] = offsetof(Prog_Theme, alternateRow),
-    [Prog_Option_ColorIcon] = offsetof(Prog_Theme, icon),
-    [Prog_Option_ColorIconDisabled] = offsetof(Prog_Theme, iconDisabled),
-    [Prog_Option_ColorText] = offsetof(Prog_Theme, text),
-    [Prog_Option_ColorTextDim] = offsetof(Prog_Theme, textDim),
-    [Prog_Option_ColorTextHeading] = offsetof(Prog_Theme, textHeading),
-    [Prog_Option_ColorDanger] = offsetof(Prog_Theme, danger),
-    [Prog_Option_ColorAccent] = offsetof(Prog_Theme, accent),
-    [Prog_Option_ColorSelection] = offsetof(Prog_Theme, selection),
-    [Prog_Option_ColorMarquee] = offsetof(Prog_Theme, marquee),
-    [Prog_Option_ColorTextMatch] = offsetof(Prog_Theme, textMatch),
-    [Prog_Option_ColorHover] = offsetof(Prog_Theme, hover),
-    [Prog_Option_ColorFocus] = offsetof(Prog_Theme, focus),
-};
 global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
@@ -647,29 +690,39 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_DarkScheme] = { SInit("Dark Color Scheme"), SInit("Color theme applied when the system uses dark colors."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), SInit("theme") },
     [Prog_Option_ColorGroups] = { SInit("Color Scheme"), SInit("Exposes the individual components of the selected color scheme."), Prog_OptionControl_Expand, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorWindow] = { SInit("Clear"), SInit("Background color visible only between panel borders."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.window") },
-    [Prog_Option_ColorCaption] = { SInit("Caption"), SInit("Background color for caption bar."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.caption") },
-    [Prog_Option_ColorBackground] = { SInit("Background"), SInit("Background color for panels and windows."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.background") },
-    [Prog_Option_ColorPanel] = { SInit("Surface"), SInit("Background color for the sidebar and floating regions like the footer."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.panel") },
-    [Prog_Option_ColorMenu] = { SInit("Popup"), SInit("Background color for popups and menus."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.menu") },
-    [Prog_Option_ColorTrack] = { SInit("Foreground"), SInit("Background color for scrollbar, dropdowns and other buttons."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.track") },
-    [Prog_Option_ColorInner] = { SInit("Inner"), SInit("Background color for text field."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.inner") },
-    [Prog_Option_ColorBorder] = { SInit("Border"), SInit("Border color for panels, windows, and popups."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.tabBorder") },
-    [Prog_Option_ColorOutline] = { SInit("Outline"), SInit("Outline color for UI elements like buttons and toggles."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.outline") },
-    [Prog_Option_ColorSeparator] = { SInit("Separator"), SInit("Color for line separators between item rows."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.separator") },
-    [Prog_Option_ColorAlternateRow] = { SInit("Alternating Row"), SInit("Background color for alternating rows in lists and columns."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.alternateRow") },
-    [Prog_Option_ColorIcon] = { SInit("Icon Tint"), SInit("Color of all non-system icons in the UI."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.icon") },
-    [Prog_Option_ColorIconDisabled] = { SInit("Disabled Icon"), SInit("Color of icons that would do nothing now."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.iconDisabled") },
-    [Prog_Option_ColorText] = { SInit("Text"), SInit("Color of primary UI text."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.text") },
-    [Prog_Option_ColorTextDim] = { SInit("Secondary"), SInit("Color for secondary text."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.textDim") },
-    [Prog_Option_ColorTextHeading] = { SInit("Group"), SInit("Color for sections that can be opened or closed."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.textHeading") },
-    [Prog_Option_ColorDanger] = { SInit("Warning"), SInit("Color for actions that cannot be undone."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.danger") },
-    [Prog_Option_ColorAccent] = { SInit("Progress"), SInit("Fill color for slider and toggle."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.accent") },
-    [Prog_Option_ColorSelection] = { SInit("Selection"), SInit("Background color of selected items."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.selection") },
-    [Prog_Option_ColorMarquee] = { SInit("Rect Selection"), SInit("Color of the rectangle when selecting multiple items in a panel."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.marquee") },
-    [Prog_Option_ColorTextMatch] = { SInit("Match"), SInit("Color for matching letters in filtered text."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.textMatch") },
-    [Prog_Option_ColorHover] = { SInit("Hover"), SInit("Color of items under the pointer."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.hover") },
-    [Prog_Option_ColorFocus] = { SInit("Focus"), SInit("Outline color of the focused item."), Prog_OptionControl_Color, 0, 0, NULL, 0, SInit("color.focus") },
+    [Prog_Option_ColorClear] = { SInit("Clear"), SInit("Background color visible only between panel borders."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorCaption] = { SInit("Caption"), SInit("Background color for caption bar."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorBackground] = { SInit("Background"), SInit("Background color for panels and windows."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSurface] = { SInit("Surface"), SInit("Background color for popups, sidebar, and floating regions like the footer."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorForeground] = { SInit("Foreground"), SInit("Background color for scrollbar, dropdowns and other buttons."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorInner] = { SInit("Inner"), SInit("Background color for text field."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorBorder] = { SInit("Border"), SInit("Border color for panels, windows, and popups."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutline] = { SInit("Outline"), SInit("Outline color for UI elements like buttons and toggles."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSeparator] = { SInit("Separator"), SInit("Color for line separators between item rows."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorAlternatingRow] = { SInit("Alternating Row"), SInit("Background color for alternating rows in lists and columns."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorIconTint] = { SInit("Icon"), SInit("Color of all non-system icons in the UI."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorText] = { SInit("Text"), SInit("Color of primary UI text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSecondary] = { SInit("Secondary"), SInit("Color for secondary text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorGroup] = { SInit("Group"), SInit("Color for sections that can be opened or closed."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorFile] = { SInit("File"), SInit("Text color for file items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorFolder] = { SInit("Folder"), SInit("Text color for folder items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorWarning] = { SInit("Warning"), SInit("Background color for buttons requiring extra attention."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorProgress] = { SInit("Progress"), SInit("Fill color for slider and toggle."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSelection] = { SInit("Selection"), SInit("Background color of selected items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorRectSelection] = { SInit("Rect selection"), SInit("Color of the rectangle when selecting multiple items in a panel."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatch] = { SInit("Match"), SInit("Color for matching letters in filtered text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorHidden] = { SInit("Hidden Opacity"), SInit("Controls the opacity of hidden/system files using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorHover] = { SInit("Hover Opacity"), SInit("Blends the selection with the background when hovering using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorDisabled] = { SInit("Disabled Opacity"), SInit("Controls the opacity of disabled items using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorContentHover] = { SInit("Content Hover"), SInit("Color of the content when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorContentSelection] = { SInit("Content Selection"), SInit("Color of the content when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorContentDisabledSelection] = { SInit("Content Disabled Selection"), SInit("Color of the content when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutlineHover] = { SInit("Outline Hover"), SInit("Color of the outlines when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutlineSelection] = { SInit("Outline Selection"), SInit("Color of the outlines when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutlineDisabledSelection] = { SInit("Outline Disabled Selection"), SInit("Color of the outlines when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatchHover] = { SInit("Match Hover"), SInit("Color for matching letters in filtered text when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatchSelection] = { SInit("Match Selection"), SInit("Color for matching letters in filtered text when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatchDisabledSelection] = { SInit("Match Disabled Selection"), SInit("Color for matching letters in filtered text when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
     [Prog_Option_AlternatingRows] = { SInit("Alternating Row Colors"), SInit("Applies alternating row colors to improve readability and distinguish adjacent rows."),
                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("rows.alternate") },
     [Prog_Option_InactiveOpacity] = { SInit("Inactive Panel Contents Opacity"), SInit("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
@@ -752,16 +805,26 @@ function b32 Prog_OptionApplies(Prog_Option option)
     return true;
 }
 
+// The scheme shown, by its place as `scheme` counts them, and its name: with the system's choice in its light mode, the light one.
+function u8 Prog_ShownScheme(const Prog_State *state, String *name)
+{
+    b32 light = state->systemScheme && !P_PrefersDarkColors();
+    const Prog_FontName *named = light ? &state->lightSchemeName : &state->schemeName;
+    if (name) *name = StrMake(named->text, named->length);
+    return light ? state->lightScheme : state->scheme;
+}
+
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
 {
     String typed = Prog_EditText(&state->palette);
     u32 count = 0;
     for (u32 i = 0; i < Prog_Option_Count; ++i) {
         if (!Prog_OptionApplies((Prog_Option)i)) continue;
-        // With the system's choice, a scheme for each of its modes; the colors while their row is open, or when searched for.
+        // With the system's choice, a scheme for each of its modes.
         if (i == Prog_Option_ColorScheme && state->systemScheme) continue;
         if ((i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) && !state->systemScheme) continue;
-        if (Prog_Options[i].control == Prog_OptionControl_Color && !state->colorsExpanded && !typed.length) continue;
+        b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
+        if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
         if (!typed.length || Prog_FuzzyScore(Prog_Options[i].label, Prog_Options[i].tooltip, typed, NULL, NULL) > 0) found[count++] = (u8)i;
     }
     return count;
@@ -965,32 +1028,33 @@ function void Prog_SetScheme(Prog_State *state, String name, String text, b32 re
 
 function String Prog__OptionName(Arena *arena, Prog_Option option, String name);
 
-// An editable copy of the shown colors, named after the scheme with "Copy" and a number where that is taken, which then shows.
-function b32 Prog_ForkScheme(Prog_State *state)
+// An editable copy of the scheme `scheme`, by its place among the built-in and custom ones, named "Custom" with the first number not
+// taken, which `option` then shows.
+function b32 Prog_ForkScheme(Prog_State *state, u32 scheme, Prog_Option option)
 {
     Scratch scratch = GetScratch();
-    u64 custom = state->scheme - Min((u64)state->scheme, (u64)Prog_BuiltInSchemes);
-    String shown = state->scheme < Prog_BuiltInSchemes ? Prog__OptionName(scratch.arena, Prog_Option_ColorScheme, Prog_OptionSchemes[state->scheme])
-                 : custom < state->schemeNames.header.count ? state->schemeNames.v[custom] : StrMake(state->schemeName.text, state->schemeName.length);
     String name = {0};
-    for (u32 n = 1; n < 100 && !name.length; ++n) {
-        String candidate = n == 1 ? StrFormat(scratch.arena, "%S Copy", shown) : StrFormat(scratch.arena, "%S Copy %u", shown, n);
-        b32 taken = candidate.length > sizeof(state->schemeName.text);
+    for (u32 n = 1; n < 1000 && !name.length; ++n) {
+        String candidate = StrFormat(scratch.arena, "Custom %u", n);
+        b32 taken = false;
         for (u64 i = 0; i < state->schemeNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->schemeNames.v[i], candidate);
         if (!taken) name = candidate;
     }
+    u32 groups[Prog_ColorGroupCount];
+    String shown = scheme < Prog_BuiltInSchemes ? Prog_OptionSchemes[scheme] : scheme - Prog_BuiltInSchemes < state->schemeNames.header.count ? state->schemeNames.v[scheme - Prog_BuiltInSchemes] : S("");
+    Prog__UseScheme(state, shown, groups);
     if (name.length) {
-        Prog_SetScheme(state, name, Prog_SchemeText(scratch.arena, &Prog_ThemeUser), false);
-        Prog_SetOptionText(state, state->systemScheme && !P_PrefersDarkColors() ? Prog_Option_LightScheme : Prog_Option_ColorScheme, name);
+        Prog_SetScheme(state, name, Prog_SchemeText(scratch.arena, groups), false);
+        Prog_SetOptionText(state, option, name);
     }
     ReleaseScratch(scratch);
     return name.length != 0;
 }
 
 // The color the group of `option` has now.
-function R_Color Prog_OptionColor(Prog_Option option)
+function R_Color Prog_OptionColor(const Prog_State *state, Prog_Option option)
 {
-    return *(const R_Color *)((const u8 *)&Prog_ThemeUser + Prog_OptionColorFields[option]);
+    return Prog__HexColor(state->schemeGroups[option - Prog_Option_ColorClear]);
 }
 
 function void Prog_RgbToHsb(R_Color color, f32 *hue, f32 *saturation, f32 *brightness)
@@ -1022,29 +1086,33 @@ function R_Color Prog_HsbToRgb(f32 hue, f32 saturation, f32 brightness, f32 alph
 // Sets channel `channel` of the picker's color, hue, saturation and brightness then red, green and blue, to `value` from 0 to 1, and shows it.
 function void Prog_PickColor(Prog_State *state, u32 channel, f32 value)
 {
-    R_Color *field = (R_Color *)((u8 *)&Prog_ThemeUser + Prog_OptionColorFields[state->colorOption]);
+    u32 *group = &state->schemeGroups[state->colorOption - Prog_Option_ColorClear];
+    R_Color color = Prog__HexColor(*group);
     value = UI__Clamp(value, 0, 1);
     if (channel < 3) {
         f32 *hsb[3] = { &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness };
         *hsb[channel] = value;
-        *field = Prog_HsbToRgb(state->pickerHue, state->pickerSaturation, state->pickerBrightness, field->a);
+        color = Prog_HsbToRgb(state->pickerHue, state->pickerSaturation, state->pickerBrightness, 1);
     } else if (channel < 6) {
-        f32 *rgb[3] = { &field->r, &field->g, &field->b };
+        f32 *rgb[3] = { &color.r, &color.g, &color.b };
         *rgb[channel - 3] = value;
         // A gray keeps the hue it had, which RGB alone has none of.
         f32 hue = state->pickerHue;
-        Prog_RgbToHsb(*field, &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
+        Prog_RgbToHsb(color, &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
         if (state->pickerSaturation == 0) state->pickerHue = hue;
     }
+    *group = (u32)(color.r * 255 + 0.5f) << 16 | (u32)(color.g * 255 + 0.5f) << 8 | (u32)(color.b * 255 + 0.5f);
+    Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
     Prog__ApplyTheme(state);
 }
 
 // Closes the color picker, writing the scheme it changed once.
 function void Prog_CloseColorPicker(Prog_State *state)
 {
-    if (state->colorPicking && state->scheme >= Prog_BuiltInSchemes) {
+    String name;
+    if (state->colorPicking && Prog_ShownScheme(state, &name) >= Prog_BuiltInSchemes) {
         Scratch scratch = GetScratch();
-        Prog_SetScheme(state, StrCopy(scratch.arena, StrMake(state->schemeName.text, state->schemeName.length)), Prog_SchemeText(scratch.arena, &Prog_ThemeUser), false);
+        Prog_SetScheme(state, StrCopy(scratch.arena, name), Prog_SchemeText(scratch.arena, state->schemeGroups), false);
         ReleaseScratch(scratch);
     }
     state->colorPicking = false;
@@ -1257,7 +1325,8 @@ function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed, R_Color wash
     UI_Key hoverKey = UI_KeyFromStr(key, S("Hover")), pressKey = UI_KeyFromStr(key, S("Press"));
     f32 hover = hot || pressed || UI_Kept(hoverKey) > 0.01f ? UI_Fall(hoverKey, hot || pressed ? 1.0f : 0.0f) : 0;
     f32 press = pressed || UI_Kept(pressKey) > 0.01f ? UI_Animate(pressKey, pressed ? 1.0f : 0.0f, 0) : 0;
-    wash.a *= 0.35f * hover + (1 - 0.35f * hover) * press;
+    f32 amount = Prog_CurrentTheme()->hoverAmount.r;
+    wash.a *= amount * hover + (1 - amount * hover) * press;
     return wash;
 }
 
@@ -1540,7 +1609,7 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     b32 hot = UI->hotKey == key;
     b32 close = kind == Prog_WindowButton_Close;
     R_Color background = close ? theme->danger : theme->selection;
-    background.a *= 0.35f;
+    background.a *= theme->hoverAmount.r;
     R_Color ink = hot ? theme->text : Prog__CaptionInk(theme);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -1659,7 +1728,7 @@ function void Prog__TabPlaceholder(f32 width, f32 height, f32 radius, f32 stroke
     UI_Block *slot = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
     UI_Parent(slot) {
         R_Color fill = theme->selection;
-        fill.a *= 0.35f;
+        fill.a *= theme->hoverAmount.r;
         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height + radius));
@@ -1834,7 +1903,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         // Under the pointer another tab is washed in the selection color, unless the pointer is on its close button.
                         if (washed) {
                             R_Color wash = theme->selection;
-                            wash.a *= 0.35f;
+                            wash.a *= theme->hoverAmount.r;
                             UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                             UI_SetNextPrefWidth(UI_Pixels(tabWidth));
                             UI_SetNextPrefHeight(UI_Pixels(height + hang));
@@ -1888,7 +1957,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                     // Washed under the pointer like the toolbar's buttons, and as wide.
                     b32 closeHot = UI->hotKey == closeKey;
                     R_Color wash = theme->selection;
-                    wash.a *= 0.35f;
+                    wash.a *= theme->hoverAmount.r;
                     f32 closeWidth = Prog__ToolbarButtonWidth(m), closeHeight = floorf(23.2f * scale + 0.5f);
                     UI_SetNextPrefWidth(UI_Pixels(closeWidth));
                     UI_SetNextPrefHeight(UI_Pixels(closeHeight));
@@ -2538,18 +2607,18 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, b32 icons, const
 }
 
 // The bytes from `start` to `end` of `name`, those a filter matched, flagged in `marks` when not NULL, in the match color.
-function void Prog__NameRuns(String name, u64 start, u64 end, const u8 *marks, R_Color color, const R_Font *font, const Prog_Metrics *m)
+function void Prog__NameRuns(String name, u64 start, u64 end, const u8 *marks, R_Color color, R_Color matched, const R_Font *font, const Prog_Metrics *m)
 {
     for (u64 at = start; at < end; start = at) {
         b32 match = marks && marks[at];
         while (at < end && (marks && marks[at]) == match) ++at;
         if (font) UI_SetNextFont(font);
-        Prog__Label(StrFromTo(name, start, (i64)at), UI_TextContent(), m->row, 0, match ? Prog_CurrentTheme()->textMatch : color, 0);
+        Prog__Label(StrFromTo(name, start, (i64)at), UI_TextContent(), m->row, 0, match ? matched : color, 0);
     }
 }
 
 // A name whose first `prefix` bytes are the folder it is in, in an expanded listing: the item's own name, then a chevron and that folder, smaller and dimmed.
-function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size width, R_Color color, R_Color dim, const Prog_Metrics *m)
+function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size width, R_Color color, R_Color dim, R_Color matched, const Prog_Metrics *m)
 {
     UI_SetNextPrefWidth(width);
     UI_SetNextPrefHeight(UI_Pixels(m->row));
@@ -2558,10 +2627,10 @@ function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size 
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(cell) {
-        Prog__NameRuns(name, prefix, name.length, marks, color, NULL, m);
+        Prog__NameRuns(name, prefix, name.length, marks, color, matched, NULL, m);
         if (prefix > 1) {
             Prog__Icon(Icon_ChevronRight, floorf(22.8f * m->scale), m->row, dim, 0.5f, m);
-            Prog__NameRuns(name, 0, prefix - 1, marks, dim, m->detail, m);
+            Prog__NameRuns(name, 0, prefix - 1, marks, dim, matched, m->detail, m);
         }
     }
 }
@@ -2669,6 +2738,25 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
     return StrFormat(arena, "%S%S", StrMake(text.value, fit), dots);
 }
 
+function b32 Prog__EntryFaded(const Prog_Entry *entry);
+
+// The color of an item's text: the content colors while it is selected or under the pointer, else its name's by its kind, and the
+// secondary one for its other values and a hidden item's name; and the color of the letters a filter matched in it.
+function R_Color Prog__ItemInk(const Prog_Entry *entry, b32 hot, b32 name)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    if (entry->selected) return theme->contentSelection;
+    if (hot) return theme->contentHover;
+    if (!name || Prog__EntryFaded(entry)) return theme->textDim;
+    return entry->file.kind == P_FileKind_Directory ? theme->folder : theme->file;
+}
+
+function R_Color Prog__ItemMatch(const Prog_Entry *entry, b32 hot)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    return entry->selected ? theme->matchSelection : hot ? theme->matchHover : theme->textMatch;
+}
+
 // How an item's box shows: filled with the selection color when selected and the keyboard's item or pointed at, washed with it when selected otherwise or under the pointer,
 // outlined under the pointer, and outlined as the keyboard's item.
 typedef struct Prog_ItemLook { R_Color fill, border; UI_Flags flags; } Prog_ItemLook;
@@ -2677,7 +2765,7 @@ function Prog_ItemLook Prog__ItemLook(b32 selected, b32 hot, b32 focused)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     Prog_ItemLook result = { .fill = theme->selection, .border = hot ? theme->selection : theme->focus };
-    if (!selected || !(focused || hot)) result.fill.a *= 0.35f;
+    if (!selected || !(focused || hot)) result.fill.a *= theme->hoverAmount.r;
     if (selected || hot) result.flags |= UI_Flag_DrawBackground;
     if (!selected && (hot || focused)) result.flags |= UI_Flag_DrawBorder;
     return result;
@@ -2732,7 +2820,7 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
-        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
         UI_AddBlock(UI_Flag_DrawImage);
     } else {
         Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, width, height,
@@ -2940,7 +3028,6 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     b32 focused = state->hasFocus && state->focusedRow == index;
     b32 hot = UI->hotKey == key && !state->loading;
     b32 highlighted = entry->selected || hot;
-    b32 faded = Prog__EntryFaded(entry);
     f32 height = m->row - Prog__RowLine(m);
     // Every other row tinted, when asked.
     b32 tinted = state->alternatingRows && (position & 1);
@@ -2973,13 +3060,13 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 Prog__RenameBox(state, width, false, m);
                 continue;
             }
-            R_Color color = (i == Prog_ColumnId_Name && !faded) || highlighted ? theme->text : theme->textDim;
+            R_Color color = Prog__ItemInk(entry, hot, i == Prog_ColumnId_Name);
             if (i == Prog_ColumnId_Name && (state->filter.length || state->directory.expanded)) {
                 String leaf = Prog_EntryLeaf(entry->file.name);
                 u64 prefix = entry->file.name.length - leaf.length;
                 u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(entry->file.name.length, (u64)1), u8) : NULL;
                 if (marks) Prog_EntryScore(entry->file.name, Prog_EditText(&state->filter), marks);
-                Prog__NameLabel(entry->file.name, prefix, marks, width, color, theme->textDim, m);
+                Prog__NameLabel(entry->file.name, prefix, marks, width, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
                 continue;
             }
             // Values too wide for a fixed column end in an ellipsis.
@@ -3058,7 +3145,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), false, m);
-        else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0);
+        else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, Prog__ItemInk(entry, hot, true), 0);
     }
     return result;
 }
@@ -3134,7 +3221,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
             }
         } else {
             String name = Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text);
-            Prog__Label(name, UI_Pixels(width), m->line, 0, !Prog__EntryFaded(entry) || highlighted ? theme->text : theme->textDim, 0.5f);
+            Prog__Label(name, UI_Pixels(width), m->line, 0, Prog__ItemInk(entry, hot, true), 0.5f);
             Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
         }
     }
@@ -3227,7 +3314,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     // While a drag over the window would drop into the panel's folder, the list fades into the selection color's wash, as a hovered row's.
     R_Color background = theme->background, wash = theme->selection;
     f32 dropping = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "DropWash/%" PRIu64, Prog__PanelId(state))), state->dropPanel == Prog__PanelId(state) ? 1.0f : 0.0f, 0);
-    f32 into = 0.35f * wash.a * dropping;
+    f32 into = theme->hoverAmount.r * wash.a * dropping;
     background = (R_Color){ background.r + (wash.r - background.r) * into, background.g + (wash.g - background.g) * into, background.b + (wash.b - background.b) * into,
                             background.a + (1 - background.a) * into };
     UI_SetNextColors((UI_Colors){ .background = background });
@@ -3762,12 +3849,13 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextPrefWidth(UI_Pixels(slot));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+            UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
             UI_AddBlock(UI_Flag_DrawImage);
         } else {
             Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, faded ? theme->iconDisabled : theme->icon, 0, m);
         }
-        R_Color color = faded && !hot && !current ? theme->textDim : theme->text;
+        // Folders and drives have the folders' color, This PC the text's.
+        R_Color color = hot ? theme->contentHover : faded && !current ? theme->textDim : StrIsEqual(path, Prog_ThisPC) ? theme->text : theme->folder;
         if (drive && drive->totalBytes) {
             // The name sits a little high to leave room for the bar under it.
             UI_SetNextPrefWidth(UI_Flex());
@@ -5370,7 +5458,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextPrefWidth(UI_Pixels(slot));
                         UI_SetNextPrefHeight(UI_Pixels(face));
                         UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
-                        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? 0.35f : 1 });
+                        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
                         UI_AddBlock(UI_Flag_DrawImage);
                     } else {
                         Prog__Icon(item.file ? Icon_File : item.drive ? Icon_HardDrive : Icon_Folder, slot, face, faded ? theme->iconDisabled : theme->icon, 0, m);
@@ -5459,7 +5547,9 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     // A custom scheme keeps its own name, and the reference's has its own.
     b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
     if (schemes && StrIsEqual(name, S("fullmoon"))) return S("Full Moon");
-    if (schemes && !StrIsEqual(name, S("default")) && !StrIsEqual(name, S("light"))) return name;
+    b32 builtIn = false;
+    for (u32 i = 0; i < Prog_BuiltInSchemes; ++i) builtIn |= StrIsEqual(name, Prog_OptionSchemes[i]);
+    if (schemes && !builtIn) return name;
     // A layout keeps its own name.
     if (option == Prog_Option_LoadOnStartup && !StrIsEqual(name, S("root")) && !StrIsEqual(name, S("home"))) return name;
     if (option == Prog_Option_CharacterKeyAction) {
@@ -5573,47 +5663,30 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             }
         } break;
         case Prog_OptionControl_Expand: {
-            // Open, it forks the shown scheme and deletes a custom one, with the chevron that closes it again.
-            if (state->colorsExpanded) {
-                UI_Interaction fork = Prog__TextButton(S("SchemeFork"), Icon_Copy, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)), height, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
-                if (fork.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeFork, 0, 0, fork.clickOrder);
-                Prog__PopupTooltip(state, S("Create an editable copy of this color scheme."));
-                if (state->scheme >= CArrayCount(Prog_OptionSchemes)) {
-                    UI_Interaction drop = Prog__TextButton(S("SchemeDelete"), Icon_Trash2, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)), height, 0, theme->icon, theme->danger, theme->iconDisabled, true, m);
-                    if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeDelete, 0, 0, drop.clickOrder);
-                    Prog__PopupTooltip(state, S("Delete color scheme."));
-                }
-            }
             Prog__Icon(state->colorsExpanded ? Icon_ChevronDown : Icon_ChevronRight, floorf(20.8f * s + 0.5f), height, theme->icon, 0.5f, m);
         } break;
         case Prog_OptionControl_Color: {
-            // A swatch of the color with its hex digits, which a click opens the picker for.
-            R_Color color = Prog_OptionColor(option);
-            u32 r = (u32)(color.r * 255 + 0.5f), g = (u32)(color.g * 255 + 0.5f), b = (u32)(color.b * 255 + 0.5f);
+            // The color's hex digits in a field, and a swatch of it beside them, which a click opens the picker for.
+            R_Color color = Prog_OptionColor(state, option);
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionColor/%u", (u32)option));
             b32 hot = UI->hotKey == key;
-            UI_SetNextPrefWidth(UI_Pixels(width));
+            f32 field = floorf(96.0f * s + 0.5f), gap = floorf(6.4f * s + 0.5f);
+            UI_SetNextPrefWidth(UI_Pixels(field));
             UI_SetNextPrefHeight(UI_Pixels(height));
-            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextChildrenPadding((UI_Padding){ floorf(3.2f * s + 0.5f), 0, 0, 0 });
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
             UI_SetNextCornerRadius(radius);
             UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = hot ? theme->textDim : theme->outline });
-            UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
-            UI_Interaction interaction = UI_InteractionFromBlock(box);
+            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = theme->outline, .text = theme->text });
+            UI_SetNextText(StrFormat(frame, "%06X", state->schemeGroups[option - Prog_Option_ColorClear]));
+            UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
+            Prog__Spacer(UI_Pixels(gap), UI_Pixels(height));
+            UI_SetNextPrefWidth(UI_Pixels(width - field - gap));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .background = color, .border = hot ? theme->outlineHover : theme->outline });
+            UI_Interaction interaction = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable));
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerOpen, (u64)option, 0, interaction.clickOrder);
-            UI_Parent(box) {
-                f32 swatch = height - floorf(6.4f * s + 0.5f);
-                UI_SetNextPrefWidth(UI_Pixels(floorf(swatch * 1.6f)));
-                UI_SetNextPrefHeight(UI_Pixels(swatch));
-                UI_SetNextCornerRadius(floorf(2.4f * s + 0.5f));
-                UI_SetNextBorderThickness(line);
-                UI_SetNextColors((UI_Colors){ .background = color, .border = theme->outline });
-                UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-                UI_SetNextFont(m->detail);
-                Prog__Label(StrFormat(frame, "#%02X%02X%02X", r, g, b), UI_Flex(), height, 0, theme->text, 0.5f);
-            }
         } break;
         case Prog_OptionControl_Font: {
             // The family's name, which a click lets be chosen from the installed ones.
@@ -5635,23 +5708,26 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
         case Prog_OptionControl_Choice: {
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
             b32 hot = UI->hotKey == key;
+            b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
+            b32 open = schemes && state->schemesOpen == option + 1;
             UI_SetNextPrefWidth(UI_Pixels(width));
             UI_SetNextPrefHeight(UI_Pixels(height));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             UI_SetNextCornerRadius(radius);
             UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->textDim : theme->outline });
+            UI_SetNextColors((UI_Colors){ .background = open ? theme->selection : theme->track, .border = open ? theme->selection : hot ? theme->textDim : theme->outline });
             UI_Block *choice = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
             UI_Interaction interaction = UI_InteractionFromBlock(choice);
             u32 choiceCount = 0;
             const String *choices = Prog_OptionChoices(state, option, frame, &choiceCount);
-            if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)choiceCount, interaction.clickOrder, false);
+            if (interaction.clicked && schemes) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, interaction.clickOrder);
+            else if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)choiceCount, interaction.clickOrder, false);
             UI_Parent(choice) {
                 f32 chevron = floorf(20.8f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
-                Prog__Label(Prog__OptionName(frame, option, choices[Min((u32)value, choiceCount - 1)]), UI_Flex(), height, 0, theme->text, 0.5f);
-                Prog__Icon(Icon_ChevronRight, chevron, height, theme->icon, 0.5f, m);
+                Prog__Label(Prog__OptionName(frame, option, choices[Min((u32)value, choiceCount - 1)]), UI_Flex(), height, 0, open ? theme->contentSelection : theme->text, 0.5f);
+                Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
             }
         } break;
         default: break;
@@ -5667,7 +5743,7 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Option/%u", (u32)option));
     b32 hot = UI->hotKey == key && !highlighted;
     R_Color washed = theme->selection;
-    washed.a *= 0.35f;
+    washed.a *= theme->hoverAmount.r;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(face));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -5680,14 +5756,14 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
     UI_Interaction interaction = UI_InteractionFromBlock(entry);
     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, index, 0, interaction.clickOrder);
     UI_Parent(entry) {
-        if (desc->control == Prog_OptionControl_Color) Prog__Spacer(UI_Pixels(floorf(16.0f * s + 0.5f)), UI_Pixels(face));
+        if (desc->control == Prog_OptionControl_Color) Prog__Spacer(UI_Pixels(floorf(24.0f * s + 0.5f)), UI_Pixels(face));
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(face));
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ 0, state->paletteCompact ? floorf((face - m->line) * 0.5f) : floorf(4.8f * s + 0.5f), 0, 0 });
         UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
         UI_Parent(texts) {
-            Prog__MarkedText(desc->label, NULL, m->font, m->line, theme->text);
+            Prog__MarkedText(desc->label, NULL, m->font, m->line, option == Prog_Option_ColorGroups ? theme->textHeading : theme->text);
             if (!state->paletteCompact) {
                 Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
                 Prog__MarkedText(desc->tooltip, NULL, m->detail, m->detail->lineHeight, theme->textDim);
@@ -6069,7 +6145,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
             // A row picks its view, and is washed under the pointer.
             UI_Key rowKey = UI_KeyFromStr(0, names[i]);
             R_Color fill = theme->selection;
-            if (i != lit) fill.a *= 0.35f;
+            if (i != lit) fill.a *= theme->hoverAmount.r;
             UI_SetNextColors((UI_Colors){ .background = fill });
             UI_Block *row = UI_AddBlockFromKey(UI_KeyFromStr(rowKey, S("ZoomPopupRow")),
                                                UI_Flag_Floating | UI_Flag_LeftMouseClickable | (i == lit || UI->hotKey == UI_KeyFromStr(rowKey, S("ZoomPopupRow")) ? UI_Flag_DrawBackground : 0));
@@ -6210,7 +6286,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
                 f32 face = row - line;
                 R_Color washed = theme->selection;
-                washed.a *= 0.35f;
+                washed.a *= theme->hoverAmount.r;
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(face));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -6333,7 +6409,7 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
                 f32 face = row - line;
                 R_Color washed = theme->selection;
-                washed.a *= 0.35f;
+                washed.a *= theme->hoverAmount.r;
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(face));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -6375,6 +6451,119 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
+// The schemes' dropdown under the scheme option it opened from: each scheme's background color in a circle, its name, and a ring that the
+// shown one's is filled with a dot; the highlighted row offers to fork its scheme and, for a custom one, to delete it. A line parts the
+// custom schemes from the built-in ones.
+function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->schemesOpen) return;
+    Prog_Option option = (Prog_Option)(state->schemesOpen - 1);
+    Arena *frame = &state->frameArena;
+    UI_Block *button = UI__Find(UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option)));
+    if (!button || button->rect.x1 <= button->rect.x0) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    u32 count = 0;
+    const String *names = Prog_OptionChoices(state, option, frame, &count);
+    u32 shown = (u32)Prog_OptionValue(state, option);
+    f32 s = m->scale, row = floorf(25.6f * s + 0.5f), pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f), circle = floorf(16.0f * s + 0.5f);
+    f32 slot = floorf(24.8f * s + 0.5f), ring = floorf(1.6f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f)), parting = floorf(1.6f * s + 0.5f);
+    b32 parted = count > Prog_BuiltInSchemes;
+    f32 width = floorf(205.6f * s + 0.5f), height = 2 * pad + (f32)count * row + (parted ? parting : 0), radius = floorf(6.4f * s + 0.5f);
+    // Under the button, or over it where the window has no room below.
+    f32 x = MinF32(button->rect.x0 - view.x0, view.x1 - view.x0 - width), y = button->rect.y1 - view.y0 + floorf(1.6f * s + 0.5f);
+    if (y + height > view.y1 - view.y0) y = MaxF32(0, button->rect.y0 - view.y0 - floorf(1.6f * s + 0.5f) - height);
+    // A press anywhere else closes it, going no further.
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("SchemesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable));
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, outside.pressOrder);
+    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ 0, pad, 0, pad });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(line);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Schemes")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        // The pointer's row is the highlighted one, else the keyboard's.
+        u32 pointed = UINT32_MAX;
+        for (u32 i = 0; i < count; ++i) {
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u", i));
+            if (UI->hotKey == key || UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u/Fork", i)) || UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u/Delete", i))) pointed = i;
+        }
+        for (u32 i = 0; i < count; ++i) {
+            if (parted && i == Prog_BuiltInSchemes) {
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(parting));
+                UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                UI_AddBlock(UI_Flag_DrawBackground);
+            }
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u", i));
+            b32 lit = pointed == UINT32_MAX ? i == state->schemesHighlight : i == pointed, picked = i == shown;
+            UI_Block *place = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(place) {
+                UI_SetNextFloatingOffset((UI_Vec2){ inset, 0 });
+                UI_SetNextPrefWidth(UI_Pixels(width - 2 * inset));
+                UI_SetNextPrefHeight(UI_Pixels(row));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
+                UI_Interaction interaction = UI_InteractionFromBlock(entry);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemesPick, i, 0, interaction.clickOrder);
+                UI_Parent(entry) {
+                    u32 groups[Prog_ColorGroupCount];
+                    Prog__UseScheme(state, names[i], groups);
+                    Prog__Spacer(UI_Pixels(floorf(16.0f * s + 0.5f) - inset), UI_Pixels(row));
+                    UI_SetNextPrefWidth(UI_Pixels(circle));
+                    UI_SetNextPrefHeight(UI_Pixels(circle));
+                    UI_SetNextCornerRadius(circle * 0.5f);
+                    UI_SetNextBorderThickness(line);
+                    UI_SetNextColors((UI_Colors){ .background = Prog__HexColor(groups[Prog_Option_ColorBackground - Prog_Option_ColorClear]), .border = theme->outline });
+                    UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                    Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(row));
+                    R_Color ink = lit ? theme->contentSelection : theme->text;
+                    Prog__Label(Prog__Ellipsize(frame, m->font, Prog__OptionName(frame, option, names[i]), width - 2 * inset - 4 * slot), UI_Flex(), row, 0, ink, 0);
+                    if (lit) {
+                        UI_Interaction fork = Prog__TextButton(StrFormat(frame, "Scheme/%u/Fork", i), Icon_Copy, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
+                        if (fork.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeFork, i, 0, fork.clickOrder);
+                        Prog__PopupTooltip(state, S("Create an editable copy of this color scheme."));
+                        if (i >= Prog_BuiltInSchemes) {
+                            UI_Interaction drop = Prog__TextButton(StrFormat(frame, "Scheme/%u/Delete", i), Icon_Trash2, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
+                            if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeDelete, i, 0, drop.clickOrder);
+                            Prog__PopupTooltip(state, S("Delete color scheme."));
+                        }
+                    }
+                    Prog__Spacer(UI_Pixels(floorf(10.0f * s + 0.5f)), UI_Pixels(row));
+                    // The ring, filled with the selection color around a dot for the scheme shown; on the highlight it keeps only its ring.
+                    UI_SetNextPrefWidth(UI_Pixels(circle));
+                    UI_SetNextPrefHeight(UI_Pixels(circle));
+                    UI_SetNextCornerRadius(circle * 0.5f);
+                    UI_SetNextBorderThickness(ring);
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+                    UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = lit ? theme->outlineSelection : theme->tabBorder });
+                    UI_Block *radio = UI_AddBlock((picked && !lit ? UI_Flag_DrawBackground : UI_Flag_DrawBorder));
+                    if (picked) UI_Parent(radio) {
+                        f32 dot = floorf(5.6f * s + 0.5f);
+                        UI_SetNextPrefWidth(UI_Pixels(dot));
+                        UI_SetNextPrefHeight(UI_Pixels(dot));
+                        UI_SetNextCornerRadius(dot * 0.5f);
+                        UI_SetNextColors((UI_Colors){ .background = theme->contentSelection });
+                        UI_AddBlock(UI_Flag_DrawBackground);
+                    }
+                    Prog__Spacer(UI_Pixels(floorf(7.2f * s + 0.5f)), UI_Pixels(row));
+                }
+            }
+        }
+    }
+}
+
 // The color picker: the group's name over a swatch of the color, and a slider for each of its hue, saturation and brightness, then its red,
 // green and blue, which change the color as they move.
 function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
@@ -6390,7 +6579,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, pad = floorf(12.0f * s + 0.5f), row = floorf(28.0f * s + 0.5f), head = floorf(32.0f * s + 0.5f), swatch = floorf(40.0f * s + 0.5f);
     f32 width = floorf(340.0f * s + 0.5f), height = head + swatch + pad + 6 * row + pad, radius = floorf(8.0f * s + 0.5f);
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f), y = floorf((view.y1 - view.y0 - height) * 0.4f);
-    R_Color color = Prog_OptionColor((Prog_Option)state->colorOption);
+    R_Color color = Prog_OptionColor(state, (Prog_Option)state->colorOption);
     Prog__DropShadow(x, y, width, height, radius, 1, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -6709,7 +6898,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             UI_Key detailsKey = UI_KeyFromStr(0, S("PaletteDetailsButton"));
             b32 lit = state->paletteCompact || UI->hotKey == detailsKey;
             R_Color wash = theme->selection;
-            wash.a *= 0.35f;
+            wash.a *= theme->hoverAmount.r;
             UI_SetNextPrefWidth(UI_Pixels(Prog__ToolbarButtonWidth(m)));
             UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
             UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
@@ -6753,7 +6942,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 // The pointer's row is the highlight's color washed out, inside its outline; a command that would do nothing now is dimmed,
                 // and highlighted in that washed-out color.
                 R_Color washed = theme->selection;
-                washed.a *= 0.35f;
+                washed.a *= theme->hoverAmount.r;
                 b32 able = at.kind == Prog_CommandKind_None || Prog_CommandAvailable(state, (Prog_CommandKind)at.kind);
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(face));
@@ -7086,7 +7275,7 @@ function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32
         f32 part = floorf(((across ? innerWidth : innerHeight) - (f32)(parts - 1) * pad) / (f32)parts);
         for (u32 i = 0; i < parts; ++i) {
             R_Color fill = theme->selection;
-            fill.a *= i == target ? (hot ? 0.7f : 0.35f) : 0;
+            fill.a *= i == target ? (hot ? 2 : 1) * theme->hoverAmount.r : 0;
             UI_SetNextFloatingOffset(across ? (UI_Vec2){ pad + (f32)i * (part + pad), pad } : (UI_Vec2){ pad, pad + (f32)i * (part + pad) });
             UI_SetNextPrefWidth(UI_Pixels(across ? part : innerWidth));
             UI_SetNextPrefHeight(UI_Pixels(across ? innerHeight : part));
@@ -7781,7 +7970,7 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
     UI_Block *group = Prog__Box(UI_Pixels(width), UI_Pixels(bar), UI_Layout_Horizontal, (R_Color){0}, 0);
     UI_Parent(group) {
         R_Color wash = theme->selection;
-        wash.a *= 0.35f;
+        wash.a *= theme->hoverAmount.r;
         for (u32 i = 0; i < count; ++i) {
             if (i) Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
             UI_Key key = UI_KeyFromStr(0, keys[i]);
@@ -8156,7 +8345,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
                     UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));
                     UI_SetNextPrefHeight(UI_Pixels(pitch));
                     UI_SetNextTextAlignment((UI_Vec2){ 1, 0.5f });
-                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, entry->file.hidden ? 0.35f : 1 });
+                    UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, entry->file.hidden ? theme->hiddenAmount.r : 1 });
                     UI_AddBlock(UI_Flag_DrawImage);
                 } else {
                     Prog__Icon(folder ? Icon_Folder : Icon_File, m->iconSlot - m->gap, pitch, theme->icon, 1, m);
@@ -8549,6 +8738,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__FilesPopup(state, m);
     Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
+    Prog__SchemesDropdown(state, m);
     Prog__HotkeyQuestion(state, m);
     Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);

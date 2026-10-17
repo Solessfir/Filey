@@ -524,29 +524,39 @@ typedef enum Prog_Option {
     Prog_Option_LightScheme,
     Prog_Option_DarkScheme,
     Prog_Option_ColorGroups,
-    Prog_Option_ColorWindow,
+    Prog_Option_ColorClear,
     Prog_Option_ColorCaption,
     Prog_Option_ColorBackground,
-    Prog_Option_ColorPanel,
-    Prog_Option_ColorMenu,
-    Prog_Option_ColorTrack,
+    Prog_Option_ColorSurface,
+    Prog_Option_ColorForeground,
     Prog_Option_ColorInner,
     Prog_Option_ColorBorder,
     Prog_Option_ColorOutline,
     Prog_Option_ColorSeparator,
-    Prog_Option_ColorAlternateRow,
-    Prog_Option_ColorIcon,
-    Prog_Option_ColorIconDisabled,
+    Prog_Option_ColorAlternatingRow,
+    Prog_Option_ColorIconTint,
     Prog_Option_ColorText,
-    Prog_Option_ColorTextDim,
-    Prog_Option_ColorTextHeading,
-    Prog_Option_ColorDanger,
-    Prog_Option_ColorAccent,
+    Prog_Option_ColorSecondary,
+    Prog_Option_ColorGroup,
+    Prog_Option_ColorFile,
+    Prog_Option_ColorFolder,
+    Prog_Option_ColorWarning,
+    Prog_Option_ColorProgress,
     Prog_Option_ColorSelection,
-    Prog_Option_ColorMarquee,
-    Prog_Option_ColorTextMatch,
+    Prog_Option_ColorRectSelection,
+    Prog_Option_ColorMatch,
+    Prog_Option_ColorHidden,
     Prog_Option_ColorHover,
-    Prog_Option_ColorFocus,
+    Prog_Option_ColorDisabled,
+    Prog_Option_ColorContentHover,
+    Prog_Option_ColorContentSelection,
+    Prog_Option_ColorContentDisabledSelection,
+    Prog_Option_ColorOutlineHover,
+    Prog_Option_ColorOutlineSelection,
+    Prog_Option_ColorOutlineDisabledSelection,
+    Prog_Option_ColorMatchHover,
+    Prog_Option_ColorMatchSelection,
+    Prog_Option_ColorMatchDisabledSelection,
     Prog_Option_AlternatingRows,
     Prog_Option_InactiveOpacity,
     Prog_Option_ShowFileExtension,
@@ -746,8 +756,10 @@ typedef enum Prog_LayoutAsk {
 } Prog_LayoutAsk;
 
 #define Prog_MaxLayouts 64
-// Default, the reference's dark scheme and the light one, which the custom schemes follow.
-#define Prog_BuiltInSchemes 3
+// Default and the reference's six, which the custom schemes follow.
+#define Prog_BuiltInSchemes 7
+// The colors a scheme is made of, its groups, as the Options list them from Prog_Option_ColorClear on.
+#define Prog_ColorGroupCount 33
 
 // The installed font families, sorted by name and each once.
 typedef struct Prog_FontsListed {
@@ -1145,10 +1157,14 @@ typedef struct Prog_State {
     u8 scheme;                  // the settings' Color Scheme, by its place among the built-in schemes and then the custom ones
     u8 lightScheme;             // the one the system's light mode brings, as `scheme`
     Prog_FontName schemeName, lightSchemeName;  // their names
-    // Custom color schemes, kept in Schemes.txt: their names and their colors as "field = #rrggbbaa" lines.
+    // Custom color schemes, kept in Schemes.txt: their names and their colors as "Group = #rrggbb" lines.
     Arena schemesArena;
     ArrayStr schemeNames, schemeTexts;
+    u32 schemeGroups[Prog_ColorGroupCount];      // the shown scheme's colors as 0xRRGGBB, by Prog_Option_ColorClear's order
     b32 colorsExpanded;         // Options shows the scheme's colors
+    // The schemes' dropdown under a scheme option while open: that option + 1, and its highlighted row.
+    u8 schemesOpen;
+    u32 schemesHighlight;
     u64 settingsHash;           // Settings.txt and Schemes.txt as last applied
     // The color picker while open: the option of the color it changes, and that color as hue, saturation and brightness from 0 to 1.
     b32 colorPicking;
@@ -1504,10 +1520,11 @@ function u32 Prog_FontMatches(const Prog_State *state, u32 *out);
 function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String text);
 function void Prog_LoadSchemes(Prog_State *state);
 function void Prog_SetScheme(Prog_State *state, String name, String text, b32 remove);
-function b32 Prog_ForkScheme(Prog_State *state);
+function b32 Prog_ForkScheme(Prog_State *state, u32 scheme, Prog_Option option);
 function void Prog_PickColor(Prog_State *state, u32 channel, f32 value);
 function void Prog_CloseColorPicker(Prog_State *state);
-function R_Color Prog_OptionColor(Prog_Option option);
+function R_Color Prog_OptionColor(const Prog_State *state, Prog_Option option);
+function u8 Prog_ShownScheme(const Prog_State *state, String *name);
 function void Prog_RgbToHsb(R_Color color, f32 *hue, f32 *saturation, f32 *brightness);
 function b32 Prog_PreviewsArchive(const Prog_State *state, const Prog_Entry *entry);
 function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed);

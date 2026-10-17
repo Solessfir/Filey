@@ -1498,11 +1498,19 @@ command ColorPickerSet {
 command ColorPickerClose {
 }
 
-// Makes an editable copy of the shown color scheme and switches to it.
+// Opens the schemes' dropdown under a scheme option, or closes it; carries the option.
+command SchemesOpen {
+}
+
+// Shows a scheme from the dropdown, and closes it; carries its place among the built-in and custom schemes.
+command SchemesPick {
+}
+
+// Makes an editable copy of a scheme from the dropdown and switches to it; carries its place.
 command SchemeFork {
 }
 
-// Asks before deleting the shown custom color scheme.
+// Asks before deleting a custom color scheme from the dropdown; carries its place.
 command SchemeDelete {
 }
 
