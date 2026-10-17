@@ -1523,16 +1523,22 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_Preview) {
-        // Text where the start of the file reads as text, else the system's picture of it; with the inspector set to hex, every file's bytes.
+        // A 3D model's picture, else text where the start of the file reads as text, else the system's picture of it.
+        // With the inspector set to hex, every file's bytes.
         Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
         String start = {0};
         P_Image image = {0};
         P_FileArray items = {0};
+        u32 *model = !input->hex && !input->folder ? Prog_ModelPreview(&job->arena, input->path, input->size, &job->cancelToken) : NULL;
         if (input->hex && !input->folder) {
             result->hex = P_ReadFileStart(&job->arena, input->path, Prog_HexPageBytes, &result->text);
         } else if (!input->folder && Prog__IsArchive(input->path) && P_ListArchive(&job->arena, input->path, Prog_PreviewArchiveItems, &job->cancelToken, &items)) {
             result->text = Prog_ArchiveListing(&job->arena, &items, items.header.count >= Prog_PreviewArchiveItems);
             result->archive = true;
+        } else if (model) {
+            // Before the text, which OBJ and glTF files read as.
+            result->pixels = model;
+            result->width = result->height = Prog_PreviewSize;
         } else if (!input->folder && P_ReadFileStart(&job->arena, input->path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&

@@ -55,7 +55,7 @@ Planned there, worth doing here first:
 ## Filey's own
 
 - Git: the path bar shows the branch and the commits to push and pull (HEAD read directly, the counts from `git rev-list` in a job). Still to do: uncommitted changes, file states in the list, and better text and styling for what the path bar shows, which looks rough now.
-- 3D model previews in the inspector: .blend, .gltf/.glb, .fbx, .obj and other common formats, drawn by Filey itself and not by a shell handler.
+- 3D model previews: the inspector draws OBJ, STL, PLY, glTF/GLB and binary FBX from a fixed view, flat-shaded and without textures; `.blend` files show the preview Blender embeds, through the system's thumbnailer where Blender is installed. Still to do: an orbit view, the same pictures as thumbnails in the icon views, text FBX, and Collada, 3DS, USD and 3MF.
 - Linux install and uninstall through a standalone `.sh` script, like https://github.com/Solessfir/razer-laptop-control's `install.sh`, documented in a README. `./Build.sh install` covers installing only, and the repository has no README yet.
 - Context menu editing: a shortcut in an open menu enters an edit mode, with a ghost panel beside the menu. Dragging an item into the panel hides it, and dragging it back shows it again. Items can be reordered in the menu, and a button restores the default. Hidden items and the order are saved with the pins. The sidebar's Places get the same editing.
 - Version: the only version is a hard-coded 0.1.0 in `Filey.rc`, and the app never shows it. A GitHub Actions release workflow, run on a pushed `v*` tag, passes the tag to the build through `EXTRA_CFLAGS` (`-DFILEY_VERSION=...`). Local builds fall back to `git describe --tags --always --dirty`. The same define feeds `Filey.rc` (llvm-rc takes `-D`) and the hamburger menu.
@@ -88,7 +88,7 @@ Its source (https://github.com/EpicGamesExt/raddebugger) has these ideas worth t
 - Hex view, from raddbg's memory view:
   - Byte brightness follows the byte's value, with zeros at half strength, so patterns stand out.
   - A peek bar reads the bytes at the cursor as u8 to u64 and f32/f64.
-- 3D previews: raddbg's geo3d view is the template, with an orbit camera (drag turns, wheel zooms, smoothed by `1 - 2^(-rate*dt)`) and a mesh pass with depth composited into the UI. glTF and OBJ are easy to load. A `.blend` file carries an embedded preview thumbnail, which is a cheap first step.
+- 3D previews: raddbg's geo3d view is the template, with an orbit camera (drag turns, wheel zooms, smoothed by `1 - 2^(-rate*dt)`) and a mesh pass with depth composited into the UI. The meshes come from `Program/Models.c`, which draws them on the CPU for the fixed view now.
 - Large text files: raddbg's text layer (`src/text`) keeps a map of line offsets and checkpoints of the lexer's state. It shows any line of a huge file and highlights from the nearest checkpoint. Use the same approach to get past the inspector's first 1 MB.
 - Glyphs on demand: raddbg rasterizes each codepoint the first time it's drawn, into an atlas keyed by hash (`src/font_cache`). Filey rasterizes fixed ranges at startup. Rasterizing on demand draws any codepoint and starts faster. Font fallback is still needed separately, and raddbg has none.
 - Cache eviction: raddbg's artifact cache (`src/artifact_cache`) evicts entries untouched for a while, and serves the stale value while it recomputes, so nothing flashes blank. Filey's icon cache resets wholesale when full.

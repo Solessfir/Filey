@@ -80,9 +80,9 @@ Source/
 ├─ Linux/      LinuxPlatform.c (memory, time), LinuxWindow.c (Wayland window, input, EGL, clipboard, drag and drop), LinuxFont.c (fontconfig + FreeType glyphs), LinuxThreads.c + LinuxFiles.c (listing, watching, launching, file operations and freedesktop trash), LinuxIcons.c (freedesktop icon theme file icons, and thumbnails from the installed thumbnailers through the shared thumbnail cache), LinuxApps.c (desktop entries and mimeapps.list for Open With, Open in Terminal, Filey's own context menu)
 ├─ Renderer/   Renderer.h contract; OpenGLRenderer.c backend; Font.c atlas packing and text
 ├─ UI/         UI.h + UI.c: keyed blocks, layout, input and rendering
-├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Icons.c: file icon cache and atlas; Program.c: UI
+├─ Program/    Program.h + Directory.c: browser state and background results; Commands.txt + Commands.c: command table and deferred actions; Icons.c: file icon cache and atlas; Models.c: 3D model readers (OBJ, STL, PLY, glTF, binary FBX) and the software rasterizer that draws their inspector previews; Program.c: UI
 ├─ Meta/       generated tables (Commands.meta.h) and icon codepoints (Icons.meta.h)
-├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG, JPEG, GIF, BMP, TGA, PSD, HDR, PNM), stb_image_write (PNG, for the Linux thumbnail cache), nanosvg (SVG, Linux icons)
+├─ Lib/        third-party code and assets: Lucide icon font subset, stb_image (PNG, JPEG, GIF, BMP, TGA, PSD, HDR, PNM on Linux; on Windows only its zlib decoder, for FBX arrays), stb_image_write (PNG, for the Linux thumbnail cache), nanosvg (SVG, Linux icons)
 ├─ Resources/  app icon (Filey.svg master, generated Filey.ico and Icons/ sizes), Filey.rc for the Windows executable, filey.desktop
 ├─ Tools/      Codegen.c: build-time table generator; LucideSubset.py: icon font subsetter; IconBake.py: app icon sizes; Compare/: side-by-side screenshots against the reference
 ├─ Tests/      assert-based base, UI, filesystem, jobs, browser and codegen tests (native platform backends, no window code)

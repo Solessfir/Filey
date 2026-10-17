@@ -40,6 +40,7 @@
 #include "Platform/PlatformProfile.c"
 #include "Program/Icons.c"
 #include "Program/Directory.c"
+#include "Program/Models.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
 

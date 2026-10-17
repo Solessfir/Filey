@@ -1794,6 +1794,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     input->folder = folder;
     input->showHidden = state->showHidden;
     input->hex = state->inspectorHex;
+    input->size = size;
     state->hexSize = size;
     job->input = input;
     state->previewJob = job;

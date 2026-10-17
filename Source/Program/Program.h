@@ -356,6 +356,7 @@ typedef struct Prog_JobInput {
     u64 pathCount;
     u64 offset;            // HexPage: where its page starts in the file
     b32 hex;               // Preview: the file's bytes, whatever it holds
+    u64 size;              // Preview: the file's size
     b32 move;
     b32 folder;
     b32 confirm;           // EmptyTrash and Delete: the system asks first
@@ -1302,6 +1303,8 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
 function b32 Prog_TakeCompletions(Prog_State *state);
 function String Prog_ParentPath(String path);
 function String Prog_JoinPath(Arena *arena, String path, String name);
+// A picture of Prog_PreviewSize squared of the 3D model in the file of `size` bytes at `path`; NULL for a file that is not one or does not read.
+function u32 *Prog_ModelPreview(Arena *arena, String path, u64 size, const P_CancelToken *cancel);
 function String Prog_FormatSize(Arena *arena, u64 bytes);
 function void Prog_InspectFolder(Prog_State *state, String path);
 function i32 Prog_CompareNames(String a, String b);
