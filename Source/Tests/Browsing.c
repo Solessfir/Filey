@@ -2545,6 +2545,20 @@ function void TestThumbnailers(TestFileFixture *fixture)
     Check(P_ReadFile(&arena, cached, &contents) && P__PngText(contents, S("Thumb::URI")).length && TestListing(&arena, fixture, S("cache/thumbnails/large")).header.count == 1);
     image = (P_Image){0};
     Check(P__LoadThumbnailerPicture(&arena, video, S("false"), 200, NULL, &image) && image.width == 1);
+    // A picture larger than the cache's size is shrunk into it, with its PNG written as stb_image reads it, and the next look takes it from there.
+    u32 *gradient = ArenaPushArray(&arena, 300 * 200, u32);
+    for (u32 i = 0; i < 300 * 200; ++i) gradient[i] = 0xFF000000u | (i % 300) | (i / 300) << 8;
+    String encoded = P__EncodePng(&arena, gradient, 300, 200), photo = Prog_JoinPath(&arena, fixture->path, S("photo.png"));
+    pixels = stbi_load_from_memory((const u8 *)encoded.value, (i32)encoded.length, &width, &height, &channels, 4);
+    Check(pixels && width == 300 && height == 200 && MemCompare(pixels, gradient, 300 * 200 * 4) == 0);
+    stbi_image_free(pixels);
+    Check(!P_WriteFile(&arena, photo, encoded).code);
+    image = (P_Image){0};
+    Check(P_LoadFileThumbnail(&arena, photo, P_FileKind_File, 100, true, NULL, &image) && image.width == 128 && image.height == 85);
+    String shrunk = StrFormat(&arena, "%S/thumbnails/normal/%S", cache, P__ThumbnailName(&arena, P__FileUri(&arena, photo)));
+    Check(P_ReadFile(&arena, shrunk, &contents) && P__PngText(contents, S("Thumb::MTime")).length);
+    image = (P_Image){0};
+    Check(P_LoadFileThumbnail(&arena, photo, P_FileKind_File, 100, true, NULL, &image) && image.width == 128);
     // One still running when its job is cancelled is stopped rather than waited for.
     P_CancelToken stop = {0};
     P_RequestCancel(&stop);
@@ -2558,8 +2572,8 @@ function void TestThumbnailers(TestFileFixture *fixture)
     else unsetenv("XDG_CACHE_HOME");
     TestRemoveTree(&arena, fixture, S("cache"));
     P_CancelToken token = {0};
-    String made[] = { source, video };
-    Check(!P_DeleteItems(&arena, made, 2, false, &token).code);
+    String made[] = { source, video, photo };
+    Check(!P_DeleteItems(&arena, made, 3, false, &token).code);
     ArenaRelease(&arena);
 }
 #endif

@@ -2388,8 +2388,8 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
         ArenaRelease(&state->jobsArena);
         return false;
     }
-    // Two for thumbnails, which also keeps a slow disk from being read for many at once.
-    if (!P_JobsInit(&state->thumbnailJobs, &state->thumbnailJobsArena, 2, wake, user)) {
+    // Four for thumbnails, which decode large photos side by side while keeping a slow disk from being read for many at once.
+    if (!P_JobsInit(&state->thumbnailJobs, &state->thumbnailJobsArena, 4, wake, user)) {
         P_JobsShutdown(&state->jobs);
         ArenaRelease(&state->jobsArena);
         ArenaRelease(&state->thumbnailJobsArena);

@@ -1,6 +1,6 @@
 // File icon cache.
 // Rows look icons up by key while building UI; unknown keys are queued and loaded by background jobs, then packed into RGBA atlas pages on the main thread.
-// Each frame's icons load in one job, and its thumbnails, which the shell or a thumbnailer makes slowly, in a few more on workers of their own.
+// Each frame's icons load in one job, and its thumbnails, which the shell or a thumbnailer makes slowly, one a job on workers of their own.
 
 #define Prog_IconPageSize 512
 
@@ -246,8 +246,8 @@ function void Prog_SubmitIconRequests(Prog_State *state)
     if (!total) return;
     for (u64 i = 0; i < total; ++i) thumbnails += state->iconRequests.v[i].size != state->iconSize && !state->iconRequests.v[i].plain;
     Prog__SubmitIconJob(state, false, 0, total - thumbnails);
-    u64 lanes = Max((u64)1, (u64)state->thumbnailJobs.threadCount), share = (thumbnails + lanes - 1) / lanes;
-    for (u64 first = 0; first < thumbnails; first += share) Prog__SubmitIconJob(state, true, first, Min(share, thumbnails - first));
+    // A job each, so that each shows as soon as it is made rather than once a batch of large photos is.
+    for (u64 first = 0; first < thumbnails; ++first) Prog__SubmitIconJob(state, true, first, 1);
     state->iconRequests = (Prog_ArrayIconRequest){0};
 }
 
