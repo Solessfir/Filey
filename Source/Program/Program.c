@@ -399,7 +399,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->squareCorners = false;
     state->alternatingRows = false;
     state->inactiveShift = 0;
-    state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = state->clickToFocus = false;
+    state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
+    state->clickToFocus = true;
     state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
     state->characterKeys = Prog_CharacterKeys_TypeInFilter;
     state->hideExtensions = state->showSystem = false;
@@ -605,7 +606,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
                                 "# give the keyboard to the panel it moves over, underline only the pointed name in single-click mode,\n"
                                 "# go up with a double click on the background, scroll past the last item, and turn the wheel around.\n"
-                                "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.focus = true\n"
+                                "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.focus = false\n"
                                 "# hover.underline = true\n"
                                 "# click.doubleToParent = false\n# scroll.over = true\n# scroll.reverse = false\n\n"
                                 "# What a letter or other character key does in the lists, without modifiers but Shift: type into the filter (filter),\n"

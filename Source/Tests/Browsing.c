@@ -2193,7 +2193,8 @@ function void TestPanels(TestFileFixture *fixture)
     select->panel = first;
     Prog_ProcessCommands(&state);
     Check(state.activePanel == 0 && StrIsEqual(state.directory.path, fixture->path) && state.hasFocus);
-    // The panel the pointer moves over takes the keyboard; one Tab switched to keeps it while the pointer rests, until it moves again.
+    // With hover.focus on, the panel the pointer moves over takes the keyboard; one Tab switched to keeps it while the pointer rests, until it moves again.
+    Prog_ApplySettings(&state, S("hover.focus = on"));
     TestPanelsFrame(&state, true, 1100, 400, 1);
     Check(state.activePanel == 1);
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
@@ -2203,12 +2204,11 @@ function void TestPanels(TestFileFixture *fixture)
     Check(state.activePanel == 0);
     TestPanelsFrame(&state, true, 1101, 400, 4);
     Check(state.activePanel == 1);
-    // Unless only clicks switch panels.
-    Prog_ApplySettings(&state, S("hover.focus = off"));
+    // By default only clicks switch panels.
+    Prog_ApplySettings(&state, S(""));
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
     TestPanelsFrame(&state, true, 1102, 400, 5);
     Check(state.activePanel == 0 && state.clickToFocus);
-    Prog_ApplySettings(&state, S("hover.focus = on"));
     // The inspector lists the folder in focus in a panel of its own, which no split holds and the session leaves out.
     // A click in it gives it the keyboard; hiding the inspector closes it and gives the keyboard back.
     {
