@@ -6194,6 +6194,8 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
+    // A view new this frame has no size yet, so its rows in sight come in the next.
+    if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     u64 shownBytes = Min(state->hexSize, state->hexPageCount * Prog_HexPageBytes);
     u32 places = Prog_HexPlaces(state->hexSize);
     u32 perLine = Prog_HexPerLine(places, (view->rect.x1 - view->rect.x0 - left - margin) / cell);
@@ -6284,6 +6286,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
+    if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     String text = state->previewText;
     u64 selectFrom = Min(state->previewAnchor, state->previewCaret), selectTo = Max(state->previewAnchor, state->previewCaret);
     u32 lineCount = state->previewLineCount;
