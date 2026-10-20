@@ -3912,7 +3912,10 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     ++state->tabCount;
     if (at <= state->activeTab) ++state->activeTab;
     Prog_Tab *tab = &state->tabs[at];
-    *tab = (Prog_Tab){ .id = ++state->nextTabId, .sort = state->sort, .descending = state->descending, .folderSort = state->folderSort, .showHidden = state->showHidden };
+    // It starts with the shown tab's own view, not a locked folder's, which its folder brings back if it has one.
+    Prog_ViewSettings own = state->ownView ? state->ownSettings : Prog_CurrentView(state);
+    *tab = (Prog_Tab){ .id = ++state->nextTabId, .sort = own.sort, .descending = own.descending, .folderSort = own.folders, .zoom = own.zoom, .columnSet = own.columns,
+                       .showHidden = state->showHidden };
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);

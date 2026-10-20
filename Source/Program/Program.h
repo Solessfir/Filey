@@ -895,12 +895,15 @@ struct Prog_Partial {
 };
 
 // The Prog_State fields each tab has its own of.
-// The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter and scroll.
+// The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter, scroll and view:
+// zoom, up to Prog_ZoomMax, the details columns (columnSet, see Prog_PanelColumns), and while a locked folder's view applies, the tab's own
+// (ownView, ownSettings), which the next folder without one gets back.
 // The filter keeps the rows it lets through in `view`, best match first and in listing order within a score; rows it hides are never selected, so commands cannot act on them.
 #define Prog_TabFields(X) \
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
-    X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) \
+    X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) X(u32, zoom) X(Prog_ColumnSet, columnSet) \
+    X(b32, ownView) X(Prog_ViewSettings, ownSettings) \
     X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
     X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail)
 
@@ -919,7 +922,6 @@ typedef struct Prog_Tab {
 //   error: the last failure, in errorArena; directoryJob, generation, loading: the listing on its way
 //   revealFocus, centerFocus, resetScroll, restoreScroll: scroll changes the next build makes; pageRows: lines visible in the last layout, for Page Up/Down
 //   tabs, tabCount, activeTab: the panel's Prog_MaxTabs tab slots, in tabArena from the first use; the shown one's slot holds nothing while it is shown
-//   zoom: the view's zoom, up to Prog_ZoomMax
 //   gridColumns, gridPitch, gridItem: the list's last layout, in its coordinates (x from its left edge, y from the top of its content):
 //     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
@@ -931,20 +933,19 @@ typedef struct Prog_Tab {
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
 //   listStarted, listTook: when the last listing was asked for and, once it arrived, how long it took
 //   statusRight: how wide the status bar's counts, view and zoom were in the last layout, which the filter box leaves room for
-//   columnSet: the details columns, see Prog_PanelColumns; listScrolls: its items ran past the bottom in the last layout
+//   listScrolls: its items ran past the bottom in the last layout
 //   inspectorView: how its inspector lists folders, kept while the inspector's panel is closed
-//   ownView, ownSettings: while a folder's kept view applies, the panel's own, which the next folder without one gets back
 //   miller, millerColumns: Miller columns are on, and the folders they list, made in millerArena once they first show
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
-    X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) X(u32, zoom) \
+    X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) \
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
-    X(f32, statusRight) X(Prog_ColumnSet, columnSet) X(b32, listScrolls) \
-    X(b32, ownView) X(Prog_ViewSettings, ownSettings) X(Prog_ViewSettings, inspectorView) \
+    X(f32, statusRight) X(b32, listScrolls) \
+    X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
     X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns)
 

@@ -1900,6 +1900,18 @@ function void TestTabs(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     state.newTab = Prog_NewTab_Root;
     Check(state.tabCount == 2 && state.activeTab == 1 && StrIsEqual(state.directory.path, fixture->path));
+    // Each tab keeps its own zoom.
+    {
+        Check(TestWaitDirectory(&state));
+        u32 shared = state.zoom;
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
+        u32 zoomed = state.zoom;
+        Prog_SelectTab(&state, 0);
+        Check(zoomed != shared && state.zoom == shared);
+        Prog_SelectTab(&state, 1);
+        Check(state.zoom == zoomed);
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomSet, shared);
+    }
     // Tabs on a drive whose medium went away, such as an ejected disc, go where a new tab would, the hidden one in its slot.
     {
         P_Place lost = { .path = fixture->path, .totalBytes = 1 }, empty = { .path = fixture->path };
