@@ -4261,6 +4261,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     if (!state->previewTexture.u64[0]) state->previewTexture = R_TextureCreateRGBA(preview->width, preview->height, preview->pixels);
                     else R_TextureUpdateRGBA(state->previewTexture, 0, 0, preview->width, preview->height, preview->pixels);
+                    if (state->previewTexture.u64[0]) R_TextureSmooth(state->previewTexture);
                     state->previewTextureWidth = preview->width;
                     state->previewTextureHeight = preview->height;
                     state->previewPicture = state->previewTexture.u64[0] != 0;

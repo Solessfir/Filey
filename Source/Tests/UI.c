@@ -118,6 +118,8 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 {
 }
 
+function void R_TextureSmooth(R_TextureHandle texture) {}
+
 function void R_TextureRelease(R_TextureHandle texture)
 {
 }

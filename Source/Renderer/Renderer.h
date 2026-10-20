@@ -57,6 +57,9 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
 // NULL pixels leave it undefined for later updates.
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels);
 function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u32 *pixels);
+// A picture drawn smaller than its size, as a page fitted to the inspector, averages its pixels from mipmaps made of it as it is now,
+// rather than skipping most of them; drawn larger it keeps its pixels sharp. Called again after each update.
+function void R_TextureSmooth(R_TextureHandle texture);
 // A {0} handle is ignored.
 function void R_TextureRelease(R_TextureHandle texture);
 

@@ -79,7 +79,6 @@ Planned there, worth doing here first:
 
 Its source (https://github.com/EpicGamesExt/raddebugger) has these ideas worth taking:
 
-- Inspector images are sampled nearest at every scale (RGBA textures are `GL_NEAREST`), so a photo of up to 4096 px shrunk to fit the inspector likely aliases. raddbg picks nearest or linear per draw. Use mipmaps with trilinear filtering when shrinking, and nearest when enlarging, for pixel inspection.
 - Text width: the reference rasterizes through the same DirectWrite GDI interop as raddbg (`src/font_provider/dwrite`), which differs from Filey in two ways:
   - Its advances come from `GetGdiCompatibleGlyphMetrics` in GDI-natural mode, not from design metrics.
   - Gamma 1.5 and enhanced contrast 1.0 are fixed, not the system's.

@@ -50,6 +50,9 @@ typedef i64       GLsizeiptr;
 #define GL_ZERO                  0
 #define GL_TRIANGLES             0x0004
 #define GL_LINEAR                0x2601
+#define GL_LINEAR_MIPMAP_LINEAR  0x2703
+#define GL_TEXTURE_LOD_BIAS      0x8501
+#define GL_TEXTURE_LOD_BIAS      0x8501
 #define GL_FRAMEBUFFER           0x8D40
 #define GL_READ_FRAMEBUFFER      0x8CA8
 #define GL_COLOR_ATTACHMENT0     0x8CE0
@@ -75,6 +78,8 @@ typedef i64       GLsizeiptr;
     X(void,            TexImage2D,              GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) \
     X(void,            TexSubImage2D,           GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels) \
     X(void,            TexParameteri,           GLenum target, GLenum pname, GLint param) \
+    X(void,            GenerateMipmap,          GLenum target) \
+    X(void,            TexParameterf,           GLenum target, GLenum pname, GLfloat param) \
     X(void,            PixelStorei,             GLenum pname, GLint param) \
     X(GLuint,          CreateShader,            GLenum type) \
     X(void,            ShaderSource,            GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length) \
@@ -416,6 +421,15 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 {
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
     GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+}
+
+function void R_TextureSmooth(R_TextureHandle texture)
+{
+    GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
+    GL.GenerateMipmap(GL_TEXTURE_2D);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    // A level sharper than the size asks for: blending toward the next smaller level softens text, and a still picture shows no shimmer.
+    GL.TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -1.0f);
 }
 
 function R_Rect GL__CurrentClip(void)
