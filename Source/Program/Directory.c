@@ -2672,7 +2672,7 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
         ArenaRelease(&state->jobsArena);
         return false;
     }
-    // Four for thumbnails, which decode large photos side by side while keeping a slow disk from being read for many at once.
+    // Four for thumbnails, which decode large photos side by side; a spinning disk gets one of them at a time.
     if (!P_JobsInit(&state->thumbnailJobs, &state->thumbnailJobsArena, 4, wake, user)) {
         P_JobsShutdown(&state->jobs);
         ArenaRelease(&state->jobsArena);
@@ -4794,6 +4794,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->folderPictureArena);
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->thumbnailJobsArena);
+    ArenaRelease(&state->thumbnailWaitArena);
     ArenaRelease(&state->closedArena);
     ArenaRelease(&state->confirmArena);
     ArenaRelease(&state->placesArena);

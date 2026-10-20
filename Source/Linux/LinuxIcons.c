@@ -969,6 +969,13 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
     return result;
 }
 
+// ponytail: no cache-only pass here, every thumbnail goes to P_LoadFileThumbnail; read the shared thumbnail cache's PNG first if spinning disks feel slow.
+function b32 P_LoadCachedThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+{
+    (void)arena, (void)path, (void)kind, (void)size, (void)image;
+    return false;
+}
+
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, const P_CancelToken *cancel, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);

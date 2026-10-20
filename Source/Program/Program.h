@@ -264,6 +264,8 @@ typedef struct Prog_IconRequest {
     i32 size;          // square size to load at; above the list icon size it is a thumbnail for the icon views
     b8 exact;          // the item's own icon rather than its type's
     b8 plain;          // its type's icon at a thumbnail's size, which stands in while the thumbnail loads
+    b8 cacheOnly;      // a thumbnail from the system's cache only, which a request to make it follows when there is none
+    b8 slowDisk;       // on a spinning disk, which makes one thumbnail at a time rather than seek between several
 } Prog_IconRequest;
 
 typedef struct Prog_ArrayIconRequest { ArrayHeader header; Prog_IconRequest *v; } Prog_ArrayIconRequest;
@@ -309,6 +311,7 @@ typedef struct Prog_Icon {
     enum8(Prog_IconState) state;
     R_TextureHandle texture;
     R_Rect uv;
+    u64 wanted;  // the last frame that drew or waited for it, which orders the thumbnails still to be made
 } Prog_Icon;
 
 typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon value; } *v; } Prog_IconMap;
@@ -1048,6 +1051,10 @@ typedef struct Prog_State {
     Arena iconArena;
     Prog_IconMap icons;
     Prog_ArrayIconRequest iconRequests;  // queued while building UI, submitted by Prog_ProcessCommands
+    // Thumbnails the system's cache did not have, waiting for a thumbnail job, and how many of those run, on any disk and on spinning ones.
+    Arena thumbnailWaitArena;
+    Prog_ArrayIconRequest thumbnailWaiting;
+    u32 thumbnailsMaking, thumbnailsMakingSlow;
     i32 iconSize;
     f32 iconScale;                       // the display scale iconSize was reached at
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.

@@ -53,7 +53,8 @@ function void Prog__IconJob(P_Job *job)
         P_Image image = {0};
         b32 thumbnail = request->size != input->iconSize && !request->plain;
         b32 loaded = false;
-        if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
+        if (thumbnail && request->cacheOnly) ProfileScope("CachedThumbnail") loaded = P_LoadCachedThumbnail(scratch.arena, request->path, request->kind, request->size, &image);
+        else if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
         else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, true, &image);
         else ProfileScope("LoadIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, false, &image);
         if (loaded) pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);
@@ -72,14 +73,17 @@ function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog
 {
     Prog_Icon *icon = MapsGetPtrNull(*map, key);
     if (icon == NULL) {
-        MapsPut(arena, *map, StrCopy(arena, key), (Prog_Icon){ .state = Prog_IconState_Pending });
+        Prog_Icon pending = { .state = Prog_IconState_Pending, .wanted = state->ui.frameIndex };
+        MapsPut(arena, *map, StrCopy(arena, key), pending);
         // Requests outlive the frame when nothing submits them before the next one.
+        b8 slowDisk = size != state->iconSize && !plain && state->directory.driveKind == P_DriveKind_Spinning;
         Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size,
-                                     .exact = (b8)(exact != 0), .plain = (b8)(plain != 0) };
+                                     .exact = (b8)(exact != 0), .plain = (b8)(plain != 0), .slowDisk = slowDisk };
         ArrayPush(&state->iconArena, state->iconRequests, request);
         if (map == &state->icons) ++state->iconsPending;
         return NULL;
     }
+    if (icon->state == Prog_IconState_Pending) icon->wanted = state->ui.frameIndex;
     if (icon->state == Prog_IconState_Pending && map == &state->icons) ++state->iconsPending;
     return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
@@ -223,21 +227,22 @@ function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String direct
     return icon ? icon : Prog__ThumbnailElsewhere(state, slot, key);
 }
 
-// A job for `count` of the queued requests that are thumbnails, or that are not, from the `skip`th of those on.
-function void Prog__SubmitIconJob(Prog_State *state, b32 thumbnails, u64 skip, u64 count)
+// A job for `count` of the queued requests that are thumbnails, or that are not; the thumbnails' asks the system's cache only.
+function void Prog__SubmitIconJob(Prog_State *state, b32 thumbnails, u64 count)
 {
     if (!count) return;
-    P_Job *job = P_JobCreate(thumbnails ? &state->thumbnailJobs : &state->jobs, Prog__IconJob);
+    P_Job *job = P_JobCreate(&state->jobs, Prog__IconJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Icons;
     input->iconSize = state->iconSize;
     input->iconScale = state->iconScale;
     input->icons = ArenaPushArray(&job->arena, count, Prog_IconRequest);
-    for (u64 i = 0, seen = 0; i < state->iconRequests.header.count && input->iconCount < count; ++i) {
+    for (u64 i = 0; i < state->iconRequests.header.count && input->iconCount < count; ++i) {
         Prog_IconRequest *source = &state->iconRequests.v[i];
-        if ((source->size != state->iconSize && !source->plain) != (thumbnails != 0) || seen++ < skip) continue;
+        if ((source->size != state->iconSize && !source->plain) != (thumbnails != 0)) continue;
         Prog_IconRequest *copy = &input->icons[input->iconCount++];
         *copy = *source;
+        copy->cacheOnly = (b8)(thumbnails != 0);
         copy->path = StrCopy(&job->arena, source->path);
         copy->key = StrCopy(&job->arena, source->key);
     }
@@ -245,15 +250,73 @@ function void Prog__SubmitIconJob(Prog_State *state, b32 thumbnails, u64 skip, u
     P_JobSubmit(job);
 }
 
+// The pending entry a thumbnail request fills, NULL once its tier or the icon size it was for has gone.
+function Prog_Icon *Prog__RequestedThumbnail(Prog_State *state, const Prog_IconRequest *request)
+{
+    if (request->size == state->iconSize) return NULL;
+    // The tab list's folder pictures have their own atlas.
+    Prog_Icon *picture = request->size == state->folderPictureAtlas.size ? MapsGetPtrNull(state->folderPictures, request->key) : NULL;
+    if (picture) return picture;
+    for (u32 t = 0; t < Prog_ThumbnailSlots; ++t) {
+        if (state->thumbnailSlots[t].atlas.size == request->size) return MapsGetPtrNull(state->thumbnailSlots[t].map, request->key);
+    }
+    return NULL;
+}
+
+// Starts making the waiting thumbnails, those drawn last first, as many at once as the thumbnail jobs have threads, or one at a time on
+// spinning disks, whose heads seeking between files take longer than making them one after another.
+// A job each, so that each shows as soon as it is made rather than once a batch of large videos is.
+function void Prog__MakeThumbnails(Prog_State *state)
+{
+    Prog_ArrayIconRequest *waiting = &state->thumbnailWaiting;
+    for (;;) {
+        u64 best = UINT64_MAX, bestWanted = 0;
+        for (u64 i = 0; i < waiting->header.count;) {
+            Prog_IconRequest *request = &waiting->v[i];
+            Prog_Icon *icon = Prog__RequestedThumbnail(state, request);
+            if (!icon || icon->state != Prog_IconState_Pending) {
+                MemMove(request, request + 1, (waiting->header.count - i - 1) * sizeof(*request));
+                --waiting->header.count;
+                continue;
+            }
+            b32 room = state->thumbnailsMaking < state->thumbnailJobs.threadCount && (!request->slowDisk || !state->thumbnailsMakingSlow);
+            if (room && (best == UINT64_MAX || icon->wanted > bestWanted)) best = i, bestWanted = icon->wanted;
+            ++i;
+        }
+        if (best == UINT64_MAX) break;
+        Prog_IconRequest request = waiting->v[best];
+        MemMove(&waiting->v[best], &waiting->v[best + 1], (waiting->header.count - best - 1) * sizeof(request));
+        --waiting->header.count;
+        P_Job *job = P_JobCreate(&state->thumbnailJobs, Prog__IconJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_Icons;
+        input->iconSize = state->iconSize;
+        input->iconScale = state->iconScale;
+        input->icons = ArenaPushStruct(&job->arena, Prog_IconRequest);
+        input->icons[0] = request;
+        input->icons[0].path = StrCopy(&job->arena, request.path);
+        input->icons[0].key = StrCopy(&job->arena, request.key);
+        input->iconCount = 1;
+        job->input = input;
+        ++state->thumbnailsMaking;
+        state->thumbnailsMakingSlow += request.slowDisk ? 1u : 0u;
+        P_JobSubmit(job);
+    }
+    if (!waiting->header.count) {
+        *waiting = (Prog_ArrayIconRequest){0};
+        ArenaClear(&state->thumbnailWaitArena);
+    }
+}
+
 function void Prog_SubmitIconRequests(Prog_State *state)
 {
     u64 total = state->iconRequests.header.count, thumbnails = 0;
-    if (!total) return;
     for (u64 i = 0; i < total; ++i) thumbnails += state->iconRequests.v[i].size != state->iconSize && !state->iconRequests.v[i].plain;
-    Prog__SubmitIconJob(state, false, 0, total - thumbnails);
-    // A job each, so that each shows as soon as it is made rather than once a batch of large photos is.
-    for (u64 first = 0; first < thumbnails; ++first) Prog__SubmitIconJob(state, true, first, 1);
+    Prog__SubmitIconJob(state, false, total - thumbnails);
+    // The thumbnails ask the system's cache first, all in one job, as that answers at once; those it lacks wait to be made.
+    Prog__SubmitIconJob(state, true, thumbnails);
     state->iconRequests = (Prog_ArrayIconRequest){0};
+    Prog__MakeThumbnails(state);
 }
 
 // Copies `pixels` (the atlas's size square) into its next cell; false when it is full.
@@ -345,11 +408,24 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
 {
     Prog_JobInput *input = job->input;
     u32 **pixels = job->result;
+    if (job->queue == &state->thumbnailJobs && input->iconCount) {
+        --state->thumbnailsMaking;
+        state->thumbnailsMakingSlow -= input->icons[0].slowDisk ? 1u : 0u;
+    }
     // Results for an old icon size are stale; their keys were dropped with the reset.
     if (input->iconSize != state->iconSize || pixels == NULL) return;
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_IconRequest *request = &input->icons[i];
         b32 thumbnail = request->size != state->iconSize;
+        // Not in the system's cache: it waits to be made.
+        if (request->cacheOnly && !pixels[i] && Prog__RequestedThumbnail(state, request)) {
+            Prog_IconRequest made = *request;
+            made.cacheOnly = false;
+            made.path = StrCopy(&state->thumbnailWaitArena, request->path);
+            made.key = StrCopy(&state->thumbnailWaitArena, request->key);
+            ArrayPush(&state->thumbnailWaitArena, state->thumbnailWaiting, made);
+            continue;
+        }
         // The tab list's folder pictures have their own atlas.
         Prog_Icon *picture = thumbnail && request->size == state->folderPictureAtlas.size ? MapsGetPtrNull(state->folderPictures, request->key) : NULL;
         if (picture) {

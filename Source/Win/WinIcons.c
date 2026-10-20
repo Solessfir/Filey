@@ -271,9 +271,9 @@ function b32 P__ClearFolderBackground(Arena *scratch, P_Image *image)
     return x0 <= x1 && (x1 - x0 + 1) * 2 > w && (y1 - y0 + 1) * 2 > h;
 }
 
-function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, const P_CancelToken *cancel, P_Image *image)
+// The shell's image factory's picture of `path` with `flags` added to resizing it to fit.
+function b32 P__ShellThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, SIIGBF flags, P_Image *image)
 {
-    (void)cancel;
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
     b32 result = false;
@@ -282,7 +282,7 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         IShellItemImageFactory *factory = NULL;
         if (SUCCEEDED(SHCreateItemFromParsingName(wide, NULL, &P__IID_IShellItemImageFactory, (void **)&factory))) {
             HBITMAP bitmap = NULL;
-            if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT | (thumbnailOnly ? SIIGBF_THUMBNAILONLY : 0), &bitmap)) && bitmap) {
+            if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT | flags, &bitmap)) && bitmap) {
                 result = P__BitmapPixels(arena, bitmap, image);
                 DeleteObject(bitmap);
                 if (result && kind == P_FileKind_Directory && !P__ClearFolderBackground(scratch.arena, image)) {
@@ -294,7 +294,20 @@ function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32
         }
     }
     ReleaseScratch(scratch);
-    return result || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));
+    return result;
+}
+
+function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, const P_CancelToken *cancel, P_Image *image)
+{
+    (void)cancel;
+    return P__ShellThumbnail(arena, path, kind, size, thumbnailOnly ? SIIGBF_THUMBNAILONLY : 0, image) || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));
+}
+
+// The shell's thumbnail cache answers without opening the file, which for a video on a spinning disk takes a second or more.
+// Without SIIGBF_THUMBNAILONLY a miss would come back as the type's icon rather than as a failure.
+function b32 P_LoadCachedThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
+{
+    return P__ShellThumbnail(arena, path, kind, size, SIIGBF_INCACHEONLY | SIIGBF_THUMBNAILONLY, image);
 }
 
 // The Windows Imaging Component's, defined here so that windowscodecs.lib need not be linked.
