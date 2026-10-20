@@ -14,6 +14,9 @@
 #include <windows.storage.h>
 #include <windows.storage.search.h>
 #include <windows.system.h>
+#include <windows.data.pdf.h>
+#include <windows.storage.streams.h>
+#include <shcore.h>
 #pragma pop_macro("global")
 #pragma pop_macro("function")
 
@@ -74,6 +77,57 @@ function void *P__WinRtCreate(const wchar *className, const IID *iid)
         instance->lpVtbl->Release(instance);
     }
     WindowsDeleteString(name);
+    return result;
+}
+
+global const IID P__IID_IPdfDocumentStatics   = { 0x433A0B5F, 0xC007, 0x4788, { 0x90, 0xF2, 0x08, 0x14, 0x3D, 0x92, 0x25, 0x99 } };
+global const IID P__IID_IPdfPageRenderOptions = { 0x3C98056F, 0xB7CF, 0x4C29, { 0x9A, 0x04, 0x52, 0xD9, 0x02, 0x67, 0xF4, 0x25 } };
+global const IID P__IID_IRandomAccessStream   = { 0x905A0FE1, 0xBC53, 0x11DF, { 0x8C, 0x49, 0x00, 0x1E, 0x4F, 0xC6, 0x86, 0xDA } };
+global const IID P__IID_IStream               = { 0x0000000C, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+
+// The first page of the PDF at `path` as a PNG in memory, its longer side `maxSide` pixels, through the system's own PDF renderer, which
+// draws pages for the shell's preview pane but gives the thumbnail cache nothing; NULL when it cannot be read, as when it has a password.
+function IStream *P__PdfPageStream(const wchar *path, u32 maxSide)
+{
+    __x_ABI_CWindows_CStorage_CIStorageFileStatics *files = P__WinRtFactory(RuntimeClass_Windows_Storage_StorageFile, &P__IID_IStorageFileStatics);
+    __x_ABI_CWindows_CData_CPdf_CIPdfDocumentStatics *documents = P__WinRtFactory(RuntimeClass_Windows_Data_Pdf_PdfDocument, &P__IID_IPdfDocumentStatics);
+    __x_ABI_CWindows_CData_CPdf_CIPdfPageRenderOptions *options = P__WinRtCreate(RuntimeClass_Windows_Data_Pdf_PdfPageRenderOptions, &P__IID_IPdfPageRenderOptions);
+    __x_ABI_CWindows_CStorage_CStreams_CIRandomAccessStream *memory = P__WinRtCreate(RuntimeClass_Windows_Storage_Streams_InMemoryRandomAccessStream, &P__IID_IRandomAccessStream);
+    __FIAsyncOperation_1_Windows__CStorage__CStorageFile *opening = NULL;
+    __x_ABI_CWindows_CStorage_CIStorageFile *file = NULL;
+    __FIAsyncOperation_1_Windows__CData__CPdf__CPdfDocument *loading = NULL;
+    __x_ABI_CWindows_CData_CPdf_CIPdfDocument *document = NULL;
+    __x_ABI_CWindows_CData_CPdf_CIPdfPage *page = NULL;
+    __x_ABI_CWindows_CFoundation_CIAsyncAction *rendering = NULL;
+    __x_ABI_CWindows_CFoundation_CSize size = {0};
+    IStream *result = NULL;
+    HSTRING hpath = P__HString(path);
+    b32 ok = files && documents && options && memory && hpath &&
+             SUCCEEDED(files->lpVtbl->GetFileFromPathAsync(files, hpath, &opening)) && P__WinRtWait(opening) == P__Wait_Completed &&
+             SUCCEEDED(opening->lpVtbl->GetResults(opening, &file)) && file &&
+             SUCCEEDED(documents->lpVtbl->LoadFromFileAsync(documents, file, &loading)) && P__WinRtWait(loading) == P__Wait_Completed &&
+             SUCCEEDED(loading->lpVtbl->GetResults(loading, &document)) && document &&
+             SUCCEEDED(document->lpVtbl->GetPage(document, 0, &page)) && page &&
+             SUCCEEDED(page->lpVtbl->get_Size(page, &size)) && size.Width > 0 && size.Height > 0;
+    if (ok) {
+        f32 scale = (f32)maxSide / MaxF32(size.Width, size.Height);
+        ok = SUCCEEDED(options->lpVtbl->put_DestinationWidth(options, (UINT32)MaxF32(1, size.Width * scale))) &&
+             SUCCEEDED(options->lpVtbl->put_DestinationHeight(options, (UINT32)MaxF32(1, size.Height * scale))) &&
+             SUCCEEDED(page->lpVtbl->RenderWithOptionsToStreamAsync(page, memory, options, &rendering)) && P__WinRtWait(rendering) == P__Wait_Completed &&
+             SUCCEEDED(CreateStreamOverRandomAccessStream((IUnknown *)memory, &P__IID_IStream, (void **)&result));
+    }
+    if (result) result->lpVtbl->Seek(result, (LARGE_INTEGER){0}, STREAM_SEEK_SET, NULL);
+    WindowsDeleteString(hpath);
+    if (rendering) rendering->lpVtbl->Release(rendering);
+    if (page) page->lpVtbl->Release(page);
+    if (document) document->lpVtbl->Release(document);
+    if (loading) loading->lpVtbl->Release(loading);
+    if (file) file->lpVtbl->Release(file);
+    if (opening) opening->lpVtbl->Release(opening);
+    if (memory) memory->lpVtbl->Release(memory);
+    if (options) options->lpVtbl->Release(options);
+    if (documents) documents->lpVtbl->Release(documents);
+    if (files) files->lpVtbl->Release(files);
     return result;
 }
 

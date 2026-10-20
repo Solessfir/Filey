@@ -1399,6 +1399,18 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(P_LoadImageFile(&arena, path, 2, &image, &width, &height) && width == 3 && image.width == 2);
         Check(!P_LoadImageFile(&arena, Prog_JoinPath(&arena, fixture->path, S("plain.txt")), 4096, &image, &width, &height));
         Check(P__TestRemovePath(fixture, S("red.png"), false));
+#if defined(_WIN32)
+        // A PDF is its first page, the longer side fitted: a 200 x 100 point page with a red square, on white.
+        String pdf = Prog_JoinPath(&arena, fixture->path, S("square.pdf"));
+        Check(!P_WriteFile(&arena, pdf, S("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                                          "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R >>\nendobj\n"
+                                          "4 0 obj\n<< /Length 25 >>\nstream\n1 0 0 rg 20 20 60 60 re f\nendstream\nendobj\n"
+                                          "xref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000202 00000 n \n"
+                                          "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n277\n%%EOF\n")).code);
+        Check(P_LoadImageFile(&arena, pdf, 400, &image, &width, &height) && image.width == 400 && image.height == 200);
+        Check(image.width == 400 && image.pixels[0] == 0xFFFFFFFFu && image.pixels[100 * 400 + 100] == 0xFF0000FFu);
+        Check(P__TestRemovePath(fixture, S("square.pdf"), false));
+#endif
     }
     Check(StrIsEqual(Prog_FormatSize(&arena, 0), S("0 B")));
     Check(StrIsEqual(Prog_FormatSize(&arena, 1010), S("1010 B")));

@@ -1775,6 +1775,13 @@ function void Prog__DirectoryJob(P_Job *job)
             // Before the text, which OBJ and glTF files read as.
             result->pixels = model;
             result->width = result->height = Prog_PreviewSize;
+        } else if (!input->folder && path.length >= 4 && Prog__EqualFolded(StrFrom(path, path.length - 4), S(".pdf")) && !P_IsCancelled(&job->cancelToken) &&
+                   P_LoadImageFile(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+            // Its first page, before the text, which a PDF of plain ASCII would read as.
+            result->pixels = image.pixels;
+            result->width = image.width;
+            result->height = image.height;
+            result->image = true;
         } else if (!input->folder && P_ReadFileStart(&job->arena, path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
