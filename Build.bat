@@ -1,17 +1,19 @@
 @echo off
 setlocal
 
-rem Usage: Build.bat [release] [analyze] [profile] [test]
+rem Usage: Build.bat [release] [analyze] [profile] [test] [install]
 
 set MODE=debug
 set ANALYZE=0
 set TEST=0
 set PROFILE=0
+set INSTALL=0
 for %%A in (%*) do (
     if /i "%%A"=="release" set MODE=release
     if /i "%%A"=="analyze" set ANALYZE=1
     if /i "%%A"=="test" set TEST=1
     if /i "%%A"=="profile" set PROFILE=1
+    if /i "%%A"=="install" set INSTALL=1
 )
 
 rem Load the MSVC/Windows SDK environment once per shell.
@@ -65,4 +67,16 @@ rem The icon and version details are a resource linked into the executable.
 if "%TEST%"=="1" (
     "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -lversion -o "%OUT%\FileyTests.exe" || exit /b 1
     "%OUT%\FileyTests.exe" || exit /b 1
+)
+
+rem install replaces the copy Filey Setup installed, when there is one; a running copy is moved aside, as Setup does, and goes once nothing runs it.
+if "%INSTALL%"=="1" (
+    if exist "%LOCALAPPDATA%\Filey\Filey.exe" (
+        del "%LOCALAPPDATA%\Filey\Filey.old.exe" 2>nul
+        move /y "%LOCALAPPDATA%\Filey\Filey.exe" "%LOCALAPPDATA%\Filey\Filey.old.exe" >nul || exit /b 1
+        copy /y "%OUT%\Filey.exe" "%LOCALAPPDATA%\Filey\Filey.exe" >nul || exit /b 1
+        echo Installed to %LOCALAPPDATA%\Filey
+    ) else (
+        echo Not installed: run Filey Setup first
+    )
 )

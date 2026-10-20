@@ -45,7 +45,7 @@ Screenshots of the reference app, kept outside the repository, are the visual re
 - Do not edit generated files (`*.generated.h`, `Meta/*.meta.h`). Change the generator or its input instead.
 - Commands and their default hotkeys are declared once in `Source/Program/Commands.txt`. Add a command there, then handle its `Prog_CommandKind_` case in `Prog_ProcessCommands`.
 - The app icon is `Source/Resources/Filey.svg`. After changing it, run `python3 Source/Tools/IconBake.py` (needs `rsvg-convert`), which rewrites `Filey.ico` (linked into the Windows executable through `Filey.rc`) and the Linux theme sizes in `Resources/Icons/`; commit all of them. `Resources/filey-symbolic.svg` is the one-color version that panels recolor to their theme; keep its shapes in step with the master by hand.
-- `./Build.sh install` installs a build for the current user (`~/.local/bin`, the desktop entry `Resources/filey.desktop` and the hicolor icons); `Packaging/Arch/PKGBUILD` builds the `filey-git` package.
+- `Build.bat release install` replaces the copy Filey Setup installed in `%LOCALAPPDATA%\Filey` with the build, moving a running one aside; `./Build.sh install` installs a build for the current user (`~/.local/bin`, the desktop entry `Resources/filey.desktop` and the hicolor icons); `Packaging/Arch/PKGBUILD` builds the `filey-git` package.
 - UI icons are a Lucide subset (ISC) embedded with `#embed`. To add one, append its Lucide name to `Source/Lib/Lucide/Icons.txt` and run `python Source/Tools/LucideSubset.py <extracted lucide-static npm package>` (needs `fonttools`). It rewrites `Lucide.ttf`, its `LICENSE` and `Meta/Icons.meta.h` (`Icon_<Name>` strings drawn with the icon font); commit all of them. A name ending in `-filled`, such as `star-filled`, is that icon solid.
 
 ## Toolchain
@@ -66,8 +66,8 @@ Screenshots of the reference app, kept outside the repository, are the visual re
 - Output goes to `Bin/<debug|release>/`. The unity root is `Source/Unity.c`; base-layer tests are a second unity root, `Source/Tests/Tests.c`, built and run by the `test` flag.
 
 ```text
-Build.bat [release] [analyze] [profile] [test]          Windows
-./Build.sh [release] [analyze] [asan] [profile] [test]  Linux / WSL
+Build.bat [release] [analyze] [profile] [test] [install]  Windows
+./Build.sh [release] [analyze] [asan] [profile] [test]    Linux / WSL
 ```
 
 ## Source layout
