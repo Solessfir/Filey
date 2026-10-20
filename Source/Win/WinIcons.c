@@ -318,7 +318,7 @@ global const IID P__IID_IWICImagingFactory = { 0xEC5EC8A9, 0xC395, 0x4314, { 0x9
 // {F5C7AD2D-6A8D-43DD-A7A8-A29935261AE9}, straight-alpha RGBA with red in the lowest byte, as P_Image holds it.
 global const GUID P__WICPixelFormat32bppRGBA = { 0xF5C7AD2D, 0x6A8D, 0x43DD, { 0xA7, 0xA8, 0xA2, 0x99, 0x35, 0x26, 0x1A, 0xE9 } };
 
-function IStream *P__PdfPageStream(const wchar *path, u32 maxSide);
+function IStream *P__PdfPageStream(const wchar *path, u32 page, u32 side, b32 sideIsWidth);
 
 // A PDF is drawn as its first page, which WIC has no codec for.
 function b32 P__IsPdf(const wchar *path)
@@ -327,10 +327,34 @@ function b32 P__IsPdf(const wchar *path)
     return length >= 4 && CompareStringOrdinal(path + length - 4, 4, L".pdf", 4, TRUE) == CSTR_EQUAL;
 }
 
+function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight);
+
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
 {
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
+    IStream *pdf = wide && P__IsPdf(wide) ? P__PdfPageStream(wide, 0, (u32)maxSide, false) : NULL;
+    b32 result = wide && (pdf || !P__IsPdf(wide)) && P__LoadImage(arena, wide, pdf, maxSide, image, sourceWidth, sourceHeight);
+    if (pdf) pdf->lpVtbl->Release(pdf);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function b32 P_LoadPdfPage(Arena *arena, String path, u32 page, i32 width, P_Image *image)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    IStream *drawn = wide && width > 0 ? P__PdfPageStream(wide, page, (u32)width, true) : NULL;
+    i32 shownWidth = 0, shownHeight = 0;
+    b32 result = drawn && P__LoadImage(arena, wide, drawn, 1 << 15, image, &shownWidth, &shownHeight);
+    if (drawn) drawn->lpVtbl->Release(drawn);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The picture of the file `wide`, or of `stream` when not NULL, shrunk to fit `maxSide`, in straight RGBA.
+function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
+{
     b32 result = false;
     P__EnsureCom();
     IWICImagingFactory *factory = NULL;
@@ -338,12 +362,10 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
     IWICBitmapFrameDecode *frame = NULL;
     IWICBitmapScaler *scaler = NULL;
     IWICFormatConverter *converter = NULL;
-    IStream *pdf = NULL;
     UINT width = 0, height = 0;
-    if (wide && SUCCEEDED(CoCreateInstance(&P__CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &P__IID_IWICImagingFactory, (void **)&factory)) &&
-        (P__IsPdf(wide) ? (pdf = P__PdfPageStream(wide, (u32)maxSide)) != NULL &&
-                          SUCCEEDED(factory->lpVtbl->CreateDecoderFromStream(factory, pdf, NULL, WICDecodeMetadataCacheOnDemand, &decoder))
-                        : SUCCEEDED(factory->lpVtbl->CreateDecoderFromFilename(factory, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder))) &&
+    if (SUCCEEDED(CoCreateInstance(&P__CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &P__IID_IWICImagingFactory, (void **)&factory)) &&
+        (stream ? SUCCEEDED(factory->lpVtbl->CreateDecoderFromStream(factory, stream, NULL, WICDecodeMetadataCacheOnDemand, &decoder))
+                : SUCCEEDED(factory->lpVtbl->CreateDecoderFromFilename(factory, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder))) &&
         SUCCEEDED(decoder->lpVtbl->GetFrame(decoder, 0, &frame)) &&
         SUCCEEDED(frame->lpVtbl->GetSize(frame, &width, &height)) && width && height) {
         // A picture larger than the square is scaled down as it is decoded.
@@ -376,9 +398,7 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
     if (scaler) scaler->lpVtbl->Release(scaler);
     if (frame) frame->lpVtbl->Release(frame);
     if (decoder) decoder->lpVtbl->Release(decoder);
-    if (pdf) pdf->lpVtbl->Release(pdf);
     if (factory) factory->lpVtbl->Release(factory);
-    ReleaseScratch(scratch);
     return result;
 }
 

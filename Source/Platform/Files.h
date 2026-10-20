@@ -335,6 +335,11 @@ function b32 P_LoadCachedThumbnail(Arena *arena, String path, P_FileKind kind, i
 // `sourceWidth` and `sourceHeight` get the size it has. False for files that are not pictures the system can read.
 // Reads the whole file, so run it in a job.
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight);
+// The pages of the PDF at `path`, at most `most`, with each one's width and height in `sizes`, in the arena; 0 when it cannot be read,
+// which on Linux is always.
+function u32 P_PdfPages(Arena *arena, String path, u32 most, f32 **sizes);
+// Page `page` of the PDF at `path` drawn `width` pixels wide.
+function b32 P_LoadPdfPage(Arena *arena, String path, u32 page, i32 width, P_Image *image);
 // Thumbnails are keyed by path where the system makes them per file, and by type where it does not.
 function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind);
 // Display name of a file's type ("Text Document", "File folder") from the shell on Windows and shared-mime-info on Linux.

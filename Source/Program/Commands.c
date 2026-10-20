@@ -1882,6 +1882,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->hexSize = 0;
     if (state->hexPageJob) P_RequestCancel(&state->hexPageJob->cancelToken);
     state->hexPageJob = NULL;
+    Prog__DropPdf(state);
     state->imagePan = (UI_Vec2){0};
     state->previewLines = state->previewRows = state->previewKept = NULL;
     state->previewLineStates = NULL;

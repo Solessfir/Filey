@@ -228,6 +228,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
     Prog_JobKind_HexPage,
+    Prog_JobKind_PdfPage,
     Prog_JobKind_Git,
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
@@ -370,9 +371,9 @@ typedef struct Prog_JobInput {
     // Save writes `name` to the file `path`.
     String *paths;
     u64 pathCount;
-    u64 offset;            // HexPage: where its page starts in the file
+    u64 offset;            // HexPage: where its page starts in the file; PdfPage: the page
     b32 hex;               // Preview: the file's bytes, whatever it holds
-    u64 size;              // Preview: the file's size
+    u64 size;              // Preview: the file's size; PdfPage: the width to draw it at
     b32 inTab;             // Reveal: shown in a new tab
     b32 move;
     b32 folder;
@@ -480,7 +481,21 @@ typedef struct Prog_Preview {
     // An archive the inspector's panel lists: all it holds, not complete when there was more than was counted.
     P_DirectoryTotals archiveTotals;
     b32 archiveCounted;
+    u32 pdfPages;                   // a PDF's pages, with each one's width and height in points
+    f32 *pdfSizes;
 } Prog_Preview;
+
+// Pages of a PDF read at most, and drawn ones kept at once, each in a texture of its own.
+#define Prog_MaxPdfPages 5000
+#define Prog_PdfDrawn 6
+
+// A page of the inspector's PDF drawn `width` pixels wide; a {0} texture for a free slot.
+typedef struct Prog_PdfPage {
+    u32 page;
+    i32 width, height;
+    R_TextureHandle texture;
+    u64 used;  // the last frame it was in sight, the least recent of which a new page replaces
+} Prog_PdfPage;
 
 // How the inspector sizes an image: shrunk to fit its view, at its own size, or at a scale set with the zoom commands.
 typedef enum Prog_ImageScale {
@@ -1304,6 +1319,11 @@ typedef struct Prog_State {
     u8 **hexPages;            // its pages read so far, NULL for the rest, in previewArena
     u64 hexPageCount;
     P_Job *hexPageJob;        // the page on its way, one at a time
+    // A PDF the inspector scrolls through: its pages' sizes in points, in previewArena, and the pages in sight drawn the view's width wide.
+    u32 pdfPageCount;
+    f32 *pdfSizes;
+    Prog_PdfPage pdfDrawn[Prog_PdfDrawn];
+    P_Job *pdfJob;            // the page on its way, one at a time
     b32 previewArchive;       // previewText lists an archive's contents, shown the same way
     P_DirectoryTotals previewArchiveTotals;  // an archive the inspector's panel lists, once previewArchiveCounted
     b32 previewArchiveCounted;

@@ -85,50 +85,83 @@ global const IID P__IID_IPdfPageRenderOptions = { 0x3C98056F, 0xB7CF, 0x4C29, { 
 global const IID P__IID_IRandomAccessStream   = { 0x905A0FE1, 0xBC53, 0x11DF, { 0x8C, 0x49, 0x00, 0x1E, 0x4F, 0xC6, 0x86, 0xDA } };
 global const IID P__IID_IStream               = { 0x0000000C, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
 
-// The first page of the PDF at `path` as a PNG in memory, its longer side `maxSide` pixels, through the system's own PDF renderer, which
-// draws pages for the shell's preview pane but gives the thumbnail cache nothing; NULL when it cannot be read, as when it has a password.
-function IStream *P__PdfPageStream(const wchar *path, u32 maxSide)
+// The PDF at `path`, opened by the system's own PDF renderer, which draws pages for the shell's preview pane but gives the thumbnail cache
+// nothing; NULL when it cannot be read, as when it has a password.
+function __x_ABI_CWindows_CData_CPdf_CIPdfDocument *P__PdfOpen(const wchar *path)
 {
     __x_ABI_CWindows_CStorage_CIStorageFileStatics *files = P__WinRtFactory(RuntimeClass_Windows_Storage_StorageFile, &P__IID_IStorageFileStatics);
     __x_ABI_CWindows_CData_CPdf_CIPdfDocumentStatics *documents = P__WinRtFactory(RuntimeClass_Windows_Data_Pdf_PdfDocument, &P__IID_IPdfDocumentStatics);
-    __x_ABI_CWindows_CData_CPdf_CIPdfPageRenderOptions *options = P__WinRtCreate(RuntimeClass_Windows_Data_Pdf_PdfPageRenderOptions, &P__IID_IPdfPageRenderOptions);
-    __x_ABI_CWindows_CStorage_CStreams_CIRandomAccessStream *memory = P__WinRtCreate(RuntimeClass_Windows_Storage_Streams_InMemoryRandomAccessStream, &P__IID_IRandomAccessStream);
     __FIAsyncOperation_1_Windows__CStorage__CStorageFile *opening = NULL;
     __x_ABI_CWindows_CStorage_CIStorageFile *file = NULL;
     __FIAsyncOperation_1_Windows__CData__CPdf__CPdfDocument *loading = NULL;
-    __x_ABI_CWindows_CData_CPdf_CIPdfDocument *document = NULL;
+    __x_ABI_CWindows_CData_CPdf_CIPdfDocument *result = NULL;
+    HSTRING hpath = P__HString(path);
+    b32 ok = files && documents && hpath &&
+             SUCCEEDED(files->lpVtbl->GetFileFromPathAsync(files, hpath, &opening)) && P__WinRtWait(opening) == P__Wait_Completed &&
+             SUCCEEDED(opening->lpVtbl->GetResults(opening, &file)) && file &&
+             SUCCEEDED(documents->lpVtbl->LoadFromFileAsync(documents, file, &loading)) && P__WinRtWait(loading) == P__Wait_Completed;
+    if (ok && FAILED(loading->lpVtbl->GetResults(loading, &result))) result = NULL;
+    WindowsDeleteString(hpath);
+    if (loading) loading->lpVtbl->Release(loading);
+    if (file) file->lpVtbl->Release(file);
+    if (opening) opening->lpVtbl->Release(opening);
+    if (documents) documents->lpVtbl->Release(documents);
+    if (files) files->lpVtbl->Release(files);
+    return result;
+}
+
+// Page `index` of the PDF at `path` as a PNG in memory, `side` pixels wide, or with `sideIsWidth` false that long on its longer side.
+function IStream *P__PdfPageStream(const wchar *path, u32 index, u32 side, b32 sideIsWidth)
+{
+    __x_ABI_CWindows_CData_CPdf_CIPdfDocument *document = P__PdfOpen(path);
+    __x_ABI_CWindows_CData_CPdf_CIPdfPageRenderOptions *options = P__WinRtCreate(RuntimeClass_Windows_Data_Pdf_PdfPageRenderOptions, &P__IID_IPdfPageRenderOptions);
+    __x_ABI_CWindows_CStorage_CStreams_CIRandomAccessStream *memory = P__WinRtCreate(RuntimeClass_Windows_Storage_Streams_InMemoryRandomAccessStream, &P__IID_IRandomAccessStream);
     __x_ABI_CWindows_CData_CPdf_CIPdfPage *page = NULL;
     __x_ABI_CWindows_CFoundation_CIAsyncAction *rendering = NULL;
     __x_ABI_CWindows_CFoundation_CSize size = {0};
     IStream *result = NULL;
-    HSTRING hpath = P__HString(path);
-    b32 ok = files && documents && options && memory && hpath &&
-             SUCCEEDED(files->lpVtbl->GetFileFromPathAsync(files, hpath, &opening)) && P__WinRtWait(opening) == P__Wait_Completed &&
-             SUCCEEDED(opening->lpVtbl->GetResults(opening, &file)) && file &&
-             SUCCEEDED(documents->lpVtbl->LoadFromFileAsync(documents, file, &loading)) && P__WinRtWait(loading) == P__Wait_Completed &&
-             SUCCEEDED(loading->lpVtbl->GetResults(loading, &document)) && document &&
-             SUCCEEDED(document->lpVtbl->GetPage(document, 0, &page)) && page &&
+    b32 ok = document && options && memory && SUCCEEDED(document->lpVtbl->GetPage(document, index, &page)) && page &&
              SUCCEEDED(page->lpVtbl->get_Size(page, &size)) && size.Width > 0 && size.Height > 0;
     if (ok) {
-        f32 scale = (f32)maxSide / MaxF32(size.Width, size.Height);
+        f32 scale = (f32)side / (sideIsWidth ? size.Width : MaxF32(size.Width, size.Height));
         ok = SUCCEEDED(options->lpVtbl->put_DestinationWidth(options, (UINT32)MaxF32(1, size.Width * scale))) &&
              SUCCEEDED(options->lpVtbl->put_DestinationHeight(options, (UINT32)MaxF32(1, size.Height * scale))) &&
              SUCCEEDED(page->lpVtbl->RenderWithOptionsToStreamAsync(page, memory, options, &rendering)) && P__WinRtWait(rendering) == P__Wait_Completed &&
              SUCCEEDED(CreateStreamOverRandomAccessStream((IUnknown *)memory, &P__IID_IStream, (void **)&result));
     }
     if (result) result->lpVtbl->Seek(result, (LARGE_INTEGER){0}, STREAM_SEEK_SET, NULL);
-    WindowsDeleteString(hpath);
     if (rendering) rendering->lpVtbl->Release(rendering);
     if (page) page->lpVtbl->Release(page);
-    if (document) document->lpVtbl->Release(document);
-    if (loading) loading->lpVtbl->Release(loading);
-    if (file) file->lpVtbl->Release(file);
-    if (opening) opening->lpVtbl->Release(opening);
     if (memory) memory->lpVtbl->Release(memory);
     if (options) options->lpVtbl->Release(options);
-    if (documents) documents->lpVtbl->Release(documents);
-    if (files) files->lpVtbl->Release(files);
+    if (document) document->lpVtbl->Release(document);
     return result;
+}
+
+function u32 P_PdfPages(Arena *arena, String path, u32 most, f32 **sizes)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    __x_ABI_CWindows_CData_CPdf_CIPdfDocument *document = wide ? P__PdfOpen(wide) : NULL;
+    UINT32 count = 0;
+    if (document && FAILED(document->lpVtbl->get_PageCount(document, &count))) count = 0;
+    count = Min(count, most);
+    *sizes = ArenaPushArray(arena, Max(count, 1u) * 2, f32);
+    for (u32 i = 0; i < count; ++i) {
+        __x_ABI_CWindows_CData_CPdf_CIPdfPage *page = NULL;
+        __x_ABI_CWindows_CFoundation_CSize size = {0};
+        if (SUCCEEDED(document->lpVtbl->GetPage(document, i, &page)) && page && SUCCEEDED(page->lpVtbl->get_Size(page, &size))) {
+            (*sizes)[2 * i] = size.Width, (*sizes)[2 * i + 1] = size.Height;
+        }
+        if (page) page->lpVtbl->Release(page);
+        // A page that does not say takes the size of the one before it, or a letter page's.
+        if ((*sizes)[2 * i] <= 0 || (*sizes)[2 * i + 1] <= 0) {
+            (*sizes)[2 * i] = i ? (*sizes)[2 * i - 2] : 816, (*sizes)[2 * i + 1] = i ? (*sizes)[2 * i - 1] : 1056;
+        }
+    }
+    if (document) document->lpVtbl->Release(document);
+    ReleaseScratch(scratch);
+    return count;
 }
 
 // The app id of a packaged default handler, which names its app under the ProgID; desktop handlers have none.

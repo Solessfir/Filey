@@ -969,6 +969,20 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
     return result;
 }
 
+// ponytail: no PDF pages here; poppler's pdftoppm, run as the thumbnailers are, would draw them.
+function u32 P_PdfPages(Arena *arena, String path, u32 most, f32 **sizes)
+{
+    (void)arena, (void)path, (void)most;
+    *sizes = NULL;
+    return 0;
+}
+
+function b32 P_LoadPdfPage(Arena *arena, String path, u32 page, i32 width, P_Image *image)
+{
+    (void)arena, (void)path, (void)page, (void)width, (void)image;
+    return false;
+}
+
 // ponytail: no cache-only pass here, every thumbnail goes to P_LoadFileThumbnail; read the shared thumbnail cache's PNG first if spinning disks feel slow.
 function b32 P_LoadCachedThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, P_Image *image)
 {

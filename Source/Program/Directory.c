@@ -1747,6 +1747,13 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = bytes;
         return;
     }
+    if (input->kind == Prog_JobKind_PdfPage) {
+        P_Image *image = ArenaPushStruct(&job->arena, P_Image);
+        String copy = Prog_ArchiveCopy(&job->arena, input->path, NULL, &job->cancelToken);
+        if (!P_LoadPdfPage(&job->arena, copy.length ? copy : input->path, (u32)input->offset, (i32)input->size, image)) *image = (P_Image){0};
+        job->result = image;
+        return;
+    }
     if (input->kind == Prog_JobKind_Preview) {
         // A 3D model's picture, else text where the start of the file reads as text, else the system's picture of it.
         // With the inspector set to hex, every file's bytes.
@@ -1777,7 +1784,8 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = result->height = Prog_PreviewSize;
         } else if (!input->folder && path.length >= 4 && Prog__EqualFolded(StrFrom(path, path.length - 4), S(".pdf")) && !P_IsCancelled(&job->cancelToken) &&
                    P_LoadImageFile(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
-            // Its first page, before the text, which a PDF of plain ASCII would read as.
+            // Its first page, before the text, which a PDF of plain ASCII would read as, and the sizes of all of them, to scroll through.
+            result->pdfPages = P_PdfPages(&job->arena, path, Prog_MaxPdfPages, &result->pdfSizes);
             result->pixels = image.pixels;
             result->width = image.width;
             result->height = image.height;
@@ -4068,6 +4076,31 @@ function void Prog__TakePartial(Prog_State *state, Prog_Directory *listed, Arena
     Prog_ApplyFilter(state, false);
 }
 
+// Keeps the drawn `page` of the inspector's PDF in place of the same page at another width, else of the page in sight least recently.
+function void Prog__KeepPdfPage(Prog_State *state, u32 page, P_Image image)
+{
+    Prog_PdfPage *slot = &state->pdfDrawn[0];
+    for (u32 i = 0; i < Prog_PdfDrawn; ++i) {
+        Prog_PdfPage *at = &state->pdfDrawn[i];
+        if (at->texture.u64[0] && at->page == page) { slot = at; break; }
+        if (!at->texture.u64[0] ? slot->texture.u64[0] != 0 : slot->texture.u64[0] && at->used < slot->used) slot = at;
+    }
+    if (slot->texture.u64[0]) R_TextureRelease(slot->texture);
+    *slot = (Prog_PdfPage){ page, image.width, image.height, R_TextureCreateRGBA(image.width, image.height, image.pixels), UI->frameIndex };
+    R_TextureSmooth(slot->texture);
+}
+
+// Lets go of the inspector's PDF, as another item shows.
+function void Prog__DropPdf(Prog_State *state)
+{
+    for (u32 i = 0; i < Prog_PdfDrawn; ++i) R_TextureRelease(state->pdfDrawn[i].texture);
+    MemZero(state->pdfDrawn, sizeof(state->pdfDrawn));
+    if (state->pdfJob) P_RequestCancel(&state->pdfJob->cancelToken);
+    state->pdfJob = NULL;
+    state->pdfPageCount = 0;
+    state->pdfSizes = NULL;
+}
+
 function b32 Prog_TakeCompletions(Prog_State *state)
 {
     b32 changed = false;
@@ -4266,6 +4299,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->previewTextureHeight = preview->height;
                     state->previewPicture = state->previewTexture.u64[0] != 0;
                     state->previewImage = state->previewPicture && preview->image;
+                    if (preview->pdfPages && state->previewPicture) {
+                        state->pdfSizes = ArenaPushArray(&state->previewArena, (u64)preview->pdfPages * 2, f32);
+                        MemCopy(state->pdfSizes, preview->pdfSizes, (u64)preview->pdfPages * 2 * sizeof(f32));
+                        state->pdfPageCount = preview->pdfPages;
+                    }
                     state->previewImageWidth = preview->sourceWidth;
                     state->previewImageHeight = preview->sourceHeight;
                 }
@@ -4280,6 +4318,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
+        } else if (input->kind == Prog_JobKind_PdfPage) {
+            if (state->pdfJob == job) state->pdfJob = NULL;
+            const P_Image *image = job->result;
+            if (image && image->pixels && state->pdfPageCount && StrIsEqual(input->path, state->previewPath)) Prog__KeepPdfPage(state, (u32)input->offset, *image);
+            changed = true;
         } else if (input->kind == Prog_JobKind_HexPage) {
             if (state->hexPageJob == job) state->hexPageJob = NULL;
             const String *bytes = job->result;

@@ -8014,6 +8014,73 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
     }
 }
 
+// A PDF's pages one below another, each as wide as the view, scrolled by the wheel and the scroll bar. The pages in sight are drawn at that
+// width, one at a time, the first from the preview's picture until then, and one not drawn yet shows blank until it comes.
+function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, left = floorf(10.4f * s + 0.5f), right = floorf(18.4f * s + 0.5f), gap = floorf(9.6f * s + 0.5f);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ left, gap, right, 0 });
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorPdf")), UI_Flag_Clip | UI_Flag_Scrollable);
+    if (state->inspectorResetScroll) {
+        view->scrollOffset = view->scrollShown = (UI_Vec2){0};
+        state->inspectorResetScroll = false;
+    }
+    if (!UI->animate) view->scrollShown = view->scrollOffset;
+    // A view new this frame has no size yet, so its pages come in the next.
+    if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
+    f32 width = floorf(MaxF32(1, view->rect.x1 - view->rect.x0 - left - right));
+    f32 from = MinF32(view->scrollOffset.y, view->scrollShown.y) - gap, to = MaxF32(view->scrollOffset.y, view->scrollShown.y) + (view->rect.y1 - view->rect.y0);
+    u32 wanted = UINT32_MAX;
+    f32 at = 0, skipped = 0;
+    UI_Parent(view) {
+        for (u32 i = 0; i < state->pdfPageCount; ++i) {
+            f32 height = floorf(width * state->pdfSizes[2 * i + 1] / MaxF32(1, state->pdfSizes[2 * i]) + 0.5f);
+            if (at + height < from || at > to) {
+                skipped += height + gap;
+                at += height + gap;
+                continue;
+            }
+            if (skipped > 0) Prog__Spacer(UI_Pixels(width), UI_Pixels(skipped));
+            skipped = 0;
+            Prog_PdfPage *drawn = NULL;
+            for (u32 d = 0; d < Prog_PdfDrawn && !drawn; ++d) if (state->pdfDrawn[d].texture.u64[0] && state->pdfDrawn[d].page == i) drawn = &state->pdfDrawn[d];
+            if (drawn) drawn->used = UI->frameIndex;
+            // Drawn again once the view is a tenth wider or narrower than the page was drawn for.
+            if ((!drawn || fabsf((f32)drawn->width - width) > width * 0.1f) && wanted == UINT32_MAX) wanted = i;
+            R_TextureHandle texture = drawn ? drawn->texture : i == 0 && state->previewPicture ? state->previewTexture : (R_TextureHandle){0};
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            if (texture.u64[0]) {
+                UI_SetNextImage(texture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ width, height }, (R_Color){ 1, 1, 1, 1 });
+                UI_AddBlock(UI_Flag_DrawImage);
+            } else {
+                UI_SetNextColors((UI_Colors){ .background = (R_Color){ 1, 1, 1, 1 } });
+                UI_AddBlock(UI_Flag_DrawBackground);
+            }
+            Prog__Spacer(UI_Pixels(width), UI_Pixels(gap));
+            at += height + gap;
+        }
+        if (skipped > 0) Prog__Spacer(UI_Pixels(width), UI_Pixels(skipped));
+    }
+    if (wanted != UINT32_MAX && !state->pdfJob && view->rect.y1 > view->rect.y0) {
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_PdfPage;
+        input->path = StrCopy(&job->arena, state->previewPath);
+        input->offset = wanted;
+        input->size = (u64)width;
+        job->input = input;
+        state->pdfJob = job;
+        P_JobSubmit(job);
+    }
+    (void)theme;
+    Prog__ScrollBar(view, floorf(m->row * 3), S("InspectorPdf"), 1, m);
+}
+
 // The inspector's image: fitted, at its own size or zoomed, centered in the view and dragged to move it while it does not fit,
 // over a checkered grid, with a minimap of the part in sight.
 function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
@@ -8120,7 +8187,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     f32 inner = size - m->separator;
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
     b32 text = entry && !state->previewPicture && ((state->previewText.length && state->previewLines) || state->previewHex);
-    b32 image = entry && state->previewImage;
+    b32 pdf = entry && state->pdfPageCount && state->previewImage;
+    b32 image = entry && state->previewImage && !pdf;
     b32 archive = entry && Prog_PreviewsArchive(state, entry);
     b32 folder = entry && (entry->file.kind == P_FileKind_Directory || archive);
     UI_SetNextPrefWidth(below ? UI_Flex() : UI_Pixels(inner));
@@ -8203,6 +8271,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__InspectorHex(state, m);
         } else if (text) {
             Prog__InspectorText(state, m);
+        } else if (pdf) {
+            Prog__InspectorPdf(state, m);
         } else if (image) {
             Prog__InspectorImage(state, m);
         } else if (folder) {
@@ -8275,6 +8345,10 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
         if (footer) UI_Parent(footer) {
             if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
+            if (pdf) {
+                String pages = state->pdfPageCount == 1 ? S("1 page") : StrFormat(&state->frameArena, "%u pages", state->pdfPageCount);
+                Prog__LabelPadded(pages, UI_TextContent(), m->pill, 0, radius, theme->textDim, 0);
+            }
             if (image) {
                 // An image's scale, filled up to its own size.
                 f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(state->imageFit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
