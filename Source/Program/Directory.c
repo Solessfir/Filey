@@ -4795,6 +4795,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->thumbnailJobsArena);
     ArenaRelease(&state->thumbnailWaitArena);
+    ArenaRelease(&state->warmArena);
     ArenaRelease(&state->closedArena);
     ArenaRelease(&state->confirmArena);
     ArenaRelease(&state->placesArena);

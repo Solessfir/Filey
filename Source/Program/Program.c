@@ -2815,6 +2815,7 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     const Prog_Icon *icon = spinner ? spinner : !thumbnail ? Prog_FileIcon(state, state->directory.path, entry)
                           : Prog_ShowsThumbnails(state) ? Prog_ThumbnailIcon(state, state->directory.path, entry, (i32)size) : NULL;
     if (thumbnail && !icon) icon = Prog_ThumbnailStandIn(state, state->directory.path, entry, (i32)size);
+    if (!thumbnail) Prog_WarmThumbnail(state, state->directory.path, entry);
     if (thumbnail && !icon) {
         Prog__Spacer(UI_Pixels(width), UI_Pixels(height));
     } else if (icon) {

@@ -266,6 +266,7 @@ typedef struct Prog_IconRequest {
     b8 plain;          // its type's icon at a thumbnail's size, which stands in while the thumbnail loads
     b8 cacheOnly;      // a thumbnail from the system's cache only, which a request to make it follows when there is none
     b8 slowDisk;       // on a spinning disk, which makes one thumbnail at a time rather than seek between several
+    b8 warm;           // made for the system's cache only, for a file the list shows at its icon size, so that zooming in finds it there
 } Prog_IconRequest;
 
 typedef struct Prog_ArrayIconRequest { ArrayHeader header; Prog_IconRequest *v; } Prog_ArrayIconRequest;
@@ -1055,6 +1056,11 @@ typedef struct Prog_State {
     Arena thumbnailWaitArena;
     Prog_ArrayIconRequest thumbnailWaiting;
     u32 thumbnailsMaking, thumbnailsMakingSlow;
+    // Files the lists showed at the icon size whose thumbnails are made for the system's cache while no other thumbnail waits, the last shown
+    // first, and the ones asked for this run.
+    Arena warmArena;
+    Prog_ArrayIconRequest thumbnailWarming;
+    Prog_PathSet warmed;
     i32 iconSize;
     f32 iconScale;                       // the display scale iconSize was reached at
     // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
@@ -1519,6 +1525,7 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
 function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind);
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
 function void Prog_ReloadFolderIcon(Prog_State *state, String path);
+function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog_Entry *entry);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_FolderPicture(Prog_State *state, String path, i32 size);

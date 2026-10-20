@@ -53,6 +53,14 @@ function void Prog__IconJob(P_Job *job)
         P_Image image = {0};
         b32 thumbnail = request->size != input->iconSize && !request->plain;
         b32 loaded = false;
+        if (request->warm) {
+            // Nothing comes back: the system's cache keeps it, unless it had it already.
+            ProfileScope("WarmThumbnail") if (!P_LoadCachedThumbnail(scratch.arena, request->path, request->kind, request->size, &image)) {
+                P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, true, &job->cancelToken, &image);
+            }
+            ReleaseScratch(scratch);
+            continue;
+        }
         if (thumbnail && request->cacheOnly) ProfileScope("CachedThumbnail") loaded = P_LoadCachedThumbnail(scratch.arena, request->path, request->kind, request->size, &image);
         else if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
         else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, true, &image);
@@ -202,6 +210,28 @@ function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory
     return icon ? icon : Prog__ThumbnailElsewhere(state, slot, key);
 }
 
+// The size warmed thumbnails are made at, which the system's cache scales down for the icon views' tiers.
+enum { Prog_WarmSize = 256, Prog_MaxWarmed = 50000 };
+
+function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog_Entry *entry)
+{
+    if (state->iconSize <= 0 || entry->drive || entry->file.kind != P_FileKind_File || !Prog_ShowsThumbnails(state)) return;
+    String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
+    String key = StrFormat(&state->frameArena, "%S|%lld|%llu", P_FileThumbnailKey(&state->frameArena, path, P_FileKind_File), (long long)entry->file.modifiedTimeUnix,
+                           (unsigned long long)entry->file.size);
+    if (MapsGetPtrNull(state->warmed, key)) return;
+    if (state->warmed.header.count >= Prog_MaxWarmed) {
+        state->warmed = (Prog_PathSet){0};
+        state->thumbnailWarming = (Prog_ArrayIconRequest){0};
+        ArenaClear(&state->warmArena);
+    }
+    key = StrCopy(&state->warmArena, key);
+    MapsPut(&state->warmArena, state->warmed, key, true);
+    Prog_IconRequest request = { .path = StrCopy(&state->warmArena, path), .key = key, .kind = P_FileKind_File, .size = Prog_WarmSize, .warm = true,
+                                 .slowDisk = state->directory.driveKind == P_DriveKind_Spinning };
+    ArrayPush(&state->warmArena, state->thumbnailWarming, request);
+}
+
 // The picture of the folder at `path`, as its thumbnail shows it, at `size` squared, for the tab list.
 function const Prog_Icon *Prog_FolderPicture(Prog_State *state, String path, i32 size)
 {
@@ -287,6 +317,24 @@ function void Prog__MakeThumbnails(Prog_State *state)
         Prog_IconRequest request = waiting->v[best];
         MemMove(&waiting->v[best], &waiting->v[best + 1], (waiting->header.count - best - 1) * sizeof(request));
         --waiting->header.count;
+        P_Job *job = P_JobCreate(&state->thumbnailJobs, Prog__IconJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_Icons;
+        input->iconSize = state->iconSize;
+        input->iconScale = state->iconScale;
+        input->icons = ArenaPushStruct(&job->arena, Prog_IconRequest);
+        input->icons[0] = request;
+        input->icons[0].path = StrCopy(&job->arena, request.path);
+        input->icons[0].key = StrCopy(&job->arena, request.key);
+        input->iconCount = 1;
+        job->input = input;
+        ++state->thumbnailsMaking;
+        state->thumbnailsMakingSlow += request.slowDisk ? 1u : 0u;
+        P_JobSubmit(job);
+    }
+    // Only with nothing else to make, one at a time, the last one shown first.
+    if (!waiting->header.count && !state->thumbnailsMaking && state->thumbnailWarming.header.count) {
+        Prog_IconRequest request = state->thumbnailWarming.v[--state->thumbnailWarming.header.count];
         P_Job *job = P_JobCreate(&state->thumbnailJobs, Prog__IconJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->kind = Prog_JobKind_Icons;
@@ -417,6 +465,7 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
     for (u64 i = 0; i < input->iconCount; ++i) {
         Prog_IconRequest *request = &input->icons[i];
         b32 thumbnail = request->size != state->iconSize;
+        if (request->warm) continue;
         // Not in the system's cache: it waits to be made.
         if (request->cacheOnly && !pixels[i] && Prog__RequestedThumbnail(state, request)) {
             Prog_IconRequest made = *request;
