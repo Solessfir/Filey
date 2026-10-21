@@ -444,6 +444,10 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
             MemCopy(state->view, sorted, state->viewCount * sizeof(u64));
         }
         ReleaseScratch(scratch);
+        // Each row's place in the view, as a filter orders it by how well it matches rather than by row.
+        state->viewAt = ArenaPushArrayNoZero(&state->viewArena, Max(state->directory.count, (u64)1), u64);
+        for (u64 i = 0; i < state->directory.count; ++i) state->viewAt[i] = UINT64_MAX;
+        for (u64 p = 0; p < state->viewCount; ++p) state->viewAt[state->view[p]] = p;
         if (edited || !state->hasFocus || Prog_ViewPosition(state, state->focusedRow) == UINT64_MAX) {
             state->hasFocus = state->viewCount != 0;
             state->focusedRow = state->viewCount ? state->view[0] : 0;
@@ -466,13 +470,7 @@ function void Prog_ClearFilter(Prog_State *state)
 // Where listing row `row` is in the view, or UINT64_MAX when the filter hides it.
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row)
 {
-    u64 low = 0, high = state->viewCount;
-    while (low < high) {
-        u64 middle = low + (high - low) / 2;
-        if (state->view[middle] < row) low = middle + 1;
-        else high = middle;
-    }
-    return low < state->viewCount && state->view[low] == row ? low : UINT64_MAX;
+    return state->viewAt && row < state->directory.count ? state->viewAt[row] : UINT64_MAX;
 }
 
 // The last component of a folder path, or the whole path for a root such as "C:/" or "/".

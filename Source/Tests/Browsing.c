@@ -1128,6 +1128,25 @@ function void TestFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
     TestRenameType(&state, S("folder2"));
     Check(state.viewCount == 1 && state.hasFocus);
+    // Under a filter the view is in the order of the matches, and each row still finds its place in it, so that several can be selected and
+    // a delete takes those and no others.
+    {
+        TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+        TestRenameType(&state, S("txt"));
+        Check(state.viewCount >= 3);
+        for (u64 p = 0; p < state.viewCount; ++p) Check(Prog_ViewPosition(&state, state.view[p]) == p);
+        u64 first = state.view[0], third = state.view[2];
+        ArenaClear(&state.frameArena);
+        Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, first, 1, 0);
+        Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, third, 1, 0)->mods = KeyMod_Control;
+        Prog_ProcessCommands(&state);
+        String *paths = NULL;
+        u64 picked = Prog__SelectedPaths(&state, &state.frameArena, &paths);
+        Check(state.selectedCount == 2 && picked == 2 && state.directory.entries[first].selected && state.directory.entries[third].selected);
+        TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
+        TestRenameType(&state, S("folder2"));
+        Check(state.viewCount == 1 && state.hasFocus);
+    }
 
     // The clipboard and clicks in the box.
     TestRenameKey(&state, Key_A, KeyMod_Control | KeyMod_Shift);
