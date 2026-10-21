@@ -1575,11 +1575,12 @@ function void Prog__ExpandButton(Prog_State *state, b32 on, const Prog_Metrics *
     f32 width = Prog__ToolbarButtonWidth(m);
     Prog__PillButton(state, S("FilterExpand"), S(""), Prog_CommandKind_ToggleExpandFolder, on, m);
     UI_Block *button = UI->parent->last;
-    // Its pixels at 125%: "#" is ink, and "+" and "-" the softer pixels of its smoothed edges.
-    local_persist const char *const pixels[] = {
-        ".......+++++........",
+    // Its pixels at 125%: "#" is ink, and "+" and "-" the softer pixels of its smoothed edges. Expanded, the second folder hangs off the
+    // first, as in a tree; the pointer over it, not its state, lights it.
+    local_persist const char *const flat[] = {
+        ".......+++++-.......",
         "......+######-......",
-        "......+#+..+#######.",
+        "......+#+--+#######.",
         "......+#+...-######-",
         "-++++-+#+........+#-",
         "######+#+........+#-",
@@ -1590,23 +1591,48 @@ function void Prog__ExpandButton(Prog_State *state, b32 on, const Prog_Metrics *
         "....................",
         ".......+++++-.......",
         "......+######-......",
-        "......+#+..-#######.",
+        "......+#+..-#######-",
         "......+#+...-++++##-",
         "-++++-+#+........+#-",
         "######+#+........+#-",
-        "......+#+........+#-",
-        "......+#+........+#-",
+        ".----.+#+........+#-",
+        "......+#+--------+#-",
         "......+############-",
         ".......++++++++++++.",
     };
+    local_persist const char *const tree[] = {
+        ".....-++++-..........",
+        ".....######+.........",
+        ".....#+---#######+...",
+        ".....#+...-######+...",
+        "-++-.#+........-#+...",
+        "####-#+........-#+...",
+        "-++-.#+........-#+...",
+        ".....#+........-#+...",
+        ".....############+...",
+        ".....++++++++++++-...",
+        ".....................",
+        ".+-....-+++++........",
+        "-#+....+######.......",
+        "-#+....+#-..+#######.",
+        "-#+....+#-...-++++##.",
+        "-#++++-+#-........+#.",
+        "-#####++#-........+#.",
+        "..----.+#-........+#.",
+        ".......+#---------+#.",
+        ".......+############.",
+        "........+++++++++++-.",
+    };
+    static_assert(CArrayCount(flat) == CArrayCount(tree));
+    const char *const *pixels = on ? tree : flat;
     f32 unit = m->scale / 1.25f;
-    R_Color ink = on || UI->hotKey == button->key ? theme->text : theme->icon;
+    R_Color ink = UI->hotKey == button->key ? theme->text : theme->icon;
     // On whole pixels from where the button and the filter's pill were laid out last, since they can sit between them: a pixel right of the
     // button's middle and a pixel above the pill's, which keeps it in place while the button moves as the filter opens, as there.
     f32 x = floorf(button->rect.x0 + (width - 20 * unit) * 0.5f + unit) - button->rect.x0;
     f32 y = floorf(state->filterRect.y0 + (m->pill - 21 * unit) * 0.5f - unit + 0.5f) - button->rect.y0;
     UI_Parent(button) {
-        for (u32 row = 0; row < CArrayCount(pixels); ++row) {
+        for (u32 row = 0; row < CArrayCount(flat); ++row) {
             for (u32 at = 0; pixels[row][at];) {
                 char level = pixels[row][at];
                 u32 from = at;
