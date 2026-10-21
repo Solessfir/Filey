@@ -438,6 +438,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         String text = S(" M sub/b.txt\0A  sub/c.txt\0?? sub/deep/\0 M a.txt\0R  sub/n.txt\0sub/o.txt\0 D sub/deep2/gone.txt\0UU sub/x\0");
         Prog_GitStatus inside = {0}, top = {0};
         Prog_ReadGitChanges(&arena, S("C:/r"), S("C:/r/sub"), text, &inside);
+        Check(inside.counts[Prog_GitMark_Modified] == 3 && inside.counts[Prog_GitMark_Added] == 2 && inside.counts[Prog_GitMark_Conflict] == 1);
         Check(inside.changes == 7 && MapsGet(inside.marks, u8, S("b.txt")) == Prog_GitMark_Modified && MapsGet(inside.marks, u8, S("c.txt")) == Prog_GitMark_Added);
         Check(MapsGet(inside.marks, u8, S("deep")) == Prog_GitMark_Untracked && MapsGet(inside.marks, u8, S("n.txt")) == Prog_GitMark_Added);
         Check(MapsGet(inside.marks, u8, S("deep2")) == Prog_GitMark_Modified && MapsGet(inside.marks, u8, S("x")) == Prog_GitMark_Conflict);

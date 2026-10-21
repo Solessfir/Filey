@@ -75,6 +75,7 @@ chevrons-right
 move-horizontal
 rotate-ccw
 rotate-ccw-square
+git-branch
 monitor
 funnel
 square-check

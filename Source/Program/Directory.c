@@ -1251,14 +1251,15 @@ function void Prog_ReadGitChanges(Arena *arena, String root, String folder, Stri
         String path = StrFrom(record, 3);
         // A rename or copy names where it came from next.
         if (x == 'R' || x == 'C') ++i;
+        b32 conflict = x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D');
+        Prog_GitMark mark = conflict ? Prog_GitMark_Conflict : x == '?' ? Prog_GitMark_Untracked : x == 'A' || x == 'R' || x == 'C' ? Prog_GitMark_Added : Prog_GitMark_Modified;
         ++status->changes;
+        ++status->counts[mark];
         while (path.length && path.value[path.length - 1] == '/') --path.length;
         if (inside.length) {
             if (path.length <= inside.length || !Prog__StartsAt(path, 0, inside) || path.value[inside.length] != '/') continue;
             path = StrFrom(path, inside.length + 1);
         }
-        b32 conflict = x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D');
-        Prog_GitMark mark = conflict ? Prog_GitMark_Conflict : x == '?' ? Prog_GitMark_Untracked : x == 'A' || x == 'R' || x == 'C' ? Prog_GitMark_Added : Prog_GitMark_Modified;
         // A deleted file is no longer listed; the folders it was in are.
         if (x == 'D' || y == 'D') {
             Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
@@ -4599,6 +4600,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (status && StrIsEqual(input->path, state->directory.path)) {
                 ArenaClear(&state->gitArena);
                 state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
+                MemCopy(state->git.counts, status->counts, sizeof(state->git.counts));
                 for (u64 i = 0; i < status->marks.header.count; ++i) {
                     MapsPut(&state->gitArena, state->git.marks, StrCopy(&state->gitArena, status->marks.v[i].key), status->marks.v[i].value);
                 }

@@ -2353,28 +2353,30 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
 
 function R_Color Prog__GitInk(Prog_GitMark mark);
 
-// The branch of the git repository the shown folder is in, with the commits to push and to pull beside it when there are any.
+// The branch of the git repository the shown folder is in, in the path's font: the commits to push and to pull beside it, then the changes
+// not yet committed by kind, each in the color its files take in the list.
 function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->git.branch.length) return;
     const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 bar = Prog__StripHeight(m), gap = floorf(4.8f * m->scale + 0.5f);
+    Arena *frame = &state->frameArena;
+    f32 bar = Prog__StripHeight(m), gap = floorf(8.0f * m->scale + 0.5f), close = floorf(3.2f * m->scale + 0.5f);
     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
-    UI_SetNextFont(m->detail);
-    Prog__Label(state->git.branch, UI_TextContent(), bar, 0, theme->textDim, 0);
+    Prog__Icon(Icon_GitBranch, 0, bar, theme->icon, 0.5f, m);
+    Prog__Spacer(UI_Pixels(close), UI_Pixels(bar));
+    Prog__Label(state->git.branch, UI_TextContent(), bar, 0, theme->text, 0);
     for (u32 side = 0; side < 2; ++side) {
         i32 count = side ? state->git.behind : state->git.ahead;
         if (count <= 0) continue;
         Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
         Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, bar, theme->textMatch, 0.5f, m);
-        UI_SetNextFont(m->detail);
-        Prog__Label(StrFormat(&state->frameArena, "%d", count), UI_TextContent(), bar, 0, theme->textMatch, 0);
+        Prog__Label(StrFormat(frame, "%d", count), UI_TextContent(), bar, 0, theme->textMatch, 0);
     }
-    // The changes not yet committed, in the color of a changed file.
-    if (state->git.changes) {
+    local_persist const char *const signs[Prog_GitMark_Count] = { 0, "?", "+", "~", "!" };
+    for (u32 mark = Prog_GitMark_Untracked; mark < Prog_GitMark_Count; ++mark) {
+        if (!state->git.counts[mark]) continue;
         Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
-        UI_SetNextFont(m->detail);
-        Prog__Label(StrFormat(&state->frameArena, "\u25CF %u", state->git.changes), UI_TextContent(), bar, 0, Prog__GitInk(Prog_GitMark_Modified), 0);
+        Prog__Label(StrFormat(frame, "%s%u", signs[mark], state->git.counts[mark]), UI_TextContent(), bar, 0, Prog__GitInk((Prog_GitMark)mark), 0);
     }
     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
 }

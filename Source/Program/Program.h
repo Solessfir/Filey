@@ -460,6 +460,7 @@ typedef struct Prog_GitStatus {
     String branch;
     i32 ahead, behind;
     u32 changes;
+    u32 counts[Prog_GitMark_Count];  // the changes by kind, a deletion counted as a change
     Prog_GitMarks marks;
 } Prog_GitStatus;
 
