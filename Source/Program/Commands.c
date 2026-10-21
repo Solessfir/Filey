@@ -3716,6 +3716,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         Prog__UpdatePreview(state);
     }
     Prog__UsePanel(state, state->activePanel);
+    Prog_KeepLockedView(state);
     // Transfers redraw while they run, for their progress and questions.
     b32 transferring = false;
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;

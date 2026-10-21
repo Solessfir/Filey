@@ -3503,17 +3503,13 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
         default: return;
     }
     state->columnSet = set;
-    // A column added from the menu is kept for the folder, which locks its view; a locked folder keeps every change to its columns but
-    // their widths, which a drag changes frame by frame. The panel's own view stays as it was.
-    b32 locked = Prog_FolderView(state, state->directory.path, &kept);
-    if (state->directory.path.length && kind != Prog_CommandKind_ColumnResize && (locked || kind == Prog_CommandKind_ColumnToggle)) {
-        if (!locked) kept = before;
+    // A column added from the menu is kept for the folder, which locks its view, while the panel's own view stays as it was.
+    if (state->directory.path.length && kind == Prog_CommandKind_ColumnToggle && !Prog_FolderView(state, state->directory.path, &kept)) {
+        kept = before;
         kept.columns = set;
         Prog__SetFolderView(state, state->directory.path, &kept);
-        if (!locked) {
-            Prog__ApplyFolderView(state, state->directory.path);
-            state->ownSettings = before;
-        }
+        Prog__ApplyFolderView(state, state->directory.path);
+        state->ownSettings = before;
     }
     if (Prog_ShowsGit(state) && !state->repos.header.count && !state->reposJob) Prog_RequestRepos(state);
 }
@@ -3671,6 +3667,20 @@ function void Prog__ApplyFolderView(Prog_State *state, String path)
     }
 }
 
+// A locked folder keeps what its view is changed to, once nothing is being dragged, such as a column's edge.
+function void Prog_KeepLockedView(Prog_State *state)
+{
+    Prog_ViewSettings saved;
+    if (!state->ownView || (UI && UI->activeKey) || !state->directory.path.length || !Prog_FolderView(state, state->directory.path, &saved)) return;
+    Prog_ViewSettings shown = Prog_CurrentView(state);
+    Scratch scratch = GetScratch();
+    // The columns by their text, which rounds their shares as the file does.
+    b32 same = shown.zoom == saved.zoom && shown.sort == saved.sort && shown.descending == saved.descending && shown.folders == saved.folders &&
+               StrIsEqual(Prog_ColumnsText(scratch.arena, shown.columns), Prog_ColumnsText(scratch.arena, saved.columns));
+    ReleaseScratch(scratch);
+    if (!same) Prog__SetFolderView(state, state->directory.path, &shown);
+}
+
 // Back to the panel's own view after the shown folder's lets go of its, listed again when its order changes.
 function void Prog__RestoreOwnView(Prog_State *state)
 {
@@ -3681,8 +3691,8 @@ function void Prog__RestoreOwnView(Prog_State *state)
     if (resort) Prog_Reload(state);
 }
 
-// Locks the shown folder's view as the panel shows it, or unlocks it. What the panel shows stays either way, so that a view changed
-// while locked is kept by unlocking and locking again; the panel's own comes back in the next folder without a lock.
+// Locks the shown folder's view as the panel shows it, or unlocks it. What the panel shows stays either way; the panel's own comes back in
+// the next folder without a lock.
 function void Prog_ToggleFolderView(Prog_State *state)
 {
     String path = state->directory.path;
