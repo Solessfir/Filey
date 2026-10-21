@@ -74,6 +74,7 @@ chevrons-left
 chevrons-right
 move-horizontal
 rotate-ccw
+rotate-ccw-square
 monitor
 funnel
 square-check

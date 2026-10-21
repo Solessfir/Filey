@@ -1190,6 +1190,26 @@ function String Prog_PickerFieldText(Prog_State *state, Arena *arena, u32 field)
     }
 }
 
+// Stops typing in a color group's hex box; `keep` sets the group to its six digits, saved in the shown custom scheme.
+function void Prog_EndHexEdit(Prog_State *state, b32 keep)
+{
+    String text = Prog_EditText(&state->hexEdit), name;
+    Prog_Option option = (Prog_Option)state->hexOption;
+    state->hexOption = 0;
+    if (!keep || text.length != 6 || Prog_ShownScheme(state, &name) < Prog_BuiltInSchemes) return;
+    u32 rgb = 0;
+    for (u64 i = 0; i < text.length; ++i) {
+        u8 c = (u8)text.value[i];
+        rgb = rgb * 16 + (u32)(c <= '9' ? c - '0' : c - 'A' + 10);
+    }
+    state->schemeGroups[option - Prog_Option_ColorClear] = rgb;
+    Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
+    Prog__ApplyTheme(state);
+    Scratch scratch = GetScratch();
+    Prog_SetScheme(state, StrCopy(scratch.arena, name), Prog_SchemeText(scratch.arena, state->schemeGroups), false);
+    ReleaseScratch(scratch);
+}
+
 // The box being typed in changes the color as soon as it reads as one: a number up to its channel's greatest, or six hex digits.
 function void Prog_PickerTyped(Prog_State *state)
 {
@@ -5850,19 +5870,23 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             Prog__Icon(state->colorsExpanded ? Icon_ChevronDown : Icon_ChevronRight, floorf(20.8f * s + 0.5f), height, theme->icon, 0.5f, m);
         } break;
         case Prog_OptionControl_Color: {
-            // The color's hex digits in a field, and a swatch of it beside them, which a click opens the picker for.
+            // The color's hex digits in a field, which a press types in, and a swatch of it beside them, which a click opens the picker for.
             R_Color color = Prog_OptionColor(state, option);
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionColor/%u", (u32)option));
-            b32 hot = UI->hotKey == key;
+            b32 hot = UI->hotKey == key, typing = state->hexOption == option;
             f32 field = floorf(96.0f * s + 0.5f), gap = floorf(6.4f * s + 0.5f);
             UI_SetNextPrefWidth(UI_Pixels(field));
             UI_SetNextPrefHeight(UI_Pixels(height));
             UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
             UI_SetNextCornerRadius(radius);
             UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = theme->outline, .text = theme->text });
-            UI_SetNextText(StrFormat(frame, "%06X", state->schemeGroups[option - Prog_Option_ColorClear]));
-            UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
+            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = typing ? theme->outlineSelection : theme->outline, .text = theme->text });
+            if (!typing) UI_SetNextText(StrFormat(frame, "%06X", state->schemeGroups[option - Prog_Option_ColorClear]));
+            UI_Block *hex = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionHex/%u", (u32)option)),
+                                               UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip | (typing ? 0 : UI_Flag_DrawText));
+            UI_Interaction press = UI_InteractionFromBlock(hex);
+            if (press.pressed && !typing) Prog_QueueCommand(state, Prog_CommandKind_ColorHexEdit, (u64)option, 0, press.pressOrder);
+            if (typing) UI_Parent(hex) Prog__EditContents(&state->hexEdit, floorf(4.0f * s + 0.5f), floorf((height - m->line) * 0.5f), true, 0, m);
             Prog__Spacer(UI_Pixels(gap), UI_Pixels(height));
             UI_SetNextPrefWidth(UI_Pixels(width - field - gap));
             UI_SetNextPrefHeight(UI_Pixels(height));
@@ -5894,6 +5918,15 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             b32 hot = UI->hotKey == key;
             b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
             b32 open = schemes && state->schemesOpen == option + 1;
+            // A scheme other than its default offers to go back to it.
+            i32 standard = option == Prog_Option_LightScheme ? 1 : 0;
+            if (schemes && value != standard) {
+                UI_Interaction restore = Prog__TextButton(StrFormat(frame, "OptionRestore/%u", (u32)option), Icon_RotateCcwSquare, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)),
+                                                          height, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+                if (restore.clicked) Prog__QueueOption(state, option, standard, restore.clickOrder, false);
+                Prog__PopupTooltip(state, S("Restore default setting."));
+                Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(height));
+            }
             UI_SetNextPrefWidth(UI_Pixels(width));
             UI_SetNextPrefHeight(UI_Pixels(height));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);

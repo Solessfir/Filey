@@ -2,7 +2,7 @@
 #pragma once
 
 #define Icon_FirstRune 0xE000
-#define Icon_Count     79
+#define Icon_Count     80
 
 #define Icon_ArrowLeft         S("\uE000")
 #define Icon_ArrowRight        S("\uE001")
@@ -76,13 +76,14 @@
 #define Icon_ChevronsRight     S("\uE045")
 #define Icon_MoveHorizontal    S("\uE046")
 #define Icon_RotateCcw         S("\uE047")
-#define Icon_Monitor           S("\uE048")
-#define Icon_Funnel            S("\uE049")
-#define Icon_SquareCheck       S("\uE04A")
-#define Icon_Pause             S("\uE04B")
-#define Icon_Play              S("\uE04C")
-#define Icon_StarFilled        S("\uE04D")
-#define Icon_HardDriveDownload S("\uE04E")
+#define Icon_RotateCcwSquare   S("\uE048")
+#define Icon_Monitor           S("\uE049")
+#define Icon_Funnel            S("\uE04A")
+#define Icon_SquareCheck       S("\uE04B")
+#define Icon_Pause             S("\uE04C")
+#define Icon_Play              S("\uE04D")
+#define Icon_StarFilled        S("\uE04E")
+#define Icon_HardDriveDownload S("\uE04F")
 
 global const u8 Icon_FontData[] = {
 #embed "../Lib/Lucide/Lucide.ttf"

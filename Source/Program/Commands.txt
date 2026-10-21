@@ -1615,6 +1615,10 @@ command ColorPickerOpen {
 command ColorPickerSet {
 }
 
+// A press on a color group's hex box, which starts typing in it; carries the group's option.
+command ColorHexEdit {
+}
+
 // A press on one of the color picker's number boxes, which starts typing in it; carries the box, 1 to 7 for H, S, B, R, G, B and the hex.
 command ColorPickerEdit {
 }

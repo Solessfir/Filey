@@ -2656,6 +2656,17 @@ function void TestSettings(void)
         // Closing the picker keeps the colors in the scheme, by the groups' names.
         Prog_CloseColorPicker(&look);
         Check(StrIndexStr(look.schemeTexts.v[2], S("Background = #FF0000\n"), SSF_None).exists);
+        // A group's hex box sets the group, saved too, from six digits only; fewer leave it as it was.
+        look.hexOption = Prog_Option_ColorText;
+        look.hexEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&look.hexEdit, (const u8 *)"12AB", 4);
+        Prog_EndHexEdit(&look, true);
+        Check(!look.hexOption && look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] != 0x12AB);
+        look.hexOption = Prog_Option_ColorText;
+        look.hexEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&look.hexEdit, (const u8 *)"12AB34", 6);
+        Prog_EndHexEdit(&look, true);
+        Check(look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x12AB34 && StrIndexStr(look.schemeTexts.v[2], S("#12AB34"), SSF_None).exists);
         // The pointer's options and their defaults.
         Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
         Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));

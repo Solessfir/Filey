@@ -3024,6 +3024,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->colorPicking) Prog_PickHex(state, state->pickerOriginal);
                 Prog_CloseColorPicker(state);
             } break;
+            case Prog_CommandKind_ColorHexEdit: {
+                Prog_Option option = (Prog_Option)command->row;
+                if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorMatchDisabledSelection) break;
+                state->hexOption = (u8)option;
+                state->hexEdit = (Prog_TextEdit){0};
+                String text = StrFormat(&state->frameArena, "%06X", state->schemeGroups[option - Prog_Option_ColorClear]);
+                Prog__EditReplace(&state->hexEdit, (const u8 *)text.value, (u32)text.length);
+                state->hexEdit.anchor = state->hexEdit.cursor;
+                // Its row takes the highlight, as a press on the row would.
+                u8 options[Prog_Option_Count];
+                u32 shown = Prog_OptionMatches(state, options);
+                for (u32 i = 0; i < shown; ++i) if (options[i] == option) state->paletteHighlight = i;
+            } break;
             case Prog_CommandKind_ColorPickerEdit: {
                 if (!state->colorPicking || command->row < 1 || command->row > 7) break;
                 state->pickerField = (u8)command->row;
@@ -3844,6 +3857,24 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_SchemesPick, state->schemesHighlight, 0, order);
             else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Up && count) state->schemesHighlight = (state->schemesHighlight + count - 1) % count;
             else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Down && count) state->schemesHighlight = (state->schemesHighlight + 1) % count;
+            continue;
+        }
+        // A color group's hex box being typed in takes hex digits, six at most; Enter or a press anywhere sets the color, and Escape leaves it.
+        if (state->hexOption && !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_Options)) state->hexOption = 0;
+        if (state->hexOption && event->kind == PlatformEventKind_MouseDown) Prog_EndHexEdit(state, true);
+        if (state->hexOption && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            Prog_TextEdit *hex = &state->hexEdit;
+            if (event->kind == PlatformEventKind_Text) {
+                rune c = event->codepoint;
+                u32 selected = hex->cursor > hex->anchor ? hex->cursor - hex->anchor : hex->anchor - hex->cursor;
+                b32 digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                if (digit && hex->length - selected < 6) Prog__EditInsert(hex, c >= 'a' ? c - 32 : c);
+            } else if (event->key == Key_Escape || event->key == Key_Enter) {
+                Prog_EndHexEdit(state, event->key == Key_Enter);
+                state->swallowText = true;
+            } else {
+                Prog__EditKey(state, hex, event);
+            }
             continue;
         }
         // The color picker takes the keyboard: a number box being typed in takes digits, or the hex box hex digits, and changes the color as
