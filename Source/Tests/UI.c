@@ -119,6 +119,9 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 }
 
 function void R_TextureSmooth(R_TextureHandle texture) {}
+function R_MeshHandle R_MeshCreate(const f32 *positions, u32 vertexCount, const u32 *indices, u64 indexCount) { return (R_MeshHandle){ { 1, 1 } }; }
+function void R_MeshRelease(R_MeshHandle mesh) {}
+function void R_MeshDraw(R_MeshHandle mesh, R_TextureHandle target, i32 width, i32 height, const f32 view[16], R_Color color) {}
 
 function void R_TextureRelease(R_TextureHandle texture)
 {

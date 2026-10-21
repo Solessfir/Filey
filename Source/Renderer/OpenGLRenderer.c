@@ -52,7 +52,15 @@ typedef i64       GLsizeiptr;
 #define GL_LINEAR                0x2601
 #define GL_LINEAR_MIPMAP_LINEAR  0x2703
 #define GL_TEXTURE_LOD_BIAS      0x8501
-#define GL_TEXTURE_LOD_BIAS      0x8501
+#define GL_DEPTH_TEST            0x0B71
+#define GL_DEPTH_BUFFER_BIT      0x00000100
+#define GL_ELEMENT_ARRAY_BUFFER  0x8893
+#define GL_STATIC_DRAW           0x88E4
+#define GL_UNSIGNED_INT          0x1405
+#define GL_RENDERBUFFER          0x8D41
+#define GL_DEPTH_COMPONENT24     0x81A6
+#define GL_DEPTH_ATTACHMENT      0x8D00
+#define GL_DRAW_FRAMEBUFFER      0x8CA9
 #define GL_FRAMEBUFFER           0x8D40
 #define GL_READ_FRAMEBUFFER      0x8CA8
 #define GL_COLOR_ATTACHMENT0     0x8CE0
@@ -108,7 +116,19 @@ typedef i64       GLsizeiptr;
     X(void,            GenFramebuffers,         GLsizei n, GLuint *framebuffers) \
     X(void,            BindFramebuffer,         GLenum target, GLuint framebuffer) \
     X(void,            FramebufferTexture2D,    GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) \
-    X(void,            Uniform1i,               GLint location, GLint v0)
+    X(void,            Uniform1i,               GLint location, GLint v0) \
+    X(void,            Disable,                 GLenum cap) \
+    X(void,            DrawElements,            GLenum mode, GLsizei count, GLenum type, const void *indices) \
+    X(void,            DeleteBuffers,           GLsizei n, const GLuint *buffers) \
+    X(void,            DeleteVertexArrays,      GLsizei n, const GLuint *arrays) \
+    X(void,            GenRenderbuffers,        GLsizei n, GLuint *renderbuffers) \
+    X(void,            BindRenderbuffer,        GLenum target, GLuint renderbuffer) \
+    X(void,            DeleteRenderbuffers,     GLsizei n, const GLuint *renderbuffers) \
+    X(void,            RenderbufferStorageMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) \
+    X(void,            FramebufferRenderbuffer, GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) \
+    X(void,            BlitFramebuffer,         GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) \
+    X(void,            UniformMatrix4fv,        GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) \
+    X(void,            Uniform4f,               GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)
 
 #define X(ret, name, ...) typedef ret GL_API GL_##name##Fn(__VA_ARGS__);
 GL_FUNCTIONS(X)
@@ -180,7 +200,49 @@ typedef struct GL_State {
     u32              shape;
     GLuint           sourceTexture;
     b32              inSource;
+    // Meshes are drawn into a texture through a multisampled color and depth target, made at the largest size asked for so far.
+    GLuint           meshProgram;
+    GLint            meshViewLocation, meshScaleLocation, meshColorLocation;
+    GLuint           meshFramebuffer, meshColor, meshDepth;
+    i32              meshWidth, meshHeight;
 } GL_State;
+
+// A mesh's handle holds its vertex array and position buffer in its first word, and its index buffer and index count in its second.
+typedef struct GL_Mesh {
+    GLuint vertexArray, positions, indices;
+    GLsizei count;
+} GL_Mesh;
+
+function GL_Mesh GL__MeshFromHandle(R_MeshHandle handle)
+{
+    return (GL_Mesh){ (GLuint)handle.u64[0], (GLuint)(handle.u64[0] >> 32), (GLuint)handle.u64[1], (GLsizei)(handle.u64[1] >> 32) };
+}
+
+// The mesh shader: vertices in a view space where X and Y from -1 to 1 fill the target's shorter side, upside down, as a texture's first
+// row is its top; Z from -1 to 1, nearer larger. Each triangle is lit by its own normal, from the screen-space slopes of its view
+// positions, turned toward the view, so that meshes wound either way look alike.
+global const char *GL_MeshVertexShader =
+    "#version 330 core\n"
+    "layout(location = 0) in vec3 aPosition;\n"
+    "uniform mat4 uView;\n"
+    "uniform vec4 uScale;\n"
+    "out vec3 vView;\n"
+    "void main() {\n"
+    "    vView = (uView * vec4(aPosition, 1.0)).xyz;\n"
+    "    gl_Position = vec4(vView.x * uScale.x, -vView.y * uScale.y, -vView.z * 0.5, 1.0);\n"
+    "}\n";
+
+global const char *GL_MeshFragmentShader =
+    "#version 330 core\n"
+    "in vec3 vView;\n"
+    "uniform vec4 uColor;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));\n"
+    "    if (n.z < 0.0) n = -n;\n"
+    "    float light = max(dot(n, vec3(-0.398, 0.597, 0.697)), 0.0);\n"
+    "    fragColor = vec4(uColor.rgb * (0.22 + 0.78 * light), 1.0);\n"
+    "}\n";
 
 global GL_State GL;
 
@@ -366,6 +428,21 @@ function b32 R_Init(void)
     GL.GenVertexArrays(1, &GL.blurVertexArray);
     GL.GenFramebuffers(1, &GL.framebuffer);
 
+    GLuint meshVertex = GL__CompileShader(GL_VERTEX_SHADER, GL_MeshVertexShader), meshFragment = GL__CompileShader(GL_FRAGMENT_SHADER, GL_MeshFragmentShader);
+    if (meshVertex == 0 || meshFragment == 0) return false;
+    GL.meshProgram = GL.CreateProgram();
+    GL.AttachShader(GL.meshProgram, meshVertex);
+    GL.AttachShader(GL.meshProgram, meshFragment);
+    GL.LinkProgram(GL.meshProgram);
+    GL.DeleteShader(meshVertex);
+    GL.DeleteShader(meshFragment);
+    GL.GetProgramiv(GL.meshProgram, GL_LINK_STATUS, &linked);
+    if (!linked) return false;
+    GL.meshViewLocation = GL.GetUniformLocation(GL.meshProgram, "uView");
+    GL.meshScaleLocation = GL.GetUniformLocation(GL.meshProgram, "uScale");
+    GL.meshColorLocation = GL.GetUniformLocation(GL.meshProgram, "uColor");
+    GL.GenFramebuffers(1, &GL.meshFramebuffer);
+
     GL.GenVertexArrays(1, &GL.vertexArray);
     GL.BindVertexArray(GL.vertexArray);
     GL.GenBuffers(1, &GL.instanceBuffer);
@@ -430,6 +507,80 @@ function void R_TextureSmooth(R_TextureHandle texture)
     GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     // A level sharper than the size asks for: blending toward the next smaller level softens text, and a still picture shows no shimmer.
     GL.TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -1.0f);
+}
+
+function R_MeshHandle R_MeshCreate(const f32 *positions, u32 vertexCount, const u32 *indices, u64 indexCount)
+{
+    if (!vertexCount || !indexCount || indexCount > INT32_MAX) return (R_MeshHandle){0};
+    GL_Mesh made = { .count = (GLsizei)indexCount }, *mesh = &made;
+    GL.GenVertexArrays(1, &mesh->vertexArray);
+    GL.BindVertexArray(mesh->vertexArray);
+    GL.GenBuffers(1, &mesh->positions);
+    GL.BindBuffer(GL_ARRAY_BUFFER, mesh->positions);
+    GL.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)vertexCount * 12, positions, GL_STATIC_DRAW);
+    GL.EnableVertexAttribArray(0);
+    GL.VertexAttribPointer(0, 3, GL_FLOAT, 0, 12, NULL);
+    GL.GenBuffers(1, &mesh->indices);
+    GL.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices);
+    GL.BufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)indexCount * 4, indices, GL_STATIC_DRAW);
+    // The 2D batches keep their own vertex array bound.
+    GL.BindVertexArray(GL.vertexArray);
+    GL.BindBuffer(GL_ARRAY_BUFFER, GL.instanceBuffer);
+    return (R_MeshHandle){ { (u64)made.vertexArray | (u64)made.positions << 32, (u64)made.indices | (u64)(u32)made.count << 32 } };
+}
+
+function void R_MeshRelease(R_MeshHandle handle)
+{
+    GL_Mesh mesh = GL__MeshFromHandle(handle);
+    if (!mesh.vertexArray) return;
+    GL.DeleteBuffers(1, &mesh.positions);
+    GL.DeleteBuffers(1, &mesh.indices);
+    GL.DeleteVertexArrays(1, &mesh.vertexArray);
+}
+
+function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width, i32 height, const f32 view[16], R_Color color)
+{
+    GL_Mesh mesh = GL__MeshFromHandle(handle);
+    if (!mesh.vertexArray || !target.u64[0] || width <= 0 || height <= 0) return;
+    if (width > GL.meshWidth || height > GL.meshHeight) {
+        GL.meshWidth = Max(GL.meshWidth, width), GL.meshHeight = Max(GL.meshHeight, height);
+        if (GL.meshColor) GL.DeleteRenderbuffers(1, &GL.meshColor);
+        if (GL.meshDepth) GL.DeleteRenderbuffers(1, &GL.meshDepth);
+        GL.GenRenderbuffers(1, &GL.meshColor);
+        GL.BindRenderbuffer(GL_RENDERBUFFER, GL.meshColor);
+        GL.RenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8, GL.meshWidth, GL.meshHeight);
+        GL.GenRenderbuffers(1, &GL.meshDepth);
+        GL.BindRenderbuffer(GL_RENDERBUFFER, GL.meshDepth);
+        GL.RenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_DEPTH_COMPONENT24, GL.meshWidth, GL.meshHeight);
+    }
+    GL.BindFramebuffer(GL_FRAMEBUFFER, GL.meshFramebuffer);
+    GL.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, GL.meshColor);
+    GL.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, GL.meshDepth);
+    GL.Viewport(0, 0, width, height);
+    GL.Disable(GL_SCISSOR_TEST);
+    GL.Disable(GL_BLEND);
+    GL.Enable(GL_DEPTH_TEST);
+    GL.ClearColor(0, 0, 0, 0);
+    GL.Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    GL.UseProgram(GL.meshProgram);
+    GL.UniformMatrix4fv(GL.meshViewLocation, 1, 0, view);
+    f32 shorter = (f32)Min(width, height);
+    GL.Uniform4f(GL.meshScaleLocation, shorter / (f32)width, shorter / (f32)height, 0, 0);
+    GL.Uniform4f(GL.meshColorLocation, color.r, color.g, color.b, color.a);
+    GL.BindVertexArray(mesh.vertexArray);
+    GL.DrawElements(GL_TRIANGLES, mesh.count, GL_UNSIGNED_INT, NULL);
+    // Resolved into the target texture through the blur's framebuffer, which is free between frames.
+    GL.BindFramebuffer(GL_READ_FRAMEBUFFER, GL.meshFramebuffer);
+    GL.BindFramebuffer(GL_DRAW_FRAMEBUFFER, GL.framebuffer);
+    GL.FramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GL__TextureRefFromHandle(target), 0);
+    GL.BlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    GL.BindFramebuffer(GL_FRAMEBUFFER, 0);
+    GL.Disable(GL_DEPTH_TEST);
+    GL.Enable(GL_BLEND);
+    GL.Enable(GL_SCISSOR_TEST);
+    GL.Viewport(0, 0, GL.width, GL.height);
+    GL.UseProgram(GL.program);
+    GL.BindVertexArray(GL.vertexArray);
 }
 
 function R_Rect GL__CurrentClip(void)

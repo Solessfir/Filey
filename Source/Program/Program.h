@@ -470,6 +470,16 @@ typedef enum Prog_Token {
     Prog_Token_Count,
 } Prog_Token;
 
+// A 3D model's mesh as the GPU draws it: positions, Y up, and three indices a triangle, all in range, with its bounds' center and radius.
+typedef struct Prog_ModelShape {
+    f32 *positions;
+    u32 vertexCount;
+    u32 *indices;
+    u64 indexCount;
+    f32 center[3];
+    f32 radius;
+} Prog_ModelShape;
+
 typedef struct Prog_Preview {
     u32 *pixels;
     i32 width, height;              // of pixels
@@ -484,6 +494,7 @@ typedef struct Prog_Preview {
     b32 archiveCounted;
     u32 pdfPages;                   // a PDF's pages, with each one's width and height in points
     f32 *pdfSizes;
+    Prog_ModelShape model;          // a 3D model's mesh, when it has indices
 } Prog_Preview;
 
 // Pages of a PDF read at most, and drawn ones kept at once, each in a texture of its own.
@@ -1309,6 +1320,16 @@ typedef struct Prog_State {
     P_Job *previewJob;
     String previewText;
     R_TextureHandle previewTexture;
+    // A 3D model the inspector shows, turned by dragging and zoomed by the wheel: its mesh on the GPU, its bounds, the view's turn about
+    // the up axis and tip toward the view in radians and its zoom, and the texture it is drawn into, redrawn as the view or its size changes.
+    R_MeshHandle previewMesh;
+    f32 modelCenter[3], modelRadius;
+    f32 modelYaw, modelPitch, modelZoom;
+    UI_Vec2 modelDragFrom;
+    R_TextureHandle modelTexture;
+    i32 modelTextureWidth, modelTextureHeight;
+    f32 modelDrawn[3];
+    b32 modelStale;
     b32 previewPicture;       // the texture holds previewPath's picture
     i32 previewTextureWidth, previewTextureHeight;
     b32 previewImage;         // the picture is the image file's own, previewImageWidth by previewImageHeight
@@ -1533,7 +1554,8 @@ function String Prog_JoinPath(Arena *arena, String path, String name);
 // The path the crumbs show, where the shown folder ends in it, and where each crumb ends, up to `max`; none in This PC.
 function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 *ends, u32 max);
 // A picture of Prog_PreviewSize squared of the 3D model in the file of `size` bytes at `path`; NULL for a file that is not one or does not read.
-function u32 *Prog_ModelPreview(Arena *arena, String path, u64 size, const P_CancelToken *cancel);
+// The model at `path` as a mesh for the GPU, Y up, with only triangles whose vertices are there, and the center and radius of its bounds.
+function b32 Prog_ModelMesh(Arena *arena, String path, u64 size, const P_CancelToken *cancel, Prog_ModelShape *shape);
 // A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.
 function b32 Prog_IsOffice(String path);
 function String Prog_OfficeText(Arena *arena, String path, u64 size);

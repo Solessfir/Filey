@@ -1026,141 +1026,6 @@ function b32 Prog__ReadFbx(Arena *arena, String data, const P_CancelToken *cance
 // Drawing
 // -----------------------------------------------------------------------------
 
-// Draws `mesh` into `size` squared straight RGBA pixels, seen from in front of it, above and to its right without perspective, fitted to the
-// square and lit from the upper left, on a clear background. It draws at twice the size and averages, for smooth edges. Each triangle shows
-// the side that faces the view, so that meshes wound either way look alike. NULL when nothing was drawn or the job was cancelled.
-function u32 *Prog_DrawMesh(Arena *arena, const Prog_Mesh *mesh, i32 size, const P_CancelToken *cancel)
-{
-    u64 vertices = mesh->positions.header.count / 3, triangles = mesh->indices.header.count / 3;
-    if (!vertices || !triangles || size <= 0) return NULL;
-    Scratch scratch = GetScratchEx(arena);
-    u32 *result = NULL;
-    // Turned 30 degrees about the up axis and tipped 20 degrees toward the view.
-    f32 cy = 0.8660254f, sy = 0.5f, cp = 0.9396926f, sp = 0.3420201f;
-    f32 *view = ArenaPushArrayNoZero(scratch.arena, vertices * 3, f32);
-    u8 *valid = ArenaPushArrayNoZero(scratch.arena, vertices, u8);
-    f32 minX = INFINITY, minY = INFINITY, maxX = -INFINITY, maxY = -INFINITY;
-    const f32 *positions = mesh->positions.v;
-    for (u64 i = 0; i < vertices; ++i) {
-        f32 x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
-        if (mesh->zUp) {
-            f32 up = z;
-            z = -y;
-            y = up;
-        }
-        f32 x1 = cy * x - sy * z, z1 = sy * x + cy * z;
-        f32 y2 = cp * y - sp * z1, z2 = sp * y + cp * z1;
-        view[i * 3] = x1;
-        view[i * 3 + 1] = y2;
-        view[i * 3 + 2] = z2;
-        valid[i] = (u8)(isfinite(x1) && isfinite(y2) && isfinite(z2));
-        if (valid[i]) {
-            minX = MinF32(minX, x1), maxX = MaxF32(maxX, x1);
-            minY = MinF32(minY, y2), maxY = MaxF32(maxY, y2);
-        }
-    }
-    i32 side = size * 2;
-    if (minX <= maxX) {
-        f32 extent = MaxF32(maxX - minX, maxY - minY);
-        f32 scale = extent > 0 ? (f32)side * 0.88f / extent : 1;
-        f32 ox = (f32)side * 0.5f - (minX + maxX) * 0.5f * scale, oy = (f32)side * 0.5f + (minY + maxY) * 0.5f * scale;
-        for (u64 i = 0; i < vertices; ++i) {
-            view[i * 3] = view[i * 3] * scale + ox;
-            view[i * 3 + 1] = oy - view[i * 3 + 1] * scale;
-            view[i * 3 + 2] *= scale;
-        }
-        u64 samples = (u64)side * (u64)side;
-        f32 *depth = ArenaPushArrayNoZero(scratch.arena, samples, f32);
-        u8 *shade = ArenaPushArray(scratch.arena, samples, u8);
-        for (u64 i = 0; i < samples; ++i) depth[i] = -INFINITY;
-        // The light, toward the upper left and the view.
-        const f32 lx = -0.398f, ly = 0.597f, lz = 0.697f;
-        b32 cancelled = false;
-        const u32 *indices = mesh->indices.v;
-        for (u64 t = 0; t < triangles; ++t) {
-            if ((t & 0x3FFF) == 0x3FFF && P_IsCancelled(cancel)) {
-                cancelled = true;
-                break;
-            }
-            u32 ia = indices[t * 3], ib = indices[t * 3 + 1], ic = indices[t * 3 + 2];
-            if (ia >= vertices || ib >= vertices || ic >= vertices || !valid[ia] || !valid[ib] || !valid[ic]) continue;
-            const f32 *a = view + (u64)ia * 3, *b = view + (u64)ib * 3, *c = view + (u64)ic * 3;
-            // The normal, in a space with Y up again.
-            f32 ux = b[0] - a[0], uy = a[1] - b[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = a[1] - c[1], vz = c[2] - a[2];
-            f32 nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-            f32 length = sqrtf(nx * nx + ny * ny + nz * nz);
-            if (!(length > 0)) continue;
-            if (nz < 0) nx = -nx, ny = -ny, nz = -nz;
-            f32 light = (nx * lx + ny * ly + nz * lz) / length;
-            u8 tone = (u8)(255.0f * (0.22f + 0.78f * MaxF32(light, 0)));
-            f32 area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-            if (area < 0) {
-                const f32 *swap = b;
-                b = c;
-                c = swap;
-                area = -area;
-            }
-            i32 x0 = (i32)MaxF32(floorf(MinF32(a[0], MinF32(b[0], c[0]))), 0), x1 = (i32)MinF32(floorf(MaxF32(a[0], MaxF32(b[0], c[0]))), (f32)(side - 1));
-            i32 y0 = (i32)MaxF32(floorf(MinF32(a[1], MinF32(b[1], c[1]))), 0), y1 = (i32)MinF32(floorf(MaxF32(a[1], MaxF32(b[1], c[1]))), (f32)(side - 1));
-            if (x0 > x1 || y0 > y1) continue;
-            // A triangle inside one sample may miss its center; it takes the sample, so that dense meshes show no holes.
-            if (x0 == x1 && y0 == y1) {
-                u64 at = (u64)y0 * (u64)side + (u64)x0;
-                f32 z = MaxF32(a[2], MaxF32(b[2], c[2]));
-                if (z > depth[at]) depth[at] = z, shade[at] = tone;
-                continue;
-            }
-            if (!(area > 0)) continue;
-            // Edge functions at sample centers, stepped across each row; inside where all three are not negative.
-            f32 px = (f32)x0 + 0.5f, py = (f32)y0 + 0.5f, inverse = 1.0f / area;
-            f32 e0x = b[1] - c[1], e1x = c[1] - a[1], e2x = a[1] - b[1];
-            f32 e0y = c[0] - b[0], e1y = a[0] - c[0], e2y = b[0] - a[0];
-            f32 w0Row = (c[0] - b[0]) * (py - b[1]) - (c[1] - b[1]) * (px - b[0]);
-            f32 w1Row = (a[0] - c[0]) * (py - c[1]) - (a[1] - c[1]) * (px - c[0]);
-            f32 w2Row = (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
-            f32 zx = (e0x * a[2] + e1x * b[2] + e2x * c[2]) * inverse;
-            for (i32 y = y0; y <= y1; ++y) {
-                f32 w0 = w0Row, w1 = w1Row, w2 = w2Row, z = (w0 * a[2] + w1 * b[2] + w2 * c[2]) * inverse;
-                f32 *depthRow = depth + (u64)y * (u64)side;
-                u8 *shadeRow = shade + (u64)y * (u64)side;
-                for (i32 x = x0; x <= x1; ++x) {
-                    if (w0 >= 0 && w1 >= 0 && w2 >= 0 && z > depthRow[x]) {
-                        depthRow[x] = z;
-                        shadeRow[x] = tone;
-                    }
-                    w0 += e0x, w1 += e1x, w2 += e2x, z += zx;
-                }
-                w0Row += e0y, w1Row += e1y, w2Row += e2y;
-            }
-        }
-        if (!cancelled) {
-            // Each pixel averages its four samples: the shade of those covered, and how many are covered as its alpha.
-            const u32 red = 200, green = 204, blue = 212;
-            result = ArenaPushArrayNoZero(arena, (u64)size * (u64)size, u32);
-            for (i32 y = 0; y < size; ++y) {
-                for (i32 x = 0; x < size; ++x) {
-                    u64 at = (u64)y * 2 * (u64)side + (u64)x * 2;
-                    u64 corners[4] = { at, at + 1, at + (u64)side, at + (u64)side + 1 };
-                    u32 covered = 0, sum = 0;
-                    for (u32 k = 0; k < 4; ++k) {
-                        if (depth[corners[k]] > -INFINITY) {
-                            ++covered;
-                            sum += shade[corners[k]];
-                        }
-                    }
-                    u32 pixel = 0;
-                    if (covered) {
-                        u32 tone = sum / covered;
-                        pixel = red * tone / 255 | (green * tone / 255) << 8 | (blue * tone / 255) << 16 | (covered * 255 / 4) << 24;
-                    }
-                    result[(u64)y * (u64)size + (u64)x] = pixel;
-                }
-            }
-        }
-    }
-    ReleaseScratch(scratch);
-    return result;
-}
 
 // -----------------------------------------------------------------------------
 // Preview
@@ -1981,17 +1846,57 @@ function b32 Prog_ReadModel(Arena *arena, Prog_ModelKind kind, String path, Stri
     }
 }
 
-function u32 *Prog_ModelPreview(Arena *arena, String path, u64 size, const P_CancelToken *cancel)
+// `mesh` as `shape`, in the arena: Y up, as the view turns about it; a triangle naming a vertex that is not there, or one that is not finite,
+// is left out. False when no triangle is left.
+function b32 Prog__ModelShape(Arena *arena, const Prog_Mesh *mesh, Prog_ModelShape *shape)
+{
+    *shape = (Prog_ModelShape){0};
+    u64 vertices = mesh->positions.header.count / 3, triangles = mesh->indices.header.count / 3;
+    if (!vertices || vertices >= UINT32_MAX || !triangles) return false;
+    Scratch scratch = GetScratchEx(arena);
+    f32 *positions = ArenaPushArrayNoZero(arena, vertices * 3, f32);
+    b8 *valid = ArenaPushArrayNoZero(scratch.arena, vertices, b8);
+    f32 low[3] = { INFINITY, INFINITY, INFINITY }, high[3] = { -INFINITY, -INFINITY, -INFINITY };
+    for (u64 i = 0; i < vertices; ++i) {
+        f32 x = mesh->positions.v[i * 3], y = mesh->positions.v[i * 3 + 1], z = mesh->positions.v[i * 3 + 2];
+        f32 p[3] = { x, mesh->zUp ? z : y, mesh->zUp ? -y : z };
+        valid[i] = (b8)(isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]));
+        MemCopy(positions + i * 3, p, sizeof(p));
+        for (u32 k = 0; valid[i] && k < 3; ++k) low[k] = MinF32(low[k], p[k]), high[k] = MaxF32(high[k], p[k]);
+    }
+    u32 *indices = ArenaPushArrayNoZero(arena, triangles * 3, u32);
+    u64 kept = 0;
+    for (u64 t = 0; t < triangles; ++t) {
+        const u32 *at = mesh->indices.v + t * 3;
+        if (at[0] >= vertices || at[1] >= vertices || at[2] >= vertices || !valid[at[0]] || !valid[at[1]] || !valid[at[2]]) continue;
+        MemCopy(indices + kept * 3, at, 12);
+        ++kept;
+    }
+    if (kept && low[0] <= high[0]) {
+        f32 center[3], radius = 0;
+        for (u32 k = 0; k < 3; ++k) center[k] = (low[k] + high[k]) * 0.5f;
+        for (u64 i = 0; i < vertices; ++i) {
+            if (!valid[i]) continue;
+            f32 dx = positions[i * 3] - center[0], dy = positions[i * 3 + 1] - center[1], dz = positions[i * 3 + 2] - center[2];
+            radius = MaxF32(radius, dx * dx + dy * dy + dz * dz);
+        }
+        *shape = (Prog_ModelShape){ positions, (u32)vertices, indices, kept * 3, { center[0], center[1], center[2] }, MaxF32(sqrtf(radius), 1e-6f) };
+    }
+    ReleaseScratch(scratch);
+    return shape->indexCount > 0;
+}
+
+function b32 Prog_ModelMesh(Arena *arena, String path, u64 size, const P_CancelToken *cancel, Prog_ModelShape *shape)
 {
     Prog_ModelKind kind = Prog_ModelKindOf(path);
-    if (!kind || !size || size > Prog_ModelMaxBytes) return NULL;
+    *shape = (Prog_ModelShape){0};
+    if (!kind || !size || size > Prog_ModelMaxBytes) return false;
     Scratch scratch = GetScratchEx(arena);
     String data = {0};
     Prog_Mesh mesh = {0};
-    u32 *result = NULL;
-    if (P_ReadFileStart(scratch.arena, path, size, &data) && data.length == size && !P_IsCancelled(cancel) && Prog_ReadModel(scratch.arena, kind, path, data, cancel, &mesh)) {
-        result = Prog_DrawMesh(arena, &mesh, Prog_PreviewSize, cancel);
-    }
+    b32 result = P_ReadFileStart(scratch.arena, path, size, &data) && data.length == size && !P_IsCancelled(cancel) && Prog_ReadModel(scratch.arena, kind, path, data, cancel, &mesh) &&
+                 Prog__ModelShape(arena, &mesh, shape);
     ReleaseScratch(scratch);
     return result;
 }
+

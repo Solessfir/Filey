@@ -63,6 +63,16 @@ function void R_TextureSmooth(R_TextureHandle texture);
 // A {0} handle is ignored.
 function void R_TextureRelease(R_TextureHandle texture);
 
+// A triangle mesh on the GPU: `vertexCount` positions of three floats, and `indexCount` indices, three a triangle, each below vertexCount.
+typedef struct R_MeshHandle { u64 u64[2]; } R_MeshHandle;
+function R_MeshHandle R_MeshCreate(const f32 *positions, u32 vertexCount, const u32 *indices, u64 indexCount);
+// A {0} handle is ignored.
+function void R_MeshRelease(R_MeshHandle mesh);
+// Draws `mesh` into `target`, a color texture `width` by `height`, cleared to see-through first, flat shaded in `color` and lit from the
+// upper left. The column-major `view` takes its positions to a view space where X and Y from -1 to 1 fill the target's shorter side,
+// Y up, and Z from -1 to 1 is nearer as it grows. It draws at once, outside the frame's batches, so call it before the frame ends.
+function void R_MeshDraw(R_MeshHandle mesh, R_TextureHandle target, i32 width, i32 height, const f32 view[16], R_Color color);
+
 // How the rounded boxes drawn after it are shaped, until it is set again: corners left square, or the box's inside and outside swapped,
 // which with a radius of half its size leaves the box's corners outside its circle.
 typedef enum R_Shape {

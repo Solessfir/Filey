@@ -1875,6 +1875,10 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
+    R_MeshRelease(state->previewMesh);
+    state->previewMesh = (R_MeshHandle){0};
+    // A new model starts from the view the fixed previews had: turned 30 degrees and tipped 20.
+    state->modelYaw = 0.5235988f, state->modelPitch = 0.3490659f, state->modelZoom = 1;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
     state->hexPages = NULL;

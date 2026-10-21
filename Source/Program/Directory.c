@@ -1764,7 +1764,7 @@ function void Prog__DirectoryJob(P_Job *job)
         String start = {0};
         P_Image image = {0};
         P_FileArray items = {0};
-        u32 *model = !input->hex && !input->folder && !input->archive ? Prog_ModelPreview(&job->arena, path, input->size, &job->cancelToken) : NULL;
+        b32 model = !input->hex && !input->folder && !input->archive && Prog_ModelMesh(&job->arena, path, input->size, &job->cancelToken, &result->model);
         if (input->archive) {
             // Counted up to the same limit as a listing; short of it, that is all there is.
             if (!P_IsCancelled(&job->cancelToken)) {
@@ -1779,9 +1779,7 @@ function void Prog__DirectoryJob(P_Job *job)
             result->text = Prog_ArchiveListing(&job->arena, &items, items.header.count >= Prog_PreviewArchiveItems);
             result->archive = true;
         } else if (model) {
-            // Before the text, which OBJ and glTF files read as.
-            result->pixels = model;
-            result->width = result->height = Prog_PreviewSize;
+            // Before the text, which OBJ and glTF files read as; the mesh goes to the GPU when it arrives.
         } else if (!input->folder && path.length >= 4 && Prog__EqualFolded(StrFrom(path, path.length - 4), S(".pdf")) && !P_IsCancelled(&job->cancelToken) &&
                    P_LoadImageFile(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             // Its first page, before the text, which a PDF of plain ASCII would read as, and the sizes of all of them, to scroll through.
@@ -4267,6 +4265,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewHex = false;
                 state->previewArchive = preview->archive;
                 state->previewDocument = preview->document;
+                if (preview->model.indexCount) {
+                    state->previewMesh = R_MeshCreate(preview->model.positions, preview->model.vertexCount, preview->model.indices, preview->model.indexCount);
+                    MemCopy(state->modelCenter, preview->model.center, sizeof(state->modelCenter));
+                    state->modelRadius = preview->model.radius;
+                    state->modelStale = true;
+                }
                 state->previewArchiveTotals = preview->archiveTotals;
                 state->previewArchiveCounted = preview->archiveCounted;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.

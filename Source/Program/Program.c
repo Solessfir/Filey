@@ -8015,6 +8015,65 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
     }
 }
 
+// A 3D model on the GPU, `height` tall above its details: dragging turns it about its up axis and tips it toward the view, the wheel zooms,
+// and a double click puts it back as it first showed. It is drawn into a texture of the view's size whenever the view or the size changes.
+function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Metrics *m)
+{
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorModel")), UI_Flag_Clip | UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
+    UI_Interaction drag = UI_InteractionFromBlock(view);
+    if (drag.pressed) state->modelDragFrom = UI->mouse;
+    if (drag.pressed && drag.pressCount == 2) state->modelYaw = 0.5235988f, state->modelPitch = 0.3490659f, state->modelZoom = 1;
+    if (drag.active && drag.isDragging) {
+        // A view's width of dragging turns it about once around.
+        f32 turn = 6.2831853f / MaxF32(view->rect.x1 - view->rect.x0, 1);
+        state->modelYaw += (UI->mouse.x - state->modelDragFrom.x) * turn;
+        state->modelPitch = MinF32(MaxF32(state->modelPitch + (UI->mouse.y - state->modelDragFrom.y) * turn, -1.5533f), 1.5533f);
+        state->modelDragFrom = UI->mouse;
+    }
+    i32 notches = Prog__WheelNotches(view);
+    if (notches) state->modelZoom = MinF32(MaxF32(state->modelZoom * powf(1.15f, (f32)notches), 0.2f), 20.0f);
+    i32 width = (i32)(view->rect.x1 - view->rect.x0), tall = (i32)(view->rect.y1 - view->rect.y0);
+    // A view new this frame has no size yet.
+    if (width <= 0 || tall <= 0) {
+        UI_KeepAnimating();
+        return;
+    }
+    if (width != state->modelTextureWidth || tall != state->modelTextureHeight) {
+        R_TextureRelease(state->modelTexture);
+        state->modelTexture = R_TextureCreateRGBA(width, tall, NULL);
+        state->modelTextureWidth = width, state->modelTextureHeight = tall;
+        state->modelStale = true;
+    }
+    f32 now[3] = { state->modelYaw, state->modelPitch, state->modelZoom };
+    if (state->modelStale || MemCompare(now, state->modelDrawn, sizeof(now))) {
+        // Centered, turned about Y, tipped about X, and scaled so that its bounds fill 88% of the shorter side; depth is not zoomed, so that
+        // it stays within the view space's -1 to 1.
+        f32 cy = cosf(state->modelYaw), sy = sinf(state->modelYaw), cp = cosf(state->modelPitch), sp = sinf(state->modelPitch);
+        f32 fit = 0.88f / state->modelRadius, s = fit * state->modelZoom;
+        f32 r[3][3] = { { cy, 0, -sy }, { -sp * sy, cp, -sp * cy }, { cp * sy, sp, cp * cy } };
+        f32 rows[3][4];
+        for (u32 i = 0; i < 3; ++i) {
+            f32 scale = i == 2 ? fit : s;
+            for (u32 k = 0; k < 3; ++k) rows[i][k] = r[i][k] * scale;
+            rows[i][3] = -(rows[i][0] * state->modelCenter[0] + rows[i][1] * state->modelCenter[1] + rows[i][2] * state->modelCenter[2]);
+        }
+        f32 matrix[16] = { rows[0][0], rows[1][0], rows[2][0], 0, rows[0][1], rows[1][1], rows[2][1], 0, rows[0][2], rows[1][2], rows[2][2], 0, rows[0][3], rows[1][3], rows[2][3], 1 };
+        R_MeshDraw(state->previewMesh, state->modelTexture, width, tall, matrix, (R_Color){ 200.0f / 255.0f, 204.0f / 255.0f, 212.0f / 255.0f, 1 });
+        MemCopy(state->modelDrawn, now, sizeof(now));
+        state->modelStale = false;
+    }
+    UI_Parent(view) {
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels((f32)width));
+        UI_SetNextPrefHeight(UI_Pixels((f32)tall));
+        UI_SetNextImage(state->modelTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ (f32)width, (f32)tall }, (R_Color){ 1, 1, 1, 1 });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+    }
+    (void)m;
+}
+
 // A PDF's pages one below another, each as wide as the view, scrolled by the wheel and the scroll bar. The pages in sight are drawn at that
 // width, one at a time, the first from the preview's picture until then, and one not drawn yet shows blank until it comes.
 function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
@@ -8189,6 +8248,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
     b32 text = entry && !state->previewPicture && ((state->previewText.length && state->previewLines) || state->previewHex);
     b32 pdf = entry && state->pdfPageCount && state->previewImage;
+    b32 model = entry && state->previewMesh.u64[0];
     b32 image = entry && state->previewImage && !pdf;
     b32 archive = entry && Prog_PreviewsArchive(state, entry);
     b32 folder = entry && (entry->file.kind == P_FileKind_Directory || archive);
@@ -8296,7 +8356,12 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 } else {
                     // A picture as wide as the pane, but no taller than half of it.
                     f32 side = floorf(MinF32(room, MaxF32(0, (body->rect.y1 - body->rect.y0) * 0.5f)));
-                    if (state->previewPicture && side > 0) {
+                    // A model takes all the height its details leave, to be turned in.
+                    f32 belowModel = 3 * m->row + 2 * m->inset;
+                    if (model && body->rect.y1 - body->rect.y0 > belowModel) {
+                        Prog__InspectorModel(state, floorf(body->rect.y1 - body->rect.y0 - belowModel), m);
+                        Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
+                    } else if (state->previewPicture && side > 0) {
                         UI_SetNextPrefWidth(UI_Flex());
                         UI_SetNextPrefHeight(UI_Pixels(side));
                         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });

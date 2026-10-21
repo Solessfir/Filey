@@ -224,18 +224,18 @@ function void TestModels(void)
         Check(mesh.positions.v[0] == 5 && mesh.positions.v[3] == 6 && mesh.positions.v[7] == 1 && mesh.indices.v[2] == 2);
     }
 
-    // The drawing fills the middle and leaves the corners clear; a triangle naming a vertex that is not there is left out.
+    // The mesh for the GPU: a triangle naming a vertex that is not there is left out, Z up turns Y up, and its bounds' center and radius.
     {
-        Prog_Mesh square = {0};
+        Prog_Mesh square = { .zUp = true };
         f32 *v = ArrayAdd(&arena, square.positions, 12);
-        f32 corners[12] = { -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0 };
+        f32 corners[12] = { -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1 };
         MemCopy(v, corners, sizeof(corners));
         u32 *t = ArrayAdd(&arena, square.indices, 9);
         u32 triangles[9] = { 0, 1, 2, 0, 2, 3, 0, 1, 7 };
         MemCopy(t, triangles, sizeof(triangles));
-        P_CancelToken token = {0};
-        u32 *pixels = Prog_DrawMesh(&arena, &square, 64, &token);
-        Check(pixels && (pixels[32 * 64 + 32] >> 24) == 255 && (pixels[0] >> 24) == 0 && (pixels[63 * 64 + 63] >> 24) == 0);
+        Prog_ModelShape shape;
+        Check(Prog__ModelShape(&arena, &square, &shape) && shape.vertexCount == 4 && shape.indexCount == 6 && shape.indices[5] == 3);
+        Check(shape.positions[1] == -1 && shape.positions[2] == 0 && shape.center[1] == 0 && fabsf(shape.radius - 1.4142136f) < 1e-5f);
         Check(Prog_ModelKindOf(S("C:/a/Robot.FBX")) == Prog_ModelKind_Fbx && Prog_ModelKindOf(S("/a/b.glb")) == Prog_ModelKind_Glb && !Prog_ModelKindOf(S("/a/b.txt")));
         Check(Prog_ModelKindOf(S("/a/Scene.blend")) == Prog_ModelKind_Blend && Prog_ModelKindOf(S("/a/Scene.blend12")) == Prog_ModelKind_Blend && !Prog_ModelKindOf(S("/a/b.obj2")));
         // LZ4: literals alone, and a match that overlaps what it copies, as USD files use for runs; a match before the start is broken.
