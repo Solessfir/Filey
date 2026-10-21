@@ -1732,6 +1732,7 @@ function void Prog_ToggleBookmark(Prog_State *state, String path);
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);
 function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
+function u32 Prog_ChoiceAt(Prog_Option option, u32 place);
 function void Prog_CheckRecents(Prog_State *state);
 function String Prog_ColumnsText(Arena *arena, Prog_ColumnSet set);
 function b32 Prog_ParseColumns(String word, Prog_ColumnSet *set);

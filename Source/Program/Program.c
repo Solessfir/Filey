@@ -6046,7 +6046,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
             b32 hot = UI->hotKey == key;
             b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
-            b32 open = schemes && state->schemesOpen == option + 1;
+            b32 open = state->schemesOpen == option + 1;
             // A scheme other than its default offers to go back to it.
             i32 standard = option == Prog_Option_LightScheme ? 1 : 0;
             if (schemes && value != standard) {
@@ -6067,8 +6067,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_Interaction interaction = UI_InteractionFromBlock(choice);
             u32 choiceCount = 0;
             const String *choices = Prog_OptionChoices(state, option, frame, &choiceCount);
-            if (interaction.clicked && schemes) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, interaction.clickOrder);
-            else if (interaction.clicked) Prog__QueueOption(state, option, (value + 1) % (i32)choiceCount, interaction.clickOrder, false);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, interaction.clickOrder);
             UI_Parent(choice) {
                 f32 chevron = floorf(20.8f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
@@ -6846,9 +6845,17 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
-// The schemes' dropdown under the scheme option it opened from: each scheme's background color in a circle, its name, and a ring that the
-// shown one's is filled with a dot; the highlighted row offers to fork its scheme and, for a custom one, to delete it. A line parts the
-// custom schemes from the built-in ones.
+// The choice shown at `place` in an option's dropdown: the choices in their order but Character Key Action's, which lists Trigger Hotkey
+// before Type In Filter, its default and first in Settings.conf's order.
+function u32 Prog_ChoiceAt(Prog_Option option, u32 place)
+{
+    if (option == Prog_Option_CharacterKeyAction && place < 2) return place ^ 1;
+    return place;
+}
+
+// The dropdown under the choice option it opened from: each choice's name, and a ring that the chosen one's is filled with a dot. For the
+// schemes each has its background color in a circle before its name, the highlighted row offers to fork its scheme and, for a custom one,
+// to delete it, and a line parts the custom schemes from the built-in ones.
 function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->schemesOpen) return;
@@ -6861,13 +6868,21 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
     u32 count = 0;
     const String *names = Prog_OptionChoices(state, option, frame, &count);
     u32 shown = (u32)Prog_OptionValue(state, option);
+    b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
     f32 s = m->scale, row = floorf(25.6f * s + 0.5f), pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f), circle = floorf(16.0f * s + 0.5f);
     f32 slot = floorf(24.8f * s + 0.5f), ring = floorf(1.6f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f)), parting = floorf(1.6f * s + 0.5f);
-    b32 parted = count > Prog_BuiltInSchemes;
-    f32 width = floorf(205.6f * s + 0.5f), height = 2 * pad + (f32)count * row + (parted ? parting : 0), radius = floorf(6.4f * s + 0.5f);
+    f32 lead = floorf((schemes ? 16.0f : 14.4f) * s + 0.5f) - inset, trail = floorf(10.0f * s + 0.5f) + circle + floorf(7.2f * s + 0.5f);
+    b32 parted = schemes && count > Prog_BuiltInSchemes;
+    // The schemes' is as wide as their names and buttons need; another a little wider than its button, or than its longest name.
+    f32 width = floorf(205.6f * s + 0.5f);
+    if (!schemes) {
+        width = floorf(170.4f * s + 0.5f);
+        for (u32 i = 0; i < count; ++i) width = MaxF32(width, 2 * inset + lead + R_TextWidth(m->font, Prog__OptionName(frame, option, names[i])) + trail);
+    }
+    f32 height = 2 * pad + (f32)count * row + (parted ? parting : 0), radius = floorf(6.4f * s + 0.5f);
     // Under the button, or over it where the window has no room below.
-    f32 x = MinF32(button->rect.x0 - view.x0, view.x1 - view.x0 - width), y = button->rect.y1 - view.y0 + floorf(1.6f * s + 0.5f);
-    if (y + height > view.y1 - view.y0) y = MaxF32(0, button->rect.y0 - view.y0 - floorf(1.6f * s + 0.5f) - height);
+    f32 x = MinF32(button->rect.x0 - view.x0, view.x1 - view.x0 - width), y = button->rect.y1 - view.y0 + floorf(0.8f * s + 0.5f);
+    if (y + height > view.y1 - view.y0) y = MaxF32(0, button->rect.y0 - view.y0 - floorf(0.8f * s + 0.5f) - height);
     // A press anywhere else closes it, going no further.
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
@@ -6891,7 +6906,8 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u", i));
             if (UI->hotKey == key || UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u/Fork", i)) || UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u/Delete", i))) pointed = i;
         }
-        for (u32 i = 0; i < count; ++i) {
+        for (u32 place = 0; place < count; ++place) {
+            u32 i = Prog_ChoiceAt(option, place);
             if (parted && i == Prog_BuiltInSchemes) {
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(parting));
@@ -6900,8 +6916,8 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
             }
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Scheme/%u", i));
             b32 lit = pointed == UINT32_MAX ? i == state->schemesHighlight : i == pointed, picked = i == shown;
-            UI_Block *place = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
-            UI_Parent(place) {
+            UI_Block *slotBox = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(slotBox) {
                 UI_SetNextFloatingOffset((UI_Vec2){ inset, 0 });
                 UI_SetNextPrefWidth(UI_Pixels(width - 2 * inset));
                 UI_SetNextPrefHeight(UI_Pixels(row));
@@ -6913,19 +6929,22 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
                 if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemesPick, i, 0, interaction.clickOrder);
                 UI_Parent(entry) {
-                    u32 groups[Prog_ColorGroupCount];
-                    Prog__UseScheme(state, names[i], groups);
-                    Prog__Spacer(UI_Pixels(floorf(16.0f * s + 0.5f) - inset), UI_Pixels(row));
-                    UI_SetNextPrefWidth(UI_Pixels(circle));
-                    UI_SetNextPrefHeight(UI_Pixels(circle));
-                    UI_SetNextCornerRadius(circle * 0.5f);
-                    UI_SetNextBorderThickness(line);
-                    UI_SetNextColors((UI_Colors){ .background = Prog__HexColor(groups[Prog_Option_ColorBackground - Prog_Option_ColorClear]), .border = theme->outline });
-                    UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-                    Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(row));
+                    Prog__Spacer(UI_Pixels(lead), UI_Pixels(row));
+                    if (schemes) {
+                        u32 groups[Prog_ColorGroupCount];
+                        Prog__UseScheme(state, names[i], groups);
+                        UI_SetNextPrefWidth(UI_Pixels(circle));
+                        UI_SetNextPrefHeight(UI_Pixels(circle));
+                        UI_SetNextCornerRadius(circle * 0.5f);
+                        UI_SetNextBorderThickness(line);
+                        UI_SetNextColors((UI_Colors){ .background = Prog__HexColor(groups[Prog_Option_ColorBackground - Prog_Option_ColorClear]), .border = theme->outline });
+                        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                        Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(row));
+                    }
                     R_Color ink = lit ? theme->contentSelection : theme->text;
-                    Prog__Label(Prog__Ellipsize(frame, m->font, Prog__OptionName(frame, option, names[i]), width - 2 * inset - 4 * slot), UI_Flex(), row, 0, ink, 0);
-                    if (lit) {
+                    String label = Prog__OptionName(frame, option, names[i]);
+                    Prog__Label(schemes ? Prog__Ellipsize(frame, m->font, label, width - 2 * inset - 4 * slot) : label, UI_Flex(), row, 0, ink, 0);
+                    if (lit && schemes) {
                         UI_Interaction fork = Prog__TextButton(StrFormat(frame, "Scheme/%u/Fork", i), Icon_Copy, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
                         if (fork.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeFork, i, 0, fork.clickOrder);
                         Prog__PopupTooltip(state, S("Create an editable copy of this color scheme."));

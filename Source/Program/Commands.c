@@ -3860,8 +3860,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             Prog_OptionChoices(state, (Prog_Option)(state->schemesOpen - 1), &state->frameArena, &count);
             if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) state->schemesOpen = 0;
             else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_SchemesPick, state->schemesHighlight, 0, order);
-            else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Up && count) state->schemesHighlight = (state->schemesHighlight + count - 1) % count;
-            else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Down && count) state->schemesHighlight = (state->schemesHighlight + 1) % count;
+            // Up and Down go by the order shown; Prog_ChoiceAt is its own inverse.
+            else if (event->kind == PlatformEventKind_KeyDown && (event->key == Key_Up || event->key == Key_Down) && count) {
+                Prog_Option option = (Prog_Option)(state->schemesOpen - 1);
+                u32 place = Prog_ChoiceAt(option, state->schemesHighlight);
+                state->schemesHighlight = Prog_ChoiceAt(option, (place + (event->key == Key_Up ? count - 1 : 1)) % count);
+            }
             continue;
         }
         // A color group's hex box being typed in takes hex digits, six at most; Enter or a press anywhere sets the color, and Escape leaves it.
