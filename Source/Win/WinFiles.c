@@ -667,6 +667,26 @@ function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
 function String P_TrashName(void) { return S("Recycle Bin"); }
 
+function String P_ExpandVariables(Arena *arena, String text, b32 final)
+{
+    (void)final;
+    if (!StrIndexChar(text, '%', SSF_None).exists) return text;
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, text);
+    u32 needed = wide ? ExpandEnvironmentStringsW(wide, NULL, 0) : 0;
+    wchar *expanded = needed ? ArenaPushArrayNoZero(scratch.arena, needed, wchar) : NULL;
+    String result = text;
+    if (expanded && ExpandEnvironmentStringsW(wide, expanded, needed)) {
+        // A short 8.3 name, as %TEMP% holds, becomes its long one, the name the folder shows under.
+        u32 longer = GetLongPathNameW(expanded, NULL, 0);
+        wchar *full = longer ? ArenaPushArrayNoZero(scratch.arena, longer, wchar) : NULL;
+        if (full && GetLongPathNameW(expanded, full, longer)) expanded = full;
+        result = P__FileStringWide(arena, expanded, lstrlenW(expanded));
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_StartupFlag(String flag)
 {
     i32 count = 0;

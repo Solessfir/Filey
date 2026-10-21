@@ -1371,6 +1371,56 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function String P_ExpandVariables(Arena *arena, String text, b32 final)
+{
+    if (!StrIndexChar(text, '$', SSF_None).exists && !StrIndexChar(text, '%', SSF_None).exists && !(text.length && text.value[0] == '~')) return text;
+    Scratch scratch = GetScratchEx(arena);
+    StrBuilder out = {0};
+    b32 changed = false;
+    for (u64 at = 0; at < text.length;) {
+        char c = text.value[at];
+        u64 from = at + 1, to = from, next = from;
+        b32 named = false;
+        if (c == '~' && at == 0 && (text.length == 1 ? final : text.value[1] == '/')) {
+            const char *home = getenv("HOME");
+            if (home) {
+                StrBuildStr(scratch.arena, &out, StrFromCStr(home));
+                changed = true;
+                ++at;
+                continue;
+            }
+        }
+        if (c == '$' && from < text.length && text.value[from] == '{') {
+            to = ++from;
+            while (to < text.length && text.value[to] != '}') ++to;
+            named = to < text.length;
+            next = to + 1;
+        } else if (c == '$' || c == '%') {
+            for (u8 n; to < text.length && ((n = (u8)text.value[to]) == '_' || (n >= '0' && n <= '9') || ((n | 0x20) >= 'a' && (n | 0x20) <= 'z'));) ++to;
+            // A name runs to a character that cannot be in one, or for %NAME% to its closing sign.
+            named = to > from && (c == '%' ? to < text.length && text.value[to] == '%' : to < text.length || final);
+            next = c == '%' ? to + 1 : to;
+        }
+        const char *value = NULL;
+        if (named) {
+            char *name = ArenaPushArray(scratch.arena, to - from + 1, char);
+            MemCopy(name, text.value + from, to - from);
+            value = getenv(name);
+        }
+        if (value) {
+            StrBuildStr(scratch.arena, &out, StrFromCStr(value));
+            changed = true;
+            at = next;
+        } else {
+            StrBuildChar(scratch.arena, &out, c);
+            ++at;
+        }
+    }
+    String result = changed ? StrCopy(arena, out.buffer) : text;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_StartupFlag(String flag)
 {
     Scratch scratch = GetScratch();

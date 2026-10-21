@@ -89,6 +89,10 @@ function i64 P_FileCreatedTime(String path);
 function String P_AbsolutePath(Arena *arena, String path);
 // The paths the app was started with as arguments, made absolute.
 function ArrayStr P_StartupPaths(Arena *arena);
+// `text` with the environment variables it names replaced by their values, as the system's own shell writes them: "%TEMP%" on Windows,
+// "$HOME", "${HOME}" and a leading "~" on Linux, which takes "%HOME%" too. A Linux name at the very end, which may still be being typed, is
+// left as it is unless `final`. Names without a value stay as they are.
+function String P_ExpandVariables(Arena *arena, String text, b32 final);
 // Whether the command line has `flag`, such as "--new-window", which P_StartupPaths leaves out.
 function b32 P_StartupFlag(String flag);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);

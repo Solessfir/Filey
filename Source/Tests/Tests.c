@@ -56,6 +56,30 @@ global i32 CheckFailures;
 
 global u32 TestModalFrameCount;
 
+// Environment variables in typed paths, in the system's own spelling, and names without a value left as they are.
+function void TestExpandVariables(void)
+{
+    Arena arena = {0};
+    String none = S("plain/path");
+    Check(P_ExpandVariables(&arena, none, true).value == none.value);
+#if defined(_WIN32)
+    String root = P_ExpandVariables(&arena, S("%SYSTEMROOT%\\Fonts"), false);
+    Check(root.length > 8 && root.value[1] == ':' && StrIsEqual(StrFrom(root, root.length - 6), S("\\Fonts")));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("%FILEY_NO_SUCH_VARIABLE%"), true), S("%FILEY_NO_SUCH_VARIABLE%")));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("%SYSTEMROOT"), true), S("%SYSTEMROOT")));
+#else
+    String home = StrFromCStr(getenv("HOME"));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("${HOME}/a"), false), StrFormat(&arena, "%S/a", home)));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("$HOME/a"), false), StrFormat(&arena, "%S/a", home)));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("~/a"), false), StrFormat(&arena, "%S/a", home)));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("%HOME%"), false), home));
+    // A name still being typed at the end waits for the end.
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("$HOME"), false), S("$HOME")) && StrIsEqual(P_ExpandVariables(&arena, S("$HOME"), true), home));
+    Check(StrIsEqual(P_ExpandVariables(&arena, S("$FILEY_NO_SUCH_VARIABLE/a"), true), S("$FILEY_NO_SUCH_VARIABLE/a")));
+#endif
+    ArenaRelease(&arena);
+}
+
 function void TestModalFrame(void *user, PlatformEventList events)
 {
     Check(user == &TestModalFrameCount);
@@ -737,6 +761,7 @@ int main(void)
     TestTypeFilter();
     TestModels();
     TestOffice();
+    TestExpandVariables();
     TestBlp();
     TestTarga();
 #if defined(_WIN32)

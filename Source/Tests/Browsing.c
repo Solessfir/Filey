@@ -1952,6 +1952,21 @@ function void TestTabs(TestFileFixture *fixture)
     // Go To lists the folder typed, offers its subfolders starting with what follows it, and opens the one picked.
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_GoTo);
+    // An environment variable typed whole is put in at once, so that its folder lists.
+    {
+#if defined(_WIN32)
+        String variable = S("%SYSTEMROOT%");
+#else
+        String variable = S("${HOME}");
+#endif
+        String expected = P_ExpandVariables(&state.frameArena, variable, true);
+        Prog__EditReplace(&state.palette, (const u8 *)variable.value, (u32)variable.length);
+        Prog__GoToExpandVariables(&state);
+        Check(StrIsEqual(Prog_EditText(&state.palette), expected) && expected.length && !StrIsEqual(expected, variable));
+        state.palette.anchor = 0;
+        state.palette.cursor = state.palette.length;
+        Prog__EditReplace(&state.palette, NULL, 0);
+    }
     String typed = StrFormat(&state.frameArena, "%S/em", fixture->path);
     Prog__EditReplace(&state.palette, (const u8 *)typed.value, (u32)typed.length);
     u32 offered;

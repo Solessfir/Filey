@@ -888,6 +888,7 @@ function u32 Prog_TabMatches(const Prog_State *state, u32 *out)
 // `typed` as an absolute path, taken from the shown folder unless it starts at a root; empty when it cannot be one.
 function String Prog__GoToPath(Prog_State *state, String typed)
 {
+    typed = P_ExpandVariables(&state->frameArena, typed, true);
     if (!typed.length) return typed;
     u8 separator = (u8)P_NativePath(&state->frameArena, S("/")).value[0];
     b32 absolute = typed.value[0] == '/' || typed.value[0] == separator || (typed.length >= 2 && typed.value[1] == ':');
@@ -1211,6 +1212,19 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
 }
 
 // Puts `text` in Go To's box, remembered for its back button when `remember` is set.
+// Go To's text with the environment variables it names put in, once one is typed whole, as "%TEMP%", so that its folder lists at once.
+function void Prog__GoToExpandVariables(Prog_State *state)
+{
+    if (state->paletteMode != Prog_PaletteMode_GoTo) return;
+    String text = Prog_EditText(&state->palette), expanded = P_ExpandVariables(&state->frameArena, text, false);
+    if (expanded.value == text.value || expanded.length >= sizeof(state->palette.text)) return;
+    state->palette.anchor = 0;
+    state->palette.cursor = state->palette.length;
+    Prog__EditReplace(&state->palette, (const u8 *)expanded.value, (u32)expanded.length);
+    state->paletteHighlight = 0;
+    state->gotoScroll = 0;
+}
+
 function void Prog__GoToSetText(Prog_State *state, String text, b32 remember)
 {
     if (remember) {
@@ -3770,6 +3784,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 u32 kept = Prog__HighlightedOption(state);
                 Prog__EditInsert(&state->palette, event->codepoint);
                 Prog__KeepHighlight(state, kept);
+                Prog__GoToExpandVariables(state);
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 Prog_PaletteRow matches[Prog_MaxPaletteRows];
                 u32 tabs[Prog_MaxTabs];
@@ -3840,7 +3855,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 else if (event->key == Key_Down || Prog__ListCursorKey(state, event) > 0) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(state, &state->palette, event);
-                if (state->palette.version != version) Prog__KeepHighlight(state, kept);
+                if (state->palette.version != version) Prog__KeepHighlight(state, kept), Prog__GoToExpandVariables(state);
             }
             continue;
         }
