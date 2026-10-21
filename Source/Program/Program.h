@@ -1319,6 +1319,7 @@ typedef struct Prog_State {
     Prog_TextEdit palette;
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     u32 paletteScroll;        // the first command row shown
+    b32 paletteKeyed;         // a key was pressed since Options opened, which shows its highlight only from then on
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions

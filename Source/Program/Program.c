@@ -7463,7 +7463,8 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(list) {
             for (u32 i = first; i < first + shown; ++i) {
                 if (options) {
-                    Prog__OptionRow(state, (Prog_Option)found[i], i, i == state->paletteHighlight, row - line, m);
+                    // The keyboard's row is outlined once a key is pressed, not as Options opens.
+                    Prog__OptionRow(state, (Prog_Option)found[i], i, i == state->paletteHighlight && state->paletteKeyed, row - line, m);
                     if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
                     continue;
                 }

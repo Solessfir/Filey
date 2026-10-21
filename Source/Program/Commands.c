@@ -3470,6 +3470,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
                 state->paletteWheeled = false;
+                state->paletteKeyed = false;
             } break;
             case Prog_CommandKind_OptionSet: {
                 if (command->pressCount) Prog_PreviewOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
@@ -3929,6 +3930,18 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
         if (state->paletteOpen) {
+            b32 modifier = event->key == Key_Shift || event->key == Key_Control || event->key == Key_Alt || event->key == Key_Super;
+            b32 unkeyed = !state->paletteKeyed;
+            if (event->kind == PlatformEventKind_Text || (event->kind == PlatformEventKind_KeyDown && !modifier)) state->paletteKeyed = true;
+            // In Options no row is the keyboard's until a key moves the highlight: the first Up or Down, or Ctrl+J or Ctrl+K, puts it on the
+            // first row, and until then Enter, Left and Right, which act on that row, do nothing.
+            if (unkeyed && state->paletteMode == Prog_PaletteMode_Options && event->kind == PlatformEventKind_KeyDown) {
+                if (event->key == Key_Up || event->key == Key_Down || Prog__ListCursorKey(state, event)) continue;
+                if (event->key == Key_Enter || event->key == Key_Left || event->key == Key_Right) {
+                    state->paletteKeyed = false;
+                    continue;
+                }
+            }
             // The wheel scrolls the list three rows a notch, leaving the highlight where it is until the keyboard moves it; over a slider
             // that takes the wheel, it is the slider's alone. The list's end is kept when it is built.
             if (event->kind == PlatformEventKind_MouseWheel && state->paletteMode != Prog_PaletteMode_Tabs) {
