@@ -1528,6 +1528,32 @@ typedef struct Prog__Blend {
 function u32 Prog__Read32(const u8 *at) { return (u32)at[0] | (u32)at[1] << 8 | (u32)at[2] << 16 | (u32)at[3] << 24; }
 function u64 Prog__Read64(const u8 *at) { return (u64)Prog__Read32(at) | (u64)Prog__Read32(at + 4) << 32; }
 
+// Blender's zstd frames, each a megabyte or so unpacked, shared out to lanes as they finish the last.
+typedef struct Prog__BlendFrames {
+    const u8 *in;
+    u8 *out;
+    const u64 *from, *to;  // each frame's place in the file and in the output, with one past the last
+    u64 count;
+    atomic_uint_fast64_t next;
+    atomic_bool failed;
+} Prog__BlendFrames;
+
+function void Prog__BlendFrameLane(void *user, u32 lane)
+{
+    (void)lane;
+    Prog__BlendFrames *frames = user;
+    jmp_buf failed;
+    zstd_error_jump = &failed;
+    if (setjmp(failed)) {
+        atomic_store(&frames->failed, true);
+        return;
+    }
+    for (u64 i; !atomic_load(&frames->failed) && (i = atomic_fetch_add(&frames->next, 1)) < frames->count;) {
+        u64 unpacked = frames->to[i + 1] - frames->to[i];
+        if (ZSTD_decompress(frames->out + frames->to[i], unpacked, frames->in + frames->from[i], frames->from[i + 1] - frames->from[i]) != unpacked) atomic_store(&frames->failed, true);
+    }
+}
+
 // The decompressed file: zstd frames laid out by the seek table at their end, as Blender writes them, or one frame; gzip; or as it is.
 function String Prog__BlendInflate(Arena *arena, String data)
 {
@@ -1550,14 +1576,19 @@ function String Prog__BlendInflate(Arena *arena, String data)
         zstd_error_jump = &failed;
         if (setjmp(failed)) return (String){0};
         if (!frames) return StrMake((const char *)out, ZSTD_decompress(out, total, data.value, data.length));
-        u64 from = 0, to = 0;
+        Scratch scratch = GetScratchEx(arena);
+        u64 *from = ArenaPushArrayNoZero(scratch.arena, frames + 1, u64), *to = ArenaPushArrayNoZero(scratch.arena, frames + 1, u64);
+        from[0] = to[0] = 0;
         for (u64 i = 0; i < frames; ++i) {
-            u64 packed = Prog__Read32(d + table + i * entry), unpacked = Prog__Read32(d + table + i * entry + 4);
-            if (from + packed > table || to + unpacked > total) return (String){0};
-            to += ZSTD_decompress(out + to, unpacked, d + from, packed);
-            from += packed;
+            from[i + 1] = from[i] + Prog__Read32(d + table + i * entry);
+            to[i + 1] = to[i] + Prog__Read32(d + table + i * entry + 4);
         }
-        return StrMake((const char *)out, to);
+        Prog__BlendFrames work = { .in = d, .out = out, .from = from, .to = to, .count = frames };
+        if (from[frames] > table) work.failed = true;
+        // The frames stand alone, so they unpack side by side.
+        else P_RunLanes((u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), frames), Prog__BlendFrameLane, &work);
+        ReleaseScratch(scratch);
+        return atomic_load(&work.failed) ? (String){0} : StrMake((const char *)out, total);
     }
     if (data.length >= 18 && d[0] == 0x1F && d[1] == 0x8B && d[2] == 8) {
         // gzip: its header, with the optional parts its flags name, then deflate; the last 4 bytes hold the size modulo 4 GB.
@@ -1885,7 +1916,6 @@ function Prog_MeshPart Prog__BlendLook(Arena *arena, const Prog__Blend *blend, c
 }
 
 typedef struct Prog__BlendCorner { u32 point; f32 u, v; u32 color; } Prog__BlendCorner;
-typedef struct Prog__BlendCornerMap { MapHeader header; struct { Prog__BlendCorner key; u32 value; } *v; } Prog__BlendCornerMap;
 
 // The color of element `at` of a color attribute, `bytes` long: four floats, linear, or four bytes, sRGB.
 function u32 Prog__BlendColor(const Prog__BlendBlock *values, u64 at, u32 bytes)
@@ -1943,7 +1973,11 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
         u32 colorBytes = colors && colors->length >= elements * 16 ? 16 : colors && colors->length >= elements * 4 ? 4 : 0;
         b32 cornerColors = colorBytes && domain == Prog__BlendOnCorner;
         if (!colorBytes || (domain != Prog__BlendOnCorner && domain != Prog__BlendOnPoint)) colors = NULL;
-        Prog__BlendCornerMap made = {0};
+        // The corners made so far from each point, chained, as a point has only a few that differ.
+        u32 *first = ArenaPushArrayNoZero(scratch.arena, (u64)vertices, u32), *next = ArenaPushArrayNoZero(scratch.arena, (u64)corners, u32);
+        Prog__BlendCorner *keys = ArenaPushArrayNoZero(scratch.arena, (u64)corners, Prog__BlendCorner);
+        for (i64 v = 0; v < vertices; ++v) first[v] = UINT32_MAX;
+        u32 madeCount = 0;
         for (u32 look = 0; look < Max(lookCount, 1u); ++look) {
             Prog__MeshPart(arena, out, lookCount ? looks[look].color : 0, lookCount ? looks[look].image : UINT32_MAX);
             for (i64 f = 0; f < faces; ++f) {
@@ -1958,10 +1992,11 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
                         Prog__BlendCorner key = { point, 0, 0, 0 };
                         if (uvs) MemCopy(&key.u, uvs->data + (u64)c * 8, 8);
                         if (colors) key.color = Prog__BlendColor(colors, cornerColors ? c : point, colorBytes);
-                        u32 *known = MapGetPtrNull(made, key);
-                        if (known) {
-                            corner = *known;
-                        } else if (out->positions.header.count / 3 < UINT32_MAX) {
+                        u32 known = first[point];
+                        while (known != UINT32_MAX && MemCompare(&keys[known], &key, sizeof(key)) != 0) known = next[known];
+                        if (known != UINT32_MAX) {
+                            corner = (u32)base + known;
+                        } else if (madeCount < (u64)corners && out->positions.header.count / 3 < UINT32_MAX) {
                             corner = (u32)(out->positions.header.count / 3);
                             MemCopy(ArrayAdd(arena, out->positions, 3), points + (u64)point * 3, 12);
                             if (uvs) {
@@ -1970,7 +2005,9 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
                                 t[1] = 1 - key.v;
                             }
                             if (colors) Prog__MeshColors(arena, out)[corner] = key.color;
-                            MapPut(scratch.arena, made, key, corner);
+                            keys[madeCount] = key;
+                            next[madeCount] = first[point];
+                            first[point] = madeCount++;
                         }
                     }
                     if (c == from) fan = corner;
