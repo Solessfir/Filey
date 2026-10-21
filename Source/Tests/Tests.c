@@ -695,6 +695,7 @@ int main(void)
     TestModels();
     TestOffice();
     TestBlp();
+    TestTarga();
 #if defined(_WIN32)
     TestFolderThumbnailBackground();
     TestInstallPath();

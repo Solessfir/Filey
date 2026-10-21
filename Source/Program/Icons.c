@@ -42,6 +42,13 @@ function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size)
     return result;
 }
 
+function b32 Prog__EqualFolded(String a, String b);
+
+function b32 Prog__IsOwnPicture(String path)
+{
+    return path.length >= 4 && (Prog__EqualFolded(StrFrom(path, path.length - 4), S(".tga")) || Prog__EqualFolded(StrFrom(path, path.length - 4), S(".psd")));
+}
+
 function void Prog__IconJob(P_Job *job)
 {
     Prog_JobInput *input = job->input;
@@ -84,7 +91,13 @@ function void Prog__IconJob(P_Job *job)
             }
         }
         if (thumbnail && request->cacheOnly) ProfileScope("CachedThumbnail") loaded = P_LoadCachedThumbnail(scratch.arena, request->path, request->kind, request->size, &image);
-        else if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
+        else if (thumbnail) {
+            // Targa and Photoshop pictures, which the system may make no thumbnail for, are decoded here, before its thumbnail falls back
+            // to the type's icon.
+            i32 width = 0, height = 0;
+            if (request->kind == P_FileKind_File && Prog__IsOwnPicture(request->path)) ProfileScope("OwnThumbnail") loaded = P_LoadImageFile(scratch.arena, request->path, request->size, &image, &width, &height);
+            if (!loaded) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
+        }
         else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, true, &image);
         else ProfileScope("LoadIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, false, &image);
         if (loaded) pixels[i] = Prog_ResizeIcon(&job->arena, image, request->size);

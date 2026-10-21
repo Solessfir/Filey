@@ -57,3 +57,16 @@ function void TestBlp(void)
     Check(Prog_IsBlp(S("C:/Textures/Knob.BLP")) && !Prog_IsBlp(S("/a/b.png")));
     ArenaRelease(&arena);
 }
+
+// A Targa picture, which Windows reads through stb_image as it has no decoder of its own for it: 2 by 1, 32 bits, from the top left.
+function void TestTarga(void)
+{
+    Arena arena = {0};
+    u8 tga[18 + 8] = { 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 32, 0x28 };
+    u8 pixels[8] = { 0xFF, 0, 0, 0xFF, 0, 0, 0xFF, 0x80 };
+    MemCopy(tga + 18, pixels, sizeof(pixels));
+    P_Image image = {0};
+    Check(P_LoadImageBytes(&arena, StrMake((const char *)tga, sizeof(tga)), 64, &image) && image.width == 2 && image.height == 1);
+    Check(image.pixels && image.pixels[0] == 0xFFFF0000u && image.pixels[1] == 0x800000FFu);
+    ArenaRelease(&arena);
+}

@@ -10,6 +10,25 @@
 #include <shlwapi.h>
 #pragma pop_macro("function")
 
+// stb_image for the pictures the system has no decoder for, Targa and Photoshop's, and for its zlib decoder, which FBX's arrays and zip
+// files are read with.
+#pragma push_macro("function")
+#pragma push_macro("global")
+#undef function
+#undef global
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Weverything"
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STBI_ONLY_TGA
+#define STBI_ONLY_PSD
+#define STBI_NO_STDIO
+#include "Lib/stb/stb_image.h"
+#pragma clang diagnostic pop
+#pragma pop_macro("global")
+#pragma pop_macro("function")
+
 // Set by WinWindow.c when the shell tells of changed file associations or replaced icons, after which the icons loaded before are out of date.
 global atomic_bool P__iconsChanged;
 
@@ -328,14 +347,14 @@ function b32 P__IsPdf(const wchar *path)
     return length >= 4 && CompareStringOrdinal(path + length - 4, 4, L".pdf", 4, TRUE) == CSTR_EQUAL;
 }
 
-function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight);
+function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, String bytes, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight);
 
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
 {
     Scratch scratch = GetScratchEx(arena);
     wchar *wide = P__FilePathWide(scratch.arena, path);
     IStream *pdf = wide && P__IsPdf(wide) ? P__PdfPageStream(wide, 0, (u32)maxSide, false) : NULL;
-    b32 result = wide && (pdf || !P__IsPdf(wide)) && P__LoadImage(arena, wide, pdf, maxSide, image, sourceWidth, sourceHeight);
+    b32 result = wide && (pdf || !P__IsPdf(wide)) && P__LoadImage(arena, wide, pdf, (String){0}, maxSide, image, sourceWidth, sourceHeight);
     if (pdf) pdf->lpVtbl->Release(pdf);
     ReleaseScratch(scratch);
     return result;
@@ -345,7 +364,7 @@ function b32 P_LoadImageBytes(Arena *arena, String data, i32 maxSide, P_Image *i
 {
     IStream *stream = data.length && data.length <= UINT32_MAX ? SHCreateMemStream((const BYTE *)data.value, (UINT)data.length) : NULL;
     i32 width = 0, height = 0;
-    b32 result = stream && P__LoadImage(arena, NULL, stream, maxSide, image, &width, &height);
+    b32 result = stream && P__LoadImage(arena, NULL, stream, data, maxSide, image, &width, &height);
     if (stream) stream->lpVtbl->Release(stream);
     return result;
 }
@@ -356,30 +375,75 @@ function b32 P_LoadPdfPage(Arena *arena, String path, u32 page, i32 width, P_Ima
     wchar *wide = P__FilePathWide(scratch.arena, path);
     IStream *drawn = wide && width > 0 ? P__PdfPageStream(wide, page, (u32)width, true) : NULL;
     i32 shownWidth = 0, shownHeight = 0;
-    b32 result = drawn && P__LoadImage(arena, wide, drawn, 1 << 15, image, &shownWidth, &shownHeight);
+    b32 result = drawn && P__LoadImage(arena, wide, drawn, (String){0}, 1 << 15, image, &shownWidth, &shownHeight);
     if (drawn) drawn->lpVtbl->Release(drawn);
     ReleaseScratch(scratch);
     return result;
 }
 
 // The picture of the file `wide`, or of `stream` when not NULL, shrunk to fit `maxSide`, in straight RGBA.
-function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
+// The most pixels stb_image decodes, which a damaged header could otherwise make it try to hold.
+#define P__MostStbPixels (UINT64_C(16384) * 16384)
+
+// `bytes` (or the file `wide`) decoded by stb_image into a WIC bitmap, for the pictures WIC has no decoder for; NULL when they are not one.
+function IWICBitmap *P__StbBitmap(IWICImagingFactory *factory, const wchar *wide, String bytes)
+{
+    Scratch scratch = GetScratch();
+    if (!bytes.length && wide) {
+        HANDLE file = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+        LARGE_INTEGER size = {0};
+        if (file != INVALID_HANDLE_VALUE && GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= INT32_MAX) {
+            u8 *data = ArenaPushArrayNoZero(scratch.arena, (u64)size.QuadPart, u8);
+            DWORD got = 0;
+            if (ReadFile(file, data, (DWORD)size.QuadPart, &got, NULL) && got == (DWORD)size.QuadPart) bytes = StrMake((const char *)data, got);
+        }
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+    }
+    IWICBitmap *bitmap = NULL;
+    i32 width = 0, height = 0, channels = 0;
+    if (bytes.length && bytes.length <= INT32_MAX && stbi_info_from_memory((const u8 *)bytes.value, (i32)bytes.length, &width, &height, &channels) &&
+        width > 0 && height > 0 && (u64)width * (u64)height <= P__MostStbPixels) {
+        u8 *pixels = stbi_load_from_memory((const u8 *)bytes.value, (i32)bytes.length, &width, &height, &channels, 4);
+        if (pixels) {
+            u64 size = (u64)width * (u64)height * 4;
+            if (FAILED(factory->lpVtbl->CreateBitmapFromMemory(factory, (UINT)width, (UINT)height, &P__WICPixelFormat32bppRGBA, (UINT)width * 4, (UINT)size, pixels, &bitmap))) bitmap = NULL;
+            stbi_image_free(pixels);
+        }
+    }
+    ReleaseScratch(scratch);
+    return bitmap;
+}
+
+// Targa and Photoshop files, which only stb_image decodes here, unless a codec for them is installed.
+function b32 P__IsStbPicture(const wchar *wide)
+{
+    const wchar *dot = wide ? wcsrchr(wide, L'.') : NULL;
+    return dot && (_wcsicmp(dot, L".tga") == 0 || _wcsicmp(dot, L".psd") == 0 || _wcsicmp(dot, L".tpic") == 0);
+}
+
+function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, String bytes, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
 {
     b32 result = false;
     P__EnsureCom();
     IWICImagingFactory *factory = NULL;
     IWICBitmapDecoder *decoder = NULL;
     IWICBitmapFrameDecode *frame = NULL;
+    IWICBitmap *decoded = NULL;
     IWICBitmapScaler *scaler = NULL;
     IWICFormatConverter *converter = NULL;
     UINT width = 0, height = 0;
-    if (SUCCEEDED(CoCreateInstance(&P__CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &P__IID_IWICImagingFactory, (void **)&factory)) &&
-        (stream ? SUCCEEDED(factory->lpVtbl->CreateDecoderFromStream(factory, stream, NULL, WICDecodeMetadataCacheOnDemand, &decoder))
-                : SUCCEEDED(factory->lpVtbl->CreateDecoderFromFilename(factory, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder))) &&
-        SUCCEEDED(decoder->lpVtbl->GetFrame(decoder, 0, &frame)) &&
-        SUCCEEDED(frame->lpVtbl->GetSize(frame, &width, &height)) && width && height) {
+    b32 made = SUCCEEDED(CoCreateInstance(&P__CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &P__IID_IWICImagingFactory, (void **)&factory));
+    IWICBitmapSource *source = NULL;
+    if (made && (stream ? SUCCEEDED(factory->lpVtbl->CreateDecoderFromStream(factory, stream, NULL, WICDecodeMetadataCacheOnDemand, &decoder))
+                        : SUCCEEDED(factory->lpVtbl->CreateDecoderFromFilename(factory, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder))) &&
+        SUCCEEDED(decoder->lpVtbl->GetFrame(decoder, 0, &frame))) {
+        source = (IWICBitmapSource *)frame;
+    } else if (made && (bytes.length || P__IsStbPicture(wide)) && (decoded = P__StbBitmap(factory, wide, bytes))) {
+        // Picture bytes given are tried whatever they hold; a file only by its name, as stb_image takes many other files for Targa.
+        source = (IWICBitmapSource *)decoded;
+    }
+    if (source && SUCCEEDED(source->lpVtbl->GetSize(source, &width, &height)) && width && height) {
         // A picture larger than the square is scaled down as it is decoded.
-        IWICBitmapSource *source = (IWICBitmapSource *)frame;
         UINT shownWidth = width, shownHeight = height;
         if (width > (UINT)maxSide || height > (UINT)maxSide) {
             f64 shrink = (f64)maxSide / (f64)Max(width, height);
@@ -406,6 +470,7 @@ function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, i32 
     }
     if (converter) converter->lpVtbl->Release(converter);
     if (scaler) scaler->lpVtbl->Release(scaler);
+    if (decoded) decoded->lpVtbl->Release(decoded);
     if (frame) frame->lpVtbl->Release(frame);
     if (decoder) decoder->lpVtbl->Release(decoder);
     if (factory) factory->lpVtbl->Release(factory);

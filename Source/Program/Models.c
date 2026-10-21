@@ -3,24 +3,7 @@
 // Model previews: small readers for the common 3D formats, which gather a file's triangles into one mesh placed as the file places its
 // parts, and a software rasterizer that draws the mesh from a fixed view in front of it, above and to its right. Both run in the preview job.
 
-#if defined(_WIN32)
-// FBX compresses its arrays with zlib. Linux builds stb_image for its pictures; Windows, which decodes pictures through the shell, builds it
-// here for its zlib decoder alone.
-#pragma push_macro("function")
-#pragma push_macro("global")
-#undef function
-#undef global
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Weverything"
-#define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_STATIC
-#define STBI_ONLY_PNG
-#define STBI_NO_STDIO
-#include "Lib/stb/stb_image.h"
-#pragma clang diagnostic pop
-#pragma pop_macro("global")
-#pragma pop_macro("function")
-#endif
+// FBX compresses its arrays with zlib, whose decoder comes with the stb_image each platform builds.
 
 // Compressed .blend files are zstd frames.
 #pragma push_macro("function")
