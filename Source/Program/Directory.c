@@ -2530,10 +2530,26 @@ function b32 Prog_RecentFaded(const Prog_State *state, u64 index)
 }
 
 // Whether the recent at `index` is left out of the sidebar and Go To: a hidden one while the active panel hides hidden items.
+// Whether `path` is on a drive that is there now. Only a path on a drive letter, or under where Linux mounts removable drives, can be
+// missing its drive; before the drives are first listed, none is.
+function b32 Prog_PathOnline(const Prog_State *state, String path)
+{
+    b32 lettered = path.length >= 2 && path.value[1] == ':';
+    b32 removable = Prog__StartsAt(path, 0, S("/media/")) || Prog__StartsAt(path, 0, S("/run/media/")) || Prog__StartsAt(path, 0, S("/mnt/"));
+    if (!state->drives.header.count || !(lettered || removable)) return true;
+    for (u64 i = 0; i < state->drives.header.count; ++i) {
+        String root = state->drives.v[i].path;
+        while (root.length && root.value[root.length - 1] == '/') --root.length;
+        if (path.length >= root.length && Prog__EqualFolded(StrFromTo(path, 0, (i64)root.length), root) && (path.length == root.length || path.value[root.length] == '/')) return true;
+    }
+    return false;
+}
+
+// A recent folder left out of the sidebar and Go To: a hidden one while hidden items are, or one on a drive that is not there now.
 function b32 Prog_RecentLeftOut(const Prog_State *state, u64 index)
 {
     b32 shows = state->currentPanel == state->activePanel ? state->showHidden : state->panels[state->activePanel].showHidden;
-    return !shows && Prog_RecentFaded(state, index);
+    return (!shows && Prog_RecentFaded(state, index)) || !Prog_PathOnline(state, state->recents.v[index]);
 }
 
 // The recents the sidebar and Go To show, as indices into them in their order: the best Prog_ShownRecentCount folders, the three opened last

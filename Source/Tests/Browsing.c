@@ -432,6 +432,18 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(Prog_CompareNames(S("file1000000000000000000001"), S("file1000000000000000000002")) < 0);
     Check(Prog_CompareNames(S("same"), S("same")) == 0);
     Check(Prog_CompareNames(S("Item2"), S("item10")) < 0);
+    // A path on a drive that is not there now is offline; a share, or one before any drive is listed, never is.
+    {
+        Arena arena = {0};
+        Prog_State offline = {0};
+        Check(Prog_PathOnline(&offline, S("D:/Video")));
+        ArrayPush(&arena, offline.drives, ((P_Place){ .path = S("C:/") }));
+        ArrayPush(&arena, offline.drives, ((P_Place){ .path = S("/run/media/me/Stick") }));
+        Check(Prog_PathOnline(&offline, S("c:/Git")) && Prog_PathOnline(&offline, S("C:")) && !Prog_PathOnline(&offline, S("D:/Video")) && !Prog_PathOnline(&offline, S("D:/")));
+        Check(Prog_PathOnline(&offline, S("//server/share")) && Prog_PathOnline(&offline, S("/home/me")) && Prog_PathOnline(&offline, S("/run/media/me/Stick/a")));
+        Check(!Prog_PathOnline(&offline, S("/run/media/me/Other")) && !Prog_PathOnline(&offline, S("/run/media/me/StickTwo")));
+        ArenaRelease(&arena);
+    }
     // git status, read for a folder inside the repository and for its top: each item's mark, and its folders' the most telling inside.
     {
         Arena arena = {0};

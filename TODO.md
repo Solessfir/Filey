@@ -36,7 +36,7 @@ Shipped there, missing here:
 - Group by: folder items in groups by date, type or size.
 - Hierarchical folder views: a locked view that applies to a whole folder tree, not one folder.
 - Drag and drop from ZIP archives and browsers (virtual files, `CFSTR_FILEDESCRIPTOR`/`CFSTR_FILECONTENTS`), and drops onto executables and scripts that run them with the files.
-- Bookmarks and recents on offline drives kept and shown until the drive is back.
+- Bookmarks on offline drives kept and shown, marked, until the drive is back. Recents on a drive that is not there now are left out of the sidebar and Go To until it is.
 - Network shares listed in the sidebar.
 
 Planned there, worth doing here first:
