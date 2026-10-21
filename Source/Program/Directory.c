@@ -4020,6 +4020,10 @@ function void Prog_ApplyTabTraits(Prog_State *state, String traits)
 // A tab dragged over from another window follows its folder with its traits, after a tab character.
 function void Prog_OpenPaths(Prog_State *state, String text)
 {
+    // A tab dragged over from another window goes into the strip slot it made room in, else after the active panel's shown tab.
+    u32 into = state->foreignDrag && state->foreignOver ? Prog_PanelIndex(state, state->foreignPanel) : UINT32_MAX;
+    state->foreignDrag = false;
+    if (into != UINT32_MAX) Prog__ActivatePanel(state, into);
     Prog__UsePanel(state, state->activePanel);
     ArrayStr lines = StrSplit(&state->frameArena, text, '\n');
     for (u64 i = 0; i < lines.header.count; ++i) {
@@ -4027,7 +4031,8 @@ function void Prog_OpenPaths(Prog_State *state, String text)
         String path = split.exists ? StrFromTo(lines.v[i], 0, (i64)split.value) : lines.v[i];
         if (!path.length) continue;
         u32 count = state->tabCount;
-        Prog_OpenTab(state, path, state->activeTab + 1, true);
+        Prog_OpenTab(state, path, into != UINT32_MAX ? Min(state->foreignSlot, state->tabCount) : state->activeTab + 1, true);
+        into = UINT32_MAX;
         if (split.exists && state->tabCount > count) Prog_ApplyTabTraits(state, StrFrom(lines.v[i], split.value + 1));
     }
 }

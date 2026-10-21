@@ -1874,12 +1874,19 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         f32 room = MaxF32(0, width - leadWidth - plus - button - m->inset - (controls ? controlWidth * 3 : 0));
         // A tab dragged over the strip goes into the slot nearest the pointer, which a placeholder marks unless it would stay where it is.
         u64 panelId = Prog__PanelId(state);
-        b32 dropHere = state->tabDrag && UI__Contains(strip->rect, UI->mouse);
+        // Another window's tab makes room the same way, where that window says the pointer is.
+        b32 foreign = !state->tabDrag && state->foreignDrag;
+        UI_Vec2 pointer = foreign ? state->foreignPoint : UI->mouse;
+        b32 dropHere = (state->tabDrag || foreign) && UI__Contains(strip->rect, pointer);
         f32 slotGuess = floorf(MinF32(m->line * 12.25f, room / (f32)(state->tabCount + 1)));
-        u32 dropSlot = dropHere && slotGuess > 0 ? (u32)UI__Clamp(floorf((UI->mouse.x - strip->rect.x0 - leadWidth) / slotGuess + 0.5f), 0, (f32)state->tabCount) : 0;
-        b32 stays = state->tabDrop.fromPanel == panelId && (dropSlot == state->tabDrop.fromSlot || dropSlot == state->tabDrop.fromSlot + 1);
+        u32 dropSlot = dropHere && slotGuess > 0 ? (u32)UI__Clamp(floorf((pointer.x - strip->rect.x0 - leadWidth) / slotGuess + 0.5f), 0, (f32)state->tabCount) : 0;
+        b32 stays = !foreign && state->tabDrop.fromPanel == panelId && (dropSlot == state->tabDrop.fromSlot || dropSlot == state->tabDrop.fromSlot + 1);
         b32 placeholder = dropHere && !stays;
-        if (dropHere) {
+        if (dropHere && foreign) {
+            state->foreignOver = true;
+            state->foreignPanel = panelId;
+            state->foreignSlot = dropSlot;
+        } else if (dropHere) {
             state->tabDrop.kind = Prog_TabDrop_Strip;
             state->tabDrop.panel = panelId;
             state->tabDrop.slot = dropSlot;
@@ -6195,7 +6202,9 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     b32 wheeled = state->zoomWheelTime && sinceWheel < 450000;
     // A timer rather than an animation, so it runs with animations off too.
     if (wheeled) UI->animating = true;
-    b32 wanted = anchor.x1 > anchor.x0 && !state->paletteOpen && !state->menuOpen && (wheeled || over || UI->activeKey == sliderKey);
+    // A drag passing over it, of a tab or of files, does not open it.
+    b32 dragging = state->tabDrag || state->dragging || state->foreignDrag;
+    b32 wanted = anchor.x1 > anchor.x0 && !state->paletteOpen && !state->menuOpen && (wheeled || (over && !dragging) || UI->activeKey == sliderKey);
     f32 shown = UI_Animate(UI_KeyFromStr(0, S("ZoomPopupFade")), wanted ? 1.0f : 0.0f, 0);
     state->zoomShown = wanted || shown > 0.01f;
     if (!state->zoomShown) return;
@@ -9144,6 +9153,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
 {
     state->iconsPending = 0;
     state->tabGhost = NULL;
+    state->foreignOver = false;
     state->hasHoverRow = false;
     state->tooltipKey = 0;
     state->tooltipAbove = false;
@@ -9243,6 +9253,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         u64 under = Prog__FocusOwner(state, state->pointerPanel);
         if (under != Prog__FocusOwner(state, state->panels[state->activePanel].id)) Prog_QueueCommand(state, Prog_CommandKind_PanelHover, 0, 0, 0)->panel = under;
     }
+    PlatformDragHover(state->tabDrag && !UI__Contains(view, UI->mouse));
     if (state->tabDrag) {
         if (!UI__Contains(view, UI->mouse)) state->tabDrop.kind = Prog_TabDrop_Window;
         state->tabDropOther = state->tabDrop.kind == Prog_TabDrop_Window && PlatformOtherWindowAtPointer(S(""));

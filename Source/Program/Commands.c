@@ -3686,6 +3686,10 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         ++order;
         if (event->kind == PlatformEventKind_DrivesChanged) state->drivesChanged = true;
         if (event->kind == PlatformEventKind_OpenPaths) Prog_OpenPaths(state, event->text);
+        if (event->kind == PlatformEventKind_TabHover) {
+            state->foreignDrag = event->focused;
+            state->foreignPoint = (UI_Vec2){ event->x, event->y };
+        }
         if (event->kind == PlatformEventKind_FocusChanged) state->windowInactive = !event->focused;
         // A key that ran a command does not also type its character, such as Shift+F's F or Space's space.
         if (event->kind == PlatformEventKind_Text && state->swallowText) {

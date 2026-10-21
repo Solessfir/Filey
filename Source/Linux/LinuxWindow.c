@@ -1179,6 +1179,11 @@ function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX
 }
 
 // Wayland tells a window nothing of the others under the pointer.
+function void PlatformDragHover(b32 active)
+{
+    (void)active;
+}
+
 function b32 PlatformOtherWindowAtPointer(String paths)
 {
     (void)paths;

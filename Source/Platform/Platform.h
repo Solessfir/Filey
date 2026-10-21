@@ -99,6 +99,7 @@ typedef enum PlatformEventKind {
     PlatformEventKind_MouseLeave,  // the pointer left the window
     PlatformEventKind_DrivesChanged,  // a drive or its medium came or went
     PlatformEventKind_OpenPaths,      // a later run of the program handed this one its folders, in `text` a line each; none to come forward only
+    PlatformEventKind_TabHover,       // another of the program's windows drags a tab over this one, at `x`, `y`; `focused` false once it has left
 
     PlatformEventKind_Count,
 } PlatformEventKind;
@@ -214,6 +215,9 @@ function void PlatformInstanceRelease(void);
 // A picture following the pointer above every window, as a tab dragged out of the window shows, `width` by `height` premultiplied BGRA top
 // row first, the pointer at (`hotX`, `hotY`) in it; NULL takes it away. Nothing where windows cannot be placed at the pointer, as on Wayland.
 function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY);
+// Tells another of the program's windows under the pointer that a tab dragged from this one is over it, as a TabHover event there, while
+// `active`, and the one it was over that it has left. Nothing where windows cannot see each other.
+function void PlatformDragHover(b32 active);
 // Whether another of the program's windows is under the pointer, outside this one; with `paths`, a line each, they go to it as an OpenPaths
 // event and it comes forward, and the result says whether it took them. False where windows cannot see each other, as on Wayland.
 function b32  PlatformOtherWindowAtPointer(String paths);

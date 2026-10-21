@@ -1339,6 +1339,12 @@ typedef struct Prog_State {
     b32 tabDropOther;         // a dragged tab is over another of the program's windows, which letting go hands it to
     UI_Block *tabGhost;       // the dragged tab, while the pointer is outside the window, for the frame to draw on its own and show at it
     UI_Vec2 tabGhostHot;      // where the pointer is in it
+    // Another window's tab dragged over this one, at foreignPoint, and the strip slot it would go into, as the last build found it.
+    b32 foreignDrag;
+    UI_Vec2 foreignPoint;
+    b32 foreignOver;
+    u64 foreignPanel;
+    u32 foreignSlot;
     // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;

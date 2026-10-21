@@ -43,6 +43,9 @@ typedef struct WinWindowState {
 
 global WinWindowState Win;
 
+// Another window's dragged tab over this one: wParam 1 with the pointer on the screen in lParam, 0 once it has left.
+#define WinTabHoverMessage (WM_APP + 3)
+
 // One window for each settings folder: a named mutex says a run has it, and that run's window carries the folder's hash as a property, by
 // which a later run finds it to hand it its folders.
 #define WinInstanceProperty L"FileyInstance"
@@ -135,14 +138,33 @@ function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX
     ReleaseDC(NULL, screen);
 }
 
+// Another of the program's windows at `pointer` on the screen, or NULL.
+function HWND Win__OtherWindowAt(POINT pointer)
+{
+    HWND window = WindowFromPoint(pointer);
+    window = window ? GetAncestor(window, GA_ROOT) : NULL;
+    wchar name[32] = {0};
+    if (!window || window == Win.window || !GetClassNameW(window, name, CArrayCount(name)) || lstrcmpW(name, L"FileyWindow") != 0) return NULL;
+    return window;
+}
+
+global HWND WinHoverTarget;
+
+function void PlatformDragHover(b32 active)
+{
+    POINT pointer = {0};
+    HWND target = active && GetCursorPos(&pointer) ? Win__OtherWindowAt(pointer) : NULL;
+    if (WinHoverTarget && WinHoverTarget != target) PostMessageW(WinHoverTarget, WinTabHoverMessage, 0, 0);
+    if (target) PostMessageW(target, WinTabHoverMessage, 1, MAKELPARAM((u16)(i16)pointer.x, (u16)(i16)pointer.y));
+    WinHoverTarget = target;
+}
+
 function b32 PlatformOtherWindowAtPointer(String paths)
 {
     POINT pointer;
     if (!GetCursorPos(&pointer)) return false;
-    HWND window = WindowFromPoint(pointer);
-    window = window ? GetAncestor(window, GA_ROOT) : NULL;
-    wchar name[32] = {0};
-    if (!window || window == Win.window || !GetClassNameW(window, name, CArrayCount(name)) || lstrcmpW(name, L"FileyWindow") != 0) return false;
+    HWND window = Win__OtherWindowAt(pointer);
+    if (!window) return false;
     if (!paths.length) return true;
     DWORD process = 0;
     GetWindowThreadProcessId(window, &process);
@@ -387,6 +409,15 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
 
         case WM_CLOSE: {
             PlatformPushEvent(PlatformEventKind_CloseRequested);
+        } return 0;
+
+        case WinTabHoverMessage: {
+            POINT point = { (i16)LOWORD(lParam), (i16)HIWORD(lParam) };
+            ScreenToClient(window, &point);
+            PlatformEvent *event = PlatformPushEvent(PlatformEventKind_TabHover);
+            event->focused = wParam != 0;
+            event->x = (f32)point.x;
+            event->y = (f32)point.y;
         } return 0;
 
         // A later run's folders, or none when it only brings the window forward.
