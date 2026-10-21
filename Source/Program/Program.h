@@ -311,9 +311,14 @@ typedef enum Prog_View {
 
 typedef struct Prog_Icon {
     enum8(Prog_IconState) state;
+    b8 making;     // a thumbnail the system's cache lacked, waiting to be made, which the first frame does not wait for
+    b8 reloading;  // loaded and asked for again, as the system's icons changed; it shows until the new one takes its cell
+    b8 exact, plain;
+    enum8(P_FileKind) kind;
+    String path;   // what it was loaded from, kept in the icon arena, for loading it again
     R_TextureHandle texture;
     R_Rect uv;
-    u64 wanted;  // the last frame that drew or waited for it, which orders the thumbnails still to be made
+    u64 wanted;    // the last frame that drew or waited for it, which orders the thumbnails still to be made
 } Prog_Icon;
 
 typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon value; } *v; } Prog_IconMap;
@@ -1245,7 +1250,7 @@ typedef struct Prog_State {
     b32 dragging;
     u64 hoverRow;             // row under the pointer in the last build
     u64 gridMoveTime;         // when the grid's layout last changed, which its items glide from for a moment
-    u32 iconsPending;         // file icons this build drew without, still loading; the first frame waits for them
+    u32 iconsPending;         // file icons and cached thumbnails this build drew without, still loading; the first frame waits for them
     f32 zoomWheel;            // wheel travel with Ctrl held that has not made a whole step yet
     f32 sizeWheel;            // the same with Alt held, for the font size and spacing
     // The views on a slider over the active panel's view button: shown while the pointer is over the button or the popup, and for a moment
@@ -1593,6 +1598,7 @@ function const Prog_Icon *Prog_FileIcon(Prog_State *state, String directory, con
 function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKind kind);
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
 function void Prog_ReloadFolderIcon(Prog_State *state, String path);
+function void Prog_ReloadIcons(Prog_State *state);
 function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog_Entry *entry);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);

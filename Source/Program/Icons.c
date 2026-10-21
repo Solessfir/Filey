@@ -95,18 +95,19 @@ function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog
 {
     Prog_Icon *icon = MapsGetPtrNull(*map, key);
     if (icon == NULL) {
-        Prog_Icon pending = { .state = Prog_IconState_Pending, .wanted = state->ui.frameIndex };
-        MapsPut(arena, *map, StrCopy(arena, key), pending);
         // Requests outlive the frame when nothing submits them before the next one.
         b8 slowDisk = size != state->iconSize && !plain && state->directory.driveKind == P_DriveKind_Spinning;
         Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = (u8)kind, .size = size,
                                      .exact = (b8)(exact != 0), .plain = (b8)(plain != 0), .slowDisk = slowDisk };
+        Prog_Icon pending = { .state = Prog_IconState_Pending, .exact = request.exact, .plain = request.plain, .kind = request.kind, .path = request.path,
+                              .wanted = state->ui.frameIndex };
+        MapsPut(arena, *map, StrCopy(arena, key), pending);
         ArrayPush(&state->iconArena, state->iconRequests, request);
-        if (map == &state->icons) ++state->iconsPending;
+        ++state->iconsPending;
         return NULL;
     }
     if (icon->state == Prog_IconState_Pending) icon->wanted = state->ui.frameIndex;
-    if (icon->state == Prog_IconState_Pending && map == &state->icons) ++state->iconsPending;
+    if (icon->state == Prog_IconState_Pending && !icon->making) ++state->iconsPending;
     return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 
@@ -127,15 +128,33 @@ function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path)
     return Prog__LookUpIcon(state, &state->iconArena, &state->icons, key, path, P_FileKind_Directory, state->iconSize, true, false);
 }
 
-// Asks for a folder's own icon again, for one that changes, such as the Recycle Bin's when it fills or empties; the old one shows until the new one comes.
+// Asks for a loaded or failed icon again; a loaded one shows until the new one takes its cell.
+function void Prog__ReloadIcon(Prog_State *state, String key, Prog_Icon *icon, i32 size)
+{
+    if (icon->state == Prog_IconState_Pending || icon->reloading || !icon->path.length) return;
+    if (icon->state == Prog_IconState_Failed) icon->state = Prog_IconState_Pending;
+    else icon->reloading = true;
+    Prog_IconRequest request = { .path = icon->path, .key = StrCopy(&state->iconArena, key), .kind = icon->kind, .size = size, .exact = icon->exact, .plain = icon->plain };
+    ArrayPush(&state->iconArena, state->iconRequests, request);
+}
+
+// Asks for a folder's own icon again, for one that changes, such as the Recycle Bin's when it fills or empties.
 function void Prog_ReloadFolderIcon(Prog_State *state, String path)
 {
-    String key = StrFormat(&state->frameArena, "exact:%S", path);
-    Prog_Icon *icon = MapsGetPtrNull(state->icons, key);
-    if (!icon || icon->state == Prog_IconState_Pending) return;
-    if (icon->state == Prog_IconState_Failed) icon->state = Prog_IconState_Pending;
-    Prog_IconRequest request = { .path = StrCopy(&state->iconArena, path), .key = StrCopy(&state->iconArena, key), .kind = P_FileKind_Directory, .size = state->iconSize, .exact = true };
-    ArrayPush(&state->iconArena, state->iconRequests, request);
+    Prog_Icon *icon = MapsGetPtrNull(state->icons, StrFormat(&state->frameArena, "exact:%S", path));
+    if (icon) Prog__ReloadIcon(state, StrFormat(&state->frameArena, "exact:%S", path), icon, state->iconSize);
+}
+
+// Asks for every icon and thumbnail stand-in again, as the system's icons changed, without the blank moment starting over would show.
+function void Prog_ReloadIcons(Prog_State *state)
+{
+    for (u64 i = 0; i < state->icons.header.count; ++i) Prog__ReloadIcon(state, state->icons.v[i].key, &state->icons.v[i].value, state->iconSize);
+    for (u32 t = 0; t < Prog_ThumbnailSlots; ++t) {
+        Prog_ThumbnailSlot *slot = &state->thumbnailSlots[t];
+        for (u64 i = 0; slot->atlas.size && i < slot->map.header.count; ++i) {
+            if (slot->map.v[i].value.plain) Prog__ReloadIcon(state, slot->map.v[i].key, &slot->map.v[i].value, slot->atlas.size);
+        }
+    }
 }
 
 function void Prog__ResetAtlas(Prog_IconAtlas *atlas, i32 size, i32 pageSize, u32 pageLimit)
@@ -406,6 +425,13 @@ function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *
     return true;
 }
 
+// Draws new pixels into a loaded icon's own cell.
+function void Prog__ReplaceIcon(const Prog_IconAtlas *atlas, const Prog_Icon *icon, const u32 *pixels)
+{
+    i32 x = (i32)(icon->uv.x0 * (f32)atlas->pageSize + 0.5f), y = (i32)(icon->uv.y0 * (f32)atlas->pageSize + 0.5f);
+    R_TextureUpdateRGBA(icon->texture, x, y, atlas->size, atlas->size, pixels);
+}
+
 // An icon for pixels already in hand, such as a menu item's picture, cached by content so that reopening a menu reuses its cells.
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
 {
@@ -483,7 +509,9 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
         b32 thumbnail = request->size != state->iconSize;
         if (request->warm) continue;
         // Not in the system's cache: it waits to be made.
-        if (request->cacheOnly && !pixels[i] && Prog__RequestedThumbnail(state, request)) {
+        Prog_Icon *missed = request->cacheOnly && !pixels[i] ? Prog__RequestedThumbnail(state, request) : NULL;
+        if (missed) {
+            missed->making = true;
             Prog_IconRequest made = *request;
             made.cacheOnly = false;
             made.path = StrCopy(&state->thumbnailWaitArena, request->path);
@@ -504,7 +532,10 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
         Prog_IconMap *map = slot ? &slot->map : &state->icons;
         Prog_Icon *icon = MapsGetPtrNull(*map, request->key);
         if (icon == NULL) continue;
-        if (pixels[i] == NULL) {
+        if (icon->reloading) {
+            icon->reloading = false;
+            if (pixels[i]) Prog__ReplaceIcon(slot ? &slot->atlas : &state->iconAtlas, icon, pixels[i]);
+        } else if (pixels[i] == NULL) {
             icon->state = Prog_IconState_Failed;
         } else if (!Prog__PlaceIcon(slot ? &slot->atlas : &state->iconAtlas, icon, pixels[i])) {
             if (slot) Prog__ResetThumbnails(slot, request->size);

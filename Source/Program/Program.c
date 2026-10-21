@@ -9087,9 +9087,10 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     metrics.detail = state->smallFont ? state->smallFont : font;
     metrics.iconsSmall = state->smallIcons ? state->smallIcons : icons;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
-    // Icons from another theme are loaded again, as a new size's are.
-    if (P_IconThemeChanged()) state->iconSize = 0;
+    // Icons from another theme or the system's updated ones are loaded again in place; a new size's start over.
+    b32 iconsChanged = P_IconThemeChanged();
     if (iconSize != state->iconSize) Prog__ResetIcons(state, iconSize);
+    else if (iconsChanged) Prog_ReloadIcons(state);
     state->iconScale = scale;
     const Prog_Metrics *m = &metrics;
 

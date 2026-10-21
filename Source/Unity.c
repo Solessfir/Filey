@@ -234,7 +234,8 @@ function void Prog__Frame(void *user, PlatformEventList events)
             }
         }
         for (u32 i = 0; i < CArrayCount(state->setupFonts); ++i) state->setupFonts[i] = loop->setupScale > 0 ? &loop->setupFonts[i] : NULL;
-        state->ui.animate = !state->animationsOff;
+        // Nothing eases while the window waits to show, so that its first frame has everything in place, as the layout settled unseen.
+        state->ui.animate = !state->animationsOff && loop->shown;
         ProfileScope("BuildUI") {
             UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, (f32)window.width, (f32)window.height }, events, PlatformNowMicroseconds());
             Prog_HandleInput(state, events);
