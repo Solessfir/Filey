@@ -1950,7 +1950,7 @@ function void Prog__MillerSelect(Prog_State *state, u32 slot, u64 row, b32 open)
     const Prog_Entry *entry = &column->items[row];
     String path = Prog_JoinPath(&state->frameArena, column->path, entry->file.name), name = StrCopy(&state->frameArena, entry->file.name);
     String folder = StrCopy(&state->frameArena, column->path), archive = {0}, inner = {0};
-    b32 opensAsFolder = entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(name) && !Prog_ArchiveSplit(folder, &archive, &inner));
+    b32 opensAsFolder = entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(name) && !Prog_ArchiveSplit(folder, &archive, &inner) && !P_OpensInApp(path));
     if (open && opensAsFolder) {
         Prog_RequestDirectory(state, path, true, 0);
     } else if (open) {

@@ -4873,8 +4873,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
     if (state->loading || row >= state->directory.count) return;
     Prog_Entry *entry = &state->directory.entries[row];
     String path = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
-    // An archive opens as a folder, but for one inside another, which opens in its program.
-    if (entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(entry->file.name) && !state->directory.archive)) {
+    // An archive opens as a folder when no program of its own is set to open it, but for one inside another, which opens in its program.
+    if (entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(entry->file.name) && !state->directory.archive && !P_OpensInApp(path))) {
         Prog_RequestDirectory(state, path, true, 0);
     } else {
         Prog__AddRecent(state, path, true, entry->file.hidden);

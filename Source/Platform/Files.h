@@ -113,6 +113,9 @@ typedef struct P_FileOrder {
 // May block while the application starts.
 // Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
+// Whether a program set to open files like `path` does, other than a file manager: the system's own, as Explorer's view of a zip is, or
+// Filey. An archive without one opens as a folder.
+function b32 P_OpensInApp(String path);
 // Opens the system's own file manager on the folder `path`: Explorer on Windows, and on Linux the application the desktop opens folders with,
 // Filey's own entry left out.
 function P_FileError P_OpenFileExplorer(Arena *arena, String path);

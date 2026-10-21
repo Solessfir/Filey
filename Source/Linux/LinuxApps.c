@@ -376,6 +376,15 @@ function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
     return P__OpenPath(arena, &P__apps, path);
 }
 
+// Only a program mimeapps.list chooses counts, as any archive tool installed lists the types it can open.
+function b32 P_OpensInApp(String path)
+{
+    pthread_once(&P__appsOnce, P__LoadGlobalApps);
+    Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+    const P__App *app = P__ChosenApp(&P__apps, P__MimeForName(slash.exists ? StrFrom(path, slash.value + 1) : path, false));
+    return app && !StrIsEqual(app->id, S("filey.desktop"));
+}
+
 function P_FileError P_OpenFileExplorer(Arena *arena, String path)
 {
     pthread_once(&P__appsOnce, P__LoadGlobalApps);

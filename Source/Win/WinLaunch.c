@@ -164,6 +164,20 @@ function u32 P_PdfPages(Arena *arena, String path, u32 most, f32 **sizes)
     return count;
 }
 
+function b32 P_OpensInApp(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    const wchar *extension = wide ? PathFindExtensionW(wide) : L"";
+    wchar program[MAX_PATH] = {0}, own[MAX_PATH] = {0};
+    DWORD length = CArrayCount(program);
+    b32 result = extension[0] && SUCCEEDED(AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN | ASSOCF_NOTRUNCATE, ASSOCSTR_EXECUTABLE, extension, L"open", program, &length)) &&
+                 lstrcmpiW(PathFindFileNameW(program), L"explorer.exe") != 0 && lstrcmpiW(PathFindFileNameW(program), L"rundll32.exe") != 0;
+    if (result && GetModuleFileNameW(NULL, own, CArrayCount(own))) result = lstrcmpiW(program, own) != 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // The app id of a packaged default handler, which names its app under the ProgID; desktop handlers have none.
 function b32 P__PackagedHandler(const wchar *path, wchar *appId, u32 capacity)
 {
