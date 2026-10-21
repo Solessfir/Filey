@@ -1323,6 +1323,7 @@ command GoTo {
     tooltip = "Open a recent folder, or type a path and expand its folders."
     hotkey  = "Ctrl+P"
     hotkey  = "F4"
+    hotkey  = "Shift+Space"
     repeat  = "false"
 }
 
@@ -1693,7 +1694,7 @@ command InspectorToggleDetails {
 command InspectorChangeLayout {
     label   = "Toggle Inspector Layout^change,switch,flip"
     tooltip = "Toggle inspector layout between horizontal and vertical."
-    hotkey  = "Shift+Space"
+    hotkey  = "Ctrl+Shift+Space"
 }
 
 // Inspector layout button; carries the Prog_InspectorLayout.
