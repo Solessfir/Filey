@@ -971,6 +971,20 @@ function void R_ReadPixels(u32 width, u32 height, void *bgra)
     GL.ReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, bgra);
 }
 
+function void R_ReadRect(i32 x, i32 y, i32 width, i32 height, u32 *bgra)
+{
+    GL.ReadPixels(x, GL.height - y - height, width, height, GL_BGRA, GL_UNSIGNED_BYTE, bgra);
+    // OpenGL's rows run from the bottom.
+    for (i32 top = 0, bottom = height - 1; top < bottom; ++top, --bottom) {
+        u32 *a = bgra + (i64)top * width, *b = bgra + (i64)bottom * width;
+        for (i32 i = 0; i < width; ++i) {
+            u32 swap = a[i];
+            a[i] = b[i];
+            b[i] = swap;
+        }
+    }
+}
+
 function void R_EndFrame(void)
 {
     Assert(GL.clipDepth == 0);

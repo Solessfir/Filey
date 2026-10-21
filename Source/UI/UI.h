@@ -21,6 +21,7 @@ typedef u64 UI_Flags;
 #define UI_Flag_TakesWheel           BBit(10)  // the wheel over it is the program's, and scrolls nothing under it
 #define UI_Flag_KeepCorners          BBit(11)  // round even when every other corner is drawn square, as the window's outline is
 #define UI_Flag_DrawLine             BBit(12)  // a line between lineFrom and lineTo, in its background color
+#define UI_Flag_Detached             BBit(13)  // left out of the window's drawing, for UI_DrawDetached to draw on its own
 
 typedef struct UI_Vec2 { f32 x, y; } UI_Vec2;
 typedef struct UI_Padding { f32 left, top, right, bottom; } UI_Padding;
@@ -154,6 +155,8 @@ function UI_Key UI_KeyFromStr(UI_Key parent, String text);
 function void UI_BeginFrame(UI_Context *context, Arena *frameArena, R_Rect viewport, PlatformEventList events, u64 nowMicroseconds);
 function void UI_EndFrame(void);
 function void UI_Draw(void);
+// Draws a UI_Flag_Detached block and what is in it, where it was laid out, as into an image of its own.
+function void UI_DrawDetached(UI_Block *block);
 function void UI_Release(UI_Context *context);
 function UI_Block *UI_AddBlockFromKey(UI_Key key, UI_Flags flags);
 function UI_Block *UI_AddBlock(UI_Flags flags);

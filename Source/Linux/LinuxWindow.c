@@ -1172,6 +1172,12 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
     return !handed;
 }
 
+// Wayland places no window at the pointer for a client.
+function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY)
+{
+    (void)bgra, (void)width, (void)height, (void)hotX, (void)hotY;
+}
+
 // Wayland tells a window nothing of the others under the pointer.
 function b32 PlatformOtherWindowAtPointer(String paths)
 {

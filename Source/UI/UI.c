@@ -511,6 +511,7 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity);
 
 function void UI__DrawBlock(UI_Block *block, f32 opacity)
 {
+    if (FlagExists(block->flags, UI_Flag_Detached)) return;
     f32 scale = block->props.scale;
     if (scale <= 0 || scale == 1) {
         UI__DrawBlockScaled(block, opacity);
@@ -587,6 +588,13 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
 }
 
 function void UI_Draw(void) { Assert(UI && UI->root); UI__DrawBlock(UI->root, 1); }
+
+function void UI_DrawDetached(UI_Block *block)
+{
+    block->flags &= ~UI_Flag_Detached;
+    UI__DrawBlock(block, 1);
+    block->flags |= UI_Flag_Detached;
+}
 
 function void UI_Release(UI_Context *context)
 {

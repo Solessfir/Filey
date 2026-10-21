@@ -97,6 +97,44 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
     return !handed;
 }
 
+global HWND WinGhost;
+
+function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY)
+{
+    if (!bgra || width <= 0 || height <= 0) {
+        if (WinGhost) ShowWindow(WinGhost, SW_HIDE);
+        return;
+    }
+    if (!WinGhost) {
+        HINSTANCE instance = GetModuleHandleW(NULL);
+        WNDCLASSEXW ghostClass = { .cbSize = sizeof(ghostClass), .lpfnWndProc = DefWindowProcW, .hInstance = instance, .lpszClassName = L"FileyGhost" };
+        RegisterClassExW(&ghostClass);
+        // Layered and transparent to the pointer, so that what is under it, another window included, is what letting go lands on.
+        WinGhost = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"FileyGhost", L"", WS_POPUP,
+                                   0, 0, width, height, Win.window, NULL, instance, NULL);
+        if (!WinGhost) return;
+    }
+    POINT cursor;
+    GetCursorPos(&cursor);
+    HDC screen = GetDC(NULL), dc = CreateCompatibleDC(screen);
+    BITMAPINFO info = { .bmiHeader = { .biSize = sizeof(BITMAPINFOHEADER), .biWidth = width, .biHeight = -height, .biPlanes = 1, .biBitCount = 32, .biCompression = BI_RGB } };
+    void *bits = NULL;
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (bitmap && bits) {
+        MemCopy(bits, bgra, (u64)width * (u64)height * 4);
+        HGDIOBJ old = SelectObject(dc, bitmap);
+        POINT at = { cursor.x - hotX, cursor.y - hotY }, origin = { 0, 0 };
+        SIZE size = { width, height };
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+        UpdateLayeredWindow(WinGhost, screen, &at, &size, dc, &origin, 0, &blend, ULW_ALPHA);
+        ShowWindow(WinGhost, SW_SHOWNOACTIVATE);
+        SelectObject(dc, old);
+    }
+    if (bitmap) DeleteObject(bitmap);
+    DeleteDC(dc);
+    ReleaseDC(NULL, screen);
+}
+
 function b32 PlatformOtherWindowAtPointer(String paths)
 {
     POINT pointer;

@@ -47,6 +47,8 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear);
 function void R_EndFrame(void);
 // The drawn frame before it is presented, bottom row first, 4 bytes a pixel in blue, green, red, alpha order.
 function void R_ReadPixels(u32 width, u32 height, void *bgra);
+// The drawn frame's pixels in `width` by `height` from (`x`, `y`), measured from the top left, top row first, as premultiplied BGRA.
+function void R_ReadRect(i32 x, i32 y, i32 width, i32 height, u32 *bgra);
 
 // Single-channel coverage texture, sampled as alpha.
 function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *pixels);

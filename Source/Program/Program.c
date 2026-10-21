@@ -7424,13 +7424,19 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     // A translucent theme's panels would leave it unreadable over the list, so it takes the menus' color there.
     R_Color face = theme->panel.a < 1 ? theme->menu : theme->panel, foot = theme->background.a < 1 ? theme->menu : theme->background;
     R_Rect view = UI->root->rect;
+    // Outside the window it is a window of its own over the others, at the window's top left to be drawn on its own, and only the tab.
+    b32 outside = !UI__Contains(view, UI->mouse);
     f32 x = UI__Clamp(floorf(UI->mouse.x - view.x0 - width * 0.3f), 0, MaxF32(0, view.x1 - view.x0 - width));
     f32 y = UI__Clamp(floorf(UI->mouse.y - view.y0 + m->gap), 0, MaxF32(0, view.y1 - view.y0 - height - m->row));
-    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextFloatingOffset(outside ? (UI_Vec2){ 0, 0 } : (UI_Vec2){ x, y });
     UI_SetNextPrefWidth(UI_Pixels(width));
-    UI_SetNextPrefHeight(UI_Pixels(height + m->row));
+    UI_SetNextPrefHeight(UI_Pixels(outside ? height : height + m->row));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_Block *ghost = UI_AddBlock(UI_Flag_Floating);
+    UI_Block *ghost = UI_AddBlock(UI_Flag_Floating | (outside ? UI_Flag_Detached : 0));
+    if (outside) {
+        state->tabGhost = ghost;
+        state->tabGhostHot = (UI_Vec2){ floorf(width * 0.3f), -m->gap };
+    }
     UI_Parent(ghost) {
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
@@ -7454,6 +7460,7 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
             }
             Prog__Label(Prog_PathName(state, path), UI_Flex(), height, 0, theme->text, 0);
         }
+        if (outside) return;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(m->row));
         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
@@ -9136,6 +9143,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->iconsPending = 0;
+    state->tabGhost = NULL;
     state->hasHoverRow = false;
     state->tooltipKey = 0;
     state->tooltipAbove = false;

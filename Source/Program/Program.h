@@ -1337,6 +1337,8 @@ typedef struct Prog_State {
     b32 separateInstances;    // each run of the program opens a window of its own, rather than a tab in the one already open
     b32 separateWindow;       // started as a window of its own beside that one, which keeps the session
     b32 tabDropOther;         // a dragged tab is over another of the program's windows, which letting go hands it to
+    UI_Block *tabGhost;       // the dragged tab, while the pointer is outside the window, for the frame to draw on its own and show at it
+    UI_Vec2 tabGhostHot;      // where the pointer is in it
     // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;

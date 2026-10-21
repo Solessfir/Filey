@@ -274,6 +274,21 @@ function void Prog__Frame(void *user, PlatformEventList events)
                 R_PopLayer(0.5f);
                 R_EndFrame();
             }
+            // A tab dragged out of the window is drawn on its own first and shown at the pointer as a window over the others.
+            UI_Block *ghost = state->tabGhost;
+            i32 ghostWidth = ghost ? (i32)(ghost->rect.x1 - ghost->rect.x0) : 0, ghostHeight = ghost ? (i32)(ghost->rect.y1 - ghost->rect.y0) : 0;
+            if (ghostWidth > 0 && ghostHeight > 0 && ghostWidth <= window.width && ghostHeight <= window.height) {
+                R_BeginFrame(window.width, window.height, (R_Color){0});
+                UI_DrawDetached(ghost);
+                R_EndFrame();
+                Scratch scratch = GetScratch();
+                u32 *pixels = ArenaPushArrayNoZero(scratch.arena, (u64)ghostWidth * (u64)ghostHeight, u32);
+                R_ReadRect((i32)ghost->rect.x0, (i32)ghost->rect.y0, ghostWidth, ghostHeight, pixels);
+                PlatformDragGhost(pixels, ghostWidth, ghostHeight, (i32)state->tabGhostHot.x, (i32)state->tabGhostHot.y);
+                ReleaseScratch(scratch);
+            } else {
+                PlatformDragGhost(NULL, 0, 0, 0, 0);
+            }
             R_BeginFrame(window.width, window.height, Prog_CurrentTheme()->window);
             UI_Draw();
             R_EndFrame();
