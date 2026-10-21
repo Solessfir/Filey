@@ -3013,6 +3013,37 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     }
 }
 
+// A repository's tag after its folder's name in the list, from `x` and only if it fits before `limit`: its branch, and the tracked files it
+// has changed in the color of a changed file.
+function void Prog__RepoTag(Prog_State *state, const Prog_Repo *repo, UI_Block *cell, f32 x, f32 limit, f32 height, R_Color ink, const Prog_Metrics *m)
+{
+    String count = repo->changes > 0 ? StrFormat(&state->frameArena, "~%d", repo->changes) : (String){0};
+    String texts[3] = { Icon_GitBranch, repo->branch, count };
+    const R_Font *fonts[3] = { m->iconsSmall, m->detail, m->detail };
+    R_Color inks[3] = { ink, ink, Prog__GitInk(Prog_GitMark_Modified) };
+    f32 befores[3] = { floorf(9.6f * m->scale + 0.5f), floorf(3.2f * m->scale + 0.5f), floorf(6.4f * m->scale + 0.5f) }, widths[3], end = x;
+    for (u32 i = 0; i < 3; ++i) {
+        widths[i] = texts[i].length ? R_TextWidth(fonts[i], texts[i]) : 0;
+        if (texts[i].length) end += befores[i] + widths[i];
+    }
+    if (!repo->branch.length || end > limit) return;
+    UI_Parent(cell) {
+        for (u32 i = 0; i < 3; ++i) {
+            if (!texts[i].length) continue;
+            x += befores[i];
+            UI_SetNextFloatingOffset((UI_Vec2){ x, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(widths[i]));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextFont(fonts[i]);
+            UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextColors((UI_Colors){ .text = inks[i] });
+            UI_SetNextText(texts[i]);
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+            x += widths[i];
+        }
+    }
+}
+
 // What every view does with an item under the pointer: a right press opens the menu, presses select, and drags move the files.
 // A drag that began away from the item's icon and name (`onName` false) instead asks, through the result, for a box selection.
 function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_Key key, b32 onName, b32 renaming)
@@ -3283,6 +3314,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 continue;
             }
             Prog__LabelPadded(value, width, height, left, right, color, column->alignX);
+            const Prog_Repo *repo = i == Prog_ColumnId_Name && state->repos.header.count && entry->file.kind == P_FileKind_Directory ? MapsGetPtrNull(state->repos, entry->file.name) : NULL;
+            if (repo) Prog__RepoTag(state, repo, UI->parent->last, left + R_TextWidth(m->font, value), columnWidth - right, height, hot || entry->selected ? color : theme->textDim, m);
             // In single-click mode names are links: underlined under the pointer, or all of them when asked.
             if (i == Prog_ColumnId_Name && state->singleClick && (hot || state->underlineAlways) &&
                 (!state->singleClickFoldersOnly || entry->file.kind == P_FileKind_Directory)) {

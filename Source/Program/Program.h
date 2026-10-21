@@ -231,6 +231,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_HexPage,
     Prog_JobKind_PdfPage,
     Prog_JobKind_Git,
+    Prog_JobKind_Repos,
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
@@ -453,6 +454,17 @@ typedef struct Prog_GitMarks {
     MapHeader header;
     struct { String key; u8 value; } *v;
 } Prog_GitMarks;
+
+// A repository among the shown folder's subfolders: its branch, and how many tracked files it has changed, -1 until known.
+typedef struct Prog_Repo {
+    String branch;
+    i32 changes;
+} Prog_Repo;
+
+typedef struct Prog_Repos {
+    MapHeader header;
+    struct { String key; Prog_Repo value; } *v;
+} Prog_Repos;
 
 // The git repository around a folder: its branch, or a detached HEAD's short hash, how many commits it is ahead of its upstream and behind
 // it, -1 for each when that is not known, and the changes not yet committed, in all and in the folder.
@@ -1086,6 +1098,7 @@ typedef struct Prog_Tab {
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
+    X(Arena, repoArena) X(Prog_Repos, repos) X(P_Job *, reposJob) X(u64, reposNext) X(u64, reposTime) \
     X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns) \
     X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet)
 

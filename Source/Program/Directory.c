@@ -1273,20 +1273,27 @@ function void Prog_ReadGitChanges(Arena *arena, String root, String folder, Stri
 
 // The repository around `folder`: the nearest folder, it or one above it, holding .git, a folder or, for a worktree, a file naming one.
 // The counts and changes come from git itself, which may be missing; the branch is read from HEAD either way.
+// Reads the HEAD of a repository whose top is `at`, holding .git, a folder or, for a worktree, a file naming one.
+function b32 Prog__ReadGitHead(Arena *arena, String at, String *head)
+{
+    String dotGit = Prog_JoinPath(arena, at, S(".git")), link = {0};
+    b32 found = P_ReadFileStart(arena, Prog_JoinPath(arena, dotGit, S("HEAD")), 512, head);
+    if (!found && P_ReadFileStart(arena, dotGit, 1024, &link) && Prog__StartsAt(link, 0, S("gitdir: "))) {
+        String gitDir = StrFrom(link, 8);
+        while (gitDir.length && (gitDir.value[gitDir.length - 1] == '\n' || gitDir.value[gitDir.length - 1] == '\r')) --gitDir.length;
+        b32 absolute = (gitDir.length && gitDir.value[0] == '/') || (gitDir.length > 1 && gitDir.value[1] == ':');
+        found = P_ReadFileStart(arena, Prog_JoinPath(arena, absolute ? gitDir : Prog_JoinPath(arena, at, gitDir), S("HEAD")), 512, head);
+    }
+    return found;
+}
+
 function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
 {
     Prog_GitStatus result = { .ahead = -1, .behind = -1 };
     if (!folder.length || StrIsEqual(folder, Prog_ThisPC)) return result;
     for (String at = folder; at.length && !StrIsEqual(at, Prog_ThisPC); at = Prog_UpPath(at)) {
-        String dotGit = Prog_JoinPath(arena, at, S(".git")), head = {0}, link = {0};
-        b32 found = P_ReadFileStart(arena, Prog_JoinPath(arena, dotGit, S("HEAD")), 512, &head);
-        if (!found && P_ReadFileStart(arena, dotGit, 1024, &link) && Prog__StartsAt(link, 0, S("gitdir: "))) {
-            String gitDir = StrFrom(link, 8);
-            while (gitDir.length && (gitDir.value[gitDir.length - 1] == '\n' || gitDir.value[gitDir.length - 1] == '\r')) --gitDir.length;
-            b32 absolute = (gitDir.length && gitDir.value[0] == '/') || (gitDir.length > 1 && gitDir.value[1] == ':');
-            found = P_ReadFileStart(arena, Prog_JoinPath(arena, absolute ? gitDir : Prog_JoinPath(arena, at, gitDir), S("HEAD")), 512, &head);
-        }
-        if (!found) continue;
+        String head = {0};
+        if (!Prog__ReadGitHead(arena, at, &head)) continue;
         result.branch = Prog_GitBranch(head);
         String arguments[] = { S("git"), S("rev-list"), S("--left-right"), S("--count"), S("HEAD...@{upstream}") };
         String counts = {0};
@@ -1852,6 +1859,26 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    // The repositories among `names`, with their branches, or with `offset` set how many tracked files each has changed: untracked ones
+    // are left out, which keeps a status of a big repository quick.
+    if (input->kind == Prog_JobKind_Repos) {
+        Prog_Repos *result = ArenaPushStruct(&job->arena, Prog_Repos);
+        for (u64 i = 0; i < input->rowCount && !P_IsCancelled(&job->cancelToken); ++i) {
+            String folder = Prog_JoinPath(&job->arena, input->path, input->names[i]), head = {0};
+            if (!Prog__ReadGitHead(&job->arena, folder, &head)) continue;
+            Prog_Repo repo = { Prog_GitBranch(head), -1 };
+            String status[] = { S("git"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=no") };
+            String changes = {0};
+            if (input->offset && P_RunCommand(&job->arena, folder, status, CArrayCount(status), 4000, &changes)) {
+                Prog_GitStatus counted = {0};
+                Prog_ReadGitChanges(&job->arena, folder, folder, changes, &counted);
+                repo.changes = (i32)counted.changes;
+            }
+            MapsPut(&job->arena, *result, input->names[i], repo);
+        }
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_HexPage) {
         String *bytes = ArenaPushStruct(&job->arena, String), copy = Prog_ArchiveCopy(&job->arena, input->path, NULL, &job->cancelToken);
         if (!P_ReadFileAt(&job->arena, copy.length ? copy : input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
@@ -2229,6 +2256,55 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     job->input = input;
     state->gitJob = job;
     P_JobSubmit(job);
+}
+
+// Finds out the shown folder's repositories among its subfolders `names`, or with `status` how changed one of them is, one job at a time.
+function void Prog__RepoJob(Prog_State *state, const String *names, u64 count, b32 status)
+{
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_Repos;
+    input->path = StrCopy(&job->arena, state->directory.path);
+    input->offset = status ? 1 : 0;
+    input->names = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
+    for (u64 i = 0; i < count; ++i) input->names[i] = StrCopy(&job->arena, names[i]);
+    input->rowCount = count;
+    job->input = input;
+    state->reposJob = job;
+    P_JobSubmit(job);
+}
+
+// Looks for repositories among the shown folder's subfolders, their branches first; then, where the settings measure its subfolders,
+// how changed each is, one after another.
+function void Prog_RequestRepos(Prog_State *state)
+{
+    if (state->reposJob) P_RequestCancel(&state->reposJob->cancelToken);
+    state->reposJob = NULL;
+    ArenaClear(&state->repoArena);
+    state->repos = (Prog_Repos){0};
+    state->reposNext = 0;
+    state->reposTime = PlatformNowMicroseconds();
+    if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path) || state->directory.archive || state->directory.expanded) return;
+    Scratch scratch = GetScratch();
+    String *names = ArenaPushArray(scratch.arena, Max(state->directory.count, (u64)1), String);
+    u64 count = 0;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        if (state->directory.entries[i].file.kind == P_FileKind_Directory) names[count++] = state->directory.entries[i].file.name;
+    }
+    if (count) Prog__RepoJob(state, names, count, false);
+    ReleaseScratch(scratch);
+}
+
+// Starts on the next repository whose changes are not known yet.
+function void Prog__NextRepoStatus(Prog_State *state)
+{
+    if (state->reposJob || !Prog_MeasuresFolders(state)) return;
+    for (; state->reposNext < state->repos.header.count; ++state->reposNext) {
+        if (state->repos.v[state->reposNext].value.changes >= 0) continue;
+        Prog__RepoJob(state, &state->repos.v[state->reposNext].key, 1, true);
+        return;
+    }
 }
 
 // Starts finding out what a sidebar tip shows of `path`, unless that is already under way or known.
@@ -4607,6 +4683,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
+        } else if (input->kind == Prog_JobKind_Repos) {
+            const Prog_Repos *found = job->result;
+            if (state->reposJob == job) {
+                state->reposJob = NULL;
+                for (u64 i = 0; found && StrIsEqual(input->path, state->directory.path) && i < found->header.count; ++i) {
+                    Prog_Repo repo = found->v[i].value, *known = MapsGetPtrNull(state->repos, found->v[i].key);
+                    if (known) known->changes = input->offset && repo.changes < 0 ? 0 : repo.changes;
+                    else MapsPut(&state->repoArena, state->repos, StrCopy(&state->repoArena, found->v[i].key), ((Prog_Repo){ StrCopy(&state->repoArena, repo.branch), -1 }));
+                    changed = true;
+                }
+                // A status that failed or timed out counts as nothing to show, and the next one goes on.
+                if (input->offset && state->reposNext < state->repos.header.count && state->repos.v[state->reposNext].value.changes < 0) state->repos.v[state->reposNext].value.changes = 0;
+                Prog__NextRepoStatus(state);
+            }
         } else if (input->kind == Prog_JobKind_PdfPage) {
             if (state->pdf.job == job) state->pdf.job = NULL;
             const P_Image *image = job->result;
@@ -4988,6 +5078,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (!samePath) state->git = (Prog_GitStatus){ .ahead = -1, .behind = -1 };
                         Prog_RequestGitStatus(state, result->path);
                     }
+                    // Its repositories at once for another folder; for the same one listed again, every half minute at most.
+                    b32 lookForRepos = !samePath || PlatformNowMicroseconds() - state->reposTime > Millions(30);
                     // The folder a panel starts on is not one opened, nor one gone back or forward to, or up to on the way somewhere.
                     if (!samePath) {
                         state->resetScroll = true;
@@ -5007,6 +5099,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     ArenaRelease(&state->directoryArena);
                     state->directoryArena = job->arena;
                     state->directory = *result;
+                    if (lookForRepos) Prog_RequestRepos(state);
                     job->arena = (Arena){0};
                     ++state->listing;
                     Prog_ApplyFilter(state, false);
