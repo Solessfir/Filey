@@ -1238,10 +1238,16 @@ function String Prog__BlendInflate(Arena *arena, String data)
     return data;
 }
 
-// The block an old pointer was written for; NULL for a null pointer or one into no block.
-function const Prog__BlendBlock *Prog__BlendAt(const Prog__Blend *blend, u64 old)
+// The block an old pointer was written for; NULL for a null pointer or one into no block. Blender 5 reuses addresses from one ID's data to
+// the next, so a pointer in `owner` or its data is looked for among the data blocks written after it, up to the next ID, and else among
+// the IDs.
+function const Prog__BlendBlock *Prog__BlendAt(const Prog__Blend *blend, const Prog__BlendBlock *owner, u64 old)
 {
-    const u32 *index = old ? MapGetPtrNull(blend->byOld, old) : NULL;
+    if (!old) return NULL;
+    for (const Prog__BlendBlock *at = owner ? owner + 1 : NULL, *end = blend->blocks.v + blend->blocks.header.count; at && at < end && at->code == Prog__BlendCode('D', 'A', 'T', 'A'); ++at) {
+        if (at->old == old) return at;
+    }
+    const u32 *index = MapGetPtrNull(blend->byOld, old);
     return index ? &blend->blocks.v[*index] : NULL;
 }
 
@@ -1384,7 +1390,11 @@ function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
         for (u32 f = 0; f < fields; ++f) if (s[2 + 2 * f] >= blend->typeCount || s[3 + 2 * f] >= blend->nameCount) return false;
         p += 4 + 4 * (u64)fields;
     }
-    for (u64 i = 0; i < blend->blocks.header.count; ++i) if (blend->blocks.v[i].old) MapPut(arena, blend->byOld, blend->blocks.v[i].old, (u32)i);
+    // Only the IDs, whose addresses stay unique; data blocks are found among their owner's.
+    for (u64 i = 0; i < blend->blocks.header.count; ++i) {
+        const Prog__BlendBlock *block = &blend->blocks.v[i];
+        if (block->old && block->code != Prog__BlendCode('D', 'A', 'T', 'A')) MapPut(arena, blend->byOld, block->old, (u32)i);
+    }
     return true;
 }
 
@@ -1397,8 +1407,10 @@ function String Prog__BlendName(const u8 *at, u64 limit)
 }
 
 // The data an attribute or a custom data layer named `name` points at, at least `bytes` long; Blender 5's attributes hold an array struct.
-function const u8 *Prog__BlendLayer(const Prog__Blend *blend, const u8 *mesh, u64 meshLength, u32 meshType, String store, String name, u64 bytes)
+function const u8 *Prog__BlendLayer(const Prog__Blend *blend, const Prog__BlendBlock *owner, u32 meshType, String store, String name, u64 bytes)
 {
+    const u8 *mesh = owner->data;
+    u64 meshLength = owner->length;
     // Blender 5: the mesh's attribute storage, an array of attributes, each with its name and an AttributeArray holding the data.
     u32 storageType = Prog__BlendStruct(blend, S("AttributeStorage")), attributeType = Prog__BlendStruct(blend, S("Attribute"));
     u32 arrayType = Prog__BlendStruct(blend, S("AttributeArray"));
@@ -1406,16 +1418,16 @@ function const u8 *Prog__BlendLayer(const Prog__Blend *blend, const u8 *mesh, u6
     if (storageType != UINT32_MAX && attributeType != UINT32_MAX && arrayType != UINT32_MAX && Prog__BlendField(blend, meshType, S("attribute_storage"), &storageAt, &storageSize) &&
         storageAt + storageSize <= meshLength) {
         const u8 *storage = mesh + storageAt;
-        const Prog__BlendBlock *list = Prog__BlendAt(blend, Prog__BlendPointer(blend, storageType, storage, storageSize, S("dna_attributes")));
+        const Prog__BlendBlock *list = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, storageType, storage, storageSize, S("dna_attributes")));
         i64 count = Prog__BlendInt(blend, storageType, storage, storageSize, S("dna_attributes_num"));
         u64 stride = blend->typeSizes[blend->structs[attributeType][0]];
         for (i64 i = 0; list && i < count && (u64)(i + 1) * stride <= list->length; ++i) {
             const u8 *attribute = list->data + (u64)i * stride;
-            const Prog__BlendBlock *named = Prog__BlendAt(blend, Prog__BlendPointer(blend, attributeType, attribute, stride, S("name")));
+            const Prog__BlendBlock *named = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, attributeType, attribute, stride, S("name")));
             if (!named || !StrIsEqual(Prog__BlendName(named->data, named->length), name)) continue;
             if (Prog__BlendInt(blend, attributeType, attribute, stride, S("storage_type")) != 0) return NULL;
-            const Prog__BlendBlock *array = Prog__BlendAt(blend, Prog__BlendPointer(blend, attributeType, attribute, stride, S("data")));
-            const Prog__BlendBlock *values = array ? Prog__BlendAt(blend, Prog__BlendPointer(blend, arrayType, array->data, array->length, S("data"))) : NULL;
+            const Prog__BlendBlock *array = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, attributeType, attribute, stride, S("data")));
+            const Prog__BlendBlock *values = array ? Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, arrayType, array->data, array->length, S("data"))) : NULL;
             return values && values->length >= bytes ? values->data : NULL;
         }
     }
@@ -1424,14 +1436,14 @@ function const u8 *Prog__BlendLayer(const Prog__Blend *blend, const u8 *mesh, u6
     u64 customAt, customSize;
     if (customType == UINT32_MAX || layerType == UINT32_MAX || !Prog__BlendField(blend, meshType, store, &customAt, &customSize) || customAt + customSize > meshLength) return NULL;
     const u8 *custom = mesh + customAt;
-    const Prog__BlendBlock *layers = Prog__BlendAt(blend, Prog__BlendPointer(blend, customType, custom, customSize, S("layers")));
+    const Prog__BlendBlock *layers = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, customType, custom, customSize, S("layers")));
     i64 count = Prog__BlendInt(blend, customType, custom, customSize, S("totlayer"));
     u64 stride = blend->typeSizes[blend->structs[layerType][0]], nameAt, nameSize;
     if (!Prog__BlendField(blend, layerType, S("name"), &nameAt, &nameSize)) return NULL;
     for (i64 i = 0; layers && i < count && (u64)(i + 1) * stride <= layers->length; ++i) {
         const u8 *layer = layers->data + (u64)i * stride;
         if (!StrIsEqual(Prog__BlendName(layer + nameAt, nameSize), name)) continue;
-        const Prog__BlendBlock *values = Prog__BlendAt(blend, Prog__BlendPointer(blend, layerType, layer, stride, S("data")));
+        const Prog__BlendBlock *values = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, layerType, layer, stride, S("data")));
         return values && values->length >= bytes ? values->data : NULL;
     }
     return NULL;
@@ -1444,12 +1456,13 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
     if (meshType == UINT32_MAX || block->sdna != meshType) return;
     const u8 *mesh = block->data;
     u64 length = block->length;
+    const Prog__BlendBlock *owner = block;
     i64 vertices = Prog__BlendInt(blend, meshType, mesh, length, S("totvert")), faces = Prog__BlendInt(blend, meshType, mesh, length, S("totpoly"));
     i64 corners = Prog__BlendInt(blend, meshType, mesh, length, S("totloop"));
     if (vertices <= 0 || faces <= 0 || corners <= 0 || vertices > (1 << 26) || corners > (1 << 28)) return;
-    const f32 *positions = (const f32 *)Prog__BlendLayer(blend, mesh, length, meshType, S("vdata"), S("position"), (u64)vertices * 12);
-    const u8 *cornerVerts = Prog__BlendLayer(blend, mesh, length, meshType, S("ldata"), S(".corner_vert"), (u64)corners * 4);
-    const Prog__BlendBlock *offsets = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("poly_offset_indices")));
+    const f32 *positions = (const f32 *)Prog__BlendLayer(blend, block, meshType, S("vdata"), S("position"), (u64)vertices * 12);
+    const u8 *cornerVerts = Prog__BlendLayer(blend, block, meshType, S("ldata"), S(".corner_vert"), (u64)corners * 4);
+    const Prog__BlendBlock *offsets = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("poly_offset_indices")));
     u64 base = out->positions.header.count / 3;
     if (positions && cornerVerts && offsets && offsets->length >= (u64)(faces + 1) * 4) {
         f32 *points = ArrayAdd(arena, out->positions, (u64)vertices * 3);
@@ -1470,9 +1483,9 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
     }
     // Before 3.4: arrays of MVert, with its position first, MPoly, with where its loops start and how many, and MLoop, with its vertex.
     u32 vertType = Prog__BlendStruct(blend, S("MVert")), polyType = Prog__BlendStruct(blend, S("MPoly")), loopType = Prog__BlendStruct(blend, S("MLoop"));
-    const Prog__BlendBlock *verts = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("mvert")));
-    const Prog__BlendBlock *polys = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("mpoly")));
-    const Prog__BlendBlock *loops = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("mloop")));
+    const Prog__BlendBlock *verts = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("mvert")));
+    const Prog__BlendBlock *polys = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("mpoly")));
+    const Prog__BlendBlock *loops = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("mloop")));
     if (vertType == UINT32_MAX || polyType == UINT32_MAX || loopType == UINT32_MAX || !verts || !polys || !loops) return;
     u64 vertStride = blend->typeSizes[blend->structs[vertType][0]], polyStride = blend->typeSizes[blend->structs[polyType][0]];
     u64 loopStride = blend->typeSizes[blend->structs[loopType][0]];
@@ -1516,7 +1529,7 @@ function Prog__Affine Prog__BlendPlace(const Prog__Blend *blend, u32 objectType,
         Prog__EulerQuaternion(degrees, q);
     }
     Prog__Affine result = Prog__AffineCompose(location, q, scale);
-    const Prog__BlendBlock *parent = Prog__BlendAt(blend, Prog__BlendPointer(blend, objectType, o, length, S("parent")));
+    const Prog__BlendBlock *parent = Prog__BlendAt(blend, NULL, Prog__BlendPointer(blend, objectType, o, length, S("parent")));
     if (parent && parent->sdna == objectType && depth < 64) {
         f32 inverse[16];
         Prog__Affine between = Prog__AffineIdentity;
@@ -1541,9 +1554,380 @@ function b32 Prog__ReadBlend(Arena *arena, String data, const P_CancelToken *can
         // Mesh objects, Blender's type 1.
         if (object->code != Prog__BlendCode('O', 'B', 0, 0) || object->sdna != objectType) continue;
         if (Prog__BlendInt(&blend, objectType, object->data, object->length, S("type")) != 1) continue;
-        const Prog__BlendBlock *data = Prog__BlendAt(&blend, Prog__BlendPointer(&blend, objectType, object->data, object->length, S("data")));
+        const Prog__BlendBlock *data = Prog__BlendAt(&blend, NULL, Prog__BlendPointer(&blend, objectType, object->data, object->length, S("data")));
         Prog__Affine place = Prog__BlendPlace(&blend, objectType, object, 0);
         if (data && data->code == Prog__BlendCode('M', 'E', 0, 0)) Prog__BlendMesh(arena, &blend, data, &place, mesh);
+    }
+    return mesh->indices.header.count > 0;
+}
+
+// -----------------------------------------------------------------------------
+// USD: the meshes of a binary .usdc, or of the .usdc a .usdz zips, placed by their prims' transform ops and their parents', as of their
+// default values (time samples are not read). The crate format keeps its tokens, fields, paths and specs in sections, most of them LZ4
+// compressed, and arrays of integers as deltas in 1, 2 or 4 bytes as each needs.
+
+function String Prog__ZipEntry(Arena *arena, String path, u64 size, String name);
+
+// An LZ4 block into `out`, `size` bytes at most; how many it made, or UINT64_MAX when the block is broken.
+function u64 Prog__Lz4(const u8 *in, u64 length, u8 *out, u64 size)
+{
+    u64 i = 0, o = 0;
+    while (i < length) {
+        u8 token = in[i++];
+        u64 literals = token >> 4;
+        if (literals == 15) for (u8 more = 255; more == 255 && i < length;) literals += more = in[i++];
+        if (i + literals > length || o + literals > size) return UINT64_MAX;
+        MemCopy(out + o, in + i, literals);
+        i += literals, o += literals;
+        // The last sequence has literals only.
+        if (i >= length) break;
+        if (i + 2 > length) return UINT64_MAX;
+        u64 offset = (u64)in[i] | (u64)in[i + 1] << 8, match = token & 15;
+        i += 2;
+        if (match == 15) for (u8 more = 255; more == 255 && i < length;) match += more = in[i++];
+        match += 4;
+        if (!offset || offset > o || o + match > size) return UINT64_MAX;
+        // Byte by byte, as a match may overlap what it copies.
+        for (u64 k = 0; k < match; ++k, ++o) out[o] = out[o - offset];
+    }
+    return o;
+}
+
+// USD's TfFastCompression: a chunk count, 0 for one chunk that is the rest, else each chunk's compressed size and its bytes.
+function u64 Prog__UsdInflate(const u8 *in, u64 length, u8 *out, u64 size)
+{
+    if (!length) return UINT64_MAX;
+    if (!in[0]) return Prog__Lz4(in + 1, length - 1, out, size);
+    u64 at = 1, made = 0;
+    for (u32 chunk = 0; chunk < in[0]; ++chunk) {
+        if (at + 4 > length) return UINT64_MAX;
+        u64 packed = Prog__Read32(in + at);
+        at += 4;
+        if (at + packed > length) return UINT64_MAX;
+        u64 got = Prog__Lz4(in + at, packed, out + made, size - made);
+        if (got == UINT64_MAX) return UINT64_MAX;
+        made += got, at += packed;
+    }
+    return made;
+}
+
+typedef struct Prog__Usd {
+    String file;
+    b32 counts64;          // arrays start with a 64-bit count, from version 0.7
+    String *tokens;
+    u32 tokenCount;
+    u32 *fieldTokens;
+    u64 *fieldValues;
+    u32 fieldCount;
+    i32 *fieldSets;
+    u32 fieldSetCount;
+    u32 *pathParent, *pathToken;  // each path's parent, UINT32_MAX for the root, and its last element
+    b8 *pathProperty;             // the element is a property, ".points", rather than a prim
+    u32 pathCount;
+    u32 *specPath, *specFieldSet, *specType;
+    u32 specCount;
+    u32 xformOpOrder;     // the token, or UINT32_MAX
+} Prog__Usd;
+
+// Each property's spec by its prim's path and its name token, as prim << 32 | token.
+typedef struct Prog__UsdProperties { MapHeader header; struct { u64 key; u32 value; } *v; } Prog__UsdProperties;
+
+function u32 Prog__UsdTokenIndex(const Prog__Usd *usd, String name)
+{
+    for (u32 i = 0; i < usd->tokenCount; ++i) if (StrIsEqual(usd->tokens[i], name)) return i;
+    return UINT32_MAX;
+}
+
+// `count` integers compressed at `*at`, after their compressed size: a common delta, two bits each for which width its delta takes,
+// then the deltas that are not the common one; the values are their running sum.
+function i32 *Prog__UsdInts(Arena *arena, const Prog__Usd *usd, u64 *at, u64 count)
+{
+    const u8 *d = (const u8 *)usd->file.value;
+    if (*at + 8 > usd->file.length || count > (1u << 28)) return NULL;
+    u64 packed = Prog__Read64(d + *at);
+    *at += 8;
+    if (*at + packed > usd->file.length) return NULL;
+    u64 codes = (count * 2 + 7) / 8, size = 4 + codes + count * 4;
+    Scratch scratch = GetScratchEx(arena);
+    u8 *raw = ArenaPushArrayNoZero(scratch.arena, Max(size, (u64)1), u8);
+    u64 made = Prog__UsdInflate(d + *at, packed, raw, size);
+    *at += packed;
+    i32 *result = made != UINT64_MAX && made >= 4 + codes ? ArenaPushArray(arena, Max(count, (u64)1), i32) : NULL;
+    if (result) {
+        i32 common = (i32)Prog__Read32(raw), value = 0;
+        u64 p = 4 + codes;
+        for (u64 i = 0; i < count; ++i) {
+            u32 code = (raw[4 + i / 4] >> ((i % 4) * 2)) & 3;
+            i32 delta = common;
+            if (code == 1 && p + 1 <= made) delta = (i8)raw[p], p += 1;
+            else if (code == 2 && p + 2 <= made) delta = (i16)(raw[p] | raw[p + 1] << 8), p += 2;
+            else if (code == 3 && p + 4 <= made) delta = (i32)Prog__Read32(raw + p), p += 4;
+            else if (code) { result = NULL; break; }
+            value += delta;
+            result[i] = value;
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function b32 Prog__UsdParse(Arena *arena, String file, Prog__Usd *usd)
+{
+    const u8 *d = (const u8 *)file.value;
+    if (file.length < 88 || !StrIsEqual(StrFromTo(file, 0, 8), S("PXR-USDC"))) return false;
+    usd->file = file;
+    usd->counts64 = d[8] > 0 || d[9] >= 7;
+    u64 toc = Prog__Read64(d + 16);
+    if (toc + 8 > file.length) return false;
+    u64 sectionCount = Prog__Read64(d + toc);
+    u64 tokensAt = 0, fieldsAt = 0, fieldSetsAt = 0, pathsAt = 0, specsAt = 0;
+    for (u64 i = 0; i < sectionCount && toc + 8 + (i + 1) * 32 <= file.length; ++i) {
+        const u8 *s = d + toc + 8 + i * 32;
+        String name = Prog__BlendName(s, 16);
+        u64 start = Prog__Read64(s + 16);
+        if (StrIsEqual(name, S("TOKENS"))) tokensAt = start;
+        else if (StrIsEqual(name, S("FIELDS"))) fieldsAt = start;
+        else if (StrIsEqual(name, S("FIELDSETS"))) fieldSetsAt = start;
+        else if (StrIsEqual(name, S("PATHS"))) pathsAt = start;
+        else if (StrIsEqual(name, S("SPECS"))) specsAt = start;
+    }
+    if (!tokensAt || !fieldsAt || !fieldSetsAt || !pathsAt || !specsAt || tokensAt + 24 > file.length) return false;
+    // The tokens: their count, then their text, each ending in a zero byte, compressed.
+    u64 count = Prog__Read64(d + tokensAt), size = Prog__Read64(d + tokensAt + 8), packed = Prog__Read64(d + tokensAt + 16);
+    if (count > (1u << 26) || size > Prog_ModelMaxBytes || tokensAt + 24 + packed > file.length) return false;
+    u8 *text = ArenaPushArrayNoZero(arena, Max(size, (u64)1), u8);
+    if (Prog__UsdInflate(d + tokensAt + 24, packed, text, size) != size) return false;
+    usd->tokens = ArenaPushArray(arena, Max(count, (u64)1), String);
+    usd->tokenCount = (u32)count;
+    for (u64 i = 0, p = 0; i < count && p <= size; ++i) {
+        usd->tokens[i] = Prog__BlendName(text + p, size - p);
+        p += usd->tokens[i].length + 1;
+    }
+    // The fields: each one's name token, then its value, a 64-bit rep, all of those compressed together.
+    if (fieldsAt + 8 > file.length) return false;
+    u64 at = fieldsAt + 8;
+    usd->fieldCount = (u32)Min(Prog__Read64(d + fieldsAt), (u64)(1u << 26));
+    usd->fieldTokens = (u32 *)Prog__UsdInts(arena, usd, &at, usd->fieldCount);
+    if (!usd->fieldTokens || at + 8 > file.length) return false;
+    packed = Prog__Read64(d + at);
+    usd->fieldValues = ArenaPushArray(arena, Max(usd->fieldCount, 1u), u64);
+    if (at + 8 + packed > file.length || Prog__UsdInflate(d + at + 8, packed, (u8 *)usd->fieldValues, (u64)usd->fieldCount * 8) != (u64)usd->fieldCount * 8) return false;
+    // The field sets: runs of field indices, each run ending in -1.
+    if (fieldSetsAt + 8 > file.length) return false;
+    at = fieldSetsAt + 8;
+    usd->fieldSetCount = (u32)Min(Prog__Read64(d + fieldSetsAt), (u64)(1u << 26));
+    usd->fieldSets = Prog__UsdInts(arena, usd, &at, usd->fieldSetCount);
+    // The paths: as a tree walked depth first, each entry its path's index, its element's token, negative for a property, and a jump
+    // that says whether it has a child, which is the next entry, and a sibling, that far on.
+    if (!usd->fieldSets || pathsAt + 16 > file.length) return false;
+    usd->pathCount = (u32)Min(Prog__Read64(d + pathsAt), (u64)(1u << 26));
+    u64 encoded = Min(Prog__Read64(d + pathsAt + 8), (u64)(1u << 26));
+    at = pathsAt + 16;
+    i32 *indices = Prog__UsdInts(arena, usd, &at, encoded), *elements = Prog__UsdInts(arena, usd, &at, encoded), *jumps = Prog__UsdInts(arena, usd, &at, encoded);
+    if (!indices || !elements || !jumps) return false;
+    usd->pathParent = ArenaPushArray(arena, Max(usd->pathCount, 1u), u32);
+    usd->pathToken = ArenaPushArray(arena, Max(usd->pathCount, 1u), u32);
+    usd->pathProperty = ArenaPushArray(arena, Max(usd->pathCount, 1u), b8);
+    for (u32 i = 0; i < usd->pathCount; ++i) usd->pathParent[i] = UINT32_MAX;
+    // Siblings to come back to, with the parent they share.
+    Scratch scratch = GetScratchEx(arena);
+    u64 *pending = ArenaPushArray(scratch.arena, Max(encoded, (u64)1) * 2, u64), pendingCount = 0;
+    u64 entry = 0, parent = UINT32_MAX;
+    for (u64 steps = 0; steps <= encoded && entry < encoded; ++steps) {
+        u32 path = (u32)indices[entry];
+        i32 element = elements[entry], jump = jumps[entry];
+        if (path >= usd->pathCount) break;
+        usd->pathParent[path] = (u32)parent;
+        usd->pathToken[path] = (u32)(element < 0 ? -element : element);
+        usd->pathProperty[path] = element < 0;
+        b32 child = jump > 0 || jump == -1, sibling = jump >= 0;
+        if (child && sibling) pending[pendingCount++] = entry + (u64)jump, pending[pendingCount++] = parent;
+        if (child) {
+            parent = path, ++entry;
+        } else if (sibling) {
+            ++entry;
+        } else if (pendingCount) {
+            parent = pending[--pendingCount], entry = pending[--pendingCount];
+        } else {
+            break;
+        }
+    }
+    ReleaseScratch(scratch);
+    // The specs: each one's path, field set and kind, 1 for an attribute and 6 for a prim.
+    if (specsAt + 8 > file.length) return false;
+    at = specsAt + 8;
+    usd->specCount = (u32)Min(Prog__Read64(d + specsAt), (u64)(1u << 26));
+    usd->specPath = (u32 *)Prog__UsdInts(arena, usd, &at, usd->specCount);
+    usd->specFieldSet = (u32 *)Prog__UsdInts(arena, usd, &at, usd->specCount);
+    usd->specType = (u32 *)Prog__UsdInts(arena, usd, &at, usd->specCount);
+    return usd->specPath && usd->specFieldSet && usd->specType;
+}
+
+// The value of field `name` among spec `spec`'s, 0 when it has none.
+function u64 Prog__UsdField(const Prog__Usd *usd, u32 spec, String name)
+{
+    for (u32 i = usd->specFieldSet[spec]; i < usd->fieldSetCount && usd->fieldSets[i] >= 0; ++i) {
+        u32 field = (u32)usd->fieldSets[i];
+        if (field < usd->fieldCount && usd->fieldTokens[field] < usd->tokenCount && StrIsEqual(usd->tokens[usd->fieldTokens[field]], name)) return usd->fieldValues[field];
+    }
+    return 0;
+}
+
+// A value rep's parts: an array, inlined in its 48 low bits, compressed, and its type, of which 3 is int, 11 token, 15 matrix4d,
+// 20 vec2f, 23 vec3d, 24 vec3f and 27 to 30 the vec4s and quaternions.
+#define Prog__UsdArray(rep) (((rep) >> 63) & 1)
+#define Prog__UsdInlined(rep) (((rep) >> 62) & 1)
+#define Prog__UsdCompressed(rep) (((rep) >> 61) & 1)
+#define Prog__UsdType(rep) ((u32)((rep) >> 48) & 0xFF)
+#define Prog__UsdPayload(rep) ((rep) & UINT64_C(0xFFFFFFFFFFFF))
+
+// An array value's count and where its elements start.
+function b32 Prog__UsdArrayAt(const Prog__Usd *usd, u64 rep, u64 *count, u64 *at)
+{
+    if (!Prog__UsdArray(rep) || Prog__UsdInlined(rep)) return false;
+    u64 p = Prog__UsdPayload(rep), head = usd->counts64 ? 8 : 4;
+    if (p + head > usd->file.length) return false;
+    *count = usd->counts64 ? Prog__Read64((const u8 *)usd->file.value + p) : Prog__Read32((const u8 *)usd->file.value + p);
+    *at = p + head;
+    return *count < (1u << 28);
+}
+
+// An int array value, compressed or not.
+function i32 *Prog__UsdIntArray(Arena *arena, const Prog__Usd *usd, u64 rep, u64 *count)
+{
+    u64 at;
+    if (Prog__UsdType(rep) != 3 || !Prog__UsdArrayAt(usd, rep, count, &at)) return NULL;
+    if (Prog__UsdCompressed(rep)) return Prog__UsdInts(arena, usd, &at, *count);
+    if (at + *count * 4 > usd->file.length) return NULL;
+    i32 *result = ArenaPushArrayNoZero(arena, Max(*count, (u64)1), i32);
+    MemCopy(result, usd->file.value + at, *count * 4);
+    return result;
+}
+
+// A vec3 value or vec3 array's elements as floats, from vec3f or vec3d; `count` is 1 for a single one.
+function f32 *Prog__UsdVec3(Arena *arena, const Prog__Usd *usd, u64 rep, u64 *count)
+{
+    u32 type = Prog__UsdType(rep);
+    if (type != 23 && type != 24) return NULL;
+    u64 at = Prog__UsdPayload(rep);
+    *count = 1;
+    if (Prog__UsdArray(rep) && !Prog__UsdArrayAt(usd, rep, count, &at)) return NULL;
+    if (!Prog__UsdArray(rep) && Prog__UsdInlined(rep)) {
+        // A vec3f with small whole parts, as (0, 0, 1), can be inlined as three signed bytes.
+        f32 *result = ArenaPushArray(arena, 3, f32);
+        for (u32 k = 0; k < 3; ++k) result[k] = (f32)(i8)(Prog__UsdPayload(rep) >> (k * 8));
+        return result;
+    }
+    u64 size = type == 24 ? 12 : 24;
+    if (at + *count * size > usd->file.length) return NULL;
+    f32 *result = ArenaPushArrayNoZero(arena, Max(*count, (u64)1) * 3, f32);
+    const u8 *p = (const u8 *)usd->file.value + at;
+    for (u64 i = 0; i < *count * 3; ++i) {
+        if (type == 24) {
+            MemCopy(&result[i], p + i * 4, 4);
+        } else {
+            f64 v;
+            MemCopy(&v, p + i * 8, 8);
+            result[i] = (f32)v;
+        }
+    }
+    return result;
+}
+
+// The transform ops of the prim at path `prim`, in its xformOpOrder, as one placement: a translate, a rotateXYZ in degrees, a scale or
+// a transform matrix. ponytail: the other ops, as orient and the other rotation orders, are left out; add them as files need them.
+function Prog__Affine Prog__UsdLocal(Arena *arena, const Prog__Usd *usd, u32 prim, const u32 *primSpec, const Prog__UsdProperties *properties)
+{
+    Prog__Affine result = Prog__AffineIdentity;
+    if (primSpec[prim] == UINT32_MAX) return result;
+    u64 order = Prog__UsdField(usd, primSpec[prim], S("xformOpOrder")), count, at;
+    if (!order) {
+        // On the xformOpOrder attribute, as a newer file keeps it.
+        const u32 *spec = usd->xformOpOrder != UINT32_MAX ? MapGetPtrNull(*properties, (u64)prim << 32 | usd->xformOpOrder) : NULL;
+        if (spec) order = Prog__UsdField(usd, *spec, S("default"));
+    }
+    if (!order || Prog__UsdType(order) != 11 || !Prog__UsdArrayAt(usd, order, &count, &at) || at + count * 4 > usd->file.length) return result;
+    for (u64 i = 0; i < count; ++i) {
+        u32 token = Prog__Read32((const u8 *)usd->file.value + at + i * 4);
+        if (token >= usd->tokenCount) continue;
+        const u32 *spec = MapGetPtrNull(*properties, (u64)prim << 32 | token);
+        u64 value = spec ? Prog__UsdField(usd, *spec, S("default")) : 0;
+        String op = usd->tokens[token];
+        Prog__Affine step = Prog__AffineIdentity;
+        u64 n;
+        if (StrIndexStr(op, S("xformOp:transform"), SSF_None).exists && Prog__UsdType(value) == 15 && !Prog__UsdInlined(value) && Prog__UsdPayload(value) + 128 <= usd->file.length) {
+            // Row by row with the translation in the last row, as USD multiplies row vectors.
+            f64 m[16];
+            MemCopy(m, usd->file.value + Prog__UsdPayload(value), 128);
+            for (u32 r = 0; r < 3; ++r) for (u32 c = 0; c < 4; ++c) step.m[r * 4 + c] = (f32)m[c * 4 + r];
+        } else {
+            f32 *v = Prog__UsdVec3(arena, usd, value, &n);
+            f32 zero[3] = {0}, ones[3] = { 1, 1, 1 }, identity[4] = { 0, 0, 0, 1 }, q[4];
+            if (!v) continue;
+            if (StrIndexStr(op, S("xformOp:translate"), SSF_None).exists) step = Prog__AffineCompose(v, identity, ones);
+            else if (StrIndexStr(op, S("xformOp:scale"), SSF_None).exists) step = Prog__AffineCompose(zero, identity, v);
+            else if (StrIndexStr(op, S("xformOp:rotateXYZ"), SSF_None).exists) Prog__EulerQuaternion(v, q), step = Prog__AffineCompose(zero, q, ones);
+            else continue;
+        }
+        result = Prog__AffineMultiply(result, step);
+    }
+    return result;
+}
+
+function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    // A .usdz is a zip whose first file is its root layer.
+    if (data.length >= 4 && Prog__Read32((const u8 *)data.value) == 0x04034B50) data = Prog__ZipEntry(arena, path, data.length, (String){0});
+    Prog__Usd usd = {0};
+    if (!Prog__UsdParse(arena, data, &usd)) return false;
+    usd.xformOpOrder = Prog__UsdTokenIndex(&usd, S("xformOpOrder"));
+    // Each prim path's spec, and each property's by its prim and name.
+    u32 *primSpec = ArenaPushArray(arena, Max(usd.pathCount, 1u), u32);
+    for (u32 i = 0; i < usd.pathCount; ++i) primSpec[i] = UINT32_MAX;
+    Prog__UsdProperties properties = {0};
+    for (u32 s = 0; s < usd.specCount; ++s) {
+        u32 p = usd.specPath[s];
+        if (p >= usd.pathCount) continue;
+        if (usd.pathProperty[p] && usd.pathParent[p] < usd.pathCount) MapPut(arena, properties, (u64)usd.pathParent[p] << 32 | usd.pathToken[p], s);
+        else if (!usd.pathProperty[p]) primSpec[p] = s;
+    }
+    // Z is up as the stage says, which Blender's exports do; Y otherwise.
+    u32 root = UINT32_MAX;
+    for (u32 i = 0; i < usd.pathCount && root == UINT32_MAX; ++i) if (usd.pathParent[i] == UINT32_MAX && primSpec[i] != UINT32_MAX) root = i;
+    u64 up = root != UINT32_MAX ? Prog__UsdField(&usd, primSpec[root], S("upAxis")) : 0;
+    mesh->zUp = up && Prog__UsdInlined(up) && Prog__UsdPayload(up) < usd.tokenCount && StrIsEqual(usd.tokens[Prog__UsdPayload(up)], S("Z"));
+    Prog__Affine *world = ArenaPushArray(arena, Max(usd.pathCount, 1u), Prog__Affine);
+    b8 *placed = ArenaPushArray(arena, Max(usd.pathCount, 1u), b8);
+    u32 pointsToken = Prog__UsdTokenIndex(&usd, S("points")), countsToken = Prog__UsdTokenIndex(&usd, S("faceVertexCounts"));
+    u32 indicesToken = Prog__UsdTokenIndex(&usd, S("faceVertexIndices"));
+    for (u32 prim = 0; prim < usd.pathCount && !P_IsCancelled(cancel); ++prim) {
+        u64 type = primSpec[prim] != UINT32_MAX ? Prog__UsdField(&usd, primSpec[prim], S("typeName")) : 0;
+        if (!type || !Prog__UsdInlined(type) || Prog__UsdPayload(type) >= usd.tokenCount || !StrIsEqual(usd.tokens[Prog__UsdPayload(type)], S("Mesh"))) continue;
+        const u32 *pointsSpec = MapGetPtrNull(properties, (u64)prim << 32 | pointsToken);
+        const u32 *countsSpec = MapGetPtrNull(properties, (u64)prim << 32 | countsToken), *indicesSpec = MapGetPtrNull(properties, (u64)prim << 32 | indicesToken);
+        if (!pointsSpec || !countsSpec || !indicesSpec) continue;
+        u64 pointCount, faceCount, cornerCount;
+        f32 *points = Prog__UsdVec3(arena, &usd, Prog__UsdField(&usd, *pointsSpec, S("default")), &pointCount);
+        i32 *counts = Prog__UsdIntArray(arena, &usd, Prog__UsdField(&usd, *countsSpec, S("default")), &faceCount);
+        i32 *corners = Prog__UsdIntArray(arena, &usd, Prog__UsdField(&usd, *indicesSpec, S("default")), &cornerCount);
+        if (!points || !counts || !corners) continue;
+        // Its place: its own ops, then each parent's, worked out once for each.
+        u32 chain[256], depth = 0;
+        for (u32 p = prim; p < usd.pathCount && !placed[p] && depth < CArrayCount(chain); p = usd.pathParent[p]) chain[depth++] = p;
+        while (depth--) {
+            u32 p = chain[depth], up2 = usd.pathParent[p];
+            Prog__Affine above = up2 < usd.pathCount && placed[up2] ? world[up2] : Prog__AffineIdentity;
+            world[p] = Prog__AffineMultiply(above, Prog__UsdLocal(arena, &usd, p, primSpec, &properties));
+            placed[p] = true;
+        }
+        u64 base = mesh->positions.header.count / 3;
+        f32 *out = ArrayAdd(arena, mesh->positions, pointCount * 3);
+        for (u64 v = 0; v < pointCount; ++v) Prog__MeshPoint(out + v * 3, &world[prim], points[v * 3], points[v * 3 + 1], points[v * 3 + 2]);
+        for (u64 f = 0, first = 0; f < faceCount && first < cornerCount; first += (u64)Max(counts[f], 0), ++f) {
+            for (u64 c = first + 2; c < first + (u64)Max(counts[f], 0) && c < cornerCount; ++c) {
+                Prog__MeshTriangle(arena, mesh, (u32)(base + (u32)corners[first]), (u32)(base + (u32)corners[c - 1]), (u32)(base + (u32)corners[c]));
+            }
+        }
     }
     return mesh->indices.header.count > 0;
 }
@@ -1559,12 +1943,15 @@ typedef enum Prog_ModelKind {
     Prog_ModelKind_Glb,
     Prog_ModelKind_Fbx,
     Prog_ModelKind_Blend,
+    Prog_ModelKind_Usd,
+    Prog_ModelKind_Usdc,
+    Prog_ModelKind_Usdz,
     Prog_ModelKind_Count,
 } Prog_ModelKind;
 
 function Prog_ModelKind Prog_ModelKindOf(String path)
 {
-    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend") };
+    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz") };
     // Blender's backups, "scene.blend1" and on, are .blend files too.
     String backup = path;
     while (backup.length > 6 && backup.value[backup.length - 1] >= '0' && backup.value[backup.length - 1] <= '9') --backup.length;
@@ -1586,6 +1973,10 @@ function b32 Prog_ReadModel(Arena *arena, Prog_ModelKind kind, String path, Stri
         case Prog_ModelKind_Glb: return Prog__ReadGltf(arena, path, data, true, cancel, mesh);
         case Prog_ModelKind_Fbx: return Prog__ReadFbx(arena, data, cancel, mesh);
         case Prog_ModelKind_Blend: return Prog__ReadBlend(arena, data, cancel, mesh);
+        // A .usd may be binary or text; only the binary crate is read.
+        case Prog_ModelKind_Usd:
+        case Prog_ModelKind_Usdc:
+        case Prog_ModelKind_Usdz: return Prog__ReadUsd(arena, path, data, cancel, mesh);
         default: return false;
     }
 }

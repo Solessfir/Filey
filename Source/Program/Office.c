@@ -13,6 +13,7 @@ function u32 Prog__Zip32(const u8 *at) { return (u32)at[0] | (u32)at[1] << 8 | (
 
 // The bytes of `name` inside the zip archive `path` of `size` bytes, from its central directory; empty when it has no such entry or it is
 // stored in a way other than plain or deflated.
+// An empty `name` takes the first entry, as a .usdz's root layer is.
 function String Prog__ZipEntry(Arena *arena, String path, u64 size, String name)
 {
     String result = {0};
@@ -36,7 +37,7 @@ function String Prog__ZipEntry(Arena *arena, String path, u64 size, String name)
         u64 packed = Prog__Zip32(d + at + 20), unpacked = Prog__Zip32(d + at + 24), local = Prog__Zip32(d + at + 42);
         String entry = StrMake((const char *)d + at + 46, Min((u64)nameLength, directory.length - at - 46));
         at += 46 + nameLength + extra + comment;
-        if (!StrIsEqual(entry, name) || unpacked > Prog_OfficeMaxEntry || (method != 0 && method != 8)) continue;
+        if ((name.length && !StrIsEqual(entry, name)) || unpacked > Prog_OfficeMaxEntry || (method != 0 && method != 8)) continue;
         // The local header's name and extra field may differ in length from the central directory's.
         String header = {0};
         if (!P_ReadFileAt(scratch.arena, path, local, 30, &header) || header.length < 30) break;

@@ -238,6 +238,11 @@ function void TestModels(void)
         Check(pixels && (pixels[32 * 64 + 32] >> 24) == 255 && (pixels[0] >> 24) == 0 && (pixels[63 * 64 + 63] >> 24) == 0);
         Check(Prog_ModelKindOf(S("C:/a/Robot.FBX")) == Prog_ModelKind_Fbx && Prog_ModelKindOf(S("/a/b.glb")) == Prog_ModelKind_Glb && !Prog_ModelKindOf(S("/a/b.txt")));
         Check(Prog_ModelKindOf(S("/a/Scene.blend")) == Prog_ModelKind_Blend && Prog_ModelKindOf(S("/a/Scene.blend12")) == Prog_ModelKind_Blend && !Prog_ModelKindOf(S("/a/b.obj2")));
+        // LZ4: literals alone, and a match that overlaps what it copies, as USD files use for runs; a match before the start is broken.
+        u8 lz4[8];
+        Check(Prog__Lz4((const u8 *)"\x30" "abc", 4, lz4, sizeof(lz4)) == 3 && !MemCompare(lz4, "abc", 3));
+        Check(Prog__Lz4((const u8 *)"\x10" "a\x01\x00\x00", 5, lz4, sizeof(lz4)) == 5 && !MemCompare(lz4, "aaaaa", 5));
+        Check(Prog__Lz4((const u8 *)"\x10" "a\x05\x00", 4, lz4, sizeof(lz4)) == UINT64_MAX);
     }
     ArenaRelease(&arena);
 }
