@@ -793,6 +793,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_W, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_WindowClose },
     { .key = Key_Space, .mods = 0, .command = Prog_CommandKind_TogglePreview },
     { .key = Key_P, .mods = KeyMod_Alt, .command = Prog_CommandKind_TogglePreview },
+    { .key = Key_Delete, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_EmptyTrash },
     { .key = Key_Z, .mods = KeyMod_Control, .command = Prog_CommandKind_Undo },
     { .key = Key_Y, .mods = KeyMod_Control, .command = Prog_CommandKind_Redo },
     { .key = Key_Z, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_Redo },

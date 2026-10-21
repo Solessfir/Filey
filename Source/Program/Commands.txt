@@ -1243,6 +1243,7 @@ command TrashRestoreAll {
 command EmptyTrash {
     label   = "Empty Recycle Bin^trash,bin,empty,delete,permanently,purge"
     tooltip = "Permanently delete everything in the Recycle Bin."
+    hotkey  = "Ctrl+Shift+Delete"
 }
 
 command Undo {
