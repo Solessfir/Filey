@@ -1876,7 +1876,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
     state->previewFolder = folder || archive;
-    state->previewHex = state->previewArchive = state->previewArchiveCounted = false;
+    state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
     state->hexPages = NULL;
     state->hexPageCount = 0;
     state->hexSize = 0;
@@ -2482,7 +2482,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 ++state->sidebarFilter.version;
             } break;
             case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
-            case Prog_CommandKind_InspectorToggleWordWrap: state->inspectorWrap = !state->inspectorWrap; break;
+            // A document's prose wraps by its own switch, so that unwrapping one leaves code files as they were.
+            case Prog_CommandKind_InspectorToggleWordWrap: {
+                if (state->previewDocument) state->documentUnwrapped = !state->documentUnwrapped;
+                else state->inspectorWrap = !state->inspectorWrap;
+            } break;
             case Prog_CommandKind_InspectorToggleHex: {
                 // The file is read again, the other way.
                 state->inspectorHex = !state->inspectorHex;

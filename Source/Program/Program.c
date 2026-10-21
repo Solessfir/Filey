@@ -7640,7 +7640,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     b32 numbered = !state->inspectorHideNumbers && !state->previewHex && !state->previewArchive;
     f32 gap = floorf(10.4f * s + 0.5f), left = !numbered ? floorf(9.6f * s + 0.5f) : MaxF32(floorf(52.0f * s + 0.5f), floorf(26.4f * s + 0.5f) + numbers + gap);
     f32 room = MaxF32(cell, view->rect.x1 - view->rect.x0 - left - margin);
-    u32 columns = state->inspectorWrap && !state->previewHex && !state->previewArchive ? Max((u32)(room / cell), 1u) : 0;
+    b32 wrap = state->previewDocument ? !state->documentUnwrapped : state->inspectorWrap;
+    u32 columns = wrap && !state->previewHex && !state->previewArchive ? Max((u32)(room / cell), 1u) : 0;
     // Each line's first row, worked out again when the width in characters changes.
     if (columns && state->previewRowColumns != columns) {
         state->previewRows = ArenaPushArray(&state->previewArena, shownCount + 1, u32);
@@ -8242,7 +8243,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
                 Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
                 Prog__Spacer(UI_Pixels(m->gap - floorf(0.8f * s + 0.5f)), UI_Pixels(bar));
-                Prog__ToolbarButton(state, S("InspectorWrap"), state->inspectorWrap ? Icon_TextWrap : Icon_TextAlignStart, Prog_CommandKind_InspectorToggleWordWrap, true, m);
+                b32 wraps = state->previewDocument ? !state->documentUnwrapped : state->inspectorWrap;
+                Prog__ToolbarButton(state, S("InspectorWrap"), wraps ? Icon_TextWrap : Icon_TextAlignStart, Prog_CommandKind_InspectorToggleWordWrap, true, m);
                 Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorNumbers"), state->inspectorHideNumbers ? Icon_ListX : Icon_ListOrdered, Prog_CommandKind_InspectorToggleLineNumbers, true, m);
                 Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));

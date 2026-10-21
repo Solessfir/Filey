@@ -41,6 +41,7 @@
 #include "Program/Icons.c"
 #include "Program/Directory.c"
 #include "Program/Models.c"
+#include "Program/Office.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
 

@@ -32,6 +32,7 @@
 #include "Program/Icons.c"
 #include "Program/Directory.c"
 #include "Program/Models.c"
+#include "Program/Office.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
 
@@ -49,6 +50,7 @@ global i32 CheckFailures;
 #include "Tests/Browsing.c"
 #include "Tests/Codegen.c"
 #include "Tests/Models.c"
+#include "Tests/Office.c"
 
 global u32 TestModalFrameCount;
 
@@ -689,6 +691,7 @@ int main(void)
     TestTextEditWords();
     TestTypeFilter();
     TestModels();
+    TestOffice();
 #if defined(_WIN32)
     TestFolderThumbnailBackground();
     TestInstallPath();

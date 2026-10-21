@@ -478,6 +478,7 @@ typedef struct Prog_Preview {
     String text;
     b32 hex;                        // the text is the first page of a file that is neither text nor a picture, shown as hex
     b32 archive;                    // the text lists what an archive holds
+    b32 document;                   // the text is a Word document's, whose prose wraps
     // An archive the inspector's panel lists: all it holds, not complete when there was more than was counted.
     P_DirectoryTotals archiveTotals;
     b32 archiveCounted;
@@ -1325,6 +1326,7 @@ typedef struct Prog_State {
     Prog_PdfPage pdfDrawn[Prog_PdfDrawn];
     P_Job *pdfJob;            // the page on its way, one at a time
     b32 previewArchive;       // previewText lists an archive's contents, shown the same way
+    b32 previewDocument;      // previewText is a Word document's, which wraps unless documentUnwrapped
     P_DirectoryTotals previewArchiveTotals;  // an archive the inspector's panel lists, once previewArchiveCounted
     b32 previewArchiveCounted;
     u64 previewStamp;         // the archive's size and modified time as counted, so that a change counts it again
@@ -1381,6 +1383,7 @@ typedef struct Prog_State {
     // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks,
     // in inspectorFontSize points (0 for Prog_InspectorFontSize).
     b32 inspectorWrap;
+    b32 documentUnwrapped;
     b32 inspectorHideNumbers;
     b32 inspectorWhitespace;
     u32 inspectorFontSize;
@@ -1531,6 +1534,9 @@ function String Prog_JoinPath(Arena *arena, String path, String name);
 function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 *ends, u32 max);
 // A picture of Prog_PreviewSize squared of the 3D model in the file of `size` bytes at `path`; NULL for a file that is not one or does not read.
 function u32 *Prog_ModelPreview(Arena *arena, String path, u64 size, const P_CancelToken *cancel);
+// A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.
+function b32 Prog_IsOffice(String path);
+function String Prog_OfficeText(Arena *arena, String path, u64 size);
 function String Prog_FormatSize(Arena *arena, u64 bytes);
 function void Prog_InspectFolder(Prog_State *state, String path);
 function i32 Prog_CompareNames(String a, String b);

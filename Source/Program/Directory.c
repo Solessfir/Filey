@@ -1790,6 +1790,10 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = image.width;
             result->height = image.height;
             result->image = true;
+        } else if (!input->folder && Prog_IsOffice(path) && (result->text = Prog_OfficeText(&job->arena, path, input->size)).length) {
+            // Word's prose wraps; a spreadsheet's columns stay lined up.
+            result->document = Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docx")) || Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docm"));
+            // A Word document's or a spreadsheet's text, which its zip of XML would otherwise show as bytes.
         } else if (!input->folder && P_ReadFileStart(&job->arena, path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
             result->text = start;
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
@@ -4262,6 +4266,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewTextFocus = false;
                 state->previewHex = false;
                 state->previewArchive = preview->archive;
+                state->previewDocument = preview->document;
                 state->previewArchiveTotals = preview->archiveTotals;
                 state->previewArchiveCounted = preview->archiveCounted;
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
