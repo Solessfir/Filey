@@ -6969,10 +6969,11 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, outside.pressOrder);
     f32 s = m->scale, line = m->stroke;
-    f32 width = floorf(588.0f * s + 0.5f), height = floorf(396.0f * s + 0.5f), radius = floorf(6.4f * s + 0.5f), bevel = floorf(4.0f * s + 0.5f);
-    f32 head = floorf(31.2f * s + 0.5f), pad = floorf(8.0f * s + 0.5f), gap = floorf(9.6f * s + 0.5f), strip = floorf(24.0f * s + 0.5f);
-    f32 apart = floorf(10.4f * s + 0.5f), column = floorf(167.2f * s + 0.5f), box = floorf(30.4f * s + 0.5f), rowGap = floorf(8.0f * s + 0.5f);
-    f32 below = floorf(14.4f * s + 0.5f), label = floorf(20.0f * s + 0.5f), field = floorf(57.6f * s + 0.5f), slash = floorf(32.0f * s + 0.5f);
+    // A good deal smaller than the reference's 588 by 396, which is big for picking one color.
+    f32 width = floorf(440.0f * s + 0.5f), height = floorf(320.0f * s + 0.5f), radius = floorf(6.4f * s + 0.5f), bevel = floorf(4.0f * s + 0.5f);
+    f32 head = floorf(26.4f * s + 0.5f), pad = floorf(8.0f * s + 0.5f), gap = floorf(8.0f * s + 0.5f), strip = floorf(18.0f * s + 0.5f);
+    f32 apart = floorf(8.0f * s + 0.5f), column = floorf(140.0f * s + 0.5f), box = floorf(24.0f * s + 0.5f), rowGap = floorf(5.6f * s + 0.5f);
+    f32 below = floorf(8.0f * s + 0.5f), label = floorf(18.4f * s + 0.5f), field = floorf(48.0f * s + 0.5f), slash = floorf(22.4f * s + 0.5f);
     f32 button = floorf(24.0f * s + 0.5f), margin = floorf(4.0f * s + 0.5f), ring = floorf(9.0f * s + 0.5f);
     f32 squareWidth = width - 2 * pad - gap - strip - apart - column, squareHeight = height - head - 2 * pad;
     f32 x = UI__Clamp(floorf(state->pickerAt.x - view.x0), margin, MaxF32(margin, view.x1 - view.x0 - width - margin));
