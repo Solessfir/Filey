@@ -224,6 +224,19 @@ function void TestModels(void)
         Check(mesh.positions.v[0] == 5 && mesh.positions.v[3] == 6 && mesh.positions.v[7] == 1 && mesh.indices.v[2] == 2);
     }
 
+    // The thumbnail drawing fills the middle and leaves the corners clear; a triangle naming a vertex that is not there is left out.
+    {
+        Prog_Mesh square = {0};
+        f32 *v = ArrayAdd(&arena, square.positions, 12);
+        f32 corners[12] = { -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0 };
+        MemCopy(v, corners, sizeof(corners));
+        u32 *t = ArrayAdd(&arena, square.indices, 9);
+        u32 triangles[9] = { 0, 1, 2, 0, 2, 3, 0, 1, 7 };
+        MemCopy(t, triangles, sizeof(triangles));
+        P_CancelToken token = {0};
+        u32 *pixels = Prog_DrawMesh(&arena, &square, 64, &token);
+        Check(pixels && (pixels[32 * 64 + 32] >> 24) == 255 && (pixels[0] >> 24) == 0 && (pixels[63 * 64 + 63] >> 24) == 0);
+    }
     // The mesh for the GPU: a triangle naming a vertex that is not there is left out, Z up turns Y up, and its bounds' center and radius.
     {
         Prog_Mesh square = { .zUp = true };

@@ -1556,6 +1556,10 @@ function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 
 // A picture of Prog_PreviewSize squared of the 3D model in the file of `size` bytes at `path`; NULL for a file that is not one or does not read.
 // The model at `path` as a mesh for the GPU, Y up, with only triangles whose vertices are there, and the center and radius of its bounds.
 function b32 Prog_ModelMesh(Arena *arena, String path, u64 size, const P_CancelToken *cancel, Prog_ModelShape *shape);
+// A 3D model's picture for the icon views, `size` squared, in straight RGBA; NULL when `path` is no model the readers know or has nothing to draw.
+function u32 *Prog_ModelThumbnail(Arena *arena, String path, i32 size, const P_CancelToken *cancel);
+// Whether `path` names a 3D model the readers know, by its extension.
+function b32 Prog_IsModel(String path);
 // A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.
 function b32 Prog_IsOffice(String path);
 function String Prog_OfficeText(Arena *arena, String path, u64 size);

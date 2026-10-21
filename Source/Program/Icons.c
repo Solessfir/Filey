@@ -61,6 +61,20 @@ function void Prog__IconJob(P_Job *job)
             ReleaseScratch(scratch);
             continue;
         }
+        // A 3D model is drawn here, in every format the readers know, so that they look alike and a .blend shows its scene rather than the
+        // screenshot Blender saves; the cache pass leaves it for the thumbnail threads, which go easy on a spinning disk.
+        b32 model = thumbnail && request->kind == P_FileKind_File && Prog_IsModel(request->path);
+        if (model && request->cacheOnly) {
+            ReleaseScratch(scratch);
+            continue;
+        }
+        if (model) {
+            ProfileScope("ModelThumbnail") pixels[i] = Prog_ModelThumbnail(&job->arena, request->path, request->size, &job->cancelToken);
+            if (pixels[i]) {
+                ReleaseScratch(scratch);
+                continue;
+            }
+        }
         if (thumbnail && request->cacheOnly) ProfileScope("CachedThumbnail") loaded = P_LoadCachedThumbnail(scratch.arena, request->path, request->kind, request->size, &image);
         else if (thumbnail) ProfileScope("LoadThumbnail") loaded = P_LoadFileThumbnail(scratch.arena, request->path, request->kind, request->size, false, &job->cancelToken, &image);
         else if (request->exact) ProfileScope("LoadExactIcon") loaded = P_LoadFileIcon(scratch.arena, request->path, request->kind, request->size, input->iconScale, true, &image);
@@ -217,6 +231,8 @@ function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog
 {
     if (state->iconSize <= 0 || entry->drive || entry->file.kind != P_FileKind_File || !Prog_ShowsThumbnails(state)) return;
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
+    // Models are drawn by Filey, not by the system's cache.
+    if (Prog_IsModel(path)) return;
     String key = StrFormat(&state->frameArena, "%S|%lld|%llu", P_FileThumbnailKey(&state->frameArena, path, P_FileKind_File), (long long)entry->file.modifiedTimeUnix,
                            (unsigned long long)entry->file.size);
     if (MapsGetPtrNull(state->warmed, key)) return;
