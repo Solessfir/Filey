@@ -432,6 +432,21 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(Prog_CompareNames(S("file1000000000000000000001"), S("file1000000000000000000002")) < 0);
     Check(Prog_CompareNames(S("same"), S("same")) == 0);
     Check(Prog_CompareNames(S("Item2"), S("item10")) < 0);
+    // git status, read for a folder inside the repository and for its top: each item's mark, and its folders' the most telling inside.
+    {
+        Arena arena = {0};
+        String text = S(" M sub/b.txt\0A  sub/c.txt\0?? sub/deep/\0 M a.txt\0R  sub/n.txt\0sub/o.txt\0 D sub/deep2/gone.txt\0UU sub/x\0");
+        Prog_GitStatus inside = {0}, top = {0};
+        Prog_ReadGitChanges(&arena, S("C:/r"), S("C:/r/sub"), text, &inside);
+        Check(inside.changes == 7 && MapsGet(inside.marks, u8, S("b.txt")) == Prog_GitMark_Modified && MapsGet(inside.marks, u8, S("c.txt")) == Prog_GitMark_Added);
+        Check(MapsGet(inside.marks, u8, S("deep")) == Prog_GitMark_Untracked && MapsGet(inside.marks, u8, S("n.txt")) == Prog_GitMark_Added);
+        Check(MapsGet(inside.marks, u8, S("deep2")) == Prog_GitMark_Modified && MapsGet(inside.marks, u8, S("x")) == Prog_GitMark_Conflict);
+        Check(!MapsGet(inside.marks, u8, S("a.txt")) && !MapsGet(inside.marks, u8, S("o.txt")));
+        Prog_ReadGitChanges(&arena, S("C:/r"), S("C:/r"), text, &top);
+        Check(MapsGet(top.marks, u8, S("sub")) == Prog_GitMark_Conflict && MapsGet(top.marks, u8, S("a.txt")) == Prog_GitMark_Modified);
+        Check(MapsGet(top.marks, u8, S("sub/deep")) == Prog_GitMark_Untracked);
+        ArenaRelease(&arena);
+    }
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
     if (!state.jobs.initialized) return;

@@ -438,11 +438,29 @@ typedef struct Prog_Transfer {
 // else the system's thumbnail of Prog_PreviewSize squared.
 #define Prog_PreviewImageSide 4096
 
-// The git repository around a folder: its branch, or a detached HEAD's short hash, and how many commits it is ahead of its upstream and behind
-// it, -1 for each when that is not known.
+// What git says of an item that is not as last committed, the folders by the most telling of what is inside them.
+typedef enum Prog_GitMark {
+    Prog_GitMark_None,
+    Prog_GitMark_Untracked,
+    Prog_GitMark_Added,
+    Prog_GitMark_Modified,
+    Prog_GitMark_Conflict,
+    Prog_GitMark_Count,
+} Prog_GitMark;
+
+// The shown folder's items git marks, by their names in the listing, the folders on the way to an expanded listing's items included.
+typedef struct Prog_GitMarks {
+    MapHeader header;
+    struct { String key; u8 value; } *v;
+} Prog_GitMarks;
+
+// The git repository around a folder: its branch, or a detached HEAD's short hash, how many commits it is ahead of its upstream and behind
+// it, -1 for each when that is not known, and the changes not yet committed, in all and in the folder.
 typedef struct Prog_GitStatus {
     String branch;
     i32 ahead, behind;
+    u32 changes;
+    Prog_GitMarks marks;
 } Prog_GitStatus;
 
 // The languages the inspector colors the text of, by the file's extension.

@@ -2331,6 +2331,8 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
 }
 
+function R_Color Prog__GitInk(Prog_GitMark mark);
+
 // The branch of the git repository the shown folder is in, with the commits to push and to pull beside it when there are any.
 function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
 {
@@ -2347,6 +2349,12 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
         Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, bar, theme->textMatch, 0.5f, m);
         UI_SetNextFont(m->detail);
         Prog__Label(StrFormat(&state->frameArena, "%d", count), UI_TextContent(), bar, 0, theme->textMatch, 0);
+    }
+    // The changes not yet committed, in the color of a changed file.
+    if (state->git.changes) {
+        Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
+        UI_SetNextFont(m->detail);
+        Prog__Label(StrFormat(&state->frameArena, "\u25CF %u", state->git.changes), UI_TextContent(), bar, 0, Prog__GitInk(Prog_GitMark_Modified), 0);
     }
     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
 }
@@ -2876,14 +2884,27 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
 
 function b32 Prog__EntryFaded(const Prog_Entry *entry);
 
+// The color of a name git marks, as code editors show them: new in green, changed in amber and conflicting in red, darker on a light
+// scheme.
+function R_Color Prog__GitInk(Prog_GitMark mark)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    b32 light = theme->background.r + theme->background.g + theme->background.b > 1.5f;
+    local_persist const u32 dark[Prog_GitMark_Count] = { 0, 0x73C991, 0x81B88B, 0xE2C08D, 0xE4676B };
+    local_persist const u32 bright[Prog_GitMark_Count] = { 0, 0x2F8F3A, 0x3C7D45, 0x9A6B00, 0xC03030 };
+    return Prog__HexColor((light ? bright : dark)[mark]);
+}
+
 // The color of an item's text: the content colors while it is selected or under the pointer, else its name's by its kind, and the
 // secondary one for its other values and a hidden item's name; and the color of the letters a filter matched in it.
-function R_Color Prog__ItemInk(const Prog_Entry *entry, b32 hot, b32 name)
+function R_Color Prog__ItemInk(const Prog_State *state, const Prog_Entry *entry, b32 hot, b32 name)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     if (entry->selected) return theme->contentSelection;
     if (hot) return theme->contentHover;
     if (!name || Prog__EntryFaded(entry)) return theme->textDim;
+    Prog_GitMark mark = state->git.marks.header.count ? (Prog_GitMark)MapsGet(state->git.marks, u8, entry->file.name) : Prog_GitMark_None;
+    if (mark) return Prog__GitInk(mark);
     return entry->file.kind == P_FileKind_Directory ? theme->folder : theme->file;
 }
 
@@ -3210,7 +3231,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 Prog__RenameBox(state, width, false, m);
                 continue;
             }
-            R_Color color = Prog__ItemInk(entry, hot, i == Prog_ColumnId_Name);
+            R_Color color = Prog__ItemInk(state, entry, hot, i == Prog_ColumnId_Name);
             if (i == Prog_ColumnId_Name && (state->filter.length || state->directory.expanded)) {
                 String leaf = Prog_EntryLeaf(entry->file.name);
                 u64 prefix = entry->file.name.length - leaf.length;
@@ -3295,7 +3316,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, Prog__ListIconInset(m), highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), false, m);
-        else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, Prog__ItemInk(entry, hot, true), 0);
+        else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, Prog__ItemInk(state, entry, hot, true), 0);
     }
     return result;
 }
@@ -3371,7 +3392,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
             }
         } else {
             String name = Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text);
-            Prog__Label(name, UI_Pixels(width), m->line, 0, Prog__ItemInk(entry, hot, true), 0.5f);
+            Prog__Label(name, UI_Pixels(width), m->line, 0, Prog__ItemInk(state, entry, hot, true), 0.5f);
             Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
         }
     }

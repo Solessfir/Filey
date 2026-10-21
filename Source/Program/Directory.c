@@ -1229,8 +1229,49 @@ function String Prog_GitBranch(String head)
     return StrFromTo(head, 0, (i64)Min(head.length, (u64)7));
 }
 
+// Marks `name` and the folders on its way, each keeping the most telling of the marks it gets.
+function void Prog__GitMark(Arena *arena, Prog_GitMarks *marks, String name, Prog_GitMark mark)
+{
+    for (u64 at = 0; at <= name.length; ++at) {
+        if (at < name.length && name.value[at] != '/') continue;
+        String part = StrFromTo(name, 0, (i64)at);
+        if (part.length && mark > (Prog_GitMark)MapsGet(*marks, u8, part)) MapsPut(arena, *marks, StrCopy(arena, part), (u8)mark);
+    }
+}
+
+// Reads `git status --porcelain=v1 -z` of `folder`, whose paths start at the repository's top, `root`: what it counts and marks inside `folder`.
+function void Prog_ReadGitChanges(Arena *arena, String root, String folder, String text, Prog_GitStatus *status)
+{
+    String inside = folder.length > root.length ? StrFrom(folder, root.length + (root.value[root.length - 1] == '/' ? 0 : 1)) : (String){0};
+    ArrayStr records = StrSplit(arena, text, '\0');
+    for (u64 i = 0; i < records.header.count; ++i) {
+        String record = records.v[i];
+        if (record.length < 4) continue;
+        u8 x = (u8)record.value[0], y = (u8)record.value[1];
+        String path = StrFrom(record, 3);
+        // A rename or copy names where it came from next.
+        if (x == 'R' || x == 'C') ++i;
+        ++status->changes;
+        while (path.length && path.value[path.length - 1] == '/') --path.length;
+        if (inside.length) {
+            if (path.length <= inside.length || !Prog__StartsAt(path, 0, inside) || path.value[inside.length] != '/') continue;
+            path = StrFrom(path, inside.length + 1);
+        }
+        b32 conflict = x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D');
+        Prog_GitMark mark = conflict ? Prog_GitMark_Conflict : x == '?' ? Prog_GitMark_Untracked : x == 'A' || x == 'R' || x == 'C' ? Prog_GitMark_Added : Prog_GitMark_Modified;
+        // A deleted file is no longer listed; the folders it was in are.
+        if (x == 'D' || y == 'D') {
+            Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+            if (!slash.exists) continue;
+            path = StrFromTo(path, 0, (i64)slash.value);
+            mark = Prog_GitMark_Modified;
+        }
+        Prog__GitMark(arena, &status->marks, path, mark);
+    }
+}
+
 // The repository around `folder`: the nearest folder, it or one above it, holding .git, a folder or, for a worktree, a file naming one.
-// The counts come from git itself, which may be missing; the branch is read from HEAD either way.
+// The counts and changes come from git itself, which may be missing; the branch is read from HEAD either way.
 function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
 {
     Prog_GitStatus result = { .ahead = -1, .behind = -1 };
@@ -1256,6 +1297,9 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
                 result.behind = (i32)Min(behind, (u64)INT32_MAX);
             }
         }
+        String status[] = { S("git"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=normal") };
+        String changes = {0};
+        if (P_RunCommand(arena, folder, status, CArrayCount(status), 5000, &changes)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
         break;
     }
     return result;
@@ -4554,7 +4598,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             const Prog_GitStatus *status = job->result;
             if (status && StrIsEqual(input->path, state->directory.path)) {
                 ArenaClear(&state->gitArena);
-                state->git = (Prog_GitStatus){ StrCopy(&state->gitArena, status->branch), status->ahead, status->behind };
+                state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
+                for (u64 i = 0; i < status->marks.header.count; ++i) {
+                    MapsPut(&state->gitArena, state->git.marks, StrCopy(&state->gitArena, status->marks.v[i].key), status->marks.v[i].value);
+                }
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
