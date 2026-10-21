@@ -3575,6 +3575,16 @@ function void Prog__TypeToSelect(Prog_State *state, rune codepoint, u64 order)
     Prog_QueueCommand(state, Prog_CommandKind_SelectTyped, 0, 0, order);
 }
 
+// The index of the panel whose inspector holds the point, or UINT32_MAX.
+function u32 Prog__InspectorAt(const Prog_State *state, f32 x, f32 y)
+{
+    for (u32 i = 0; i < state->panelCount; ++i) {
+        R_Rect pane = state->panels[i].inspectorRect;
+        if (x >= pane.x0 && x < pane.x1 && y >= pane.y0 && y < pane.y1) return i;
+    }
+    return UINT32_MAX;
+}
+
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
 {
     u64 order = 0;
@@ -3592,6 +3602,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         if (event->kind == PlatformEventKind_MouseDown && !UI__Contains(state->inspectorTextRect, (UI_Vec2){ event->x, event->y })) {
             state->previewAnchor = state->previewCaret;
             state->previewTextFocus = false;
+        }
+        // A press in another panel's inspector gives that panel the keyboard, as one in its list does.
+        u32 inspected = Prog__InspectorAt(state, event->x, event->y);
+        if (event->kind == PlatformEventKind_MouseDown && inspected != UINT32_MAX) {
+            u64 active = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
+            if (active != state->panels[inspected].id) Prog_QueueCommand(state, Prog_CommandKind_PanelHover, 0, 0, order)->panel = state->panels[inspected].id;
         }
         // A chip being rebound takes the next key with its modifiers, which run nothing; Escape stops it, and stops the delete question.
         if ((state->hotkeyKind || state->hotkeyAsking) && event->kind == PlatformEventKind_KeyDown) {
@@ -3906,14 +3922,15 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // Ctrl+wheel zooms instead of scrolling, the inspector's contents under the pointer; fine-grained wheels add up to whole steps.
         if (event->kind == PlatformEventKind_MouseWheel && (event->mods & KeyMod_Control) && !state->menuOpen) {
-            R_Rect pane = state->inspectorRect;
-            b32 inspector = event->x >= pane.x0 && event->x < pane.x1 && event->y >= pane.y0 && event->y < pane.y1;
+            b32 inspector = inspected != UINT32_MAX;
             Prog_CommandKind in = inspector ? Prog_CommandKind_InspectorIncreaseContentsSize : Prog_CommandKind_ZoomIn;
             Prog_CommandKind out = inspector ? Prog_CommandKind_InspectorDecreaseContentsSize : Prog_CommandKind_ZoomOut;
             state->zoomWheel += event->wheelY;
             if (!inspector) state->zoomWheelTime = PlatformNowMicroseconds();
-            for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, in, 0, 0, order);
-            for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, out, 0, 0, order);
+            // The inspector under the pointer zooms, its panel taking the keyboard.
+            u64 panel = inspector ? state->panels[inspected].id : Prog__PanelId(state);
+            for (; state->zoomWheel >= 1; state->zoomWheel -= 1) Prog_QueueCommand(state, in, 0, 0, order)->panel = panel;
+            for (; state->zoomWheel <= -1; state->zoomWheel += 1) Prog_QueueCommand(state, out, 0, 0, order)->panel = panel;
             continue;
         }
         // Alt+wheel steps the font size and Alt+Shift+wheel the spacing.

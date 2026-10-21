@@ -1047,6 +1047,7 @@ typedef struct Prog_Panel {
     u64 focusMicroseconds;  // when it last became or stopped being the active panel, which its status bar slides and its dimming fades from; 0 while settled
     // The panel whose inspector lists a folder in this one, which no split holds; 0 for the layout's panels.
     u64 inspectorOf;
+    R_Rect inspectorRect;  // its inspector's in the last layout; empty while it is hidden
     b8 wasActive, drawn;
     Prog_TabFields(Prog__PanelField)
     Prog_PanelFields(Prog__PanelField)
@@ -1241,7 +1242,6 @@ typedef struct Prog_State {
     u32 renameFromLength;
     Prog_TextEdit rename;
     R_Rect renameRect;        // last layout of the edit box
-    R_Rect inspectorRect;     // the inspector's in the last layout; empty while it is hidden
     u8 selectText[1024];      // select this name in the next listing
     u32 selectLength;
     b32 selectRename;         // and rename it, for items Filey just created

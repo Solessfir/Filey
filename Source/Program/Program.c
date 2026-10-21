@@ -8310,7 +8310,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *pane = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Inspector")), UI_Flag_DrawBackground | UI_Flag_Clip);
-    state->inspectorRect = pane->rect;
+    state->panels[state->currentPanel].inspectorRect = pane->rect;
     f32 room = 0;
     UI_Parent(pane) {
         UI_Block *toolbar = Prog__Box(UI_Flex(), UI_Pixels(bar), UI_Layout_Horizontal, theme->background, 0);
@@ -9046,7 +9046,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tooltipAbove = false;
     state->tooltipPath = (String){0};
     state->cursor = PlatformCursor_Arrow;
-    state->inspectorRect = (R_Rect){0};
+    for (u32 i = 0; i < state->panelCount; ++i) state->panels[i].inspectorRect = (R_Rect){0};
     state->inspectorTextRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
     ArenaClear(&state->dropPlaceArena);

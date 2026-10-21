@@ -2239,6 +2239,18 @@ function void TestPanels(TestFileFixture *fixture)
     Check(state.activePanel == 1 && !state.previewShown && state.panels[0].previewShown);
     TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
     Check(state.previewShown && state.panels[0].previewShown);
+    // A press in the first panel's inspector gives it the keyboard.
+    {
+        state.panels[0].inspectorRect = (R_Rect){ 500, 100, 900, 700 };
+        PlatformEvent press[] = { { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = 600, .y = 300 } };
+        ArenaClear(&state.frameArena);
+        Prog_HandleInput(&state, TestUIEvents(press, CArrayCount(press)));
+        Prog_ProcessCommands(&state);
+        state.panels[0].inspectorRect = (R_Rect){0};
+        Check(state.activePanel == 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
+        Check(state.activePanel == 1);
+    }
     TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
     Check(state.activePanel == 0 && state.previewShown);

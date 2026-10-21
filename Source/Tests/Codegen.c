@@ -223,7 +223,7 @@ function void TestHotkeyDispatch(void)
 
     // Ctrl+wheel over the inspector sizes its contents, and elsewhere zooms the list.
     {
-        Prog_State wheel = { .inspectorRect = { 100, 0, 200, 100 } };
+        Prog_State wheel = { .panelCount = 1, .panels[0].inspectorRect = { 100, 0, 200, 100 } };
         PlatformEvent turns[] = {
             { .kind = PlatformEventKind_MouseWheel, .mods = KeyMod_Control, .x = 150, .y = 50, .wheelY = 1 },
             { .kind = PlatformEventKind_MouseWheel, .mods = KeyMod_Control, .x = 50, .y = 50, .wheelY = -1 },
