@@ -2233,10 +2233,19 @@ function void TestPanels(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
     TestPanelsFrame(&state, true, 1102, 400, 5);
     Check(state.activePanel == 0 && state.clickToFocus);
+    // The inspector stays beside the panel it was opened in as the keyboard goes to another.
+    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    u64 opened = state.panels[0].id;
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
+    Check(state.previewShown && state.activePanel == 1 && state.previewOwner == opened);
+    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
+    Check(!state.previewShown && state.activePanel == 0);
     // The inspector lists the folder in focus in a panel of its own, which no split holds and the session leaves out.
     // A click in it gives it the keyboard; hiding the inspector closes it and gives the keyboard back.
     {
         state.previewShown = true;
+        state.previewOwner = 0;
         Prog_SelectRow(&state, TestEntryIndex(&state, S("Folder2")), 0);
         Prog_ProcessCommands(&state);
         u64 owner = state.panels[state.activePanel].id;

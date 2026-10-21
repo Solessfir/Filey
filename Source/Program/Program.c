@@ -8629,9 +8629,9 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     // A panel whose inspector's list has the keyboard counts as active.
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel || state->panels[state->activePanel].inspectorOf == state->panels[index].id;
-    // The active panel gives half of itself under the tab strip to the inspector:
+    // The inspector's panel gives half of itself under the tab strip to it, whichever panel is active:
     // the right half, or the lower half when the panel is taller than wide or when asked.
-    b32 inspecting = active && state->previewShown;
+    b32 inspecting = state->previewShown && state->panels[index].id == state->previewOwner;
     f32 mainHeight = height - (top ? m->separator : 0) - (top ? Prog__TitleStripHeight(m) : Prog__StripHeight(m));
     b32 below = state->inspectorLayout == Prog_InspectorLayout_Below || (state->inspectorLayout == Prog_InspectorLayout_Auto && mainHeight > width);
     if (inspecting) state->inspectorBelow = below;

@@ -1829,7 +1829,19 @@ function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b3
     P_JobSubmit(job);
 }
 
-// Starts loading the preview of the active panel's focused item when it is another than the one shown; a folder is listed in the inspector's panel.
+// The index of the panel the inspector belongs to: the one it was opened in, or the active one once that one has closed.
+function u32 Prog__PreviewOwner(Prog_State *state)
+{
+    u32 at = Prog_PanelIndex(state, state->previewOwner);
+    if (at == UINT32_MAX || state->panels[at].inspectorOf) {
+        const Prog_Panel *active = &state->panels[state->activePanel];
+        state->previewOwner = active->inspectorOf ? active->inspectorOf : active->id;
+        at = Prog_PanelIndex(state, state->previewOwner);
+    }
+    return at != UINT32_MAX ? at : state->activePanel;
+}
+
+// Starts loading the preview of the current panel's focused item when it is another than the one shown; a folder is listed in the inspector's panel.
 // While the keyboard is in that panel, the item is still its owner's; once the inspector no longer lists a folder, the keyboard goes back to the owner.
 function void Prog__UpdatePreview(Prog_State *state)
 {
@@ -2485,7 +2497,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->sidebarFilter.length = state->sidebarFilter.cursor = state->sidebarFilter.anchor = 0;
                 ++state->sidebarFilter.version;
             } break;
-            case Prog_CommandKind_TogglePreview: state->previewShown = !state->previewShown; break;
+            case Prog_CommandKind_TogglePreview: {
+                // It opens beside the active panel and stays there.
+                state->previewShown = !state->previewShown;
+                if (state->previewShown) state->previewOwner = 0, Prog__PreviewOwner(state);
+            } break;
             // A document's prose wraps by its own switch, so that unwrapping one leaves code files as they were.
             case Prog_CommandKind_InspectorToggleWordWrap: {
                 if (state->previewDocument) state->documentUnwrapped = !state->documentUnwrapped;
@@ -3227,6 +3243,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 // Without a properties window of the system's, the inspector shows the details.
                 if (count && !P_ShowProperties(state->directory.path, names, count)) {
+                    if (!state->previewShown) state->previewOwner = 0;
                     state->previewShown = true;
                     state->inspectorDetails = true;
                 }
@@ -3497,8 +3514,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     // The schemes' dropdown goes with the Options it opened from.
     if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0;
     Prog_SubmitIconRequests(state);
-    // The header spinner turns while folders are being measured.
+    // The inspector previews from its own panel, or from its folder's list while the keyboard is in it, whichever panel is active.
+    u32 owner = Prog__PreviewOwner(state);
+    b32 inList = state->panels[state->activePanel].inspectorOf == state->panels[owner].id;
+    Prog__UsePanel(state, inList ? state->activePanel : owner);
     Prog__UpdatePreview(state);
+    Prog__UsePanel(state, state->activePanel);
     // Transfers redraw while they run, for their progress and questions.
     b32 transferring = false;
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;

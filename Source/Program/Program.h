@@ -1316,6 +1316,7 @@ typedef struct Prog_State {
     Prog_ArrayUndo redo;
     // The preview pane beside the active panel's list: the focused item's picture or text, loaded by previewJob into previewArena.
     b32 previewShown;
+    u64 previewOwner;         // the panel the inspector shows beside and previews from, which stays as the keyboard goes to another
     Arena previewArena;
     String previewPath;       // shown, or on its way
     P_Job *previewJob;
