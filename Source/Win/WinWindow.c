@@ -32,6 +32,7 @@ typedef struct WinWindowState {
     b32 mouseCaptured;
     b32 trackingLeave;  // asked to be told when the pointer leaves the window
     b32 postedPointer;  // FILEY_POSTED_POINTER: the pointer comes from posted messages while the real one is elsewhere, so it never leaves
+    KeyMods postedMods; // and Shift, Ctrl and Alt from posted key messages, as the real keyboard's are someone else's
     b32 sizing;
     PlatformCursor cursor;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
@@ -170,6 +171,7 @@ function Key WinKeyFromVirtualKey(WPARAM vk)
 
 function KeyMods WinCurrentMods(void)
 {
+    if (Win.postedPointer) return Win.postedMods;
     KeyMods mods = 0;
     if (GetKeyState(VK_SHIFT) & 0x8000)   mods |= KeyMod_Shift;
     if (GetKeyState(VK_CONTROL) & 0x8000) mods |= KeyMod_Control;
@@ -387,6 +389,8 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         case WM_KEYUP:
         case WM_SYSKEYUP: {
             b32 down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+            KeyMods mod = wParam == VK_SHIFT ? KeyMod_Shift : wParam == VK_CONTROL ? KeyMod_Control : wParam == VK_MENU ? KeyMod_Alt : 0;
+            if (mod) Win.postedMods = down ? (Win.postedMods | mod) : (Win.postedMods & ~mod);
             Key key = WinKeyFromVirtualKey(wParam);
             if (key != Key_None) {
                 PlatformEvent *event = PlatformPushEvent(down ? PlatformEventKind_KeyDown : PlatformEventKind_KeyUp);

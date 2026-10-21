@@ -94,7 +94,9 @@ class App:
         # Shown without being activated; the runs also lock the foreground, so the window being worked in keeps the keyboard.
         startup = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW, wShowWindow=4)
         launched = time.perf_counter()
-        self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
+        # COMPARE_LOG keeps what the app writes to stderr, as a build with logging writes there.
+        log = open(os.environ['COMPARE_LOG'], 'a') if os.environ.get('COMPARE_LOG') else subprocess.DEVNULL
+        self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=log, startupinfo=startup)
         self.mapping, self.fake = inject(self.process.pid)
         self.window = None
         for _ in range(100):
@@ -134,6 +136,10 @@ class App:
         self.fake.keys[vk] = 1; self.post(0x100, vk, 1); time.sleep(0.03)
         self.fake.keys[vk] = 0; self.post(0x101, vk, 0xC0000001); time.sleep(0.05)
     def mods(self, *vks):
+        # Filey takes them from posted key messages, the reference from the fake keyboard state.
+        for v in (16, 17, 18):
+            held = bool(self.fake.keys[v])
+            if held != (v in vks): self.post(0x100 if v in vks else 0x101, v, 1 if v in vks else 0xC0000001)
         for i in range(256): self.fake.keys[i] = 0
         # The left-hand keys too, since apps ask for either.
         sides = {16: 0xA0, 17: 0xA2, 18: 0xA4}

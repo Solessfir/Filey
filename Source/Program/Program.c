@@ -2640,30 +2640,31 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, b32 icons, const
 }
 
 // The bytes from `start` to `end` of `name`, those a filter matched, flagged in `marks` when not NULL, in the match color.
-function void Prog__NameRuns(String name, u64 start, u64 end, const u8 *marks, R_Color color, R_Color matched, const R_Font *font, const Prog_Metrics *m)
+function void Prog__NameRuns(String name, u64 start, u64 end, const u8 *marks, R_Color color, R_Color matched, const R_Font *font, f32 height, const Prog_Metrics *m)
 {
     for (u64 at = start; at < end; start = at) {
         b32 match = marks && marks[at];
         while (at < end && (marks && marks[at]) == match) ++at;
         if (font) UI_SetNextFont(font);
-        Prog__Label(StrFromTo(name, start, (i64)at), UI_TextContent(), m->row, 0, match ? matched : color, 0);
+        Prog__Label(StrFromTo(name, start, (i64)at), UI_TextContent(), height, 0, match ? matched : color, 0);
     }
 }
 
 // A name whose first `prefix` bytes are the folder it is in, in an expanded listing: the item's own name, then a chevron and that folder, smaller and dimmed.
-function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size width, R_Color color, R_Color dim, R_Color matched, const Prog_Metrics *m)
+// It is the row's `height`, without the line under it, so that the name sits where the other columns' text does.
+function void Prog__NameLabel(String name, u64 prefix, const u8 *marks, UI_Size width, f32 height, R_Color color, R_Color dim, R_Color matched, const Prog_Metrics *m)
 {
     UI_SetNextPrefWidth(width);
-    UI_SetNextPrefHeight(UI_Pixels(m->row));
+    UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, m->gap, 0 });
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
     UI_Block *cell = UI_AddBlock(UI_Flag_Clip);
     UI_Parent(cell) {
-        Prog__NameRuns(name, prefix, name.length, marks, color, matched, NULL, m);
+        Prog__NameRuns(name, prefix, name.length, marks, color, matched, NULL, height, m);
         if (prefix > 1) {
-            Prog__Icon(Icon_ChevronRight, floorf(22.8f * m->scale), m->row, dim, 0.5f, m);
-            Prog__NameRuns(name, 0, prefix - 1, marks, dim, matched, m->detail, m);
+            Prog__Icon(Icon_ChevronRight, floorf(24.0f * m->scale + 0.5f), height, dim, 0.6f, m);
+            Prog__NameRuns(name, 0, prefix - 1, marks, dim, matched, m->detail, height, m);
         }
     }
 }
@@ -2835,7 +2836,11 @@ function b32 Prog__EntryFaded(const Prog_Entry *entry)
 
 // The item's system icon drawn at `size` in a `width` x `height` slot, or a glyph while it loads or when it has none.
 // Above the list icon size it is the item's thumbnail, with its type's icon at that size while the thumbnail loads, since a stretched list icon would blur.
-function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 size, f32 width, f32 height, f32 alignX, b32 highlighted, const Prog_Metrics *m)
+// Where the lists' icons start in their slot.
+function f32 Prog__ListIconInset(const Prog_Metrics *m) { return floorf(7.2f * m->scale + 0.5f); }
+
+// The picture sits `inset` from the slot's left when that is not 0, else as `alignX` places it, as the fallback glyph always does.
+function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 size, f32 width, f32 height, f32 alignX, f32 inset, b32 highlighted, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 faded = Prog__EntryFaded(entry);
@@ -2853,7 +2858,8 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     } else if (icon) {
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
-        UI_SetNextTextAlignment((UI_Vec2){ alignX, 0.5f });
+        UI_SetNextTextAlignment((UI_Vec2){ inset > 0 ? 0 : alignX, 0.5f });
+        if (inset > 0) UI_SetNextChildrenPadding((UI_Padding){ inset, 0, 0, 0 });
         UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
         UI_AddBlock(UI_Flag_DrawImage);
     } else {
@@ -3091,7 +3097,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
         if (Prog__MarksRecents(state) && entry->recent) Prog__Icon(Icon_Clock, Prog__RecentGutter(m->scale), height, theme->text, 0.5f, m);
         else if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(height));
-        if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
+        if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, Prog__ListIconInset(m), highlighted, m);
         for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
             const Prog_Column *column = &columns->v[c];
             u32 i = nameOnly ? (u32)Prog_ColumnId_Name : column->id;
@@ -3108,7 +3114,7 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 u64 prefix = entry->file.name.length - leaf.length;
                 u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(entry->file.name.length, (u64)1), u8) : NULL;
                 if (marks) Prog_EntryScore(entry->file.name, Prog_EditText(&state->filter), marks);
-                Prog__NameLabel(entry->file.name, prefix, marks, width, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
+                Prog__NameLabel(entry->file.name, prefix, marks, width, height, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
                 continue;
             }
             // Values too wide for a fixed column end in an ellipsis.
@@ -3185,7 +3191,7 @@ function b32 Prog__ColumnCell(Prog_State *state, u64 index, u64 line, UI_Key key
     b32 result = Prog__ItemInput(state, index, cell, key, onName, renaming);
     UI_Parent(cell) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Pixels(width), m);
-        if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, highlighted, m);
+        if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, Prog__ListIconInset(m), highlighted, m);
         if (renaming) Prog__RenameBox(state, UI_Flex(), false, m);
         else Prog__Label(Prog_EntryName(state, entry), UI_Flex(), height, m->gap, Prog__ItemInk(entry, hot, true), 0);
     }
@@ -3230,7 +3236,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     Prog__EntryValues(state, entry, values);
     f32 text = width - m->gap;
     UI_Parent(cell) {
-        Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, highlighted, m);
+        Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, 0, highlighted, m);
         if (renaming) {
             Prog__RenameBox(state, UI_Pixels(width), true, m);
         } else if (entry->drive) {
