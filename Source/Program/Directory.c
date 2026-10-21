@@ -2124,6 +2124,7 @@ function void Prog_InspectFolder(Prog_State *state, String path)
 
 function b32 Prog__TakeNumber(String *text, u64 *value);
 function String Prog__ApplyWindowLine(String text);
+function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
 
 // The tab's trail, when it goes on from the folder shown, or This PC shows; empty otherwise.
@@ -2830,6 +2831,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->viewArena);
     ArenaRelease(&state->errorArena);
+    Prog__ReleasePreview(&state->previewArena, state->previewTexture, &state->model, &state->pdf, state->previewJob, state->hexPageJob);
     for (u32 i = 0; i < state->tabCount; ++i) {
         if (i != state->activeTab) Prog__ReleaseTab(&state->tabs[i]);
     }
@@ -3822,8 +3824,22 @@ function void Prog__SwapTab(Prog_State *state, Prog_Tab *tab)
 #undef Prog__SwapField
 }
 
+// Lets go of an inspector's preview: its jobs, its textures, its model's mesh and its arena.
+function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob)
+{
+    if (job) P_RequestCancel(&job->cancelToken);
+    if (hexJob) P_RequestCancel(&hexJob->cancelToken);
+    if (pdf->job) P_RequestCancel(&pdf->job->cancelToken);
+    for (u32 i = 0; i < Prog_PdfDrawn; ++i) R_TextureRelease(pdf->drawn[i].texture);
+    R_TextureRelease(texture);
+    R_TextureRelease(model->texture);
+    R_MeshRelease(model->mesh);
+    ArenaRelease(arena);
+}
+
 function void Prog__ReleaseTab(Prog_Tab *tab)
 {
+    Prog__ReleasePreview(&tab->previewArena, tab->previewTexture, &tab->model, &tab->pdf, tab->previewJob, tab->hexPageJob);
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
     ArenaRelease(&tab->viewArena);
@@ -3932,7 +3948,7 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     // It starts with the shown tab's own view, not a locked folder's, which its folder brings back if it has one.
     Prog_ViewSettings own = state->ownView ? state->ownSettings : Prog_CurrentView(state);
     *tab = (Prog_Tab){ .id = ++state->nextTabId, .sort = own.sort, .descending = own.descending, .folderSort = own.folders, .zoom = own.zoom, .columnSet = own.columns,
-                       .showHidden = state->showHidden };
+                       .showHidden = state->showHidden, .previewShown = state->previewShown };
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);
@@ -3975,9 +3991,24 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
     ArenaClear(&state->errorArena);
     state->error = (String){0};
 
+    // A preview on its way is dropped with the tab hidden, and asked for again once it shows; what it already shows stays.
+    if (state->previewJob) {
+        P_RequestCancel(&state->previewJob->cancelToken);
+        state->previewJob = NULL;
+        state->previewPath = (String){0};
+    }
+    if (state->hexPageJob) P_RequestCancel(&state->hexPageJob->cancelToken);
+    if (state->pdf.job) P_RequestCancel(&state->pdf.job->cancelToken);
+    state->hexPageJob = state->pdf.job = NULL;
     Prog__SwapTab(state, &state->tabs[state->activeTab]);
     state->activeTab = index;
     Prog__SwapTab(state, &state->tabs[index]);
+    // The inspector's views share their blocks across a panel's tabs, so the tab's starts at its top; its folder list lists the tab's folder.
+    state->inspectorResetScroll = true;
+    if (!state->panels[state->currentPanel].inspectorOf) {
+        if (state->previewShown && state->previewFolder && state->previewPath.length) Prog_ListInInspector(state, state->previewPath);
+        else Prog_DropInspectorPanel(state, state->panels[state->currentPanel].id);
+    }
 
     // Totals of the old listing are matched by name, as after a refresh.
     ++state->listing;
@@ -4081,9 +4112,9 @@ function void Prog__TakePartial(Prog_State *state, Prog_Directory *listed, Arena
 // Keeps the drawn `page` of the inspector's PDF in place of the same page at another width, else of the page in sight least recently.
 function void Prog__KeepPdfPage(Prog_State *state, u32 page, P_Image image)
 {
-    Prog_PdfPage *slot = &state->pdfDrawn[0];
+    Prog_PdfPage *slot = &state->pdf.drawn[0];
     for (u32 i = 0; i < Prog_PdfDrawn; ++i) {
-        Prog_PdfPage *at = &state->pdfDrawn[i];
+        Prog_PdfPage *at = &state->pdf.drawn[i];
         if (at->texture.u64[0] && at->page == page) { slot = at; break; }
         if (!at->texture.u64[0] ? slot->texture.u64[0] != 0 : slot->texture.u64[0] && at->used < slot->used) slot = at;
     }
@@ -4095,12 +4126,12 @@ function void Prog__KeepPdfPage(Prog_State *state, u32 page, P_Image image)
 // Lets go of the inspector's PDF, as another item shows.
 function void Prog__DropPdf(Prog_State *state)
 {
-    for (u32 i = 0; i < Prog_PdfDrawn; ++i) R_TextureRelease(state->pdfDrawn[i].texture);
-    MemZero(state->pdfDrawn, sizeof(state->pdfDrawn));
-    if (state->pdfJob) P_RequestCancel(&state->pdfJob->cancelToken);
-    state->pdfJob = NULL;
-    state->pdfPageCount = 0;
-    state->pdfSizes = NULL;
+    for (u32 i = 0; i < Prog_PdfDrawn; ++i) R_TextureRelease(state->pdf.drawn[i].texture);
+    MemZero(state->pdf.drawn, sizeof(state->pdf.drawn));
+    if (state->pdf.job) P_RequestCancel(&state->pdf.job->cancelToken);
+    state->pdf.job = NULL;
+    state->pdf.pageCount = 0;
+    state->pdf.sizes = NULL;
 }
 
 function b32 Prog_TakeCompletions(Prog_State *state)
@@ -4231,7 +4262,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Preview ||
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
@@ -4266,11 +4297,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewArchive = preview->archive;
                 state->previewDocument = preview->document;
                 if (preview->model.indexCount) {
-                    state->previewMesh = R_MeshCreate(preview->model.positions, preview->model.vertexCount, preview->model.indices, preview->model.indexCount);
-                    MemCopy(state->modelCenter, preview->model.center, sizeof(state->modelCenter));
-                    state->modelRadius = preview->model.radius;
-                    state->modelZUp = preview->model.zUp;
-                    state->modelStale = true;
+                    state->model.mesh = R_MeshCreate(preview->model.positions, preview->model.vertexCount, preview->model.indices, preview->model.indexCount);
+                    MemCopy(state->model.center, preview->model.center, sizeof(state->model.center));
+                    state->model.radius = preview->model.radius;
+                    state->model.zUp = preview->model.zUp;
+                    state->model.stale = true;
                 }
                 state->previewArchiveTotals = preview->archiveTotals;
                 state->previewArchiveCounted = preview->archiveCounted;
@@ -4310,9 +4341,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->previewPicture = state->previewTexture.u64[0] != 0;
                     state->previewImage = state->previewPicture && preview->image;
                     if (preview->pdfPages && state->previewPicture) {
-                        state->pdfSizes = ArenaPushArray(&state->previewArena, (u64)preview->pdfPages * 2, f32);
-                        MemCopy(state->pdfSizes, preview->pdfSizes, (u64)preview->pdfPages * 2 * sizeof(f32));
-                        state->pdfPageCount = preview->pdfPages;
+                        state->pdf.sizes = ArenaPushArray(&state->previewArena, (u64)preview->pdfPages * 2, f32);
+                        MemCopy(state->pdf.sizes, preview->pdfSizes, (u64)preview->pdfPages * 2 * sizeof(f32));
+                        state->pdf.pageCount = preview->pdfPages;
                     }
                     state->previewImageWidth = preview->sourceWidth;
                     state->previewImageHeight = preview->sourceHeight;
@@ -4329,9 +4360,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
         } else if (input->kind == Prog_JobKind_PdfPage) {
-            if (state->pdfJob == job) state->pdfJob = NULL;
+            if (state->pdf.job == job) state->pdf.job = NULL;
             const P_Image *image = job->result;
-            if (image && image->pixels && state->pdfPageCount && StrIsEqual(input->path, state->previewPath)) Prog__KeepPdfPage(state, (u32)input->offset, *image);
+            if (image && image->pixels && state->pdf.pageCount && StrIsEqual(input->path, state->previewPath)) Prog__KeepPdfPage(state, (u32)input->offset, *image);
             changed = true;
         } else if (input->kind == Prog_JobKind_HexPage) {
             if (state->hexPageJob == job) state->hexPageJob = NULL;

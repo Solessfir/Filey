@@ -926,6 +926,64 @@ struct Prog_Partial {
     Prog_Directory directory;
 };
 
+// A 3D model a tab's inspector shows, turned by dragging and zoomed by the wheel: its mesh on the GPU, its bounds, whether the file's Z was
+// up, the view's turn about the up axis and tip toward the view in radians and its zoom, the rotation as last drawn, which the axes in its
+// corner follow, and the texture it is drawn into, redrawn as the view or its size changes.
+typedef struct Prog_ModelView {
+    R_MeshHandle mesh;
+    f32 center[3], radius;
+    b32 zUp;
+    f32 turn[3][3];
+    f32 yaw, pitch, zoom;
+    UI_Vec2 dragFrom;
+    R_TextureHandle texture;
+    i32 textureWidth, textureHeight;
+    f32 drawn[3];
+    b32 stale;
+} Prog_ModelView;
+
+// A PDF a tab's inspector scrolls through: its pages' sizes in points, in previewArena, the pages in sight drawn the view's width wide, and
+// the page on its way, one at a time.
+typedef struct Prog_PdfView {
+    u32 pageCount;
+    f32 *sizes;
+    Prog_PdfPage drawn[Prog_PdfDrawn];
+    P_Job *job;
+} Prog_PdfView;
+
+// The inspector each tab has of its own, beside its list while shown, previewing its focused item, so that tabs of one panel and other panels
+// each keep theirs:
+//   previewShown: open; previewPath: the item shown or on its way, loaded by previewJob into previewArena; previewText, previewTexture: what it is
+//   previewPicture: the texture holds previewPath's picture, previewTextureWidth by previewTextureHeight; previewImage: it is an image file's own,
+//     previewImageWidth by previewImageHeight; previewFolder: a folder, which the inspector's panel lists
+//   previewHex: the file shows as hex from hexPages, its pages read so far, NULL for the rest, in previewArena, hexPageCount of them out of
+//     hexSize bytes, hexPageJob the page on its way, one at a time
+//   previewArchive: previewText lists an archive's contents; previewArchiveTotals, once previewArchiveCounted, what the inspector's panel lists of
+//     one; previewStamp: its size and modified time as counted, so that a change counts it again
+//   previewDocument: previewText is a Word document's, which wraps unless documentUnwrapped; previewSubmitted: when the job started, so that a quick
+//     one shows no progress
+//   imageScaleMode, imageScale (for Custom), imageFit (the scale Fit last showed, where the zoom commands start from and stop going down),
+//     imagePan (of the image's center from the view's, in pixels) and imageDragFrom: the image view
+//   previewLines: where each line of previewText starts, and one past its end; previewSyntax, previewLineStates: its code coloring, what each line
+//     starts inside of; previewRows: the first wrapped row of each line, and the total, at previewRowColumns characters across
+//   previewAnchor to previewCaret: the text selected, as offsets into previewText, previewClicks those of the press that made it, previewTextFocus
+//     pressed on last, so that Select All selects it; inspectorTextRect: the text view's last layout, a press outside which drops the selection
+//   inspectorResetScroll: a new file starts at its top
+//   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
+//     picked for its version previewKeptVersion
+#define Prog_PreviewFields(X) \
+    X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(R_TextureHandle, previewTexture) \
+    X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
+    X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
+    X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
+    X(b32, previewArchive) X(b32, previewDocument) X(P_DirectoryTotals, previewArchiveTotals) X(b32, previewArchiveCounted) X(u64, previewStamp) \
+    X(u64, previewSubmitted) \
+    X(enum8(Prog_ImageScale), imageScaleMode) X(f32, imageScale) X(f32, imageFit) X(UI_Vec2, imagePan) X(UI_Vec2, imageDragFrom) \
+    X(u32 *, previewLines) X(enum8(Prog_Syntax), previewSyntax) X(u8 *, previewLineStates) X(u32, previewLineCount) X(u32 *, previewRows) \
+    X(u32, previewRowColumns) X(u64, previewAnchor) X(u64, previewCaret) X(u32, previewClicks) X(b32, previewTextFocus) X(R_Rect, inspectorTextRect) \
+    X(b32, inspectorResetScroll) X(Prog_TextEdit, inspectorFilter) X(b32, inspectorFiltering) X(u32 *, previewKept) X(u32, previewKeptCount) \
+    X(u32, previewKeptVersion)
+
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter, scroll and view:
 // zoom, up to Prog_ZoomMax, the details columns (columnSet, see Prog_PanelColumns), and while a locked folder's view applies, the tab's own
@@ -937,7 +995,8 @@ struct Prog_Partial {
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) X(u32, zoom) X(Prog_ColumnSet, columnSet) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) \
     X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
-    X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail)
+    X(Arena, viewArena) X(u64 *, view) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail) \
+    Prog_PreviewFields(X)
 
 #define Prog__TabField(type, name) type name;
 typedef struct Prog_Tab {
@@ -1314,48 +1373,6 @@ typedef struct Prog_State {
     Prog_ArrayUndo undo;
     Arena redoArena;
     Prog_ArrayUndo redo;
-    // The preview pane beside the active panel's list: the focused item's picture or text, loaded by previewJob into previewArena.
-    b32 previewShown;
-    u64 previewOwner;         // the panel the inspector shows beside and previews from, which stays as the keyboard goes to another
-    Arena previewArena;
-    String previewPath;       // shown, or on its way
-    P_Job *previewJob;
-    String previewText;
-    R_TextureHandle previewTexture;
-    // A 3D model the inspector shows, turned by dragging and zoomed by the wheel: its mesh on the GPU, its bounds, the view's turn about
-    // the up axis and tip toward the view in radians and its zoom, and the texture it is drawn into, redrawn as the view or its size changes.
-    R_MeshHandle previewMesh;
-    f32 modelCenter[3], modelRadius;
-    b32 modelZUp;
-    f32 modelTurn[3][3];  // the view's rotation as last drawn, which the axes in its corner follow
-    f32 modelYaw, modelPitch, modelZoom;
-    UI_Vec2 modelDragFrom;
-    R_TextureHandle modelTexture;
-    i32 modelTextureWidth, modelTextureHeight;
-    f32 modelDrawn[3];
-    b32 modelStale;
-    b32 previewPicture;       // the texture holds previewPath's picture
-    i32 previewTextureWidth, previewTextureHeight;
-    b32 previewImage;         // the picture is the image file's own, previewImageWidth by previewImageHeight
-    i32 previewImageWidth, previewImageHeight;
-    b32 previewFolder;        // previewPath is a folder, which the inspector's panel lists
-    b32 previewHex;           // the file shows as hex, from hexPages
-    b32 inspectorHex;         // every file shows as hex
-    u64 hexSize;              // the file's size
-    u8 **hexPages;            // its pages read so far, NULL for the rest, in previewArena
-    u64 hexPageCount;
-    P_Job *hexPageJob;        // the page on its way, one at a time
-    // A PDF the inspector scrolls through: its pages' sizes in points, in previewArena, and the pages in sight drawn the view's width wide.
-    u32 pdfPageCount;
-    f32 *pdfSizes;
-    Prog_PdfPage pdfDrawn[Prog_PdfDrawn];
-    P_Job *pdfJob;            // the page on its way, one at a time
-    b32 previewArchive;       // previewText lists an archive's contents, shown the same way
-    b32 previewDocument;      // previewText is a Word document's, which wraps unless documentUnwrapped
-    P_DirectoryTotals previewArchiveTotals;  // an archive the inspector's panel lists, once previewArchiveCounted
-    b32 previewArchiveCounted;
-    u64 previewStamp;         // the archive's size and modified time as counted, so that a change counts it again
-    u64 previewSubmitted;     // when the preview's job started, so that a quick one shows no progress
     // Saved layouts, kept in Layouts.conf: their names, and their texts, a window line before a session's.
     Arena layoutsArena;
     ArrayStr layoutNames, layoutTexts;
@@ -1384,27 +1401,10 @@ typedef struct Prog_State {
     // The layout Load On Startup names, which takes the place of `startup` while there is one.
     u8 startupLayout[256];
     u32 startupLayoutLength;
-    // An image in the inspector: its scale, the checkered grid behind it and the minimap of where the view is while it does not fit.
-    // The view is dragged to move it.
-    enum8(Prog_ImageScale) imageScaleMode;
-    f32 imageScale;           // for Custom
-    f32 imageFit;             // the scale Fit last showed, where the zoom commands start from and stop going down
+    b32 inspectorHex;         // every file shows as hex
+    // The inspector's image view: the checkered grid behind a picture and the minimap of where the view is while it does not fit.
     b32 imageHideGrid;
     b32 imageHideMinimap;
-    UI_Vec2 imagePan;         // of the image's center from the view's, in pixels
-    UI_Vec2 imageDragFrom;
-    u32 *previewLines;        // where each line of previewText starts, and one past its end
-    enum8(Prog_Syntax) previewSyntax;
-    u8 *previewLineStates;    // what each line starts inside of, a comment or a string the lines before left open, for previewSyntax
-    u32 previewLineCount;
-    u32 *previewRows;         // the first wrapped row of each line, and the total, at previewRowColumns characters across
-    u32 previewRowColumns;
-    // Text selected in the inspector's text view, from previewAnchor to previewCaret as offsets into previewText; the caret follows
-    // the pointer while it drags. A press outside inspectorTextRect, the view's last layout, drops it.
-    u64 previewAnchor, previewCaret;
-    u32 previewClicks;        // of the press that made it: a drag moves the caret after a single one, not a word's or a line's
-    b32 previewTextFocus;     // pressed on last, so that Select All selects all of its text rather than the files
-    R_Rect inspectorTextRect;
     // The inspector's text view: wrapped at its width, with line numbers unless hidden, its spaces and tabs as marks,
     // in inspectorFontSize points (0 for Prog_InspectorFontSize).
     b32 inspectorWrap;
@@ -1412,7 +1412,6 @@ typedef struct Prog_State {
     b32 inspectorHideNumbers;
     b32 inspectorWhitespace;
     u32 inspectorFontSize;
-    b32 inspectorResetScroll; // a new file starts at its top
     enum8(Prog_InspectorLayout) inspectorLayout;
     b32 inspectorBelow;       // where the last frame put it, which Toggle Inspector Layout turns around
     b32 inspectorDetails;     // the card of the item's details under its name
@@ -1462,12 +1461,6 @@ typedef struct Prog_State {
     u64 *typeCounts;
     u64 *typeFirsts;
     u32 typeCount;
-    // Its filter keeps the lines holding the letters typed, in order; the keyboard is in its box while inspectorFiltering.
-    Prog_TextEdit inspectorFilter;
-    b32 inspectorFiltering;
-    u32 *previewKept;         // the lines the filter keeps, by number
-    u32 previewKeptCount;
-    u32 previewKeptVersion;   // the filter's version they were picked for
     const R_Font *monoFont;   // the inspector's, at its size; NULL until made
     // Permanent delete waits for this confirmation; the paths live in confirmArena.
     b32 confirmingDelete;

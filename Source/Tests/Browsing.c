@@ -2233,19 +2233,28 @@ function void TestPanels(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
     TestPanelsFrame(&state, true, 1102, 400, 5);
     Check(state.activePanel == 0 && state.clickToFocus);
-    // The inspector stays beside the panel it was opened in as the keyboard goes to another.
-    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
-    u64 opened = state.panels[0].id;
-    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
-    Check(state.previewShown && state.activePanel == 1 && state.previewOwner == opened);
+    // Each panel's tabs have inspectors of their own: the first panel's stays open as the keyboard goes to the second, which opens its own.
     TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
-    Check(!state.previewShown && state.activePanel == 0);
+    Check(state.activePanel == 1 && !state.previewShown && state.panels[0].previewShown);
+    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    Check(state.previewShown && state.panels[0].previewShown);
+    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
+    Check(state.activePanel == 0 && state.previewShown);
+    // A new tab opens with the inspector its tab had, and closing it there leaves the other tab's.
+    TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+    Check(state.activeTab == 1 && state.previewShown);
+    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    Prog_SelectTab(&state, 0);
+    Check(state.previewShown && !state.tabs[1].previewShown);
+    Prog_CloseTab(&state, 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    Check(!state.previewShown && state.tabCount == 1);
     // The inspector lists the folder in focus in a panel of its own, which no split holds and the session leaves out.
     // A click in it gives it the keyboard; hiding the inspector closes it and gives the keyboard back.
     {
         state.previewShown = true;
-        state.previewOwner = 0;
         Prog_SelectRow(&state, TestEntryIndex(&state, S("Folder2")), 0);
         Prog_ProcessCommands(&state);
         u64 owner = state.panels[state.activePanel].id;
@@ -2266,15 +2275,18 @@ function void TestPanels(TestFileFixture *fixture)
             ArenaClear(&state.frameArena);
             Prog_QueueCommand(&state, Prog_CommandKind_ScrollSelectFirst, 0, 0, 0)->panel = state.panels[inner].id;
             Prog_ProcessCommands(&state);
-            Check(state.activePanel == inner && state.hasFocus && StrIsEqual(state.previewPath, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2"))));
+            // The inspector is still its owner's tab's.
+            const Prog_Panel *owning = &state.panels[Prog_PanelIndex(&state, owner)];
+            Check(state.activePanel == inner && state.hasFocus && StrIsEqual(owning->previewPath, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2"))));
             String session = Prog_SessionText(&state.frameArena, &state);
             u32 panels = 0;
             for (u64 i = 0; i + 6 <= session.length; ++i) panels += StrIsEqual(StrFromTo(session, i, (i64)i + 6), S("panel ")) ? 1 : 0;
             Check(panels == state.panelCount - 1);
         }
-        state.previewShown = false;
+        // Hidden from inside its list, it is its owner's that closes.
+        TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
         Prog_ProcessCommands(&state);
-        Check(Prog_InspectorPanel(&state, owner, false) == UINT32_MAX && state.panels[state.activePanel].id == owner);
+        Check(Prog_InspectorPanel(&state, owner, false) == UINT32_MAX && state.panels[state.activePanel].id == owner && !state.previewShown);
     }
     // The palette lists its groups, opens one from its title, finds commands across them by their label and description, and runs the highlighted one.
     {

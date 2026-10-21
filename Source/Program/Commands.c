@@ -1813,6 +1813,7 @@ function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b3
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Preview;
+    input->panel = Prog__PanelId(state);
     input->path = StrCopy(&job->arena, path);
     input->folder = folder;
     input->archive = archive;
@@ -1827,18 +1828,6 @@ function void Prog__SubmitPreview(Prog_State *state, String path, b32 folder, b3
     job->input = input;
     state->previewJob = job;
     P_JobSubmit(job);
-}
-
-// The index of the panel the inspector belongs to: the one it was opened in, or the active one once that one has closed.
-function u32 Prog__PreviewOwner(Prog_State *state)
-{
-    u32 at = Prog_PanelIndex(state, state->previewOwner);
-    if (at == UINT32_MAX || state->panels[at].inspectorOf) {
-        const Prog_Panel *active = &state->panels[state->activePanel];
-        state->previewOwner = active->inspectorOf ? active->inspectorOf : active->id;
-        at = Prog_PanelIndex(state, state->previewOwner);
-    }
-    return at != UINT32_MAX ? at : state->activePanel;
 }
 
 // Starts loading the preview of the current panel's focused item when it is another than the one shown; a folder is listed in the inspector's panel.
@@ -1887,10 +1876,10 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
-    R_MeshRelease(state->previewMesh);
-    state->previewMesh = (R_MeshHandle){0};
+    R_MeshRelease(state->model.mesh);
+    state->model.mesh = (R_MeshHandle){0};
     // A new model starts from the view the fixed previews had: turned 30 degrees and tipped 20.
-    state->modelYaw = 0.5235988f, state->modelPitch = 0.3490659f, state->modelZoom = 1;
+    state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
     state->hexPages = NULL;
@@ -2498,9 +2487,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 ++state->sidebarFilter.version;
             } break;
             case Prog_CommandKind_TogglePreview: {
-                // It opens beside the active panel and stays there.
+                // The shown tab's own; from inside an inspector's folder list, its owner's.
+                u64 owner = state->panels[state->currentPanel].inspectorOf;
+                u32 back = state->currentPanel;
+                if (owner && Prog_PanelIndex(state, owner) != UINT32_MAX) Prog__UsePanel(state, Prog_PanelIndex(state, owner));
                 state->previewShown = !state->previewShown;
-                if (state->previewShown) state->previewOwner = 0, Prog__PreviewOwner(state);
+                Prog__UsePanel(state, back);
             } break;
             // A document's prose wraps by its own switch, so that unwrapping one leaves code files as they were.
             case Prog_CommandKind_InspectorToggleWordWrap: {
@@ -3243,7 +3235,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 // Without a properties window of the system's, the inspector shows the details.
                 if (count && !P_ShowProperties(state->directory.path, names, count)) {
-                    if (!state->previewShown) state->previewOwner = 0;
                     state->previewShown = true;
                     state->inspectorDetails = true;
                 }
@@ -3514,11 +3505,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     // The schemes' dropdown goes with the Options it opened from.
     if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0;
     Prog_SubmitIconRequests(state);
-    // The inspector previews from its own panel, or from its folder's list while the keyboard is in it, whichever panel is active.
-    u32 owner = Prog__PreviewOwner(state);
-    b32 inList = state->panels[state->activePanel].inspectorOf == state->panels[owner].id;
-    Prog__UsePanel(state, inList ? state->activePanel : owner);
-    Prog__UpdatePreview(state);
+    // Each panel's shown tab previews its own item, or its folder's list's while the keyboard is in that list.
+    for (u32 i = 0; i < state->panelCount; ++i) {
+        if (state->panels[i].inspectorOf) continue;
+        b32 inList = state->panels[state->activePanel].inspectorOf == state->panels[i].id;
+        Prog__UsePanel(state, inList ? state->activePanel : i);
+        Prog__UpdatePreview(state);
+    }
     Prog__UsePanel(state, state->activePanel);
     // Transfers redraw while they run, for their progress and questions.
     b32 transferring = false;

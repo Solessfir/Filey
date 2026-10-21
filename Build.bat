@@ -64,8 +64,9 @@ rem The icon and version details are a resource linked into the executable.
 "%RC%" /nologo /fo "%OUT%\Filey.res" "%ROOT%Source\Resources\Filey.rc" || exit /b 1
 "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" "%OUT%\Filey.res" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
 
+rem The tests keep several program states on the stack at once, more than Windows' default megabyte; Linux gives 8 MB.
 if "%TEST%"=="1" (
-    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -lversion -o "%OUT%\FileyTests.exe" || exit /b 1
+    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -lversion -Wl,/STACK:8388608 -o "%OUT%\FileyTests.exe" || exit /b 1
     "%OUT%\FileyTests.exe" || exit /b 1
 )
 

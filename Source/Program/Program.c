@@ -7556,6 +7556,7 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
                         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
                         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
                         input->kind = Prog_JobKind_HexPage;
+                        input->panel = Prog__PanelId(state);
                         input->path = StrCopy(&job->arena, state->previewPath);
                         input->offset = offset / Prog_HexPageBytes * Prog_HexPageBytes;
                         job->input = input;
@@ -8024,7 +8025,7 @@ function void Prog__ModelAxes(Prog_State *state, f32 width, f32 height, const f3
     f32 s = m->scale, length = floorf(16.0f * s + 0.5f), dot = MaxF32(2, floorf(4.0f * s + 0.5f)), stroke = MaxF32(1, 1.5f * s), inset = floorf(14.0f * s + 0.5f);
     // Each axis in the view's Y-up space: a Z-up file's Y is the view's -Z and its Z the view's Y.
     f32 axes[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
-    if (state->modelZUp) axes[1][1] = 0, axes[1][2] = -1, axes[2][1] = 1, axes[2][2] = 0;
+    if (state->model.zUp) axes[1][1] = 0, axes[1][2] = -1, axes[2][1] = 1, axes[2][2] = 0;
     f32 tips[3][3];
     for (u32 a = 0; a < 3; ++a) for (u32 r = 0; r < 3; ++r) tips[a][r] = rows[r][0] * axes[a][0] + rows[r][1] * axes[a][1] + rows[r][2] * axes[a][2];
     // Room for the letters all around, whichever way the axes point.
@@ -8072,55 +8073,55 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorModel")), UI_Flag_Clip | UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
     UI_Interaction drag = UI_InteractionFromBlock(view);
-    if (drag.pressed) state->modelDragFrom = UI->mouse;
-    if (drag.pressed && drag.pressCount == 2) state->modelYaw = 0.5235988f, state->modelPitch = 0.3490659f, state->modelZoom = 1;
+    if (drag.pressed) state->model.dragFrom = UI->mouse;
+    if (drag.pressed && drag.pressCount == 2) state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
     if (drag.active && drag.isDragging) {
         // A view's width of dragging turns it about once around.
         f32 turn = 6.2831853f / MaxF32(view->rect.x1 - view->rect.x0, 1);
-        state->modelYaw -= (UI->mouse.x - state->modelDragFrom.x) * turn;
-        state->modelPitch = MinF32(MaxF32(state->modelPitch + (UI->mouse.y - state->modelDragFrom.y) * turn, -1.5533f), 1.5533f);
-        state->modelDragFrom = UI->mouse;
+        state->model.yaw -= (UI->mouse.x - state->model.dragFrom.x) * turn;
+        state->model.pitch = MinF32(MaxF32(state->model.pitch + (UI->mouse.y - state->model.dragFrom.y) * turn, -1.5533f), 1.5533f);
+        state->model.dragFrom = UI->mouse;
     }
     i32 notches = Prog__WheelNotches(view);
-    if (notches) state->modelZoom = MinF32(MaxF32(state->modelZoom * powf(1.15f, (f32)notches), 0.2f), 20.0f);
+    if (notches) state->model.zoom = MinF32(MaxF32(state->model.zoom * powf(1.15f, (f32)notches), 0.2f), 20.0f);
     i32 width = (i32)(view->rect.x1 - view->rect.x0), tall = (i32)(view->rect.y1 - view->rect.y0);
     // A view new this frame has no size yet.
     if (width <= 0 || tall <= 0) {
         UI_KeepAnimating();
         return;
     }
-    if (width != state->modelTextureWidth || tall != state->modelTextureHeight) {
-        R_TextureRelease(state->modelTexture);
-        state->modelTexture = R_TextureCreateRGBA(width, tall, NULL);
-        state->modelTextureWidth = width, state->modelTextureHeight = tall;
-        state->modelStale = true;
+    if (width != state->model.textureWidth || tall != state->model.textureHeight) {
+        R_TextureRelease(state->model.texture);
+        state->model.texture = R_TextureCreateRGBA(width, tall, NULL);
+        state->model.textureWidth = width, state->model.textureHeight = tall;
+        state->model.stale = true;
     }
-    f32 now[3] = { state->modelYaw, state->modelPitch, state->modelZoom };
-    if (state->modelStale || MemCompare(now, state->modelDrawn, sizeof(now))) {
+    f32 now[3] = { state->model.yaw, state->model.pitch, state->model.zoom };
+    if (state->model.stale || MemCompare(now, state->model.drawn, sizeof(now))) {
         // Centered, turned about Y, tipped about X, and scaled so that its bounds fill 88% of the shorter side; depth is not zoomed, so that
         // it stays within the view space's -1 to 1.
-        f32 cy = cosf(state->modelYaw), sy = sinf(state->modelYaw), cp = cosf(state->modelPitch), sp = sinf(state->modelPitch);
-        f32 fit = 0.88f / state->modelRadius, s = fit * state->modelZoom;
+        f32 cy = cosf(state->model.yaw), sy = sinf(state->model.yaw), cp = cosf(state->model.pitch), sp = sinf(state->model.pitch);
+        f32 fit = 0.88f / state->model.radius, s = fit * state->model.zoom;
         f32 r[3][3] = { { cy, 0, -sy }, { -sp * sy, cp, -sp * cy }, { cp * sy, sp, cp * cy } };
         f32 rows[3][4];
         for (u32 i = 0; i < 3; ++i) {
             f32 scale = i == 2 ? fit : s;
             for (u32 k = 0; k < 3; ++k) rows[i][k] = r[i][k] * scale;
-            rows[i][3] = -(rows[i][0] * state->modelCenter[0] + rows[i][1] * state->modelCenter[1] + rows[i][2] * state->modelCenter[2]);
+            rows[i][3] = -(rows[i][0] * state->model.center[0] + rows[i][1] * state->model.center[1] + rows[i][2] * state->model.center[2]);
         }
         f32 matrix[16] = { rows[0][0], rows[1][0], rows[2][0], 0, rows[0][1], rows[1][1], rows[2][1], 0, rows[0][2], rows[1][2], rows[2][2], 0, rows[0][3], rows[1][3], rows[2][3], 1 };
-        MemCopy(state->modelTurn, r, sizeof(r));
-        R_MeshDraw(state->previewMesh, state->modelTexture, width, tall, matrix, (R_Color){ 200.0f / 255.0f, 204.0f / 255.0f, 212.0f / 255.0f, 1 });
-        MemCopy(state->modelDrawn, now, sizeof(now));
-        state->modelStale = false;
+        MemCopy(state->model.turn, r, sizeof(r));
+        R_MeshDraw(state->model.mesh, state->model.texture, width, tall, matrix, (R_Color){ 200.0f / 255.0f, 204.0f / 255.0f, 212.0f / 255.0f, 1 });
+        MemCopy(state->model.drawn, now, sizeof(now));
+        state->model.stale = false;
     }
     UI_Parent(view) {
         UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
         UI_SetNextPrefWidth(UI_Pixels((f32)width));
         UI_SetNextPrefHeight(UI_Pixels((f32)tall));
-        UI_SetNextImage(state->modelTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ (f32)width, (f32)tall }, (R_Color){ 1, 1, 1, 1 });
+        UI_SetNextImage(state->model.texture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ (f32)width, (f32)tall }, (R_Color){ 1, 1, 1, 1 });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
-        Prog__ModelAxes(state, (f32)width, (f32)tall, state->modelTurn, m);
+        Prog__ModelAxes(state, (f32)width, (f32)tall, state->model.turn, m);
     }
     (void)m;
 }
@@ -8148,8 +8149,8 @@ function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
     u32 wanted = UINT32_MAX;
     f32 at = 0, skipped = 0;
     UI_Parent(view) {
-        for (u32 i = 0; i < state->pdfPageCount; ++i) {
-            f32 height = floorf(width * state->pdfSizes[2 * i + 1] / MaxF32(1, state->pdfSizes[2 * i]) + 0.5f);
+        for (u32 i = 0; i < state->pdf.pageCount; ++i) {
+            f32 height = floorf(width * state->pdf.sizes[2 * i + 1] / MaxF32(1, state->pdf.sizes[2 * i]) + 0.5f);
             if (at + height < from || at > to) {
                 skipped += height + gap;
                 at += height + gap;
@@ -8158,7 +8159,7 @@ function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
             if (skipped > 0) Prog__Spacer(UI_Pixels(width), UI_Pixels(skipped));
             skipped = 0;
             Prog_PdfPage *drawn = NULL;
-            for (u32 d = 0; d < Prog_PdfDrawn && !drawn; ++d) if (state->pdfDrawn[d].texture.u64[0] && state->pdfDrawn[d].page == i) drawn = &state->pdfDrawn[d];
+            for (u32 d = 0; d < Prog_PdfDrawn && !drawn; ++d) if (state->pdf.drawn[d].texture.u64[0] && state->pdf.drawn[d].page == i) drawn = &state->pdf.drawn[d];
             if (drawn) drawn->used = UI->frameIndex;
             // Drawn again once the view is a tenth wider or narrower than the page was drawn for.
             if ((!drawn || fabsf((f32)drawn->width - width) > width * 0.1f) && wanted == UINT32_MAX) wanted = i;
@@ -8177,15 +8178,16 @@ function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
         }
         if (skipped > 0) Prog__Spacer(UI_Pixels(width), UI_Pixels(skipped));
     }
-    if (wanted != UINT32_MAX && !state->pdfJob && view->rect.y1 > view->rect.y0) {
+    if (wanted != UINT32_MAX && !state->pdf.job && view->rect.y1 > view->rect.y0) {
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->kind = Prog_JobKind_PdfPage;
+        input->panel = Prog__PanelId(state);
         input->path = StrCopy(&job->arena, state->previewPath);
         input->offset = wanted;
         input->size = (u64)width;
         job->input = input;
-        state->pdfJob = job;
+        state->pdf.job = job;
         P_JobSubmit(job);
     }
     (void)theme;
@@ -8298,8 +8300,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     f32 inner = size - m->separator;
     const Prog_Entry *entry = !state->loading && state->hasFocus && state->focusedRow < state->directory.count ? &state->directory.entries[state->focusedRow] : NULL;
     b32 text = entry && !state->previewPicture && ((state->previewText.length && state->previewLines) || state->previewHex);
-    b32 pdf = entry && state->pdfPageCount && state->previewImage;
-    b32 model = entry && state->previewMesh.u64[0];
+    b32 pdf = entry && state->pdf.pageCount && state->previewImage;
+    b32 model = entry && state->model.mesh.u64[0];
     b32 image = entry && state->previewImage && !pdf;
     b32 archive = entry && Prog_PreviewsArchive(state, entry);
     b32 folder = entry && (entry->file.kind == P_FileKind_Directory || archive);
@@ -8464,7 +8466,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
             if (pdf) {
-                String pages = state->pdfPageCount == 1 ? S("1 page") : StrFormat(&state->frameArena, "%u pages", state->pdfPageCount);
+                String pages = state->pdf.pageCount == 1 ? S("1 page") : StrFormat(&state->frameArena, "%u pages", state->pdf.pageCount);
                 Prog__LabelPadded(pages, UI_TextContent(), m->pill, 0, radius, theme->textDim, 0);
             }
             if (image) {
@@ -8629,9 +8631,9 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 width = rect.x1 - rect.x0, height = rect.y1 - rect.y0;
     // A panel whose inspector's list has the keyboard counts as active.
     b32 top = rect.y0 <= area.y0, active = index == state->activePanel || state->panels[state->activePanel].inspectorOf == state->panels[index].id;
-    // The inspector's panel gives half of itself under the tab strip to it, whichever panel is active:
+    // A panel whose shown tab has its inspector open gives half of itself under the tab strip to it:
     // the right half, or the lower half when the panel is taller than wide or when asked.
-    b32 inspecting = state->previewShown && state->panels[index].id == state->previewOwner;
+    b32 inspecting = state->previewShown;
     f32 mainHeight = height - (top ? m->separator : 0) - (top ? Prog__TitleStripHeight(m) : Prog__StripHeight(m));
     b32 below = state->inspectorLayout == Prog_InspectorLayout_Below || (state->inspectorLayout == Prog_InspectorLayout_Auto && mainHeight > width);
     if (inspecting) state->inspectorBelow = below;
