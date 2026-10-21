@@ -5117,6 +5117,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 } else {
                     b32 samePath = StrIsEqual(state->directory.path, result->path);
                     String focus = state->hasFocus ? state->directory.entries[state->focusedRow].file.name : (String){0};
+                    u64 oldFocusedRow = state->focusedRow;
                     String anchor = state->hasAnchor ? state->directory.entries[state->anchorRow].file.name : (String){0};
                     struct { MapHeader header; struct { String key; b32 value; } *v; } selected = {0};
                     if (samePath) {
@@ -5173,6 +5174,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                                 entry->bytes = known->bytes;
                             }
                         }
+                    }
+                    // The focused item gone, deleted or moved away, the one that took its place has the focus, so that the view stays where it is
+                    // rather than going back to the top for the first row.
+                    if (samePath && focus.length && !state->hasFocus && result->count) {
+                        state->hasFocus = true;
+                        state->focusedRow = Min(oldFocusedRow, result->count - 1);
+                        if (!state->hasAnchor) state->hasAnchor = true, state->anchorRow = state->focusedRow;
                     }
                     if (renameCreated && created != 1 && !pick.length) pickRow = UINT64_MAX;
                     // The filter resets in another folder unless pinned, though not on a tab's first listing, and gives way to an item that was just created or renamed.

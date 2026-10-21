@@ -760,6 +760,18 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
         Check(TestWaitDirectory(&state) && !state.error.length && StrIsEqual(state.directory.path, fixture->path));
         Check(StrIsEqual(state.history.v[state.historyAt], fixture->path));
+        // The focused item deleted, the next one takes the focus where it was, rather than the first row.
+        Check(P__TestWriteFile(fixture, S("zz1.txt"), 1, false) && P__TestWriteFile(fixture, S("zz2.txt"), 1, false));
+        TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+        Check(TestWaitDirectory(&state));
+        u64 doomedRow = TestEntryIndex(&state, S("zz1.txt"));
+        Prog_SelectRow(&state, doomedRow, 0);
+        Check(P__TestRemovePath(fixture, S("zz1.txt"), false));
+        TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+        Check(TestWaitDirectory(&state) && state.hasFocus && state.focusedRow == doomedRow && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("zz2.txt")));
+        Check(P__TestRemovePath(fixture, S("zz2.txt"), false));
+        TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+        Check(TestWaitDirectory(&state));
     }
     TestStaleCompletion(&state, fixture);
 finish:
