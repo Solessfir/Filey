@@ -48,7 +48,7 @@ Planned there, worth doing here first:
 - Virtual folders (Recycle Bin, Control Panel and other shell namespaces) listed like real ones, and MTP devices (phones, cameras) on both platforms.
 - Custom Quick Access groups: created, renamed and ordered by the user.
 - Rebindable mouse buttons and actions, with the hotkeys.
-- Names in any script, the rest of it: glyphs are drawn on demand with the system's font fallback, so every script shows its letters, but text is not shaped. Arabic and Hebrew run left to right with their letters unjoined, Indic vowel signs and other combining marks stand apart, and the caret steps over code points rather than graphemes; shape runs through DirectWrite's text analyzer and HarfBuzz on Linux, with right-to-left runs. Emoji draw in one color, without their color layers.
+- Names in any script, the rest of it: glyphs are drawn on demand with the system's font fallback, so every script shows its letters, but text is not shaped. Arabic and Hebrew run left to right with their letters unjoined, Indic vowel signs and other combining marks stand apart, and the caret steps over code points rather than graphemes; shape runs through DirectWrite's text analyzer and HarfBuzz on Linux, with right-to-left runs. Linux color emoji from fonts of fixed-size pictures, as Noto Color Emoji is, are drawn and scaled but untested here, as the WSL fontconfig left that font out.
 - Indexing the drives from the NTFS file table (Windows) for a faster Go To walk.
 
 ## Filey's own

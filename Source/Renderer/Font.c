@@ -12,20 +12,26 @@
 
 typedef struct R_FontGlyphMap { MapHeader header; struct { u32 key; u32 value; } *v; } R_FontGlyphMap;
 
+// Pages of one kind, coverage or color, and where the last is filled to.
+typedef struct R_FontPages {
+    R_TextureHandle pages[R_FontMaxPages];
+    u32 pageCount;
+    i32 penX, penY, rowHeight;
+    b32 full;  // every page is full, so new glyphs draw as missing
+    b32 color;
+} R_FontPages;
+
 struct R_FontCache {
     Arena arena;  // the glyphs, which grow as text needs them
     PlatformFontFace *face;
     struct { ArrayHeader header; R_Glyph *v; } glyphs;  // [0] is the missing glyph, '?' once drawn
     u32 *direct;              // each of the first codepoints' glyph plus one, 0 for not asked for yet
     R_FontGlyphMap others;
-    R_TextureHandle pages[R_FontMaxPages];
-    u32 pageCount;
-    i32 penX, penY, rowHeight;  // where the last page is filled to
-    b32 full;                   // every page is full, so new glyphs draw as missing
+    R_FontPages coverage, color;  // the text's glyphs, tinted as drawn, and color glyphs such as emoji, in theirs
 };
 
 // A place for a `width` by `height` glyph in the last page, or a new one, from shelves left to right and top to bottom.
-function b32 R__FontPlace(R_FontCache *cache, i32 width, i32 height, i32 *x, i32 *y)
+function b32 R__FontPlace(R_FontPages *cache, i32 width, i32 height, i32 *x, i32 *y)
 {
     if (cache->full || width + 2 * R_FontGlyphPadding > R_FontPageSize || height + 2 * R_FontGlyphPadding > R_FontPageSize) return false;
     if (cache->pageCount && cache->penX + width + R_FontGlyphPadding > R_FontPageSize) {
@@ -39,8 +45,9 @@ function b32 R__FontPlace(R_FontCache *cache, i32 width, i32 height, i32 *x, i32
             return false;
         }
         Scratch scratch = GetScratch();
-        u8 *clear = ArenaPushArray(scratch.arena, (u64)R_FontPageSize * R_FontPageSize, u8);
-        cache->pages[cache->pageCount++] = R_TextureCreateAlpha(R_FontPageSize, R_FontPageSize, clear);
+        u8 *clear = ArenaPushArray(scratch.arena, (u64)R_FontPageSize * R_FontPageSize * (cache->color ? 4 : 1), u8);
+        cache->pages[cache->pageCount++] = cache->color ? R_TextureCreateRGBA(R_FontPageSize, R_FontPageSize, (const u32 *)clear)
+                                                        : R_TextureCreateAlpha(R_FontPageSize, R_FontPageSize, clear);
         ReleaseScratch(scratch);
         cache->penX = cache->penY = R_FontGlyphPadding;
         cache->rowHeight = 0;
@@ -63,12 +70,15 @@ function const R_Glyph *R__FontGlyph(R_FontCache *cache, rune codepoint)
     PlatformGlyph drawn = {0};
     u32 index = 0;
     if (c >= 0x20 && PlatformFontGlyph(cache->face, scratch.arena, c, &drawn)) {
-        R_Glyph glyph = { .box = { drawn.offsetX, drawn.offsetY, drawn.offsetX + (f32)drawn.width, drawn.offsetY + (f32)drawn.height }, .advance = drawn.advance };
+        R_Glyph glyph = { .box = { drawn.offsetX, drawn.offsetY, drawn.offsetX + (f32)drawn.width, drawn.offsetY + (f32)drawn.height }, .advance = drawn.advance,
+                          .color = drawn.color != 0 };
+        R_FontPages *pages = drawn.color ? &cache->color : &cache->coverage;
         i32 x = 0, y = 0;
         b32 placed = drawn.width <= 0 || drawn.height <= 0;
-        if (!placed && R__FontPlace(cache, drawn.width, drawn.height, &x, &y)) {
-            R_TextureHandle page = cache->pages[cache->pageCount - 1];
-            R_TextureUpdateAlpha(page, x, y, drawn.width, drawn.height, drawn.pixels);
+        if (!placed && R__FontPlace(pages, drawn.width, drawn.height, &x, &y)) {
+            R_TextureHandle page = pages->pages[pages->pageCount - 1];
+            if (drawn.color) R_TextureUpdateRGBA(page, x, y, drawn.width, drawn.height, (const u32 *)drawn.pixels);
+            else R_TextureUpdateAlpha(page, x, y, drawn.width, drawn.height, drawn.pixels);
             f32 unit = 1.0f / (f32)R_FontPageSize;
             glyph.page = page;
             glyph.uv = (R_Rect){ (f32)x * unit, (f32)y * unit, (f32)(x + drawn.width) * unit, (f32)(y + drawn.height) * unit };
@@ -93,6 +103,7 @@ function b32 R__FontCreate(Arena *arena, PlatformFontSource source, f32 pixelSiz
     if (!face) return false;
     R_FontCache *cache = ArenaPushStruct(arena, R_FontCache);
     cache->face = face;
+    cache->color.color = true;
     cache->direct = ArenaPushArray(&cache->arena, R_FontDirectCodepoints, u32);
     // The missing glyph's slot, which '?' fills once drawn.
     ArrayPush(&cache->arena, cache->glyphs, ((R_Glyph){0}));
@@ -123,7 +134,8 @@ function void R_FontRelease(R_Font *font)
 {
     R_FontCache *cache = font->cache;
     if (!cache) return;
-    for (u32 i = 0; i < cache->pageCount; ++i) R_TextureRelease(cache->pages[i]);
+    for (u32 i = 0; i < cache->coverage.pageCount; ++i) R_TextureRelease(cache->coverage.pages[i]);
+    for (u32 i = 0; i < cache->color.pageCount; ++i) R_TextureRelease(cache->color.pages[i]);
     PlatformFontClose(cache->face);
     ArenaRelease(&cache->arena);
     *font = (R_Font){0};
@@ -156,7 +168,9 @@ function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String
         }
         if (glyph->box.x1 > glyph->box.x0) {
             R_Rect rect = { penX + glyph->box.x0, baseline + glyph->box.y0, penX + glyph->box.x1, baseline + glyph->box.y1 };
-            R_DrawTexturedRect(rect, glyph->uv, glyph->page, color);
+            // A color glyph keeps its own colors, and only the text's opacity.
+            if (glyph->color) R_DrawImage(rect, glyph->uv, glyph->page, (R_Color){ 1, 1, 1, color.a });
+            else R_DrawTexturedRect(rect, glyph->uv, glyph->page, color);
         }
         penX += glyph->advance;
     }

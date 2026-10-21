@@ -22,6 +22,7 @@ typedef struct WinRasterGlyph {
     f32 offsetX;
     f32 offsetY;
     f32 advance;
+    b32 color;
 } WinRasterGlyph;
 
 typedef struct WinRasterMetrics {

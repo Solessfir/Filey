@@ -16,6 +16,13 @@ struct PlatformFontFace {
     u32 fallbackCount;
 };
 
+// How much a face's glyphs are scaled to the font's size: 1 for an outline font, less for a font of pictures at fixed sizes, as most color
+// emoji fonts are.
+function f32 LinuxFaceScale(const PlatformFontFace *font, FT_Face face)
+{
+    return FT_IS_SCALABLE(face) || !face->size ? 1.0f : font->pixelSize / MaxF32((f32)face->size->metrics.y_ppem, 1.0f);
+}
+
 function void PlatformFontClose(PlatformFontFace *font)
 {
     if (!font) return;
@@ -40,7 +47,19 @@ function FT_Face LinuxOpenMatch(PlatformFontFace *font, FcPattern *pattern)
         if (FT_New_Face(font->library, (const char *)file, index, &face) != 0) face = NULL;
     }
     if (match) FcPatternDestroy(match);
-    if (face && FT_Set_Char_Size(face, 0, (FT_F26Dot6)(font->pixelSize * 64.0f), 72, 72) != 0) {
+    // A font of pictures takes the smallest of its sizes that is not smaller than the font's, or its largest, which are scaled to it.
+    b32 sized = false;
+    if (face && FT_IS_SCALABLE(face)) {
+        sized = FT_Set_Char_Size(face, 0, (FT_F26Dot6)(font->pixelSize * 64.0f), 72, 72) == 0;
+    } else if (face && FT_HAS_FIXED_SIZES(face) && face->num_fixed_sizes > 0) {
+        i32 best = 0;
+        for (i32 i = 1; i < face->num_fixed_sizes; ++i) {
+            f32 have = (f32)face->available_sizes[i].y_ppem / 64.0f, chosen = (f32)face->available_sizes[best].y_ppem / 64.0f;
+            if ((chosen < font->pixelSize && have > chosen) || (have >= font->pixelSize && have < chosen)) best = i;
+        }
+        sized = FT_Select_Size(face, best) == 0;
+    }
+    if (face && !sized) {
         FT_Done_Face(face);
         face = NULL;
     }
@@ -77,15 +96,50 @@ function PlatformFontFace *PlatformFontOpen(PlatformFontSource source, f32 pixel
     return font;
 }
 
-// The glyph of `codepoint` in `face` into `glyph`; false when it has none or it cannot be drawn.
-function b32 LinuxDrawGlyph(FT_Face face, Arena *arena, u32 codepoint, PlatformGlyph *glyph)
+// A color glyph's premultiplied BGRA `bitmap`, shrunk by `scale` with each pixel the average of those it covers, into `glyph` as straight RGBA.
+function void LinuxColorGlyph(Arena *arena, const FT_Bitmap *bitmap, f32 scale, PlatformGlyph *glyph)
+{
+    i32 sourceWidth = (i32)bitmap->width, sourceHeight = (i32)bitmap->rows;
+    glyph->width = Max(1, (i32)((f32)sourceWidth * scale + 0.5f));
+    glyph->height = Max(1, (i32)((f32)sourceHeight * scale + 0.5f));
+    glyph->color = true;
+    glyph->pixels = ArenaPushArrayNoZero(arena, (u64)glyph->width * (u64)glyph->height * 4, u8);
+    for (i32 y = 0; y < glyph->height; ++y) {
+        i32 sy0 = y * sourceHeight / glyph->height, sy1 = Max(sy0 + 1, (y + 1) * sourceHeight / glyph->height);
+        for (i32 x = 0; x < glyph->width; ++x) {
+            i32 sx0 = x * sourceWidth / glyph->width, sx1 = Max(sx0 + 1, (x + 1) * sourceWidth / glyph->width);
+            u32 sum[4] = {0}, count = 0;
+            for (i32 sy = sy0; sy < sy1; ++sy) {
+                const u8 *row = bitmap->buffer + (i64)sy * bitmap->pitch;
+                for (i32 sx = sx0; sx < sx1; ++sx, ++count) for (u32 k = 0; k < 4; ++k) sum[k] += row[(u32)sx * 4 + k];
+            }
+            u8 *out = glyph->pixels + ((u64)y * (u64)glyph->width + (u64)x) * 4;
+            u32 alpha = sum[3];
+            // BGRA, premultiplied, to RGBA, straight.
+            out[0] = alpha ? (u8)Min(sum[2] * 255 / alpha, 255u) : 0;
+            out[1] = alpha ? (u8)Min(sum[1] * 255 / alpha, 255u) : 0;
+            out[2] = alpha ? (u8)Min(sum[0] * 255 / alpha, 255u) : 0;
+            out[3] = (u8)(alpha / count);
+        }
+    }
+}
+
+// The glyph of `codepoint` in `face` into `glyph`, in its own colors when the face has them; false when it has none or it cannot be drawn.
+function b32 LinuxDrawGlyph(const PlatformFontFace *font, FT_Face face, Arena *arena, u32 codepoint, PlatformGlyph *glyph)
 {
     *glyph = (PlatformGlyph){0};
     // Light hinting snaps only vertically, the closest match to DirectWrite's natural symmetric rendering.
-    if (FT_Load_Char(face, codepoint, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT) != 0) return false;
+    if (FT_Load_Char(face, codepoint, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT | FT_LOAD_COLOR) != 0) return false;
     FT_GlyphSlot slot = face->glyph;
-    glyph->advance = (f32)((slot->advance.x + 32) >> 6);
+    f32 scale = LinuxFaceScale(font, face);
+    glyph->advance = floorf((f32)slot->advance.x / 64.0f * scale + 0.5f);
     FT_Bitmap *bitmap = &slot->bitmap;
+    if (bitmap->width && bitmap->rows && bitmap->pixel_mode == FT_PIXEL_MODE_BGRA) {
+        LinuxColorGlyph(arena, bitmap, scale, glyph);
+        glyph->offsetX = floorf((f32)slot->bitmap_left * scale + 0.5f);
+        glyph->offsetY = floorf((f32)-slot->bitmap_top * scale + 0.5f);
+        return true;
+    }
     if (bitmap->width == 0 || bitmap->rows == 0 || bitmap->pixel_mode != FT_PIXEL_MODE_GRAY) return true;
     glyph->width = (i32)bitmap->width;
     glyph->height = (i32)bitmap->rows;
@@ -100,11 +154,11 @@ function b32 LinuxDrawGlyph(FT_Face face, Arena *arena, u32 codepoint, PlatformG
 
 function b32 PlatformFontGlyph(PlatformFontFace *font, Arena *arena, u32 codepoint, PlatformGlyph *glyph)
 {
-    if (FT_Get_Char_Index(font->face, codepoint)) return LinuxDrawGlyph(font->face, arena, codepoint, glyph);
+    if (FT_Get_Char_Index(font->face, codepoint)) return LinuxDrawGlyph(font, font->face, arena, codepoint, glyph);
     if (!font->pattern) return false;
     // The fonts already lent from first, then the one fontconfig matches to the family with the character in it.
     for (u32 i = 0; i < font->fallbackCount; ++i) {
-        if (FT_Get_Char_Index(font->fallbacks[i], codepoint)) return LinuxDrawGlyph(font->fallbacks[i], arena, codepoint, glyph);
+        if (FT_Get_Char_Index(font->fallbacks[i], codepoint)) return LinuxDrawGlyph(font, font->fallbacks[i], arena, codepoint, glyph);
     }
     if (font->fallbackCount == LinuxMaxFallbacks) return false;
     FcPattern *pattern = FcPatternDuplicate(font->pattern);
@@ -119,7 +173,7 @@ function b32 PlatformFontGlyph(PlatformFontFace *font, Arena *arena, u32 codepoi
         return false;
     }
     font->fallbacks[font->fallbackCount++] = face;
-    return LinuxDrawGlyph(face, arena, codepoint, glyph);
+    return LinuxDrawGlyph(font, face, arena, codepoint, glyph);
 }
 
 function ArrayStr PlatformFontFamilies(Arena *arena)

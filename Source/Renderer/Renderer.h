@@ -27,6 +27,7 @@ typedef struct R_Glyph {
     R_Rect uv;
     R_TextureHandle page;  // the atlas page it is in
     f32 advance;
+    b8 color;              // drawn in its own colors, from a page of RGBA, such as an emoji
 } R_Glyph;
 
 // The glyphs drawn so far and the face that draws the rest, in Renderer/Font.c.

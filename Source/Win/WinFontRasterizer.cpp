@@ -177,7 +177,63 @@ extern "C" WinFontFace *WinFontOpen(const wchar *family, const u8 *data, u64 dat
     return font;
 }
 
-// The glyph `index` of `face` at `emSize`, drawn and cropped into `glyph`.
+// A color glyph's layers, each drawn as coverage and laid over the ones before in its color, cropped into `glyph` as straight RGBA.
+static b32 WinDrawColorGlyph(WinFontFace *font, IDWriteColorGlyphRunEnumerator1 *layers, WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyph)
+{
+    i32 size = font->size;
+    // Premultiplied red, green, blue and alpha of every pixel of the target.
+    f32 *sum = static_cast<f32 *>(alloc(allocUser, (u64)size * (u64)size * 4 * sizeof(f32)));
+    if (sum == nullptr) return 0;
+    memset(sum, 0, (u64)size * (u64)size * 4 * sizeof(f32));
+    i32 left = size, top = size, right = 0, bottom = 0;
+    BOOL more = FALSE;
+    while (SUCCEEDED(layers->MoveNext(&more)) && more) {
+        const DWRITE_COLOR_GLYPH_RUN1 *layer = nullptr;
+        if (FAILED(layers->GetCurrentRun(&layer)) || layer == nullptr) continue;
+        RECT box = {};
+        if (FAILED(font->target->DrawGlyphRun(layer->baselineOriginX, layer->baselineOriginY, layer->measuringMode, &layer->glyphRun, font->params,
+                                              RGB(255, 255, 255), &box))) continue;
+        i32 x0 = MaxI32((i32)box.left, 0), y0 = MaxI32((i32)box.top, 0), x1 = MinI32((i32)box.right, size), y1 = MinI32((i32)box.bottom, size);
+        if (x1 <= x0 || y1 <= y0) continue;
+        left = MinI32(left, x0), top = MinI32(top, y0), right = MaxI32(right, x1), bottom = MaxI32(bottom, y1);
+        // A layer without a color of its own takes the text's, which for an emoji is white.
+        DWRITE_COLOR_F color = layer->runColor;
+        if (layer->paletteIndex == 0xFFFF) color.r = color.g = color.b = color.a = 1;
+        GdiFlush();
+        for (i32 y = y0; y < y1; ++y) {
+            u8 *row = font->bits + (u64)y * (u64)font->stride;
+            for (i32 x = x0; x < x1; ++x) {
+                f32 a = color.a * (f32)row[x * 4] / 255.0f, *at = sum + ((u64)y * (u64)size + (u64)x) * 4;
+                at[0] = color.r * a + at[0] * (1 - a);
+                at[1] = color.g * a + at[1] * (1 - a);
+                at[2] = color.b * a + at[2] * (1 - a);
+                at[3] = a + at[3] * (1 - a);
+            }
+            memset(row + (u64)x0 * 4, 0, (u64)(x1 - x0) * 4);
+        }
+    }
+    if (right <= left || bottom <= top) return 1;
+    f32 origin = (f32)(size / 2);
+    glyph->width = right - left;
+    glyph->height = bottom - top;
+    glyph->offsetX = (f32)left - origin;
+    glyph->offsetY = (f32)top - origin;
+    glyph->color = 1;
+    glyph->pixels = static_cast<u8 *>(alloc(allocUser, (u64)glyph->width * (u64)glyph->height * 4));
+    if (glyph->pixels == nullptr) return 0;
+    for (i32 y = 0; y < glyph->height; ++y) {
+        for (i32 x = 0; x < glyph->width; ++x) {
+            const f32 *at = sum + ((u64)(top + y) * (u64)size + (u64)(left + x)) * 4;
+            u8 *out = glyph->pixels + ((u64)y * (u64)glyph->width + (u64)x) * 4;
+            f32 a = at[3];
+            for (u32 k = 0; k < 3; ++k) out[k] = a > 0 ? (u8)(MinI32((i32)(at[k] / a * 255.0f + 0.5f), 255)) : 0;
+            out[3] = (u8)(a * 255.0f + 0.5f);
+        }
+    }
+    return 1;
+}
+
+// The glyph `index` of `face` at `emSize`, drawn and cropped into `glyph`: in its own colors when the font has them for it.
 static b32 WinDrawGlyph(WinFontFace *font, IDWriteFontFace *face, f32 emSize, UINT16 index, WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyph)
 {
     DWRITE_FONT_METRICS fontMetrics = {};
@@ -198,6 +254,13 @@ static b32 WinDrawGlyph(WinFontFace *font, IDWriteFontFace *face, f32 emSize, UI
     run.glyphAdvances = &advance;
     run.glyphOffsets = &offset;
     f32 origin = (f32)(font->size / 2);
+    IDWriteColorGlyphRunEnumerator1 *layers = nullptr;
+    if (SUCCEEDED(font->factory->TranslateColorGlyphRun(D2D1_POINT_2F{ origin, origin }, &run, nullptr, DWRITE_GLYPH_IMAGE_FORMATS_COLR,
+                                                         DWRITE_MEASURING_MODE_NATURAL, nullptr, 0, &layers)) && layers != nullptr) {
+        b32 drawn = WinDrawColorGlyph(font, layers, alloc, allocUser, glyph);
+        layers->Release();
+        return drawn;
+    }
     RECT box = {};
     if (FAILED(font->target->DrawGlyphRun(origin, origin, DWRITE_MEASURING_MODE_NATURAL, &run, font->params, RGB(255, 255, 255), &box))) return 0;
     i32 left = MaxI32((i32)box.left, 0), top = MaxI32((i32)box.top, 0);

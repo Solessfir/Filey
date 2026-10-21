@@ -257,12 +257,13 @@ function PlatformProc *PlatformGLGetProc(const char *name);
 // -----------------------------------------------------------------------------
 
 typedef struct PlatformGlyph {
-    u8 *pixels;    // width * height grayscale coverage, top-down
+    u8 *pixels;    // width * height grayscale coverage, top-down; with `color`, straight RGBA, 4 bytes each, red first
     i32 width;
     i32 height;
     f32 offsetX;   // from the pen position on the baseline to the bitmap's top-left
     f32 offsetY;
     f32 advance;
+    b32 color;     // a color glyph, such as an emoji, drawn in its own colors rather than the text's
 } PlatformGlyph;
 
 typedef struct PlatformFontMetrics {

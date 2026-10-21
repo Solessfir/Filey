@@ -9,6 +9,7 @@ static_assert(offsetof(WinRasterGlyph, height) == offsetof(PlatformGlyph, height
 static_assert(offsetof(WinRasterGlyph, offsetX) == offsetof(PlatformGlyph, offsetX));
 static_assert(offsetof(WinRasterGlyph, offsetY) == offsetof(PlatformGlyph, offsetY));
 static_assert(offsetof(WinRasterGlyph, advance) == offsetof(PlatformGlyph, advance));
+static_assert(offsetof(WinRasterGlyph, color) == offsetof(PlatformGlyph, color));
 
 function void *WinRasterAlloc(void *user, u64 size)
 {
