@@ -22,6 +22,23 @@
 #pragma pop_macro("function")
 #endif
 
+// Compressed .blend files are zstd frames.
+#pragma push_macro("function")
+#pragma push_macro("global")
+#undef function
+#undef global
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Weverything"
+#define ZDEC_NO_MESSAGE
+#include "Lib/zstd/zstd_decompress.c"
+#undef ERROR
+#undef MIN
+#undef MAX
+#pragma clang diagnostic pop
+#pragma pop_macro("global")
+#pragma pop_macro("function")
+#include <setjmp.h>
+
 // ponytail: a file is read whole, so larger ones get no preview; reading the formats in pieces lifts it if that ever matters.
 #define Prog_ModelMaxBytes Megabytes(256)
 
@@ -1148,6 +1165,390 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_Mesh *mesh, i32 size, const
 // -----------------------------------------------------------------------------
 // Preview
 // -----------------------------------------------------------------------------
+// Blender: the meshes of a .blend's mesh objects, placed by their location, rotation, scale and parents, without their modifiers.
+// A .blend holds its structs as Blender laid them out, and describes them in its SDNA block, so fields are found by name there rather than
+// at offsets of one version. Blender 5 keeps a mesh's positions and corners as named attributes, Blender 3.4 to 4.x as named custom data
+// layers, and older ones in vertex, face and loop structs; all three are read. Files saved compressed are zstd frames, or gzip before 3.0.
+
+typedef struct Prog__BlendBlock { u64 old; const u8 *data; u64 length; u32 sdna; u32 count; u32 code; } Prog__BlendBlock;
+typedef struct Prog__ArrayBlendBlock { ArrayHeader header; Prog__BlendBlock *v; } Prog__ArrayBlendBlock;
+typedef struct Prog__BlendIndex { MapHeader header; struct { u64 key; u32 value; } *v; } Prog__BlendIndex;
+
+typedef struct Prog__Blend {
+    u32 pointer;           // 4 or 8 bytes
+    Prog__ArrayBlendBlock blocks;  // in the file's order
+    Prog__BlendIndex byOld;        // each block's index by the address it had when it was written, which pointers in other blocks name
+    // The SDNA: field names, type names and sizes, and each struct's type and fields as (type, name) pairs.
+    String *names, *types;
+    u16 *typeSizes;
+    u16 **structs;
+    u32 nameCount, typeCount, structCount;
+} Prog__Blend;
+
+#define Prog__BlendCode(a, b, c, d) ((u32)(a) | (u32)(b) << 8 | (u32)(c) << 16 | (u32)(d) << 24)
+
+function u32 Prog__Read32(const u8 *at) { return (u32)at[0] | (u32)at[1] << 8 | (u32)at[2] << 16 | (u32)at[3] << 24; }
+function u64 Prog__Read64(const u8 *at) { return (u64)Prog__Read32(at) | (u64)Prog__Read32(at + 4) << 32; }
+
+// The decompressed file: zstd frames laid out by the seek table at their end, as Blender writes them, or one frame; gzip; or as it is.
+function String Prog__BlendInflate(Arena *arena, String data)
+{
+    const u8 *d = (const u8 *)data.value;
+    if (data.length >= 4 && Prog__Read32(d) == 0xFD2FB528) {
+        // The seek table's footer: its frame count, a descriptor whose high bit adds checksums to its entries, and its magic.
+        u64 frames = 0, entry = 8, table = 0;
+        if (data.length >= 9 && Prog__Read32(d + data.length - 4) == 0x8F92EAB1) {
+            frames = Prog__Read32(d + data.length - 9);
+            entry = (d[data.length - 5] & 0x80) ? 12 : 8;
+            if (frames * entry + 9 + 8 > data.length) frames = 0;
+            else table = data.length - 9 - frames * entry;
+        }
+        u64 total = 0;
+        for (u64 i = 0; i < frames; ++i) total += Prog__Read32(d + table + i * entry + 4);
+        if (!frames) total = ZSTD_get_decompressed_size(data.value, data.length);
+        if (!total || total == (u64)-1 || total > Prog_ModelMaxBytes * 4) return (String){0};
+        u8 *out = ArenaPushArrayNoZero(arena, total, u8);
+        jmp_buf failed;
+        zstd_error_jump = &failed;
+        if (setjmp(failed)) return (String){0};
+        if (!frames) return StrMake((const char *)out, ZSTD_decompress(out, total, data.value, data.length));
+        u64 from = 0, to = 0;
+        for (u64 i = 0; i < frames; ++i) {
+            u64 packed = Prog__Read32(d + table + i * entry), unpacked = Prog__Read32(d + table + i * entry + 4);
+            if (from + packed > table || to + unpacked > total) return (String){0};
+            to += ZSTD_decompress(out + to, unpacked, d + from, packed);
+            from += packed;
+        }
+        return StrMake((const char *)out, to);
+    }
+    if (data.length >= 18 && d[0] == 0x1F && d[1] == 0x8B && d[2] == 8) {
+        // gzip: its header, with the optional parts its flags name, then deflate; the last 4 bytes hold the size modulo 4 GB.
+        u8 flags = d[3];
+        u64 at = 10;
+        if (flags & 4) at += 2 + (u64)(d[at] | d[at + 1] << 8);
+        if (flags & 8) while (at < data.length && d[at++]) {}
+        if (flags & 16) while (at < data.length && d[at++]) {}
+        if (flags & 2) at += 2;
+        u64 size = Prog__Read32(d + data.length - 4);
+        if (at >= data.length || !size || size > Prog_ModelMaxBytes * 4) return (String){0};
+        char *out = ArenaPushArrayNoZero(arena, size, char);
+        i32 made = stbi_zlib_decode_noheader_buffer(out, (i32)size, (const char *)d + at, (i32)(data.length - at));
+        return made > 0 ? StrMake(out, (u64)made) : (String){0};
+    }
+    return data;
+}
+
+// The block an old pointer was written for; NULL for a null pointer or one into no block.
+function const Prog__BlendBlock *Prog__BlendAt(const Prog__Blend *blend, u64 old)
+{
+    const u32 *index = old ? MapGetPtrNull(blend->byOld, old) : NULL;
+    return index ? &blend->blocks.v[*index] : NULL;
+}
+
+// The struct type `name`'s index among the SDNA's structs, or UINT32_MAX.
+function u32 Prog__BlendStruct(const Prog__Blend *blend, String name)
+{
+    for (u32 i = 0; i < blend->structCount; ++i) if (StrIsEqual(blend->types[blend->structs[i][0]], name)) return i;
+    return UINT32_MAX;
+}
+
+// The offset and size in struct `index` of the field named `name`, without its pointer stars or array sizes; false when it has none.
+function b32 Prog__BlendField(const Prog__Blend *blend, u32 index, String name, u64 *offset, u64 *size)
+{
+    if (index >= blend->structCount) return false;
+    const u16 *s = blend->structs[index];
+    u64 at = 0;
+    for (u32 f = 0; f < s[1]; ++f) {
+        String full = blend->names[s[3 + 2 * f]];
+        u64 from = 0;
+        while (from < full.length && (full.value[from] == '*' || full.value[from] == '(')) ++from;
+        u64 to = from;
+        while (to < full.length && full.value[to] != '[' && full.value[to] != ')') ++to;
+        u64 count = 1;
+        for (u64 k = to; k < full.length; ++k) {
+            if (full.value[k] != '[') continue;
+            u64 n = 0;
+            while (++k < full.length && full.value[k] >= '0' && full.value[k] <= '9') n = n * 10 + (u64)(full.value[k] - '0');
+            count *= Max(n, (u64)1);
+        }
+        b32 pointer = full.length && (full.value[0] == '*' || full.value[0] == '(');
+        u64 bytes = (pointer ? blend->pointer : blend->typeSizes[s[2 + 2 * f]]) * count;
+        if (StrIsEqual(StrFromTo(full, from, (i64)to), name)) {
+            *offset = at, *size = bytes;
+            return true;
+        }
+        at += bytes;
+    }
+    return false;
+}
+
+// A field of the struct at `base`, `limit` bytes long, read as a number, a pointer or floats; 0 when it is missing or past the end.
+function u64 Prog__BlendPointer(const Prog__Blend *blend, u32 type, const u8 *base, u64 limit, String name)
+{
+    u64 offset, size;
+    if (!Prog__BlendField(blend, type, name, &offset, &size) || offset + blend->pointer > limit) return 0;
+    return blend->pointer == 8 ? Prog__Read64(base + offset) : Prog__Read32(base + offset);
+}
+
+function i64 Prog__BlendInt(const Prog__Blend *blend, u32 type, const u8 *base, u64 limit, String name)
+{
+    u64 offset, size;
+    if (!Prog__BlendField(blend, type, name, &offset, &size) || offset + size > limit) return 0;
+    if (size == 1) return (i8)base[offset];
+    if (size == 2) return (i16)(base[offset] | base[offset + 1] << 8);
+    if (size == 4) return (i32)Prog__Read32(base + offset);
+    return (i64)Prog__Read64(base + offset);
+}
+
+function b32 Prog__BlendFloats(const Prog__Blend *blend, u32 type, const u8 *base, u64 limit, String name, f32 *out, u32 count)
+{
+    u64 offset, size;
+    if (!Prog__BlendField(blend, type, name, &offset, &size) || size < count * 4 || offset + size > limit) return false;
+    MemCopy(out, base + offset, count * 4);
+    return true;
+}
+
+function b32 Prog__BlendParse(Arena *arena, String data, Prog__Blend *blend)
+{
+    const u8 *d = (const u8 *)data.value;
+    if (data.length < 12 || !StrIsEqual(StrFromTo(data, 0, 7), S("BLENDER"))) return false;
+    // Blender 5: "BLENDER17-01v0502", the header's size, its format and the version; before it "BLENDER-v402", the pointer size and the byte order.
+    u64 at;
+    b32 large = false;
+    if (d[7] >= '0' && d[7] <= '9') {
+        at = (u64)(d[7] - '0') * 10 + (u64)(d[8] - '0');
+        large = d[10] == '0' && d[11] == '1';
+        if (d[12] != 'v' || !large) return false;
+        blend->pointer = 8;
+    } else {
+        if (d[8] != 'v') return false;
+        at = 12;
+        blend->pointer = d[7] == '-' ? 8 : 4;
+    }
+    const u8 *dna = NULL;
+    u64 dnaLength = 0;
+    u64 head = large ? 32 : blend->pointer == 8 ? 24 : 20;
+    while (at + head <= data.length) {
+        const u8 *h = d + at;
+        Prog__BlendBlock block = { .code = Prog__Read32(h) };
+        if (large) {
+            block.sdna = Prog__Read32(h + 4), block.old = Prog__Read64(h + 8), block.length = Prog__Read64(h + 16), block.count = (u32)Prog__Read64(h + 24);
+        } else {
+            block.length = Prog__Read32(h + 4);
+            block.old = blend->pointer == 8 ? Prog__Read64(h + 8) : Prog__Read32(h + 8);
+            block.sdna = Prog__Read32(h + head - 8), block.count = Prog__Read32(h + head - 4);
+        }
+        if (at + head + block.length > data.length) break;
+        block.data = d + at + head;
+        at += head + block.length;
+        if (block.code == Prog__BlendCode('E', 'N', 'D', 'B')) break;
+        if (block.code == Prog__BlendCode('D', 'N', 'A', '1')) dna = block.data, dnaLength = block.length;
+        ArrayPush(arena, blend->blocks, block);
+    }
+    if (!dna || dnaLength < 16 || Prog__Read32(dna) != Prog__BlendCode('S', 'D', 'N', 'A')) return false;
+    // NAME, TYPE, TLEN and STRC, each four-byte aligned.
+    u64 p = 4;
+    if (Prog__Read32(dna + p) != Prog__BlendCode('N', 'A', 'M', 'E')) return false;
+    blend->nameCount = Prog__Read32(dna + p + 4), p += 8;
+    blend->names = ArenaPushArray(arena, Max(blend->nameCount, 1u), String);
+    for (u32 i = 0; i < blend->nameCount && p < dnaLength; ++i) {
+        u64 end = p;
+        while (end < dnaLength && dna[end]) ++end;
+        blend->names[i] = StrMake((const char *)dna + p, end - p), p = end + 1;
+    }
+    p = (p + 3) & ~(u64)3;
+    if (p + 8 > dnaLength || Prog__Read32(dna + p) != Prog__BlendCode('T', 'Y', 'P', 'E')) return false;
+    blend->typeCount = Prog__Read32(dna + p + 4), p += 8;
+    blend->types = ArenaPushArray(arena, Max(blend->typeCount, 1u), String);
+    for (u32 i = 0; i < blend->typeCount && p < dnaLength; ++i) {
+        u64 end = p;
+        while (end < dnaLength && dna[end]) ++end;
+        blend->types[i] = StrMake((const char *)dna + p, end - p), p = end + 1;
+    }
+    p = (p + 3) & ~(u64)3;
+    if (p + 4 + 2 * (u64)blend->typeCount > dnaLength || Prog__Read32(dna + p) != Prog__BlendCode('T', 'L', 'E', 'N')) return false;
+    blend->typeSizes = ArenaPushArray(arena, Max(blend->typeCount, 1u), u16);
+    for (u32 i = 0; i < blend->typeCount; ++i) blend->typeSizes[i] = (u16)(dna[p + 4 + 2 * i] | dna[p + 5 + 2 * i] << 8);
+    p = (p + 4 + 2 * (u64)blend->typeCount + 3) & ~(u64)3;
+    if (p + 8 > dnaLength || Prog__Read32(dna + p) != Prog__BlendCode('S', 'T', 'R', 'C')) return false;
+    blend->structCount = Prog__Read32(dna + p + 4), p += 8;
+    // Each struct as its type, its field count and its fields' types and names, the indices checked against the lists.
+    blend->structs = ArenaPushArray(arena, Max(blend->structCount, 1u), u16 *);
+    for (u32 i = 0; i < blend->structCount; ++i) {
+        if (p + 4 > dnaLength) return false;
+        u32 fields = (u32)(dna[p + 2] | dna[p + 3] << 8);
+        if (p + 4 + 4 * (u64)fields > dnaLength) return false;
+        u16 *s = blend->structs[i] = ArenaPushArray(arena, 2 + 2 * (u64)fields, u16);
+        for (u32 k = 0; k < 2 + 2 * fields; ++k) s[k] = (u16)(dna[p + 2 * k] | dna[p + 2 * k + 1] << 8);
+        if (s[0] >= blend->typeCount) return false;
+        for (u32 f = 0; f < fields; ++f) if (s[2 + 2 * f] >= blend->typeCount || s[3 + 2 * f] >= blend->nameCount) return false;
+        p += 4 + 4 * (u64)fields;
+    }
+    for (u64 i = 0; i < blend->blocks.header.count; ++i) if (blend->blocks.v[i].old) MapPut(arena, blend->byOld, blend->blocks.v[i].old, (u32)i);
+    return true;
+}
+
+// The text at `at` up to its first zero byte, at most `limit` long.
+function String Prog__BlendName(const u8 *at, u64 limit)
+{
+    u64 length = 0;
+    while (length < limit && at[length]) ++length;
+    return StrMake((const char *)at, length);
+}
+
+// The data an attribute or a custom data layer named `name` points at, at least `bytes` long; Blender 5's attributes hold an array struct.
+function const u8 *Prog__BlendLayer(const Prog__Blend *blend, const u8 *mesh, u64 meshLength, u32 meshType, String store, String name, u64 bytes)
+{
+    // Blender 5: the mesh's attribute storage, an array of attributes, each with its name and an AttributeArray holding the data.
+    u32 storageType = Prog__BlendStruct(blend, S("AttributeStorage")), attributeType = Prog__BlendStruct(blend, S("Attribute"));
+    u32 arrayType = Prog__BlendStruct(blend, S("AttributeArray"));
+    u64 storageAt, storageSize;
+    if (storageType != UINT32_MAX && attributeType != UINT32_MAX && arrayType != UINT32_MAX && Prog__BlendField(blend, meshType, S("attribute_storage"), &storageAt, &storageSize) &&
+        storageAt + storageSize <= meshLength) {
+        const u8 *storage = mesh + storageAt;
+        const Prog__BlendBlock *list = Prog__BlendAt(blend, Prog__BlendPointer(blend, storageType, storage, storageSize, S("dna_attributes")));
+        i64 count = Prog__BlendInt(blend, storageType, storage, storageSize, S("dna_attributes_num"));
+        u64 stride = blend->typeSizes[blend->structs[attributeType][0]];
+        for (i64 i = 0; list && i < count && (u64)(i + 1) * stride <= list->length; ++i) {
+            const u8 *attribute = list->data + (u64)i * stride;
+            const Prog__BlendBlock *named = Prog__BlendAt(blend, Prog__BlendPointer(blend, attributeType, attribute, stride, S("name")));
+            if (!named || !StrIsEqual(Prog__BlendName(named->data, named->length), name)) continue;
+            if (Prog__BlendInt(blend, attributeType, attribute, stride, S("storage_type")) != 0) return NULL;
+            const Prog__BlendBlock *array = Prog__BlendAt(blend, Prog__BlendPointer(blend, attributeType, attribute, stride, S("data")));
+            const Prog__BlendBlock *values = array ? Prog__BlendAt(blend, Prog__BlendPointer(blend, arrayType, array->data, array->length, S("data"))) : NULL;
+            return values && values->length >= bytes ? values->data : NULL;
+        }
+    }
+    // Blender 3.4 to 4.x: the custom data `store`'s layers, each with its name and data.
+    u32 customType = Prog__BlendStruct(blend, S("CustomData")), layerType = Prog__BlendStruct(blend, S("CustomDataLayer"));
+    u64 customAt, customSize;
+    if (customType == UINT32_MAX || layerType == UINT32_MAX || !Prog__BlendField(blend, meshType, store, &customAt, &customSize) || customAt + customSize > meshLength) return NULL;
+    const u8 *custom = mesh + customAt;
+    const Prog__BlendBlock *layers = Prog__BlendAt(blend, Prog__BlendPointer(blend, customType, custom, customSize, S("layers")));
+    i64 count = Prog__BlendInt(blend, customType, custom, customSize, S("totlayer"));
+    u64 stride = blend->typeSizes[blend->structs[layerType][0]], nameAt, nameSize;
+    if (!Prog__BlendField(blend, layerType, S("name"), &nameAt, &nameSize)) return NULL;
+    for (i64 i = 0; layers && i < count && (u64)(i + 1) * stride <= layers->length; ++i) {
+        const u8 *layer = layers->data + (u64)i * stride;
+        if (!StrIsEqual(Prog__BlendName(layer + nameAt, nameSize), name)) continue;
+        const Prog__BlendBlock *values = Prog__BlendAt(blend, Prog__BlendPointer(blend, layerType, layer, stride, S("data")));
+        return values && values->length >= bytes ? values->data : NULL;
+    }
+    return NULL;
+}
+
+// Adds mesh `block`'s faces, placed by `place`, as triangles fanned from each face's first corner.
+function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *block, const Prog__Affine *place, Prog_Mesh *out)
+{
+    u32 meshType = Prog__BlendStruct(blend, S("Mesh"));
+    if (meshType == UINT32_MAX || block->sdna != meshType) return;
+    const u8 *mesh = block->data;
+    u64 length = block->length;
+    i64 vertices = Prog__BlendInt(blend, meshType, mesh, length, S("totvert")), faces = Prog__BlendInt(blend, meshType, mesh, length, S("totpoly"));
+    i64 corners = Prog__BlendInt(blend, meshType, mesh, length, S("totloop"));
+    if (vertices <= 0 || faces <= 0 || corners <= 0 || vertices > (1 << 26) || corners > (1 << 28)) return;
+    const f32 *positions = (const f32 *)Prog__BlendLayer(blend, mesh, length, meshType, S("vdata"), S("position"), (u64)vertices * 12);
+    const u8 *cornerVerts = Prog__BlendLayer(blend, mesh, length, meshType, S("ldata"), S(".corner_vert"), (u64)corners * 4);
+    const Prog__BlendBlock *offsets = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("poly_offset_indices")));
+    u64 base = out->positions.header.count / 3;
+    if (positions && cornerVerts && offsets && offsets->length >= (u64)(faces + 1) * 4) {
+        f32 *points = ArrayAdd(arena, out->positions, (u64)vertices * 3);
+        for (i64 v = 0; v < vertices; ++v) {
+            f32 p[3];
+            MemCopy(p, (const u8 *)positions + v * 12, 12);
+            Prog__MeshPoint(points + v * 3, place, p[0], p[1], p[2]);
+        }
+        for (i64 f = 0; f < faces; ++f) {
+            u32 from = Prog__Read32(offsets->data + f * 4), to = Prog__Read32(offsets->data + (f + 1) * 4);
+            if (to > (u64)corners || from >= to) continue;
+            for (u32 c = from + 2; c < to; ++c) {
+                Prog__MeshTriangle(arena, out, (u32)base + Prog__Read32(cornerVerts + from * 4), (u32)base + Prog__Read32(cornerVerts + (c - 1) * 4),
+                                   (u32)base + Prog__Read32(cornerVerts + c * 4));
+            }
+        }
+        return;
+    }
+    // Before 3.4: arrays of MVert, with its position first, MPoly, with where its loops start and how many, and MLoop, with its vertex.
+    u32 vertType = Prog__BlendStruct(blend, S("MVert")), polyType = Prog__BlendStruct(blend, S("MPoly")), loopType = Prog__BlendStruct(blend, S("MLoop"));
+    const Prog__BlendBlock *verts = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("mvert")));
+    const Prog__BlendBlock *polys = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("mpoly")));
+    const Prog__BlendBlock *loops = Prog__BlendAt(blend, Prog__BlendPointer(blend, meshType, mesh, length, S("mloop")));
+    if (vertType == UINT32_MAX || polyType == UINT32_MAX || loopType == UINT32_MAX || !verts || !polys || !loops) return;
+    u64 vertStride = blend->typeSizes[blend->structs[vertType][0]], polyStride = blend->typeSizes[blend->structs[polyType][0]];
+    u64 loopStride = blend->typeSizes[blend->structs[loopType][0]];
+    if (verts->length < (u64)vertices * vertStride || polys->length < (u64)faces * polyStride || loops->length < (u64)corners * loopStride) return;
+    f32 *points = ArrayAdd(arena, out->positions, (u64)vertices * 3);
+    for (i64 v = 0; v < vertices; ++v) {
+        f32 p[3] = {0};
+        Prog__BlendFloats(blend, vertType, verts->data + (u64)v * vertStride, vertStride, S("co"), p, 3);
+        Prog__MeshPoint(points + v * 3, place, p[0], p[1], p[2]);
+    }
+    for (i64 f = 0; f < faces; ++f) {
+        const u8 *poly = polys->data + (u64)f * polyStride;
+        i64 from = Prog__BlendInt(blend, polyType, poly, polyStride, S("loopstart")), count = Prog__BlendInt(blend, polyType, poly, polyStride, S("totloop"));
+        if (from < 0 || count < 3 || from + count > corners) continue;
+        for (i64 c = from + 2; c < from + count; ++c) {
+            u32 a = (u32)Prog__BlendInt(blend, loopType, loops->data + (u64)from * loopStride, loopStride, S("v"));
+            u32 b = (u32)Prog__BlendInt(blend, loopType, loops->data + (u64)(c - 1) * loopStride, loopStride, S("v"));
+            u32 e = (u32)Prog__BlendInt(blend, loopType, loops->data + (u64)c * loopStride, loopStride, S("v"));
+            Prog__MeshTriangle(arena, out, (u32)base + a, (u32)base + b, (u32)base + e);
+        }
+    }
+}
+
+// An object's place among its parents': its parents' places, its inverse of the parent at the time it was parented, then its own
+// location, rotation and scale.
+function Prog__Affine Prog__BlendPlace(const Prog__Blend *blend, u32 objectType, const Prog__BlendBlock *object, u32 depth)
+{
+    const u8 *o = object->data;
+    u64 length = object->length;
+    f32 location[3] = {0}, euler[3] = {0}, scale[3] = { 1, 1, 1 }, q[4] = { 0, 0, 0, 1 }, wxyz[4] = { 1, 0, 0, 0 };
+    Prog__BlendFloats(blend, objectType, o, length, S("loc"), location, 3);
+    Prog__BlendFloats(blend, objectType, o, length, S("rot"), euler, 3);
+    Prog__BlendFloats(blend, objectType, o, length, S("size"), scale, 3);
+    i64 mode = Prog__BlendInt(blend, objectType, o, length, S("rotmode"));
+    if (mode == 0 && Prog__BlendFloats(blend, objectType, o, length, S("quat"), wxyz, 4)) {
+        f32 norm = sqrtf(wxyz[0] * wxyz[0] + wxyz[1] * wxyz[1] + wxyz[2] * wxyz[2] + wxyz[3] * wxyz[3]);
+        if (norm > 0) q[0] = wxyz[1] / norm, q[1] = wxyz[2] / norm, q[2] = wxyz[3] / norm, q[3] = wxyz[0] / norm;
+    } else {
+        // ponytail: every Euler order turns as XYZ, Blender's default, and axis-angle as no turn; the other orders' products if needed.
+        f32 degrees[3] = { euler[0] * 57.2957795f, euler[1] * 57.2957795f, euler[2] * 57.2957795f };
+        Prog__EulerQuaternion(degrees, q);
+    }
+    Prog__Affine result = Prog__AffineCompose(location, q, scale);
+    const Prog__BlendBlock *parent = Prog__BlendAt(blend, Prog__BlendPointer(blend, objectType, o, length, S("parent")));
+    if (parent && parent->sdna == objectType && depth < 64) {
+        f32 inverse[16];
+        Prog__Affine between = Prog__AffineIdentity;
+        // Blender's matrices are column by column, the translation last.
+        if (Prog__BlendFloats(blend, objectType, o, length, S("parentinv"), inverse, 16)) {
+            for (u32 r = 0; r < 3; ++r) for (u32 c = 0; c < 4; ++c) between.m[r * 4 + c] = inverse[c * 4 + r];
+        }
+        result = Prog__AffineMultiply(Prog__AffineMultiply(Prog__BlendPlace(blend, objectType, parent, depth + 1), between), result);
+    }
+    return result;
+}
+
+function b32 Prog__ReadBlend(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    Prog__Blend blend = {0};
+    if (!Prog__BlendParse(arena, Prog__BlendInflate(arena, data), &blend)) return false;
+    u32 objectType = Prog__BlendStruct(&blend, S("Object"));
+    if (objectType == UINT32_MAX) return false;
+    mesh->zUp = true;
+    for (u64 i = 0; i < blend.blocks.header.count && !P_IsCancelled(cancel); ++i) {
+        const Prog__BlendBlock *object = &blend.blocks.v[i];
+        // Mesh objects, Blender's type 1.
+        if (object->code != Prog__BlendCode('O', 'B', 0, 0) || object->sdna != objectType) continue;
+        if (Prog__BlendInt(&blend, objectType, object->data, object->length, S("type")) != 1) continue;
+        const Prog__BlendBlock *data = Prog__BlendAt(&blend, Prog__BlendPointer(&blend, objectType, object->data, object->length, S("data")));
+        Prog__Affine place = Prog__BlendPlace(&blend, objectType, object, 0);
+        if (data && data->code == Prog__BlendCode('M', 'E', 0, 0)) Prog__BlendMesh(arena, &blend, data, &place, mesh);
+    }
+    return mesh->indices.header.count > 0;
+}
+
+// -----------------------------------------------------------------------------
 
 typedef enum Prog_ModelKind {
     Prog_ModelKind_None,
@@ -1157,12 +1558,17 @@ typedef enum Prog_ModelKind {
     Prog_ModelKind_Gltf,
     Prog_ModelKind_Glb,
     Prog_ModelKind_Fbx,
+    Prog_ModelKind_Blend,
     Prog_ModelKind_Count,
 } Prog_ModelKind;
 
 function Prog_ModelKind Prog_ModelKindOf(String path)
 {
-    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx") };
+    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend") };
+    // Blender's backups, "scene.blend1" and on, are .blend files too.
+    String backup = path;
+    while (backup.length > 6 && backup.value[backup.length - 1] >= '0' && backup.value[backup.length - 1] <= '9') --backup.length;
+    if (backup.length < path.length && Prog__EqualFolded(StrFrom(backup, backup.length - 6), S(".blend"))) return Prog_ModelKind_Blend;
     for (u32 i = 1; i < Prog_ModelKind_Count; ++i) {
         String tail = path.length >= extensions[i].length ? StrFrom(path, path.length - extensions[i].length) : (String){0};
         if (Prog__EqualFolded(tail, extensions[i])) return (Prog_ModelKind)i;
@@ -1179,6 +1585,7 @@ function b32 Prog_ReadModel(Arena *arena, Prog_ModelKind kind, String path, Stri
         case Prog_ModelKind_Gltf: return Prog__ReadGltf(arena, path, data, false, cancel, mesh);
         case Prog_ModelKind_Glb: return Prog__ReadGltf(arena, path, data, true, cancel, mesh);
         case Prog_ModelKind_Fbx: return Prog__ReadFbx(arena, data, cancel, mesh);
+        case Prog_ModelKind_Blend: return Prog__ReadBlend(arena, data, cancel, mesh);
         default: return false;
     }
 }

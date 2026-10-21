@@ -237,6 +237,7 @@ function void TestModels(void)
         u32 *pixels = Prog_DrawMesh(&arena, &square, 64, &token);
         Check(pixels && (pixels[32 * 64 + 32] >> 24) == 255 && (pixels[0] >> 24) == 0 && (pixels[63 * 64 + 63] >> 24) == 0);
         Check(Prog_ModelKindOf(S("C:/a/Robot.FBX")) == Prog_ModelKind_Fbx && Prog_ModelKindOf(S("/a/b.glb")) == Prog_ModelKind_Glb && !Prog_ModelKindOf(S("/a/b.txt")));
+        Check(Prog_ModelKindOf(S("/a/Scene.blend")) == Prog_ModelKind_Blend && Prog_ModelKindOf(S("/a/Scene.blend12")) == Prog_ModelKind_Blend && !Prog_ModelKindOf(S("/a/b.obj2")));
     }
     ArenaRelease(&arena);
 }
