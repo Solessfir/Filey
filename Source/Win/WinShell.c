@@ -190,7 +190,12 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     P__EnsureCom();
     P__ShellMenu *shell = ArenaPushStruct(arena, P__ShellMenu);
     b32 ok = false;
-    if (!directory.length) {
+    if (!directory.length && !count) {
+        // This PC's background, with Explorer's own items for it, such as Add a network location and Properties.
+        IShellFolder *computer = P__ShellFolder(L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}");
+        ok = computer && SUCCEEDED(computer->lpVtbl->CreateViewObject(computer, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
+        if (computer) computer->lpVtbl->Release(computer);
+    } else if (!directory.length) {
         // The items' own menus, with what their folder's background lacks, such as a drive's Eject and Format.
         Scratch scratch = GetScratchEx(arena);
         PIDLIST_ABSOLUTE *lists = ArenaPushArray(scratch.arena, Max(count, (u64)1), PIDLIST_ABSOLUTE);
