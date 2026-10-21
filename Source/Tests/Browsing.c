@@ -1028,9 +1028,17 @@ function void TestRename(TestFileFixture *fixture)
     Check(next.length ? state.renaming && StrIsEqual(StrMake((const char *)state.renameFrom, state.renameFromLength), next) : !state.renaming);
     TestRenameKey(&state, Key_Escape, 0);
 
-    // The one item a shell command adds goes straight into rename.
+    // The one item a shell command adds is selected, as an archiver's new archive is, and goes into rename after one of New's.
+    Check(P__TestWriteFile(fixture, S("archived.zip"), 1, false));
+    state.renameCreatedUntil = PlatformNowMicroseconds() + Millions(5);
+    state.createdRenames = false;
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+    Check(!state.renaming && state.selectedCount == 1 && state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("archived.zip")));
+    Check(P__TestRemovePath(fixture, S("archived.zip"), false));
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
     Check(P__TestWriteFile(fixture, S("created.txt"), 1, false));
     state.renameCreatedUntil = PlatformNowMicroseconds() + Millions(5);
+    state.createdRenames = true;
     TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
     Check(state.renaming && StrIsEqual(Prog_EditText(&state.rename), S("created.txt")) && state.rename.cursor == 7);
     Check(state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("created.txt")));

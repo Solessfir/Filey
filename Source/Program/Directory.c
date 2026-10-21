@@ -4686,7 +4686,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             if (state->directory.entries[i].selected) MapsPut(&state->frameArena, selected, state->directory.entries[i].file.name, true);
                         }
                     }
-                    // After a shell command, the one item it created is renamed, as in Explorer.
+                    // After a shell command, the one item it created is selected, and renamed after one of New's, as in Explorer.
                     // Commands such as Send to a zip may finish after this listing, so the wait spans a few.
                     b32 renameCreated = samePath && now < state->renameCreatedUntil;
                     if (!renameCreated) state->renameCreatedUntil = 0;
@@ -4743,7 +4743,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     // So do the types shown, which the Types popup set for this folder's.
                     if (!samePath && state->directory.path.length && !state->filterSticky) state->types.length = 0;
-                    b32 renamePicked = (renameCreated && created == 1 && !pick.length) || (state->selectRename && pick.length && pickRow < result->count);
+                    b32 renamePicked = (renameCreated && created == 1 && !pick.length && state->createdRenames) || (state->selectRename && pick.length && pickRow < result->count);
                     state->selectRename = false;
                     if (created) state->renameCreatedUntil = 0;
                     state->selectLength = 0;

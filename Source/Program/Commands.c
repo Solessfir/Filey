@@ -1777,9 +1777,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
             }
         }
     } else {
-        // Submenu commands such as New > Folder create one item that Explorer would put into rename.
-        b32 creates = index >= state->menu.rootCount && !StrIsEqual(item.verb, S("paste")) && !StrIsEqual(item.verb, S("openwith"));
+        // The one item a command creates, such as an archiver's Add to, is selected; the New submenu's, such as New > Folder, are renamed too,
+        // as Explorer does.
+        u32 owner = Prog_MenuOwner(state, index);
+        b32 creates = !StrIsEqual(item.verb, S("paste")) && !StrIsEqual(item.verb, S("openwith"));
         state->renameCreatedUntil = creates ? PlatformNowMicroseconds() + Millions(5) : 0;
+        state->createdRenames = owner != UINT32_MAX && StrIsEqual(state->menu.items[owner].verb, S("new"));
         P_FileError error = P_ContextMenuInvoke(&state->frameArena, &state->menu, item.id);
         ArenaClear(&state->errorArena);
         state->error = error.code ? StrFormat(&state->errorArena, "%S: %S", item.label, error.message) : (String){0};
