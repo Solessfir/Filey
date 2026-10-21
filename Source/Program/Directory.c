@@ -2258,6 +2258,14 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     P_JobSubmit(job);
 }
 
+// Whether the panel's columns have Git, which the repositories among its subfolders are looked for only for.
+function b32 Prog_ShowsGit(const Prog_State *state)
+{
+    Prog_ColumnSet set = Prog_PanelColumns(state);
+    for (u32 i = 0; i < set.count; ++i) if (set.kinds[i] == Prog_ColumnKind_Git) return true;
+    return false;
+}
+
 // Finds out the shown folder's repositories among its subfolders `names`, or with `status` how changed one of them is, one job at a time.
 function void Prog__RepoJob(Prog_State *state, const String *names, u64 count, b32 status)
 {
@@ -2275,8 +2283,8 @@ function void Prog__RepoJob(Prog_State *state, const String *names, u64 count, b
     P_JobSubmit(job);
 }
 
-// Looks for repositories among the shown folder's subfolders, their branches first; then, where the settings measure its subfolders,
-// how changed each is, one after another.
+// Looks for repositories among the shown folder's subfolders while the Git column shows, their branches first; then, but for a network
+// drive's, how changed each is, one after another.
 function void Prog_RequestRepos(Prog_State *state)
 {
     if (state->reposJob) P_RequestCancel(&state->reposJob->cancelToken);
@@ -2285,7 +2293,7 @@ function void Prog_RequestRepos(Prog_State *state)
     state->repos = (Prog_Repos){0};
     state->reposNext = 0;
     state->reposTime = PlatformNowMicroseconds();
-    if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path) || state->directory.archive || state->directory.expanded) return;
+    if (!Prog_ShowsGit(state) || StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path) || state->directory.archive || state->directory.expanded) return;
     Scratch scratch = GetScratch();
     String *names = ArenaPushArray(scratch.arena, Max(state->directory.count, (u64)1), String);
     u64 count = 0;
@@ -2299,7 +2307,7 @@ function void Prog_RequestRepos(Prog_State *state)
 // Starts on the next repository whose changes are not known yet.
 function void Prog__NextRepoStatus(Prog_State *state)
 {
-    if (state->reposJob || !Prog_MeasuresFolders(state)) return;
+    if (state->reposJob || state->directory.driveKind == P_DriveKind_Network) return;
     for (; state->reposNext < state->repos.header.count; ++state->reposNext) {
         if (state->repos.v[state->reposNext].value.changes >= 0) continue;
         Prog__RepoJob(state, &state->repos.v[state->reposNext].key, 1, true);
@@ -2328,6 +2336,7 @@ function b32 Prog__TakeNumber(String *text, u64 *value);
 function String Prog__ApplyWindowLine(String text);
 function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
+function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view);
 
 // The tab's trail, when it goes on from the folder shown, or This PC shows; empty otherwise.
 function String Prog_TrailText(const Prog_State *state)
@@ -3458,6 +3467,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
 {
     if (StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path)) return;
     Prog_ColumnSet set = Prog_PanelColumns(state);
+    Prog_ViewSettings before = Prog_CurrentView(state), kept;
     switch (kind) {
         case Prog_CommandKind_ColumnShiftLeft:
         case Prog_CommandKind_ColumnShiftRight: {
@@ -3493,11 +3503,24 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
         default: return;
     }
     state->columnSet = set;
+    // A column added from the menu is kept for the folder, which locks its view; a locked folder keeps every change to its columns but
+    // their widths, which a drag changes frame by frame. The panel's own view stays as it was.
+    b32 locked = Prog_FolderView(state, state->directory.path, &kept);
+    if (state->directory.path.length && kind != Prog_CommandKind_ColumnResize && (locked || kind == Prog_CommandKind_ColumnToggle)) {
+        if (!locked) kept = before;
+        kept.columns = set;
+        Prog__SetFolderView(state, state->directory.path, &kept);
+        if (!locked) {
+            Prog__ApplyFolderView(state, state->directory.path);
+            state->ownSettings = before;
+        }
+    }
+    if (Prog_ShowsGit(state) && !state->repos.header.count && !state->reposJob) Prog_RequestRepos(state);
 }
 
 // The columns' names in the files that keep them.
 global const String Prog_ColumnWords[Prog_ColumnKind_Count] = {
-    SInit("name"), SInit("type"), SInit("size"), SInit("items"), SInit("created"), SInit("modified"), SInit("accessed"), SInit("volume"), SInit("folder"), SInit("filesystem"), SInit("free"), SInit("full"), SInit("original"), SInit("deleted"),
+    SInit("name"), SInit("type"), SInit("size"), SInit("items"), SInit("created"), SInit("modified"), SInit("accessed"), SInit("volume"), SInit("folder"), SInit("git"), SInit("filesystem"), SInit("free"), SInit("full"), SInit("original"), SInit("deleted"),
 };
 
 // `set` as one word: its columns' names, those resized with their share of the row after a colon, between commas; "-" for the defaults.
@@ -3614,7 +3637,7 @@ function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSett
 }
 
 // Keeps `path`'s view as the current panel shows it, or with `keep` false lets it go, and saves the list.
-function void Prog__SetFolderView(Prog_State *state, String path, b32 keep)
+function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view)
 {
     Scratch scratch = GetScratch();
     u64 count = state->folderViews.header.count, kept = 0;
@@ -3624,9 +3647,9 @@ function void Prog__SetFolderView(Prog_State *state, String path, b32 keep)
         Prog_ViewSettings view;
         if (!Prog__ParseFolderView(state->folderViews.v[i], &view, &at) || !StrIsEqual(at, path)) lines[kept++] = state->folderViews.v[i];
     }
-    if (keep) {
-        lines[kept++] = StrFormat(scratch.arena, "%u %u %u %u %S %S", state->zoom, (u32)state->sort, state->descending ? 1u : 0u, (u32)state->folderSort,
-                                  Prog_ColumnsText(scratch.arena, state->columnSet), path);
+    if (view) {
+        lines[kept++] = StrFormat(scratch.arena, "%u %u %u %u %S %S", view->zoom, (u32)view->sort, view->descending ? 1u : 0u, (u32)view->folders,
+                                  Prog_ColumnsText(scratch.arena, view->columns), path);
     }
     Prog__SetList(&state->folderViewArena, &state->folderViews, lines, kept);
     Prog__SaveList(state, Prog_FolderViewsFile, state->folderViews);
@@ -3666,7 +3689,8 @@ function void Prog_ToggleFolderView(Prog_State *state)
     Prog_ViewSettings view;
     if (!path.length) return;
     b32 locked = Prog_FolderView(state, path, &view);
-    Prog__SetFolderView(state, path, !locked);
+    Prog_ViewSettings shown = Prog_CurrentView(state);
+    Prog__SetFolderView(state, path, locked ? NULL : &shown);
     if (!locked) Prog__ApplyFolderView(state, path);
 }
 

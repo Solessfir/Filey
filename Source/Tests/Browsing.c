@@ -553,7 +553,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(TestWaitDirectory(&state));
         Prog_Sort changed = state.sort;
         TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created);
-        Check(Prog_FolderView(&state, here, &view) && view.zoom == ownZoom && view.sort == ownSort && view.columns.count == 0);
+        Check(Prog_FolderView(&state, here, &view) && view.zoom == ownZoom && view.sort == ownSort && view.columns.count == 6);
         // Unlocked and locked again, it keeps what is shown.
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
         Check(!Prog_FolderView(&state, here, &view) && state.zoom == Prog_ZoomStepped(ownZoom, true) && state.sort == changed);
@@ -582,6 +582,16 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         String old = S("2 3 1 C:/Old Folder");
         Prog__SetList(&state.folderViewArena, &state.folderViews, &old, 1);
         Check(Prog_FolderView(&state, S("C:/Old Folder"), &view) && view.zoom == Prog_ZoomColumns && view.columns.count == 0);
+        Prog__SetList(&state.folderViewArena, &state.folderViews, NULL, 0);
+        // A column added from the menu in a folder without a lock locks it with that column, and the panel's own view goes without it; one
+        // taken away again stays away in the lock.
+        Prog_ColumnSet ownColumns = state.columnSet;
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Git);
+        Check(Prog_FolderView(&state, here, &view) && view.columns.kinds[view.columns.count - 1] == Prog_ColumnKind_Git && Prog_ShowsGit(&state));
+        Check(state.ownView && state.ownSettings.columns.count == ownColumns.count);
+        TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Git);
+        Check(Prog_FolderView(&state, here, &view) && !Prog_ShowsGit(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
         Prog__SetList(&state.folderViewArena, &state.folderViews, NULL, 0);
         ArenaRelease(&kept);
         // Going away and back left nothing selected.
@@ -2548,7 +2558,8 @@ function void TestPanels(TestFileFixture *fixture)
     {
         Arena sessionArena = {0};
         // With a panel's columns, its folders after its files and its inspector's own view, which come back too.
-        Prog_EditColumns(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Created, 0);
+        state.columnSet = Prog_PanelColumns(&state);
+        state.columnSet.kinds[state.columnSet.count++] = Prog_ColumnKind_Created;
         state.folderSort = Prog_FolderSort_Last;
         state.inspectorView = (Prog_ViewSettings){ .zoom = Prog_ZoomColumns, .sort = Prog_Sort_Size, .descending = true, .columns = { .count = 2, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size } } };
         // And its tabs' filters, which their first listings keep.

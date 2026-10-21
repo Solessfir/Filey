@@ -52,6 +52,7 @@ typedef enum Prog_ColumnId {
     Prog_ColumnId_PercentFull,
     Prog_ColumnId_OriginalLocation,
     Prog_ColumnId_DateDeleted,
+    Prog_ColumnId_Git,
     Prog_ColumnId_Count,
 } Prog_ColumnId;
 
@@ -66,6 +67,7 @@ typedef enum Prog_ColumnKind {
     Prog_ColumnKind_Accessed,
     Prog_ColumnKind_VolumeUsage,
     Prog_ColumnKind_FolderUsage,
+    Prog_ColumnKind_Git,
     // This PC's, for its drives.
     Prog_ColumnKind_FileSystem,
     Prog_ColumnKind_FreeSpace,
@@ -77,7 +79,7 @@ typedef enum Prog_ColumnKind {
 } Prog_ColumnKind;
 
 // The kinds a folder's columns can be, which the header's menu offers.
-#define Prog_FolderColumnKinds (Prog_ColumnKind_FolderUsage + 1)
+#define Prog_FolderColumnKinds (Prog_ColumnKind_Git + 1)
 
 // A panel's columns in their order, each with its share of the row; a share of 0 is the kind's own, and no columns at all are the defaults.
 typedef struct Prog_ColumnSet {

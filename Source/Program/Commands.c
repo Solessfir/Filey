@@ -1343,7 +1343,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = S("Restore Default Columns"), .icon = Icon_RotateCcw);
             Prog__Item(.kind = Prog_CommandKind_None);
             local_persist const String names[Prog_FolderColumnKinds] = {
-                SInit("Name"), SInit("Type"), SInit("Size"), SInit("Total Items"), SInit("Date Created"), SInit("Date Modified"), SInit("Date Accessed"), SInit("Volume Usage"), SInit("Folder Usage"),
+                SInit("Name"), SInit("Type"), SInit("Size"), SInit("Total Items"), SInit("Date Created"), SInit("Date Modified"), SInit("Date Accessed"), SInit("Volume Usage"), SInit("Folder Usage"), SInit("Git"),
             };
             for (u32 kind = 0; kind < Prog_FolderColumnKinds; ++kind) {
                 b32 shown = false;

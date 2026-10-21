@@ -2434,12 +2434,12 @@ typedef struct Prog_Columns {
 // This PC's drives are not sorted, so its own columns sort nothing (Prog_Sort_Count).
 global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
     Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Accessed, Prog_Sort_Size, Prog_Sort_Size,
-    Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count,
+    Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count,
 };
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
     SInit("Name"), SInit("Type"), SInit("Date Modified"), SInit("Folders"), SInit("Files"), SInit("Size"), SInit("Date Created"), SInit("Date Accessed"), SInit("Folder Usage"), SInit("Volume Usage"),
-    SInit("File System"), SInit("Free Space"), SInit("Percent Full"), SInit("Original Location"), SInit("Date Deleted"),
+    SInit("File System"), SInit("Free Space"), SInit("Percent Full"), SInit("Original Location"), SInit("Date Deleted"), SInit("Git"),
 };
 
 // The panel's columns laid out for rows `room` wide: each its share of it, however narrow,
@@ -2452,7 +2452,7 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
 {
     local_persist const Prog_ColumnId ids[Prog_ColumnKind_Count] = {
         Prog_ColumnId_Name, Prog_ColumnId_Type, Prog_ColumnId_Size, Prog_ColumnId_Folders, Prog_ColumnId_Created, Prog_ColumnId_Modified, Prog_ColumnId_Accessed,
-        Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage, Prog_ColumnId_FileSystem, Prog_ColumnId_FreeSpace, Prog_ColumnId_PercentFull,
+        Prog_ColumnId_VolumeUsage, Prog_ColumnId_FolderUsage, Prog_ColumnId_Git, Prog_ColumnId_FileSystem, Prog_ColumnId_FreeSpace, Prog_ColumnId_PercentFull,
         Prog_ColumnId_OriginalLocation, Prog_ColumnId_DateDeleted,
     };
     // This PC's values read from the left, its size too.
@@ -2885,6 +2885,9 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     // A binned item shows where it came from and when it went.
     if (entry->original.length) values[Prog_ColumnId_OriginalLocation] = P_NativePath(frame, entry->original);
     if (entry->deletedTimeUnix) values[Prog_ColumnId_DateDeleted] = P_FormatFileTime(frame, entry->deletedTimeUnix);
+    // A repository's branch and changes, with room at its front for the branch icon, for sizing the column to fit.
+    const Prog_Repo *repo = state->repos.header.count && entry->file.kind == P_FileKind_Directory ? MapsGetPtrNull(state->repos, entry->file.name) : NULL;
+    if (repo) values[Prog_ColumnId_Git] = repo->changes > 0 ? StrFormat(frame, "     %S  ~%d", repo->branch, repo->changes) : StrFormat(frame, "     %S", repo->branch);
 }
 
 // `text` cut at a codepoint boundary to fit `width`, with an ellipsis when anything was cut.
@@ -3013,20 +3016,22 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     }
 }
 
-// A repository's tag after its folder's name in the list, from `x` and only if it fits before `limit`: its branch, and the tracked files it
-// has changed in the color of a changed file.
+// A repository's cell in the Git column, from `x` to `limit`: the branch icon, the branch cut to fit, and the tracked files it has changed
+// in the color of a changed file.
 function void Prog__RepoTag(Prog_State *state, const Prog_Repo *repo, UI_Block *cell, f32 x, f32 limit, f32 height, R_Color ink, const Prog_Metrics *m)
 {
     String count = repo->changes > 0 ? StrFormat(&state->frameArena, "~%d", repo->changes) : (String){0};
     String texts[3] = { Icon_GitBranch, repo->branch, count };
     const R_Font *fonts[3] = { m->iconsSmall, m->detail, m->detail };
     R_Color inks[3] = { ink, ink, Prog__GitInk(Prog_GitMark_Modified) };
-    f32 befores[3] = { floorf(9.6f * m->scale + 0.5f), floorf(3.2f * m->scale + 0.5f), floorf(6.4f * m->scale + 0.5f) }, widths[3], end = x;
-    for (u32 i = 0; i < 3; ++i) {
-        widths[i] = texts[i].length ? R_TextWidth(fonts[i], texts[i]) : 0;
-        if (texts[i].length) end += befores[i] + widths[i];
+    f32 befores[3] = { 0, floorf(3.2f * m->scale + 0.5f), floorf(6.4f * m->scale + 0.5f) }, widths[3];
+    for (u32 i = 0; i < 3; ++i) widths[i] = texts[i].length ? R_TextWidth(fonts[i], texts[i]) : 0;
+    f32 room = limit - x - widths[0] - befores[1] - (count.length ? befores[2] + widths[2] : 0);
+    if (!repo->branch.length || room <= 0) return;
+    if (widths[1] > room) {
+        texts[1] = Prog__Ellipsize(&state->frameArena, m->detail, texts[1], room);
+        widths[1] = R_TextWidth(m->detail, texts[1]);
     }
-    if (!repo->branch.length || end > limit) return;
     UI_Parent(cell) {
         for (u32 i = 0; i < 3; ++i) {
             if (!texts[i].length) continue;
@@ -3313,9 +3318,13 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 Prog__FullnessCell(values[i], column->width, height, Prog__ColumnLeft(i, m), m);
                 continue;
             }
+            if (i == Prog_ColumnId_Git) {
+                Prog__LabelPadded((String){0}, width, height, left, right, color, 0);
+                const Prog_Repo *repo = state->repos.header.count && entry->file.kind == P_FileKind_Directory ? MapsGetPtrNull(state->repos, entry->file.name) : NULL;
+                if (repo) Prog__RepoTag(state, repo, UI->parent->last, 0, columnWidth - left - right, height, color, m);
+                continue;
+            }
             Prog__LabelPadded(value, width, height, left, right, color, column->alignX);
-            const Prog_Repo *repo = i == Prog_ColumnId_Name && state->repos.header.count && entry->file.kind == P_FileKind_Directory ? MapsGetPtrNull(state->repos, entry->file.name) : NULL;
-            if (repo) Prog__RepoTag(state, repo, UI->parent->last, left + R_TextWidth(m->font, value), columnWidth - right, height, hot || entry->selected ? color : theme->textDim, m);
             // In single-click mode names are links: underlined under the pointer, or all of them when asked.
             if (i == Prog_ColumnId_Name && state->singleClick && (hot || state->underlineAlways) &&
                 (!state->singleClickFoldersOnly || entry->file.kind == P_FileKind_Directory)) {
