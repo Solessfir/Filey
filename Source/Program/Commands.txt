@@ -831,6 +831,18 @@ command CopyAsPath {
     repeat  = "false"
 }
 
+command CopyAsPathSmart {
+    label   = "Copy As Path (Smart)^quotes"
+    tooltip = "Copy selected file paths to the clipboard, adding quotes only when needed."
+    repeat  = "false"
+}
+
+command PasteLink {
+    label   = "Paste Shortcut^link,symlink"
+    tooltip = "Paste files as shortcuts from the system clipboard into the current folder."
+    repeat  = "false"
+}
+
 command CreateFolder {
     label   = "Create Folder^new,directory"
     tooltip = "Create an empty folder in the current folder and enter rename mode."
@@ -850,6 +862,16 @@ command OpenInTab {
     tooltip = "Open selected folders in new tabs. For files, opens containing folders."
     hotkey  = "Ctrl+Enter"
     repeat  = "false"
+}
+
+command OpenInWindow {
+    label   = "Open In New Window^window"
+    tooltip = "Open selected folders in new windows. For files, opens containing folders."
+    repeat  = "false"
+}
+
+// A crumb of the path bar pressed with the middle button or Ctrl; carries what NavigatePrefix does.
+command PanelHeaderDirInTab {
 }
 
 // Middle click on a row; carries the row.
@@ -1030,8 +1052,12 @@ command StartQuickAccessFilter {
 command QuickAccessFilterApply {
 }
 
-// Escape or the box's clear button: the filter is cleared.
+// The box's clear button: the filter is cleared.
 command QuickAccessFilterCancel {
+}
+
+// Escape in the Quick Access filter: it goes back to what it was before this round of typing.
+command QuickAccessFilterRevert {
 }
 
 command BookmarksToggle {
@@ -1331,6 +1357,12 @@ command GoToSelectInPanel {
 command GoToFold {
 }
 
+command QuickCommandsOpen {
+    label   = "Quick Commands^starred,favorites,palette"
+    tooltip = "Open a popup that hosts all bookmarked commands from the command palette."
+    repeat  = "false"
+}
+
 command CommandPalette {
     label   = "Command Palette^commands,actions,search,run"
     tooltip = "Find and run any command by name."
@@ -1380,7 +1412,7 @@ command HistoryGo {
 }
 
 command NewWindow {
-    label   = "New Window^open,instance"
+    label   = "New Window^open,instance,duplicate tab"
     tooltip = "Open the current folder in a new window."
     hotkey  = "Ctrl+N"
     repeat  = "false"

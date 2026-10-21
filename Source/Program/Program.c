@@ -2108,6 +2108,13 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     }
 }
 
+// A crumb goes to its folder, or opens it in a new tab with the middle button or Ctrl.
+function Prog_CommandKind Prog__CrumbCommand(UI_Interaction interaction)
+{
+    b32 inTab = interaction.button == MouseButton_Middle || (interaction.button == MouseButton_Left && (UI->mods & KeyMod_Control));
+    return inTab ? Prog_CommandKind_PanelHeaderDirInTab : Prog_CommandKind_NavigatePrefix;
+}
+
 // Where a folder's crumbs start in `path`: the deepest path root it is inside, from that root's own folder name on, else the whole path, with `drive`
 // set for a drive letter's.
 function u64 Prog__CrumbStart(const Prog_State *state, String path, b32 *drive)
@@ -2197,7 +2204,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     if (drive || thisPC) {
         UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
                                                  thisPC ? theme->text : theme->textDim, !thisPC, m);
-        if (button.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, 0, 0, button.clickOrder);
+        if (button.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(button), 0, 0, button.clickOrder);
         drive = drive || (thisPC && path.length);
     } else if (start == 1) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
@@ -2242,7 +2249,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
             } else {
                 UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
                                                               theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
-                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NavigatePrefix, end, 0, interaction.clickOrder);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(interaction), end, 0, interaction.clickOrder);
             }
         }
         at = end + 1;

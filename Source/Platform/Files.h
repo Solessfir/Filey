@@ -154,6 +154,9 @@ function P_FileError P_RenamePath(Arena *arena, String directory, String from, S
 //
 // Creates an empty folder or file called `name` inside `directory`, numbering the name when it is taken ("New folder (2)"), and returns the name used in `created`.
 function P_FileError P_CreateItem(Arena *arena, String directory, String name, b32 folder, String *created);
+// Makes a shortcut to `target` inside `directory` (a .lnk on Windows, a symbolic link elsewhere), numbering its name when it is taken, and returns
+// the name used in `created`.
+function P_FileError P_CreateLink(Arena *arena, String directory, String target, String *created);
 // What a copy or move does with a name already taken in the target folder.
 typedef enum P_Conflict {
     P_Conflict_Ask,       // waits for the program's answer through P_Progress

@@ -1270,7 +1270,7 @@ function void TestFilesPopup(TestFileFixture *fixture)
 }
 
 // The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
-// filter and hands the keyboard back, and Escape clears it.
+// filter and hands the keyboard back, Escape takes back what was typed since the box got the keyboard, and the clear button clears it.
 function void TestQuickAccessFilter(TestFileFixture *fixture)
 {
     Prog_State state = {0};
@@ -1292,9 +1292,39 @@ function void TestQuickAccessFilter(TestFileFixture *fixture)
     TestRenameKey(&state, Key_Down, 0);
     Check(state.focusedRow != focused || state.directory.count < 2);
     TestBrowsingCommand(&state, Prog_CommandKind_StartQuickAccessFilter, 0);
+    TestRenameKey(&state, Key_O, 0);
+    TestRenameType(&state, S("o"));
+    Check(StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dlo")));
     TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.sidebarFiltering && StrIsEqual(Prog_EditText(&state.sidebarFilter), S("dl")));
+    TestBrowsingCommand(&state, Prog_CommandKind_QuickAccessFilterCancel, 0);
     Check(!state.sidebarFiltering && !state.sidebarFilter.length && Prog__SidebarFinds(&state, S("Desktop")));
     Prog_Release(&state);
+}
+
+// Copy As Path (Smart) quotes only the paths a command line would split; Quick Commands lists the starred commands alone; Paste Shortcut's
+// links are numbered when their names are taken.
+function void TestPasteLinkAndQuick(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String paths[] = { S("C:/plain/file.txt"), S("C:/with space/a.txt"), S("C:/x&y") };
+    String quoted = Prog_QuotedPaths(&arena, paths, CArrayCount(paths));
+    Check(StrIsEqual(quoted, StrFormat(&arena, "%S\n\"%S\"\n\"%S\"", P_NativePath(&arena, paths[0]), P_NativePath(&arena, paths[1]), P_NativePath(&arena, paths[2]))));
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    String quick[] = { S("Refresh"), S("TabNew") };
+    Prog__SetList(&state.quickArena, &state.quickCommands, quick, CArrayCount(quick));
+    state.paletteQuick = true;
+    Prog_PaletteRow rows[Prog_MaxPaletteRows];
+    u32 count = Prog_PaletteMatches(&state, rows);
+    Check(count == 2 && rows[0].kind == Prog_CommandKind_Refresh && rows[1].kind == Prog_CommandKind_TabNew);
+    String target = Prog_JoinPath(&arena, fixture->path, S("Folder10")), first = {0}, second = {0};
+    Check(!P_CreateLink(&arena, fixture->path, target, &first).code && !P_CreateLink(&arena, fixture->path, target, &second).code);
+    Check(first.length && second.length && !StrIsEqual(first, second));
+    Check(P_PathExists(Prog_JoinPath(&arena, fixture->path, first)) && P_PathExists(Prog_JoinPath(&arena, fixture->path, second)));
+    P_DeleteItems(&arena, (String[]){ Prog_JoinPath(&arena, fixture->path, first), Prog_JoinPath(&arena, fixture->path, second) }, 2, false, NULL);
+    Prog_Release(&state);
+    ArenaRelease(&arena);
 }
 
 // Evening panels: three split off one after another to the right share the row evenly, and a column split inside one keeps its own share
@@ -3100,6 +3130,7 @@ function void TestBrowsing(void)
         TestRename(&fixture);
         TestFilter(&fixture);
         TestQuickAccessFilter(&fixture);
+    TestPasteLinkAndQuick(&fixture);
         TestEvenPanels(&fixture);
         TestContainingPath(&fixture);
         TestExpand(&fixture);

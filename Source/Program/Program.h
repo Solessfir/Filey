@@ -223,6 +223,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Restore,
     Prog_JobKind_BinWait,      // waits until the bin's items at `paths` have left it, after a command of its menu      // `paths` from the bin `path` back where they came from, or all of it without any
     Prog_JobKind_Create,
+    Prog_JobKind_Link,
     Prog_JobKind_Places,
     Prog_JobKind_Save,
     Prog_JobKind_Preview,
@@ -1361,6 +1362,7 @@ typedef struct Prog_State {
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
     // In its Go To mode it finds folders to open, recent ones or those inside the folder typed; the highlight indexes Prog_GoToMatches.
     enum8(Prog_PaletteMode) paletteMode;
+    b8 paletteQuick;          // the commands mode shows only the Quick commands, as Quick Commands opens it
     R_Rect tabListRect;       // that button in the last layout
     // Go To lists the folder typed so far, gotoFolder, whose subfolders gotoJob puts in gotoArena; gotoListed once they are there.
     u8 gotoFolder[1024];
@@ -1513,6 +1515,7 @@ typedef struct Prog_State {
     b32 sidebarHidden;
     // The Quick Access filter: what its box holds, which leaves the sidebar the items whose names it finds, and whether the box has the keyboard.
     Prog_TextEdit sidebarFilter;
+    Prog_TextEdit sidebarFilterBefore;  // what it was as this round of typing began, which Escape brings back
     b32 sidebarFiltering;
     R_Rect sidebarFilterRect;  // the box, as the last build laid it out
     f32 sidebarWidth;         // logical pixels its edge was dragged to; 0 for the default

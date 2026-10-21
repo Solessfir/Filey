@@ -1894,6 +1894,15 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    // Shortcuts to the pasted files, the last one's name kept to be selected.
+    if (input->kind == Prog_JobKind_Link) {
+        Prog_Created *result = ArenaPushStruct(&job->arena, Prog_Created);
+        for (u64 i = 0; i < input->pathCount && !result->error.code && !P_IsCancelled(&job->cancelToken); ++i) {
+            result->error = P_CreateLink(&job->arena, input->path, input->paths[i], &result->name);
+        }
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_Places) {
         Prog_Places *result = ArenaPushStruct(&job->arena, Prog_Places);
         ProfileScope("ListPlaces") {
@@ -4596,7 +4605,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
             }
         } else if (input->kind == Prog_JobKind_Transfer || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_Create ||
-                   input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore || input->kind == Prog_JobKind_BinWait) {
+                   input->kind == Prog_JobKind_Link || input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore || input->kind == Prog_JobKind_BinWait) {
             changed = true;
             // The bin's listing has no watcher to see it emptied, and its icon shows whether it holds anything.
             b32 binChanged = input->kind == Prog_JobKind_EmptyTrash || input->kind == Prog_JobKind_Restore || input->kind == Prog_JobKind_BinWait;
@@ -4607,21 +4616,22 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
                 if (state->transfers[i].job == job) state->transfers[i].job = NULL;
             }
-            P_FileError error = input->kind == Prog_JobKind_Create ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
+            b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
+            P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") :
+            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? S("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "%S: %S", verb, error.message);
-            } else if (input->kind == Prog_JobKind_Create && StrIsEqual(state->directory.path, input->path)) {
-                // The new item is selected and renamed once the listing shows it.
+            } else if (created && StrIsEqual(state->directory.path, input->path)) {
+                // The new item is selected once the listing shows it, and a new file or folder renamed.
                 String name = ((Prog_Created *)job->result)->name;
                 if (name.length <= sizeof(state->selectText)) {
                     MemCopy(state->selectText, name.value, name.length);
                     state->selectLength = (u32)name.length;
-                    state->selectRename = true;
+                    state->selectRename = input->kind == Prog_JobKind_Create;
                 }
             }
             // Copies, moves and new items that went through can be undone.

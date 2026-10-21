@@ -1023,7 +1023,8 @@ function b32 P__ShortcutStarts(Arena *arena, const wchar *link, const wchar *tar
     return result;
 }
 
-function b32 P__WriteShortcut(const wchar *link, const wchar *target, const wchar *folder)
+// `app` marks the shortcut as Filey's own, with the program's icon and name.
+function b32 P__WriteShortcut(const wchar *link, const wchar *target, const wchar *folder, b32 app)
 {
     P__EnsureCom();
     IShellLinkW *shell = NULL;
@@ -1032,8 +1033,10 @@ function b32 P__WriteShortcut(const wchar *link, const wchar *target, const wcha
     if (SUCCEEDED(CoCreateInstance(&P__CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &P__IID_IShellLinkW, (void **)&shell))) {
         shell->lpVtbl->SetPath(shell, target);
         shell->lpVtbl->SetWorkingDirectory(shell, folder);
-        shell->lpVtbl->SetDescription(shell, L"Filey");
-        shell->lpVtbl->SetIconLocation(shell, target, 0);
+        if (app) {
+            shell->lpVtbl->SetDescription(shell, L"Filey");
+            shell->lpVtbl->SetIconLocation(shell, target, 0);
+        }
         if (SUCCEEDED(shell->lpVtbl->QueryInterface(shell, &P__IID_IPersistFile, (void **)&file))) {
             result = SUCCEEDED(file->lpVtbl->Save(file, link, TRUE));
             file->lpVtbl->Release(file);
@@ -1041,6 +1044,31 @@ function b32 P__WriteShortcut(const wchar *link, const wchar *target, const wcha
         shell->lpVtbl->Release(shell);
     }
     return result;
+}
+
+// Named as Explorer names them, "Name - Shortcut.lnk", then "Name - Shortcut (2).lnk".
+function P_FileError P_CreateLink(Arena *arena, String directory, String target, String *created)
+{
+    *created = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    while (target.length > 3 && (target.value[target.length - 1] == '/' || target.value[target.length - 1] == '\\')) --target.length;
+    Index slash = StrIndexChar(target, '/', SSF_SearchBackwards), backslash = StrIndexChar(target, '\\', SSF_SearchBackwards);
+    u64 cut = Max(slash.exists ? slash.value + 1 : 0, backslash.exists ? backslash.value + 1 : 0);
+    // A drive's root is named by its letter.
+    String leaf = StrFrom(target, cut);
+    if (!leaf.length || leaf.value[leaf.length - 1] == ':') leaf = StrFromTo(target, 0, 1);
+    wchar *to = P__FilePathWide(scratch.arena, target), *folder = P__FilePathWide(scratch.arena, directory);
+    u32 error = to && folder ? ERROR_ALREADY_EXISTS : ERROR_INVALID_NAME;
+    for (u32 n = 1; n < 10000 && error == ERROR_ALREADY_EXISTS; ++n) {
+        String name = n == 1 ? StrFormat(scratch.arena, "%S - Shortcut.lnk", leaf) : StrFormat(scratch.arena, "%S - Shortcut (%u).lnk", leaf, n);
+        wchar *link = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, name));
+        if (!link) error = ERROR_INVALID_NAME;
+        else if (GetFileAttributesW(link) != INVALID_FILE_ATTRIBUTES) continue;
+        else error = P__WriteShortcut(link, to, folder, false) ? 0 : ERROR_CANNOT_MAKE;
+        if (!error) *created = StrCopy(arena, name);
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
 // The user's PATH from the registry, with its type, or NULL without one.
@@ -1245,8 +1273,8 @@ function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPat
         if (GetFileAttributesW(paths.executable) != INVALID_FILE_ATTRIBUTES && !DeleteFileW(paths.executable)) MoveFileExW(paths.executable, paths.aside, MOVEFILE_REPLACE_EXISTING);
         if (!CopyFileW(paths.running, paths.executable, FALSE)) error = GetLastError();
     }
-    if (!error && paths.startLink && !P__WriteShortcut(paths.startLink, paths.executable, paths.folder)) error = ERROR_CANNOT_MAKE;
-    if (!error && paths.desktopLink && desktopShortcut && !P__WriteShortcut(paths.desktopLink, paths.executable, paths.folder)) error = ERROR_CANNOT_MAKE;
+    if (!error && paths.startLink && !P__WriteShortcut(paths.startLink, paths.executable, paths.folder, true)) error = ERROR_CANNOT_MAKE;
+    if (!error && paths.desktopLink && desktopShortcut && !P__WriteShortcut(paths.desktopLink, paths.executable, paths.folder, true)) error = ERROR_CANNOT_MAKE;
     if (!error && paths.desktopLink && !desktopShortcut && P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
     if (!error) error = P__SetUserPath(scratch.arena, paths.folder, onPath);
     if (!error) error = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), setDefault);

@@ -638,11 +638,12 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Quick),
     Prog__PaletteGroup(Folder),
     Prog_CommandKind_ToggleCursorSelection, Prog_CommandKind_OpenFocused, Prog_CommandKind_OpenInTab, Prog_CommandKind_OpenInRightSplit,
-    Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
+    Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_OpenInWindow, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
+    Prog_CommandKind_PasteLink,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_SelectionRestore, Prog_CommandKind_TrashRestoreAll,
     Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
-    Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
+    Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_CopyAsPathSmart, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_TypesPopupOpen, Prog_CommandKind_FilesPopupOpen, Prog_CommandKind_FilesPopupPrev, Prog_CommandKind_FilesPopupNext,
@@ -673,7 +674,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(GoTo),
     Prog_CommandKind_GoToSelectInPanel, Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
     Prog__PaletteGroup(Misc),
-    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_ContextMenu,
+    Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen,
@@ -714,6 +715,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
     u32 panels = Prog__PanelsInOrder(state, 0, order, 0);
     switch (kind) {
         case Prog_CommandKind_OpenFocused: case Prog_CommandKind_OpenInTab: case Prog_CommandKind_OpenInRightSplit: case Prog_CommandKind_OpenInBottomSplit:
+        case Prog_CommandKind_OpenInWindow:
         case Prog_CommandKind_CopySelection: case Prog_CommandKind_CutSelection: case Prog_CommandKind_Trash: case Prog_CommandKind_SelectionDelete:
         case Prog_CommandKind_CalcDirsContents:
             return item;
@@ -801,6 +803,8 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
     for (u32 i = 0; i < CArrayCount(Prog_PaletteTree); ++i) {
         u32 item = Prog_PaletteTree[i];
         if (item < Prog_CommandKind_Count && Prog_IsQuick(state, (Prog_CommandKind)item)) continue;
+        // Quick Commands shows that group alone, open.
+        if (state->paletteQuick && item != Prog__PaletteGroup(Quick)) continue;
         items[itemCount++] = (u16)item;
         for (u64 q = 0; item == Prog__PaletteGroup(Quick) && q < state->quickCommands.header.count && q < 64; ++q) {
             Prog_CommandKind kind = Prog__CommandNamed(state->quickCommands.v[q]);
@@ -811,12 +815,12 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
         u32 item = items[i];
         if (item >= Prog_CommandKind_Count) {
             group = item - Prog_CommandKind_Count;
-            if (!text.length) out[count++] = (Prog_PaletteRow){ (u8)group, Prog_CommandKind_None };
+            if (!text.length && !state->paletteQuick) out[count++] = (Prog_PaletteRow){ (u8)group, Prog_CommandKind_None };
             continue;
         }
         if (!Prog_CommandApplies((Prog_CommandKind)item)) continue;
         if (!text.length) {
-            if (state->paletteExpanded & (1u << group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
+            if (state->paletteQuick || (state->paletteExpanded & (1u << group))) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
         i32 score = Prog_FuzzyScore(Prog_CommandLabel((Prog_CommandKind)item), Prog_CommandTooltip((Prog_CommandKind)item), text, NULL, NULL);
@@ -2210,6 +2214,42 @@ function void Prog__LayoutAnswer(Prog_State *state, b32 yes)
     }
 }
 
+// `paths` as the system writes them, a line each, those a command line would split or misread in quotes.
+function String Prog_QuotedPaths(Arena *arena, const String *paths, u64 count)
+{
+    StrBuilder text = {0};
+    for (u64 i = 0; i < count; ++i) {
+        String path = P_NativePath(arena, paths[i]);
+        b32 quote = false;
+        for (u64 k = 0; k < path.length && !quote; ++k) {
+            u8 c = (u8)path.value[k];
+            quote = c == ' ' || c == '\t' || c == '&' || c == '(' || c == ')' || c == '^' || c == ';' || c == ',' || c == '=' || c == '!' || c == '\'' ||
+                    c == '`' || c == '$' || c == '[' || c == ']' || c == '{' || c == '}' || c == '+' || c == '~' || c == '#' || c == '%';
+        }
+        if (i) StrBuildChar(arena, &text, '\n');
+        if (quote) StrBuildChar(arena, &text, '"');
+        StrBuildStr(arena, &text, path);
+        if (quote) StrBuildChar(arena, &text, '"');
+    }
+    return text.buffer;
+}
+
+// The folders the selection, or the focused item without one, stands for: folders themselves and files' containing folders, each once.
+function ArrayStr Prog__OpenFolders(Prog_State *state, Arena *arena)
+{
+    ArrayStr result = {0};
+    for (u64 i = 0; !state->loading && i < state->directory.count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        if (!(state->selectedCount ? entry->selected : state->hasFocus && i == state->focusedRow)) continue;
+        String name = entry->file.kind == P_FileKind_Directory ? entry->file.name : Prog_EntryParent(entry->file.name);
+        String path = name.length ? Prog_JoinPath(arena, state->directory.path, name) : state->directory.path;
+        b32 seen = false;
+        for (u64 k = 0; k < result.header.count && !seen; ++k) seen = StrIsEqual(result.v[k], path);
+        if (!seen) ArrayPush(arena, result, path);
+    }
+    return result;
+}
+
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
 {
     if (state->loading || state->renaming) return;
@@ -2225,6 +2265,11 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             ArrayStr files = {0};
             b32 cut = false;
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
+        } break;
+        case Prog_CommandKind_PasteLink: {
+            ArrayStr files = {0};
+            b32 cut = false;
+            if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Link, files.v, files.header.count, state->directory.path, false, (String){0});
         } break;
         case Prog_CommandKind_Trash:
             // In the bin, as in Explorer's, the key that trashes deletes for good, after asking.
@@ -2272,6 +2317,16 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
                 StrBuildStr(frame, &text, P_NativePath(frame, paths[i]));
             }
             if (count) PlatformClipboardSetText(text.buffer);
+        } break;
+        case Prog_CommandKind_CopyAsPathSmart: {
+            String *shown = paths;
+            u64 shownCount = count;
+            if (!state->selectedCount) {
+                if (!state->directory.path.length || StrIsEqual(state->directory.path, Prog_ThisPC)) break;
+                shown = &state->directory.path;
+                shownCount = 1;
+            }
+            PlatformClipboardSetText(Prog_QuotedPaths(frame, shown, shownCount));
         } break;
         case Prog_CommandKind_CreateFolder:
         case Prog_CommandKind_CreateFile: {
@@ -2434,6 +2489,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
             } break;
             case Prog_CommandKind_OpenInTab: Prog__OpenInTabs(state, UINT64_MAX); break;
+        case Prog_CommandKind_OpenInWindow: {
+            P_FileError error = {0};
+            ArrayStr folders = Prog__OpenFolders(state, &state->frameArena);
+            for (u64 i = 0; i < folders.header.count && !error.code; ++i) error = Prog_OpenWindow(state, folders.v[i], (String){0});
+            if (error.code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
+            }
+        } break;
             case Prog_CommandKind_OpenInRightSplit:
             case Prog_CommandKind_OpenInBottomSplit: {
                 // Each folder in a panel of its own, split off the last one; the paths are taken first, as a split moves to the new panel.
@@ -2571,7 +2635,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_StartQuickAccessFilter: {
                 Prog_CloseMenu(state);
                 state->sidebarHidden = false;
+                if (!state->sidebarFiltering) state->sidebarFilterBefore = state->sidebarFilter;
                 state->sidebarFiltering = true;
+            } break;
+            case Prog_CommandKind_QuickAccessFilterRevert: {
+                state->sidebarFiltering = false;
+                u32 version = state->sidebarFilter.version;
+                state->sidebarFilter = state->sidebarFilterBefore;
+                state->sidebarFilter.version = version + 1;
             } break;
             case Prog_CommandKind_QuickAccessFilterApply: state->sidebarFiltering = false; break;
             case Prog_CommandKind_QuickAccessFilterCancel: {
@@ -2783,17 +2854,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->folderSort = (u8)((state->folderSort + 1) % Prog_FolderSort_Count);
                 Prog_Reload(state);
             } break;
-            case Prog_CommandKind_NavigatePrefix: {
+            case Prog_CommandKind_NavigatePrefix:
+            case Prog_CommandKind_PanelHeaderDirInTab: {
                 // The crumbs are the trail's while it goes on from the shown folder.
                 String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
-                String path = trail.length ? trail : state->directory.path;
+                String path = trail.length ? trail : state->directory.path, target = {0};
                 // Before a drive's name, This PC.
-                if (command->row == 0 && !StrIsEqual(path, Prog_ThisPC)) Prog__PassToDirectory(state, Prog_ThisPC);
+                if (command->row == 0) target = Prog_ThisPC;
                 if (command->row > 0 && command->row <= path.length) {
                     // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
                     u64 length = path.value[command->row - 1] == ':' ? command->row + 1 : command->row;
-                    Prog__PassToDirectory(state, StrFromTo(path, 0, (i64)length));
+                    target = StrFromTo(path, 0, (i64)length);
                 }
+                if (!target.length) break;
+                if (command->kind == Prog_CommandKind_PanelHeaderDirInTab) Prog_OpenTab(state, StrCopy(&state->frameArena, target), state->activeTab + 1, false);
+                else if (command->row > 0 || !StrIsEqual(path, Prog_ThisPC)) Prog__PassToDirectory(state, target);
             } break;
             case Prog_CommandKind_ToggleHidden: {
                 state->showHidden = !state->showHidden;
@@ -3152,10 +3227,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
                 if (transfer && transfer->job) atomic_store(&transfer->progress.paused, !atomic_load(&transfer->progress.paused));
             } break;
-            case Prog_CommandKind_CommandPalette: {
+            case Prog_CommandKind_CommandPalette:
+            case Prog_CommandKind_QuickCommandsOpen: {
                 Prog_CloseMenu(state);
-                state->paletteOpen = !state->paletteOpen || state->paletteMode != Prog_PaletteMode_Commands;
+                b32 quick = command->kind == Prog_CommandKind_QuickCommandsOpen;
+                state->paletteOpen = !state->paletteOpen || state->paletteMode != Prog_PaletteMode_Commands || state->paletteQuick != quick;
                 state->paletteMode = Prog_PaletteMode_Commands;
+                state->paletteQuick = (b8)quick;
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
                 state->paletteScroll = 0;
@@ -3505,6 +3583,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_SelectionDelete:
             case Prog_CommandKind_Duplicate:
             case Prog_CommandKind_CopyAsPath:
+            case Prog_CommandKind_CopyAsPathSmart:
+            case Prog_CommandKind_PasteLink:
             case Prog_CommandKind_CreateFolder:
             case Prog_CommandKind_CreateFile: Prog__FileCommand(state, command->kind); break;
             case Prog_CommandKind_SelectionRestore: {
@@ -3899,7 +3979,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 continue;
             } else if (event->kind == PlatformEventKind_KeyDown) {
                 if (event->key == Key_Escape) {
-                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterCancel, 0, 0, order);
+                    Prog_QueueCommand(state, Prog_CommandKind_QuickAccessFilterRevert, 0, 0, order);
                     state->swallowText = true;
                     continue;
                 }

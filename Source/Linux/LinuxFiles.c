@@ -669,6 +669,27 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function P_FileError P_CreateLink(Arena *arena, String directory, String target, String *created)
+{
+    *created = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    while (target.length > 1 && target.value[target.length - 1] == '/') --target.length;
+    Index slash = StrIndexChar(target, '/', SSF_SearchBackwards);
+    String leaf = slash.exists ? StrFrom(target, slash.value + 1) : target;
+    if (!leaf.length) leaf = S("Root");
+    char *path = P__FilePathCString(scratch.arena, directory), *to = P__FilePathCString(scratch.arena, target);
+    i32 parent = path ? open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC) : -1;
+    u32 error = parent < 0 || !to ? (u32)errno : EEXIST;
+    for (u32 n = 1; n < 10000 && error == EEXIST; ++n) {
+        char *candidate = P__NumberedName(scratch.arena, leaf, false, n);
+        error = symlinkat(to, parent, candidate) == 0 ? 0 : (u32)errno;
+        if (!error) *created = StrCopy(arena, StrFromCStr(candidate));
+    }
+    if (parent >= 0) close(parent);
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
 // Makes the folders of `path` that are missing, the last one included.
 function b32 P__MakeFolders(char *path)
 {
