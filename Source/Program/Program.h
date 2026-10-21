@@ -572,6 +572,7 @@ typedef enum Prog_Option {
     Prog_Option_FontSize,
     Prog_Option_InspectorFont,
     Prog_Option_InspectorFontSize,
+    Prog_Option_Borders,
     Prog_Option_Spacing,
     Prog_Option_Animations,
     Prog_Option_RoundCorners,
@@ -1307,6 +1308,7 @@ typedef struct Prog_State {
     // How the lists look: the space between their items and how much inactive panels show, as offsets from the default 4 and 60 so that
     // {0} has them, square corners and every other row tinted.
     i32 spacingShift;
+    u8 borderPixels;          // the lines' and outlines' thickness in pixels, 0 for the default
     i32 inactiveShift;
     b32 squareCorners;
     b32 alternatingRows;

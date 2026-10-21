@@ -421,6 +421,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->scheme = 0;
     state->systemScheme = false;
     state->spacingShift = 0;
+    state->borderPixels = 0;
     state->squareCorners = false;
     state->alternatingRows = false;
     state->inactiveShift = 0;
@@ -482,6 +483,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             MemCopy(state->lightSchemeName.text, value.value, state->lightSchemeName.length);
         } else if (StrIsEqual(name, S("theme.system"))) {
             state->systemScheme = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
+        } else if (StrIsEqual(name, S("borders"))) {
+            state->borderPixels = number >= 1 && number <= 3 ? (u8)number : 0;
         } else if (StrIsEqual(name, S("spacing"))) {
             if (number >= 0 && number <= 13) state->spacingShift = (i32)number - 4;
         } else if (StrIsEqual(name, S("corners"))) {
@@ -630,6 +633,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = sirius\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
+                                "# The thickness of the lines between areas and of the outlines, in pixels from 1 to 3, or default.\n# borders = default\n\n"
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
                                 "# give the keyboard to the panel it moves over, underline only the pointed name in single-click mode,\n"
                                 "# go up with a double click on the background, scroll past the last item, and turn the wheel around.\n"
@@ -696,6 +700,7 @@ global const String Prog_OptionSwitch[] = { SInit("false"), SInit("true") };
 global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
+global const String Prog_OptionBorders[] = { SInit("default"), SInit("1"), SInit("2"), SInit("3") };
 global const String Prog_OptionBackdrops[] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_Font] = { SInit("Font"), SInit("The system-installed font name that is applied to the entire UI."), Prog_OptionControl_Font, 0, 0, NULL, 0, SInit("font") },
@@ -704,6 +709,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_FontSize] = { SInit("Font Size"), SInit("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, SInit("scale") },
     [Prog_Option_InspectorFontSize] = { SInit("Inspector Font Size"), SInit("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
                                         Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, SInit("inspector.fontSize") },
+    [Prog_Option_Borders] = { SInit("Border Size"), SInit("Thickness of the lines between areas and of the outlines of panels, tabs and popups."),
+                              Prog_OptionControl_Choice, 0, 0, Prog_OptionBorders, CArrayCount(Prog_OptionBorders), SInit("borders") },
     [Prog_Option_Spacing] = { SInit("Spacing"), SInit("Defines the space between items in a list."), Prog_OptionControl_Slider, 0, 13, NULL, 0, SInit("spacing") },
     [Prog_Option_Animations] = { SInit("Animations"), SInit("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, SInit("animations") },
@@ -873,6 +880,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ColorScheme: case Prog_Option_DarkScheme: return state->scheme;
         case Prog_Option_LightScheme: return state->lightScheme;
         case Prog_Option_Spacing: return 4 + state->spacingShift;
+        case Prog_Option_Borders: return (i32)state->borderPixels;
         case Prog_Option_RoundCorners: return !state->squareCorners;
         case Prog_Option_InlineSubmenus: return state->menuInline;
         case Prog_Option_SystemScheme: return state->systemScheme;
@@ -1214,6 +1222,7 @@ typedef struct Prog_Metrics {
     f32 bar;         // tab strip and toolbar
     f32 pill;        // bottom filter and status pills
     f32 separator;
+    f32 stroke;      // the outlines of panels, tabs, boxes and popups
     f32 sidebar;
     f32 inset;       // list rows to the list edges
     f32 gap;         // text padding inside cells and buttons
@@ -1239,6 +1248,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
         .bar = floorf(line * 2.1f + 0.5f),
         .pill = floorf(line * 2.0f + 0.5f),
         .separator = MaxF32(1.0f, floorf(1.6f * scale + 0.5f)),
+        .stroke = 1.2f * scale,
         .sidebar = floorf(179.2f * scale + 0.5f),
         .inset = floorf(15.0f * scale + 0.5f),
         .gap = floorf(8.0f * scale + 0.5f),
@@ -1847,7 +1857,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     UI_Parent(strip) {
         if (caption) Prog__Caption(state, S("Caption"), width, bar, -top);
         // The tab's outline, a little thinner than the strip's line, runs a pixel in from its sides.
-        f32 stroke = 1.2f * scale, edge = floorf(0.8f * scale + 0.5f);
+        f32 stroke = m->stroke, edge = floorf(0.8f * scale + 0.5f);
         f32 button = floorf(m->bar * 0.75f);
         f32 leadWidth = lead ? button + m->inset : floorf(6.0f * scale + 0.5f);
         UI_SetNextPrefWidth(UI_Pixels(leadWidth));
@@ -2475,7 +2485,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
                     UI_SetNextPrefHeight(UI_Pixels(box));
                     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                     UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
-                    UI_SetNextBorderThickness(1.2f * m->scale);
+                    UI_SetNextBorderThickness(m->stroke);
                     UI_SetNextFont(m->icons);
                     UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = all ? theme->text : boxHot ? theme->textDim : theme->tabBorder, .text = theme->text });
                     UI_SetNextText(Icon_Check);
@@ -2843,7 +2853,7 @@ function void Prog__ItemBox(Prog_ItemLook look, UI_Size width, const Prog_Metric
         UI_SetNextPrefWidth(width);
         UI_SetNextPrefHeight(UI_Pixels(m->row - line));
         UI_SetNextCornerRadius(m->radius);
-        UI_SetNextBorderThickness(1.2f * m->scale);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
         UI_AddBlock(UI_Flag_Floating | look.flags);
     }
@@ -3083,7 +3093,7 @@ function b32 Prog__ItemCheckbox(Prog_State *state, u64 index, f32 width, f32 hei
         UI_SetNextPrefHeight(UI_Pixels(box));
         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
         UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
-        UI_SetNextBorderThickness(1.2f * m->scale);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextFont(m->icons);
         UI_SetNextColors((UI_Colors){ .border = theme->text, .text = theme->text });
         UI_SetNextText(Icon_Check);
@@ -3252,7 +3262,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(9.0f * m->scale) + floorf(8.0f * m->scale) - floorf(4.8f * m->scale + 0.5f), 0, 0 });
     UI_SetNextCornerRadius(m->radius * 2);
     Prog_ItemLook look = Prog__ItemLook(entry->selected, hot, focused);
-    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
     UI_Block *cell = UI_AddBlockFromKey(key, look.flags | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
@@ -3274,7 +3284,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
                 f32 bar = MaxF32(0, width - 2 * floorf(12.8f * m->scale + 0.5f)), tall = Prog__DriveBarHeight(iconSize, m);
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(tall));
-                UI_SetNextBorderThickness(1.2f * m->scale);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextCornerRadius(floorf(1.6f * m->scale + 0.5f));
                 UI_SetNextColors((UI_Colors){ .background = theme->track, .border = theme->outline });
                 UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
@@ -3624,7 +3634,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
         UI_SetNextChildrenPadding(active ? (UI_Padding){ radius, inset, m->gap, 0 } : (UI_Padding){ m->gap + radius, 0, m->gap, 0 });
         UI_SetNextCornerRadius(radius);
-        UI_SetNextBorderThickness(1.2f * m->scale);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
         UI_Block *filter = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->filterRect = filter->rect;
@@ -3696,7 +3706,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
             Prog_CommandKind kinds[2] = { Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles };
             UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, floorf(4.8f * m->scale + 0.5f) + radius, 0 });
             UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(1.2f * m->scale);
+            UI_SetNextBorderThickness(m->stroke);
             UI_SetNextPrefWidth(UI_Fill());
             UI_SetNextPrefHeight(UI_Pixels(m->pill + radius));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -4283,7 +4293,7 @@ function void Prog__HotkeyQuestion(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
     UI_SetNextCornerRadius(m->radius * 2);
-    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("HotkeyQuestion")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
@@ -4362,7 +4372,7 @@ function f32 Prog__MenuFlare(const Prog_Metrics *m)
 function Prog_MenuJoin Prog__MenuJoinShape(R_Rect row, R_Rect parent, R_Rect child, b32 left, f32 radius, const Prog_Metrics *m)
 {
     Prog_MenuJoin result = { .mirror = left ? child.x0 + child.x1 : 0 };
-    f32 b = 1.2f * m->scale, flare = Prog__MenuFlare(m), R = radius;
+    f32 b = m->stroke, flare = Prog__MenuFlare(m), R = radius;
     R_Rect P = Prog__Mirror(parent, result.mirror), C = Prog__Mirror(child, result.mirror);
     row = Prog__Mirror(row, result.mirror);
     // On the submenu's whole pixels, so that the row's lines run on into its edges without a step.
@@ -4419,7 +4429,7 @@ function void Prog__JoinBox(R_Rect clip, R_Rect box, f32 radius, u32 shape, f32 
             UI_SetNextBlur(Prog__FloatingBlur(m));
             Prog__JoinPiece(box, mirror, (UI_Vec2){ shown.x0, shown.y0 }, Prog_CurrentTheme()->menu, UI_Flag_DrawBackground);
         } else {
-            UI_SetNextBorderThickness(1.2f * m->scale);
+            UI_SetNextBorderThickness(m->stroke);
             Prog__JoinPiece(box, mirror, (UI_Vec2){ shown.x0, shown.y0 }, (R_Color){0}, UI_Flag_DrawBorder);
         }
     }
@@ -4440,7 +4450,7 @@ function void Prog__MenuJoinFills(const Prog_MenuJoin *join, u32 parentShape, f3
 // `origin`. Each piece shows the outline of a box placed so that only the lines wanted there fall inside its clip, and no two clips overlap.
 function void Prog__MenuJoinLines(const Prog_MenuJoin *join, UI_Vec2 origin, f32 opacity, f32 radius, const Prog_Metrics *m)
 {
-    f32 b = 1.2f * m->scale, band = ceilf(b), rowRadius = m->radius * 2, mirror = join->mirror, L = join->line, R = radius, outside = 4 * R;
+    f32 b = m->stroke, band = ceilf(b), rowRadius = m->radius * 2, mirror = join->mirror, L = join->line, R = radius, outside = 4 * R;
     R_Rect P = join->parent, C = join->child, row = join->row;
     UI_SetNextOpacity(opacity);
     UI_Block *holder = Prog__JoinPiece((R_Rect){ origin.x, origin.y, origin.x, origin.y }, 0, origin, (R_Color){0}, 0);
@@ -4542,7 +4552,7 @@ function void Prog__MenuBorderDraw(const Prog_MenuBorder *border, const Prog_Met
                 UI_SetNextPrefHeight(UI_Pixels(rect.y1 - rect.y0));
                 UI_SetNextCornerRadius(border->radius);
                 UI_SetNextShape(border->shape);
-                UI_SetNextBorderThickness(1.2f * m->scale);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextOpacity(border->opacity);
                 UI_SetNextColors((UI_Colors){ .border = Prog_CurrentTheme()->tabBorder });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
@@ -4944,7 +4954,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextPrefHeight(UI_Pixels(box));
                         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                         UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
-                        UI_SetNextBorderThickness(1.2f * m->scale);
+                        UI_SetNextBorderThickness(m->stroke);
                         UI_SetNextFont(m->iconsSmall);
                         // A box that cannot be changed shows dimmed.
                         R_Color fill = theme->selection, mark = theme->text;
@@ -5026,7 +5036,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ side, pad, side, pad });
     UI_SetNextCornerRadius(floorf(8.0f * s + 0.5f));
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
@@ -5097,7 +5107,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
     UI_SetNextChildrenPadding((UI_Padding){ pad, top, pad, bottom });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
@@ -5139,7 +5149,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     u32 matches[Prog_MaxTabs];
     u32 count = Prog_TabMatches(state, matches);
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
-    f32 s = m->scale, line = m->separator, stroke = 1.2f * s;
+    f32 s = m->scale, line = m->separator, stroke = m->stroke;
     f32 field = floorf(32.0f * s + 0.5f), rowHeight = floorf(42.4f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
     f32 iconSlot = floorf(28.8f * s + 0.5f), lead = floorf(13.6f * s + 0.5f), textGap = floorf(14.4f * s + 0.5f), trail = floorf(8.0f * s + 0.5f);
     R_Rect button = state->tabListRect;
@@ -5519,7 +5529,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 // Section items sit in from their title; a folder's items do not.
                 UI_SetNextChildrenPadding((UI_Padding){ floorf((sections ? 32.8f : 8.8f) * s + 0.5f), 0, pad, 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = theme->selection });
                 UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted ? UI_Flag_DrawBackground : 0) | (hot && !highlighted ? UI_Flag_DrawBorder : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
@@ -5598,7 +5608,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
@@ -5615,6 +5625,7 @@ function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value
 function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
 {
     if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return S("Local Disks");
+    if (option == Prog_Option_Borders && !StrIsEqual(name, S("default"))) return StrFormat(arena, "%S px", name);
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return S("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return S("Vertical");
     if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return S("Last Session");
@@ -5832,7 +5843,7 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
     UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(6.4f * s + 0.5f), 0 });
     UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = washed, .border = theme->selection });
     UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (hot ? UI_Flag_DrawBackground : 0) | (highlighted || hot ? UI_Flag_DrawBorder : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(entry);
@@ -5940,7 +5951,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextCornerRadius(radius);
     UI_SetNextBlur(Prog__FloatingBlur(m));
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TypesPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_MouseClickable);
     UI_Parent(box) {
@@ -6022,7 +6033,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefHeight(UI_Pixels(box16));
                 UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                 UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextFont(m->iconsSmall);
                 UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = lit ? theme->text : theme->tabBorder, .text = theme->text });
                 UI_SetNextText(Icon_Check);
@@ -6072,7 +6083,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextCornerRadius(radius);
     UI_SetNextBlur(Prog__FloatingBlur(m));
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilesPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_MouseClickable);
     UI_Parent(box) {
@@ -6206,7 +6217,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
     UI_SetNextBlur(Prog__FloatingBlur(m));
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill(), .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ZoomPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     Prog_View view = Prog_ZoomView(state->zoom);
@@ -6375,7 +6386,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(10.4f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
                 UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
@@ -6408,7 +6419,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
@@ -6498,7 +6509,7 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(10.4f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
                 UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
@@ -6527,7 +6538,7 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
@@ -6669,7 +6680,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, pad });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPicker")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
@@ -6683,7 +6694,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(swatch));
         UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-        UI_SetNextBorderThickness(1.2f * s);
+        UI_SetNextBorderThickness(m->stroke);
         UI_SetNextColors((UI_Colors){ .background = color, .border = theme->outline });
         UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
         Prog__Spacer(UI_Flex(), UI_Pixels(pad));
@@ -6746,7 +6757,7 @@ function b32 Prog__LayoutButton(Prog_State *state, String key, String label, b32
     UI_SetNextPrefHeight(UI_Pixels(floorf(24.0f * s + 0.5f)));
     UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
     UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
-    UI_SetNextBorderThickness(hot ? 1.2f * s : 0);
+    UI_SetNextBorderThickness(hot ? m->stroke : 0);
     UI_SetNextColors((UI_Colors){ .background = face, .border = theme->textDim, .text = able ? theme->text : theme->textDim });
     UI_SetNextText(label);
     UI_Block *button = UI_AddBlockFromKey(id, UI_Flag_DrawBackground | UI_Flag_DrawText | (hot ? UI_Flag_DrawBorder : 0) | (able ? UI_Flag_LeftMouseClickable : 0));
@@ -6816,7 +6827,7 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
@@ -7032,7 +7043,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(12.0f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_SetNextColors((UI_Colors){ .background = highlighted && able ? theme->selection : washed, .border = theme->selection });
                 UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
@@ -7128,7 +7139,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, top });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextOpacity(opacity);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
@@ -7349,7 +7360,7 @@ function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextCornerRadius(radius * 1.5f);
-    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->tabBorder });
     UI_Block *frame = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
     UI_Parent(frame) {
@@ -7362,7 +7373,7 @@ function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32
             UI_SetNextPrefWidth(UI_Pixels(across ? part : innerWidth));
             UI_SetNextPrefHeight(UI_Pixels(across ? innerHeight : part));
             UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(1.2f * m->scale);
+            UI_SetNextBorderThickness(m->stroke);
             UI_SetNextColors((UI_Colors){ .background = fill, .border = i == target ? theme->selection : theme->tabBorder });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
         }
@@ -7923,7 +7934,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * s);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
@@ -8009,7 +8020,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0 });
     UI_SetNextChildrenPadding(active ? (UI_Padding){ radius, inset, m->gap, 0 } : (UI_Padding){ m->gap + radius, 0, m->gap, 0 });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(1.2f * m->scale);
+    UI_SetNextBorderThickness(m->stroke);
     UI_SetNextColors((UI_Colors){ .background = theme->panel, .border = theme->tabBorder });
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorFilterBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Interaction interaction = UI_InteractionFromBlock(box);
@@ -8554,7 +8565,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(state->imageFit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
                 UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(radius);
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_Block *zoom = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
                 zoom->props.colors.border = theme->tabBorder;
                 zoom->props.childrenAlignment = (UI_Vec2){ 0, 0 };
@@ -8567,7 +8578,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (text) {
                 UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(radius);
-                UI_SetNextBorderThickness(1.2f * s);
+                UI_SetNextBorderThickness(m->stroke);
                 UI_Block *facts = Prog__Box(UI_Fill(), UI_Pixels(m->pill + radius), UI_Layout_Horizontal, theme->panel, UI_Flag_DrawBorder);
                 facts->props.colors.border = theme->tabBorder;
                 facts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
@@ -9146,6 +9157,8 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (state->sidebarWidth > 0) metrics.sidebar = floorf(state->sidebarWidth * scale + 0.5f);
     // Spacing moves the rows apart or together from the default 4, two pixels a step at 125%.
     metrics.row = MaxF32(metrics.line + 2, metrics.row + (f32)state->spacingShift * floorf(1.6f * scale + 0.5f));
+    // A border size in whole pixels draws the lines between areas and the outlines alike, crisp at any scale.
+    if (state->borderPixels) metrics.separator = metrics.stroke = (f32)state->borderPixels;
     UI->squareCorners = state->squareCorners;
     UI->reverseScroll = state->reverseScroll;
     metrics.detail = state->smallFont ? state->smallFont : font;
