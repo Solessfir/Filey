@@ -380,6 +380,31 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   transparent = true            the transparent theme
 //   inspector.fontSize = 10       the inspector's text size in points, and inspector.layout = auto, right or below where it sits
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
+// Whether the settings in `configDirectory` give each run a window of its own, read before the window opens.
+function b32 Prog_SeparateInstances(String configDirectory)
+{
+    if (!configDirectory.length) return false;
+    Scratch scratch = GetScratch();
+    String text = {0};
+    b32 result = false;
+    if (P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, S("Settings.conf")), &text)) {
+        ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+        for (u64 l = 0; l < lines.header.count; ++l) {
+            String line = lines.v[l];
+            while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+            while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
+            Index equals = StrIndexChar(line, '=', SSF_None);
+            if (!equals.exists || line.value[0] == '#') continue;
+            String name = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+            while (name.length && name.value[name.length - 1] == ' ') --name.length;
+            while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+            if (StrIsEqual(name, S("instances.single"))) result = Prog__SettingOff(value);
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
     Prog_ThemeUser = Prog_ThemeCustom;
@@ -406,7 +431,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = state->noTrashConfirm = state->menuInline = false;
+    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->separateInstances = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
@@ -502,6 +527,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->showCheckboxes = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("trash.confirm"))) {
             state->noTrashConfirm = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("instances.single"))) {
+            state->separateInstances = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("thumbnails"))) {
             if (Prog__EqualFolded(value, S("never"))) state->thumbnailMode = Prog_Thumbnails_Never;
             if (Prog__EqualFolded(value, S("always"))) state->thumbnailMode = Prog_Thumbnails_Always;
@@ -621,6 +648,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
                                 "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n\n"
+                                "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
+                                "# than opening another window.\n# instances.single = true\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
                                 "# recents.store = persistent\n# recents.highlight = false\n# recents.sort = false\n\n"
                                 "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = true\n\n"
@@ -782,6 +811,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                     Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
     [Prog_Option_NewTabShow] = { SInit("New Tab Show"), SInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), SInit("newtab") },
+    [Prog_Option_SingleWindow] = { SInit("Open In One Window"), SInit("Starting Filey or opening a folder from elsewhere uses the open window, in a new tab."),
+                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("instances.single") },
     [Prog_Option_VSync] = { SInit("VSync"), SInit("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
                             Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("vsync") },
     [Prog_Option_Transparency] = { SInit("Transparency"), SInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
@@ -863,6 +894,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
             return state->startup;
         }
         case Prog_Option_NewTabShow: return state->newTab;
+        case Prog_Option_SingleWindow: return !state->separateInstances;
         case Prog_Option_VSync: return !state->noVSync;
         case Prog_Option_HighlightCode: return !state->noHighlight;
         case Prog_Option_LoadThumbnails: return state->thumbnailMode == Prog_Thumbnails_Never ? 0 : state->thumbnailMode == Prog_Thumbnails_Always ? 2 : 1;

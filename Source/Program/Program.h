@@ -645,6 +645,7 @@ typedef enum Prog_Option {
     Prog_Option_HighlightCode,
     Prog_Option_LoadOnStartup,
     Prog_Option_NewTabShow,
+    Prog_Option_SingleWindow,
     Prog_Option_VSync,
     Prog_Option_Transparency,
     Prog_Option_WindowOpacity,
@@ -1331,6 +1332,8 @@ typedef struct Prog_State {
     // While several items are selected, the rows show boxes that check them in place of their icons.
     b32 showCheckboxes;
     b32 noTrashConfirm;       // emptying the Recycle Bin or the Trash does not ask first
+    b32 separateInstances;    // each run of the program opens a window of its own, rather than a tab in the one already open
+    b32 separateWindow;       // started as a window of its own beside that one, which keeps the session
     // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;

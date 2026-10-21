@@ -24,6 +24,16 @@ function PlatformEvent *PlatformPushEvent(PlatformEventKind kind)
     return event;
 }
 
+// An event with `text`, copied into the events' memory.
+function PlatformEvent *PlatformPushEventText(PlatformEventKind kind, String text)
+{
+    char *copy = ArenaPushArrayNoZero(&EventQueue.arenas[EventQueue.current], Max(text.length, (u64)1), char);
+    MemCopy(copy, text.value, text.length);
+    PlatformEvent *event = PlatformPushEvent(kind);
+    event->text = StrMake(copy, text.length);
+    return event;
+}
+
 function PlatformEventList PlatformTakeEvents(void)
 {
     PlatformEventList result = EventQueue.pending;

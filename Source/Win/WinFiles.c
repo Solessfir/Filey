@@ -667,6 +667,18 @@ function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
 function String P_TrashName(void) { return S("Recycle Bin"); }
 
+function b32 P_StartupFlag(String flag)
+{
+    i32 count = 0;
+    wchar **arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    b32 result = false;
+    Scratch scratch = GetScratch();
+    for (i32 i = 1; arguments && i < count && !result; ++i) result = StrIsEqual(P__FileStringWide(scratch.arena, arguments[i], lstrlenW(arguments[i])), flag);
+    ReleaseScratch(scratch);
+    if (arguments) LocalFree(arguments);
+    return result;
+}
+
 function ArrayStr P_StartupPaths(Arena *arena)
 {
     i32 count = 0;
@@ -679,8 +691,8 @@ function ArrayStr P_StartupPaths(Arena *arena)
         // The shell quotes "%1", so a drive comes as "C:\", whose backslash the parsing took for an escaped quote; no path holds a quote.
         i32 length = lstrlenW(argument);
         if (length && argument[length - 1] == L'"') argument[length - 1] = 0;
-        // Win+E passes its own shell folder, "::{52205fd8-...}", which starts Filey as it starts without a folder.
-        if (argument[0] == L':' && argument[1] == L':') continue;
+        // Win+E passes its own shell folder, "::{52205fd8-...}", which starts Filey as it starts without a folder; flags are not folders.
+        if ((argument[0] == L':' && argument[1] == L':') || (argument[0] == L'-' && argument[1] == L'-')) continue;
         u32 needed = GetLongPathNameW(argument, NULL, 0);
         if (needed) {
             wchar *full = ArenaPushArrayNoZero(scratch.arena, needed, wchar);

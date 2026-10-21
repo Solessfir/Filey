@@ -42,6 +42,68 @@ typedef struct WinWindowState {
 
 global WinWindowState Win;
 
+// One window for each settings folder: a named mutex says a run has it, and that run's window carries the folder's hash as a property, by
+// which a later run finds it to hand it its folders.
+#define WinInstanceProperty L"FileyInstance"
+#define WinOpenPathsMagic 0x46494C59u
+global HANDLE WinInstanceMutex;
+global u64 WinInstanceKey;
+
+function HWND Win__InstanceWindow(u64 key)
+{
+    for (HWND window = NULL; (window = FindWindowExW(NULL, window, L"FileyWindow", NULL));) {
+        if ((u64)(uintptr_t)GetPropW(window, WinInstanceProperty) == key && IsWindowVisible(window)) return window;
+    }
+    return NULL;
+}
+
+function b32 PlatformInstanceClaim(String key, ArrayStr paths)
+{
+    WinInstanceKey = MapHashBytes(key.value, key.length) | 1;
+    wchar name[64];
+    swprintf(name, CArrayCount(name), L"Local\\Filey-%016llx", (unsigned long long)WinInstanceKey);
+    HANDLE mutex = CreateMutexW(NULL, FALSE, name);
+    if (!mutex) return true;
+    if (GetLastError() != ERROR_ALREADY_EXISTS) {
+        WinInstanceMutex = mutex;
+        return true;
+    }
+    CloseHandle(mutex);
+    Scratch scratch = GetScratch();
+    StrBuilder text = {0};
+    for (u64 i = 0; i < paths.header.count; ++i) {
+        if (i) StrBuildChar(scratch.arena, &text, '\n');
+        StrBuildStr(scratch.arena, &text, paths.v[i]);
+    }
+    // The run that has it may still be opening its window; one that does not answer, or has none, leaves this run its own.
+    b32 handed = false;
+    for (u32 tries = 0; tries < 100 && !handed; ++tries) {
+        HWND window = Win__InstanceWindow(WinInstanceKey);
+        if (!window) {
+            Sleep(30);
+            continue;
+        }
+        DWORD process = 0;
+        GetWindowThreadProcessId(window, &process);
+        // This run was just started by the user, so it may give the window the foreground.
+        AllowSetForegroundWindow(process);
+        COPYDATASTRUCT data = { .dwData = WinOpenPathsMagic, .cbData = (DWORD)text.buffer.length, .lpData = (void *)text.buffer.value };
+        DWORD_PTR answer = 0;
+        handed = SendMessageTimeoutW(window, WM_COPYDATA, 0, (LPARAM)&data, SMTO_ABORTIFHUNG, 5000, &answer) && answer;
+        break;
+    }
+    ReleaseScratch(scratch);
+    return !handed;
+}
+
+function void PlatformInstanceRelease(void)
+{
+    if (!WinInstanceMutex) return;
+    if (Win.window) RemovePropW(Win.window, WinInstanceProperty);
+    CloseHandle(WinInstanceMutex);
+    WinInstanceMutex = NULL;
+}
+
 #define WinWakeMessage (WM_APP + 1)
 #define WinShellChangeMessage (WM_APP + 2)
 
@@ -268,6 +330,15 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
         case WM_CLOSE: {
             PlatformPushEvent(PlatformEventKind_CloseRequested);
         } return 0;
+
+        // A later run's folders, or none when it only brings the window forward.
+        case WM_COPYDATA: {
+            const COPYDATASTRUCT *data = (const COPYDATASTRUCT *)lParam;
+            if (!data || data->dwData != WinOpenPathsMagic) break;
+            PlatformPushEventText(PlatformEventKind_OpenPaths, StrMake((const char *)data->lpData, data->cbData));
+            if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
+            SetForegroundWindow(window);
+        } return TRUE;
 
         case WM_SIZE: {
             Win.width = LOWORD(lParam);
@@ -533,6 +604,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     if (Win.window == NULL) {
         return false;
     }
+    if (WinInstanceMutex) SetPropW(Win.window, WinInstanceProperty, (HANDLE)(uintptr_t)WinInstanceKey);
 
     // Installers and Open With's "always" tell the shell of changed associations, and apps of replaced icons; Explorer is told so, and so is this window.
     PIDLIST_ABSOLUTE desktop = NULL;

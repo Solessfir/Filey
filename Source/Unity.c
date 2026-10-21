@@ -320,6 +320,14 @@ int main(void)
     // The window opens at the size the last run left it at, rather than growing to it once the settings are read.
     Scratch startup = GetScratch();
     String configDirectory = P_ConfigDirectory(startup.arena);
+    // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
+    ArrayStr startPaths = P_StartupPaths(startup.arena);
+    // With one window for the settings, a later run hands its folders to the one already open and quits; New Window's runs get their own.
+    b32 separateWindow = P_StartupFlag(S("--new-window"));
+    if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, startPaths)) {
+        ReleaseScratch(startup);
+        return 0;
+    }
     PlatformWindowDesc window = { .title = S("Filey"), .width = 1280, .height = 800, .background = backgroundRgb };
     Prog_SessionWindow(configDirectory, &window);
     ProfileScope("OpenWindow") ok = PlatformWindowOpen(window);
@@ -327,10 +335,9 @@ int main(void)
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
-    // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
-    ArrayStr startPaths = P_StartupPaths(startup.arena);
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
     if (ok) Prog_LoadSettings(&loop.state, configDirectory, P_CacheDirectory(startup.arena));
+    loop.state.separateWindow = separateWindow;
     // After the settings, so that these tabs start with their choices.
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
@@ -387,6 +394,7 @@ int main(void)
     }
 
     PlatformSetModalFrameCallback(NULL, NULL);
+    PlatformInstanceRelease();
     // Closed, the window goes at once; the session is saved and the background work stops behind it, which a slow disk can draw out.
     PlatformWindowHide();
     Prog_Release(&loop.state);

@@ -98,6 +98,7 @@ typedef enum PlatformEventKind {
     PlatformEventKind_MouseWheel,
     PlatformEventKind_MouseLeave,  // the pointer left the window
     PlatformEventKind_DrivesChanged,  // a drive or its medium came or went
+    PlatformEventKind_OpenPaths,      // a later run of the program handed this one its folders, in `text` a line each; none to come forward only
 
     PlatformEventKind_Count,
 } PlatformEventKind;
@@ -123,6 +124,8 @@ struct PlatformEvent {
 
     i32 width;     // Resized
     i32 height;
+
+    String text;   // OpenPaths, in the event's own memory
 
     u64 timeMicroseconds;  // PlatformNowMicroseconds when the OS delivered it
 };
@@ -202,6 +205,12 @@ function void PlatformWindowToggleFullscreen(void);
 function void PlatformWindowClose(void);
 // Takes the window off the screen at once, as the program quits, while it waits for its background work to stop.
 function void PlatformWindowHide(void);
+
+// One window for each `key`, the settings folder, before the window opens: true when this run is to open it, false once `paths` went to the
+// run that has it, which comes forward and opens them (an OpenPaths event).
+function b32  PlatformInstanceClaim(String key, ArrayStr paths);
+// Lets a later run open a window of its own, as this one closes.
+function void PlatformInstanceRelease(void);
 // Called while the left button is down: the system moves the window with the pointer and keeps the release, so a MouseUp is pushed in its place.
 function void PlatformWindowStartMove(void);
 

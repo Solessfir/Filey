@@ -25,6 +25,8 @@
 #include "Linux/Protocols/FractionalScale.generated.c"
 #include "Linux/Protocols/Viewporter.generated.h"
 #include "Linux/Protocols/Viewporter.generated.c"
+#include "Linux/Protocols/XdgActivation.generated.h"
+#include "Linux/Protocols/XdgActivation.generated.c"
 #pragma GCC diagnostic pop
 #pragma pop_macro("global")
 
@@ -67,6 +69,8 @@ typedef struct LinuxWindowState {
     // Without them the compositor gets an integer buffer scale.
     struct wp_fractional_scale_manager_v1 *fractionalManager;
     struct wp_viewporter *viewporter;
+    struct xdg_activation_v1 *activation;  // brings the window forward with a token a later run's launcher gave it
+    i32 instanceFd;                         // the socket later runs hand their folders to, -1 for none
     struct wp_fractional_scale_v1 *fractional;
     struct wp_viewport *viewport;
     u32 compositorVersion;
@@ -856,6 +860,8 @@ function void RegistryGlobal(void *data, struct wl_registry *registry, u32 name,
         Wl.fractionalManager = wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1);
     } else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
         Wl.viewporter = wl_registry_bind(registry, name, &wp_viewporter_interface, 1);
+    } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
+        Wl.activation = wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1);
     } else if (strcmp(interface, wl_data_device_manager_interface.name) == 0) {
         Wl.dataManager = wl_registry_bind(registry, name, &wl_data_device_manager_interface, Min(version, (u32)3));
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
@@ -1051,6 +1057,8 @@ function PlatformWindowInfo PlatformWindowGetInfo(void)
     };
 }
 
+function void LinuxTakeInstanceMessage(void);
+
 function PlatformEventList PlatformPollEvents(b32 wait)
 {
     wl_display_dispatch_pending(Wl.display);
@@ -1082,6 +1090,7 @@ function PlatformEventList PlatformPollEvents(b32 wait)
         struct pollfd fds[] = {
             { .fd = wl_display_get_fd(Wl.display), .events = POLLIN },
             { .fd = Wl.wakeFd, .events = POLLIN },
+            { .fd = Wl.instanceFd > 0 ? Wl.instanceFd : -1, .events = POLLIN },
         };
         if (poll(fds, CArrayCount(fds), timeout) > 0 && (fds[0].revents & POLLIN)) {
             wl_display_read_events(Wl.display);
@@ -1091,6 +1100,10 @@ function PlatformEventList PlatformPollEvents(b32 wait)
         if (fds[1].revents & POLLIN) {
             u64 count;
             while (read(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
+            woken = true;
+        }
+        if (fds[2].revents & POLLIN) {
+            LinuxTakeInstanceMessage();
             woken = true;
         }
 
@@ -1114,6 +1127,82 @@ function void P_WakeWindow(void)
 {
     u64 count = 1;
     while (write(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
+}
+
+// One window for each settings folder: the run that has it listens on an abstract socket named after the folder, for its user, and a
+// later run connects to hand it the activation token its launcher gave it, on the first line, and its folders on the next ones.
+function b32 LinuxInstanceAddress(String key, struct sockaddr_un *address, socklen_t *size)
+{
+    *address = (struct sockaddr_un){ .sun_family = AF_UNIX };
+    i32 length = snprintf(address->sun_path + 1, sizeof(address->sun_path) - 1, "filey-%u-%016llx", (u32)getuid(), (unsigned long long)MapHashBytes(key.value, key.length));
+    *size = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + (u64)length);
+    return length > 0;
+}
+
+function b32 PlatformInstanceClaim(String key, ArrayStr paths)
+{
+    struct sockaddr_un address;
+    socklen_t size = 0;
+    i32 fd = LinuxInstanceAddress(key, &address, &size) ? socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0) : -1;
+    if (fd < 0) return true;
+    if (bind(fd, (struct sockaddr *)&address, size) == 0 && listen(fd, 8) == 0) {
+        Wl.instanceFd = fd;
+        return true;
+    }
+    b32 handed = false;
+    if (connect(fd, (struct sockaddr *)&address, size) == 0) {
+        Scratch scratch = GetScratch();
+        StrBuilder text = {0};
+        const char *token = getenv("XDG_ACTIVATION_TOKEN");
+        if (token) StrBuildStr(scratch.arena, &text, StrFromCStr(token));
+        for (u64 i = 0; i < paths.header.count; ++i) {
+            StrBuildChar(scratch.arena, &text, '\n');
+            StrBuildStr(scratch.arena, &text, paths.v[i]);
+        }
+        handed = true;
+        for (u64 at = 0; handed && at < text.buffer.length;) {
+            ssize_t wrote = write(fd, text.buffer.value + at, text.buffer.length - at);
+            if (wrote < 0 && errno == EINTR) continue;
+            handed = wrote > 0;
+            at += wrote > 0 ? (u64)wrote : 0;
+        }
+        ReleaseScratch(scratch);
+    }
+    close(fd);
+    return !handed;
+}
+
+function void PlatformInstanceRelease(void)
+{
+    if (Wl.instanceFd > 0) close(Wl.instanceFd);
+    Wl.instanceFd = -1;
+}
+
+// A later run's message, read whole, as it writes it at once and closes.
+function void LinuxTakeInstanceMessage(void)
+{
+    i32 client = accept4(Wl.instanceFd, NULL, NULL, SOCK_CLOEXEC);
+    if (client < 0) return;
+    Scratch scratch = GetScratch();
+    StrBuilder text = {0};
+    char buffer[4096];
+    struct pollfd fd = { .fd = client, .events = POLLIN };
+    while (text.buffer.length < Megabytes(1) && poll(&fd, 1, 500) > 0) {
+        ssize_t got = read(client, buffer, sizeof(buffer));
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) break;
+        StrBuildStr(scratch.arena, &text, StrMake(buffer, (u64)got));
+    }
+    close(client);
+    Index line = StrIndexChar(text.buffer, '\n', SSF_None);
+    String token = line.exists ? StrFromTo(text.buffer, 0, (i64)line.value) : text.buffer;
+    if (token.length && Wl.activation && Wl.surface) {
+        char *copy = ArenaPushArray(scratch.arena, token.length + 1, char);
+        MemCopy(copy, token.value, token.length);
+        xdg_activation_v1_activate(Wl.activation, copy, Wl.surface);
+    }
+    PlatformPushEventText(PlatformEventKind_OpenPaths, line.exists ? StrFrom(text.buffer, line.value + 1) : (String){0});
+    ReleaseScratch(scratch);
 }
 
 function void P_ReleaseWindowWake(void)

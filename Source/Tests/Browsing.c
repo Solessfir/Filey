@@ -2387,6 +2387,17 @@ function void TestPanels(TestFileFixture *fixture)
     u32 closes = TestWindowCalls[2];
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
     Check(state.panelCount == 1 && state.tabCount == 1 && TestWindowCalls[2] == closes + 1);
+    // Folders a later run hands over open in new tabs after the shown one, the last of them shown; none only brings the window forward.
+    {
+        String handed = StrFormat(&state.frameArena, "%S\n%S/Empty\n", fixture->path, fixture->path);
+        Prog_OpenPaths(&state, handed);
+        Check(state.tabCount == 3 && state.activeTab == 2 && TestEndsWith(Prog_TabPath(&state, 2), S("/Empty")) && StrIsEqual(Prog_TabPath(&state, 1), fixture->path));
+        Prog_OpenPaths(&state, S(""));
+        Check(state.tabCount == 3);
+        Prog_SelectTab(&state, 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_TabCloseOthers, 0);
+        Check(state.tabCount == 1 && TestWaitDirectory(&state));
+    }
     // Dragged tabs: within their strip they change place, into another panel they move there, and beside a panel they make a new one; Ctrl copies.
     u64 alone = state.panels[0].id;
     Prog_OpenTab(&state, fixture->path, 1, false);
@@ -2502,6 +2513,10 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
         Prog_ApplySettings(&look, S("trash.confirm = off\n"));
         Check(look.noTrashConfirm && !Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
+        // One window for every run, unless turned off.
+        Check(Prog_OptionValue(&look, Prog_Option_SingleWindow));
+        Prog_ApplySettings(&look, S("instances.single = off\n"));
+        Check(look.separateInstances && !Prog_OptionValue(&look, Prog_Option_SingleWindow));
         Check(Prog_OptionValue(&look, Prog_Option_HighlightCode));
         Prog_ApplySettings(&look, S("inspector.highlight = false\n"));
         Check(look.noHighlight && !Prog_OptionValue(&look, Prog_Option_HighlightCode));

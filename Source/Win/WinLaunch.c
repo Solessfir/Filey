@@ -369,10 +369,11 @@ function P_FileError P_OpenWindow(Arena *arena, String path)
     if (!length || length >= CArrayCount(executable) || !folder) {
         result = P__FileError(arena, GetLastError());
     } else {
-        // The command line is the quoted program, then the quoted folder, as the program's own startup parses it.
+        // The command line is the quoted program, then the quoted folder, as the program's own startup parses it; the flag gives it a
+        // window of its own rather than a tab in this one.
         u64 folderLength = wcslen(folder);
-        wchar *line = ArenaPushArray(scratch.arena, length + folderLength + 8, wchar);
-        swprintf(line, length + folderLength + 8, L"\"%ls\" \"%ls\"", executable, folder);
+        wchar *line = ArenaPushArray(scratch.arena, length + folderLength + 24, wchar);
+        swprintf(line, length + folderLength + 24, L"\"%ls\" --new-window \"%ls\"", executable, folder);
         STARTUPINFOW startup = { .cb = sizeof(startup) };
         PROCESS_INFORMATION process = {0};
         if (CreateProcessW(executable, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {

@@ -3971,6 +3971,14 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     if (activate) Prog_SelectTab(state, at);
 }
 
+// Folders a later run of the program handed this one, a line each, each in a new tab of the active panel after its shown one, the last shown.
+function void Prog_OpenPaths(Prog_State *state, String text)
+{
+    Prog__UsePanel(state, state->activePanel);
+    ArrayStr lines = StrSplit(&state->frameArena, text, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) if (lines.v[i].length) Prog_OpenTab(state, lines.v[i], state->activeTab + 1, true);
+}
+
 // Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`.
 function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
 {
@@ -4885,8 +4893,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 function void Prog_Release(Prog_State *state)
 {
     Prog_CloseMenu(state);
-    // The session is written while the panels still hold it.
-    if (state->configDirectory.length && state->panelCount) {
+    // The session is written while the panels still hold it; a window started beside the main one leaves it to that one.
+    if (state->configDirectory.length && state->panelCount && !state->separateWindow) {
         Scratch scratch = GetScratch();
         P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SessionFile), Prog_LayoutText(scratch.arena, state));
         ReleaseScratch(scratch);

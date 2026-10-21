@@ -293,7 +293,8 @@ function P_FileError P_OpenWindow(Arena *arena, String path)
     u32 error = length > 0 && folder ? 0 : (u32)errno;
     if (!error) {
         executable[length] = 0;
-        char *args[] = {executable, folder, NULL};
+        // The flag gives it a window of its own rather than a tab in this one.
+        char *args[] = {executable, "--new-window", folder, NULL};
         error = P__Spawn(executable, args, NULL);
     }
     ReleaseScratch(scratch);
@@ -1370,6 +1371,21 @@ function P_FileError P_TrashItems(Arena *arena, const String *paths, u64 count)
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
+function b32 P_StartupFlag(String flag)
+{
+    Scratch scratch = GetScratch();
+    StrBuilder text = {0};
+    i32 fd = open("/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
+    char buffer[4096];
+    for (ssize_t length; fd >= 0 && (length = read(fd, buffer, sizeof(buffer))) > 0;) StrBuildStr(scratch.arena, &text, StrMake(buffer, (u64)length));
+    if (fd >= 0) close(fd);
+    ArrayStr arguments = StrSplit(scratch.arena, text.buffer, 0);
+    b32 result = false;
+    for (u64 i = 1; i < arguments.header.count && !result; ++i) result = StrIsEqual(arguments.v[i], flag);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function ArrayStr P_StartupPaths(Arena *arena)
 {
     // The arguments are null-separated in /proc, which spares the program's entry point from passing them down.
@@ -1382,6 +1398,8 @@ function ArrayStr P_StartupPaths(Arena *arena)
     ArrayStr result = {0};
     ArrayStr arguments = StrSplit(scratch.arena, text.buffer, 0);
     for (u64 i = 1; i < arguments.header.count; ++i) {
+        // Flags are not folders.
+        if (StrIsEqual(StrFromTo(arguments.v[i], 0, 2), S("--"))) continue;
         String path = arguments.v[i].length ? P_AbsolutePath(arena, arguments.v[i]) : (String){0};
         if (path.length) ArrayPush(arena, result, path);
     }
