@@ -5620,7 +5620,11 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     b32 sections = !folder.length && !searching;
     Row *rows = ArenaPushArray(&state->frameArena, count + Prog_GoToSection_Folder + 1, Row);
     u32 rowCount = 0, highlightRow = 0;
+    // A section with nothing in it, folded or not, has no title either.
+    u64 shownRecents[Prog_ShownRecentCount];
+    u64 sizes[Prog_GoToSection_Folder] = { Prog_ShownRecents(state, shownRecents), state->bookmarks.header.count, state->drives.header.count, state->places.header.count };
     for (u32 section = 0; section < (sections ? (u32)Prog_GoToSection_Folder : 1u); ++section) {
+        if (sections && !sizes[section]) continue;
         if (sections) rows[rowCount++] = (Row){ -1, (i32)section };
         for (u32 i = 0; i < count; ++i) {
             if (sections && found[i].section != section) continue;
