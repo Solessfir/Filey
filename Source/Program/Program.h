@@ -1582,6 +1582,9 @@ function b32 Prog_ModelMesh(Arena *arena, String path, u64 size, const P_CancelT
 function u32 *Prog_ModelThumbnail(Arena *arena, String path, i32 size, const P_CancelToken *cancel);
 // Whether `path` names a 3D model the readers know, by its extension.
 function b32 Prog_IsModel(String path);
+function b32 Prog_IsBlp(String path);
+function b32 Prog_DecodeBlp(Arena *arena, String data, i32 maxSide, P_Image *out, i32 *fullWidth, i32 *fullHeight);
+function b32 Prog_LoadBlp(Arena *arena, String path, i32 maxSide, P_Image *out, i32 *fullWidth, i32 *fullHeight);
 // A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.
 function b32 Prog_IsOffice(String path);
 function String Prog_OfficeText(Arena *arena, String path, u64 size);

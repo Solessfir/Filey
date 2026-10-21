@@ -64,6 +64,14 @@ function void Prog__IconJob(P_Job *job)
         // A 3D model is drawn here, in every format the readers know, so that they look alike and a .blend shows its scene rather than the
         // screenshot Blender saves; the cache pass leaves it for the thumbnail threads, which go easy on a spinning disk.
         b32 model = thumbnail && request->kind == P_FileKind_File && Prog_IsModel(request->path);
+        b32 blp = thumbnail && request->kind == P_FileKind_File && Prog_IsBlp(request->path);
+        // A game's texture is read here too, as the system has no thumbnails for it; it is quick, so the cache pass does it.
+        if (blp) {
+            P_Image picture = {0};
+            if (Prog_LoadBlp(scratch.arena, request->path, request->size, &picture, NULL, NULL)) pixels[i] = Prog_ResizeIcon(&job->arena, picture, request->size);
+            ReleaseScratch(scratch);
+            continue;
+        }
         if (model && request->cacheOnly) {
             ReleaseScratch(scratch);
             continue;
@@ -251,7 +259,7 @@ function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog
     if (state->iconSize <= 0 || entry->drive || entry->file.kind != P_FileKind_File || !Prog_ShowsThumbnails(state)) return;
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     // Models are drawn by Filey, not by the system's cache.
-    if (Prog_IsModel(path)) return;
+    if (Prog_IsModel(path) || Prog_IsBlp(path)) return;
     String key = StrFormat(&state->frameArena, "%S|%lld|%llu", P_FileThumbnailKey(&state->frameArena, path, P_FileKind_File), (long long)entry->file.modifiedTimeUnix,
                            (unsigned long long)entry->file.size);
     if (MapsGetPtrNull(state->warmed, key)) return;

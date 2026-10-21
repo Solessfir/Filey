@@ -1788,6 +1788,12 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = image.width;
             result->height = image.height;
             result->image = true;
+        } else if (!input->folder && Prog_IsBlp(path) && Prog_LoadBlp(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+            // A game's texture, which the system's pictures do not read.
+            result->pixels = image.pixels;
+            result->width = image.width;
+            result->height = image.height;
+            result->image = true;
         } else if (!input->folder && Prog_IsOffice(path) && (result->text = Prog_OfficeText(&job->arena, path, input->size)).length) {
             // Word's prose wraps; a spreadsheet's columns stay lined up.
             result->document = Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docx")) || Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docm"));

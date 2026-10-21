@@ -31,6 +31,7 @@
 #include "UI/UI.c"
 #include "Program/Icons.c"
 #include "Program/Directory.c"
+#include "Program/Blp.c"
 #include "Program/Models.c"
 #include "Program/Office.c"
 #include "Program/Commands.c"
@@ -51,6 +52,7 @@ global i32 CheckFailures;
 #include "Tests/Codegen.c"
 #include "Tests/Models.c"
 #include "Tests/Office.c"
+#include "Tests/Blp.c"
 
 global u32 TestModalFrameCount;
 
@@ -692,6 +694,7 @@ int main(void)
     TestTypeFilter();
     TestModels();
     TestOffice();
+    TestBlp();
 #if defined(_WIN32)
     TestFolderThumbnailBackground();
     TestInstallPath();

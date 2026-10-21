@@ -132,12 +132,19 @@ function u32 Prog__LinearColor(f32 r, f32 g, f32 b, f32 a)
     return Prog__SrgbByte(r) | Prog__SrgbByte(g) << 8 | Prog__SrgbByte(b) << 16 | alpha << 24;
 }
 
+// The picture file at `path`, a game's texture or one the system reads.
+function b32 Prog__LoadPicture(Arena *arena, String path, i32 side, P_Image *image)
+{
+    i32 width = 0, height = 0;
+    return Prog_IsBlp(path) ? Prog_LoadBlp(arena, path, side, image, NULL, NULL) : P_LoadImageFile(arena, path, side, image, &width, &height);
+}
+
 // The picture `bytes` hold, or else the file `name` names, absolute or next to the model at `model`, or by its own name there when that
 // is missing, to fit `side` squared.
 function b32 Prog__DecodeImage(Arena *arena, String model, i32 side, String name, String bytes, P_Image *out)
 {
     P_Image image = {0};
-    b32 read = bytes.length && P_LoadImageBytes(arena, bytes, side, &image);
+    b32 read = bytes.length && (Prog_DecodeBlp(arena, bytes, side, &image, NULL, NULL) || P_LoadImageBytes(arena, bytes, side, &image));
     if (!read && name.length) {
         // Written with either slash, relative to the model or not.
         Scratch scratch = GetScratchEx(arena);
@@ -147,12 +154,11 @@ function b32 Prog__DecodeImage(Arena *arena, String model, i32 side, String name
         // Blender writes a path next to its file as "//name".
         if (StrIsEqual(StrFromTo(file, 0, 2), S("//"))) file = StrFrom(file, 2);
         b32 absolute = (file.length && file.value[0] == '/') || (file.length > 1 && file.value[1] == ':');
-        i32 width = 0, height = 0;
         String parent = Prog_ParentPath(model);
-        if (!absolute) read = P_LoadImageFile(arena, Prog_JoinPath(scratch.arena, parent, file), side, &image, &width, &height);
-        if (!read && absolute) read = P_LoadImageFile(arena, file, side, &image, &width, &height);
+        if (!absolute) read = Prog__LoadPicture(arena, Prog_JoinPath(scratch.arena, parent, file), side, &image);
+        if (!read && absolute) read = Prog__LoadPicture(arena, file, side, &image);
         Index slash = StrIndexChar(file, '/', SSF_SearchBackwards);
-        if (!read && slash.exists) read = P_LoadImageFile(arena, Prog_JoinPath(scratch.arena, parent, StrFrom(file, slash.value + 1)), side, &image, &width, &height);
+        if (!read && slash.exists) read = Prog__LoadPicture(arena, Prog_JoinPath(scratch.arena, parent, StrFrom(file, slash.value + 1)), side, &image);
         ReleaseScratch(scratch);
     }
     if (read) *out = image;
