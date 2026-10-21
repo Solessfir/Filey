@@ -367,8 +367,55 @@ function void TestStaleCompletion(Prog_State *state, TestFileFixture *fixture)
     if (!ready) P_JobsShutdown(&state->jobs);
 }
 
+// The keyed sort orders random names, with digits, case, punctuation, labels and ties, as the entries' comparison does, and keeps ties in place;
+// enough of them for the sort to run on several lanes.
+function void TestSortKeys(void)
+{
+    Arena arena = {0};
+    u64 count = 70000;
+    Prog_Entry *entries = ArenaPushArray(&arena, count, Prog_Entry), *buffer = ArenaPushArray(&arena, count, Prog_Entry);
+    const char alphabet[] = "aAbB0129 _.-z\xC3\xA9";
+    const char *types[] = { "Text", "text", "PNG File", "PNG", "" };
+    u64 seed = 7;
+    for (u64 i = 0; i < count; ++i) {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        u32 r = (u32)(seed >> 33);
+        u64 length = r % 11;
+        char *name = ArenaPushArray(&arena, length + 1, char);
+        for (u64 k = 0; k < length; ++k) {
+            seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+            name[k] = alphabet[(seed >> 40) % (sizeof(alphabet) - 1)];
+        }
+        Prog_Entry *entry = &entries[i];
+        entry->file.name = StrMake(name, length);
+        if (r % 17 == 0) entry->label = S("label");
+        entry->file.kind = r % 5 == 0 ? P_FileKind_Directory : P_FileKind_File;
+        entry->file.size = r % 4;
+        entry->file.modifiedTimeUnix = (i64)(r % 7) - 3;
+        entry->type = StrFromCStr(types[r % 5]);
+        entry->recentFirst = r % 23 == 0;
+        entry->shownFrame = i;
+    }
+    Prog_Sort sorts[] = { Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Size, Prog_Sort_Modified };
+    for (u32 s = 0; s < CArrayCount(sorts); ++s) {
+        for (u32 d = 0; d < 2; ++d) {
+            Prog_FolderSort folders = d ? Prog_FolderSort_Mixed : Prog_FolderSort_First;
+            Prog_Entry *sorted = Prog__SortEntries(entries, buffer, count, sorts[s], d != 0, folders, NULL);
+            Check(sorted != NULL);
+            b32 ordered = true;
+            for (u64 i = 1; sorted && i < count; ++i) {
+                i32 order = Prog__CompareEntries(&sorted[i - 1], &sorted[i], sorts[s], d != 0, folders);
+                ordered &= order < 0 || (order == 0 && sorted[i - 1].shownFrame < sorted[i].shownFrame);
+            }
+            Check(ordered);
+        }
+    }
+    ArenaRelease(&arena);
+}
+
 function void TestProgramBrowsing(TestFileFixture *fixture)
 {
+    TestSortKeys();
     Check(StrIsEqual(Prog_ParentPath(S("/")), S("/")));
     Check(StrIsEqual(Prog_ParentPath(S("/alpha/beta/")), S("/alpha")));
     Check(StrIsEqual(Prog_ParentPath(S("C:/")), S("C:/")));

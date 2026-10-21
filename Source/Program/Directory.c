@@ -575,7 +575,7 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
         case Prog_Sort_Modified:
             result = a->file.modifiedTimeUnix == b->file.modifiedTimeUnix ? 0 : a->file.modifiedTimeUnix < b->file.modifiedTimeUnix ? -1 : 1;
             break;
-        case Prog_Sort_Size: result = ad ? Prog__Order(a->bytes, b->bytes) : Prog__Order(a->file.size, b->file.size); break;
+        case Prog_Sort_Size: result = Prog__Order(ad ? a->bytes : a->file.size, bd ? b->bytes : b->file.size); break;
         case Prog_Sort_Folders: result = Prog__Order(a->folders, b->folders); break;
         case Prog_Sort_Files: result = Prog__Order(a->files, b->files); break;
         case Prog_Sort_Created: result = Prog__Order(a->file.createdTimeUnix, b->file.createdTimeUnix); break;
@@ -588,35 +588,23 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
     return descending ? -result : result;
 }
 
-// The threads a walk through a tree or the sort of a big listing uses at most.
-
-// One stable bottom-up merge sort of `order` from `start` to `end`, runs of `width` already sorted, using `spare` beside it; the result ends in `order`.
-// Returns false when cancelled.
-function b32 Prog__SortRun(const Prog_Entry *entries, u32 *order, u32 *spare, u64 start, u64 end, u64 width, Prog_Sort sort, b32 descending, Prog_FolderSort folders,
-                           const P_CancelToken *cancel)
-{
-    u32 *from = order, *to = spare;
-    for (; width < end - start; width *= 2) {
-        for (u64 run = start; run < end; run += width * 2) {
-            u64 middle = Min(run + width, end), stop = Min(run + width * 2, end);
-            u64 left = run, right = middle;
-            for (u64 out = run; out < stop; ++out) {
-                if (cancel && (out & 1023) == 0 && P_IsCancelled(cancel)) return false;
-                b32 takeLeft = right == stop || (left < middle && Prog__CompareEntries(&entries[from[left]], &entries[from[right]], sort, descending, folders) <= 0);
-                to[out] = from[takeLeft ? left++ : right++];
-            }
-        }
-        u32 *swap = from;
-        from = to;
-        to = swap;
-    }
-    if (from != order) MemCopy(order + start, from + start, (end - start) * sizeof(u32));
-    return true;
-}
+// What a sort compares most entries by without reaching into them, which a big listing's entries, spread over far more memory than the
+// cache holds, would be slow to: the group it goes in (recents first, then folders before or after files), the sorted value, and the
+// first characters of the name (or of the type, when sorting by type) up to its first digit, folded as the names' order folds them.
+typedef struct Prog__SortKey {
+    u64 group;
+    u64 value;
+    String name;       // the name shown, which the order is next decided by, after the type when sorting by type
+    String type;
+    u64 prefix;        // the characters from the top byte down, zero past `prefixLength`
+    u32 index;
+    u8 prefixLength;
+    b8 prefixWhole;    // the prefix is the whole name, which ends there
+} Prog__SortKey;
 
 typedef struct Prog__Sort {
     const Prog_Entry *entries;
-    u32 *order, *spare;
+    Prog__SortKey *keys, *spare;
     u64 count, slice;
     Prog_Sort sort;
     b32 descending;
@@ -624,27 +612,107 @@ typedef struct Prog__Sort {
     const P_CancelToken *cancel;
 } Prog__Sort;
 
+function Prog__SortKey Prog__MakeSortKey(const Prog_Entry *entry, u32 index, Prog_Sort sort, Prog_FolderSort folders)
+{
+    b32 folder = entry->file.kind == P_FileKind_Directory;
+    Prog__SortKey result = { .index = index };
+    result.group = (entry->recentFirst ? 0 : 2) | (folders == Prog_FolderSort_Mixed ? 0 : folder == (folders == Prog_FolderSort_First) ? 0 : 1);
+    // Signed times keep their order as unsigned once the sign bit is flipped.
+    u64 flip = UINT64_C(1) << 63;
+    switch (sort) {
+        case Prog_Sort_Name: case Prog_Sort_Type: break;
+        case Prog_Sort_Modified: result.value = (u64)entry->file.modifiedTimeUnix ^ flip; break;
+        case Prog_Sort_Size: result.value = folder ? entry->bytes : entry->file.size; break;
+        case Prog_Sort_Folders: result.value = entry->folders; break;
+        case Prog_Sort_Files: result.value = entry->files; break;
+        case Prog_Sort_Created: result.value = (u64)entry->file.createdTimeUnix ^ flip; break;
+        case Prog_Sort_Accessed: result.value = (u64)entry->file.accessedTimeUnix ^ flip; break;
+        case Prog_Sort_Items: result.value = entry->folders + entry->files; break;
+        default: InvalidPath;
+    }
+    result.name = entry->label.length ? entry->label : Prog_EntryLeaf(entry->file.name);
+    if (sort == Prog_Sort_Type) result.type = entry->type;
+    String name = sort == Prog_Sort_Type ? result.type : result.name;
+    u64 length = 0;
+    while (length < 8 && length < name.length && !(name.value[length] >= '0' && name.value[length] <= '9')) {
+        result.prefix |= (u64)Prog__FoldAscii((u8)name.value[length]) << (56 - 8 * length);
+        ++length;
+    }
+    result.prefixLength = (u8)length;
+    result.prefixWhole = length == name.length;
+    return result;
+}
+
+// Orders two keys as Prog__CompareEntries orders their entries, which it falls back to when the keys alone cannot tell.
+function i32 Prog__CompareKeys(const Prog__Sort *job, const Prog__SortKey *a, const Prog__SortKey *b)
+{
+    if (a->group != b->group) return a->group < b->group ? -1 : 1;
+    i32 result = 0;
+    if (a->value != b->value) {
+        result = a->value < b->value ? -1 : 1;
+    } else {
+        // Up to the shorter prefix both go character by character; a difference there decides, as does one name ending while the other goes on.
+        u64 shared = Min((u64)a->prefixLength, (u64)b->prefixLength);
+        u64 mask = shared ? ~UINT64_C(0) << (64 - 8 * shared) : 0;
+        if ((a->prefix ^ b->prefix) & mask) result = a->prefix < b->prefix ? -1 : 1;
+        else if (a->prefixWhole && a->prefixLength == shared && !(b->prefixWhole && b->prefixLength == shared)) result = -1;
+        else if (b->prefixWhole && b->prefixLength == shared && !(a->prefixWhole && a->prefixLength == shared)) result = 1;
+        else {
+            if (job->sort == Prog_Sort_Type) result = Prog_CompareNames(a->type, b->type);
+            if (!result) result = Prog_CompareNames(a->name, b->name);
+            if (!result) return Prog__CompareEntries(&job->entries[a->index], &job->entries[b->index], job->sort, job->descending, job->folders);
+        }
+    }
+    return job->descending ? -result : result;
+}
+
+// One stable bottom-up merge sort of `keys` from `start` to `end`, runs of `width` already sorted, using `spare` beside it; the result ends in
+// `keys`. Returns false when cancelled.
+function b32 Prog__SortRun(const Prog__Sort *job, u64 start, u64 end, u64 width)
+{
+    Prog__SortKey *from = job->keys, *to = job->spare;
+    for (; width < end - start; width *= 2) {
+        for (u64 run = start; run < end; run += width * 2) {
+            u64 middle = Min(run + width, end), stop = Min(run + width * 2, end);
+            u64 left = run, right = middle;
+            for (u64 out = run; out < stop; ++out) {
+                if (job->cancel && (out & 1023) == 0 && P_IsCancelled(job->cancel)) return false;
+                b32 takeLeft = right == stop || (left < middle && Prog__CompareKeys(job, &from[left], &from[right]) <= 0);
+                to[out] = from[takeLeft ? left++ : right++];
+            }
+        }
+        Prog__SortKey *swap = from;
+        from = to;
+        to = swap;
+    }
+    if (from != job->keys) MemCopy(job->keys + start, from + start, (end - start) * sizeof(Prog__SortKey));
+    return true;
+}
+
 function void Prog__SortLane(void *user, u32 lane)
 {
     Prog__Sort *job = user;
     u64 start = Min((u64)lane * job->slice, job->count), end = Min(start + job->slice, job->count);
-    if (start < end) Prog__SortRun(job->entries, job->order, job->spare, start, end, 1, job->sort, job->descending, job->folders, job->cancel);
+    for (u64 i = start; i < end; ++i) job->keys[i] = Prog__MakeSortKey(&job->entries[i], (u32)i, job->sort, job->folders);
+    if (start < end) Prog__SortRun(job, start, end, 1);
 }
 
 // Stable merge sort into `buffer`, which it returns, or NULL when cancelled.
-// It sorts the entries' places rather than the entries, so that each entry moves once; a big listing is sorted in slices on several
-// threads at once, which are then merged.
+// It sorts keys rather than the entries, so that each entry moves once; a big listing is sorted in slices on several threads at once,
+// which are then merged.
 function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, u64 count, Prog_Sort sort, b32 descending, Prog_FolderSort folders,
                                        const P_CancelToken *cancel)
 {
     Scratch scratch = GetScratch();
-    u32 *order = ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), u32), *spare = ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), u32);
-    for (u64 i = 0; i < count; ++i) order[i] = (u32)i;
     u32 lanes = count >= 65536 ? Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)) : 1;
-    Prog__Sort job = { entries, order, spare, count, (count + lanes - 1) / lanes, sort, descending, folders, cancel };
+    Prog__Sort job = {
+        entries, ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), Prog__SortKey), ArenaPushArrayNoZero(scratch.arena, Max(count, (u64)1), Prog__SortKey),
+        count, (count + lanes - 1) / lanes, sort, descending, folders, cancel,
+    };
     if (lanes > 1) P_RunLanes(lanes, Prog__SortLane, &job);
-    b32 done = !(cancel && P_IsCancelled(cancel)) && Prog__SortRun(entries, order, spare, 0, count, lanes > 1 ? job.slice : 1, sort, descending, folders, cancel);
-    if (done) for (u64 i = 0; i < count; ++i) buffer[i] = entries[order[i]];
+    else Prog__SortLane(&job, 0);
+    b32 done = !(cancel && P_IsCancelled(cancel)) && (lanes == 1 || Prog__SortRun(&job, 0, count, job.slice));
+    if (done) for (u64 i = 0; i < count; ++i) buffer[i] = entries[job.keys[i].index];
     ReleaseScratch(scratch);
     return done ? buffer : NULL;
 }
