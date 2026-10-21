@@ -11,8 +11,7 @@
 
 ## Look
 
-- The path bar's separators are a pixel wider than the reference's and the gaps around them 2 px wider, so later crumbs sit a few pixels to the right; words themselves now measure the same.
-- The shown tab's top right corner is a little sharper than the reference's, and its bottom right curve starts a row early.
+- The shown tab's bottom right curve has a faint pixel where it meets the strip's line, which the reference's does not.
 
 ## Command palette parity
 

@@ -1899,9 +1899,9 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         f32 tabWidth = MaxF32(0, slot - m->separator);
         f32 height = bar - top;
         // The shown tab is cut off at the strip's bottom, with its lower corners and border past it.
-        f32 tabRadius = floorf(8.0f * scale + 0.5f);
+        f32 tabRadius = floorf(9.6f * scale + 0.5f);
         f32 hang = tabRadius + stroke + 1;
-        f32 flare = floorf(m->radius + 0.5f) + stroke;
+        f32 flare = floorf(m->radius - 0.5f) + stroke;
         // Tabs sit at eased slot positions, so that they slide aside for a dragged tab and close up after one leaves.
         UI_SetNextPrefWidth(UI_Pixels(floorf(UI_Slide(UI_KeyFromStr(stripKey, S("Slots")), slots, slotSlide) * slot)));
         UI_SetNextPrefHeight(UI_Pixels(height));
@@ -2201,6 +2201,8 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     String path = Prog__CrumbsPath(state, &shownEnd);
     b32 drive;
     u64 start = Prog__CrumbStart(state, path, &drive);
+    // The slot of the chevron between two crumbs.
+    f32 chevron = floorf(m->line * 1.6f - 4.0f * m->scale);
     if (drive || thisPC) {
         UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
                                                  thisPC ? theme->text : theme->textDim, !thisPC, m);
@@ -2219,11 +2221,11 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
             b32 afterOpen = at > start && state->filesOpen && StrIsEqual(Prog__CrumbFolder(path, at - 1), state->filesFolder);
             if (at > start && !afterOpen) {
                 UI_Interaction separator = Prog__TextButton(StrFormat(&state->frameArena, "CrumbSeparator/%S", StrFromTo(path, 0, (i64)at - 1)), Icon_ChevronRight,
-                                                            m->iconsSmall, UI_Pixels(floorf(m->line * 1.6f)), m->bar * 0.75f, 0, theme->textDim, theme->text,
+                                                            m->iconsSmall, UI_Pixels(chevron), m->bar * 0.75f, 0, theme->textDim, theme->text,
                                                             theme->textDim, true, m);
                 if (separator.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupOpen, 0, 0, separator.clickOrder)->target = at - 1;
             } else if (drive && at == start) {
-                Prog__SmallIcon(Icon_ChevronRight, floorf(m->line * 1.6f), Prog__StripHeight(m), theme->textDim, 0.5f, m);
+                Prog__SmallIcon(Icon_ChevronRight, chevron, Prog__StripHeight(m), theme->textDim, 0.5f, m);
             }
             if (drive && at == 0) segment = Prog__DriveName(state, path);
             else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
@@ -2232,7 +2234,6 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
             if (state->filesOpen && StrIsEqual(Prog__CrumbFolder(path, end), state->filesFolder)) {
                 b32 more = end < path.length;
-                f32 chevron = floorf(m->line * 1.6f);
                 UI_SetNextPrefWidth(UI_Pixels(m->gap * 0.5f + R_TextWidth(m->font, segment) + (more ? chevron : m->gap * 0.5f)));
                 UI_SetNextPrefHeight(UI_Pixels(m->bar * 0.75f));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -2311,13 +2312,13 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, up.length != 0, m);
         Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, 0, m);
-        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+        Prog__Spacer(UI_Pixels(floorf(6.4f * m->scale + 0.5f)), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
         Prog__FolderButtons(state, floorf(5.6f * m->scale + 0.5f), m);
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
         Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
-        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+        Prog__Spacer(UI_Pixels(floorf(7.2f * m->scale + 0.5f)), UI_Pixels(bar));
         // A path wider than the room shows its end, cut off at the left.
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(bar));
