@@ -736,7 +736,6 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_C, .mods = KeyMod_Control, .command = Prog_CommandKind_TextCopySelection },
     { .key = Key_X, .mods = KeyMod_Control, .command = Prog_CommandKind_TextCutSelection },
     { .key = Key_V, .mods = KeyMod_Control, .command = Prog_CommandKind_TextPaste },
-    { .key = Key_Tab, .mods = 0, .command = Prog_CommandKind_TextAutocomplete },
     { .key = Key_Z, .mods = KeyMod_Control, .command = Prog_CommandKind_TextUndo },
     { .key = Key_Z, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_TextRedo },
     { .key = Key_W, .mods = KeyMod_Control, .command = Prog_CommandKind_TextDeleteLeftToSpace },

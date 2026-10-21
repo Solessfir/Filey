@@ -3976,9 +3976,31 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     else if (!event->isRepeat || !Prog_Commands[own->command].noRepeat) Prog_QueueCommand(state, own->command, 0, 0, order);
                     continue;
                 }
+                // Tab goes on to the next folder down the list and Shift+Tab back up, around the ends; the character the key also types is
+                // not typed.
+                b32 tab = event->key == Key_Tab && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super));
+                if (goTo && tab) {
+                    state->swallowText = true;
+                    for (u32 step = 1; step <= count; ++step) {
+                        u32 at = (event->mods & KeyMod_Shift) ? (state->paletteHighlight + count - step % count) % count : (state->paletteHighlight + step) % count;
+                        if (found[at].file) continue;
+                        state->paletteHighlight = at;
+                        state->paletteWheeled = false;
+                        break;
+                    }
+                    continue;
+                }
+                // Right at the end of the text goes into the highlighted folder; anywhere else it moves the caret.
+                b32 atEnd = state->palette.cursor == state->palette.length && state->palette.anchor == state->palette.cursor;
+                if (goTo && event->key == Key_Right && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Shift | KeyMod_Super)) && atEnd &&
+                    state->paletteHighlight < count && !found[state->paletteHighlight].file) {
+                    Prog__GoToExpand(state, found[state->paletteHighlight].path);
+                    continue;
+                }
                 // Autocomplete in Go To puts the highlighted folder in the box, to go on into it.
                 const Prog_Hotkey *boxKey = goTo ? Prog_FindHotkey(state, Prog_HotkeyScope_Text, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super)) : NULL;
                 if (boxKey && boxKey->command == Prog_CommandKind_TextAutocomplete) {
+                    state->swallowText = true;
                     if (state->paletteHighlight < count && !found[state->paletteHighlight].file) Prog__GoToExpand(state, found[state->paletteHighlight].path);
                     continue;
                 }

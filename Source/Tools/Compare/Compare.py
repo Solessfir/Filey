@@ -5,7 +5,7 @@
 # since an off-screen GL window keeps none of what it draws. Steps post input to the two windows only, and only the started processes are closed.
 #
 #   python Source/Tools/Compare/Compare.py run <name> "<steps>" [ref|filey|both]
-#       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | wheel x y notches | key VK | type text | mods VK... | wait s | shot [tag]
+#       steps, ';' separated: move x y | click x y | rclick x y | dbl x y | down x y | up x y | wheel x y notches | key VK | keychar VK char (the press with the character it types) | type text | mods VK... | wait s | shot [tag]
 #       | frames n interval tag
 #       | keyframes VK n interval tag (presses VK and records from then)
 #       | moveframes x y n interval tag, downframes, upframes, clickframes, rclickframes (the same for the pointer: moves, presses, releases or clicks at x y)
@@ -132,8 +132,11 @@ class App:
         self.buttons = 0
         time.sleep(1.0)
     def post(self, message, w=0, l=0): u32.PostMessageW(self.window, message, w, l)
-    def key(self, vk):
-        self.fake.keys[vk] = 1; self.post(0x100, vk, 1); time.sleep(0.03)
+    def key(self, vk, char=None):
+        self.fake.keys[vk] = 1; self.post(0x100, vk, 1)
+        # A real key that types, such as Tab or Enter, brings its character after the press.
+        if char is not None: self.post(0x102, char, 1)
+        time.sleep(0.03)
         self.fake.keys[vk] = 0; self.post(0x101, vk, 0xC0000001); time.sleep(0.05)
     def mods(self, *vks):
         # Filey takes them from posted key messages, the reference from the fake keyboard state.
@@ -245,6 +248,7 @@ def steps(app, text, side, name, tags):
         elif op == 'down': app.mouse(n[0], n[1]); app.press(n[0], n[1], 'l', True)
         elif op == 'up': app.mouse(n[0], n[1]); app.press(n[0], n[1], 'l', False)
         elif op == 'key': app.key(n[0])
+        elif op == 'keychar': app.key(n[0], n[1])
         elif op == 'type':
             # A key goes down first, as when typing, since apps may drop a character that a hotkey's key press brings.
             app.post(0x100, 0x10, 1); app.post(0x101, 0x10, 0xC0000001)

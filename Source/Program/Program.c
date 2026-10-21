@@ -5840,8 +5840,8 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             }
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Tab", 0, "Ctrl+Enter", 0, "Escape", 0 };
-        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to expand", 0, "to open in panel", 0, "to dismiss" };
+        local_persist const char *const keys[] = { "Up", "Down", 0, "Tab", 0, "Enter", 0, "Right", 0, "Ctrl+Enter", 0, "Escape", 0 };
+        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "next folder", 0, "to use", 0, "to expand", 0, "to open in panel", 0, "to dismiss" };
         Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background, radius, m);
     }
     UI_SetNextPrefWidth(UI_Pixels(width));

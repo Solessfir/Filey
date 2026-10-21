@@ -531,7 +531,6 @@ command TextLowercase {
 command TextAutocomplete {
     label   = "Autocomplete"
     tooltip = "Autocomplete file names or paths, and toggle groups where possible."
-    hotkey  = "Tab"
     scope   = "Text"
 }
 
