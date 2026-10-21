@@ -3824,6 +3824,17 @@ function void Prog__SwapTab(Prog_State *state, Prog_Tab *tab)
 #undef Prog__SwapField
 }
 
+// Lets go of a model's mesh and its pictures' textures, before the preview's arena that lists them is cleared.
+function void Prog__DropModel(Prog_ModelView *model)
+{
+    R_MeshRelease(model->mesh);
+    for (u32 i = 0; i < model->imageCount; ++i) R_TextureRelease(model->images[i]);
+    model->mesh = (R_MeshHandle){0};
+    model->images = NULL;
+    model->parts = NULL;
+    model->imageCount = model->partCount = 0;
+}
+
 // Lets go of an inspector's preview: its jobs, its textures, its model's mesh and its arena.
 function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob)
 {
@@ -3833,7 +3844,7 @@ function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_M
     for (u32 i = 0; i < Prog_PdfDrawn; ++i) R_TextureRelease(pdf->drawn[i].texture);
     R_TextureRelease(texture);
     R_TextureRelease(model->texture);
-    R_MeshRelease(model->mesh);
+    Prog__DropModel(model);
     ArenaRelease(arena);
 }
 
@@ -4297,7 +4308,23 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewArchive = preview->archive;
                 state->previewDocument = preview->document;
                 if (preview->model.indexCount) {
-                    state->model.mesh = R_MeshCreate(preview->model.positions, preview->model.vertexCount, preview->model.indices, preview->model.indexCount);
+                    const Prog_ModelShape *shape = &preview->model;
+                    state->model.mesh = R_MeshCreate(shape->positions, shape->uvs, shape->colors, shape->vertexCount, shape->indices, shape->indexCount);
+                    state->model.images = ArenaPushArray(&state->previewArena, Max(shape->imageCount, 1u), R_TextureHandle);
+                    state->model.imageCount = shape->imageCount;
+                    for (u32 i = 0; i < shape->imageCount; ++i) {
+                        state->model.images[i] = R_TextureCreateRGBA(shape->images[i].width, shape->images[i].height, shape->images[i].pixels);
+                        R_TextureSmooth(state->model.images[i]);
+                    }
+                    state->model.parts = ArenaPushArray(&state->previewArena, Max(shape->partCount, 1u), R_MeshPart);
+                    state->model.partCount = shape->partCount;
+                    for (u32 i = 0; i < shape->partCount; ++i) {
+                        const Prog_MeshPart *part = &shape->parts[i];
+                        u32 c = part->color;
+                        state->model.parts[i] = (R_MeshPart){ .first = part->first, .count = part->count,
+                                                              .color = { (f32)(c & 0xFF) / 255, (f32)((c >> 8) & 0xFF) / 255, (f32)((c >> 16) & 0xFF) / 255, 1 } };
+                        if (part->image < shape->imageCount) state->model.parts[i].texture = state->model.images[part->image];
+                    }
                     MemCopy(state->model.center, preview->model.center, sizeof(state->model.center));
                     state->model.radius = preview->model.radius;
                     state->model.zUp = preview->model.zUp;

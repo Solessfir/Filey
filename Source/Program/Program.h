@@ -470,12 +470,26 @@ typedef enum Prog_Token {
     Prog_Token_Count,
 } Prog_Token;
 
-// A 3D model's mesh as the GPU draws it: positions, Y up, and three indices a triangle, all in range, with its bounds' center and radius.
+// A run of a model's triangles drawn alike: `count` indices from `first`, in `color`, straight RGBA, times the model's picture `image`
+// unless that is UINT32_MAX. A reader gives only `first`, each run ending where the next starts, and a color of 0 for the default.
+typedef struct Prog_MeshPart {
+    u64 first, count;
+    u32 color, image;
+} Prog_MeshPart;
+
+// A 3D model's mesh as the GPU draws it: positions, Y up, each vertex's texture coordinate, from a picture's top left, and straight RGBA
+// color, three indices a triangle, all in range, in parts, with its pictures and its bounds' center and radius.
 typedef struct Prog_ModelShape {
     f32 *positions;
+    f32 *uvs;
+    u32 *colors;
     u32 vertexCount;
     u32 *indices;
     u64 indexCount;
+    Prog_MeshPart *parts;
+    u32 partCount;
+    P_Image *images;
+    u32 imageCount;
     f32 center[3];
     f32 radius;
     b32 zUp;  // the file's Z was up, which the positions turned to Y
@@ -926,11 +940,16 @@ struct Prog_Partial {
     Prog_Directory directory;
 };
 
-// A 3D model a tab's inspector shows, turned by dragging and zoomed by the wheel: its mesh on the GPU, its bounds, whether the file's Z was
-// up, the view's turn about the up axis and tip toward the view in radians and its zoom, the rotation as last drawn, which the axes in its
-// corner follow, and the texture it is drawn into, redrawn as the view or its size changes.
+// A 3D model a tab's inspector shows, turned by dragging and zoomed by the wheel: its mesh on the GPU, its parts and its pictures' textures,
+// in previewArena, its bounds, whether the file's Z was up, the view's turn about the up axis and tip toward the view in radians and its
+// zoom, the rotation as last drawn, which the axes in its corner follow, and the texture it is drawn into, redrawn as the view or its size
+// changes.
 typedef struct Prog_ModelView {
     R_MeshHandle mesh;
+    R_MeshPart *parts;
+    u32 partCount;
+    R_TextureHandle *images;
+    u32 imageCount;
     f32 center[3], radius;
     b32 zUp;
     f32 turn[3][3];

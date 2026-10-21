@@ -930,40 +930,52 @@ function b32 P__LoadPictureThumbnail(Arena *arena, String path, i32 size, P_Imag
     return result;
 }
 
+// Pictures of more than this many pixels are not decoded.
+#define P__MostImagePixels (UINT64_C(256) << 20)
+
+function b32 P__DecodeImage(Arena *arena, String data, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
+{
+    i32 width = 0, height = 0, channels = 0;
+    if (!data.length || data.length > INT32_MAX || !stbi_info_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels) ||
+        (u64)width * (u64)height > P__MostImagePixels) return false;
+    u8 *pixels = stbi_load_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels, 4);
+    if (!pixels) return false;
+    // ponytail: a picture larger than the square is shrunk by picking pixels; average them if big photos look rough when fitted.
+    i32 shownWidth = width, shownHeight = height;
+    if (width > maxSide || height > maxSide) {
+        f64 shrink = (f64)maxSide / (f64)Max(width, height);
+        shownWidth = Max(1, (i32)((f64)width * shrink));
+        shownHeight = Max(1, (i32)((f64)height * shrink));
+    }
+    u32 *out = ArenaPushArrayNoZero(arena, (u64)shownWidth * (u64)shownHeight, u32);
+    const u32 *in = (const u32 *)pixels;
+    for (i32 y = 0; y < shownHeight; ++y) {
+        const u32 *line = in + (u64)((i64)y * height / shownHeight) * (u64)width;
+        for (i32 x = 0; x < shownWidth; ++x) out[(u64)y * (u64)shownWidth + (u64)x] = line[(i64)x * width / shownWidth];
+    }
+    stbi_image_free(pixels);
+    *image = (P_Image){ out, shownWidth, shownHeight };
+    *sourceWidth = width;
+    *sourceHeight = height;
+    return true;
+}
+
+function b32 P_LoadImageBytes(Arena *arena, String data, i32 maxSide, P_Image *image)
+{
+    i32 width = 0, height = 0;
+    return P__DecodeImage(arena, data, maxSide, image, &width, &height);
+}
+
 function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *image, i32 *sourceWidth, i32 *sourceHeight)
 {
     Scratch scratch = GetScratchEx(arena);
     b32 result = false;
-    // Files past this, and pictures of more than this many pixels, are not read into memory.
-    const u64 limit = UINT64_C(256) << 20, most = UINT64_C(256) << 20;
+    // Files past this are not read into memory.
+    const u64 limit = UINT64_C(256) << 20;
     struct stat info;
     char *cpath = P__FilePathCString(scratch.arena, path);
     if (P__IsPicture(P_FileTypeKey(scratch.arena, path, P_FileKind_File)) && cpath && stat(cpath, &info) == 0 && (u64)info.st_size <= limit) {
-        String data = P__ReadFile(scratch.arena, path);
-        i32 width = 0, height = 0, channels = 0;
-        if (data.length && stbi_info_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels) && (u64)width * (u64)height <= most) {
-            u8 *pixels = stbi_load_from_memory((const u8 *)data.value, (i32)data.length, &width, &height, &channels, 4);
-            if (pixels) {
-                // ponytail: a picture larger than the square is shrunk by picking pixels; average them if big photos look rough when fitted.
-                i32 shownWidth = width, shownHeight = height;
-                if (width > maxSide || height > maxSide) {
-                    f64 shrink = (f64)maxSide / (f64)Max(width, height);
-                    shownWidth = Max(1, (i32)((f64)width * shrink));
-                    shownHeight = Max(1, (i32)((f64)height * shrink));
-                }
-                u32 *out = ArenaPushArrayNoZero(arena, (u64)shownWidth * (u64)shownHeight, u32);
-                const u32 *in = (const u32 *)pixels;
-                for (i32 y = 0; y < shownHeight; ++y) {
-                    const u32 *line = in + (u64)((i64)y * height / shownHeight) * (u64)width;
-                    for (i32 x = 0; x < shownWidth; ++x) out[(u64)y * (u64)shownWidth + (u64)x] = line[(i64)x * width / shownWidth];
-                }
-                stbi_image_free(pixels);
-                *image = (P_Image){ out, shownWidth, shownHeight };
-                *sourceWidth = width;
-                *sourceHeight = height;
-                result = true;
-            }
-        }
+        result = P__DecodeImage(arena, P__ReadFile(scratch.arena, path), maxSide, image, sourceWidth, sourceHeight);
     }
     ReleaseScratch(scratch);
     return result;

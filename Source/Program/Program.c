@@ -8111,7 +8111,7 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
         }
         f32 matrix[16] = { rows[0][0], rows[1][0], rows[2][0], 0, rows[0][1], rows[1][1], rows[2][1], 0, rows[0][2], rows[1][2], rows[2][2], 0, rows[0][3], rows[1][3], rows[2][3], 1 };
         MemCopy(state->model.turn, r, sizeof(r));
-        R_MeshDraw(state->model.mesh, state->model.texture, width, tall, matrix, (R_Color){ 200.0f / 255.0f, 204.0f / 255.0f, 212.0f / 255.0f, 1 });
+        R_MeshDraw(state->model.mesh, state->model.texture, width, tall, matrix, state->model.parts, state->model.partCount);
         MemCopy(state->model.drawn, now, sizeof(now));
         state->model.stale = false;
     }

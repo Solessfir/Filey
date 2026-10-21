@@ -39,6 +39,7 @@ typedef i64       GLsizeiptr;
 #define GL_TEXTURE_WRAP_T        0x2803
 #define GL_COLOR_BUFFER_BIT      0x00004000
 #define GL_CLAMP_TO_EDGE         0x812F
+#define GL_REPEAT                0x2901
 #define GL_RGBA8                 0x8058
 #define GL_R8                    0x8229
 #define GL_ARRAY_BUFFER          0x8892
@@ -108,6 +109,7 @@ typedef i64       GLsizeiptr;
     X(void,            GenBuffers,              GLsizei n, GLuint *buffers) \
     X(void,            BindBuffer,              GLenum target, GLuint buffer) \
     X(void,            BufferData,              GLenum target, GLsizeiptr size, const void *data, GLenum usage) \
+    X(void,            BufferSubData,           GLenum target, GLintptr offset, GLsizeiptr size, const void *data) \
     X(void,            VertexAttribPointer,     GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer) \
     X(void,            VertexAttribDivisor,     GLuint index, GLuint divisor) \
     X(void,            EnableVertexAttribArray, GLuint index) \
@@ -204,12 +206,13 @@ typedef struct GL_State {
     b32              inSource;
     // Meshes are drawn into a texture through a multisampled color and depth target, made at the largest size asked for so far.
     GLuint           meshProgram;
-    GLint            meshViewLocation, meshScaleLocation, meshColorLocation;
+    GLint            meshViewLocation, meshScaleLocation, meshColorLocation, meshTexturedLocation;
     GLuint           meshFramebuffer, meshColor, meshDepth;
     i32              meshWidth, meshHeight;
 } GL_State;
 
-// A mesh's handle holds its vertex array and position buffer in its first word, and its index buffer and index count in its second.
+// A mesh's handle holds its vertex array and vertex buffer in its first word, and its index buffer and index count in its second. The
+// vertex buffer holds all the positions, then all the texture coordinates, then all the colors.
 typedef struct GL_Mesh {
     GLuint vertexArray, positions, indices;
     GLsizei count;
@@ -222,28 +225,45 @@ function GL_Mesh GL__MeshFromHandle(R_MeshHandle handle)
 
 // The mesh shader: vertices in a view space where X and Y from -1 to 1 fill the target's shorter side, upside down, as a texture's first
 // row is its top; Z from -1 to 1, nearer larger. Each triangle is lit by its own normal, from the screen-space slopes of its view
-// positions, turned toward the view, so that meshes wound either way look alike.
+// positions, turned toward the view, so that meshes wound either way look alike. Its color is the part's times the vertex's, times the
+// part's picture when it has one.
 global const char *GL_MeshVertexShader =
     "#version 330 core\n"
     "layout(location = 0) in vec3 aPosition;\n"
+    "layout(location = 1) in vec2 aUv;\n"
+    "layout(location = 2) in vec4 aColor;\n"
     "uniform mat4 uView;\n"
     "uniform vec4 uScale;\n"
     "out vec3 vView;\n"
+    "out vec2 vUv;\n"
+    "out vec4 vColor;\n"
     "void main() {\n"
     "    vView = (uView * vec4(aPosition, 1.0)).xyz;\n"
+    "    vUv = aUv;\n"
+    "    vColor = aColor;\n"
     "    gl_Position = vec4(vView.x * uScale.x, -vView.y * uScale.y, -vView.z * 0.5, 1.0);\n"
     "}\n";
 
 global const char *GL_MeshFragmentShader =
     "#version 330 core\n"
     "in vec3 vView;\n"
+    "in vec2 vUv;\n"
+    "in vec4 vColor;\n"
     "uniform vec4 uColor;\n"
+    "uniform sampler2D uImage;\n"
+    "uniform int uTextured;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));\n"
     "    if (n.z < 0.0) n = -n;\n"
     "    float light = max(dot(n, vec3(-0.398, 0.597, 0.697)), 0.0);\n"
-    "    fragColor = vec4(uColor.rgb * (0.22 + 0.78 * light), 1.0);\n"
+    "    vec3 base = uColor.rgb * vColor.rgb;\n"
+    "    if (uTextured != 0) {\n"
+    "        vec4 picture = texture(uImage, vUv);\n"
+    "        if (picture.a < 0.5) discard;\n"
+    "        base *= picture.rgb;\n"
+    "    }\n"
+    "    fragColor = vec4(base * (0.22 + 0.78 * light), 1.0);\n"
     "}\n";
 
 global GL_State GL;
@@ -457,6 +477,7 @@ function b32 R_Init(void)
     GL.meshViewLocation = GL.GetUniformLocation(GL.meshProgram, "uView");
     GL.meshScaleLocation = GL.GetUniformLocation(GL.meshProgram, "uScale");
     GL.meshColorLocation = GL.GetUniformLocation(GL.meshProgram, "uColor");
+    GL.meshTexturedLocation = GL.GetUniformLocation(GL.meshProgram, "uTextured");
     GL.GenFramebuffers(1, &GL.meshFramebuffer);
 
     GL.GenVertexArrays(1, &GL.vertexArray);
@@ -525,7 +546,7 @@ function void R_TextureSmooth(R_TextureHandle texture)
     GL.TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -1.0f);
 }
 
-function R_MeshHandle R_MeshCreate(const f32 *positions, u32 vertexCount, const u32 *indices, u64 indexCount)
+function R_MeshHandle R_MeshCreate(const f32 *positions, const f32 *uvs, const u32 *colors, u32 vertexCount, const u32 *indices, u64 indexCount)
 {
     if (!vertexCount || !indexCount || indexCount > INT32_MAX) return (R_MeshHandle){0};
     GL_Mesh made = { .count = (GLsizei)indexCount }, *mesh = &made;
@@ -533,9 +554,15 @@ function R_MeshHandle R_MeshCreate(const f32 *positions, u32 vertexCount, const 
     GL.BindVertexArray(mesh->vertexArray);
     GL.GenBuffers(1, &mesh->positions);
     GL.BindBuffer(GL_ARRAY_BUFFER, mesh->positions);
-    GL.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)vertexCount * 12, positions, GL_STATIC_DRAW);
-    GL.EnableVertexAttribArray(0);
+    GLsizeiptr n = (GLsizeiptr)vertexCount;
+    GL.BufferData(GL_ARRAY_BUFFER, n * 24, NULL, GL_STATIC_DRAW);
+    GL.BufferSubData(GL_ARRAY_BUFFER, 0, n * 12, positions);
+    GL.BufferSubData(GL_ARRAY_BUFFER, n * 12, n * 8, uvs);
+    GL.BufferSubData(GL_ARRAY_BUFFER, n * 20, n * 4, colors);
+    for (GLuint i = 0; i < 3; ++i) GL.EnableVertexAttribArray(i);
     GL.VertexAttribPointer(0, 3, GL_FLOAT, 0, 12, NULL);
+    GL.VertexAttribPointer(1, 2, GL_FLOAT, 0, 8, (const void *)(n * 12));
+    GL.VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, 1, 4, (const void *)(n * 20));
     GL.GenBuffers(1, &mesh->indices);
     GL.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices);
     GL.BufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)indexCount * 4, indices, GL_STATIC_DRAW);
@@ -554,7 +581,7 @@ function void R_MeshRelease(R_MeshHandle handle)
     GL.DeleteVertexArrays(1, &mesh.vertexArray);
 }
 
-function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width, i32 height, const f32 view[16], R_Color color)
+function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width, i32 height, const f32 view[16], const R_MeshPart *parts, u32 partCount)
 {
     GL_Mesh mesh = GL__MeshFromHandle(handle);
     if (!mesh.vertexArray || !target.u64[0] || width <= 0 || height <= 0) return;
@@ -582,9 +609,23 @@ function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width,
     GL.UniformMatrix4fv(GL.meshViewLocation, 1, 0, view);
     f32 shorter = (f32)Min(width, height);
     GL.Uniform4f(GL.meshScaleLocation, shorter / (f32)width, shorter / (f32)height, 0, 0);
-    GL.Uniform4f(GL.meshColorLocation, color.r, color.g, color.b, color.a);
     GL.BindVertexArray(mesh.vertexArray);
-    GL.DrawElements(GL_TRIANGLES, mesh.count, GL_UNSIGNED_INT, NULL);
+    for (u32 i = 0; i < partCount; ++i) {
+        const R_MeshPart *part = &parts[i];
+        if (part->first >= (u64)mesh.count || !part->count) continue;
+        GLuint texture = GL__TextureRefFromHandle(part->texture);
+        GL.Uniform4f(GL.meshColorLocation, part->color.r, part->color.g, part->color.b, part->color.a);
+        GL.Uniform1i(GL.meshTexturedLocation, texture != 0);
+        // A model's picture repeats and is smoothed both ways, without the sharpening a still picture gets, which would shimmer as it turns.
+        if (texture) {
+            GL.BindTexture(GL_TEXTURE_2D, texture);
+            GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            GL.TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, 0.0f);
+        }
+        GL.DrawElements(GL_TRIANGLES, (GLsizei)Min(part->count, (u64)mesh.count - part->first), GL_UNSIGNED_INT, (const void *)(part->first * 4));
+    }
     // Resolved into the target texture through the blur's framebuffer, which is free between frames.
     GL.BindFramebuffer(GL_READ_FRAMEBUFFER, GL.meshFramebuffer);
     GL.BindFramebuffer(GL_DRAW_FRAMEBUFFER, GL.framebuffer);

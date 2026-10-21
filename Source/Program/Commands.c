@@ -1870,14 +1870,13 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewStamp = stamp;
     if (state->previewJob) P_RequestCancel(&state->previewJob->cancelToken);
     state->previewJob = NULL;
+    Prog__DropModel(&state->model);
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = (String){0};
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
-    R_MeshRelease(state->model.mesh);
-    state->model.mesh = (R_MeshHandle){0};
     // A new model starts from the view the fixed previews had: turned 30 degrees and tipped 20.
     state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
     state->previewFolder = folder || archive;

@@ -7,6 +7,7 @@
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <wincodec.h>
+#include <shlwapi.h>
 #pragma pop_macro("function")
 
 // Set by WinWindow.c when the shell tells of changed file associations or replaced icons, after which the icons loaded before are out of date.
@@ -337,6 +338,15 @@ function b32 P_LoadImageFile(Arena *arena, String path, i32 maxSide, P_Image *im
     b32 result = wide && (pdf || !P__IsPdf(wide)) && P__LoadImage(arena, wide, pdf, maxSide, image, sourceWidth, sourceHeight);
     if (pdf) pdf->lpVtbl->Release(pdf);
     ReleaseScratch(scratch);
+    return result;
+}
+
+function b32 P_LoadImageBytes(Arena *arena, String data, i32 maxSide, P_Image *image)
+{
+    IStream *stream = data.length && data.length <= UINT32_MAX ? SHCreateMemStream((const BYTE *)data.value, (UINT)data.length) : NULL;
+    i32 width = 0, height = 0;
+    b32 result = stream && P__LoadImage(arena, NULL, stream, maxSide, image, &width, &height);
+    if (stream) stream->lpVtbl->Release(stream);
     return result;
 }
 

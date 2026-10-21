@@ -63,15 +63,23 @@ function void R_TextureSmooth(R_TextureHandle texture);
 // A {0} handle is ignored.
 function void R_TextureRelease(R_TextureHandle texture);
 
-// A triangle mesh on the GPU: `vertexCount` positions of three floats, and `indexCount` indices, three a triangle, each below vertexCount.
+// A triangle mesh on the GPU: `vertexCount` vertices, each with three floats of position, a texture coordinate of two, 0 to 1 from a picture's
+// top left, which repeats past them, and a straight RGBA color, and `indexCount` indices, three a triangle, each below vertexCount.
 typedef struct R_MeshHandle { u64 u64[2]; } R_MeshHandle;
-function R_MeshHandle R_MeshCreate(const f32 *positions, u32 vertexCount, const u32 *indices, u64 indexCount);
+function R_MeshHandle R_MeshCreate(const f32 *positions, const f32 *uvs, const u32 *colors, u32 vertexCount, const u32 *indices, u64 indexCount);
 // A {0} handle is ignored.
 function void R_MeshRelease(R_MeshHandle mesh);
-// Draws `mesh` into `target`, a color texture `width` by `height`, cleared to see-through first, flat shaded in `color` and lit from the
+// A run of a mesh's indices, `count` from `first`, drawn in `color` times its vertices' colors and, unless {0}, `texture`'s picture, whose
+// pixels with less than half their alpha are left out.
+typedef struct R_MeshPart {
+    u64 first, count;
+    R_Color color;
+    R_TextureHandle texture;
+} R_MeshPart;
+// Draws `mesh`'s parts into `target`, a color texture `width` by `height`, cleared to see-through first, flat shaded and lit from the
 // upper left. The column-major `view` takes its positions to a view space where X and Y from -1 to 1 fill the target's shorter side,
 // Y up, and Z from -1 to 1 is nearer as it grows. It draws at once, outside the frame's batches, so call it before the frame ends.
-function void R_MeshDraw(R_MeshHandle mesh, R_TextureHandle target, i32 width, i32 height, const f32 view[16], R_Color color);
+function void R_MeshDraw(R_MeshHandle mesh, R_TextureHandle target, i32 width, i32 height, const f32 view[16], const R_MeshPart *parts, u32 partCount);
 
 // How the rounded boxes drawn after it are shaped, until it is set again: corners left square, or the box's inside and outside swapped,
 // which with a radius of half its size leaves the box's corners outside its circle.

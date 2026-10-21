@@ -94,10 +94,15 @@ function void TestModels(void)
     Arena arena = {0};
     Prog_Mesh mesh = {0};
 
-    // OBJ: a quad and a triangle given from the end, with texture and normal indices.
-    String obj = S("# test\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvt 0 0\nf 1/1/1 2/1/1 3/1/1 4/1/1\nf -4 -3 -1\n");
-    Check(TestReadModel(&arena, Prog_ModelKind_Obj, obj, &mesh) && mesh.positions.header.count == 12 && mesh.indices.header.count == 9 && !mesh.zUp);
-    Check(mesh.indices.v[3] == 0 && mesh.indices.v[4] == 2 && mesh.indices.v[5] == 3 && mesh.indices.v[6] == 0 && mesh.indices.v[8] == 3);
+    // OBJ: a quad and a triangle given from the end, with texture and normal indices; a vertex with another texture coordinate, or none,
+    // is a vertex of its own.
+    String obj = S("# test\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvt 0 0.25\nf 1/1/1 2/1/1 3/1/1 4/1/1\nf -4 -3 -1\n");
+    Check(TestReadModel(&arena, Prog_ModelKind_Obj, obj, &mesh) && mesh.positions.header.count == 21 && mesh.indices.header.count == 9 && !mesh.zUp);
+    Check(mesh.indices.v[3] == 0 && mesh.indices.v[4] == 2 && mesh.indices.v[5] == 3 && mesh.indices.v[6] == 4 && mesh.indices.v[8] == 6 && mesh.positions.v[6 * 3 + 1] == 1);
+    Check(mesh.uvs.header.count >= 8 && mesh.uvs.v[1] == 0.75f && !mesh.colors.header.count);
+    // Colors after a vertex's position, sRGB from 0 to 1.
+    Check(TestReadModel(&arena, Prog_ModelKind_Obj, S("v 0 0 0 1 0 0\nv 1 0 0\nv 0 1 0 0 0 1\nf 1 2 3\n"), &mesh) && mesh.colors.header.count == 3);
+    Check(mesh.colors.v[0] == 0xFF0000FFu && mesh.colors.v[1] == Prog_ModelUnset && mesh.colors.v[2] == 0xFFFF0000u);
 
     // STL, as text and in binary, with Z up.
     String stl = S("solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t\n");
@@ -112,6 +117,17 @@ function void TestModels(void)
         TestPut(&bytes, triangle, 48);
         TestPut(&bytes, &attributes, 2);
         Check(TestReadModel(&arena, Prog_ModelKind_Stl, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.indices.header.count == 3 && mesh.positions.v[3] == 2);
+        Check(!mesh.colors.header.count);
+        // A facet's color, red in the high bits with the top bit set; Magics puts red low and clears the bit for a facet's own color.
+        u16 red = 0x8000 | 31 << 10;
+        MemCopy(bytes.data + 84 + 48, &red, 2);
+        Check(TestReadModel(&arena, Prog_ModelKind_Stl, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.colors.header.count == 3 && mesh.colors.v[2] == 0xFF0000FFu);
+        MemCopy(bytes.data, "COLOR=\x00\xFF\x00\xFF", 10);
+        u16 magicsRed = 31, shared = 0x8000;
+        MemCopy(bytes.data + 84 + 48, &magicsRed, 2);
+        Check(TestReadModel(&arena, Prog_ModelKind_Stl, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.colors.v[0] == 0xFF0000FFu);
+        MemCopy(bytes.data + 84 + 48, &shared, 2);
+        Check(TestReadModel(&arena, Prog_ModelKind_Stl, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.colors.v[0] == 0xFF00FF00u);
     }
 
     // PLY, as text with an extra property and element to step over, and in little-endian binary.
@@ -119,6 +135,12 @@ function void TestModels(void)
                    "element face 1\nproperty list uchar int vertex_indices\nelement edge 1\nproperty int a\nend_header\n"
                    "0 0 0 9\n1 0 0 9\n1 1 0 9\n0 1 0 9\n4 0 1 2 3\n7\n");
     Check(TestReadModel(&arena, Prog_ModelKind_Ply, ply, &mesh) && mesh.positions.header.count == 12 && mesh.indices.header.count == 6 && mesh.zUp && mesh.indices.v[5] == 3);
+    // Colors as bytes, with black and clear, as Blender writes a vertex without one, left unset, and texture coordinates.
+    String colored = S("ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\n"
+                       "property uchar blue\nproperty uchar alpha\nproperty float s\nproperty float t\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n"
+                       "0 0 0 255 0 0 255 0 0.25\n1 0 0 0 0 0 0 1 0\n0 1 0 0 0 255 255 0 1\n3 0 1 2\n");
+    Check(TestReadModel(&arena, Prog_ModelKind_Ply, colored, &mesh) && mesh.colors.header.count == 3 && mesh.uvs.header.count == 6);
+    Check(mesh.colors.v[0] == 0xFF0000FFu && mesh.colors.v[1] == Prog_ModelUnset && mesh.colors.v[2] == 0xFFFF0000u && mesh.uvs.v[1] == 0.75f && mesh.uvs.v[2] == 1);
     {
         TestBytes bytes = {0};
         const char *header = "ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\n"
@@ -160,6 +182,26 @@ function void TestModels(void)
         TestPut(&bytes, positions, 36);
         TestPut(&bytes, indices, 8);
         Check(TestReadModel(&arena, Prog_ModelKind_Glb, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.indices.header.count == 3 && mesh.positions.v[3] == 2);
+        // Its material's base color, linear, and picture, from a data URI, and its vertices' colors and texture coordinates.
+        {
+            String painted = S("{\"asset\":{\"version\":\"2.0\"},\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"COLOR_0\":2,\"TEXCOORD_0\":3},\"indices\":1,\"material\":0}]}],"
+                               "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.5,1,1,1],\"baseColorTexture\":{\"index\":0}}}],\"textures\":[{\"source\":0}],"
+                               "\"images\":[{\"uri\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==\"}],"
+                               "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6},{\"buffer\":0,\"byteOffset\":44,\"byteLength\":36},"
+                               "{\"buffer\":0,\"byteOffset\":80,\"byteLength\":24}],"
+                               "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"},"
+                               "{\"bufferView\":2,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":3,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"}],"
+                               "\"buffers\":[{\"byteLength\":104,\"uri\":\"data:,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8=\"}]}");
+            Prog_Mesh textured = { .imageSide = 64 };
+            P_CancelToken token = {0};
+            Check(Prog_ReadModel(&arena, Prog_ModelKind_Gltf, S("/model.gltf"), painted, &token, &textured) && textured.parts.header.count == 1 && textured.images.header.count == 1);
+            Check(textured.parts.v[0].color == 0xFFFFFFBCu && textured.parts.v[0].image == 0 && textured.images.v[0].width == 1 && textured.images.v[0].pixels[0] == 0xFF00FF00u);
+            Check(textured.colors.header.count == 3 && textured.colors.v[0] == 0xFF0000FFu && textured.colors.v[2] == 0xFFFF0000u && textured.uvs.v[2] == 1 && textured.uvs.v[5] == 1);
+            Prog_ModelShape shape;
+            Check(Prog__ModelShape(&arena, &textured, &shape) && shape.partCount == 1 && shape.parts[0].image == 0 && shape.imageCount == 1 && shape.images[0].pixels[0] == 0xFF00FF00u);
+            // Without the pictures asked for, it keeps its color alone.
+            Check(TestReadModel(&arena, Prog_ModelKind_Gltf, painted, &mesh) && mesh.parts.v[0].image == UINT32_MAX && !mesh.images.header.count);
+        }
         // An accessor past its buffer's end is left out rather than read.
         String past = StrFormat(&arena, "%s\"buffers\":[{\"byteLength\":20,\"uri\":\"data:,AAAAAAAAAAAAAAAAAACAPwAAAAA=\"}]}", scene);
         Check(!TestReadModel(&arena, Prog_ModelKind_Gltf, past, &mesh));
@@ -234,8 +276,16 @@ function void TestModels(void)
         u32 triangles[9] = { 0, 1, 2, 0, 2, 3, 0, 1, 7 };
         MemCopy(t, triangles, sizeof(triangles));
         P_CancelToken token = {0};
-        u32 *pixels = Prog_DrawMesh(&arena, &square, 64, &token);
+        Prog_ModelShape drawn;
+        u32 *pixels = Prog__ModelShape(&arena, &square, &drawn) ? Prog_DrawMesh(&arena, &drawn, 64, &token) : NULL;
         Check(pixels && (pixels[32 * 64 + 32] >> 24) == 255 && (pixels[0] >> 24) == 0 && (pixels[63 * 64 + 63] >> 24) == 0);
+        // Without colors of its own it is gray; a red part over white corners is red, lit but never more than its color.
+        Check(pixels && (pixels[32 * 64 + 32] & 0xFF) > 0 && (pixels[32 * 64 + 32] & 0xFF) < 0xC8 && ((pixels[32 * 64 + 32] >> 16) & 0xFF) > (pixels[32 * 64 + 32] & 0xFF));
+        Prog__MeshPart(&arena, &square, 0xFF0000FFu, UINT32_MAX);
+        MemCopy(ArrayAdd(&arena, square.indices, 3), triangles, 12);
+        square.parts.v[0].first = 0;
+        pixels = Prog__ModelShape(&arena, &square, &drawn) ? Prog_DrawMesh(&arena, &drawn, 64, &token) : NULL;
+        Check(drawn.partCount == 1 && drawn.parts[0].count == 9 && pixels && (pixels[32 * 64 + 32] & 0xFF) > 0x40 && ((pixels[32 * 64 + 32] >> 8) & 0xFFFF) == 0);
     }
     // The mesh for the GPU: a triangle naming a vertex that is not there is left out, Z up turns Y up, and its bounds' center and radius.
     {
