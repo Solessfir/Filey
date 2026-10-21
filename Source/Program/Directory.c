@@ -1879,6 +1879,16 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    // Which of the recents at `names` are gone: kept first in `names` and `rows`, as many as `rowCount` then says.
+    if (input->kind == Prog_JobKind_RecentsCheck) {
+        u64 gone = 0;
+        for (u64 i = 0; i < input->rowCount && !P_IsCancelled(&job->cancelToken); ++i) {
+            if (!P_PathExists(input->names[i])) input->names[gone] = input->names[i], input->rows[gone++] = input->rows[i];
+        }
+        input->rowCount = gone;
+        job->result = input;
+        return;
+    }
     if (input->kind == Prog_JobKind_HexPage) {
         String *bytes = ArenaPushStruct(&job->arena, String), copy = Prog_ArchiveCopy(&job->arena, input->path, NULL, &job->cancelToken);
         if (!P_ReadFileAt(&job->arena, copy.length ? copy : input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
@@ -2313,6 +2323,32 @@ function void Prog__NextRepoStatus(Prog_State *state)
         Prog__RepoJob(state, &state->repos.v[state->reposNext].key, 1, true);
         return;
     }
+}
+
+function b32 Prog_PathOnline(const Prog_State *state, String path);
+
+// Checks in a job that the recents are still there, dropping those that are gone. One on a share, or on a drive that is not there now,
+// is left alone, as it may only be out of reach for a while.
+function void Prog_CheckRecents(Prog_State *state)
+{
+    state->recentsCheckTime = PlatformNowMicroseconds();
+    state->recentsCheckAgain = state->recentsCheckJob != NULL;
+    if (state->recentsCheckJob || !state->recents.header.count) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_RecentsCheck;
+    u64 count = state->recents.header.count;
+    input->names = ArenaPushArray(&job->arena, count, String);
+    input->rows = ArenaPushArray(&job->arena, count, u64);
+    for (u64 i = 0; i < count; ++i) {
+        String path = state->recents.v[i];
+        if (Prog__StartsAt(path, 0, S("//")) || !Prog_PathOnline(state, path)) continue;
+        input->names[input->rowCount] = StrCopy(&job->arena, path);
+        input->rows[input->rowCount++] = i;
+    }
+    job->input = input;
+    state->recentsCheckJob = job;
+    P_JobSubmit(job);
 }
 
 // Starts finding out what a sidebar tip shows of `path`, unless that is already under way or known.
@@ -4741,6 +4777,29 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
+        } else if (input->kind == Prog_JobKind_RecentsCheck) {
+            if (state->recentsCheckJob == job) state->recentsCheckJob = NULL;
+            // The recents left out by path, as they may have changed since the check started.
+            if (input->rowCount) {
+                Scratch scratch = GetScratch();
+                u64 count = state->recents.header.count, kept = 0;
+                String *paths = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+                Prog_RecentRank *ranks = ArenaPushArray(scratch.arena, Max(count, (u64)1), Prog_RecentRank);
+                for (u64 i = 0; i < count; ++i) {
+                    b32 gone = false;
+                    for (u64 g = 0; g < input->rowCount && !gone; ++g) gone = StrIsEqual(state->recents.v[i], input->names[g]);
+                    if (gone) continue;
+                    paths[kept] = state->recents.v[i];
+                    ranks[kept++] = state->recentRanks[i];
+                }
+                if (kept < count) {
+                    Prog__SetRecents(state, paths, ranks, kept);
+                    if (state->storeRecents == Prog_StoreRecents_Persistent) Prog__SaveList(state, Prog_RecentsFile, state->recents);
+                    changed = true;
+                }
+                ReleaseScratch(scratch);
+            }
+            if (state->recentsCheckAgain) Prog_CheckRecents(state);
         } else if (input->kind == Prog_JobKind_Repos) {
             const Prog_Repos *found = job->result;
             if (state->reposJob == job) {

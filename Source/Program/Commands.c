@@ -3272,6 +3272,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_EditPath: {
                 Prog_CloseMenu(state);
                 b32 edit = command->kind == Prog_CommandKind_EditPath;
+                if (!edit) Prog_CheckRecents(state);
                 state->paletteOpen = edit || !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_GoTo);
                 state->paletteMode = Prog_PaletteMode_GoTo;
                 state->palette = (Prog_TextEdit){0};
@@ -3718,6 +3719,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     Prog__UsePanel(state, state->activePanel);
     Prog_KeepLockedView(state);
+    // The recents are checked for folders gone at the start and every minute after; opening Go To checks them at once.
+    if (!state->recentsCheckTime || PlatformNowMicroseconds() - state->recentsCheckTime > Millions(60)) Prog_CheckRecents(state);
     // Transfers redraw while they run, for their progress and questions.
     b32 transferring = false;
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;

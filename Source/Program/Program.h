@@ -234,6 +234,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_PdfPage,
     Prog_JobKind_Git,
     Prog_JobKind_Repos,
+    Prog_JobKind_RecentsCheck,
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
@@ -1612,6 +1613,9 @@ typedef struct Prog_State {
     ArrayStr recents;
     Prog_RecentRank *recentRanks;  // one for each of the recents
     u32 recentOrdinal;             // the last one's, counting up across runs
+    P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
+    b32 recentsCheckAgain;
+    u64 recentsCheckTime;
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
     b32 saving[5];            // bookmarks, recents, folder views, menu pins, quick commands
@@ -1728,6 +1732,7 @@ function void Prog_ToggleBookmark(Prog_State *state, String path);
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);
 function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
+function void Prog_CheckRecents(Prog_State *state);
 function String Prog_ColumnsText(Arena *arena, Prog_ColumnSet set);
 function b32 Prog_ParseColumns(String word, Prog_ColumnSet *set);
 function void Prog_ToggleFolderView(Prog_State *state);

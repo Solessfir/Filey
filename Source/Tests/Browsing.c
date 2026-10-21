@@ -2908,6 +2908,12 @@ function void TestSidebar(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
         Check(TestEndsWith(state.recents.v[0], S("/Empty")) && StrIsEqual(state.recents.v[1], fixture->path) && state.recentRanks[1].score == Prog_RecentScoreNew);
+        // A recent folder that is gone is dropped by the next check, and the others stay.
+        Prog__AddRecent(&state, Prog_JoinPath(&arena, fixture->path, S("Gone")), false, false);
+        u64 before = state.recents.header.count;
+        Prog_CheckRecents(&state);
+        for (u64 start = PlatformNowMicroseconds(); state.recentsCheckJob && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+        Check(!state.recentsCheckJob && state.recents.header.count == before - 1 && TestEndsWith(state.recents.v[0], S("/Empty")));
         Prog_Release(&state);
     }
     Check(P__TestRemovePath(fixture, S("Config/Bookmarks.conf"), false));
