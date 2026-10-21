@@ -1898,13 +1898,15 @@ function void Prog__UpdatePreview(Prog_State *state)
     Prog__SubmitPreview(state, want, folder, archive, size);
 }
 
-// Zooms the inspector's image a fifth of its size in or out from the scale it shows, down to no smaller than fitting the view.
+// Zooms the inspector's image by the ratio a wheel notch does, in or out from the scale it shows, down to no smaller than fitting the view.
+// The pan keeps the same middle in sight.
 function void Prog__ScaleImage(Prog_State *state, b32 up)
 {
     f32 fit = state->imageFit > 0 ? state->imageFit : 1, least = MinF32(fit, 1);
     f32 shown = state->imageScaleMode == Prog_ImageScale_Custom ? state->imageScale : state->imageScaleMode == Prog_ImageScale_Original ? 1 : least;
-    f32 scale = roundf((shown + (up ? 0.2f : -0.2f)) * 100.0f) / 100.0f;
-    state->imageScale = MinF32(MaxF32(scale, least), 32.0f);
+    f32 scale = MinF32(MaxF32(up ? shown * 1.2f : shown / 1.2f, least), 32.0f);
+    state->imagePan.x *= scale / shown, state->imagePan.y *= scale / shown;
+    state->imageScale = scale;
     state->imageScaleMode = Prog_ImageScale_Custom;
 }
 

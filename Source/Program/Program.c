@@ -8204,13 +8204,28 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, left = floorf(10.4f * s + 0.5f), right = floorf(15.2f * s + 0.5f), top = floorf(18.4f * s + 0.5f), bottom = floorf(8.0f * s + 0.5f);
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
-    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorImage")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorImage")), UI_Flag_Clip | UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
     UI_Interaction drag = UI_InteractionFromBlock(view);
     f32 roomWidth = MaxF32(1, view->rect.x1 - view->rect.x0 - left - right), roomHeight = MaxF32(1, view->rect.y1 - view->rect.y0 - top - bottom);
     f32 width = (f32)Max(state->previewImageWidth, 1), height = (f32)Max(state->previewImageHeight, 1);
-    f32 fit = MinF32(roomWidth / width, roomHeight / height);
+    f32 fit = MinF32(roomWidth / width, roomHeight / height), least = MinF32(fit, 1);
     state->imageFit = fit;
-    f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(fit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
+    f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? least : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
+    // The wheel zooms by a steady ratio, a fine-grained one smoothly, and a double click goes between fitting the view and 1:1, both about
+    // the point under the pointer, which stays where it is.
+    f32 wanted = scale;
+    if (UI->hotKey == view->key && UI->wheel.y != 0 && !(UI->mods & KeyMod_Control)) wanted = MinF32(MaxF32(scale * powf(1.2f, UI->wheel.y), least), 32.0f);
+    b32 toFit = drag.pressed && drag.pressCount == 2 && state->imageScaleMode != Prog_ImageScale_Fit;
+    if (drag.pressed && drag.pressCount == 2) wanted = toFit ? least : 1;
+    if (wanted != scale || toFit) {
+        f32 px = UI->mouse.x - view->rect.x0 - left, py = UI->mouse.y - view->rect.y0 - top;
+        f32 u = (px - ((roomWidth - width * scale) * 0.5f + state->imagePan.x)) / scale, v = (py - ((roomHeight - height * scale) * 0.5f + state->imagePan.y)) / scale;
+        state->imagePan.x = px - u * wanted - (roomWidth - width * wanted) * 0.5f;
+        state->imagePan.y = py - v * wanted - (roomHeight - height * wanted) * 0.5f;
+        state->imageScaleMode = toFit ? Prog_ImageScale_Fit : wanted == 1 ? Prog_ImageScale_Original : Prog_ImageScale_Custom;
+        state->imageScale = wanted;
+        scale = wanted;
+    }
     f32 shownWidth = floorf(width * scale + 0.5f), shownHeight = floorf(height * scale + 0.5f);
     if (drag.pressed) state->imageDragFrom = UI->mouse;
     if (drag.active && drag.isDragging) {

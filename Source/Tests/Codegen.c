@@ -232,6 +232,14 @@ function void TestHotkeyDispatch(void)
         Prog_Command *first = wheel.commandFirst;
         Check(first && first->kind == Prog_CommandKind_InspectorIncreaseContentsSize);
         Check(first && first->next && first->next->kind == Prog_CommandKind_ZoomOut);
+        // An image zooms by a steady ratio from fitting the view, keeping its middle, and no smaller than fitting.
+        wheel.imageFit = 0.5f;
+        wheel.imagePan = (UI_Vec2){ 10, -4 };
+        Prog__ScaleImage(&wheel, true);
+        Check(wheel.imageScaleMode == Prog_ImageScale_Custom && fabsf(wheel.imageScale - 0.6f) < 1e-5f && fabsf(wheel.imagePan.x - 12) < 1e-4f);
+        Prog__ScaleImage(&wheel, false);
+        Prog__ScaleImage(&wheel, false);
+        Check(fabsf(wheel.imageScale - 0.5f) < 1e-5f);
         ArenaRelease(&wheel.frameArena);
     }
 
