@@ -8015,6 +8015,55 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
     }
 }
 
+// The model's axes in the view's lower left corner, as Blender and Herta show them: a short line to a dot for each, its letter beyond it, the
+// farthest drawn first. They are the file's own, so that a Z-up file's Z points up. `rows` turns the view's Y-up space to the view.
+function void Prog__ModelAxes(Prog_State *state, f32 width, f32 height, const f32 rows[3][3], const Prog_Metrics *m)
+{
+    local_persist const String names[3] = { SInit("X"), SInit("Y"), SInit("Z") };
+    local_persist const u32 colors[3] = { 0xD57B7F, 0x83B993, 0x7C9ED5 };
+    f32 s = m->scale, length = floorf(16.0f * s + 0.5f), dot = MaxF32(2, floorf(4.0f * s + 0.5f)), stroke = MaxF32(1, 1.5f * s), inset = floorf(14.0f * s + 0.5f);
+    // Each axis in the view's Y-up space: a Z-up file's Y is the view's -Z and its Z the view's Y.
+    f32 axes[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+    if (state->modelZUp) axes[1][1] = 0, axes[1][2] = -1, axes[2][1] = 1, axes[2][2] = 0;
+    f32 tips[3][3];
+    for (u32 a = 0; a < 3; ++a) for (u32 r = 0; r < 3; ++r) tips[a][r] = rows[r][0] * axes[a][0] + rows[r][1] * axes[a][1] + rows[r][2] * axes[a][2];
+    // Room for the letters all around, whichever way the axes point.
+    f32 room = length + floorf(3.0f * s + 0.5f) + MaxF32(R_TextWidth(m->detail, S("M")), m->line);
+    f32 ox = inset + room, oy = height - inset - room;
+    if (ox > width || oy < 0) return;
+    u32 order[3] = { 0, 1, 2 };
+    for (u32 i = 0; i < 3; ++i) for (u32 j = i + 1; j < 3; ++j) if (tips[order[j]][2] < tips[order[i]][2]) { u32 swap = order[i]; order[i] = order[j]; order[j] = swap; }
+    for (u32 i = 0; i < 3; ++i) {
+        u32 a = order[i];
+        R_Color color = Prog__HexColor(colors[a]);
+        f32 dx = tips[a][0] * length, dy = -tips[a][1] * length, reach = sqrtf(dx * dx + dy * dy);
+        // The line in a block around it, from its corner nearest the view's top left.
+        f32 left = ox + MinF32(dx, 0) - stroke, top = oy + MinF32(dy, 0) - stroke;
+        UI_SetNextFloatingOffset((UI_Vec2){ left, top });
+        UI_SetNextPrefWidth(UI_Pixels(fabsf(dx) + 2 * stroke));
+        UI_SetNextPrefHeight(UI_Pixels(fabsf(dy) + 2 * stroke));
+        UI_SetNextLine((UI_Vec2){ ox - left, oy - top }, (UI_Vec2){ ox + dx - left, oy + dy - top }, stroke);
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawLine);
+        UI_SetNextFloatingOffset((UI_Vec2){ ox + dx - dot * 0.5f, oy + dy - dot * 0.5f });
+        UI_SetNextPrefWidth(UI_Pixels(dot));
+        UI_SetNextPrefHeight(UI_Pixels(dot));
+        UI_SetNextCornerRadius(dot * 0.5f);
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        // The letter past the tip, along the axis, or above the middle when the axis points at the view.
+        f32 ux = reach > 0.5f ? dx / reach : 0, uy = reach > 0.5f ? dy / reach : -1, letter = R_TextWidth(m->detail, names[a]);
+        f32 away = reach + floorf(3.0f * s + 0.5f) + (fabsf(ux) * letter + fabsf(uy) * m->line) * 0.5f;
+        UI_SetNextFloatingOffset((UI_Vec2){ floorf(ox + ux * away - letter * 0.5f), floorf(oy + uy * away - m->line * 0.5f) });
+        UI_SetNextPrefWidth(UI_Pixels(letter));
+        UI_SetNextPrefHeight(UI_Pixels(m->line));
+        UI_SetNextFont(m->detail);
+        UI_SetNextColors((UI_Colors){ .text = color });
+        UI_SetNextText(names[a]);
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+    }
+}
+
 // A 3D model on the GPU, `height` tall above its details: dragging turns it about its up axis and tips it toward the view, the wheel zooms,
 // and a double click puts it back as it first showed. It is drawn into a texture of the view's size whenever the view or the size changes.
 function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Metrics *m)
@@ -8060,6 +8109,7 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
             rows[i][3] = -(rows[i][0] * state->modelCenter[0] + rows[i][1] * state->modelCenter[1] + rows[i][2] * state->modelCenter[2]);
         }
         f32 matrix[16] = { rows[0][0], rows[1][0], rows[2][0], 0, rows[0][1], rows[1][1], rows[2][1], 0, rows[0][2], rows[1][2], rows[2][2], 0, rows[0][3], rows[1][3], rows[2][3], 1 };
+        MemCopy(state->modelTurn, r, sizeof(r));
         R_MeshDraw(state->previewMesh, state->modelTexture, width, tall, matrix, (R_Color){ 200.0f / 255.0f, 204.0f / 255.0f, 212.0f / 255.0f, 1 });
         MemCopy(state->modelDrawn, now, sizeof(now));
         state->modelStale = false;
@@ -8070,6 +8120,7 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
         UI_SetNextPrefHeight(UI_Pixels((f32)tall));
         UI_SetNextImage(state->modelTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ (f32)width, (f32)tall }, (R_Color){ 1, 1, 1, 1 });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+        Prog__ModelAxes(state, (f32)width, (f32)tall, state->modelTurn, m);
     }
     (void)m;
 }

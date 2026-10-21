@@ -331,6 +331,12 @@ function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_
     UI->next.imageSize = size;
     UI->next.imageTint = tint;
 }
+function void UI_SetNextLine(UI_Vec2 from, UI_Vec2 to, f32 thickness)
+{
+    UI->next.lineFrom = from;
+    UI->next.lineTo = to;
+    UI->next.lineThickness = thickness;
+}
 function void UI_SetNextScrollOffset(UI_Vec2 offset) { UI->nextScroll = offset; UI->nextScrollSet = true; }
 function void UI_SetNextOpacity(f32 opacity) { UI->next.fade = 1.0f - UI__Clamp(opacity, 0, 1); }
 function void UI_SetNextBlur(f32 radius) { UI->next.blur = radius; }
@@ -542,6 +548,11 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
         }
         if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, UI__Faded(block->props.colors.border, opacity), block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
         R_SetShape(0);
+        if (FlagExists(block->flags, UI_Flag_DrawLine)) {
+            UI_Vec2 from = block->props.lineFrom, to = block->props.lineTo;
+            R_DrawLine(block->rect.x0 + from.x, block->rect.y0 + from.y, block->rect.x0 + to.x, block->rect.y0 + to.y, block->props.lineThickness,
+                       UI__Faded(block->props.colors.background, opacity));
+        }
         if (FlagExists(block->flags, UI_Flag_DrawImage)) {
             UI_Padding pad = block->props.childrenPadding;
             UI_Vec2 size = block->props.imageSize;

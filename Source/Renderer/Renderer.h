@@ -86,6 +86,8 @@ function void R_SetShape(u32 shape);
 
 // Draw calls are only valid between R_BeginFrame and R_EndFrame and are submitted in order.
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius);
+// A line from (x0, y0) to (x1, y1), `thickness` wide, with round ends.
+function void R_DrawLine(f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, R_Color color);
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness);
 // A fill that fades from nothing at its edge to `color` `softness` pixels inside it, for shadows.
 function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness);

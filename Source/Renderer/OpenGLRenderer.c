@@ -142,8 +142,10 @@ typedef struct GL_Instance {
     f32     thickness;  // 0 fills; otherwise an inner outline this wide
     f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA; 3 draws its premultiplied RGBA, as copied from the frame
     f32     softness;   // 0 has a sharp edge; otherwise a fill fades in from it over this width
-    f32     shape;      // R_Shape flags
+    f32     shape;      // R_Shape flags, and GL_ShapeLine: a line between the points in `uv`, `radius` from its middle to its edge
 } GL_Instance;
+
+#define GL_ShapeLine 32
 
 typedef struct GL_Batch {
     GLuint texture;     // 0 until a textured instance joins the batch
@@ -260,6 +262,8 @@ global const char GL_VertexShader[] =
     "out vec2 vHalfSize;\n"
     "out vec4 vStyle;\n"
     "flat out int vShape;\n"
+    "flat out vec4 vSegment;\n"
+    "out vec2 vPosition;\n"
     "void main() {\n"
     "    vShape = int(aShape + 0.5);\n"
     "    vec2 corner = vec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
@@ -270,6 +274,8 @@ global const char GL_VertexShader[] =
     "    vHalfSize = 0.5 * (aRect.zw - aRect.xy);\n"
     "    vLocal = position - 0.5 * (aRect.xy + aRect.zw);\n"
     "    vUV = mix(aUV.xy, aUV.zw, corner);\n"
+    "    vSegment = aUV;\n"
+    "    vPosition = position;\n"
     "    vColor = aColor;\n"
     "    vStyle = aStyle;\n"
     "    vec2 ndc = position / uViewport * 2.0 - 1.0;\n"
@@ -285,8 +291,18 @@ global const char GL_FragmentShader[] =
     "in vec2 vHalfSize;\n"
     "in vec4 vStyle;\n"
     "flat in int vShape;\n"
+    "flat in vec4 vSegment;\n"
+    "in vec2 vPosition;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
+    // A line shades by its distance from the segment between its points, less its half width.
+    "    if ((vShape & 32) != 0) {\n"
+    "        vec2 along = vSegment.zw - vSegment.xy, from = vPosition - vSegment.xy;\n"
+    "        float t = clamp(dot(from, along) / max(dot(along, along), 1e-6), 0.0, 1.0);\n"
+    "        float edge = length(from - along * t) - vStyle.x;\n"
+    "        fragColor = vec4(vColor.rgb, vColor.a * clamp(0.5 - edge, 0.0, 1.0));\n"
+    "        return;\n"
+    "    }\n"
     "    float radius = min(vStyle.x, min(vHalfSize.x, vHalfSize.y));\n"
     "    int corner = vLocal.x < 0.0 ? (vLocal.y < 0.0 ? 1 : 8) : (vLocal.y < 0.0 ? 2 : 4);\n"
     "    if ((vShape & corner) != 0) radius = 0.0;\n"
@@ -635,13 +651,15 @@ function R_Rect GL__Scaled(R_Rect rect)
 
 function void GL__PushInstance(GL_Instance instance, GLuint texture)
 {
+    b32 line = ((u32)instance.shape & GL_ShapeLine) != 0;
     if (GL.scale != 1) {
         instance.rect = GL__Scaled(instance.rect);
+        if (line) instance.uv = GL__Scaled(instance.uv);
         instance.radius *= GL.scale;
         instance.thickness *= GL.scale;
         instance.softness *= GL.scale;
     }
-    instance.shape = (f32)GL.shape;
+    instance.shape = (f32)(GL.shape | (line ? GL_ShapeLine : 0));
     R_Rect clip = GL__CurrentClip();
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
     b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
@@ -783,6 +801,13 @@ function void R_SetShape(u32 shape)
 function void R_DrawRect(R_Rect rect, R_Color color, f32 cornerRadius)
 {
     GL__PushInstance((GL_Instance){ .rect = rect, .color = color, .radius = cornerRadius }, 0);
+}
+
+function void R_DrawLine(f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, R_Color color)
+{
+    f32 half = thickness * 0.5f;
+    R_Rect box = { MinF32(x0, x1) - half, MinF32(y0, y1) - half, MaxF32(x0, x1) + half, MaxF32(y0, y1) + half };
+    GL__PushInstance((GL_Instance){ .rect = box, .uv = { x0, y0, x1, y1 }, .color = color, .radius = half, .shape = GL_ShapeLine }, 0);
 }
 
 function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness)

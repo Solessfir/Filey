@@ -478,6 +478,7 @@ typedef struct Prog_ModelShape {
     u64 indexCount;
     f32 center[3];
     f32 radius;
+    b32 zUp;  // the file's Z was up, which the positions turned to Y
 } Prog_ModelShape;
 
 typedef struct Prog_Preview {
@@ -1324,6 +1325,8 @@ typedef struct Prog_State {
     // the up axis and tip toward the view in radians and its zoom, and the texture it is drawn into, redrawn as the view or its size changes.
     R_MeshHandle previewMesh;
     f32 modelCenter[3], modelRadius;
+    b32 modelZUp;
+    f32 modelTurn[3][3];  // the view's rotation as last drawn, which the axes in its corner follow
     f32 modelYaw, modelPitch, modelZoom;
     UI_Vec2 modelDragFrom;
     R_TextureHandle modelTexture;

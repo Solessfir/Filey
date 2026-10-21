@@ -2037,7 +2037,7 @@ function b32 Prog__ModelShape(Arena *arena, const Prog_Mesh *mesh, Prog_ModelSha
             f32 dx = positions[i * 3] - center[0], dy = positions[i * 3 + 1] - center[1], dz = positions[i * 3 + 2] - center[2];
             radius = MaxF32(radius, dx * dx + dy * dy + dz * dz);
         }
-        *shape = (Prog_ModelShape){ positions, (u32)vertices, indices, kept * 3, { center[0], center[1], center[2] }, MaxF32(sqrtf(radius), 1e-6f) };
+        *shape = (Prog_ModelShape){ positions, (u32)vertices, indices, kept * 3, { center[0], center[1], center[2] }, MaxF32(sqrtf(radius), 1e-6f), mesh->zUp };
     }
     ReleaseScratch(scratch);
     return shape->indexCount > 0;

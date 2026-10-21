@@ -4269,6 +4269,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->previewMesh = R_MeshCreate(preview->model.positions, preview->model.vertexCount, preview->model.indices, preview->model.indexCount);
                     MemCopy(state->modelCenter, preview->model.center, sizeof(state->modelCenter));
                     state->modelRadius = preview->model.radius;
+                    state->modelZUp = preview->model.zUp;
                     state->modelStale = true;
                 }
                 state->previewArchiveTotals = preview->archiveTotals;

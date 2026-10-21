@@ -20,6 +20,7 @@ typedef u64 UI_Flags;
 #define UI_Flag_DrawImage            BBit(9)
 #define UI_Flag_TakesWheel           BBit(10)  // the wheel over it is the program's, and scrolls nothing under it
 #define UI_Flag_KeepCorners          BBit(11)  // round even when every other corner is drawn square, as the window's outline is
+#define UI_Flag_DrawLine             BBit(12)  // a line between lineFrom and lineTo, in its background color
 
 typedef struct UI_Vec2 { f32 x, y; } UI_Vec2;
 typedef struct UI_Padding { f32 left, top, right, bottom; } UI_Padding;
@@ -54,6 +55,9 @@ typedef struct UI_Properties {
     R_Rect imageUV;
     UI_Vec2 imageSize;
     R_Color imageTint;
+    // From the block's top left corner.
+    UI_Vec2 lineFrom, lineTo;
+    f32 lineThickness;
     UI_Vec2 floatingOffset;
     f32 cornerRadius;  // background and border
     f32 borderThickness;  // 0 draws one pixel
@@ -172,6 +176,7 @@ function void UI_SetNextColors(UI_Colors colors);
 function void UI_SetNextFont(const R_Font *font);
 function void UI_SetNextText(String text);
 function void UI_SetNextImage(R_TextureHandle image, R_Rect uv, UI_Vec2 size, R_Color tint);
+function void UI_SetNextLine(UI_Vec2 from, UI_Vec2 to, f32 thickness);
 function void UI_SetNextFloatingOffset(UI_Vec2 offset);
 function void UI_SetNextCornerRadius(f32 radius);
 function void UI_SetNextBorderThickness(f32 thickness);
