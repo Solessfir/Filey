@@ -1496,6 +1496,9 @@ typedef struct Prog_State {
     b32 fontPreviewsShown;  // the picker drew this frame, so that its fonts are kept
     P_Job *fontsJob;
     enum8(Prog_Option) fontOption;
+    // Options as the font dropdown found it, its search, highlight and scroll, which come back as the dropdown closes.
+    Prog_TextEdit optionsPalette;
+    u32 optionsHighlight, optionsScroll;
     // The layout Load On Startup names, which takes the place of `startup` while there is one.
     u8 startupLayout[256];
     u32 startupLayoutLength;

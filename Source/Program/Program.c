@@ -6717,76 +6717,78 @@ function const R_Font *Prog__FontPreview(Prog_State *state, u64 family, f32 pixe
     return slot->made ? &slot->font : NULL;
 }
 
-// The font picker: the installed families by name in the palette's box, which the typed text narrows, the default first, and the one the
-// option has highlighted when it opens; the rows scroll to keep the highlight in sight.
-function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
+// The font dropdown under the Font or Inspector Font option it opened from, over Options: a search row, which takes what is typed, over the
+// families, each named in itself, with the one the option has checked. It opens upward where the window has no room below.
+function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
+    Arena *frame = &state->frameArena;
+    // A press anywhere else closes it, back to Options.
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PaletteCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FontsCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, outside.pressOrder);
-    u32 *matches = ArenaPushArray(&state->frameArena, state->fontCount + 1, u32);
+    u32 *matches = ArenaPushArray(frame, state->fontCount + 1, u32);
     u32 count = Prog_FontMatches(state, matches);
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
-    f32 s = m->scale, line = m->separator;
-    f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line;
-    f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
-    f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
-    u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
+    f32 s = m->scale, line = m->separator, pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
+    f32 field = floorf(28.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line, radius = floorf(6.4f * s + 0.5f), gap = floorf(0.8f * s + 0.5f);
+    UI_Block *button = UI__Find(UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)state->fontOption)));
+    R_Rect anchor = button && button->rect.x1 > button->rect.x0 ? button->rect : (R_Rect){ view.x0 + (view.x1 - view.x0) * 0.5f, view.y0, view.x0 + (view.x1 - view.x0) * 0.5f, view.y0 };
+    f32 width = MaxF32(anchor.x1 - anchor.x0, floorf(280.0f * s + 0.5f));
+    f32 x = UI__Clamp(anchor.x0 - view.x0, 0, MaxF32(0, view.x1 - view.x0 - width));
+    // Up to twelve families at once, below the button or above it, whichever has room for more.
+    f32 below = view.y1 - anchor.y1 - gap, above = anchor.y0 - view.y0 - gap, chrome = field + line + 2 * pad;
+    b32 up = below < chrome + 6 * row && above > below;
+    u32 visible = (u32)UI__Clamp(floorf(((up ? above : below) - chrome + line) / row), 1, 12);
     if (!state->paletteWheeled && state->paletteHighlight < state->paletteScroll) state->paletteScroll = state->paletteHighlight;
     if (!state->paletteWheeled && state->paletteHighlight >= state->paletteScroll + visible) state->paletteScroll = state->paletteHighlight - visible + 1;
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
     u32 first = state->paletteScroll, shown = Min(count - Min(first, count), visible);
-    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
-    f32 listHeight = (f32)Max(shown, 1u) * row - line + 2 * pad;
+    f32 listHeight = (f32)Max(shown, 1u) * row - line + 2 * pad, height = field + line + listHeight;
+    f32 y = up ? anchor.y0 - view.y0 - gap - height : anchor.y1 - view.y0 + gap;
     // The interface's own size: 9 points.
     f32 previewPixels = floorf(12.0f * s + 0.5f);
     u32 budget = 4;
     state->fontPreviewsShown = true;
-    f32 height = field + line + listHeight + line + footer;
-    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
-    f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
-    Prog__DropShadow(x, top, width, height, radius, opacity, m);
+    Prog__DropShadow(x, y, width, height, radius, 1, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_SetNextOpacity(opacity);
     UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(line);
     UI_SetNextBlur(Prog__FloatingBlur(m));
-    UI_SetNextColors((UI_Colors){ .background = Prog__FloatingFill() });
-    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Palette")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Fonts")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     const Prog_FontName *current = state->fontOption == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
     UI_Parent(panel) {
-        UI_SetNextChildrenPadding((UI_Padding){ floorf(12.8f * s + 0.5f), 0, floorf(8.0f * s + 0.5f), 0 });
-        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, 0);
-        box->props.cornerRadius = radius;
-        box->props.shape = R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight;
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(10.4f * s + 0.5f), 0, inset, 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__Icon(Icon_Search, floorf(20.8f * s + 0.5f), field, theme->textDim, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(text) {
+                f32 textTop = floorf((field - m->line) * 0.5f + 0.5f);
                 if (!state->palette.length) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(state->fontOption == Prog_Option_InspectorFont ? S("Select the inspector's font...") : S("Select a font..."));
+                    UI_SetNextText(S("Search fonts..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+                Prog__EditContents(&state->palette, 0, textTop, true, 0, m);
             }
-            UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
-            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        f32 side = floorf(6.4f * s + 0.5f);
-        UI_SetNextChildrenPadding((UI_Padding){ side, pad, side, pad });
+        // Room on the right for the scroll bar while there is one.
+        b32 scrolls = count > visible;
+        f32 bar = floorf(4.8f * s + 0.5f), gutter = scrolls ? floorf(12.8f * s + 0.5f) : 0;
+        UI_SetNextChildrenPadding((UI_Padding){ inset, pad, inset + gutter, pad });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
             if (!count) Prog__Label(state->fontsJob ? S("Listing the installed fonts...") : S("No font has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
@@ -6794,7 +6796,7 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
                 b32 standard = matches[i] == UINT32_MAX;
                 String name = standard ? S("Default") : state->fontNames[matches[i]];
                 b32 chosen = standard ? !current->length : Prog__EqualFolded(name, StrMake(current->text, current->length));
-                UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Font/%S", name));
+                UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Font/%S", name));
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
                 f32 face = row - line;
                 R_Color washed = theme->selection;
@@ -6803,46 +6805,45 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefHeight(UI_Pixels(face));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(10.4f * s + 0.5f), 0 });
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(4.0f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-                UI_SetNextBorderThickness(m->stroke);
-                UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
-                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
+                UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed });
+                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
                 if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
                 UI_Parent(entry) {
-                    u8 *marks = state->palette.length ? ArenaPushArray(&state->frameArena, name.length + 1, u8) : NULL;
+                    u8 *marks = state->palette.length ? ArenaPushArray(frame, name.length + 1, u8) : NULL;
                     if (marks) Prog_FilterMatch(name, Prog_EditText(&state->palette), marks);
                     // Each family's name in that family once it is made, and in the interface's until then.
                     const R_Font *preview = standard ? NULL : Prog__FontPreview(state, matches[i], previewPixels, &budget);
                     const R_Font *font = preview && preview->lineHeight > 0 ? preview : m->font;
                     // Centered by its letters, as some families have a far taller line than they need.
                     f32 lineHeight = font == m->font ? m->line : MinF32(ceilf(font->ascent + font->descent), face);
+                    R_Color ink = highlighted ? theme->contentSelection : standard ? theme->textDim : theme->text;
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(face));
                     UI_SetNextChildrenLayout(UI_Layout_Vertical);
                     UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((face - lineHeight) * 0.5f), 0, 0 });
                     UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
-                    UI_Parent(texts) Prog__MarkedText(name, marks, font, lineHeight, standard && !highlighted ? theme->textDim : theme->text);
+                    UI_Parent(texts) Prog__MarkedText(name, marks, font, lineHeight, ink);
                     // The family the option has now.
-                    if (chosen) Prog__Icon(Icon_Check, floorf(24.0f * s + 0.5f), face, theme->text, 0.5f, m);
+                    if (chosen) Prog__Icon(Icon_Check, floorf(24.0f * s + 0.5f), face, ink, 0.5f, m);
                 }
-                if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+                if (i + 1 < first + shown) Prog__Spacer(UI_Flex(), UI_Pixels(line));
             }
         }
-        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
-        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
-        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background.a < 1 ? (R_Color){0} : theme->menu, radius, m);
+        // The scroll bar: a thumb as long as the share of families shown, where they are among all of them.
+        if (scrolls) {
+            f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)count), row);
+            f32 offset = floorf((track - thumb) * (f32)first / (f32)(count - visible));
+            UI_SetNextFloatingOffset((UI_Vec2){ width - inset - floorf((gutter + bar) * 0.5f), field + line + pad + offset });
+            UI_SetNextPrefWidth(UI_Pixels(bar));
+            UI_SetNextPrefHeight(UI_Pixels(thumb));
+            UI_SetNextCornerRadius(floorf(bar * 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = theme->track });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+        }
     }
-    UI_SetNextPrefWidth(UI_Pixels(width));
-    UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
-    UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(m->stroke);
-    UI_SetNextOpacity(opacity);
-    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
-    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
 // The choice shown at `place` in an option's dropdown: the choices in their order but Character Key Action's, which lists Trigger Hotkey
@@ -7352,8 +7353,25 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         Prog__LayoutsPicker(state, m);
         return;
     }
+    // The font dropdown opens over Options, which show under it as they were.
     if (state->paletteMode == Prog_PaletteMode_Fonts) {
-        Prog__FontsPicker(state, m);
+        Prog_TextEdit search = state->palette;
+        u32 highlight = state->paletteHighlight, scroll = state->paletteScroll;
+        b32 wheeled = state->paletteWheeled;
+        state->paletteMode = Prog_PaletteMode_Options;
+        state->palette = state->optionsPalette;
+        state->paletteHighlight = state->optionsHighlight;
+        state->paletteScroll = state->optionsScroll;
+        state->paletteWheeled = false;
+        Prog__PaletteBody(state, m);
+        state->optionsHighlight = state->paletteHighlight;
+        state->optionsScroll = state->paletteScroll;
+        state->paletteMode = Prog_PaletteMode_Fonts;
+        state->palette = search;
+        state->paletteHighlight = highlight;
+        state->paletteScroll = scroll;
+        state->paletteWheeled = wheeled;
+        Prog__FontsDropdown(state, m);
         return;
     }
     const Prog_Theme *theme = Prog_CurrentTheme();

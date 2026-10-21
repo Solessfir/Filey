@@ -2067,10 +2067,15 @@ function String Prog__TrimSpaces(String text)
     return text;
 }
 
-// The font picker for `option`, on the family it has; the families are listed in a job the first time.
+// The font dropdown for `option`, over Options, on the family it has; the families are listed in a job the first time.
 function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
 {
     Prog_CloseMenu(state);
+    if (state->paletteMode != Prog_PaletteMode_Fonts) {
+        state->optionsPalette = state->palette;
+        state->optionsHighlight = state->paletteHighlight;
+        state->optionsScroll = state->paletteScroll;
+    }
     state->paletteOpen = true;
     state->paletteMode = Prog_PaletteMode_Fonts;
     state->palette = (Prog_TextEdit){0};
@@ -2088,6 +2093,16 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
     job->input = input;
     state->fontsJob = job;
     P_JobSubmit(job);
+}
+
+// Back to Options from the font dropdown, as they were.
+function void Prog__CloseFontPicker(Prog_State *state)
+{
+    state->paletteMode = Prog_PaletteMode_Options;
+    state->palette = state->optionsPalette;
+    state->paletteHighlight = state->optionsHighlight;
+    state->paletteScroll = state->optionsScroll;
+    state->paletteWheeled = false;
 }
 
 // The color picker for the color of `option`, which only a custom scheme has.
@@ -3315,7 +3330,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->palette = (Prog_TextEdit){0};
                 state->paletteHighlight = 0;
             } break;
-            case Prog_CommandKind_PaletteClose: state->paletteOpen = false; break;
+            case Prog_CommandKind_PaletteClose: {
+                // The font dropdown closes back to Options.
+                if (state->paletteOpen && state->paletteMode == Prog_PaletteMode_Fonts) Prog__CloseFontPicker(state);
+                else state->paletteOpen = false;
+            } break;
             case Prog_CommandKind_PaletteToggleDetails: state->paletteCompact = !state->paletteCompact; break;
             case Prog_CommandKind_PaletteRun: {
                 if (!state->paletteOpen) break;
@@ -3373,15 +3392,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     u32 count = Prog_FontMatches(state, found);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     if (chosen >= count) break;
-                    // The default clears the setting; back in Options, the option stays highlighted.
-                    Prog_Option option = (Prog_Option)state->fontOption;
-                    Prog_SetOptionText(state, option, found[chosen] == UINT32_MAX ? (String){0} : state->fontNames[found[chosen]]);
-                    state->paletteMode = Prog_PaletteMode_Options;
-                    state->palette = (Prog_TextEdit){0};
-                    u8 options[Prog_Option_Count];
-                    u32 shown = Prog_OptionMatches(state, options);
-                    state->paletteHighlight = 0;
-                    for (u32 i = 0; i < shown; ++i) if (options[i] == option) state->paletteHighlight = i;
+                    // The default clears the setting.
+                    Prog_SetOptionText(state, (Prog_Option)state->fontOption, found[chosen] == UINT32_MAX ? (String){0} : state->fontNames[found[chosen]]);
+                    Prog__CloseFontPicker(state);
                     break;
                 }
                 if (state->paletteMode == Prog_PaletteMode_Layouts) {
