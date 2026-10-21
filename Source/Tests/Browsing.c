@@ -750,6 +750,17 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state));
     Check(state.error.length && state.directory.count == 1 && state.directory.entries[0].selected && state.hasFocus && state.hasAnchor);
     Check(state.history.header.count == 4 && state.historyAt == 3 && StrIsEqual(state.history.v[3], state.directory.path));
+    // A folder shown that is then deleted lists the folder above it when listed again, as a stale tab does, in its place in the history.
+    {
+        Check(P__TestMakeDirectory(fixture, S("Doomed")));
+        String doomed = Prog_JoinPath(&state.frameArena, fixture->path, S("Doomed"));
+        Prog_RequestDirectory(&state, doomed, true, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, doomed));
+        Check(P__TestRemovePath(fixture, S("Doomed"), true));
+        TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+        Check(TestWaitDirectory(&state) && !state.error.length && StrIsEqual(state.directory.path, fixture->path));
+        Check(StrIsEqual(state.history.v[state.historyAt], fixture->path));
+    }
     TestStaleCompletion(&state, fixture);
 finish:
     Prog_Release(&state);

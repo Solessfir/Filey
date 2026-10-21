@@ -2068,6 +2068,21 @@ function void Prog__DirectoryJob(P_Job *job)
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
     result->hidden = listing.hidden;
+    // A folder that is gone, deleted or moved away, lists the nearest folder above it that is still there instead: a tab's, one listed again
+    // or one gone back or forward to. One newly gone to shows that it is not there, and the panel stays where it was.
+    if (result->error.code && !result->cancelled && !result->archive && !input->expanded && !input->addHistory && !P_PathExists(input->path)) {
+        for (String up = Prog_UpPath(input->path); up.length && !StrIsEqual(up, Prog_ThisPC) && !P_IsCancelled(&job->cancelToken); up = Prog_UpPath(up)) {
+            if (!P_IsDirectory(up)) continue;
+            listing = P_EnumerateDirectory(&job->arena, up, &job->cancelToken);
+            if (listing.errorCode) break;
+            result->path = StrCopy(&job->arena, up);
+            result->driveKind = (u8)P_PathDriveKind(up);
+            result->error = (P_FileError){0};
+            result->cancelled = listing.cancelled;
+            result->hidden = listing.hidden;
+            break;
+        }
+    }
     if (result->error.code || result->cancelled) return;
     P_FileArray files = listing.files;
     Prog__CountFound(input, files.v, files.header.count);
@@ -5204,12 +5219,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (state->directory.path.length && input->addHistory && !input->passing) Prog__AddRecent(state, result->path, false, result->hidden);
                     }
                     Prog__NoteFolders(state, result->path, result->entries, result->count);
-                    if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], input->path))) {
+                    if (input->addHistory && (!state->history.header.count || !StrIsEqual(state->history.v[state->historyAt], result->path))) {
                         if (state->history.header.count) state->history.header.count = state->historyAt + 1;
-                        ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, input->path));
+                        ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, result->path));
                         state->historyAt = state->history.header.count - 1;
                     } else if (!input->addHistory && state->history.header.count) {
                         state->historyAt = input->historyAt;
+                        // A folder gone, listed as the one above it, is that one in the history too.
+                        if (state->historyAt < state->history.header.count && !StrIsEqual(result->path, input->path)) {
+                            state->history.v[state->historyAt] = StrCopy(&state->historyArena, result->path);
+                        }
                     }
                     // The menu's rows index the listing being replaced; Filey's own menus have none.
                     if (!state->menuCommands) Prog_CloseMenu(state);
