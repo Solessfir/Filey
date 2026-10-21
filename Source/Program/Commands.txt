@@ -1083,6 +1083,10 @@ command ColumnShiftLeft {
 command ColumnShiftRight {
 }
 
+// A column dragged along the header and let go: carries its place, and as its target its place among the others.
+command ColumnMove {
+}
+
 command ColumnFit {
 }
 

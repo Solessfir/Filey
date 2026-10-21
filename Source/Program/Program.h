@@ -1102,7 +1102,8 @@ typedef struct Prog_Tab {
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
     X(Arena, repoArena) X(Prog_Repos, repos) X(P_Job *, reposJob) X(u64, reposNext) X(u64, reposTime) \
     X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns) \
-    X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet)
+    X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet) \
+    X(u32, columnDrag) X(UI_Key, columnDragKey) X(f32, columnGrab) X(u32, columnDropAt) X(u64, columnSlideUntil)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {

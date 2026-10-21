@@ -3408,6 +3408,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColumnShiftRight:
             case Prog_CommandKind_ColumnClose:
             case Prog_CommandKind_ColumnToggle:
+            case Prog_CommandKind_ColumnMove:
             case Prog_CommandKind_ColumnResize:
             case Prog_CommandKind_ColumnsRestore: Prog_EditColumns(state, command->kind, command->row, command->target); break;
             // Fitting measures the values, which the next build of the header does.

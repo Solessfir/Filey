@@ -590,6 +590,11 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Git);
         Check(Prog_FolderView(&state, here, &view) && view.columns.kinds[view.columns.count - 1] == Prog_ColumnKind_Git && Prog_ShowsGit(&state));
         Check(state.ownView && state.ownSettings.columns.count == ownColumns.count);
+        // A column dragged to another place goes there, which the lock keeps.
+        Prog_ColumnSet before = Prog_PanelColumns(&state);
+        Prog_QueueCommand(&state, Prog_CommandKind_ColumnMove, before.count - 1, 0, 0)->target = 1;
+        Prog_ProcessCommands(&state);
+        Check(Prog_FolderView(&state, here, &view) && view.columns.count == before.count && view.columns.kinds[1] == Prog_ColumnKind_Git && view.columns.kinds[2] == before.kinds[1]);
         TestBrowsingCommand(&state, Prog_CommandKind_ColumnToggle, Prog_ColumnKind_Git);
         Check(Prog_FolderView(&state, here, &view) && !Prog_ShowsGit(&state));
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);

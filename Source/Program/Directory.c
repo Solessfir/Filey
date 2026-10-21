@@ -3478,6 +3478,14 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
             set.kinds[column] = set.kinds[other], set.shares[column] = set.shares[other];
             set.kinds[other] = k, set.shares[other] = share;
         } break;
+        case Prog_CommandKind_ColumnMove: {
+            if (column >= set.count || value >= set.count || column == value) return;
+            u8 k = set.kinds[column];
+            f32 share = set.shares[column];
+            for (u32 i = (u32)column; i + 1 < set.count; ++i) set.kinds[i] = set.kinds[i + 1], set.shares[i] = set.shares[i + 1];
+            for (u32 i = set.count - 1; i > value; --i) set.kinds[i] = set.kinds[i - 1], set.shares[i] = set.shares[i - 1];
+            set.kinds[value] = k, set.shares[value] = share;
+        } break;
         case Prog_CommandKind_ColumnClose: {
             // Name stays.
             if (column >= set.count || set.kinds[column] == Prog_ColumnKind_Name) return;

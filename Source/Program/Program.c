@@ -2539,25 +2539,106 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
     UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->background, 0);
     // Where each column ends in the last layout, for the edges that resize them, from where the first starts.
     f32 ends[Prog_ColumnKind_Count + 1] = {0}, x0 = 0;
+    // A title dragged along the header takes its column with it, as a tab along the strip: the others slide aside to make room where it
+    // would go, and close up behind it; let go, it goes there. A place is a column, Folders and Files together, and Name stays where it is.
+    f32 base = Prog__MarksRecents(state) ? Prog__RecentGutter(m->scale) : 0;
+    f32 placeWidth[Prog_ColumnKind_Count] = {0}, target[Prog_ColumnKind_Count] = {0};
+    u32 places = 0;
+    b32 fixed = true;
+    for (u32 c = 0; c < columns->count; ++c) {
+        places = Max(places, columns->v[c].place + 1u);
+        placeWidth[columns->v[c].place] += columns->v[c].width;
+        fixed &= columns->v[c].width > 0;
+    }
+    u32 dragged = state->columnDrag && fixed ? state->columnDrag - 1 : UINT32_MAX;
+    if (dragged >= places) dragged = UINT32_MAX, state->columnDrag = 0;
+    f32 dragX = 0;
+    b32 dropped = false;
+    if (dragged != UINT32_MAX) {
+        // Where it is held, kept off the header's ends, and the place among the others its middle is nearest.
+        f32 total = 0;
+        for (u32 p = 0; p < places; ++p) total += placeWidth[p];
+        dragX = UI__Clamp(UI->mouse.x - header->rect.x0 - m->inset - base - state->columnGrab, 0, MaxF32(0, total - placeWidth[dragged]));
+        f32 middle = dragX + placeWidth[dragged] * 0.5f, x = 0;
+        u32 at = 0;
+        for (u32 p = 0; p < places; ++p) {
+            if (p == dragged) continue;
+            if (x + placeWidth[p] * 0.5f < middle) ++at;
+            x += placeWidth[p];
+        }
+        state->columnDropAt = at;
+        x = 0;
+        u32 other = 0;
+        for (u32 p = 0; p < places; ++p) {
+            if (p == dragged) continue;
+            if (other++ == at) target[dragged] = x, x += placeWidth[dragged];
+            target[p] = x;
+            x += placeWidth[p];
+        }
+        if (at == other) target[dragged] = x;
+        // Let go: it goes to its place, sliding there from where it was held.
+        if (UI->activeKey != state->columnDragKey) {
+            if (at != dragged) Prog_QueueCommand(state, Prog_CommandKind_ColumnMove, dragged, 0, 0)->target = at;
+            state->columnDrag = 0;
+            state->columnSlideUntil = UI->nowMicroseconds + 400000;
+            dragX = target[dragged];
+            dropped = true;
+        }
+    } else {
+        for (u32 p = 1; p < places; ++p) target[p] = target[p - 1] + placeWidth[p - 1];
+    }
+    b32 sliding = fixed && (state->columnDrag || UI->nowMicroseconds < state->columnSlideUntil);
+    f32 inside[Prog_ColumnKind_Count] = {0};
     UI_Parent(header) {
-        if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(m->row));
-        for (u32 c = 0; c < columns->count; ++c) {
+        if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(base), UI_Pixels(m->row));
+        // The held column is built last, over the others.
+        for (u32 pass = 0; pass < 2; ++pass) for (u32 c = 0; c < columns->count; ++c) {
             const Prog_Column *column = &columns->v[c];
+            b32 held = state->columnDrag && column->place == dragged;
+            if (held != (pass == 1)) continue;
             u32 id = column->id;
             Prog_Sort sort = Prog_ColumnSort[id];
             b32 sorted = sort < Prog_Sort_Count && state->sort == sort && (id < Prog_ColumnId_FolderUsage);
             UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", column->title));
             b32 sortable = sort < Prog_Sort_Count && !state->loading;
             b32 hot = UI->hotKey == key && sortable;
+            b32 movable = id != Prog_ColumnId_Name && fixed;
             UI_SetNextPrefWidth(column->width > 0 ? UI_Pixels(column->width) : UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_Block *cell = UI_AddBlockFromKey(key, UI_Flag_RightMouseClickable | UI_Flag_MiddleMouseClickable | (sortable ? UI_Flag_LeftMouseClickable : 0));
+            if (sliding) {
+                f32 x = held ? dragX : UI_Slide(UI_KeyFromStr(0, StrFormat(&state->frameArena, "HeaderSlide/%" PRIu64 "/%S", Prog__PanelId(state), column->title)), target[column->place],
+                                               Prog__SlideCap(m) * 4);
+                // The held one keeps its slide where it is held, for the slide to its place once let go.
+                if (held) UI_Slide(UI_KeyFromStr(0, StrFormat(&state->frameArena, "HeaderSlide/%" PRIu64 "/%S", Prog__PanelId(state), column->title)), dragX, 1e9f);
+                UI_SetNextFloatingOffset((UI_Vec2){ floorf(base + x + inside[column->place] + 0.5f), 0 });
+                inside[column->place] += column->width;
+            }
+            if (held) {
+                // Washed as a hovered tab, but solid, so that the titles it passes over do not show through.
+                R_Color under = theme->background, wash = theme->selection;
+                f32 a = wash.a * theme->hoverAmount.r;
+                R_Color solid = { under.r + (wash.r - under.r) * a, under.g + (wash.g - under.g) * a, under.b + (wash.b - under.b) * a, 1 };
+                UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = under.a >= 1 ? solid : wash });
+            }
+            UI_Block *cell = UI_AddBlockFromKey(key, UI_Flag_RightMouseClickable | UI_Flag_MiddleMouseClickable | (sortable || movable ? UI_Flag_LeftMouseClickable : 0) |
+                                                         (sliding ? UI_Flag_Floating : 0) | (held ? UI_Flag_DrawBackground : 0));
             ends[c] = cell->rect.x1;
             if (c == 0) x0 = cell->rect.x0;
             UI_Interaction interaction = UI_InteractionFromBlock(cell);
-            if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
+            if (movable && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->columnDrag) {
+                state->columnDrag = column->place + 1;
+                state->columnDragKey = key;
+                f32 placeX = 0;
+                for (u32 p = 0; p < column->place; ++p) placeX += placeWidth[p];
+                state->columnGrab = UI->mouse.x - header->rect.x0 - m->inset - base - placeX;
+                state->columnDropAt = column->place;
+            }
+            if (interaction.clicked && interaction.button == MouseButton_Left && sortable && !dropped && !state->columnDrag) {
+                Prog_QueueCommand(state, Prog_CommandKind_Sort, (u64)sort, 0, interaction.clickOrder);
+            }
             // A right click opens the header's menu for the column; a middle click closes it.
             // It opens at the pointer across, and down from the header's top whatever the pointer's height.
             if (interaction.pressed && interaction.button == MouseButton_Right) {
@@ -2628,7 +2709,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
         }
         // The edges between columns drag to resize: the column before an edge, or after it where the one before is Name, which takes what is left.
         f32 grip = floorf(8.0f * m->scale + 0.5f);
-        for (u32 c = 0; c + 1 < columns->count; ++c) {
+        for (u32 c = 0; c + 1 < columns->count && !sliding; ++c) {
             const Prog_Column *column = &columns->v[c];
             if (!column->lineAfter || ends[c] <= x0) continue;
             b32 afterName = column->id == Prog_ColumnId_Name;
