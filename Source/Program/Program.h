@@ -1439,6 +1439,16 @@ typedef struct Prog_State {
     Arena fontsArena;
     String *fontNames;
     u64 fontCount;
+    // The font picker's rows in their own families, the fonts made as rows come into sight and let go once the picker closes.
+    struct {
+        Arena arena;
+        R_Font font;
+        u64 family;      // the place in fontNames plus one; zero for an empty slot
+        u64 frame;       // the UI frame that last drew it
+        f32 pixels;
+        b32 made;
+    } fontPreviews[48];
+    b32 fontPreviewsShown;  // the picker drew this frame, so that its fonts are kept
     P_Job *fontsJob;
     enum8(Prog_Option) fontOption;
     // The layout Load On Startup names, which takes the place of `startup` while there is one.

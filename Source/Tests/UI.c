@@ -40,6 +40,9 @@ function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f3
     TestUIRecordDraw(rect, color, 1);
 }
 
+function b32 R_FontCreateLazy(Arena *arena, String family, f32 pixelSize, R_Font *font) { return false; }
+function void R_FontRelease(R_Font *font) {}
+
 function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String text)
 {
     TestUIRecordDraw((R_Rect){x, y, x + R_TextWidth(font, text), y + font->lineHeight}, color, 2);

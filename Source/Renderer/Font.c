@@ -125,6 +125,11 @@ function b32 R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *fo
     return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, 0x20, 0x7E, font);
 }
 
+function b32 R_FontCreateLazy(Arena *arena, String family, f32 pixelSize, R_Font *font)
+{
+    return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, 1, 0, font);
+}
+
 function b32 R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font)
 {
     return R__FontCreate(arena, (PlatformFontSource){ .data = data, .size = size }, pixelSize, firstCodepoint, lastCodepoint, font);

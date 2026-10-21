@@ -121,6 +121,8 @@ function void R_PopLayer(f32 opacity);
 
 // Text (Renderer/Font.c). `y` is the top of the line box.
 function b32  R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font);
+// The same without drawing the common glyphs ahead, for text that shows a few letters of a font, such as its name.
+function b32  R_FontCreateLazy(Arena *arena, String family, f32 pixelSize, R_Font *font);
 // A font file in memory, such as the embedded icon font, with the codepoints from `firstCodepoint` to `lastCodepoint` drawn at once.
 function b32  R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font);
 // Closes the font's face and frees its atlas; the arena it was made in is the caller's.

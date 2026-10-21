@@ -6446,6 +6446,44 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
+function void Prog__ReleaseFontPreviews(Prog_State *state)
+{
+    for (u32 i = 0; i < CArrayCount(state->fontPreviews); ++i) {
+        if (!state->fontPreviews[i].family) continue;
+        R_FontRelease(&state->fontPreviews[i].font);
+        ArenaRelease(&state->fontPreviews[i].arena);
+        state->fontPreviews[i] = (typeof(state->fontPreviews[i])){0};
+    }
+}
+
+// Family `family` at `pixels`, or NULL while it is not made yet or cannot be. Opening a font takes a moment, so a frame makes at most
+// `*budget` of them and asks for another frame for the rest; a slot drawn this frame is never let go in it.
+function const R_Font *Prog__FontPreview(Prog_State *state, u64 family, f32 pixels, u32 *budget)
+{
+    u32 free = UINT32_MAX;
+    for (u32 i = 0; i < CArrayCount(state->fontPreviews); ++i) {
+        typeof(state->fontPreviews[0]) *slot = &state->fontPreviews[i];
+        if (slot->family == family + 1 && slot->pixels == pixels) {
+            slot->frame = UI->frameIndex;
+            return slot->made ? &slot->font : NULL;
+        }
+        if (slot->frame == UI->frameIndex && slot->family) continue;
+        if (free == UINT32_MAX || !slot->family || (state->fontPreviews[free].family && slot->frame < state->fontPreviews[free].frame)) free = i;
+    }
+    if (free == UINT32_MAX) return NULL;
+    if (!*budget) {
+        UI->animating = true;
+        return NULL;
+    }
+    --*budget;
+    typeof(state->fontPreviews[0]) *slot = &state->fontPreviews[free];
+    R_FontRelease(&slot->font);
+    ArenaRelease(&slot->arena);
+    *slot = (typeof(*slot)){ .family = family + 1, .frame = UI->frameIndex, .pixels = pixels };
+    slot->made = R_FontCreateLazy(&slot->arena, state->fontNames[family], pixels, &slot->font);
+    return slot->made ? &slot->font : NULL;
+}
+
 // The font picker: the installed families by name in the palette's box, which the typed text narrows, the default first, and the one the
 // option has highlighted when it opens; the rows scroll to keep the highlight in sight.
 function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
@@ -6471,6 +6509,10 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
     u32 first = state->paletteScroll, shown = Min(count - Min(first, count), visible);
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
     f32 listHeight = (f32)Max(shown, 1u) * row - line + 2 * pad;
+    // The interface's own size: 9 points.
+    f32 previewPixels = floorf(12.0f * s + 0.5f);
+    u32 budget = 4;
+    state->fontPreviewsShown = true;
     f32 height = field + line + listHeight + line + footer;
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
     f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
@@ -6538,12 +6580,17 @@ function void Prog__FontsPicker(Prog_State *state, const Prog_Metrics *m)
                 UI_Parent(entry) {
                     u8 *marks = state->palette.length ? ArenaPushArray(&state->frameArena, name.length + 1, u8) : NULL;
                     if (marks) Prog_FilterMatch(name, Prog_EditText(&state->palette), marks);
+                    // Each family's name in that family once it is made, and in the interface's until then.
+                    const R_Font *preview = standard ? NULL : Prog__FontPreview(state, matches[i], previewPixels, &budget);
+                    const R_Font *font = preview && preview->lineHeight > 0 ? preview : m->font;
+                    // Centered by its letters, as some families have a far taller line than they need.
+                    f32 lineHeight = font == m->font ? m->line : MinF32(ceilf(font->ascent + font->descent), face);
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(face));
                     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-                    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((face - m->line) * 0.5f), 0, 0 });
+                    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((face - lineHeight) * 0.5f), 0, 0 });
                     UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
-                    UI_Parent(texts) Prog__MarkedText(name, marks, m->font, m->line, standard && !highlighted ? theme->textDim : theme->text);
+                    UI_Parent(texts) Prog__MarkedText(name, marks, font, lineHeight, standard && !highlighted ? theme->textDim : theme->text);
                     // The family the option has now.
                     if (chosen) Prog__Icon(Icon_Check, floorf(24.0f * s + 0.5f), face, theme->text, 0.5f, m);
                 }
@@ -9288,4 +9335,6 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     // A chip being rebound that went out of sight, with its menu or its palette row, stops.
     if (state->hotkeyKind && !state->hotkeyChipShown) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, 0);
     state->hotkeyChipShown = false;
+    if (!state->fontPreviewsShown) Prog__ReleaseFontPreviews(state);
+    state->fontPreviewsShown = false;
 }
