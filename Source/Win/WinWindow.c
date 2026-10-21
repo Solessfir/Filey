@@ -705,6 +705,8 @@ function void PlatformWindowToggleFullscreen(void)
 }
 function void PlatformWindowClose(void) { PlatformPushEvent(PlatformEventKind_CloseRequested); }
 
+function void PlatformWindowHide(void) { ShowWindow(Win.window, SW_HIDE); }
+
 function void PlatformWindowStartMove(void)
 {
     // The system's move loop runs until the button is released, with snapping and the drag to the top that maximizes.

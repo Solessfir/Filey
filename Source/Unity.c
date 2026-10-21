@@ -387,6 +387,8 @@ int main(void)
     }
 
     PlatformSetModalFrameCallback(NULL, NULL);
+    // Closed, the window goes at once; the session is saved and the background work stops behind it, which a slow disk can draw out.
+    PlatformWindowHide();
     Prog_Release(&loop.state);
     P_ReleaseWindowWake();
     ArenaRelease(&permanent);

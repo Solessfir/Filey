@@ -200,6 +200,8 @@ function void PlatformWindowRestoredSize(i32 *width, i32 *height);
 function void PlatformWindowToggleFullscreen(void);
 // Pushes CloseRequested, as the system's close does.
 function void PlatformWindowClose(void);
+// Takes the window off the screen at once, as the program quits, while it waits for its background work to stop.
+function void PlatformWindowHide(void);
 // Called while the left button is down: the system moves the window with the pointer and keeps the release, so a MouseUp is pushed in its place.
 function void PlatformWindowStartMove(void);
 

@@ -1182,6 +1182,14 @@ function b32 PlatformWindowIsMaximized(void) { return Wl.maximized; }
 function b32 PlatformWindowNeedsBorder(void) { return !Wl.fullscreen; }
 function void PlatformWindowMinimize(void) { xdg_toplevel_set_minimized(Wl.toplevel); }
 
+// A surface without a buffer is unmapped.
+function void PlatformWindowHide(void)
+{
+    wl_surface_attach(Wl.surface, NULL, 0, 0);
+    wl_surface_commit(Wl.surface);
+    wl_display_flush(Wl.display);
+}
+
 // Only a size the compositor leaves to the window, as when it floats, takes.
 function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized)
 {
