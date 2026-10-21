@@ -8028,7 +8028,7 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
     if (drag.active && drag.isDragging) {
         // A view's width of dragging turns it about once around.
         f32 turn = 6.2831853f / MaxF32(view->rect.x1 - view->rect.x0, 1);
-        state->modelYaw += (UI->mouse.x - state->modelDragFrom.x) * turn;
+        state->modelYaw -= (UI->mouse.x - state->modelDragFrom.x) * turn;
         state->modelPitch = MinF32(MaxF32(state->modelPitch + (UI->mouse.y - state->modelDragFrom.y) * turn, -1.5533f), 1.5533f);
         state->modelDragFrom = UI->mouse;
     }
