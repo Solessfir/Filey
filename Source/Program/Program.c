@@ -8022,15 +8022,16 @@ function void Prog__ModelAxes(Prog_State *state, f32 width, f32 height, const f3
 {
     local_persist const String names[3] = { SInit("X"), SInit("Y"), SInit("Z") };
     local_persist const u32 colors[3] = { 0xD57B7F, 0x83B993, 0x7C9ED5 };
-    f32 s = m->scale, length = floorf(16.0f * s + 0.5f), dot = MaxF32(2, floorf(4.0f * s + 0.5f)), stroke = MaxF32(1, 1.5f * s), inset = floorf(14.0f * s + 0.5f);
+    f32 s = m->scale, length = floorf(16.0f * s + 0.5f), dot = MaxF32(2, floorf(4.0f * s + 0.5f)), stroke = MaxF32(1, 1.5f * s), gap = floorf(3.0f * s + 0.5f);
     // Each axis in the view's Y-up space: a Z-up file's Y is the view's -Z and its Z the view's Y.
     f32 axes[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
     if (state->model.zUp) axes[1][1] = 0, axes[1][2] = -1, axes[2][1] = 1, axes[2][2] = 0;
     f32 tips[3][3];
     for (u32 a = 0; a < 3; ++a) for (u32 r = 0; r < 3; ++r) tips[a][r] = rows[r][0] * axes[a][0] + rows[r][1] * axes[a][1] + rows[r][2] * axes[a][2];
-    // Room for the letters all around, whichever way the axes point.
-    f32 room = length + floorf(3.0f * s + 0.5f) + MaxF32(R_TextWidth(m->detail, S("M")), m->line);
-    f32 ox = inset + room, oy = height - inset - room;
+    // Room for the letters whichever way the axes point, as far as one pointing straight left or down reaches, so that the axes line up with
+    // the left edge of the details below and keep their place as they turn.
+    f32 letters = MaxF32(R_TextWidth(m->detail, names[0]), MaxF32(R_TextWidth(m->detail, names[1]), R_TextWidth(m->detail, names[2])));
+    f32 ox = length + gap + letters, oy = height - (length + gap + m->line);
     if (ox > width || oy < 0) return;
     u32 order[3] = { 0, 1, 2 };
     for (u32 i = 0; i < 3; ++i) for (u32 j = i + 1; j < 3; ++j) if (tips[order[j]][2] < tips[order[i]][2]) { u32 swap = order[i]; order[i] = order[j]; order[j] = swap; }
@@ -8054,7 +8055,7 @@ function void Prog__ModelAxes(Prog_State *state, f32 width, f32 height, const f3
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         // The letter past the tip, along the axis, or above the middle when the axis points at the view.
         f32 ux = reach > 0.5f ? dx / reach : 0, uy = reach > 0.5f ? dy / reach : -1, letter = R_TextWidth(m->detail, names[a]);
-        f32 away = reach + floorf(3.0f * s + 0.5f) + (fabsf(ux) * letter + fabsf(uy) * m->line) * 0.5f;
+        f32 away = reach + gap + (fabsf(ux) * letter + fabsf(uy) * m->line) * 0.5f;
         UI_SetNextFloatingOffset((UI_Vec2){ floorf(ox + ux * away - letter * 0.5f), floorf(oy + uy * away - m->line * 0.5f) });
         UI_SetNextPrefWidth(UI_Pixels(letter));
         UI_SetNextPrefHeight(UI_Pixels(m->line));
