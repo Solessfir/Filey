@@ -7017,12 +7017,23 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPicker")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
-        UI_SetNextPrefWidth(UI_Flex());
-        UI_SetNextPrefHeight(UI_Pixels(head));
-        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder, .text = theme->text });
-        UI_SetNextText(StrFormat(&state->frameArena, "%S color", Prog_Options[state->colorOption].label));
-        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText);
+        // The heading follows the box's rounded top: rounded at all four corners and a radius taller, its lower corners cut off.
+        UI_Block *heading = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, (R_Color){0}, UI_Flag_Clip);
+        UI_Parent(heading) {
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(head + radius));
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(head));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextColors((UI_Colors){ .text = theme->text });
+            UI_SetNextText(StrFormat(&state->frameArena, "%S color", Prog_Options[state->colorOption].label));
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+        }
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(body) {
