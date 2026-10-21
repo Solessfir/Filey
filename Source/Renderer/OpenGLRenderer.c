@@ -511,6 +511,12 @@ function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *p
     return GL__TextureHandleFromRef(texture);
 }
 
+function void R_TextureUpdateAlpha(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u8 *pixels)
+{
+    GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
+    GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RED, GL_UNSIGNED_BYTE, pixels);
+}
+
 function void R_TextureRelease(R_TextureHandle texture)
 {
     GLuint ref = GL__TextureRefFromHandle(texture);

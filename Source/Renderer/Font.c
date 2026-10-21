@@ -1,140 +1,137 @@
 // Backend-neutral glyph atlas packing and text layout on top of the platform rasterizer.
+// Glyphs are drawn the first time text needs them, any codepoint the font or the system's fallback fonts have, into atlas pages that are
+// filled shelf by shelf; one that none has draws as '?'.
 
 #include <math.h>
 
-typedef struct R_CodepointRange {
-    u32 first;
-    u32 last;
-} R_CodepointRange;
+#define R_FontPageSize     1024
+#define R_FontMaxPages     8
+#define R_FontGlyphPadding 1
+// Codepoints below this find their glyph by index, as most text is in them; the rest go through a map.
+#define R_FontDirectCodepoints 0x3000
 
-// ponytail: fixed ranges rasterized up front, the rest draws as '?'.
-// Add on-demand ranges when CJK or other large scripts are needed.
-global const R_CodepointRange R_FontRanges[] = {
-    { 0x0020, 0x017F },  // Basic Latin, Latin-1 Supplement, Latin Extended-A
-    { 0x0400, 0x04FF },  // Cyrillic
-    { 0x2010, 0x203A },  // dashes, quotes, ellipsis, angle quotes (breadcrumb separator)
-    { 0x2190, 0x2193 },  // arrows (toolbar)
+typedef struct R_FontGlyphMap { MapHeader header; struct { u32 key; u32 value; } *v; } R_FontGlyphMap;
+
+struct R_FontCache {
+    Arena arena;  // the glyphs, which grow as text needs them
+    PlatformFontFace *face;
+    struct { ArrayHeader header; R_Glyph *v; } glyphs;  // [0] is the missing glyph, '?' once drawn
+    u32 *direct;              // each of the first codepoints' glyph plus one, 0 for not asked for yet
+    R_FontGlyphMap others;
+    R_TextureHandle pages[R_FontMaxPages];
+    u32 pageCount;
+    i32 penX, penY, rowHeight;  // where the last page is filled to
+    b32 full;                   // every page is full, so new glyphs draw as missing
 };
 
-#define R_FontAtlasWidth   512
-#define R_FontGlyphPadding 1
-
-function u32 R_NextPow2(u32 value)
+// A place for a `width` by `height` glyph in the last page, or a new one, from shelves left to right and top to bottom.
+function b32 R__FontPlace(R_FontCache *cache, i32 width, i32 height, i32 *x, i32 *y)
 {
-    u32 result = 1;
-    while (result < value) {
-        result <<= 1;
+    if (cache->full || width + 2 * R_FontGlyphPadding > R_FontPageSize || height + 2 * R_FontGlyphPadding > R_FontPageSize) return false;
+    if (cache->pageCount && cache->penX + width + R_FontGlyphPadding > R_FontPageSize) {
+        cache->penX = R_FontGlyphPadding;
+        cache->penY += cache->rowHeight + R_FontGlyphPadding;
+        cache->rowHeight = 0;
     }
-    return result;
-}
-
-function b32 R__FontCreate(Arena *arena, PlatformFontSource source, f32 pixelSize, const R_CodepointRange *sourceRanges, u32 rangeCount, R_Font *font)
-{
-    Scratch scratch = GetScratchEx(arena);
-    PlatformFont *rasters = ArenaPushArray(scratch.arena, rangeCount, PlatformFont);
-    for (u32 r = 0; r < rangeCount; ++r) {
-        if (!PlatformFontRasterize(scratch.arena, source, pixelSize, sourceRanges[r].first, sourceRanges[r].last, &rasters[r])) {
-            ReleaseScratch(scratch);
+    if (!cache->pageCount || cache->penY + height + R_FontGlyphPadding > R_FontPageSize) {
+        if (cache->pageCount == R_FontMaxPages) {
+            cache->full = true;
             return false;
         }
+        Scratch scratch = GetScratch();
+        u8 *clear = ArenaPushArray(scratch.arena, (u64)R_FontPageSize * R_FontPageSize, u8);
+        cache->pages[cache->pageCount++] = R_TextureCreateAlpha(R_FontPageSize, R_FontPageSize, clear);
+        ReleaseScratch(scratch);
+        cache->penX = cache->penY = R_FontGlyphPadding;
+        cache->rowHeight = 0;
     }
+    *x = cache->penX;
+    *y = cache->penY;
+    cache->penX += width + R_FontGlyphPadding;
+    cache->rowHeight = MaxI32(cache->rowHeight, height);
+    return true;
+}
 
-    // Shelf packing in codepoint order: glyphs of one font have similar heights, so rows waste little space.
-    typedef struct { i32 x; i32 y; } Placement;
-    Placement **placements = ArenaPushArray(scratch.arena, rangeCount, Placement *);
-    i32 penX = R_FontGlyphPadding;
-    i32 penY = R_FontGlyphPadding;
-    i32 rowHeight = 0;
-    for (u32 r = 0; r < rangeCount; ++r) {
-        placements[r] = ArenaPushArray(scratch.arena, rasters[r].glyphCount, Placement);
-        for (u32 i = 0; i < rasters[r].glyphCount; ++i) {
-            PlatformGlyph *glyph = &rasters[r].glyphs[i];
-            Assert(glyph->width + 2 * R_FontGlyphPadding <= R_FontAtlasWidth);
-            if (penX + glyph->width + R_FontGlyphPadding > R_FontAtlasWidth) {
-                penX = R_FontGlyphPadding;
-                penY += rowHeight + R_FontGlyphPadding;
-                rowHeight = 0;
-            }
-            placements[r][i] = (Placement){ penX, penY };
-            penX += glyph->width + R_FontGlyphPadding;
-            rowHeight = MaxI32(rowHeight, glyph->height);
+// The glyph of `codepoint`, drawn now when it is new; the missing glyph when no font has it.
+function const R_Glyph *R__FontGlyph(R_FontCache *cache, rune codepoint)
+{
+    u32 c = (u32)codepoint;
+    if (c < R_FontDirectCodepoints && cache->direct[c]) return &cache->glyphs.v[cache->direct[c] - 1];
+    u32 *known = c >= R_FontDirectCodepoints ? MapGetPtrNull(cache->others, c) : NULL;
+    if (known) return &cache->glyphs.v[*known];
+    Scratch scratch = GetScratch();
+    PlatformGlyph drawn = {0};
+    u32 index = 0;
+    if (c >= 0x20 && PlatformFontGlyph(cache->face, scratch.arena, c, &drawn)) {
+        R_Glyph glyph = { .box = { drawn.offsetX, drawn.offsetY, drawn.offsetX + (f32)drawn.width, drawn.offsetY + (f32)drawn.height }, .advance = drawn.advance };
+        i32 x = 0, y = 0;
+        b32 placed = drawn.width <= 0 || drawn.height <= 0;
+        if (!placed && R__FontPlace(cache, drawn.width, drawn.height, &x, &y)) {
+            R_TextureHandle page = cache->pages[cache->pageCount - 1];
+            R_TextureUpdateAlpha(page, x, y, drawn.width, drawn.height, drawn.pixels);
+            f32 unit = 1.0f / (f32)R_FontPageSize;
+            glyph.page = page;
+            glyph.uv = (R_Rect){ (f32)x * unit, (f32)y * unit, (f32)(x + drawn.width) * unit, (f32)(y + drawn.height) * unit };
+            placed = true;
+        }
+        if (placed) {
+            index = (u32)cache->glyphs.header.count;
+            ArrayPush(&cache->arena, cache->glyphs, glyph);
         }
     }
-    i32 atlasWidth = R_FontAtlasWidth;
-    i32 atlasHeight = (i32)R_NextPow2((u32)(penY + rowHeight + R_FontGlyphPadding));
-
-    u8 *pixels = ArenaPushArray(scratch.arena, (u64)atlasWidth * (u64)atlasHeight, u8);
-    R_GlyphRange *ranges = ArenaPushArray(arena, rangeCount, R_GlyphRange);
-    for (u32 r = 0; r < rangeCount; ++r) {
-        PlatformFont *raster = &rasters[r];
-        R_GlyphRange *range = &ranges[r];
-        range->firstCodepoint = raster->firstCodepoint;
-        range->glyphCount = raster->glyphCount;
-        range->glyphs = ArenaPushArray(arena, raster->glyphCount, R_Glyph);
-
-        for (u32 i = 0; i < raster->glyphCount; ++i) {
-            PlatformGlyph *source = &raster->glyphs[i];
-            Placement at = placements[r][i];
-            for (i32 y = 0; y < source->height; ++y) {
-                MemCopy(pixels + (u64)(at.y + y) * (u64)atlasWidth + (u64)at.x, source->pixels + (u64)y * (u64)source->width, (u64)source->width);
-            }
-
-            range->glyphs[i] = (R_Glyph){
-                .box = { source->offsetX, source->offsetY, source->offsetX + (f32)source->width, source->offsetY + (f32)source->height },
-                .uv = {
-                    (f32)at.x / (f32)atlasWidth,
-                    (f32)at.y / (f32)atlasHeight,
-                    (f32)(at.x + source->width) / (f32)atlasWidth,
-                    (f32)(at.y + source->height) / (f32)atlasHeight,
-                },
-                .advance = source->advance,
-            };
-        }
-    }
-
-    // Line metrics are per face, so every range reports the same ones.
-    *font = (R_Font){
-        .atlas = R_TextureCreateAlpha(atlasWidth, atlasHeight, pixels),
-        .ascent = rasters[0].ascent,
-        .descent = rasters[0].descent,
-        .lineHeight = rasters[0].ascent + rasters[0].descent + rasters[0].lineGap,
-        .rangeCount = rangeCount,
-        .ranges = ranges,
-    };
     ReleaseScratch(scratch);
+    // A codepoint none has, or one with no room, keeps the missing glyph, so that it is not asked for again.
+    if (c < R_FontDirectCodepoints) cache->direct[c] = index + 1;
+    else MapPut(&cache->arena, cache->others, c, index);
+    return &cache->glyphs.v[index];
+}
+
+function b32 R__FontCreate(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font)
+{
+    PlatformFontMetrics metrics = {0};
+    PlatformFontFace *face = PlatformFontOpen(source, pixelSize, &metrics);
+    if (!face) return false;
+    R_FontCache *cache = ArenaPushStruct(arena, R_FontCache);
+    cache->face = face;
+    cache->direct = ArenaPushArray(&cache->arena, R_FontDirectCodepoints, u32);
+    // The missing glyph's slot, which '?' fills once drawn.
+    ArrayPush(&cache->arena, cache->glyphs, ((R_Glyph){0}));
+    const R_Glyph *question = R__FontGlyph(cache, '?');
+    cache->glyphs.v[0] = *question;
+    *font = (R_Font){
+        .ascent = metrics.ascent,
+        .descent = metrics.descent,
+        .lineHeight = metrics.ascent + metrics.descent + metrics.lineGap,
+        .cache = cache,
+    };
+    // The glyphs nearly all text has are drawn now, so that the first frames do not stop for them.
+    for (u32 c = firstCodepoint; c <= lastCodepoint; ++c) R__FontGlyph(cache, (rune)c);
     return true;
 }
 
 function b32 R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font)
 {
-    return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, R_FontRanges, (u32)CArrayCount(R_FontRanges), font);
+    return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, 0x20, 0x7E, font);
 }
 
 function b32 R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font)
 {
-    R_CodepointRange range = { firstCodepoint, lastCodepoint };
-    return R__FontCreate(arena, (PlatformFontSource){ .data = data, .size = size }, pixelSize, &range, 1, font);
+    return R__FontCreate(arena, (PlatformFontSource){ .data = data, .size = size }, pixelSize, firstCodepoint, lastCodepoint, font);
 }
 
-function const R_Glyph *R__FontFindGlyph(const R_Font *font, rune codepoint)
+function void R_FontRelease(R_Font *font)
 {
-    for (u32 r = 0; r < font->rangeCount; ++r) {
-        const R_GlyphRange *range = &font->ranges[r];
-        u32 index = (u32)codepoint - range->firstCodepoint;
-        if (index < range->glyphCount) {
-            return &range->glyphs[index];
-        }
-    }
-    return NULL;
+    R_FontCache *cache = font->cache;
+    if (!cache) return;
+    for (u32 i = 0; i < cache->pageCount; ++i) R_TextureRelease(cache->pages[i]);
+    PlatformFontClose(cache->face);
+    ArenaRelease(&cache->arena);
+    *font = (R_Font){0};
 }
 
 function const R_Glyph *R_FontGlyph(const R_Font *font, rune codepoint)
 {
-    const R_Glyph *result = R__FontFindGlyph(font, codepoint);
-    if (result == NULL) {
-        result = R__FontFindGlyph(font, '?');
-    }
-    return result;
+    return font->cache ? R__FontGlyph(font->cache, codepoint) : NULL;
 }
 
 function f32 R_TextWidth(const R_Font *font, String text)
@@ -159,7 +156,7 @@ function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String
         }
         if (glyph->box.x1 > glyph->box.x0) {
             R_Rect rect = { penX + glyph->box.x0, baseline + glyph->box.y0, penX + glyph->box.x1, baseline + glyph->box.y1 };
-            R_DrawTexturedRect(rect, glyph->uv, font->atlas, color);
+            R_DrawTexturedRect(rect, glyph->uv, glyph->page, color);
         }
         penX += glyph->advance;
     }

@@ -252,7 +252,8 @@ function PlatformProc *PlatformGLGetProc(const char *name);
 // -----------------------------------------------------------------------------
 // Fonts
 //
-// The OS rasterizer (DirectWrite, FreeType) renders glyphs with its native hinting and antialiasing; packing them into an atlas is left to the caller.
+// The OS rasterizer (DirectWrite, FreeType) renders glyphs with its native hinting and antialiasing, one at a time as text first needs them;
+// packing them into an atlas is left to the caller. A character an installed font lacks comes from a system font that has it.
 // -----------------------------------------------------------------------------
 
 typedef struct PlatformGlyph {
@@ -264,14 +265,14 @@ typedef struct PlatformGlyph {
     f32 advance;
 } PlatformGlyph;
 
-typedef struct PlatformFont {
+typedef struct PlatformFontMetrics {
     f32 ascent;    // pixels above the baseline
     f32 descent;   // pixels below the baseline, positive
     f32 lineGap;
-    u32 firstCodepoint;
-    u32 glyphCount;
-    PlatformGlyph *glyphs;  // one per codepoint in [firstCodepoint, firstCodepoint + glyphCount)
-} PlatformFont;
+} PlatformFontMetrics;
+
+// A font kept open at one pixel size, with the fonts it took fallback glyphs from.
+typedef struct PlatformFontFace PlatformFontFace;
 
 // An installed family, or font file bytes (TrueType/OpenType) when `data` is set.
 // Unknown families fall back to the system's default.
@@ -281,8 +282,10 @@ typedef struct PlatformFontSource {
     u64 size;
 } PlatformFontSource;
 
-// Rasterizes a contiguous codepoint range of a font at a pixel size.
-// Everything is allocated from `arena`.
-function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font);
+// Opens a font at a pixel size with its line metrics; NULL when it cannot be opened.
+function PlatformFontFace *PlatformFontOpen(PlatformFontSource source, f32 pixelSize, PlatformFontMetrics *metrics);
+// `codepoint`'s glyph, its pixels from `arena`: the font's own, or for an installed family a fallback font's; false when none has it.
+function b32 PlatformFontGlyph(PlatformFontFace *face, Arena *arena, u32 codepoint, PlatformGlyph *glyph);
+function void PlatformFontClose(PlatformFontFace *face);
 // The font families installed on the system, by the names a PlatformFontSource takes, in no order and possibly more than once.
 function ArrayStr PlatformFontFamilies(Arena *arena);

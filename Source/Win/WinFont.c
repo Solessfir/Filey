@@ -15,30 +15,22 @@ function void *WinRasterAlloc(void *user, u64 size)
     return ArenaPushArrayNoZero((Arena *)user, size, u8);
 }
 
-function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font)
+function PlatformFontFace *PlatformFontOpen(PlatformFontSource source, f32 pixelSize, PlatformFontMetrics *metrics)
 {
-    Assert(firstCodepoint <= lastCodepoint);
-
     wchar name[128] = {0};
     MultiByteToWideChar(CP_UTF8, 0, source.family.value, (int)Min(source.family.length, (u64)100), name, (int)CArrayCount(name) - 1);
-
-    u32 count = lastCodepoint - firstCodepoint + 1;
-    PlatformGlyph *glyphs = ArenaPushArray(arena, count, PlatformGlyph);
-    WinRasterMetrics metrics = {0};
-    if (!WinRasterizeFont(name, source.data, source.size, pixelSize, firstCodepoint, count, WinRasterAlloc, arena, (WinRasterGlyph *)glyphs, &metrics)) {
-        return false;
-    }
-
-    *font = (PlatformFont){
-        .ascent = metrics.ascent,
-        .descent = metrics.descent,
-        .lineGap = metrics.lineGap,
-        .firstCodepoint = firstCodepoint,
-        .glyphCount = count,
-        .glyphs = glyphs,
-    };
-    return true;
+    WinRasterMetrics raster = {0};
+    WinFontFace *face = WinFontOpen(name, source.data, source.size, pixelSize, &raster);
+    *metrics = (PlatformFontMetrics){ raster.ascent, raster.descent, raster.lineGap };
+    return (PlatformFontFace *)face;
 }
+
+function b32 PlatformFontGlyph(PlatformFontFace *face, Arena *arena, u32 codepoint, PlatformGlyph *glyph)
+{
+    return WinFontGlyph((WinFontFace *)face, codepoint, WinRasterAlloc, arena, (WinRasterGlyph *)glyph);
+}
+
+function void PlatformFontClose(PlatformFontFace *face) { WinFontClose((WinFontFace *)face); }
 
 typedef struct WinFamilyList {
     Arena *arena;

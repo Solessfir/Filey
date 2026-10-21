@@ -115,16 +115,17 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f * 0.7f + 0.5f),
                                     Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &smallIcons);
     if (!ok) {
-        R_TextureRelease(font.atlas);
-        R_TextureRelease(detailFont.atlas);
-        R_TextureRelease(icons.atlas);
+        R_FontRelease(&font);
+        R_FontRelease(&detailFont);
+        R_FontRelease(&icons);
+        R_FontRelease(&smallIcons);
         ArenaRelease(&arena);
         return false;
     }
-    R_TextureRelease(loop->font.atlas);
-    R_TextureRelease(loop->detailFont.atlas);
-    R_TextureRelease(loop->icons.atlas);
-    R_TextureRelease(loop->smallIcons.atlas);
+    R_FontRelease(&loop->font);
+    R_FontRelease(&loop->detailFont);
+    R_FontRelease(&loop->icons);
+    R_FontRelease(&loop->smallIcons);
     ArenaRelease(&loop->fontArena);
     loop->fontArena = arena;
     loop->font = font;
@@ -210,7 +211,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
                 Arena arena = {0};
                 R_Font mono = {0};
                 if (R_FontCreate(&arena, family, pixels, &mono)) {
-                    R_TextureRelease(loop->mono.atlas);
+                    R_FontRelease(&loop->mono);
                     ArenaRelease(&loop->monoArena);
                     loop->monoArena = arena;
                     loop->mono = mono;
@@ -218,11 +219,11 @@ function void Prog__Frame(void *user, PlatformEventList events)
                     ArenaRelease(&arena);
                 }
             }
-            state->monoFont = loop->mono.atlas.u64[0] ? &loop->mono : NULL;
+            state->monoFont = loop->mono.cache ? &loop->mono : NULL;
         }
         // The Setup page's 20, 14 and 11 point text, in the interface's font, gone again with the page.
         if (state->setupOpen != (loop->setupScale == scale)) {
-            for (u32 i = 0; i < CArrayCount(loop->setupFonts); ++i) R_TextureRelease(loop->setupFonts[i].atlas);
+            for (u32 i = 0; i < CArrayCount(loop->setupFonts); ++i) R_FontRelease(&loop->setupFonts[i]);
             ArenaRelease(&loop->setupArena);
             MemZero(loop->setupFonts, sizeof(loop->setupFonts));
             loop->setupScale = 0;

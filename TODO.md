@@ -48,7 +48,7 @@ Planned there, worth doing here first:
 - Virtual folders (Recycle Bin, Control Panel and other shell namespaces) listed like real ones, and MTP devices (phones, cameras) on both platforms.
 - Custom Quick Access groups: created, renamed and ordered by the user.
 - Rebindable mouse buttons and actions, with the hotkeys.
-- Names in any script: check font fallback for CJK, Arabic, Hebrew and emoji on both platforms.
+- Names in any script, the rest of it: glyphs are drawn on demand with the system's font fallback, so every script shows its letters, but text is not shaped. Arabic and Hebrew run left to right with their letters unjoined, Indic vowel signs and other combining marks stand apart, and the caret steps over code points rather than graphemes; shape runs through DirectWrite's text analyzer and HarfBuzz on Linux, with right-to-left runs. Emoji draw in one color, without their color layers.
 - Indexing the drives from the NTFS file table (Windows) for a faster Go To walk.
 
 ## Filey's own
@@ -88,7 +88,6 @@ Its source (https://github.com/EpicGamesExt/raddebugger) has these ideas worth t
   - Byte brightness follows the byte's value, with zeros at half strength, so patterns stand out.
   - A peek bar reads the bytes at the cursor as u8 to u64 and f32/f64.
 - Large text files: raddbg's text layer (`src/text`) keeps a map of line offsets and checkpoints of the lexer's state. It shows any line of a huge file and highlights from the nearest checkpoint. Use the same approach to get past the inspector's first 1 MB.
-- Glyphs on demand: raddbg rasterizes each codepoint the first time it's drawn, into an atlas keyed by hash (`src/font_cache`). Filey rasterizes fixed ranges at startup. Rasterizing on demand draws any codepoint and starts faster. Font fallback is still needed separately, and raddbg has none.
 - Cache eviction: raddbg's artifact cache (`src/artifact_cache`) evicts entries untouched for a while, and serves the stale value while it recomputes, so nothing flashes blank. Filey's icon cache resets wholesale when full.
 - Maybe:
   - Per-corner colors in the rect shader, for fades at the edges of scrolled lists such as menus, the sidebar and long tab lists.

@@ -4,86 +4,122 @@
 #include FT_FREETYPE_H
 #include <fontconfig/fontconfig.h>
 
-function b32 PlatformFontRasterize(Arena *arena, PlatformFontSource source, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, PlatformFont *font)
-{
-    Assert(firstCodepoint <= lastCodepoint);
+#define LinuxMaxFallbacks 16
 
-    FT_Library library = NULL;
+struct PlatformFontFace {
+    Arena arena;  // the one it is in
+    FT_Library library;
+    FT_Face face;
+    FcPattern *pattern;  // the family asked for, which fallback fonts are matched against; NULL for a font from memory
+    f32 pixelSize;
+    FT_Face fallbacks[LinuxMaxFallbacks];
+    u32 fallbackCount;
+};
+
+function void PlatformFontClose(PlatformFontFace *font)
+{
+    if (!font) return;
+    for (u32 i = 0; i < font->fallbackCount; ++i) FT_Done_Face(font->fallbacks[i]);
+    if (font->face) FT_Done_Face(font->face);
+    if (font->pattern) FcPatternDestroy(font->pattern);
+    if (font->library) FT_Done_FreeType(font->library);
+    Arena arena = font->arena;
+    ArenaRelease(&arena);
+}
+
+// The face of the font fontconfig picks for `pattern`, at the font's size, or NULL.
+function FT_Face LinuxOpenMatch(PlatformFontFace *font, FcPattern *pattern)
+{
+    FcResult result = FcResultNoMatch;
+    FcPattern *match = FcFontMatch(NULL, pattern, &result);
+    FcChar8 *file = NULL;
+    i32 index = 0;
     FT_Face face = NULL;
-    b32 ok = FT_Init_FreeType(&library) == 0;
+    if (match && FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch) {
+        FcPatternGetInteger(match, FC_INDEX, 0, &index);
+        if (FT_New_Face(font->library, (const char *)file, index, &face) != 0) face = NULL;
+    }
+    if (match) FcPatternDestroy(match);
+    if (face && FT_Set_Char_Size(face, 0, (FT_F26Dot6)(font->pixelSize * 64.0f), 72, 72) != 0) {
+        FT_Done_Face(face);
+        face = NULL;
+    }
+    return face;
+}
+
+function PlatformFontFace *PlatformFontOpen(PlatformFontSource source, f32 pixelSize, PlatformFontMetrics *metrics)
+{
+    Arena arena = {0};
+    PlatformFontFace *font = ArenaPushStruct(&arena, PlatformFontFace);
+    font->arena = arena;
+    font->pixelSize = pixelSize;
+    b32 ok = FT_Init_FreeType(&font->library) == 0;
     if (ok && source.data != NULL) {
-        ok = FT_New_Memory_Face(library, source.data, (FT_Long)source.size, 0, &face) == 0;
+        ok = FT_New_Memory_Face(font->library, source.data, (FT_Long)source.size, 0, &font->face) == 0 &&
+             FT_Set_Char_Size(font->face, 0, (FT_F26Dot6)(pixelSize * 64.0f), 72, 72) == 0;
     } else if (ok) {
         char name[128] = {0};
         MemCopy(name, source.family.value, Min(source.family.length, (u64)sizeof(name) - 1));
-
         // fontconfig always returns its closest match, so unknown families fall back to the configured default.
-        FcPattern *pattern = FcNameParse((const FcChar8 *)name);
-        FcConfigSubstitute(NULL, pattern, FcMatchPattern);
-        FcDefaultSubstitute(pattern);
-        FcResult result = FcResultNoMatch;
-        FcPattern *match = FcFontMatch(NULL, pattern, &result);
-        FcPatternDestroy(pattern);
-
-        FcChar8 *file = NULL;
-        i32 faceIndex = 0;
-        ok = match != NULL && FcPatternGetString(match, FC_FILE, 0, &file) == FcResultMatch;
-        if (ok) {
-            FcPatternGetInteger(match, FC_INDEX, 0, &faceIndex);
-            ok = FT_New_Face(library, (const char *)file, faceIndex, &face) == 0;
-        }
-        if (match != NULL) {
-            FcPatternDestroy(match);
-        }
+        font->pattern = FcNameParse((const FcChar8 *)name);
+        FcConfigSubstitute(NULL, font->pattern, FcMatchPattern);
+        FcDefaultSubstitute(font->pattern);
+        font->face = LinuxOpenMatch(font, font->pattern);
+        ok = font->face != NULL;
     }
-    ok = ok && FT_Set_Char_Size(face, 0, (FT_F26Dot6)(pixelSize * 64.0f), 72, 72) == 0;
-
-    u32 count = lastCodepoint - firstCodepoint + 1;
-    PlatformGlyph *glyphs = ok ? ArenaPushArray(arena, count, PlatformGlyph) : NULL;
-    for (u32 i = 0; ok && i < count; ++i) {
-        // Light hinting snaps only vertically, the closest match to DirectWrite's natural symmetric rendering.
-        if (FT_Load_Char(face, firstCodepoint + i, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT) != 0) {
-            continue;
-        }
-        FT_GlyphSlot slot = face->glyph;
-        PlatformGlyph *glyph = &glyphs[i];
-        glyph->advance = (f32)((slot->advance.x + 32) >> 6);
-
-        FT_Bitmap *bitmap = &slot->bitmap;
-        if (bitmap->width == 0 || bitmap->rows == 0 || bitmap->pixel_mode != FT_PIXEL_MODE_GRAY) {
-            continue;
-        }
-        glyph->width = (i32)bitmap->width;
-        glyph->height = (i32)bitmap->rows;
-        glyph->offsetX = (f32)slot->bitmap_left;
-        glyph->offsetY = (f32)-slot->bitmap_top;
-        glyph->pixels = ArenaPushArrayNoZero(arena, (u64)glyph->width * (u64)glyph->height, u8);
-        for (i32 y = 0; y < glyph->height; ++y) {
-            MemCopy(glyph->pixels + (u64)y * (u64)glyph->width, bitmap->buffer + (i64)y * bitmap->pitch, (u64)glyph->width);
-        }
+    if (!ok) {
+        PlatformFontClose(font);
+        return NULL;
     }
+    FT_Size_Metrics *size = &font->face->size->metrics;
+    f32 ascent = (f32)size->ascender / 64.0f, descent = (f32)-size->descender / 64.0f;
+    *metrics = (PlatformFontMetrics){ ascent, descent, MaxF32((f32)size->height / 64.0f - ascent - descent, 0.0f) };
+    return font;
+}
 
-    if (ok) {
-        FT_Size_Metrics *metrics = &face->size->metrics;
-        f32 ascent = (f32)metrics->ascender / 64.0f;
-        f32 descent = (f32)-metrics->descender / 64.0f;
-        *font = (PlatformFont){
-            .ascent = ascent,
-            .descent = descent,
-            .lineGap = MaxF32((f32)metrics->height / 64.0f - ascent - descent, 0.0f),
-            .firstCodepoint = firstCodepoint,
-            .glyphCount = count,
-            .glyphs = glyphs,
-        };
+// The glyph of `codepoint` in `face` into `glyph`; false when it has none or it cannot be drawn.
+function b32 LinuxDrawGlyph(FT_Face face, Arena *arena, u32 codepoint, PlatformGlyph *glyph)
+{
+    *glyph = (PlatformGlyph){0};
+    // Light hinting snaps only vertically, the closest match to DirectWrite's natural symmetric rendering.
+    if (FT_Load_Char(face, codepoint, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT) != 0) return false;
+    FT_GlyphSlot slot = face->glyph;
+    glyph->advance = (f32)((slot->advance.x + 32) >> 6);
+    FT_Bitmap *bitmap = &slot->bitmap;
+    if (bitmap->width == 0 || bitmap->rows == 0 || bitmap->pixel_mode != FT_PIXEL_MODE_GRAY) return true;
+    glyph->width = (i32)bitmap->width;
+    glyph->height = (i32)bitmap->rows;
+    glyph->offsetX = (f32)slot->bitmap_left;
+    glyph->offsetY = (f32)-slot->bitmap_top;
+    glyph->pixels = ArenaPushArrayNoZero(arena, (u64)glyph->width * (u64)glyph->height, u8);
+    for (i32 y = 0; y < glyph->height; ++y) {
+        MemCopy(glyph->pixels + (u64)y * (u64)glyph->width, bitmap->buffer + (i64)y * bitmap->pitch, (u64)glyph->width);
     }
+    return true;
+}
 
-    if (face != NULL) {
+function b32 PlatformFontGlyph(PlatformFontFace *font, Arena *arena, u32 codepoint, PlatformGlyph *glyph)
+{
+    if (FT_Get_Char_Index(font->face, codepoint)) return LinuxDrawGlyph(font->face, arena, codepoint, glyph);
+    if (!font->pattern) return false;
+    // The fonts already lent from first, then the one fontconfig matches to the family with the character in it.
+    for (u32 i = 0; i < font->fallbackCount; ++i) {
+        if (FT_Get_Char_Index(font->fallbacks[i], codepoint)) return LinuxDrawGlyph(font->fallbacks[i], arena, codepoint, glyph);
+    }
+    if (font->fallbackCount == LinuxMaxFallbacks) return false;
+    FcPattern *pattern = FcPatternDuplicate(font->pattern);
+    FcCharSet *characters = FcCharSetCreate();
+    FT_Face face = NULL;
+    if (pattern && characters && FcCharSetAddChar(characters, codepoint) && FcPatternAddCharSet(pattern, FC_CHARSET, characters)) face = LinuxOpenMatch(font, pattern);
+    if (characters) FcCharSetDestroy(characters);
+    if (pattern) FcPatternDestroy(pattern);
+    if (!face) return false;
+    if (!FT_Get_Char_Index(face, codepoint)) {
         FT_Done_Face(face);
+        return false;
     }
-    if (library != NULL) {
-        FT_Done_FreeType(library);
-    }
-    return ok;
+    font->fallbacks[font->fallbackCount++] = face;
+    return LinuxDrawGlyph(face, arena, codepoint, glyph);
 }
 
 function ArrayStr PlatformFontFamilies(Arena *arena)

@@ -25,23 +25,19 @@ typedef struct R_TextureHandle {
 typedef struct R_Glyph {
     R_Rect box;    // relative to the pen position on the baseline
     R_Rect uv;
+    R_TextureHandle page;  // the atlas page it is in
     f32 advance;
 } R_Glyph;
 
-typedef struct R_GlyphRange {
-    u32 firstCodepoint;
-    u32 glyphCount;
-    R_Glyph *glyphs;
-} R_GlyphRange;
+// The glyphs drawn so far and the face that draws the rest, in Renderer/Font.c.
+typedef struct R_FontCache R_FontCache;
 
-// {0} is an empty font that measures and draws nothing.
+// {0} is an empty font that measures and draws nothing. Glyphs are drawn into the atlas as text first needs them.
 typedef struct R_Font {
-    R_TextureHandle atlas;
     f32 ascent;
     f32 descent;
     f32 lineHeight;
-    u32 rangeCount;
-    R_GlyphRange *ranges;
+    R_FontCache *cache;
 } R_Font;
 
 // Requires a current OpenGL context (PlatformWindowOpen).
@@ -53,6 +49,7 @@ function void R_ReadPixels(u32 width, u32 height, void *bgra);
 
 // Single-channel coverage texture, sampled as alpha.
 function R_TextureHandle R_TextureCreateAlpha(i32 width, i32 height, const u8 *pixels);
+function void R_TextureUpdateAlpha(R_TextureHandle texture, i32 x, i32 y, i32 width, i32 height, const u8 *pixels);
 // Color texture of straight-alpha RGBA8 pixels (red in the lowest byte), top row first.
 // NULL pixels leave it undefined for later updates.
 function R_TextureHandle R_TextureCreateRGBA(i32 width, i32 height, const u32 *pixels);
@@ -121,7 +118,9 @@ function void R_PopLayer(f32 opacity);
 
 // Text (Renderer/Font.c). `y` is the top of the line box.
 function b32  R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font);
-// One codepoint range of a font file in memory, such as the embedded icon font.
+// A font file in memory, such as the embedded icon font, with the codepoints from `firstCodepoint` to `lastCodepoint` drawn at once.
 function b32  R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font);
+// Closes the font's face and frees its atlas; the arena it was made in is the caller's.
+function void R_FontRelease(R_Font *font);
 function f32  R_TextWidth(const R_Font *font, String text);
 function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String text);

@@ -21,162 +21,243 @@ static void SafeRelease(T *&object)
 static i32 MinI32(i32 a, i32 b) { return a < b ? a : b; }
 static i32 MaxI32(i32 a, i32 b) { return a > b ? a : b; }
 
-extern "C" b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSize, f32 pixelSize, u32 firstCodepoint, u32 glyphCount,
-                                WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyphs, WinRasterMetrics *metrics)
-{
-    IDWriteFactory5 *factory = nullptr;
-    IDWriteInMemoryFontFileLoader *loader = nullptr;
-    b32 loaderRegistered = 0;
-    IDWriteFontFile *file = nullptr;
-    IDWriteFontCollection *collection = nullptr;
-    IDWriteFontFamily *fontFamily = nullptr;
-    IDWriteFont *font = nullptr;
-    IDWriteFontFace *face = nullptr;
-    IDWriteGdiInterop *interop = nullptr;
-    IDWriteBitmapRenderTarget *target = nullptr;
-    IDWriteRenderingParams *defaultParams = nullptr;
-    IDWriteRenderingParams *params = nullptr;
-    b32 ok = 0;
+// The few characters the system's fallback is asked about, one at a time, as DirectWrite reads text through this interface.
+class WinOneCharacter final : public IDWriteTextAnalysisSource {
+public:
+    wchar text[2] = {};
+    UINT32 length = 0;
 
-    do {
-        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory5), reinterpret_cast<IUnknown **>(&factory)))) {
-            break;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void **object) override
+    {
+        if (id == __uuidof(IUnknown) || id == __uuidof(IDWriteTextAnalysisSource)) {
+            *object = this;
+            return S_OK;
         }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE GetTextAtPosition(UINT32 position, const WCHAR **at, UINT32 *count) override
+    {
+        *at = position < length ? text + position : nullptr;
+        *count = position < length ? length - position : 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetTextBeforePosition(UINT32 position, const WCHAR **at, UINT32 *count) override
+    {
+        *at = position > 0 && position <= length ? text : nullptr;
+        *count = position <= length ? position : 0;
+        return S_OK;
+    }
+    DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() override { return DWRITE_READING_DIRECTION_LEFT_TO_RIGHT; }
+    HRESULT STDMETHODCALLTYPE GetLocaleName(UINT32, UINT32 *count, const WCHAR **locale) override
+    {
+        *locale = L"";
+        *count = length;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetNumberSubstitution(UINT32, UINT32 *count, IDWriteNumberSubstitution **substitution) override
+    {
+        *substitution = nullptr;
+        *count = length;
+        return S_OK;
+    }
+};
+
+#define WinMaxFallbacks 16
+
+struct WinFontFace {
+    IDWriteFactory5 *factory;
+    IDWriteInMemoryFontFileLoader *loader;  // only for a font from memory, which then has no fallback
+    b32 loaderRegistered;
+    IDWriteFontCollection *collection;
+    IDWriteFontFallback *fallback;
+    IDWriteFontFace *face;
+    wchar family[128];
+    f32 pixelSize;
+    IDWriteBitmapRenderTarget *target;
+    IDWriteRenderingParams *params;
+    u8 *bits;
+    i32 stride, size;
+    // The faces other fonts lent glyphs from, each with its size relative to this one's.
+    IDWriteFontFace *fallbacks[WinMaxFallbacks];
+    f32 fallbackScales[WinMaxFallbacks];
+    u32 fallbackCount;
+};
+
+extern "C" void WinFontClose(WinFontFace *font)
+{
+    if (font == nullptr) return;
+    for (u32 i = 0; i < font->fallbackCount; ++i) SafeRelease(font->fallbacks[i]);
+    SafeRelease(font->params);
+    SafeRelease(font->target);
+    SafeRelease(font->face);
+    SafeRelease(font->fallback);
+    SafeRelease(font->collection);
+    if (font->loaderRegistered) font->factory->UnregisterFontFileLoader(font->loader);
+    SafeRelease(font->loader);
+    SafeRelease(font->factory);
+    HeapFree(GetProcessHeap(), 0, font);
+}
+
+extern "C" WinFontFace *WinFontOpen(const wchar *family, const u8 *data, u64 dataSize, f32 pixelSize, WinRasterMetrics *metrics)
+{
+    WinFontFace *font = static_cast<WinFontFace *>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(WinFontFace)));
+    if (font == nullptr) return nullptr;
+    font->pixelSize = pixelSize;
+    IDWriteFontFile *file = nullptr;
+    IDWriteFontFamily *fontFamily = nullptr;
+    IDWriteFont *match = nullptr;
+    IDWriteGdiInterop *interop = nullptr;
+    IDWriteRenderingParams *defaultParams = nullptr;
+    IDWriteFactory2 *factory2 = nullptr;
+    b32 ok = 0;
+    do {
+        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory5), reinterpret_cast<IUnknown **>(&font->factory)))) break;
         if (data != nullptr) {
-            // The loader lives only for this call; the face is released before it is unregistered.
-            if (FAILED(factory->CreateInMemoryFontFileLoader(&loader)) ||
-                FAILED(factory->RegisterFontFileLoader(loader))) {
-                break;
-            }
-            loaderRegistered = 1;
-            if (FAILED(loader->CreateInMemoryFontFileReference(factory, data, (UINT32)dataSize, nullptr, &file)) ||
-                FAILED(factory->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &face))) {
-                break;
-            }
+            // The loader stays registered while the face lives.
+            if (FAILED(font->factory->CreateInMemoryFontFileLoader(&font->loader)) || FAILED(font->factory->RegisterFontFileLoader(font->loader))) break;
+            font->loaderRegistered = 1;
+            if (FAILED(font->loader->CreateInMemoryFontFileReference(font->factory, data, (UINT32)dataSize, nullptr, &file)) ||
+                FAILED(font->factory->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &font->face))) break;
         } else {
             UINT32 familyIndex = 0;
             BOOL exists = FALSE;
-            if (FAILED(factory->GetSystemFontCollection(&collection, FALSE))) {
-                break;
-            }
-            collection->FindFamilyName(family, &familyIndex, &exists);
+            if (FAILED(font->factory->GetSystemFontCollection(&font->collection, FALSE))) break;
+            font->collection->FindFamilyName(family, &familyIndex, &exists);
+            lstrcpynW(font->family, exists ? family : L"Segoe UI", 128);
             if (!exists) {
-                collection->FindFamilyName(L"Segoe UI", &familyIndex, &exists);
-                if (!exists) {
-                    familyIndex = 0;
-                }
+                font->collection->FindFamilyName(L"Segoe UI", &familyIndex, &exists);
+                if (!exists) familyIndex = 0;
             }
-            if (FAILED(collection->GetFontFamily(familyIndex, &fontFamily)) ||
-                FAILED(fontFamily->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, &font)) ||
-                FAILED(font->CreateFontFace(&face))) {
-                break;
-            }
+            if (FAILED(font->collection->GetFontFamily(familyIndex, &fontFamily)) ||
+                FAILED(fontFamily->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, &match)) ||
+                FAILED(match->CreateFontFace(&font->face))) break;
+            // Characters the font lacks come from the font the system picks for them, as text elsewhere on Windows does.
+            if (SUCCEEDED(font->factory->QueryInterface(__uuidof(IDWriteFactory2), reinterpret_cast<void **>(&factory2)))) factory2->GetSystemFontFallback(&font->fallback);
         }
 
         DWRITE_FONT_METRICS fontMetrics = {};
-        face->GetMetrics(&fontMetrics);
+        font->face->GetMetrics(&fontMetrics);
         f32 scale = pixelSize / (f32)fontMetrics.designUnitsPerEm;
         metrics->ascent = (f32)fontMetrics.ascent * scale;
         metrics->descent = (f32)fontMetrics.descent * scale;
         metrics->lineGap = (f32)fontMetrics.lineGap * scale;
 
         // Glyphs are drawn one at a time around the target's center and cropped to the black box DirectWrite reports.
-        i32 size = (i32)(pixelSize * 3.0f) + 8;
-        f32 origin = (f32)(size / 2);
-        if (FAILED(factory->GetGdiInterop(&interop)) ||
-            FAILED(interop->CreateBitmapRenderTarget(nullptr, (UINT32)size, (UINT32)size, &target)) ||
-            FAILED(target->SetPixelsPerDip(1.0f)) ||
-            FAILED(factory->CreateRenderingParams(&defaultParams))) {
-            break;
-        }
+        font->size = (i32)(pixelSize * 3.0f) + 8;
+        if (FAILED(font->factory->GetGdiInterop(&interop)) ||
+            FAILED(interop->CreateBitmapRenderTarget(nullptr, (UINT32)font->size, (UINT32)font->size, &font->target)) ||
+            FAILED(font->target->SetPixelsPerDip(1.0f)) ||
+            FAILED(font->factory->CreateRenderingParams(&defaultParams))) break;
         // ClearType level 0 gives grayscale coverage, identical in every channel; GDI-natural outlines snap stems to the pixel grid, which
         // gives crisper text at the same advances.
-        if (FAILED(factory->CreateCustomRenderingParams(defaultParams->GetGamma(), defaultParams->GetEnhancedContrast(), 0.0f,
-                                                        DWRITE_PIXEL_GEOMETRY_FLAT, DWRITE_RENDERING_MODE_GDI_NATURAL, &params))) {
-            break;
-        }
-
-        HDC dc = target->GetMemoryDC();
+        if (FAILED(font->factory->CreateCustomRenderingParams(defaultParams->GetGamma(), defaultParams->GetEnhancedContrast(), 0.0f,
+                                                              DWRITE_PIXEL_GEOMETRY_FLAT, DWRITE_RENDERING_MODE_GDI_NATURAL, &font->params))) break;
+        HDC dc = font->target->GetMemoryDC();
         DIBSECTION dib = {};
-        if (GetObjectW(GetCurrentObject(dc, OBJ_BITMAP), sizeof(dib), &dib) != sizeof(dib)) {
-            break;
-        }
+        if (GetObjectW(GetCurrentObject(dc, OBJ_BITMAP), sizeof(dib), &dib) != sizeof(dib)) break;
         // The interop bitmap is a top-down 32bpp DIB.
-        u8 *bits = static_cast<u8 *>(dib.dsBm.bmBits);
-        i32 stride = dib.dsBm.bmWidthBytes;
-        memset(bits, 0, (u64)stride * (u64)size);
-
+        font->bits = static_cast<u8 *>(dib.dsBm.bmBits);
+        font->stride = dib.dsBm.bmWidthBytes;
+        memset(font->bits, 0, (u64)font->stride * (u64)font->size);
         ok = 1;
-        for (u32 i = 0; i < glyphCount && ok; ++i) {
-            UINT32 codepoint = firstCodepoint + i;
-            UINT16 glyphIndex = 0;
-            DWRITE_GLYPH_METRICS glyphMetrics = {};
-            face->GetGlyphIndices(&codepoint, 1, &glyphIndex);
-            face->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE);
+    } while (0);
+    SafeRelease(factory2);
+    SafeRelease(defaultParams);
+    SafeRelease(interop);
+    SafeRelease(match);
+    SafeRelease(fontFamily);
+    SafeRelease(file);
+    if (!ok) {
+        WinFontClose(font);
+        return nullptr;
+    }
+    return font;
+}
 
-            WinRasterGlyph *glyph = &glyphs[i];
-            // Whole-pixel advances keep text on the pixel grid.
-            glyph->advance = (f32)(i32)((f32)glyphMetrics.advanceWidth * scale + 0.5f);
+// The glyph `index` of `face` at `emSize`, drawn and cropped into `glyph`.
+static b32 WinDrawGlyph(WinFontFace *font, IDWriteFontFace *face, f32 emSize, UINT16 index, WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyph)
+{
+    DWRITE_FONT_METRICS fontMetrics = {};
+    DWRITE_GLYPH_METRICS glyphMetrics = {};
+    face->GetMetrics(&fontMetrics);
+    face->GetDesignGlyphMetrics(&index, 1, &glyphMetrics, FALSE);
+    // Whole-pixel advances keep text on the pixel grid.
+    *glyph = WinRasterGlyph{};
+    glyph->advance = (f32)(i32)((f32)glyphMetrics.advanceWidth * emSize / (f32)fontMetrics.designUnitsPerEm + 0.5f);
 
-            FLOAT advance = 0.0f;
-            DWRITE_GLYPH_OFFSET offset = {};
-            DWRITE_GLYPH_RUN run = {};
-            run.fontFace = face;
-            run.fontEmSize = pixelSize;
-            run.glyphCount = 1;
-            run.glyphIndices = &glyphIndex;
-            run.glyphAdvances = &advance;
-            run.glyphOffsets = &offset;
+    FLOAT advance = 0.0f;
+    DWRITE_GLYPH_OFFSET offset = {};
+    DWRITE_GLYPH_RUN run = {};
+    run.fontFace = face;
+    run.fontEmSize = emSize;
+    run.glyphCount = 1;
+    run.glyphIndices = &index;
+    run.glyphAdvances = &advance;
+    run.glyphOffsets = &offset;
+    f32 origin = (f32)(font->size / 2);
+    RECT box = {};
+    if (FAILED(font->target->DrawGlyphRun(origin, origin, DWRITE_MEASURING_MODE_NATURAL, &run, font->params, RGB(255, 255, 255), &box))) return 0;
+    i32 left = MaxI32((i32)box.left, 0), top = MaxI32((i32)box.top, 0);
+    i32 right = MinI32((i32)box.right, font->size), bottom = MinI32((i32)box.bottom, font->size);
+    if (right <= left || bottom <= top) return 1;
+    glyph->width = right - left;
+    glyph->height = bottom - top;
+    glyph->offsetX = (f32)left - origin;
+    glyph->offsetY = (f32)top - origin;
+    glyph->pixels = static_cast<u8 *>(alloc(allocUser, (u64)glyph->width * (u64)glyph->height));
+    if (glyph->pixels == nullptr) return 0;
+    GdiFlush();
+    for (i32 y = 0; y < glyph->height; ++y) {
+        u8 *row = font->bits + (u64)(top + y) * (u64)font->stride + (u64)left * 4;
+        u8 *dst = glyph->pixels + (u64)y * (u64)glyph->width;
+        for (i32 x = 0; x < glyph->width; ++x) dst[x] = row[x * 4];
+        memset(row, 0, (u64)glyph->width * 4);
+    }
+    return 1;
+}
 
-            RECT box = {};
-            if (FAILED(target->DrawGlyphRun(origin, origin, DWRITE_MEASURING_MODE_NATURAL, &run, params, RGB(255, 255, 255), &box))) {
-                ok = 0;
-                break;
-            }
-            i32 left = MaxI32((i32)box.left, 0);
-            i32 top = MaxI32((i32)box.top, 0);
-            i32 right = MinI32((i32)box.right, size);
-            i32 bottom = MinI32((i32)box.bottom, size);
-            if (right <= left || bottom <= top) {
-                continue;
-            }
-
-            glyph->width = right - left;
-            glyph->height = bottom - top;
-            glyph->offsetX = (f32)left - origin;
-            glyph->offsetY = (f32)top - origin;
-            glyph->pixels = static_cast<u8 *>(alloc(allocUser, (u64)glyph->width * (u64)glyph->height));
-            if (glyph->pixels == nullptr) {
-                ok = 0;
-                break;
-            }
-
-            GdiFlush();
-            for (i32 y = 0; y < glyph->height; ++y) {
-                u8 *row = bits + (u64)(top + y) * (u64)stride + (u64)left * 4;
-                u8 *dst = glyph->pixels + (u64)y * (u64)glyph->width;
-                for (i32 x = 0; x < glyph->width; ++x) {
-                    dst[x] = row[x * 4];
-                }
-                memset(row, 0, (u64)glyph->width * 4);
+extern "C" b32 WinFontGlyph(WinFontFace *font, u32 codepoint, WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyph)
+{
+    UINT16 index = 0;
+    font->face->GetGlyphIndices(&codepoint, 1, &index);
+    if (index != 0 || font->fallback == nullptr) return index != 0 && WinDrawGlyph(font, font->face, font->pixelSize, index, alloc, allocUser, glyph);
+    // The fonts already lent from first, then the one the system picks.
+    for (u32 i = 0; i < font->fallbackCount; ++i) {
+        font->fallbacks[i]->GetGlyphIndices(&codepoint, 1, &index);
+        if (index != 0) return WinDrawGlyph(font, font->fallbacks[i], font->pixelSize * font->fallbackScales[i], index, alloc, allocUser, glyph);
+    }
+    WinOneCharacter text;
+    if (codepoint >= 0x10000) {
+        text.text[0] = (wchar)(0xD800 + ((codepoint - 0x10000) >> 10));
+        text.text[1] = (wchar)(0xDC00 + ((codepoint - 0x10000) & 0x3FF));
+        text.length = 2;
+    } else {
+        text.text[0] = (wchar)codepoint;
+        text.length = 1;
+    }
+    UINT32 mapped = 0;
+    IDWriteFont *match = nullptr;
+    IDWriteFontFace *face = nullptr;
+    FLOAT scale = 1.0f;
+    b32 ok = 0;
+    if (SUCCEEDED(font->fallback->MapCharacters(&text, 0, text.length, font->collection, font->family, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                                DWRITE_FONT_STRETCH_NORMAL, &mapped, &match, &scale)) &&
+        match != nullptr && SUCCEEDED(match->CreateFontFace(&face))) {
+        face->GetGlyphIndices(&codepoint, 1, &index);
+        if (index != 0) {
+            ok = WinDrawGlyph(font, face, font->pixelSize * scale, index, alloc, allocUser, glyph);
+            if (font->fallbackCount < WinMaxFallbacks) {
+                font->fallbacks[font->fallbackCount] = face;
+                font->fallbackScales[font->fallbackCount++] = scale;
+                face = nullptr;
             }
         }
-    } while (0);
-
-    SafeRelease(params);
-    SafeRelease(defaultParams);
-    SafeRelease(target);
-    SafeRelease(interop);
-    SafeRelease(face);
-    SafeRelease(font);
-    SafeRelease(fontFamily);
-    SafeRelease(collection);
-    SafeRelease(file);
-    if (loaderRegistered) {
-        factory->UnregisterFontFileLoader(loader);
     }
-    SafeRelease(loader);
-    SafeRelease(factory);
+    SafeRelease(face);
+    SafeRelease(match);
     return ok;
 }
 

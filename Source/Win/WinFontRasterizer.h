@@ -33,12 +33,20 @@ typedef struct WinRasterMetrics {
 // Returns NULL on failure; the memory need not be zeroed.
 typedef void *WinRasterAllocFn(void *user, u64 size);
 
+// A font kept open to draw glyphs one at a time, with the faces it took fallback glyphs from.
+typedef struct WinFontFace WinFontFace;
+
 #if defined(__cplusplus)
-extern "C"
+extern "C" {
 #endif
-// `data` (a font file in memory) takes precedence over `family`.
-b32 WinRasterizeFont(const wchar *family, const u8 *data, u64 dataSize, f32 pixelSize, u32 firstCodepoint, u32 glyphCount,
-                     WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyphs, WinRasterMetrics *metrics);
+// `data` (a font file in memory, which has no fallback) takes precedence over `family`; NULL on failure.
+WinFontFace *WinFontOpen(const wchar *family, const u8 *data, u64 dataSize, f32 pixelSize, WinRasterMetrics *metrics);
+// `codepoint`'s glyph, from the font or else from the one the system's fallback picks for it; false when neither has it.
+b32 WinFontGlyph(WinFontFace *font, u32 codepoint, WinRasterAllocFn *alloc, void *allocUser, WinRasterGlyph *glyph);
+void WinFontClose(WinFontFace *font);
+#if defined(__cplusplus)
+}
+#endif
 
 typedef void WinFontFamilyFn(void *user, const wchar *name, u32 length);
 
