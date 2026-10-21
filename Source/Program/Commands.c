@@ -2096,6 +2096,10 @@ function void Prog__OpenColorPicker(Prog_State *state, Prog_Option option)
     if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorMatchDisabledSelection) return;
     state->colorPicking = true;
     state->colorOption = (u8)option;
+    state->pickerOriginal = state->schemeGroups[option - Prog_Option_ColorClear];
+    state->pickerAt = UI ? UI->mouse : (UI_Vec2){0};
+    state->pickerField = 0;
+    state->pickerSquareHue = -1;
     R_Color color = Prog_OptionColor(state, option);
     Prog_RgbToHsb(color, &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
 }
@@ -3016,6 +3020,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColorPickerOpen: Prog__OpenColorPicker(state, (Prog_Option)command->row); break;
             case Prog_CommandKind_ColorPickerSet: if (state->colorPicking) Prog_PickColor(state, (u32)command->row, (f32)((f64)command->target / 1e6)); break;
             case Prog_CommandKind_ColorPickerClose: Prog_CloseColorPicker(state); break;
+            case Prog_CommandKind_ColorPickerCancel: {
+                if (state->colorPicking) Prog_PickHex(state, state->pickerOriginal);
+                Prog_CloseColorPicker(state);
+            } break;
+            case Prog_CommandKind_ColorPickerEdit: {
+                if (!state->colorPicking || command->row < 1 || command->row > 7) break;
+                state->pickerField = (u8)command->row;
+                state->pickerEdit = (Prog_TextEdit){0};
+                String text = Prog_PickerFieldText(state, &state->frameArena, state->pickerField);
+                Prog__EditReplace(&state->pickerEdit, (const u8 *)text.value, (u32)text.length);
+                state->pickerEdit.anchor = 0;
+            } break;
             case Prog_CommandKind_SchemesOpen: Prog__OpenSchemes(state, (Prog_Option)command->row); break;
             case Prog_CommandKind_SchemesPick: {
                 u32 count = 0;
@@ -3830,8 +3846,31 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Down && count) state->schemesHighlight = (state->schemesHighlight + 1) % count;
             continue;
         }
+        // The color picker takes the keyboard: a number box being typed in takes digits, or the hex box hex digits, and changes the color as
+        // they come; Tab goes to the next box, and Enter or Escape stop typing. Otherwise Enter keeps the color and Escape puts it back.
         if (state->colorPicking && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
-            if (event->kind == PlatformEventKind_KeyDown && (event->key == Key_Escape || event->key == Key_Enter)) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, order);
+            if (state->pickerField) {
+                b32 hex = state->pickerField == 7;
+                if (event->kind == PlatformEventKind_Text) {
+                    rune c = event->codepoint;
+                    b32 digit = (c >= '0' && c <= '9') || (hex && ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')));
+                    u32 selected = state->pickerEdit.cursor > state->pickerEdit.anchor ? state->pickerEdit.cursor - state->pickerEdit.anchor : state->pickerEdit.anchor - state->pickerEdit.cursor;
+                    if (digit && state->pickerEdit.length - selected < (hex ? 6u : 3u)) {
+                        Prog__EditInsert(&state->pickerEdit, hex && c >= 'a' ? c - 32 : c);
+                        Prog_PickerTyped(state);
+                    }
+                } else if (event->key == Key_Tab) {
+                    Prog_QueueCommand(state, Prog_CommandKind_ColorPickerEdit, (u64)(state->pickerField % 7 + 1), 0, order);
+                } else if (event->key == Key_Escape || event->key == Key_Enter) {
+                    state->pickerField = 0;
+                    state->swallowText = true;
+                } else if (Prog__EditKey(state, &state->pickerEdit, event)) {
+                    Prog_PickerTyped(state);
+                }
+                continue;
+            }
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerCancel, 0, 0, order);
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, order);
             continue;
         }
         // What the layouts ask takes the keyboard, Enter going ahead and Escape not; the Save Layout box takes typing, with Enter saving and

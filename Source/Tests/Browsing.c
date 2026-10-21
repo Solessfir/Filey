@@ -2618,6 +2618,26 @@ function void TestSettings(void)
         Prog_PickColor(&look, 1, 1);
         Prog_PickColor(&look, 2, 1);
         Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0xFF0000);
+        // The number boxes: a hue typed in changes the color at once, a red past 255 stops there, and six hex digits set it all.
+        look.pickerField = 1;
+        look.pickerEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&look.pickerEdit, (const u8 *)"120", 3);
+        Prog_PickerTyped(&look);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x00FF00 && StrIsEqual(Prog_PickerFieldText(&look, &look.frameArena, 1), S("120")));
+        look.pickerField = 4;
+        look.pickerEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&look.pickerEdit, (const u8 *)"999", 3);
+        Prog_PickerTyped(&look);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0xFFFF00);
+        look.pickerField = 7;
+        look.pickerEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&look.pickerEdit, (const u8 *)"4A9C", 4);
+        Prog_PickerTyped(&look);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0xFFFF00);
+        Prog__EditReplace(&look.pickerEdit, (const u8 *)"C4", 2);
+        Prog_PickerTyped(&look);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x4A9CC4 && StrIsEqual(Prog_PickerFieldText(&look, &look.frameArena, 1), S("200")));
+        Prog_PickHex(&look, 0xFF0000);
         // Closing the picker keeps the colors in the scheme, by the groups' names.
         Prog_CloseColorPicker(&look);
         Check(StrIndexStr(look.schemeTexts.v[2], S("Background = #FF0000\n"), SSF_None).exists);

@@ -1615,6 +1615,14 @@ command ColorPickerOpen {
 command ColorPickerSet {
 }
 
+// A press on one of the color picker's number boxes, which starts typing in it; carries the box, 1 to 7 for H, S, B, R, G, B and the hex.
+command ColorPickerEdit {
+}
+
+// The picker's Cancel, or Escape: the color goes back to what it was as the picker opened.
+command ColorPickerCancel {
+}
+
 command ColorPickerClose {
 }
 

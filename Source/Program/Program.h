@@ -1307,6 +1307,12 @@ typedef struct Prog_State {
     b32 colorPicking;
     enum8(Prog_Option) colorOption;
     f32 pickerHue, pickerSaturation, pickerBrightness;
+    u32 pickerOriginal;           // the color as it opened, which Cancel puts back
+    UI_Vec2 pickerAt;             // where the pointer was then, the picker's top left
+    u8 pickerField;               // the number box being typed in, 1 to 7 for H, S, B, R, G, B and the hex, or 0
+    Prog_TextEdit pickerEdit;
+    R_TextureHandle pickerSquare, pickerStrip;  // the saturations and brightnesses of pickerSquareHue, and the hues
+    f32 pickerSquareHue;
     b32 systemScheme;           // the system's light or dark choice picks the light scheme or that one
     // How the lists look: the space between their items and how much inactive panels show, as offsets from the default 4 and 60 so that
     // {0} has them, square corners and every other row tinted.
@@ -1664,6 +1670,9 @@ function void Prog_SetScheme(Prog_State *state, String name, String text, b32 re
 function b32 Prog_ForkScheme(Prog_State *state, u32 scheme, Prog_Option option);
 function void Prog_PickColor(Prog_State *state, u32 channel, f32 value);
 function void Prog_CloseColorPicker(Prog_State *state);
+function void Prog_PickHex(Prog_State *state, u32 rgb);
+function String Prog_PickerFieldText(Prog_State *state, Arena *arena, u32 field);
+function void Prog_PickerTyped(Prog_State *state);
 function R_Color Prog_OptionColor(const Prog_State *state, Prog_Option option);
 function u8 Prog_ShownScheme(const Prog_State *state, String *name);
 function void Prog_RgbToHsb(R_Color color, f32 *hue, f32 *saturation, f32 *brightness);

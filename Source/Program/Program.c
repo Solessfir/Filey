@@ -1157,7 +1157,58 @@ function void Prog_CloseColorPicker(Prog_State *state)
         ReleaseScratch(scratch);
     }
     state->colorPicking = false;
+    state->pickerField = 0;
+    R_TextureRelease(state->pickerSquare);
+    R_TextureRelease(state->pickerStrip);
+    state->pickerSquare = state->pickerStrip = (R_TextureHandle){0};
 }
+
+// Sets the picker's color to `rgb`, as 0xRRGGBB, and shows it; a gray keeps the hue it had.
+function void Prog_PickHex(Prog_State *state, u32 rgb)
+{
+    state->schemeGroups[state->colorOption - Prog_Option_ColorClear] = rgb & 0xFFFFFF;
+    f32 hue = state->pickerHue;
+    Prog_RgbToHsb(Prog__HexColor(rgb), &state->pickerHue, &state->pickerSaturation, &state->pickerBrightness);
+    if (state->pickerSaturation == 0) state->pickerHue = hue;
+    Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
+    Prog__ApplyTheme(state);
+}
+
+// What number box `field` of the picker shows: H, S, B, R, G and B as whole numbers, then the hex.
+function String Prog_PickerFieldText(Prog_State *state, Arena *arena, u32 field)
+{
+    u32 rgb = state->schemeGroups[state->colorOption - Prog_Option_ColorClear];
+    switch (field) {
+        case 1: return StrFormat(arena, "%d", (i32)(state->pickerHue * 360 + 0.5f));
+        case 2: return StrFormat(arena, "%d", (i32)(state->pickerSaturation * 100 + 0.5f));
+        case 3: return StrFormat(arena, "%d", (i32)(state->pickerBrightness * 100 + 0.5f));
+        case 4: return StrFormat(arena, "%u", (rgb >> 16) & 0xFF);
+        case 5: return StrFormat(arena, "%u", (rgb >> 8) & 0xFF);
+        case 6: return StrFormat(arena, "%u", rgb & 0xFF);
+        case 7: return StrFormat(arena, "%06X", rgb);
+        default: return (String){0};
+    }
+}
+
+// The box being typed in changes the color as soon as it reads as one: a number up to its channel's greatest, or six hex digits.
+function void Prog_PickerTyped(Prog_State *state)
+{
+    String text = Prog_EditText(&state->pickerEdit);
+    if (!text.length) return;
+    u32 value = 0;
+    for (u64 i = 0; i < text.length; ++i) {
+        u8 c = (u8)text.value[i];
+        value = value * (state->pickerField == 7 ? 16 : 10) + (u32)(c <= '9' ? c - '0' : c - 'A' + 10);
+    }
+    if (state->pickerField == 7) {
+        if (text.length == 6) Prog_PickHex(state, value);
+        return;
+    }
+    local_persist const u32 greatest[6] = { 360, 100, 100, 255, 255, 255 };
+    u32 channel = state->pickerField - 1u;
+    Prog_PickColor(state, channel, (f32)Min(value, greatest[channel]) / (f32)greatest[channel]);
+}
+
 
 // Sets an option that takes a name, such as a font's, to `text`; an empty one goes back to the default.
 function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String text)
@@ -6725,8 +6776,9 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// The color picker: the group's name over a swatch of the color, and a slider for each of its hue, saturation and brightness, then its red,
-// green and blue, which change the color as they move.
+// The color picker, its top left where the pointer was as it opened and kept inside the window: the group's name over a square of the
+// hue's saturations and brightnesses and a strip of the hues, beside them the color, its hue, saturation, brightness, red, green and blue
+// as numbers out of their greatest, its hex, and Ok and Cancel.
 function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->colorPicking) return;
@@ -6737,81 +6789,186 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPickerCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, outside.pressOrder);
-    f32 s = m->scale, pad = floorf(12.0f * s + 0.5f), row = floorf(28.0f * s + 0.5f), head = floorf(32.0f * s + 0.5f), swatch = floorf(40.0f * s + 0.5f);
-    f32 width = floorf(340.0f * s + 0.5f), height = head + swatch + pad + 6 * row + pad, radius = floorf(8.0f * s + 0.5f);
-    f32 x = floorf((view.x1 - view.x0 - width) * 0.5f), y = floorf((view.y1 - view.y0 - height) * 0.4f);
+    f32 s = m->scale, line = m->stroke;
+    f32 width = floorf(588.0f * s + 0.5f), height = floorf(396.0f * s + 0.5f), radius = floorf(6.4f * s + 0.5f), bevel = floorf(4.0f * s + 0.5f);
+    f32 head = floorf(31.2f * s + 0.5f), pad = floorf(8.0f * s + 0.5f), gap = floorf(9.6f * s + 0.5f), strip = floorf(24.0f * s + 0.5f);
+    f32 apart = floorf(10.4f * s + 0.5f), column = floorf(167.2f * s + 0.5f), box = floorf(30.4f * s + 0.5f), rowGap = floorf(8.0f * s + 0.5f);
+    f32 below = floorf(14.4f * s + 0.5f), label = floorf(20.0f * s + 0.5f), field = floorf(57.6f * s + 0.5f), slash = floorf(32.0f * s + 0.5f);
+    f32 button = floorf(24.0f * s + 0.5f), margin = floorf(4.0f * s + 0.5f), ring = floorf(9.0f * s + 0.5f);
+    f32 squareWidth = width - 2 * pad - gap - strip - apart - column, squareHeight = height - head - 2 * pad;
+    f32 x = UI__Clamp(floorf(state->pickerAt.x - view.x0), margin, MaxF32(margin, view.x1 - view.x0 - width - margin));
+    f32 y = UI__Clamp(floorf(state->pickerAt.y - view.y0), margin, MaxF32(margin, view.y1 - view.y0 - height - margin));
     R_Color color = Prog_OptionColor(state, (Prog_Option)state->colorOption);
+    // The square and the strip are bevel pictures drawn smooth at any size; the square is drawn again as the hue changes.
+    enum { SquareSide = 128, StripLength = 256 };
+    if (!state->pickerStrip.u64[0] || state->pickerSquareHue != state->pickerHue) {
+        Scratch scratch = GetScratch();
+        u32 *pixels = ArenaPushArrayNoZero(scratch.arena, SquareSide * SquareSide, u32);
+        for (u32 py = 0; py < SquareSide; ++py) {
+            for (u32 px = 0; px < SquareSide; ++px) {
+                R_Color c = Prog_HsbToRgb(state->pickerHue, (f32)px / (SquareSide - 1), 1 - (f32)py / (SquareSide - 1), 1);
+                pixels[py * SquareSide + px] = 0xFF000000u | (u32)(c.b * 255 + 0.5f) << 16 | (u32)(c.g * 255 + 0.5f) << 8 | (u32)(c.r * 255 + 0.5f);
+            }
+        }
+        if (state->pickerSquare.u64[0]) {
+            R_TextureUpdateRGBA(state->pickerSquare, 0, 0, SquareSide, SquareSide, pixels);
+        } else {
+            state->pickerSquare = R_TextureCreateRGBA(SquareSide, SquareSide, pixels);
+            R_TextureSmooth(state->pickerSquare);
+        }
+        state->pickerSquareHue = state->pickerHue;
+        if (!state->pickerStrip.u64[0]) {
+            // Red at both ends, the hues rising from the bottom.
+            for (u32 py = 0; py < StripLength; ++py) {
+                R_Color c = Prog_HsbToRgb(1 - (f32)py / (StripLength - 1), 1, 1, 1);
+                pixels[py] = 0xFF000000u | (u32)(c.b * 255 + 0.5f) << 16 | (u32)(c.g * 255 + 0.5f) << 8 | (u32)(c.r * 255 + 0.5f);
+            }
+            state->pickerStrip = R_TextureCreateRGBA(1, StripLength, pixels);
+            R_TextureSmooth(state->pickerStrip);
+        }
+        ReleaseScratch(scratch);
+    }
     Prog__DropShadow(x, y, width, height, radius, 1, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, pad });
     UI_SetNextCornerRadius(radius);
-    UI_SetNextBorderThickness(m->stroke);
+    UI_SetNextBorderThickness(line);
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPicker")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
-        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
-        UI_Parent(title) {
-            Prog__Label(Prog_Options[state->colorOption].label, UI_Flex(), head, 0, theme->text, 0);
-            UI_Interaction close = Prog__TextButton(S("ColorPickerClose"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
-            if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerClose, 0, 0, close.clickOrder);
-        }
         UI_SetNextPrefWidth(UI_Flex());
-        UI_SetNextPrefHeight(UI_Pixels(swatch));
-        UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
-        UI_SetNextBorderThickness(m->stroke);
-        UI_SetNextColors((UI_Colors){ .background = color, .border = theme->outline });
-        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-        Prog__Spacer(UI_Flex(), UI_Pixels(pad));
-        local_persist const String labels[6] = { SInit("H:"), SInit("S:"), SInit("B:"), SInit("R:"), SInit("G:"), SInit("B:") };
-        f32 values[6] = { state->pickerHue, state->pickerSaturation, state->pickerBrightness, color.r, color.g, color.b };
-        i32 shown[6] = { (i32)(state->pickerHue * 360 + 0.5f), (i32)(state->pickerSaturation * 100 + 0.5f), (i32)(state->pickerBrightness * 100 + 0.5f),
-                         (i32)(color.r * 255 + 0.5f), (i32)(color.g * 255 + 0.5f), (i32)(color.b * 255 + 0.5f) };
-        f32 track = floorf(10.4f * s + 0.5f), knob = floorf(16.0f * s + 0.5f), label = floorf(24.0f * s + 0.5f), number = floorf(36.0f * s + 0.5f);
-        for (u32 c = 0; c < 6; ++c) {
-            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, theme->menu, 0);
-            UI_Parent(line) {
-                Prog__Label(labels[c], UI_Pixels(label), row, 0, theme->textDim, 0);
+        UI_SetNextPrefHeight(UI_Pixels(head));
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextColors((UI_Colors){ .background = theme->tabBorder, .text = theme->text });
+        UI_SetNextText(StrFormat(&state->frameArena, "%S color", Prog_Options[state->colorOption].label));
+        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawText);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+        UI_Block *body = Prog__Box(UI_Flex(), UI_Flex(), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(body) {
+            // Across the square saturation rises, and up it brightness.
+            UI_SetNextPrefWidth(UI_Pixels(squareWidth));
+            UI_SetNextPrefHeight(UI_Pixels(squareHeight));
+            UI_SetNextChildrenPadding((UI_Padding){ line, line, line, line });
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextImage(state->pickerSquare, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ squareWidth - 2 * line, squareHeight - 2 * line }, (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+            UI_Block *square = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPickerSquare")), UI_Flag_DrawImage | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable);
+            UI_Interaction pick = UI_InteractionFromBlock(square);
+            if (pick.pressed || (pick.active && pick.isDragging)) {
+                f32 across = UI__Clamp((UI->mouse.x - square->rect.x0 - line) / MaxF32(1, squareWidth - 2 * line), 0, 1);
+                f32 up = 1 - UI__Clamp((UI->mouse.y - square->rect.y0 - line) / MaxF32(1, squareHeight - 2 * line), 0, 1);
+                Prog_QueueCommand(state, Prog_CommandKind_ColorPickerSet, 1, 0, pick.pressOrder)->target = (u64)(across * 1e6f);
+                Prog_QueueCommand(state, Prog_CommandKind_ColorPickerSet, 2, 0, pick.pressOrder)->target = (u64)(up * 1e6f);
+            }
+            UI_Parent(square) {
+                // A light ring around a dark one, which shows on either.
+                f32 cx = floorf(line + state->pickerSaturation * (squareWidth - 2 * line)), cy = floorf(line + (1 - state->pickerBrightness) * (squareHeight - 2 * line));
+                for (u32 r = 0; r < 2; ++r) {
+                    f32 size = 2 * (ring + (f32)r * line);
+                    UI_SetNextFloatingOffset((UI_Vec2){ cx - size * 0.5f, cy - size * 0.5f });
+                    UI_SetNextPrefWidth(UI_Pixels(size));
+                    UI_SetNextPrefHeight(UI_Pixels(size));
+                    UI_SetNextCornerRadius(size * 0.5f);
+                    UI_SetNextBorderThickness(line);
+                    UI_SetNextColors((UI_Colors){ .border = r ? (R_Color){ 0, 0, 0, 0.5f } : (R_Color){ 1, 1, 1, 0.9f } });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+                }
+            }
+            Prog__Spacer(UI_Pixels(gap), UI_Pixels(squareHeight));
+            UI_SetNextPrefWidth(UI_Pixels(strip));
+            UI_SetNextPrefHeight(UI_Pixels(squareHeight));
+            UI_SetNextChildrenPadding((UI_Padding){ line, line, line, line });
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextImage(state->pickerStrip, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ strip - 2 * line, squareHeight - 2 * line }, (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+            UI_Block *hues = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ColorPickerStrip")), UI_Flag_DrawImage | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable);
+            UI_Interaction slide = UI_InteractionFromBlock(hues);
+            if (slide.pressed || (slide.active && slide.isDragging)) {
+                f32 up = 1 - UI__Clamp((UI->mouse.y - hues->rect.y0 - line) / MaxF32(1, squareHeight - 2 * line), 0, 1);
+                Prog_QueueCommand(state, Prog_CommandKind_ColorPickerSet, 0, 0, slide.pressOrder)->target = (u64)(up * 1e6f);
+            }
+            UI_Parent(hues) {
+                f32 at = floorf(line + (1 - state->pickerHue) * (squareHeight - 2 * line) - line * 0.5f);
+                UI_SetNextFloatingOffset((UI_Vec2){ -bevel * 0.5f, at });
+                UI_SetNextPrefWidth(UI_Pixels(strip + bevel));
+                UI_SetNextPrefHeight(UI_Pixels(line));
+                UI_SetNextColors((UI_Colors){ .background = theme->text });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(squareHeight));
+            UI_Block *side = Prog__Box(UI_Pixels(column), UI_Pixels(squareHeight), UI_Layout_Vertical, (R_Color){0}, 0);
+            UI_Parent(side) {
                 UI_SetNextPrefWidth(UI_Flex());
-                UI_SetNextPrefHeight(UI_Pixels(knob));
-                UI_Block *slider = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "ColorPickerSlider/%u", c)), UI_Flag_LeftMouseClickable);
-                UI_Interaction drag = UI_InteractionFromBlock(slider);
-                f32 wide = MaxF32(1, slider->rect.x1 - slider->rect.x0);
-                if (drag.pressed || (drag.active && drag.isDragging)) {
-                    f32 along = UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / MaxF32(1, wide - knob), 0, 1);
-                    Prog_QueueCommand(state, Prog_CommandKind_ColorPickerSet, c, 0, drag.pressOrder)->target = (u64)(along * 1e6f);
+                UI_SetNextPrefHeight(UI_Pixels(box));
+                UI_SetNextCornerRadius(bevel);
+                UI_SetNextBorderThickness(line);
+                UI_SetNextColors((UI_Colors){ .background = color, .border = theme->tabBorder });
+                UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                Prog__Spacer(UI_Flex(), UI_Pixels(below));
+                local_persist const String labels[7] = { SInit("H:"), SInit("S:"), SInit("B:"), SInit("R:"), SInit("G:"), SInit("B:"), SInit("#:") };
+                local_persist const String greatest[6] = { SInit("360"), SInit("100%"), SInit("100%"), SInit("255"), SInit("255"), SInit("255") };
+                for (u32 f = 1; f <= 7; ++f) {
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_Block *row = Prog__Box(UI_Flex(), UI_Pixels(box), UI_Layout_Horizontal, (R_Color){0}, 0);
+                    UI_Parent(row) {
+                        Prog__Label(labels[f - 1], UI_Pixels(label), box, 0, theme->text, 0);
+                        b32 typing = state->pickerField == f;
+                        UI_SetNextPrefWidth(f == 7 ? UI_Flex() : UI_Pixels(field));
+                        UI_SetNextPrefHeight(UI_Pixels(box));
+                        UI_SetNextCornerRadius(bevel);
+                        UI_SetNextBorderThickness(line);
+                        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                        UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = typing ? theme->selection : theme->tabBorder, .text = theme->text });
+                        if (!typing) UI_SetNextText(Prog_PickerFieldText(state, &state->frameArena, f));
+                        UI_Block *number = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "ColorPickerField/%u", f)),
+                                                              UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip | (typing ? UI_Flag_DrawBackground : UI_Flag_DrawText));
+                        UI_Interaction press = UI_InteractionFromBlock(number);
+                        if (press.pressed && !typing) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerEdit, f, 0, press.pressOrder);
+                        if (typing) {
+                            f32 wide = R_TextWidth(m->font, Prog_EditText(&state->pickerEdit));
+                            f32 boxWidth = MaxF32(1, number->rect.x1 - number->rect.x0);
+                            UI_Parent(number) Prog__EditContents(&state->pickerEdit, floorf((boxWidth - wide) * 0.5f), floorf((box - m->line) * 0.5f), true, floorf(2.0f * s + 0.5f), m);
+                        }
+                        if (f < 7) {
+                            Prog__Label(S("/"), UI_Pixels(slash), box, 0, theme->text, 0.5f);
+                            UI_SetNextPrefWidth(UI_Flex());
+                            UI_SetNextPrefHeight(UI_Pixels(box));
+                            UI_SetNextCornerRadius(bevel);
+                            UI_SetNextBorderThickness(line);
+                            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                            UI_SetNextColors((UI_Colors){ .border = theme->separator, .text = theme->textDim });
+                            UI_SetNextText(greatest[f - 1]);
+                            UI_AddBlock(UI_Flag_DrawBorder | UI_Flag_DrawText);
+                        }
+                    }
+                    Prog__Spacer(UI_Flex(), UI_Pixels(rowGap));
                 }
-                UI_Parent(slider) {
-                    f32 middle = floorf((knob - track) * 0.5f), knobX = floorf(UI__Clamp(values[c], 0, 1) * (wide - knob));
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
-                    UI_SetNextPrefWidth(UI_Pixels(wide));
-                    UI_SetNextPrefHeight(UI_Pixels(track));
-                    UI_SetNextCornerRadius(track * 0.5f);
-                    UI_SetNextColors((UI_Colors){ .background = theme->track });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
-                    UI_SetNextPrefWidth(UI_Pixels(knobX + knob * 0.5f));
-                    UI_SetNextPrefHeight(UI_Pixels(track));
-                    UI_SetNextCornerRadius(track * 0.5f);
-                    UI_SetNextColors((UI_Colors){ .background = theme->accent });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                    UI_SetNextFloatingOffset((UI_Vec2){ knobX, 0 });
-                    UI_SetNextPrefWidth(UI_Pixels(knob));
-                    UI_SetNextPrefHeight(UI_Pixels(knob));
-                    UI_SetNextCornerRadius(knob * 0.5f);
-                    UI_SetNextColors((UI_Colors){ .background = theme->text });
-                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                Prog__Spacer(UI_Flex(), UI_Flex());
+                UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(button), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(buttons) {
+                    for (u32 b = 0; b < 2; ++b) {
+                        UI_Key key = UI_KeyFromStr(0, b ? S("ColorPickerCancel") : S("ColorPickerOk"));
+                        b32 hot = UI->hotKey == key;
+                        UI_SetNextPrefWidth(UI_Flex());
+                        UI_SetNextPrefHeight(UI_Pixels(button));
+                        UI_SetNextCornerRadius(bevel);
+                        UI_SetNextBorderThickness(line);
+                        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->outlineHover : theme->tabBorder, .text = theme->text });
+                        UI_SetNextText(b ? S("Cancel") : S("Ok"));
+                        UI_Interaction click = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
+                        if (click.clicked) Prog_QueueCommand(state, b ? Prog_CommandKind_ColorPickerCancel : Prog_CommandKind_ColorPickerClose, 0, 0, click.clickOrder);
+                        if (!b) Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(button));
+                    }
                 }
-                Prog__Label(StrFormat(&state->frameArena, "%d", shown[c]), UI_Pixels(number), row, 0, theme->text, 1);
             }
         }
     }
 }
-
 // A button of the layouts' boxes: a filled face with its label, dimmed and taking no clicks while it would do nothing.
 function b32 Prog__LayoutButton(Prog_State *state, String key, String label, b32 able, const Prog_Metrics *m)
 {
