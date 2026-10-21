@@ -3059,7 +3059,9 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
 }
 
 // Moves, or with `copy` copies, a tab to where it was dropped; the tab takes its folder and history there, and the place it lands becomes active.
-// ponytail: the selection and scroll start over; carry the whole Prog_Tab across when that matters.
+// Its zoom and focused item come along; ponytail: the rest of the selection and the scroll start over, carry the whole Prog_Tab across when that matters.
+function String Prog__TabTraits(Prog_State *state, u32 slot);
+
 function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
 {
     u32 from = Prog_PanelIndex(state, drop.fromPanel), into = Prog_PanelIndex(state, drop.panel);
@@ -3068,6 +3070,7 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
     if (drop.fromSlot >= state->tabCount) return;
     String path = StrCopy(&state->frameArena, Prog_TabPath(state, drop.fromSlot));
     if (!path.length) return;
+    String traits = Prog__TabTraits(state, drop.fromSlot);
     b32 shown = drop.fromSlot == state->activeTab;
     ArrayStr history = shown ? state->history : state->tabs[drop.fromSlot].history;
     u64 historyAt = shown ? state->historyAt : state->tabs[drop.fromSlot].historyAt;
@@ -3098,6 +3101,7 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
             Prog__SetList(&tab->historyArena, &tab->history, saved, history.header.count);
             tab->historyAt = historyAt;
             Prog_SelectTab(state, at);
+            Prog_ApplyTabTraits(state, traits);
         } break;
         case Prog_TabDrop_Left:
         case Prog_TabDrop_Right:
@@ -3111,11 +3115,12 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
             // The listing on its way finds `path` already in the history, where it adds nothing.
             Prog__SetList(&state->historyArena, &state->history, saved, history.header.count);
             state->historyAt = historyAt;
+            Prog_ApplyTabTraits(state, traits);
         } break;
         case Prog_TabDrop_Window: {
             // Over another of the program's windows it goes there, and over anything else into a window of its own.
-            if (PlatformOtherWindowAtPointer(path)) break;
-            P_FileError error = Prog_OpenWindow(state, path);
+            if (PlatformOtherWindowAtPointer(StrFormat(&state->frameArena, "%S\t%S", path, traits))) break;
+            P_FileError error = Prog_OpenWindow(state, path, traits);
             if (error.code) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
@@ -3974,18 +3979,57 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     if (activate) Prog_SelectTab(state, at);
 }
 
-// A window of its own for `path`, the run started for it told This PC by a flag, as it is no folder.
-function P_FileError Prog_OpenWindow(Prog_State *state, String path)
+// A window of its own for `path`, the run started for it told This PC by a flag, as it is no folder, and the tab's `traits` by another.
+function P_FileError Prog_OpenWindow(Prog_State *state, String path, String traits)
 {
-    return P_OpenWindow(&state->frameArena, StrIsEqual(path, Prog_ThisPC) ? S("--this-pc") : path);
+    String option = traits.length ? StrFormat(&state->frameArena, "--tab=%S", traits) : (String){0};
+    return P_OpenWindow(&state->frameArena, StrIsEqual(path, Prog_ThisPC) ? S("--this-pc") : path, option);
+}
+
+// What a tab takes along besides its folder when it moves, as "zoom=300\tfocus=name": its zoom and the item it has focused.
+function String Prog__TabTraits(Prog_State *state, u32 slot)
+{
+    b32 shown = slot == state->activeTab;
+    const Prog_Tab *tab = &state->tabs[slot];
+    u32 zoom = shown ? state->zoom : tab->zoom;
+    const Prog_Directory *directory = shown ? &state->directory : &tab->directory;
+    b32 focused = shown ? state->hasFocus : tab->hasFocus;
+    u64 row = shown ? state->focusedRow : tab->focusedRow;
+    String focus = focused && row < directory->count ? directory->entries[row].file.name : (String){0};
+    return StrFormat(&state->frameArena, "zoom=%u%s%S", zoom, focus.length ? "\tfocus=" : "", focus);
+}
+
+// Gives the shown tab the `traits` Prog__TabTraits wrote, as it lands where it was moved: its zoom at once, the item focused once listed.
+function void Prog_ApplyTabTraits(Prog_State *state, String traits)
+{
+    ArrayStr parts = StrSplit(&state->frameArena, traits, '\t');
+    for (u64 i = 0; i < parts.header.count; ++i) {
+        String part = parts.v[i];
+        if (StrIsEqual(StrFromTo(part, 0, 5), S("zoom="))) {
+            u64 zoom = 0;
+            String digits = StrFrom(part, 5);
+            if (Prog__TakeNumber(&digits, &zoom)) state->zoom = Prog_ZoomFromSaved(zoom);
+        } else if (StrIsEqual(StrFromTo(part, 0, 6), S("focus=")) && part.length - 6 <= sizeof(state->selectText)) {
+            MemCopy(state->selectText, part.value + 6, part.length - 6);
+            state->selectLength = (u32)(part.length - 6);
+        }
+    }
 }
 
 // Folders a later run of the program handed this one, a line each, each in a new tab of the active panel after its shown one, the last shown.
+// A tab dragged over from another window follows its folder with its traits, after a tab character.
 function void Prog_OpenPaths(Prog_State *state, String text)
 {
     Prog__UsePanel(state, state->activePanel);
     ArrayStr lines = StrSplit(&state->frameArena, text, '\n');
-    for (u64 i = 0; i < lines.header.count; ++i) if (lines.v[i].length) Prog_OpenTab(state, lines.v[i], state->activeTab + 1, true);
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        Index split = StrIndexChar(lines.v[i], '\t', SSF_None);
+        String path = split.exists ? StrFromTo(lines.v[i], 0, (i64)split.value) : lines.v[i];
+        if (!path.length) continue;
+        u32 count = state->tabCount;
+        Prog_OpenTab(state, path, state->activeTab + 1, true);
+        if (split.exists && state->tabCount > count) Prog_ApplyTabTraits(state, StrFrom(lines.v[i], split.value + 1));
+    }
 }
 
 // Shows the item at `path` selected in its folder, in a new tab after the active one with `inTab`.

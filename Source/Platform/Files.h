@@ -95,6 +95,8 @@ function ArrayStr P_StartupPaths(Arena *arena);
 function String P_ExpandVariables(Arena *arena, String text, b32 final);
 // Whether the command line has `flag`, such as "--new-window", which P_StartupPaths leaves out.
 function b32 P_StartupFlag(String flag);
+// What follows `prefix`, such as "--tab=", in the argument that starts with it; empty without one.
+function String P_StartupOption(Arena *arena, String prefix);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
 // The local date of `timeUnix` as "2026-10-16", which a file name can hold; empty when it is out of range.
 function String P_FormatFileDate(Arena *arena, i64 timeUnix);
@@ -125,8 +127,8 @@ function b32 P_OpensInApp(String path);
 // Opens the system's own file manager on the folder `path`: Explorer on Windows, and on Linux the application the desktop opens folders with,
 // Filey's own entry left out.
 function P_FileError P_OpenFileExplorer(Arena *arena, String path);
-// Starts another Filey window, a process of its own, showing the folder `path`.
-function P_FileError P_OpenWindow(Arena *arena, String path);
+// Starts another Filey window, a process of its own, showing the folder `path`, with `option`, when not empty, as one more argument.
+function P_FileError P_OpenWindow(Arena *arena, String path, String option);
 // Starts the system's console in the folder `directory`: cmd.exe in the default terminal on Windows, the desktop's terminal on Linux.
 function P_FileError P_OpenConsole(Arena *arena, String directory);
 // Reports changes to the items of one folder, not of its subfolders, from a thread of its own.

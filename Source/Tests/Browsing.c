@@ -2419,8 +2419,13 @@ function void TestPanels(TestFileFixture *fixture)
     Check(state.tabCount == 2);
     Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Strip, .panel = alone, .slot = 2, .fromPanel = alone, .fromSlot = 0 });
     Check(state.tabCount == 2 && StrIsEqual(Prog_TabPath(&state, 0), fixture->path) && TestEndsWith(Prog_TabPath(&state, 1), S("/Empty")));
+    // The moved tab keeps its zoom, from its own fields or the panel's while it is shown.
+    if (state.activeTab == 1) state.zoom = Prog_ZoomIcons;
+    else state.tabs[1].zoom = Prog_ZoomIcons;
     Prog_DropTab(&state, (Prog_TabDropTarget){ .kind = Prog_TabDrop_Right, .panel = alone, .fromPanel = alone, .fromSlot = 1 });
     Check(TestWaitDirectory(&state) && state.panelCount == 2 && state.activePanel == 1 && TestEndsWith(state.directory.path, S("/Empty")));
+    Check(state.zoom == Prog_ZoomIcons);
+    state.zoom = 0;
     Check(state.panels[0].tabCount == 1);
     // The moved tab keeps its history, so Back still leads where it came from.
     Check(state.history.header.count == 2 && state.historyAt == 1 && StrIsEqual(state.history.v[0], fixture->path));

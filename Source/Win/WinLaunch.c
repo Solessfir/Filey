@@ -359,7 +359,18 @@ function P_FileError P_OpenConsole(Arena *arena, String directory)
     return result;
 }
 
-function P_FileError P_OpenWindow(Arena *arena, String path)
+// `text` as UTF-16 as it is, its slashes kept, as an argument that is not a path.
+function wchar *P__FileStringWideRaw(Arena *arena, String text)
+{
+    i32 length = text.length ? MultiByteToWideChar(CP_UTF8, 0, text.value, (i32)text.length, NULL, 0) : 0;
+    wchar *result = ArenaPushArray(arena, (u64)length + 1, wchar);
+    if (length) MultiByteToWideChar(CP_UTF8, 0, text.value, (i32)text.length, result, length);
+    // A quote would end the argument early; names hold none.
+    for (i32 i = 0; i < length; ++i) if (result[i] == L'"') result[i] = L'\'';
+    return result;
+}
+
+function P_FileError P_OpenWindow(Arena *arena, String path, String option)
 {
     Scratch scratch = GetScratchEx(arena);
     wchar executable[1024];
@@ -372,8 +383,11 @@ function P_FileError P_OpenWindow(Arena *arena, String path)
         // The command line is the quoted program, then the quoted folder, as the program's own startup parses it; the flag gives it a
         // window of its own rather than a tab in this one.
         u64 folderLength = wcslen(folder);
-        wchar *line = ArenaPushArray(scratch.arena, length + folderLength + 24, wchar);
-        swprintf(line, length + folderLength + 24, L"\"%ls\" --new-window \"%ls\"", executable, folder);
+        wchar *extra = option.length ? P__FileStringWideRaw(scratch.arena, option) : NULL;
+        u64 room = length + folderLength + (extra ? wcslen(extra) : 0) + 32;
+        wchar *line = ArenaPushArray(scratch.arena, room, wchar);
+        if (extra) swprintf(line, room, L"\"%ls\" --new-window \"%ls\" \"%ls\"", executable, folder, extra);
+        else swprintf(line, room, L"\"%ls\" --new-window \"%ls\"", executable, folder);
         STARTUPINFOW startup = { .cb = sizeof(startup) };
         PROCESS_INFORMATION process = {0};
         if (CreateProcessW(executable, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {

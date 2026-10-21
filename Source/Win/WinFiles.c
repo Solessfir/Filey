@@ -699,6 +699,19 @@ function b32 P_StartupFlag(String flag)
     return result;
 }
 
+function String P_StartupOption(Arena *arena, String prefix)
+{
+    i32 count = 0;
+    wchar **arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    String result = {0};
+    for (i32 i = 1; arguments && i < count && !result.length; ++i) {
+        String argument = P__FileStringWide(arena, arguments[i], lstrlenW(arguments[i]));
+        if (argument.length > prefix.length && StrIsEqual(StrFromTo(argument, 0, (i64)prefix.length), prefix)) result = StrFrom(argument, prefix.length);
+    }
+    if (arguments) LocalFree(arguments);
+    return result;
+}
+
 function ArrayStr P_StartupPaths(Arena *arena)
 {
     i32 count = 0;

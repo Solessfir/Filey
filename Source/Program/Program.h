@@ -1609,7 +1609,8 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
 function void Prog_ReloadFolderIcon(Prog_State *state, String path);
 function void Prog_ReloadIcons(Prog_State *state);
-function P_FileError Prog_OpenWindow(Prog_State *state, String path);
+function P_FileError Prog_OpenWindow(Prog_State *state, String path, String traits);
+function void Prog_ApplyTabTraits(Prog_State *state, String traits);
 function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog_Entry *entry);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);

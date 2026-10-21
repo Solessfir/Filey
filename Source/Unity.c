@@ -346,6 +346,9 @@ int main(void)
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
     if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
     if (ok && getenv("FILEY_DEBUG_THEME")) Prog_SetDebugTheme(&loop.state, true);
+    // A tab moved out of another window brings its zoom and focused item.
+    String traits = ok ? P_StartupOption(startup.arena, S("--tab=")) : (String){0};
+    if (traits.length) Prog_ApplyTabTraits(&loop.state, traits);
     const char *capture = getenv("FILEY_CAPTURE_DIR");
     if (capture && capture[0]) {
         loop.captureDirectory = StrFromCStr(capture);

@@ -284,7 +284,7 @@ function u32 P__Spawn(const char *executable, char **args, const char *directory
     return error;
 }
 
-function P_FileError P_OpenWindow(Arena *arena, String path)
+function P_FileError P_OpenWindow(Arena *arena, String path, String option)
 {
     Scratch scratch = GetScratchEx(arena);
     char executable[PATH_MAX];
@@ -294,7 +294,8 @@ function P_FileError P_OpenWindow(Arena *arena, String path)
     if (!error) {
         executable[length] = 0;
         // The flag gives it a window of its own rather than a tab in this one.
-        char *args[] = {executable, "--new-window", folder, NULL};
+        char *extra = option.length ? P__FilePathCString(scratch.arena, option) : NULL;
+        char *args[] = {executable, "--new-window", folder, extra, NULL};
         error = P__Spawn(executable, args, NULL);
     }
     ReleaseScratch(scratch);
@@ -1432,6 +1433,24 @@ function b32 P_StartupFlag(String flag)
     ArrayStr arguments = StrSplit(scratch.arena, text.buffer, 0);
     b32 result = false;
     for (u64 i = 1; i < arguments.header.count && !result; ++i) result = StrIsEqual(arguments.v[i], flag);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function String P_StartupOption(Arena *arena, String prefix)
+{
+    Scratch scratch = GetScratchEx(arena);
+    StrBuilder text = {0};
+    i32 fd = open("/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
+    char buffer[4096];
+    for (ssize_t length; fd >= 0 && (length = read(fd, buffer, sizeof(buffer))) > 0;) StrBuildStr(scratch.arena, &text, StrMake(buffer, (u64)length));
+    if (fd >= 0) close(fd);
+    ArrayStr arguments = StrSplit(scratch.arena, text.buffer, 0);
+    String result = {0};
+    for (u64 i = 1; i < arguments.header.count && !result.length; ++i) {
+        String argument = arguments.v[i];
+        if (argument.length > prefix.length && StrIsEqual(StrFromTo(argument, 0, (i64)prefix.length), prefix)) result = StrCopy(arena, StrFrom(argument, prefix.length));
+    }
     ReleaseScratch(scratch);
     return result;
 }
