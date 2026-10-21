@@ -690,7 +690,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_TextMoveHome, Prog_CommandKind_TextExtendHome, Prog_CommandKind_TextMoveEnd, Prog_CommandKind_TextExtendEnd, Prog_CommandKind_TextDeleteLeft,
     Prog_CommandKind_TextDeleteLeftWord, Prog_CommandKind_TextDeleteRight, Prog_CommandKind_TextDeleteRightWord, Prog_CommandKind_TextSelectAll,
     Prog_CommandKind_TextCopySelection, Prog_CommandKind_TextCutSelection, Prog_CommandKind_TextPaste, Prog_CommandKind_TextUppercase, Prog_CommandKind_TextLowercase,
-    Prog_CommandKind_TextAutocomplete, Prog_CommandKind_TextUndo, Prog_CommandKind_TextRedo,
+    Prog_CommandKind_TextAutocomplete, Prog_CommandKind_TextUndo, Prog_CommandKind_TextRedo, Prog_CommandKind_TextDeleteLeftToSpace, Prog_CommandKind_TextDeleteToStart, Prog_CommandKind_TextDeleteToEnd, Prog_CommandKind_TextSwapCharacters,
+    Prog_CommandKind_TextSwapWords, Prog_CommandKind_TextUppercaseWord, Prog_CommandKind_TextLowercaseWord, Prog_CommandKind_TextCapitalizeWord,
     Prog__PaletteGroup(Scroll),
     Prog_CommandKind_ScrollSelectPrev, Prog_CommandKind_ScrollSelectNext, Prog_CommandKind_ScrollSelectLeft, Prog_CommandKind_ScrollSelectRight,
     Prog_CommandKind_ScrollSelectFirst, Prog_CommandKind_ScrollSelectLast, Prog_CommandKind_ScrollScrollSelectUp, Prog_CommandKind_ScrollScrollSelectDown,
@@ -730,7 +731,8 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_TextExtendEnd: case Prog_CommandKind_TextDeleteLeft: case Prog_CommandKind_TextDeleteLeftWord: case Prog_CommandKind_TextDeleteRight:
         case Prog_CommandKind_TextDeleteRightWord: case Prog_CommandKind_TextSelectAll: case Prog_CommandKind_TextCopySelection: case Prog_CommandKind_TextCutSelection:
         case Prog_CommandKind_TextPaste: case Prog_CommandKind_TextUppercase: case Prog_CommandKind_TextLowercase: case Prog_CommandKind_TextAutocomplete:
-        case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo:
+        case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo: case Prog_CommandKind_TextDeleteLeftToSpace: case Prog_CommandKind_TextDeleteToStart: case Prog_CommandKind_TextDeleteToEnd: case Prog_CommandKind_TextSwapCharacters:
+        case Prog_CommandKind_TextSwapWords: case Prog_CommandKind_TextUppercaseWord: case Prog_CommandKind_TextLowercaseWord: case Prog_CommandKind_TextCapitalizeWord:
             return state->renaming || state->filtering || state->inspectorFiltering;
         case Prog_CommandKind_SelectionInspect: return item;
         case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
@@ -1622,15 +1624,88 @@ function b32 Prog__EditCommand(Prog_TextEdit *edit, Prog_CommandKind kind)
             edit->cursor = forward ? to : from;
         } return true;
         case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo: Prog__EditSwap(edit, kind == Prog_CommandKind_TextRedo); return true;
+        // The terminal's: back over spaces and then to the space before, as Ctrl+W does there, and to either end of the line.
+        case Prog_CommandKind_TextDeleteLeftToSpace: case Prog_CommandKind_TextDeleteToStart: case Prog_CommandKind_TextDeleteToEnd: {
+            if (kind == Prog_CommandKind_TextDeleteToStart) edit->anchor = 0;
+            else if (kind == Prog_CommandKind_TextDeleteToEnd) edit->anchor = edit->length;
+            else if (from == to) {
+                u32 at = edit->cursor;
+                while (at && edit->text[at - 1] == ' ') --at;
+                while (at && edit->text[at - 1] != ' ') --at;
+                edit->anchor = at;
+            }
+            if (edit->anchor != edit->cursor) Prog__EditReplace(edit, NULL, 0);
+        } return true;
+        // The character before the caret with the one after it, or the last two at the end, and the caret on past them.
+        case Prog_CommandKind_TextSwapCharacters: {
+            u32 at = edit->cursor == edit->length ? Prog__EditStep(edit, edit->cursor, -1) : edit->cursor;
+            u32 before = Prog__EditStep(edit, at, -1), after = Prog__EditStep(edit, at, 1);
+            if (before == at || after == at) return true;
+            u8 bytes[8];
+            MemCopy(bytes, edit->text + at, after - at);
+            MemCopy(bytes + (after - at), edit->text + before, at - before);
+            edit->anchor = before;
+            edit->cursor = after;
+            Prog__EditReplace(edit, bytes, after - before);
+        } return true;
+        // The word before the caret with the one at or after it, or the last two at the end, and the caret after them.
+        case Prog_CommandKind_TextSwapWords: {
+            u32 secondEnd = Prog__EditWordStep(edit, edit->cursor, 1), second = Prog__EditWordStep(edit, secondEnd, -1);
+            u32 first = Prog__EditWordStep(edit, second, -1), firstEnd = first;
+            while (firstEnd < second && Prog__IsWordByte(edit->text[firstEnd])) ++firstEnd;
+            if (first == second || firstEnd == first || secondEnd == second) return true;
+            u8 bytes[sizeof(edit->text)];
+            u32 count = 0;
+            MemCopy(bytes + count, edit->text + second, secondEnd - second), count += secondEnd - second;
+            MemCopy(bytes + count, edit->text + firstEnd, second - firstEnd), count += second - firstEnd;
+            MemCopy(bytes + count, edit->text + first, firstEnd - first), count += firstEnd - first;
+            edit->anchor = first;
+            edit->cursor = secondEnd;
+            Prog__EditReplace(edit, bytes, count);
+        } return true;
+        // From the caret to the end of its word, or of the next one, the caret going there.
+        case Prog_CommandKind_TextUppercaseWord: case Prog_CommandKind_TextLowercaseWord: case Prog_CommandKind_TextCapitalizeWord: {
+            u32 at = edit->cursor, end = Prog__EditWordStep(edit, at, 1);
+            u8 bytes[sizeof(edit->text)];
+            b32 first = true;
+            for (u32 i = at; i < end; ++i) {
+                u8 c = edit->text[i];
+                if (Prog__IsWordByte(c)) {
+                    b32 upper = kind == Prog_CommandKind_TextUppercaseWord || (kind == Prog_CommandKind_TextCapitalizeWord && first);
+                    if (upper && c >= 'a' && c <= 'z') c = (u8)(c - 'a' + 'A');
+                    if (!upper && c >= 'A' && c <= 'Z') c = (u8)(c - 'A' + 'a');
+                    first = false;
+                }
+                bytes[i - at] = c;
+            }
+            edit->anchor = at;
+            edit->cursor = end;
+            if (MemCompare(bytes, edit->text + at, end - at)) Prog__EditReplace(edit, bytes, end - at);
+            else edit->anchor = end;
+        } return true;
         default: return false;
     }
 }
 
-// Runs the text box hotkey `event` presses on `edit`; false for keys the box does not use, which go on to the hotkeys of where it is.
-function b32 Prog__EditKey(const Prog_State *state, Prog_TextEdit *edit, const PlatformEvent *event)
+// Runs the text box hotkey `event` presses on `edit`; false for keys the box does not use, which go on to the hotkeys of where it is. A box
+// over the list, as the filter is, leaves it the keys that delete to either end, which page and move its cursor there.
+function b32 Prog__EditKeyOver(const Prog_State *state, Prog_TextEdit *edit, const PlatformEvent *event, b32 overList)
 {
     const Prog_Hotkey *hotkey = Prog_FindHotkey(state, Prog_HotkeyScope_Text, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super));
+    if (hotkey && overList && (hotkey->command == Prog_CommandKind_TextDeleteToStart || hotkey->command == Prog_CommandKind_TextDeleteToEnd)) return false;
     return hotkey && Prog__EditCommand(edit, (Prog_CommandKind)hotkey->command);
+}
+
+function b32 Prog__EditKey(const Prog_State *state, Prog_TextEdit *edit, const PlatformEvent *event)
+{
+    return Prog__EditKeyOver(state, edit, event, false);
+}
+
+// The list's cursor key `event` is, if any: -1 for the previous item, 1 for the next.
+function i32 Prog__ListCursorKey(const Prog_State *state, const PlatformEvent *event)
+{
+    const Prog_Hotkey *hotkey = Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super));
+    return !hotkey || !(event->mods & KeyMod_Control) ? 0 : hotkey->command == Prog_CommandKind_ScrollMoveCursorPrev ? -1 : hotkey->command == Prog_CommandKind_ScrollMoveCursorNext ? 1 : 0;
 }
 
 function void Prog_BeginRename(Prog_State *state, u64 row)
@@ -2978,7 +3053,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TextExtendEnd: case Prog_CommandKind_TextDeleteLeft: case Prog_CommandKind_TextDeleteLeftWord: case Prog_CommandKind_TextDeleteRight:
             case Prog_CommandKind_TextDeleteRightWord: case Prog_CommandKind_TextSelectAll: case Prog_CommandKind_TextCopySelection: case Prog_CommandKind_TextCutSelection:
             case Prog_CommandKind_TextPaste: case Prog_CommandKind_TextUppercase: case Prog_CommandKind_TextLowercase: case Prog_CommandKind_TextAutocomplete:
-            case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo: {
+            case Prog_CommandKind_TextUndo: case Prog_CommandKind_TextRedo: case Prog_CommandKind_TextDeleteLeftToSpace: case Prog_CommandKind_TextDeleteToStart: case Prog_CommandKind_TextDeleteToEnd: case Prog_CommandKind_TextSwapCharacters:
+            case Prog_CommandKind_TextSwapWords: case Prog_CommandKind_TextUppercaseWord: case Prog_CommandKind_TextLowercaseWord: case Prog_CommandKind_TextCapitalizeWord: {
                 Prog_TextEdit *box = state->renaming ? &state->rename : state->filtering ? &state->filter : state->inspectorFiltering ? &state->inspectorFilter : NULL;
                 u32 version = box ? box->version : 0;
                 if (box && Prog__EditCommand(box, (Prog_CommandKind)command->kind) && box == &state->filter && box->version != version) Prog_ApplyFilter(state, true);
@@ -3759,8 +3835,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = event->mods;
                 // The command list wraps around; Go To stops at its ends.
-                else if (event->key == Key_Up) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count && !goTo ? count - 1 : 0);
-                else if (event->key == Key_Down) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
+                else if (event->key == Key_Up || Prog__ListCursorKey(state, event) < 0) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count && !goTo ? count - 1 : 0);
+                else if (event->key == Key_Down || Prog__ListCursorKey(state, event) > 0) state->paletteHighlight = state->paletteHighlight + 1 < count ? state->paletteHighlight + 1 : (goTo && count ? count - 1 : 0);
                 else if ((event->key == (state->paletteMode == Prog_PaletteMode_Tabs ? Key_A : Key_P)) && (event->mods & KeyMod_Control) && (event->mods & KeyMod_Shift)) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else Prog__EditKey(state, &state->palette, event);
                 if (state->palette.version != version) Prog__KeepHighlight(state, kept);
@@ -3964,7 +4040,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         if (!state->menuOpen && state->filtering) {
             u32 version = state->filter.version;
-            if (Prog__EditKey(state, &state->filter, event)) {
+            if (Prog__EditKeyOver(state, &state->filter, event, true)) {
                 if (state->filter.version != version) Prog_ApplyFilter(state, true);
                 continue;
             }

@@ -467,6 +467,49 @@ function void TestTextEditWords(void)
     // Keys the boxes do not take go on to the browser.
     PlatformEvent letter = { .kind = PlatformEventKind_KeyDown, .key = Key_J };
     Check(!Prog__EditKey(&state, &typed, &letter));
+
+    // The terminal's editing keys, from the caret in "copy of report.txt" after "of".
+    Prog_TextEdit line = {0};
+    Prog__EditReplace(&line, (const u8 *)"copy of report.txt", 18);
+    line.cursor = line.anchor = 7;
+    PlatformEvent chord = { .kind = PlatformEventKind_KeyDown, .key = Key_W, .mods = KeyMod_Control };
+    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  report.txt")) && line.cursor == 5);
+    chord.key = Key_A;
+    Check(Prog__EditKey(&state, &line, &chord) && line.cursor == 0 && line.anchor == 0);
+    chord.key = Key_E;
+    Check(Prog__EditKey(&state, &line, &chord) && line.cursor == line.length);
+    chord.key = Key_B;
+    Check(Prog__EditKey(&state, &line, &chord) && line.cursor == line.length - 1);
+    chord.key = Key_T;
+    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  report.ttx")) && line.cursor == line.length);
+    chord.key = Key_H;
+    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  report.tt")));
+    line.cursor = line.anchor = 6;
+    chord.key = Key_K;
+    Check(Prog__EditKey(&state, &line, &chord) && StrIsEqual(Prog_EditText(&line), S("copy  ")) && line.cursor == 6);
+    chord.key = Key_U;
+    Check(Prog__EditKey(&state, &line, &chord) && !line.length && line.cursor == 0);
+    // The filter leaves Ctrl+U and Ctrl+K to the list.
+    Check(!Prog__EditKeyOver(&state, &line, &chord, true));
+    Prog__EditReplace(&line, (const u8 *)"big red ball", 12);
+    line.cursor = line.anchor = 4;
+    PlatformEvent alt = { .kind = PlatformEventKind_KeyDown, .key = Key_T, .mods = KeyMod_Alt };
+    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S("red big ball")) && line.cursor == 7);
+    // At a word's end, the case keys change the next one.
+    alt.key = Key_C;
+    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S("red big Ball")) && line.cursor == 12);
+    line.cursor = line.anchor = 4;
+    alt.key = Key_U;
+    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S("red BIG Ball")) && line.cursor == 7);
+    line.cursor = line.anchor = 0;
+    alt.key = Key_D;
+    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S(" BIG Ball")));
+    alt.key = Key_F;
+    Check(Prog__EditKey(&state, &line, &alt) && line.cursor == 4);
+    alt.key = Key_L;
+    Check(Prog__EditKey(&state, &line, &alt) && StrIsEqual(Prog_EditText(&line), S(" BIG ball")));
+    PlatformEvent selectAll = { .kind = PlatformEventKind_KeyDown, .key = Key_A, .mods = KeyMod_Control | KeyMod_Shift };
+    Check(Prog__EditKey(&state, &line, &selectAll) && line.anchor == 0 && line.cursor == line.length);
 }
 
 #if defined(_WIN32)

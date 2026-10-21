@@ -361,12 +361,15 @@ command RenameNext {
 }
 
 // The keys of the text boxes: the filter, the rename box, the palette and the others. Autocomplete is Go To's, where it puts the highlighted
-// folder in the box; elsewhere its key goes on to the browser's hotkeys.
+// folder in the box; elsewhere its key goes on to the browser's hotkeys. The terminal's editing keys are here too, and a box takes them over
+// the browser's hotkeys while it has the keyboard, Ctrl+T and Ctrl+W among them; the filter leaves Ctrl+U and Ctrl+K to the list, and the
+// palette and Go To take Ctrl+K and Ctrl+J for their highlight, as the list's cursor moves.
 
 command TextMoveLeft {
     label   = "Move Left"
     tooltip = "Move the text caret left."
     hotkey  = "Left"
+    hotkey  = "Ctrl+B"
     scope   = "Text"
 }
 
@@ -381,6 +384,7 @@ command TextMoveRight {
     label   = "Move Right"
     tooltip = "Move the text caret right."
     hotkey  = "Right"
+    hotkey  = "Ctrl+F"
     scope   = "Text"
 }
 
@@ -395,6 +399,7 @@ command TextMoveLeftWord {
     label   = "Move Left By Word"
     tooltip = "Move the text caret left by a word."
     hotkey  = "Ctrl+Left"
+    hotkey  = "Alt+B"
     scope   = "Text"
 }
 
@@ -409,6 +414,7 @@ command TextMoveRightWord {
     label   = "Move Right By Word"
     tooltip = "Move the text caret right by a word."
     hotkey  = "Ctrl+Right"
+    hotkey  = "Alt+F"
     scope   = "Text"
 }
 
@@ -423,6 +429,7 @@ command TextMoveHome {
     label   = "Move Home"
     tooltip = "Move the text caret to the start of the line."
     hotkey  = "Home"
+    hotkey  = "Ctrl+A"
     scope   = "Text"
 }
 
@@ -437,6 +444,7 @@ command TextMoveEnd {
     label   = "Move End"
     tooltip = "Move the text caret to the end of the line."
     hotkey  = "End"
+    hotkey  = "Ctrl+E"
     scope   = "Text"
 }
 
@@ -452,6 +460,7 @@ command TextDeleteLeft {
     tooltip = "Delete the character to the left of the text caret."
     hotkey  = "Backspace"
     hotkey  = "Shift+Backspace"
+    hotkey  = "Ctrl+H"
     scope   = "Text"
 }
 
@@ -459,6 +468,7 @@ command TextDeleteLeftWord {
     label   = "Delete Left By Word"
     tooltip = "Delete the word to the left of the text caret."
     hotkey  = "Ctrl+Backspace"
+    hotkey  = "Alt+Backspace"
     scope   = "Text"
 }
 
@@ -466,6 +476,7 @@ command TextDeleteRight {
     label   = "Delete Right"
     tooltip = "Delete the character to the right of the text caret."
     hotkey  = "Delete"
+    hotkey  = "Ctrl+D"
     scope   = "Text"
 }
 
@@ -473,13 +484,14 @@ command TextDeleteRightWord {
     label   = "Delete Right By Word"
     tooltip = "Delete the word to the right of the text caret."
     hotkey  = "Ctrl+Delete"
+    hotkey  = "Alt+D"
     scope   = "Text"
 }
 
 command TextSelectAll {
     label   = "Select All"
     tooltip = "Select all text."
-    hotkey  = "Ctrl+A"
+    hotkey  = "Ctrl+Shift+A"
     scope   = "Text"
 }
 
@@ -534,6 +546,62 @@ command TextRedo {
     label   = "Redo"
     tooltip = "Redo the last text-based action."
     hotkey  = "Ctrl+Shift+Z"
+    scope   = "Text"
+}
+
+command TextDeleteLeftToSpace {
+    label   = "Delete Left To Space"
+    tooltip = "Delete back from the text caret to the previous space."
+    hotkey  = "Ctrl+W"
+    scope   = "Text"
+}
+
+command TextDeleteToStart {
+    label   = "Delete To Start"
+    tooltip = "Delete from the text caret to the start of the line."
+    hotkey  = "Ctrl+U"
+    scope   = "Text"
+}
+
+command TextDeleteToEnd {
+    label   = "Delete To End"
+    tooltip = "Delete from the text caret to the end of the line."
+    hotkey  = "Ctrl+K"
+    scope   = "Text"
+}
+
+command TextSwapCharacters {
+    label   = "Swap Characters"
+    tooltip = "Swap the two characters at the text caret."
+    hotkey  = "Ctrl+T"
+    scope   = "Text"
+}
+
+command TextSwapWords {
+    label   = "Swap Words"
+    tooltip = "Swap the words before and after the text caret."
+    hotkey  = "Alt+T"
+    scope   = "Text"
+}
+
+command TextUppercaseWord {
+    label   = "Uppercase Word"
+    tooltip = "Uppercase the rest of the word at the text caret."
+    hotkey  = "Alt+U"
+    scope   = "Text"
+}
+
+command TextLowercaseWord {
+    label   = "Lowercase Word"
+    tooltip = "Lowercase the rest of the word at the text caret."
+    hotkey  = "Alt+L"
+    scope   = "Text"
+}
+
+command TextCapitalizeWord {
+    label   = "Capitalize Word"
+    tooltip = "Capitalize the rest of the word at the text caret."
+    hotkey  = "Alt+C"
     scope   = "Text"
 }
 command FilterCaret {
