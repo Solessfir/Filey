@@ -480,6 +480,7 @@ typedef enum Prog_Token {
 typedef struct Prog_MeshPart {
     u64 first, count;
     u32 color, image;
+    u32 bare;  // while read, the color for when its picture does not decode, 0 for `color`
 } Prog_MeshPart;
 
 // A 3D model's mesh as the GPU draws it: positions, Y up, each vertex's texture coordinate, from a picture's top left, and straight RGBA

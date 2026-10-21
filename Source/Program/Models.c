@@ -55,6 +55,21 @@ typedef struct Prog_ArrayMeshPart { ArrayHeader header; Prog_MeshPart *v; } Prog
 typedef struct Prog_ArrayImage { ArrayHeader header; P_Image *v; } Prog_ArrayImage;
 typedef struct Prog_ArrayString { ArrayHeader header; String *v; } Prog_ArrayString;
 
+// A picture a reader found, decoded on a lane of its own while the reader goes on, into an arena of its own.
+typedef struct Prog__Picture {
+    String name, bytes;
+    Arena arena;
+    P_Image image;
+} Prog__Picture;
+
+typedef struct Prog__Pictures {
+    P_Mutex mutex;
+    P_Condition wake;
+    Prog__Picture list[Prog_ModelMaxImages];
+    u32 count, next;
+    b32 closed;  // the reader is done, so no more come
+} Prog__Pictures;
+
 typedef struct Prog_Mesh {
     Prog_ArrayF32 positions;  // x, y and z of each vertex
     Prog_ArrayU32 indices;    // the three vertices of each triangle; one out of range, as a broken file can give, leaves its triangle out
@@ -67,6 +82,7 @@ typedef struct Prog_Mesh {
     Prog_ArrayString imageNames;
     String path;               // the file, next to which the pictures it names are looked for
     i32 imageSide;             // the pictures are read to fit this square; 0 reads none
+    Prog__Pictures *pictures;  // where they are queued to decode alongside the reading, or NULL to decode them as they come
     b32 zUp;                   // Z points up rather than Y
 } Prog_Mesh;
 
@@ -92,13 +108,13 @@ function f32 *Prog__MeshUvs(Arena *arena, Prog_Mesh *mesh)
     return mesh->uvs.v;
 }
 
-// Starts a part at the triangles added next, in `color` (0 for the default) and picture `image`; one started where no triangle followed
-// is replaced.
-function void Prog__MeshPart(Arena *arena, Prog_Mesh *mesh, u32 color, u32 image)
+// Starts a part at the triangles added next, in `color` (0 for the default) and picture `image`, or in `bare` when that does not decode
+// (0 for `color`); one started where no triangle followed is replaced.
+function void Prog__MeshPart(Arena *arena, Prog_Mesh *mesh, u32 color, u32 image, u32 bare)
 {
     u64 first = mesh->indices.header.count;
     if (mesh->parts.header.count && mesh->parts.v[mesh->parts.header.count - 1].first == first) --mesh->parts.header.count;
-    ArrayPush(arena, mesh->parts, ((Prog_MeshPart){ .first = first, .color = color, .image = image }));
+    ArrayPush(arena, mesh->parts, ((Prog_MeshPart){ .first = first, .color = color, .image = image, .bare = bare }));
 }
 
 // Linear 0 to 1 as an sRGB byte, as the colors are kept.
@@ -116,18 +132,13 @@ function u32 Prog__LinearColor(f32 r, f32 g, f32 b, f32 a)
     return Prog__SrgbByte(r) | Prog__SrgbByte(g) << 8 | Prog__SrgbByte(b) << 16 | alpha << 24;
 }
 
-// The picture for the name `name`, read from `bytes` when it has them, else from the file `name` names, absolute or next to the model,
-// or by its own name there when that is missing; UINT32_MAX when there is none, it does not decode or the mesh reads no pictures.
-function u32 Prog__MeshImage(Arena *arena, Prog_Mesh *mesh, String name, String bytes)
+// The picture `bytes` hold, or else the file `name` names, absolute or next to the model at `model`, or by its own name there when that
+// is missing, to fit `side` squared.
+function b32 Prog__DecodeImage(Arena *arena, String model, i32 side, String name, String bytes, P_Image *out)
 {
-    if (!mesh->imageSide || (!name.length && !bytes.length)) return UINT32_MAX;
-    for (u64 i = 0; name.length && i < mesh->imageNames.header.count; ++i) if (StrIsEqual(mesh->imageNames.v[i], name)) return (u32)i;
-    if (mesh->images.header.count >= Prog_ModelMaxImages) return UINT32_MAX;
     P_Image image = {0};
-    b32 read = false;
-    if (bytes.length) {
-        read = P_LoadImageBytes(arena, bytes, mesh->imageSide, &image);
-    } else {
+    b32 read = bytes.length && P_LoadImageBytes(arena, bytes, side, &image);
+    if (!read && name.length) {
         // Written with either slash, relative to the model or not.
         Scratch scratch = GetScratchEx(arena);
         u8 *slashed = ArenaPushArrayNoZero(scratch.arena, name.length + 1, u8);
@@ -137,16 +148,36 @@ function u32 Prog__MeshImage(Arena *arena, Prog_Mesh *mesh, String name, String 
         if (StrIsEqual(StrFromTo(file, 0, 2), S("//"))) file = StrFrom(file, 2);
         b32 absolute = (file.length && file.value[0] == '/') || (file.length > 1 && file.value[1] == ':');
         i32 width = 0, height = 0;
-        String parent = Prog_ParentPath(mesh->path);
-        if (!absolute) read = P_LoadImageFile(arena, Prog_JoinPath(scratch.arena, parent, file), mesh->imageSide, &image, &width, &height);
-        if (!read && absolute) read = P_LoadImageFile(arena, file, mesh->imageSide, &image, &width, &height);
+        String parent = Prog_ParentPath(model);
+        if (!absolute) read = P_LoadImageFile(arena, Prog_JoinPath(scratch.arena, parent, file), side, &image, &width, &height);
+        if (!read && absolute) read = P_LoadImageFile(arena, file, side, &image, &width, &height);
         Index slash = StrIndexChar(file, '/', SSF_SearchBackwards);
-        if (!read && slash.exists) read = P_LoadImageFile(arena, Prog_JoinPath(scratch.arena, parent, StrFrom(file, slash.value + 1)), mesh->imageSide, &image, &width, &height);
+        if (!read && slash.exists) read = P_LoadImageFile(arena, Prog_JoinPath(scratch.arena, parent, StrFrom(file, slash.value + 1)), side, &image, &width, &height);
         ReleaseScratch(scratch);
     }
-    if (!read) return UINT32_MAX;
+    if (read) *out = image;
+    return read;
+}
+
+// The picture for the name `name`, from `bytes` or the file it names (see Prog__DecodeImage); UINT32_MAX when there is none or the mesh
+// reads no pictures. A queued one is known to decode only once the model is read; those that do not are left out then.
+function u32 Prog__MeshImage(Arena *arena, Prog_Mesh *mesh, String name, String bytes)
+{
+    if (!mesh->imageSide || (!name.length && !bytes.length)) return UINT32_MAX;
+    for (u64 i = 0; name.length && i < mesh->imageNames.header.count; ++i) if (StrIsEqual(mesh->imageNames.v[i], name)) return (u32)i;
+    if (mesh->images.header.count >= Prog_ModelMaxImages) return UINT32_MAX;
+    P_Image image = {0};
+    Prog__Pictures *pictures = mesh->pictures;
+    if (!pictures && !Prog__DecodeImage(arena, mesh->path, mesh->imageSide, name, bytes, &image)) return UINT32_MAX;
+    name = StrCopy(arena, name);
     ArrayPush(arena, mesh->images, image);
-    ArrayPush(arena, mesh->imageNames, StrCopy(arena, name));
+    ArrayPush(arena, mesh->imageNames, name);
+    if (pictures) {
+        P_MutexLock(&pictures->mutex);
+        pictures->list[pictures->count++] = (Prog__Picture){ .name = name, .bytes = bytes };
+        P_ConditionBroadcast(&pictures->wake);
+        P_MutexUnlock(&pictures->mutex);
+    }
     return (u32)(mesh->images.header.count - 1);
 }
 
@@ -261,9 +292,47 @@ function b32 Prog__Number(const char **at, const char *end, f64 *value)
 // or "map_Kd" picture its faces are drawn in.
 // -----------------------------------------------------------------------------
 
+// A corner of a face by its point and the other values it was given, which together make one vertex of the mesh.
+typedef struct Prog__MeshCorner { u32 point, a, b, c; } Prog__MeshCorner;
+
+// The vertices made so far, found again by their corner: each point's chain of the corners made from it, as a point has only a few that
+// differ, which is much faster than hashing every corner.
+typedef struct Prog__Corners {
+    u32 *first;             // each point's last made, UINT32_MAX for none
+    u32 *next, *vertex;     // each made one's next in its point's chain and its vertex
+    Prog__MeshCorner *keys;
+    u64 count, capacity;
+} Prog__Corners;
+
+function Prog__Corners Prog__CornersMake(Arena *arena, u64 points, u64 corners)
+{
+    Prog__Corners result = { ArenaPushArrayNoZero(arena, Max(points, (u64)1), u32), ArenaPushArrayNoZero(arena, Max(corners, (u64)1), u32),
+                             ArenaPushArrayNoZero(arena, Max(corners, (u64)1), u32), ArenaPushArrayNoZero(arena, Max(corners, (u64)1), Prog__MeshCorner), 0, corners };
+    for (u64 i = 0; i < points; ++i) result.first[i] = UINT32_MAX;
+    return result;
+}
+
+// The vertex made for `key`, whose point is in range, or UINT32_MAX when there is none yet.
+function u32 Prog__CornersFind(const Prog__Corners *corners, Prog__MeshCorner key)
+{
+    for (u32 at = corners->first[key.point]; at != UINT32_MAX; at = corners->next[at]) {
+        if (MemCompare(&corners->keys[at], &key, sizeof(key)) == 0) return corners->vertex[at];
+    }
+    return UINT32_MAX;
+}
+
+function void Prog__CornersAdd(Prog__Corners *corners, Prog__MeshCorner key, u32 vertex)
+{
+    if (corners->count >= corners->capacity) return;
+    u64 at = corners->count++;
+    corners->keys[at] = key;
+    corners->vertex[at] = vertex;
+    corners->next[at] = corners->first[key.point];
+    corners->first[key.point] = (u32)at;
+}
+
 typedef struct Prog__ObjMaterial { String name; u32 color, image; } Prog__ObjMaterial;
 typedef struct Prog__ArrayObjMaterial { ArrayHeader header; Prog__ObjMaterial *v; } Prog__ArrayObjMaterial;
-typedef struct Prog__CornerMap { MapHeader header; struct { u64 key; u32 value; } *v; } Prog__CornerMap;
 
 // The next word on the line at *at, spaces and tabs between words.
 function String Prog__Word(const char **at, const char *end)
@@ -324,102 +393,202 @@ function void Prog__ReadMtl(Arena *arena, Prog_Mesh *mesh, String name, Prog__Ar
     }
 }
 
-// The index at *at, counting from 1 or, when negative, back from the end of the `count` so far, from 0; -1 when there is none and -2 when it
-// is out of range.
-function i64 Prog__ObjIndex(const char **at, const char *end, i64 count)
+// The index at *at as written, counting from 1, or back from the end when negative; false when there is none.
+function b32 Prog__ObjIndex(const char **at, const char *end, i64 *index)
 {
     const char *p = *at;
     b32 negative = p < end && *p == '-';
     if (negative) ++p;
     const char *digits = p;
-    i64 index = 0;
-    for (; p < end && (u8)(*p - '0') < 10; ++p) if (index < (INT64_C(1) << 40)) index = index * 10 + (*p - '0');
+    i64 value = 0;
+    for (; p < end && (u8)(*p - '0') < 10; ++p) if (value < (INT64_C(1) << 40)) value = value * 10 + (*p - '0');
     *at = p;
-    if (p == digits) return -1;
-    i64 result = negative ? count - index : index - 1;
-    return result >= 0 && result < count ? result : -2;
+    *index = negative ? -value : value;
+    return p != digits;
 }
 
-function b32 Prog__ReadObj(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+// A written index among the `count` so far, from 0; -1 when it is out of range.
+function i64 Prog__ObjResolve(i64 written, i64 count)
 {
-    Prog_ArrayF32 points = {0}, texcoords = {0};
-    Prog_ArrayU32 pointColors = {0};
-    Prog__ArrayObjMaterial materials = {0};
-    Prog__CornerMap corners = {0};
-    const char *p = data.value, *end = data.value + data.length;
+    i64 result = written < 0 ? count + written : written - 1;
+    return written != 0 && result >= 0 && result < count ? result : -1;
+}
+
+// A face as one lane read it: its corners' written point and texture indices, and how many points and texture coordinates its lane had
+// read before it, which the indices that count back from the end count from.
+typedef struct Prog__ObjFace { u64 firstCorner; u32 cornerCount, points, textures; } Prog__ObjFace;
+typedef struct Prog__ObjCorner { i64 point, texture; b32 textured; } Prog__ObjCorner;
+
+// A line that changes the material, the object or the material files, in the order the faces come in.
+typedef enum Prog__ObjEventKind { Prog__ObjMtllib, Prog__ObjObject, Prog__ObjUsemtl } Prog__ObjEventKind;
+typedef struct Prog__ObjEvent { Prog__ObjEventKind kind; String rest; u64 face; } Prog__ObjEvent;
+
+typedef struct Prog__ObjChunk {
+    const char *from, *to;
+    Arena arena;
+    Prog_ArrayF32 points, texcoords;
+    struct { ArrayHeader header; u64 *v; } colorPoints;  // the points with colors, in the chunk's count, and their colors
+    Prog_ArrayU32 colors;
+    struct { ArrayHeader header; Prog__ObjFace *v; } faces;
+    struct { ArrayHeader header; Prog__ObjCorner *v; } corners;
+    struct { ArrayHeader header; Prog__ObjEvent *v; } events;
+    b32 cancelled;
+} Prog__ObjChunk;
+
+typedef struct Prog__ObjWork {
+    Prog__ObjChunk *chunks;
+    const P_CancelToken *cancel;
+} Prog__ObjWork;
+
+// A lane's lines, read without what the lines before them hold.
+function void Prog__ObjLane(void *user, u32 lane)
+{
+    Prog__ObjWork *work = user;
+    Prog__ObjChunk *chunk = &work->chunks[lane];
+    Arena *arena = &chunk->arena;
+    const char *p = chunk->from, *end = chunk->to;
     for (u64 line = 1; p < end; ++line) {
-        if ((line & 0xFFFF) == 0 && P_IsCancelled(cancel)) return false;
+        if ((line & 0xFFFF) == 0 && P_IsCancelled(work->cancel)) {
+            chunk->cancelled = true;
+            return;
+        }
         while (p < end && Prog__IsSpace(*p)) ++p;
         b32 spaced = end - p > 1 && (p[1] == ' ' || p[1] == '\t');
         if (spaced && p[0] == 'v') {
             p += 2;
             f64 xyz[3] = {0}, rgb[3] = {0};
             for (u32 i = 0; i < 3; ++i) Prog__Number(&p, end, &xyz[i]);
-            f32 *v = ArrayAdd(arena, points, 3);
+            f32 *v = ArrayAdd(arena, chunk->points, 3);
             v[0] = (f32)xyz[0];
             v[1] = (f32)xyz[1];
             v[2] = (f32)xyz[2];
             if (Prog__Number(&p, end, &rgb[0]) && Prog__Number(&p, end, &rgb[1]) && Prog__Number(&p, end, &rgb[2])) {
-                u64 at = points.header.count / 3 - 1;
-                while (pointColors.header.count < at) ArrayPush(arena, pointColors, Prog_ModelUnset);
                 u32 color = 0xFF000000u;
                 for (u32 k = 0; k < 3; ++k) color |= (u32)(MinF32(MaxF32((f32)rgb[k], 0), 1) * 255 + 0.5f) << (k * 8);
-                ArrayPush(arena, pointColors, color);
+                ArrayPush(arena, chunk->colorPoints, chunk->points.header.count / 3 - 1);
+                ArrayPush(arena, chunk->colors, color);
             }
         } else if (end - p > 2 && p[0] == 'v' && p[1] == 't' && (p[2] == ' ' || p[2] == '\t')) {
             p += 3;
             f64 uv[2] = {0};
             for (u32 i = 0; i < 2; ++i) Prog__Number(&p, end, &uv[i]);
-            f32 *t = ArrayAdd(arena, texcoords, 2);
+            f32 *t = ArrayAdd(arena, chunk->texcoords, 2);
             t[0] = (f32)uv[0];
             t[1] = 1 - (f32)uv[1];
         } else if (spaced && p[0] == 'f') {
             p += 2;
-            i64 count = (i64)(points.header.count / 3), textures = (i64)(texcoords.header.count / 2);
-            u32 first = 0, previous = 0, made = 0;
+            Prog__ObjFace face = { chunk->corners.header.count, 0, (u32)(chunk->points.header.count / 3), (u32)(chunk->texcoords.header.count / 2) };
             for (;;) {
                 while (p < end && Prog__IsSpace(*p)) ++p;
-                i64 point = Prog__ObjIndex(&p, end, count), texture = -1;
-                if (point == -1) break;
-                if (p < end && *p == '/') ++p, texture = Prog__ObjIndex(&p, end, textures);
+                Prog__ObjCorner corner = {0};
+                if (!Prog__ObjIndex(&p, end, &corner.point)) break;
+                if (p < end && *p == '/') ++p, corner.textured = Prog__ObjIndex(&p, end, &corner.texture);
                 while (p < end && !Prog__IsSpace(*p) && *p != '\n') ++p;
-                u32 corner = UINT32_MAX;
-                if (point >= 0) {
-                    u64 key = (u64)point | (u64)(texture >= 0 ? texture + 1 : 0) << 40;
-                    u32 *known = MapGetPtrNull(corners, key);
-                    if (known) {
-                        corner = *known;
-                    } else if (mesh->positions.header.count / 3 < UINT32_MAX) {
-                        corner = (u32)(mesh->positions.header.count / 3);
-                        MemCopy(ArrayAdd(arena, mesh->positions, 3), points.v + point * 3, 12);
-                        if (texture >= 0) MemCopy(Prog__MeshUvs(arena, mesh) + (u64)corner * 2, texcoords.v + texture * 2, 8);
-                        if ((u64)point < pointColors.header.count) Prog__MeshColors(arena, mesh)[corner] = pointColors.v[point];
-                        MapPut(arena, corners, key, corner);
-                    }
-                }
-                if (!made) first = corner;
-                else if (made >= 2) Prog__MeshTriangle(arena, mesh, first, previous, corner);
-                previous = corner;
-                ++made;
+                ArrayPush(arena, chunk->corners, corner);
+                ++face.cornerCount;
             }
+            ArrayPush(arena, chunk->faces, face);
         } else if (end - p > 6 && MemCompare(p, "mtllib", 6) == 0 && Prog__IsSpace(p[6])) {
             p += 6;
-            Prog__ReadMtl(arena, mesh, Prog__LineRest(&p, end), &materials);
-        } else if (spaced && p[0] == 'o' && materials.header.count) {
-            // A new object starts without a material, as Blender reads it.
-            Prog__MeshPart(arena, mesh, 0, UINT32_MAX);
+            ArrayPush(arena, chunk->events, ((Prog__ObjEvent){ Prog__ObjMtllib, Prog__LineRest(&p, end), chunk->faces.header.count }));
+        } else if (spaced && p[0] == 'o') {
+            ArrayPush(arena, chunk->events, ((Prog__ObjEvent){ Prog__ObjObject, {0}, chunk->faces.header.count }));
         } else if (end - p > 6 && MemCompare(p, "usemtl", 6) == 0 && Prog__IsSpace(p[6])) {
             p += 6;
-            String name = Prog__LineRest(&p, end);
-            const Prog__ObjMaterial *material = NULL;
-            for (u64 i = 0; i < materials.header.count && !material; ++i) if (StrIsEqual(materials.v[i].name, name)) material = &materials.v[i];
-            // A picture is drawn as it is, as Blender reads it; its Kd is left out.
-            Prog__MeshPart(arena, mesh, material && material->image == UINT32_MAX ? material->color : 0, material ? material->image : UINT32_MAX);
+            ArrayPush(arena, chunk->events, ((Prog__ObjEvent){ Prog__ObjUsemtl, Prog__LineRest(&p, end), chunk->faces.header.count }));
         }
         while (p < end && *p != '\n') ++p;
         if (p < end) ++p;
     }
-    return mesh->indices.header.count != 0;
+}
+
+// The file is cut at line ends into a chunk for each lane, whose numbers are read side by side; the faces are then made in order.
+function b32 Prog__ReadObj(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    Scratch scratch = GetScratchEx(arena);
+    u32 lanes = (u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), Max(data.length / Megabytes(1), (u64)1));
+    Prog__ObjChunk *chunks = ArenaPushArray(scratch.arena, lanes, Prog__ObjChunk);
+    const char *at = data.value, *end = data.value + data.length;
+    for (u32 i = 0; i < lanes; ++i) {
+        const char *to = i + 1 == lanes ? end : data.value + data.length * (i + 1) / lanes;
+        if (to < at) to = at;
+        while (to < end && to[-1] != '\n') ++to;
+        chunks[i].from = at, chunks[i].to = to;
+        at = to;
+    }
+    Prog__ObjWork work = { chunks, cancel };
+    P_RunLanes(lanes, Prog__ObjLane, &work);
+    b32 cancelled = P_IsCancelled(cancel);
+    u64 pointCount = 0, textureCount = 0, cornerCount = 0, colorCount = 0;
+    for (u32 i = 0; i < lanes; ++i) {
+        cancelled |= chunks[i].cancelled;
+        pointCount += chunks[i].points.header.count / 3, textureCount += chunks[i].texcoords.header.count / 2;
+        cornerCount += chunks[i].corners.header.count, colorCount += chunks[i].colors.header.count;
+    }
+    if (!cancelled && pointCount < UINT32_MAX && textureCount < UINT32_MAX) {
+        // Every chunk's points, texture coordinates and colors in one place.
+        f32 *points = ArenaPushArrayNoZero(scratch.arena, Max(pointCount, (u64)1) * 3, f32), *texcoords = ArenaPushArrayNoZero(scratch.arena, Max(textureCount, (u64)1) * 2, f32);
+        u32 *pointColors = colorCount ? ArenaPushArrayNoZero(scratch.arena, pointCount, u32) : NULL;
+        for (u64 i = 0; pointColors && i < pointCount; ++i) pointColors[i] = Prog_ModelUnset;
+        u64 pointBase = 0, textureBase = 0;
+        for (u32 i = 0; i < lanes; ++i) {
+            Prog__ObjChunk *chunk = &chunks[i];
+            MemCopy(points + pointBase * 3, chunk->points.v, chunk->points.header.count * sizeof(f32));
+            MemCopy(texcoords + textureBase * 2, chunk->texcoords.v, chunk->texcoords.header.count * sizeof(f32));
+            for (u64 k = 0; k < chunk->colors.header.count; ++k) pointColors[pointBase + chunk->colorPoints.v[k]] = chunk->colors.v[k];
+            pointBase += chunk->points.header.count / 3, textureBase += chunk->texcoords.header.count / 2;
+        }
+        Prog__ArrayObjMaterial materials = {0};
+        Prog__Corners made = Prog__CornersMake(scratch.arena, pointCount, cornerCount);
+        pointBase = textureBase = 0;
+        for (u32 i = 0; i < lanes; ++i) {
+            Prog__ObjChunk *chunk = &chunks[i];
+            u64 event = 0;
+            for (u64 f = 0; f <= chunk->faces.header.count; ++f) {
+                for (; event < chunk->events.header.count && chunk->events.v[event].face == f; ++event) {
+                    const Prog__ObjEvent *line = &chunk->events.v[event];
+                    if (line->kind == Prog__ObjMtllib) {
+                        Prog__ReadMtl(arena, mesh, line->rest, &materials);
+                    } else if (line->kind == Prog__ObjObject && materials.header.count) {
+                        // A new object starts without a material, as Blender reads it.
+                        Prog__MeshPart(arena, mesh, 0, UINT32_MAX, 0);
+                    } else if (line->kind == Prog__ObjUsemtl) {
+                        const Prog__ObjMaterial *material = NULL;
+                        for (u64 k = 0; k < materials.header.count && !material; ++k) if (StrIsEqual(materials.v[k].name, line->rest)) material = &materials.v[k];
+                        // A picture is drawn as it is, as Blender reads it; its Kd is left out.
+                        Prog__MeshPart(arena, mesh, material && material->image == UINT32_MAX ? material->color : 0, material ? material->image : UINT32_MAX, material ? material->color : 0);
+                    }
+                }
+                if (f == chunk->faces.header.count) break;
+                const Prog__ObjFace *face = &chunk->faces.v[f];
+                i64 count = (i64)(pointBase + face->points), textures = (i64)(textureBase + face->textures);
+                u32 first = 0, previous = 0;
+                for (u32 c = 0; c < face->cornerCount; ++c) {
+                    const Prog__ObjCorner *written = &chunk->corners.v[face->firstCorner + c];
+                    i64 point = Prog__ObjResolve(written->point, count), texture = written->textured ? Prog__ObjResolve(written->texture, textures) : -1;
+                    u32 corner = UINT32_MAX;
+                    if (point >= 0) {
+                        Prog__MeshCorner key = { (u32)point, (u32)(texture + 1), 0, 0 };
+                        corner = Prog__CornersFind(&made, key);
+                        if (corner == UINT32_MAX && mesh->positions.header.count / 3 < UINT32_MAX) {
+                            corner = (u32)(mesh->positions.header.count / 3);
+                            MemCopy(ArrayAdd(arena, mesh->positions, 3), points + point * 3, 12);
+                            if (texture >= 0) MemCopy(Prog__MeshUvs(arena, mesh) + (u64)corner * 2, texcoords + texture * 2, 8);
+                            if (pointColors && pointColors[point] != Prog_ModelUnset) Prog__MeshColors(arena, mesh)[corner] = pointColors[point];
+                            Prog__CornersAdd(&made, key, corner);
+                        }
+                    }
+                    if (!c) first = corner;
+                    else if (c >= 2) Prog__MeshTriangle(arena, mesh, first, previous, corner);
+                    previous = corner;
+                }
+            }
+            pointBase += chunk->points.header.count / 3, textureBase += chunk->texcoords.header.count / 2;
+        }
+    }
+    for (u32 i = 0; i < lanes; ++i) ArenaRelease(&chunks[i].arena);
+    ReleaseScratch(scratch);
+    return !cancelled && mesh->indices.header.count != 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -561,6 +730,111 @@ function b32 Prog__PlyValue(const char **at, const char *end, u8 type, b32 real,
     return true;
 }
 
+// Where each of `element`'s rows starts at `p`, with where the next element starts after them; how many there are, fewer than its count in
+// a file cut short. A text row is a line.
+function u64 Prog__PlyRows(const Prog__PlyElement *element, u32 format, const char *p, const char *end, const char **rows)
+{
+    u64 fixed = 0;
+    b32 lists = false;
+    for (u32 k = 0; k < element->propertyCount; ++k) lists |= element->properties[k].list, fixed += element->properties[k].type & 0x7F;
+    u64 i = 0;
+    for (; i < element->count; ++i) {
+        if (format == Prog__PlyAscii) {
+            while (p < end && (Prog__IsSpace(*p) || *p == '\n')) ++p;
+            if (p >= end) break;
+            rows[i] = p;
+            Index line = StrIndexChar(StrMake(p, (u64)(end - p)), '\n', 0);
+            p = line.exists ? p + line.value + 1 : end;
+            continue;
+        }
+        rows[i] = p;
+        if (!lists) {
+            if ((u64)(end - p) < fixed) break;
+            p += fixed;
+            continue;
+        }
+        b32 whole = true;
+        for (u32 k = 0; k < element->propertyCount && whole; ++k) {
+            const Prog__PlyProperty *property = &element->properties[k];
+            f64 count = 0;
+            u64 size = property->type & 0x7F;
+            if (!property->list) whole = (u64)(end - p) >= size, p += whole ? size : 0;
+            else whole = Prog__PlyValue(&p, end, property->countType, false, format, &count) && count >= 0 && (u64)count <= (u64)(end - p) / Max(size, (u64)1),
+                 p += whole ? (u64)count * size : 0;
+        }
+        if (!whole) break;
+    }
+    rows[i] = format == Prog__PlyAscii || i == element->count ? p : rows[i];
+    return i;
+}
+
+// One element's rows, a lane's share each: a vertex's values straight into its place, a face's triangles into the lane's own list.
+typedef struct Prog__PlyWork {
+    const Prog__PlyElement *element;
+    u32 format, lanes;
+    const char **rows, *end;
+    u64 rowCount;
+    const P_CancelToken *cancel;
+    b32 colored, mapped, cornered;
+    f32 *positions, *uvs;
+    u32 *colors;
+    Prog_ArrayU32 triangles[P_MaxLanes];
+    Arena arenas[P_MaxLanes];
+} Prog__PlyWork;
+
+function void Prog__PlyLane(void *user, u32 lane)
+{
+    Prog__PlyWork *work = user;
+    const Prog__PlyElement *element = work->element;
+    u64 from = work->rowCount * lane / work->lanes, to = work->rowCount * (lane + 1) / work->lanes;
+    for (u64 i = from; i < to; ++i) {
+        if ((i & 0xFFFF) == 0xFFFF && P_IsCancelled(work->cancel)) return;
+        const char *p = work->rows[i], *end = work->format == Prog__PlyAscii ? work->rows[i + 1] : work->end;
+        // Position, then red, green and blue from 0 to 1, then u and v, then alpha.
+        f64 values[9] = { 0, 0, 0, 1, 1, 1, 0, 0, 1 };
+        for (u32 k = 0; k < element->propertyCount; ++k) {
+            const Prog__PlyProperty *property = &element->properties[k];
+            f64 value = 0;
+            if (!property->list) {
+                if (!Prog__PlyValue(&p, end, property->type, property->real, work->format, &value)) break;
+                // A color's integers count up to their type's most.
+                if (property->role >= 5 && property->role != 8 && property->role != 9 && !property->real) value /= (property->type & 0x7F) == 1 ? 255.0 : (property->type & 0x7F) == 2 ? 65535.0 : 4294967295.0;
+                if (property->role && property->role != 4) values[property->role - 1 - (property->role > 4)] = value;
+                continue;
+            }
+            if (!Prog__PlyValue(&p, end, property->countType, false, work->format, &value) || value < 0) break;
+            u64 corners = (u64)value;
+            u32 first = 0, previous = 0;
+            for (u64 c = 0; c < corners; ++c) {
+                if (!Prog__PlyValue(&p, end, property->type, property->real, work->format, &value)) break;
+                if (property->role != 4) continue;
+                u32 corner = value >= 0 && value < (f64)UINT32_MAX ? (u32)value : UINT32_MAX;
+                if (!c) first = corner;
+                else if (c >= 2) {
+                    u32 *triangle = ArrayAdd(&work->arenas[lane], work->triangles[lane], 3);
+                    triangle[0] = first, triangle[1] = previous, triangle[2] = corner;
+                }
+                previous = corner;
+            }
+        }
+        if (!element->vertex) continue;
+        f32 *v = work->positions + i * 3;
+        v[0] = (f32)values[0];
+        v[1] = (f32)values[1];
+        v[2] = (f32)values[2];
+        // Blender writes a vertex of a mesh without colors as black and clear, which is no color.
+        if (work->colored && !(values[3] == 0 && values[4] == 0 && values[5] == 0 && values[8] == 0)) {
+            u32 color = 0xFF000000u;
+            for (u32 k = 0; k < 3; ++k) color |= (u32)(MinF32(MaxF32((f32)values[3 + k], 0), 1) * 255 + 0.5f) << (k * 8);
+            work->colors[i] = color;
+        }
+        if (work->mapped) {
+            work->uvs[i * 2] = (f32)values[6];
+            work->uvs[i * 2 + 1] = 1 - (f32)values[7];
+        }
+    }
+}
+
 function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
 {
     const char *p = data.value, *end = data.value + data.length;
@@ -625,60 +899,39 @@ function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cance
     u64 vertices = 0;
     // The picture, drawn as it is, for the whole mesh.
     u32 image = Prog__MeshImage(arena, mesh, texture, (String){0});
-    if (image != UINT32_MAX) Prog__MeshPart(arena, mesh, 0, image);
-    for (u32 e = 0; e < elementCount; ++e) {
+    if (image != UINT32_MAX) Prog__MeshPart(arena, mesh, 0, image, 0);
+    for (u32 e = 0; e < elementCount && !P_IsCancelled(cancel); ++e) {
         const Prog__PlyElement *element = &elements[e];
         // An element without properties takes no room, whatever its count says.
         if (!element->propertyCount) continue;
-        b32 colored = false, mapped = false;
-        for (u32 k = 0; k < element->propertyCount; ++k) colored |= element->properties[k].role >= 5 && element->properties[k].role <= 7, mapped |= element->properties[k].role >= 8;
-        for (u64 i = 0; i < element->count; ++i) {
-            if ((i & 0xFFFF) == 0xFFFF && P_IsCancelled(cancel)) return false;
-            // Position, then red, green and blue from 0 to 1, then u and v, then alpha.
-            f64 values[9] = { 0, 0, 0, 1, 1, 1, 0, 0, 1 };
-            for (u32 k = 0; k < element->propertyCount; ++k) {
-                const Prog__PlyProperty *property = &element->properties[k];
-                f64 value = 0;
-                if (!property->list) {
-                    if (!Prog__PlyValue(&p, end, property->type, property->real, format, &value)) return mesh->indices.header.count != 0;
-                    // A color's integers count up to their type's most.
-                    if (property->role >= 5 && property->role != 8 && property->role != 9 && !property->real) value /= (property->type & 0x7F) == 1 ? 255.0 : (property->type & 0x7F) == 2 ? 65535.0 : 4294967295.0;
-                    if (property->role && property->role != 4) values[property->role - 1 - (property->role > 4)] = value;
-                    continue;
-                }
-                if (!Prog__PlyValue(&p, end, property->countType, false, format, &value) || value < 0) return mesh->indices.header.count != 0;
-                u64 corners = (u64)value;
-                u32 first = 0, previous = 0;
-                for (u64 c = 0; c < corners; ++c) {
-                    if (!Prog__PlyValue(&p, end, property->type, property->real, format, &value)) return mesh->indices.header.count != 0;
-                    if (property->role != 4) continue;
-                    u32 corner = value >= 0 && value < (f64)UINT32_MAX ? (u32)value : UINT32_MAX;
-                    if (!c) first = corner;
-                    else if (c >= 2) Prog__MeshTriangle(arena, mesh, first, previous, corner);
-                    previous = corner;
-                }
-            }
-            if (element->vertex) {
-                f32 *v = ArrayAdd(arena, mesh->positions, 3);
-                v[0] = (f32)values[0];
-                v[1] = (f32)values[1];
-                v[2] = (f32)values[2];
-                // Blender writes a vertex of a mesh without colors as black and clear, which is no color.
-                if (colored && !(values[3] == 0 && values[4] == 0 && values[5] == 0 && values[8] == 0)) {
-                    u32 color = 0xFF000000u;
-                    for (u32 k = 0; k < 3; ++k) color |= (u32)(MinF32(MaxF32((f32)values[3 + k], 0), 1) * 255 + 0.5f) << (k * 8);
-                    Prog__MeshColors(arena, mesh)[vertices] = color;
-                }
-                if (mapped) {
-                    f32 *uv = Prog__MeshUvs(arena, mesh) + vertices * 2;
-                    uv[0] = (f32)values[6];
-                    uv[1] = 1 - (f32)values[7];
-                }
-                ++vertices;
-            }
+        // Where each row starts, which a short file cuts off, then the rows read side by side.
+        Scratch scratch = GetScratchEx(arena);
+        const char **rows = ArenaPushArrayNoZero(scratch.arena, element->count + 1, const char *);
+        u64 rowCount = Prog__PlyRows(element, format, p, end, rows);
+        p = rows[rowCount];
+        Prog__PlyWork work = { .element = element, .format = format, .rows = rows, .rowCount = rowCount, .end = end, .cancel = cancel };
+        for (u32 k = 0; k < element->propertyCount; ++k) {
+            work.colored |= element->properties[k].role >= 5 && element->properties[k].role <= 7;
+            work.mapped |= element->properties[k].role >= 8 && element->properties[k].role <= 9;
+            work.cornered |= element->properties[k].role == 4;
         }
+        if (element->vertex) {
+            work.positions = ArrayAdd(arena, mesh->positions, rowCount * 3);
+            if (work.colored) work.colors = Prog__MeshColors(arena, mesh) + vertices;
+            if (work.mapped) work.uvs = Prog__MeshUvs(arena, mesh) + vertices * 2;
+        }
+        work.lanes = (u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), Max(rowCount / 16384, (u64)1));
+        if (element->vertex || work.cornered) P_RunLanes(work.lanes, Prog__PlyLane, &work);
+        for (u32 lane = 0; lane < work.lanes && work.cornered; ++lane) {
+            Prog_ArrayU32 *triangles = &work.triangles[lane];
+            if (triangles->header.count) MemCopy(ArrayAdd(arena, mesh->indices, triangles->header.count), triangles->v, triangles->header.count * sizeof(u32));
+            ArenaRelease(&work.arenas[lane]);
+        }
+        if (element->vertex) vertices += rowCount;
+        ReleaseScratch(scratch);
+        if (rowCount < element->count) break;
     }
-    return vertices && mesh->indices.header.count != 0;
+    return !P_IsCancelled(cancel) && vertices && mesh->indices.header.count != 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -966,7 +1219,7 @@ function void Prog__GltfMesh(Arena *arena, const Prog__Gltf *gltf, const Prog__J
                                       (f32)Prog__JsonNumber(Prog__JsonAt(factor, 2), 1), 1);
             if (info) image = Prog__GltfImage(arena, gltf, info, out);
         }
-        Prog__MeshPart(arena, out, color, image);
+        Prog__MeshPart(arena, out, color, image, 0);
         String set = StrFormat(arena, "TEXCOORD_%u", (u32)Prog__JsonNumber(Prog__JsonGet(info, S("texCoord")), 0));
         u64 n = 0;
         if (image != UINT32_MAX && Prog__GltfAccessor(gltf, Prog__JsonGet(attributes, set), &type, &components, &bytes, &n, &stride) && components == 2) {
@@ -1084,6 +1337,7 @@ struct Prog__FbxNode {
     String name;
     const u8 *properties, *propertiesEnd;
     Prog__FbxNode *first, *next;
+    const u8 *inflated;  // its compressed array, inflated ahead of reading it
 };
 
 typedef struct Prog__FbxProperty {
@@ -1214,9 +1468,63 @@ function const u8 *Prog__FbxArray(Arena *arena, const Prog__FbxNode *node, u8 *t
     *type = property.type;
     *count = property.count;
     if (property.encoding == 0) return property.length >= bytes ? property.data : NULL;
+    if (node->inflated) return node->inflated;
     if (property.encoding != 1 || bytes > INT32_MAX || property.length > INT32_MAX) return NULL;
     u8 *out = ArenaPushArrayNoZero(arena, bytes, u8);
     return stbi_zlib_decode_buffer((char *)out, (i32)bytes, (const char *)property.data, (i32)property.length) == (i32)bytes ? out : NULL;
+}
+
+// The compressed arrays of the geometries, inflated side by side ahead of reading them, as most of an FBX is.
+typedef struct Prog__FbxInflate {
+    struct { ArrayHeader header; Prog__FbxNode **v; } nodes;
+    u8 **outs;
+    atomic_uint_fast64_t next;
+} Prog__FbxInflate;
+
+function void Prog__FbxCollect(Arena *arena, Prog__FbxNode *list, Prog__FbxInflate *work, u32 depth)
+{
+    for (Prog__FbxNode *node = list; node && depth < 64; node = node->next) {
+        Prog__FbxProperty property = {0};
+        // Only those read: the normals and tangents beside them are as large and left out.
+        local_persist const String read[] = { SInit("Vertices"), SInit("PolygonVertexIndex"), SInit("UV"), SInit("UVIndex"), SInit("Colors"), SInit("ColorIndex"), SInit("Materials") };
+        b32 wanted = false;
+        for (u32 k = 0; k < CArrayCount(read) && !wanted; ++k) wanted = StrIsEqual(node->name, read[k]);
+        if (wanted && Prog__FbxPropertyAt(node, 0, &property) && property.encoding == 1 && (property.type == 'f' || property.type == 'd' || property.type == 'i' || property.type == 'l')) {
+            ArrayPush(arena, work->nodes, node);
+        }
+        Prog__FbxCollect(arena, node->first, work, depth + 1);
+    }
+}
+
+function void Prog__FbxInflateLane(void *user, u32 lane)
+{
+    (void)lane;
+    Prog__FbxInflate *work = user;
+    for (u64 i; (i = atomic_fetch_add(&work->next, 1)) < work->nodes.header.count;) {
+        Prog__FbxNode *node = work->nodes.v[i];
+        Prog__FbxProperty property = {0};
+        Prog__FbxPropertyAt(node, 0, &property);
+        u64 bytes = (u64)property.count * (property.type == 'd' || property.type == 'l' ? 8 : 4);
+        if (!work->outs[i] || bytes > INT32_MAX || property.length > INT32_MAX) continue;
+        if (stbi_zlib_decode_buffer((char *)work->outs[i], (i32)bytes, (const char *)property.data, (i32)property.length) == (i32)bytes) node->inflated = work->outs[i];
+    }
+}
+
+function void Prog__FbxInflateAll(Arena *arena, Prog__FbxNode **geometries, u64 count)
+{
+    Scratch scratch = GetScratchEx(arena);
+    Prog__FbxInflate work = {0};
+    for (u64 i = 0; i < count; ++i) Prog__FbxCollect(scratch.arena, geometries[i]->first, &work, 0);
+    // The outputs are made here, as the arena is not the lanes' to share.
+    work.outs = ArenaPushArray(scratch.arena, Max(work.nodes.header.count, (u64)1), u8 *);
+    for (u64 i = 0; i < work.nodes.header.count; ++i) {
+        Prog__FbxProperty property = {0};
+        Prog__FbxPropertyAt(work.nodes.v[i], 0, &property);
+        u64 bytes = (u64)property.count * (property.type == 'd' || property.type == 'l' ? 8 : 4);
+        if (bytes <= INT32_MAX) work.outs[i] = ArenaPushArrayNoZero(arena, Max(bytes, (u64)1), u8);
+    }
+    if (work.nodes.header.count) P_RunLanes((u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), work.nodes.header.count), Prog__FbxInflateLane, &work);
+    ReleaseScratch(scratch);
 }
 
 function f64 Prog__FbxElement(const u8 *data, u8 type, u64 index)
@@ -1299,8 +1607,6 @@ function u64 Prog__FbxLayerAt(const Prog__FbxLayer *layer, u64 corner, u64 point
 
 // A corner of a polygon as a vertex of the mesh: its point and its texture coordinate's and color's elements, each one past its index or 0
 // for none.
-typedef struct Prog__MeshCorner { u32 point, uv, color, zero; } Prog__MeshCorner;
-typedef struct Prog__MeshCornerMap { MapHeader header; struct { Prog__MeshCorner key; u32 value; } *v; } Prog__MeshCornerMap;
 
 // Adds `geometry`'s polygons, fanned into triangles, placed by `place`, in the parts its model's `materials` give them, grouped by part.
 // A corner's control point, texture coordinate and color together make one vertex of the mesh.
@@ -1343,9 +1649,9 @@ function void Prog__FbxGeometry(Arena *arena, const Prog__FbxNode *geometry, con
         i64 index = at != UINT64_MAX ? (i64)Prog__FbxElement(material.values, material.valueType, at) : 0;
         partOf[f] = index >= 0 && (u64)index < materialCount ? (u32)index : 0;
     }
-    Prog__MeshCornerMap made = {0};
+    Prog__Corners made = Prog__CornersMake(scratch.arena, count, corners);
     for (u64 part = 0; part < Max(materialCount, (u64)1); ++part) {
-        Prog__MeshPart(arena, mesh, materialCount ? materials[part].color : 0, materialCount ? materials[part].image : UINT32_MAX);
+        Prog__MeshPart(arena, mesh, materialCount ? materials[part].color : 0, materialCount ? materials[part].image : UINT32_MAX, materialCount ? materials[part].bare : 0);
         for (u64 f = 0; f < polygonCount; ++f) {
             if (partOf[f] != part) continue;
             u32 first = 0, previous = 0, at = 0;
@@ -1358,10 +1664,8 @@ function void Prog__FbxGeometry(Arena *arena, const Prog__FbxNode *geometry, con
                 if (index >= 0 && index < (i64)count) {
                     u64 uvAt = mapped ? Prog__FbxLayerAt(&uv, i, (u64)index, f) : UINT64_MAX, colorAt = colored ? Prog__FbxLayerAt(&color, i, (u64)index, f) : UINT64_MAX;
                     Prog__MeshCorner key = { (u32)index, (u32)(uvAt + 1), (u32)(colorAt + 1), 0 };
-                    u32 *known = MapGetPtrNull(made, key);
-                    if (known) {
-                        corner = *known;
-                    } else if (mesh->positions.header.count / 3 < UINT32_MAX) {
+                    corner = Prog__CornersFind(&made, key);
+                    if (corner == UINT32_MAX && mesh->positions.header.count / 3 < UINT32_MAX) {
                         corner = (u32)(mesh->positions.header.count / 3);
                         MemCopy(ArrayAdd(arena, mesh->positions, 3), points + index * 3, 12);
                         if (uvAt != UINT64_MAX) {
@@ -1375,7 +1679,7 @@ function void Prog__FbxGeometry(Arena *arena, const Prog__FbxNode *geometry, con
                             for (u32 k = 0; k < 3; ++k) rgba |= (u32)(MinF32(MaxF32((f32)Prog__FbxElement(color.values, color.valueType, colorAt * 4 + k), 0), 1) * 255 + 0.5f) << (k * 8);
                             Prog__MeshColors(arena, mesh)[corner] = rgba;
                         }
-                        MapPut(scratch.arena, made, key, corner);
+                        Prog__CornersAdd(&made, key, corner);
                     }
                 }
                 if (!at) first = corner;
@@ -1476,8 +1780,9 @@ function b32 Prog__ReadFbx(Arena *arena, String data, const P_CancelToken *cance
         if (looks[i].image == UINT32_MAX && relative.length) looks[i].image = Prog__MeshImage(arena, mesh, relative, (String){0});
         if (looks[i].image == UINT32_MAX && absolute.length) looks[i].image = Prog__MeshImage(arena, mesh, absolute, (String){0});
         // A picture is drawn as it is.
-        if (looks[i].image != UINT32_MAX) looks[i].color = 0;
+        if (looks[i].image != UINT32_MAX) looks[i].bare = looks[i].color, looks[i].color = 0;
     }
+    Prog__FbxInflateAll(arena, (Prog__FbxNode **)geometries.v, geometries.header.count);
     for (u64 i = 0; i + 1 < uses.header.count && !P_IsCancelled(cancel); i += 2) {
         const Prog__FbxModel *model = &models.v[uses.v[i + 1]];
         // The model's materials, in the order they were connected, which the geometry's material indices count in.
@@ -1909,13 +2214,12 @@ function Prog_MeshPart Prog__BlendLook(Arena *arena, const Prog__Blend *blend, c
         const Prog__BlendBlock *from = Prog__BlendAt(blend, tree, Prog__BlendPointer(blend, linkType, link->data, link->length, S("fromnode")));
         if (!from || !StrIsEqual(Prog__BlendText(blend, nodeType, from->data, from->length, S("idname")), S("ShaderNodeTexImage"))) break;
         result.image = Prog__BlendImage(arena, blend, Prog__BlendAt(blend, NULL, Prog__BlendPointer(blend, nodeType, from->data, from->length, S("id"))), mesh);
-        if (result.image != UINT32_MAX) result.color = 0;
+        if (result.image != UINT32_MAX) result.bare = result.color, result.color = 0;
         break;
     }
     return result;
 }
 
-typedef struct Prog__BlendCorner { u32 point; f32 u, v; u32 color; } Prog__BlendCorner;
 
 // The color of element `at` of a color attribute, `bytes` long: four floats, linear, or four bytes, sRGB.
 function u32 Prog__BlendColor(const Prog__BlendBlock *values, u64 at, u32 bytes)
@@ -1973,13 +2277,9 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
         u32 colorBytes = colors && colors->length >= elements * 16 ? 16 : colors && colors->length >= elements * 4 ? 4 : 0;
         b32 cornerColors = colorBytes && domain == Prog__BlendOnCorner;
         if (!colorBytes || (domain != Prog__BlendOnCorner && domain != Prog__BlendOnPoint)) colors = NULL;
-        // The corners made so far from each point, chained, as a point has only a few that differ.
-        u32 *first = ArenaPushArrayNoZero(scratch.arena, (u64)vertices, u32), *next = ArenaPushArrayNoZero(scratch.arena, (u64)corners, u32);
-        Prog__BlendCorner *keys = ArenaPushArrayNoZero(scratch.arena, (u64)corners, Prog__BlendCorner);
-        for (i64 v = 0; v < vertices; ++v) first[v] = UINT32_MAX;
-        u32 madeCount = 0;
+        Prog__Corners made = Prog__CornersMake(scratch.arena, (u64)vertices, (u64)corners);
         for (u32 look = 0; look < Max(lookCount, 1u); ++look) {
-            Prog__MeshPart(arena, out, lookCount ? looks[look].color : 0, lookCount ? looks[look].image : UINT32_MAX);
+            Prog__MeshPart(arena, out, lookCount ? looks[look].color : 0, lookCount ? looks[look].image : UINT32_MAX, lookCount ? looks[look].bare : 0);
             for (i64 f = 0; f < faces; ++f) {
                 i32 index = materialIndex ? (i32)Prog__Read32(materialIndex->data + f * 4) : 0;
                 if ((u32)Min(Max(index, 0), (i32)Max(lookCount, 1u) - 1) != look) continue;
@@ -1989,25 +2289,21 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
                 for (u32 c = from; c < to; ++c) {
                     u32 point = Prog__Read32(cornerVerts + (u64)c * 4), corner = UINT32_MAX;
                     if (point < (u64)vertices) {
-                        Prog__BlendCorner key = { point, 0, 0, 0 };
-                        if (uvs) MemCopy(&key.u, uvs->data + (u64)c * 8, 8);
-                        if (colors) key.color = Prog__BlendColor(colors, cornerColors ? c : point, colorBytes);
-                        u32 known = first[point];
-                        while (known != UINT32_MAX && MemCompare(&keys[known], &key, sizeof(key)) != 0) known = next[known];
-                        if (known != UINT32_MAX) {
-                            corner = (u32)base + known;
-                        } else if (madeCount < (u64)corners && out->positions.header.count / 3 < UINT32_MAX) {
+                        // The texture coordinate's two floats as they are, and the color.
+                        Prog__MeshCorner key = { point, 0, 0, 0 };
+                        if (uvs) MemCopy(&key.a, uvs->data + (u64)c * 8, 8);
+                        if (colors) key.c = Prog__BlendColor(colors, cornerColors ? c : point, colorBytes);
+                        corner = Prog__CornersFind(&made, key);
+                        if (corner == UINT32_MAX && out->positions.header.count / 3 < UINT32_MAX) {
                             corner = (u32)(out->positions.header.count / 3);
                             MemCopy(ArrayAdd(arena, out->positions, 3), points + (u64)point * 3, 12);
                             if (uvs) {
                                 f32 *t = Prog__MeshUvs(arena, out) + (u64)corner * 2;
-                                t[0] = key.u;
-                                t[1] = 1 - key.v;
+                                MemCopy(t, &key.a, 8);
+                                t[1] = 1 - t[1];
                             }
-                            if (colors) Prog__MeshColors(arena, out)[corner] = key.color;
-                            keys[madeCount] = key;
-                            next[madeCount] = first[point];
-                            first[point] = madeCount++;
+                            if (colors) Prog__MeshColors(arena, out)[corner] = key.c;
+                            Prog__CornersAdd(&made, key, corner);
                         }
                     }
                     if (c == from) fan = corner;
@@ -2104,7 +2400,36 @@ function b32 Prog__ReadBlend(Arena *arena, String data, const P_CancelToken *can
 // default values (time samples are not read). The crate format keeps its tokens, fields, paths and specs in sections, most of them LZ4
 // compressed, and arrays of integers as deltas in 1, 2 or 4 bytes as each needs.
 
-function String Prog__ZipEntry(Arena *arena, String path, u64 size, String name);
+// The bytes of `name` inside the zip archive `zip`, already read, from its central directory: a view of a stored entry, a deflated one
+// inflated into `arena`; empty when there is no such entry. An empty `name` takes the first entry, as a .usdz's root layer is.
+function String Prog__ZipView(Arena *arena, String zip, String name)
+{
+    const u8 *z = (const u8 *)zip.value;
+    // The end of central directory record is in the last 22 bytes, after a comment of up to 64 kB.
+    u64 end = UINT64_MAX;
+    for (u64 i = zip.length >= 22 ? zip.length - 22 + 1 : 0; i-- > 0 && i + 65557 >= zip.length && end == UINT64_MAX;) if (Prog__Read32(z + i) == 0x06054B50) end = i;
+    if (end == UINT64_MAX) return (String){0};
+    u32 entries = (u32)z[end + 10] | (u32)z[end + 11] << 8;
+    u64 directoryAt = Prog__Read32(z + end + 16);
+    for (u64 at = directoryAt, i = 0; i < entries && at + 46 <= zip.length; ++i) {
+        if (Prog__Read32(z + at) != 0x02014B50) break;
+        u32 method = (u32)z[at + 10] | (u32)z[at + 11] << 8, nameLength = (u32)z[at + 28] | (u32)z[at + 29] << 8;
+        u32 extra = (u32)z[at + 30] | (u32)z[at + 31] << 8, comment = (u32)z[at + 32] | (u32)z[at + 33] << 8;
+        u64 packed = Prog__Read32(z + at + 20), unpacked = Prog__Read32(z + at + 24), local = Prog__Read32(z + at + 42);
+        String entry = StrMake((const char *)z + at + 46, Min((u64)nameLength, zip.length - at - 46));
+        at += 46 + nameLength + extra + comment;
+        if ((name.length && !StrIsEqual(entry, name)) || unpacked > Prog_ModelMaxBytes || (method != 0 && method != 8)) continue;
+        // The local header's name and extra field may differ in length from the central directory's.
+        if (local + 30 > zip.length) break;
+        u64 dataAt = local + 30 + ((u64)z[local + 26] | (u64)z[local + 27] << 8) + ((u64)z[local + 28] | (u64)z[local + 29] << 8);
+        if (dataAt + packed > zip.length) break;
+        if (method == 0) return StrMake((const char *)z + dataAt, packed);
+        char *out = ArenaPushArrayNoZero(arena, Max(unpacked, (u64)1), char);
+        i32 made = packed <= INT32_MAX && unpacked <= INT32_MAX ? stbi_zlib_decode_noheader_buffer(out, (i32)unpacked, (const char *)z + dataAt, (i32)packed) : -1;
+        return made >= 0 ? StrMake(out, (u64)made) : (String){0};
+    }
+    return (String){0};
+}
 
 // An LZ4 block into `out`, `size` bytes at most; how many it made, or UINT64_MAX when the block is broken.
 function u64 Prog__Lz4(const u8 *in, u64 length, u8 *out, u64 size)
@@ -2530,7 +2855,7 @@ function u64 Prog__UsdPrimvarAt(const Prog__UsdPrimvar *primvar, u64 corner, u64
 
 // A bound material's look: its surface shader's diffuse color, linear, or the picture of the texture connected to it, from the .usdz's
 // own files or next to the file, with the name of the primvar its coordinates come from in `uvName`.
-function Prog_MeshPart Prog__UsdLook(Arena *arena, const Prog__Usd *usd, const Prog__UsdProperties *properties, u32 material, String zip, u64 zipSize,
+function Prog_MeshPart Prog__UsdLook(Arena *arena, const Prog__Usd *usd, const Prog__UsdProperties *properties, u32 material, String zip,
                                      Prog_Mesh *mesh, String *uvName)
 {
     Prog_MeshPart result = { .image = UINT32_MAX };
@@ -2541,7 +2866,7 @@ function Prog_MeshPart Prog__UsdLook(Arena *arena, const Prog__Usd *usd, const P
     if (file) {
         String name = Prog__UsdText(usd, Prog__UsdField(usd, *file, S("default")));
         if (StrIsEqual(StrFromTo(name, 0, 2), S("./"))) name = StrFrom(name, 2);
-        String bytes = zip.length && name.length && mesh->imageSide ? Prog__ZipEntry(arena, zip, zipSize, name) : (String){0};
+        String bytes = zip.length && name.length && mesh->imageSide ? Prog__ZipView(arena, zip, name) : (String){0};
         result.image = Prog__MeshImage(arena, mesh, name, bytes);
         // Its coordinates' primvar, named by the reader its st input connects to.
         u32 reader = Prog__UsdSource(usd, properties, texture, S("inputs:st"));
@@ -2551,8 +2876,9 @@ function Prog_MeshPart Prog__UsdLook(Arena *arena, const Prog__Usd *usd, const P
     }
     const u32 *diffuse = Prog__UsdProperty(usd, properties, shader, S("inputs:diffuseColor"));
     u64 n = 0;
-    f32 *rgb = diffuse && result.image == UINT32_MAX ? Prog__UsdVec3(arena, usd, Prog__UsdField(usd, *diffuse, S("default")), &n) : NULL;
-    if (rgb) result.color = Prog__LinearColor(rgb[0], rgb[1], rgb[2], 1);
+    f32 *rgb = diffuse ? Prog__UsdVec3(arena, usd, Prog__UsdField(usd, *diffuse, S("default")), &n) : NULL;
+    if (rgb && result.image == UINT32_MAX) result.color = Prog__LinearColor(rgb[0], rgb[1], rgb[2], 1);
+    else if (rgb) result.bare = Prog__LinearColor(rgb[0], rgb[1], rgb[2], 1);
     return result;
 }
 
@@ -2567,8 +2893,7 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
 {
     // A .usdz is a zip whose first file is its root layer, and which holds the pictures its materials use.
     String zip = {0};
-    u64 zipSize = data.length;
-    if (data.length >= 4 && Prog__Read32((const u8 *)data.value) == 0x04034B50) zip = path, data = Prog__ZipEntry(arena, path, data.length, (String){0});
+    if (data.length >= 4 && Prog__Read32((const u8 *)data.value) == 0x04034B50) zip = data, data = Prog__ZipView(arena, zip, (String){0});
     Prog__Usd usd = {0};
     if (!Prog__UsdParse(arena, data, &usd)) return false;
     usd.xformOpOrder = Prog__UsdTokenIndex(&usd, S("xformOpOrder"));
@@ -2624,7 +2949,7 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
         u32 lookCount = 1, *lookOf = ArenaPushArray(scratch.arena, Max(faceCount, (u64)1), u32);
         String uvName = S("primvars:st");
         u32 bound = Prog__UsdBound(&usd, &properties, prim);
-        looks[0] = bound != UINT32_MAX ? Prog__UsdLook(arena, &usd, &properties, bound, zip, zipSize, mesh, &uvName) : (Prog_MeshPart){ .image = UINT32_MAX };
+        looks[0] = bound != UINT32_MAX ? Prog__UsdLook(arena, &usd, &properties, bound, zip, mesh, &uvName) : (Prog_MeshPart){ .image = UINT32_MAX };
         for (u64 i = 0; i < subsets.header.count && lookCount < CArrayCount(looks); ++i) {
             u32 subset = subsets.v[i];
             const u32 *faces = usd.pathParent[subset] == prim ? Prog__UsdProperty(&usd, &properties, subset, S("indices")) : NULL;
@@ -2632,7 +2957,7 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
             u64 n = 0;
             i32 *list = material != UINT32_MAX ? Prog__UsdIntArray(scratch.arena, &usd, Prog__UsdField(&usd, *faces, S("default")), &n) : NULL;
             if (!list) continue;
-            looks[lookCount] = Prog__UsdLook(arena, &usd, &properties, material, zip, zipSize, mesh, &uvName);
+            looks[lookCount] = Prog__UsdLook(arena, &usd, &properties, material, zip, mesh, &uvName);
             for (u64 k = 0; k < n; ++k) if (list[k] >= 0 && (u64)list[k] < faceCount) lookOf[list[k]] = lookCount;
             ++lookCount;
         }
@@ -2648,11 +2973,11 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
         }
         // A color3 has no alpha, which reads as 0 here.
         b32 opaque = colored && color.count && color.values[3] == 0;
-        Prog__MeshCornerMap made = {0};
+        Prog__Corners made = Prog__CornersMake(scratch.arena, pointCount, cornerCount);
         u64 *starts = ArenaPushArrayNoZero(scratch.arena, Max(faceCount, (u64)1), u64);
         for (u64 f = 0, first = 0; f < faceCount; first += (u64)Max(counts[f], 0), ++f) starts[f] = first;
         for (u32 look = 0; look < lookCount; ++look) {
-            Prog__MeshPart(arena, mesh, looks[look].color, looks[look].image);
+            Prog__MeshPart(arena, mesh, looks[look].color, looks[look].image, looks[look].bare);
             for (u64 f = 0; f < faceCount; ++f) {
                 if (lookOf[f] != look) continue;
                 u64 first = starts[f], end = Min(first + (u64)Max(counts[f], 0), cornerCount);
@@ -2663,10 +2988,8 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
                     if (point >= 0 && (u64)point < pointCount) {
                         u64 uvAt = mapped ? Prog__UsdPrimvarAt(&uv, c, (u64)point, f) : UINT64_MAX, colorAt = colored ? Prog__UsdPrimvarAt(&color, c, (u64)point, f) : UINT64_MAX;
                         Prog__MeshCorner key = { (u32)point, (u32)(uvAt + 1), (u32)(colorAt + 1), 0 };
-                        u32 *known = MapGetPtrNull(made, key);
-                        if (known) {
-                            corner = *known;
-                        } else if (mesh->positions.header.count / 3 < UINT32_MAX) {
+                        corner = Prog__CornersFind(&made, key);
+                        if (corner == UINT32_MAX && mesh->positions.header.count / 3 < UINT32_MAX) {
                             corner = (u32)(mesh->positions.header.count / 3);
                             MemCopy(ArrayAdd(arena, mesh->positions, 3), at + (u64)point * 3, 12);
                             if (uvAt != UINT64_MAX) {
@@ -2678,7 +3001,7 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
                                 const f32 *rgba = color.values + colorAt * 4;
                                 Prog__MeshColors(arena, mesh)[corner] = Prog__LinearColor(rgba[0], rgba[1], rgba[2], opaque ? 1 : rgba[3]) | 0xFF000000u;
                             }
-                            MapPut(scratch.arena, made, key, corner);
+                            Prog__CornersAdd(&made, key, corner);
                         }
                     }
                     if (c == first) fan = corner;
@@ -2725,9 +3048,8 @@ function Prog_ModelKind Prog_ModelKindOf(String path)
 
 function b32 Prog_IsModel(String path) { return Prog_ModelKindOf(path) != Prog_ModelKind_None; }
 
-function b32 Prog_ReadModel(Arena *arena, Prog_ModelKind kind, String path, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+function b32 Prog__ReadModelKind(Arena *arena, Prog_ModelKind kind, String path, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
 {
-    mesh->path = path;
     switch (kind) {
         case Prog_ModelKind_Obj: return Prog__ReadObj(arena, data, cancel, mesh);
         case Prog_ModelKind_Stl: return Prog__ReadStl(arena, data, cancel, mesh);
@@ -2742,6 +3064,67 @@ function b32 Prog_ReadModel(Arena *arena, Prog_ModelKind kind, String path, Stri
         case Prog_ModelKind_Usdz: return Prog__ReadUsd(arena, path, data, cancel, mesh);
         default: return false;
     }
+}
+
+typedef struct Prog__ModelRead {
+    Arena *arena;
+    Prog_ModelKind kind;
+    String path, data;
+    const P_CancelToken *cancel;
+    Prog_Mesh *mesh;
+    Prog__Pictures pictures;
+    b32 result;
+} Prog__ModelRead;
+
+// Lane 0 reads the model, then helps with the pictures; the others decode the pictures it queues as it finds them.
+function void Prog__ModelReadLane(void *user, u32 lane)
+{
+    Prog__ModelRead *read = user;
+    Prog__Pictures *pictures = &read->pictures;
+    if (lane == 0) {
+        read->result = Prog__ReadModelKind(read->arena, read->kind, read->path, read->data, read->cancel, read->mesh);
+        P_MutexLock(&pictures->mutex);
+        pictures->closed = true;
+        P_ConditionBroadcast(&pictures->wake);
+        P_MutexUnlock(&pictures->mutex);
+    }
+    for (;;) {
+        P_MutexLock(&pictures->mutex);
+        while (pictures->next >= pictures->count && !pictures->closed) P_ConditionWait(&pictures->wake, &pictures->mutex);
+        u32 at = pictures->next < pictures->count ? pictures->next++ : UINT32_MAX;
+        P_MutexUnlock(&pictures->mutex);
+        if (at == UINT32_MAX) break;
+        Prog__Picture *picture = &pictures->list[at];
+        Prog__DecodeImage(&picture->arena, read->path, read->mesh->imageSide, picture->name, picture->bytes, &picture->image);
+    }
+}
+
+function b32 Prog_ReadModel(Arena *arena, Prog_ModelKind kind, String path, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    mesh->path = path;
+    Prog__ModelRead read = { .arena = arena, .kind = kind, .path = path, .data = data, .cancel = cancel, .mesh = mesh };
+    if (!mesh->imageSide || !P_MutexInit(&read.pictures.mutex)) return Prog__ReadModelKind(arena, kind, path, data, cancel, mesh);
+    if (!P_ConditionInit(&read.pictures.wake)) {
+        P_MutexRelease(&read.pictures.mutex);
+        return Prog__ReadModelKind(arena, kind, path, data, cancel, mesh);
+    }
+    mesh->pictures = &read.pictures;
+    P_RunLanes(4, Prog__ModelReadLane, &read);
+    mesh->pictures = NULL;
+    P_ConditionRelease(&read.pictures.wake);
+    P_MutexRelease(&read.pictures.mutex);
+    // The decoded pictures, copied out of their lanes' arenas.
+    for (u32 i = 0; i < read.pictures.count && i < mesh->images.header.count; ++i) {
+        Prog__Picture *picture = &read.pictures.list[i];
+        P_Image from = picture->image;
+        if (from.pixels) {
+            u64 count = (u64)from.width * (u64)from.height;
+            mesh->images.v[i] = (P_Image){ ArenaPushArrayNoZero(arena, Max(count, (u64)1), u32), from.width, from.height };
+            MemCopy(mesh->images.v[i].pixels, from.pixels, count * 4);
+        }
+        ArenaRelease(&picture->arena);
+    }
+    return read.result;
 }
 
 // A triangle's colors as drawn in software: its part's color and picture, its corners' colors and texture coordinates, and its light.
@@ -2970,6 +3353,9 @@ function b32 Prog__ModelShape(Arena *arena, const Prog_Mesh *mesh, Prog_ModelSha
     // without one, so that the parts and vertices that have colors are drawn in theirs alone.
     u64 partCount = Max(mesh->parts.header.count, (u64)1) + 1;
     Prog_MeshPart *parts = ArenaPushArray(arena, partCount, Prog_MeshPart);
+    // The pictures that decoded, renumbered without those that did not.
+    u32 renumbered[Prog_ModelMaxImages], imageCount = 0;
+    for (u64 i = 0; i < mesh->images.header.count && i < Prog_ModelMaxImages; ++i) renumbered[i] = mesh->images.v[i].pixels ? imageCount++ : UINT32_MAX;
     u32 made = 0, next = 0, unset = Prog_ModelGray;
     u32 *indices = ArenaPushArrayNoZero(arena, triangles * 3, u32);
     u64 kept = 0;
@@ -2980,10 +3366,11 @@ function b32 Prog__ModelShape(Arena *arena, const Prog_Mesh *mesh, Prog_ModelSha
         while (next < mesh->parts.header.count && mesh->parts.v[next].first <= t * 3) from = &mesh->parts.v[next++], starts = true;
         if (starts) {
             if (made && parts[made - 1].first == kept * 3) --made;
-            u32 image = from && from->image < mesh->images.header.count ? from->image : UINT32_MAX;
-            b32 own = (from && from->color) || image != UINT32_MAX;
+            u32 image = from && from->image < mesh->images.header.count && from->image < Prog_ModelMaxImages ? renumbered[from->image] : UINT32_MAX;
+            u32 color = from ? (image == UINT32_MAX && from->image != UINT32_MAX && from->bare ? from->bare : from->color) : 0;
+            b32 own = color || image != UINT32_MAX;
             unset = own ? 0xFFFFFFFFu : Prog_ModelGray;
-            parts[made++] = (Prog_MeshPart){ .first = kept * 3, .color = from && from->color ? from->color : 0xFFFFFFFFu, .image = image };
+            parts[made++] = (Prog_MeshPart){ .first = kept * 3, .color = color ? color : 0xFFFFFFFFu, .image = image };
         }
         const u32 *at = mesh->indices.v + t * 3;
         if (at[0] >= vertices || at[1] >= vertices || at[2] >= vertices || !valid[at[0]] || !valid[at[1]] || !valid[at[2]]) continue;
@@ -3001,13 +3388,13 @@ function b32 Prog__ModelShape(Arena *arena, const Prog_Mesh *mesh, Prog_ModelSha
             radius = MaxF32(radius, dx * dx + dy * dy + dz * dz);
         }
         // The pictures, copied out of the arena they were read into.
-        u32 imageCount = (u32)mesh->images.header.count;
         P_Image *images = ArenaPushArray(arena, Max(imageCount, 1u), P_Image);
-        for (u32 i = 0; i < imageCount; ++i) {
+        for (u32 i = 0; i < mesh->images.header.count && i < Prog_ModelMaxImages; ++i) {
+            if (renumbered[i] == UINT32_MAX) continue;
             P_Image from = mesh->images.v[i];
             u64 bytes = (u64)from.width * (u64)from.height * 4;
-            images[i] = (P_Image){ ArenaPushArrayNoZero(arena, Max(bytes / 4, (u64)1), u32), from.width, from.height };
-            MemCopy(images[i].pixels, from.pixels, bytes);
+            images[renumbered[i]] = (P_Image){ ArenaPushArrayNoZero(arena, Max(bytes / 4, (u64)1), u32), from.width, from.height };
+            MemCopy(images[renumbered[i]].pixels, from.pixels, bytes);
         }
         *shape = (Prog_ModelShape){ positions, uvs, colors, (u32)vertices, indices, kept * 3, parts, made, images, imageCount,
                                     { center[0], center[1], center[2] }, MaxF32(sqrtf(radius), 1e-6f), mesh->zUp };

@@ -281,7 +281,7 @@ function void TestModels(void)
         Check(pixels && (pixels[32 * 64 + 32] >> 24) == 255 && (pixels[0] >> 24) == 0 && (pixels[63 * 64 + 63] >> 24) == 0);
         // Without colors of its own it is gray; a red part over white corners is red, lit but never more than its color.
         Check(pixels && (pixels[32 * 64 + 32] & 0xFF) > 0 && (pixels[32 * 64 + 32] & 0xFF) < 0xC8 && ((pixels[32 * 64 + 32] >> 16) & 0xFF) > (pixels[32 * 64 + 32] & 0xFF));
-        Prog__MeshPart(&arena, &square, 0xFF0000FFu, UINT32_MAX);
+        Prog__MeshPart(&arena, &square, 0xFF0000FFu, UINT32_MAX, 0);
         MemCopy(ArrayAdd(&arena, square.indices, 3), triangles, 12);
         square.parts.v[0].first = 0;
         pixels = Prog__ModelShape(&arena, &square, &drawn) ? Prog_DrawMesh(&arena, &drawn, 64, &token) : NULL;
