@@ -2836,6 +2836,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->viewArena);
     ArenaRelease(&state->errorArena);
+    ArenaRelease(&state->pickArena);
     Prog__ReleasePreview(&state->previewArena, state->previewTexture, &state->model, &state->pdf, state->previewJob, state->hexPageJob);
     for (u32 i = 0; i < state->tabCount; ++i) {
         if (i != state->activeTab) Prog__ReleaseTab(&state->tabs[i]);
@@ -3984,7 +3985,11 @@ function P_FileError Prog_OpenWindow(Prog_State *state, String path, String trai
     return P_OpenWindow(&state->frameArena, StrIsEqual(path, Prog_ThisPC) ? S("--this-pc") : path, option);
 }
 
-// What a tab takes along besides its folder when it moves, as "zoom=300\tfocus=name": its zoom and the item it has focused.
+// The most selected names a moved tab takes along, which keeps the command line of a window started for it within the system's limit.
+#define Prog_TabTraitNames 500
+
+// What a tab takes along besides its folder when it moves, as "zoom=300\tscroll=120\tfocus=name\tselect=name\tselect=other": its zoom, how
+// far its list is scrolled while it is shown, the item it has focused and the items selected.
 function String Prog__TabTraits(Prog_State *state, u32 slot)
 {
     b32 shown = slot == state->activeTab;
@@ -3993,20 +3998,40 @@ function String Prog__TabTraits(Prog_State *state, u32 slot)
     const Prog_Directory *directory = shown ? &state->directory : &tab->directory;
     b32 focused = shown ? state->hasFocus : tab->hasFocus;
     u64 row = shown ? state->focusedRow : tab->focusedRow;
-    String focus = focused && row < directory->count ? directory->entries[row].file.name : (String){0};
-    return StrFormat(&state->frameArena, "zoom=%u%s%S", zoom, focus.length ? "\tfocus=" : "", focus);
+    StrBuilder text = {0};
+    StrBuildStr(&state->frameArena, &text, StrFormat(&state->frameArena, "zoom=%u", zoom));
+    UI_Block *list = shown && UI ? UI__Find(UI_KeyFromStr(Prog_PanelKeySeed(Prog__PanelId(state)), S("Files"))) : NULL;
+    if (list && list->scrollOffset.y > 0) StrBuildStr(&state->frameArena, &text, StrFormat(&state->frameArena, "\tscroll=%u", (u32)list->scrollOffset.y));
+    if (focused && row < directory->count) StrBuildStr(&state->frameArena, &text, StrFormat(&state->frameArena, "\tfocus=%S", directory->entries[row].file.name));
+    u32 names = 0;
+    for (u64 i = 0; i < directory->count && names < Prog_TabTraitNames; ++i) {
+        if (!directory->entries[i].selected) continue;
+        StrBuildStr(&state->frameArena, &text, StrFormat(&state->frameArena, "\tselect=%S", directory->entries[i].file.name));
+        ++names;
+    }
+    return text.buffer;
 }
 
-// Gives the shown tab the `traits` Prog__TabTraits wrote, as it lands where it was moved: its zoom at once, the item focused once listed.
+// Gives the shown tab the `traits` Prog__TabTraits wrote, as it lands where it was moved: its zoom at once, and its scroll, focused item and
+// selection once listed.
 function void Prog_ApplyTabTraits(Prog_State *state, String traits)
 {
     ArrayStr parts = StrSplit(&state->frameArena, traits, '\t');
+    ArenaClear(&state->pickArena);
+    state->pickNames = (ArrayStr){0};
+    state->pickScrollSet = false;
     for (u64 i = 0; i < parts.header.count; ++i) {
         String part = parts.v[i];
         if (StrIsEqual(StrFromTo(part, 0, 5), S("zoom="))) {
             u64 zoom = 0;
             String digits = StrFrom(part, 5);
             if (Prog__TakeNumber(&digits, &zoom)) state->zoom = Prog_ZoomFromSaved(zoom);
+        } else if (StrIsEqual(StrFromTo(part, 0, 7), S("scroll="))) {
+            u64 scroll = 0;
+            String digits = StrFrom(part, 7);
+            if (Prog__TakeNumber(&digits, &scroll)) state->pickScroll = (f32)scroll, state->pickScrollSet = true;
+        } else if (StrIsEqual(StrFromTo(part, 0, 7), S("select="))) {
+            ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, StrFrom(part, 7)));
         } else if (StrIsEqual(StrFromTo(part, 0, 6), S("focus=")) && part.length - 6 <= sizeof(state->selectText)) {
             MemCopy(state->selectText, part.value + 6, part.length - 6);
             state->selectLength = (u32)(part.length - 6);
@@ -4817,7 +4842,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->selectedCount = 1;
                         state->hasFocus = state->hasAnchor = true;
                         state->focusedRow = state->anchorRow = pickRow;
-                        state->revealFocus = true;
+                        state->revealFocus = !state->pickScrollSet;
+                    }
+                    // A moved tab's selection, all of it, by name.
+                    if (state->pickNames.header.count) {
+                        struct { MapHeader header; struct { String key; b32 value; } *v; } picked = {0};
+                        for (u64 i = 0; i < state->pickNames.header.count; ++i) MapsPut(&state->frameArena, picked, state->pickNames.v[i], true);
+                        state->selectedCount = 0;
+                        for (u64 i = 0; i < result->count; ++i) {
+                            result->entries[i].selected = MapsGet(picked, b32, result->entries[i].file.name);
+                            state->selectedCount += result->entries[i].selected != 0;
+                        }
+                        ArenaClear(&state->pickArena);
+                        state->pickNames = (ArrayStr){0};
                     }
                     // Another folder's repository is looked for at once; the same folder's, listed again, now and then, for commits made meanwhile.
                     if (!samePath || PlatformNowMicroseconds() - state->gitTime > Millions(3)) {

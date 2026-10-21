@@ -33,6 +33,7 @@ typedef struct WinWindowState {
     b32 trackingLeave;  // asked to be told when the pointer leaves the window
     b32 postedPointer;  // FILEY_POSTED_POINTER: the pointer comes from posted messages while the real one is elsewhere, so it never leaves
     KeyMods postedMods; // and Shift, Ctrl and Alt from posted key messages, as the real keyboard's are someone else's
+    POINT postedPoint;  // and where the last posted pointer message put it, in the window
     b32 sizing;
     PlatformCursor cursor;
     HBRUSH background;  // paints the window until OpenGL draws the first frame
@@ -100,6 +101,14 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
     return !handed;
 }
 
+// The pointer on the screen, the posted one when the real one is someone else's.
+function b32 Win__PointerPos(POINT *point)
+{
+    if (!Win.postedPointer) return GetCursorPos(point);
+    *point = Win.postedPoint;
+    return ClientToScreen(Win.window, point);
+}
+
 global HWND WinGhost;
 
 function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY)
@@ -118,7 +127,7 @@ function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX
         if (!WinGhost) return;
     }
     POINT cursor;
-    GetCursorPos(&cursor);
+    Win__PointerPos(&cursor);
     HDC screen = GetDC(NULL), dc = CreateCompatibleDC(screen);
     BITMAPINFO info = { .bmiHeader = { .biSize = sizeof(BITMAPINFOHEADER), .biWidth = width, .biHeight = -height, .biPlanes = 1, .biBitCount = 32, .biCompression = BI_RGB } };
     void *bits = NULL;
@@ -153,7 +162,7 @@ global HWND WinHoverTarget;
 function void PlatformDragHover(b32 active)
 {
     POINT pointer = {0};
-    HWND target = active && GetCursorPos(&pointer) ? Win__OtherWindowAt(pointer) : NULL;
+    HWND target = active && Win__PointerPos(&pointer) ? Win__OtherWindowAt(pointer) : NULL;
     if (WinHoverTarget && WinHoverTarget != target) PostMessageW(WinHoverTarget, WinTabHoverMessage, 0, 0);
     if (target) PostMessageW(target, WinTabHoverMessage, 1, MAKELPARAM((u16)(i16)pointer.x, (u16)(i16)pointer.y));
     WinHoverTarget = target;
@@ -162,7 +171,7 @@ function void PlatformDragHover(b32 active)
 function b32 PlatformOtherWindowAtPointer(String paths)
 {
     POINT pointer;
-    if (!GetCursorPos(&pointer)) return false;
+    if (!Win__PointerPos(&pointer)) return false;
     HWND window = Win__OtherWindowAt(pointer);
     if (!window) return false;
     if (!paths.length) return true;
@@ -265,6 +274,7 @@ function void WinPushMouseEvent(PlatformEventKind kind, LPARAM lParam, MouseButt
     event->y = (f32)(i16)HIWORD(lParam);
     event->button = button;
     event->mods = WinCurrentMods();
+    Win.postedPoint = (POINT){ (i16)LOWORD(lParam), (i16)HIWORD(lParam) };
 }
 
 function void WinMouseButton(PlatformEventKind kind, WPARAM wParam, LPARAM lParam, MouseButton button)

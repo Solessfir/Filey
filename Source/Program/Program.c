@@ -3429,7 +3429,11 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     if (state->marquee && UI->activeKey != state->marqueeKey) state->marquee = false;
     // A new folder starts where it is shown, without easing there from the last one.
     b32 snapScroll = state->resetScroll;
-    if (state->resetScroll) { list->scrollOffset = list->scrollShown = (UI_Vec2){0}; state->resetScroll = false; }
+    if (state->resetScroll) {
+        // A moved tab starts scrolled where it was.
+        list->scrollOffset = list->scrollShown = (UI_Vec2){ 0, state->pickScrollSet ? state->pickScroll : 0 };
+        state->resetScroll = state->pickScrollSet = false;
+    }
 
     // The grid: one item per line in Details and List, and as many cells as fit across in Columns and the icon views, stretched to fill the line.
     // Miller columns list the panel's folder by name.

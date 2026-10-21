@@ -1054,6 +1054,7 @@ typedef struct Prog_Tab {
 //   listScrolls: its items ran past the bottom in the last layout
 //   inspectorView: how its inspector lists folders, kept while the inspector's panel is closed
 //   miller, millerColumns: Miller columns are on, and the folders they list, made in millerArena once they first show
+//   pickNames, pickScroll: a moved tab's selection, in pickArena, and its scroll, which its first listing here takes
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
@@ -1065,7 +1066,8 @@ typedef struct Prog_Tab {
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
-    X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns)
+    X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns) \
+    X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet)
 
 #define Prog__PanelField(type, name) type name;
 typedef struct Prog_Panel {
