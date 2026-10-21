@@ -97,6 +97,24 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
     return !handed;
 }
 
+function b32 PlatformOtherWindowAtPointer(String paths)
+{
+    POINT pointer;
+    if (!GetCursorPos(&pointer)) return false;
+    HWND window = WindowFromPoint(pointer);
+    window = window ? GetAncestor(window, GA_ROOT) : NULL;
+    wchar name[32] = {0};
+    if (!window || window == Win.window || !GetClassNameW(window, name, CArrayCount(name)) || lstrcmpW(name, L"FileyWindow") != 0) return false;
+    if (!paths.length) return true;
+    DWORD process = 0;
+    GetWindowThreadProcessId(window, &process);
+    // The user let go over it, so it may come to the foreground.
+    AllowSetForegroundWindow(process);
+    COPYDATASTRUCT data = { .dwData = WinOpenPathsMagic, .cbData = (DWORD)paths.length, .lpData = (void *)paths.value };
+    DWORD_PTR answer = 0;
+    return SendMessageTimeoutW(window, WM_COPYDATA, (WPARAM)Win.window, (LPARAM)&data, SMTO_ABORTIFHUNG, 2000, &answer) && answer;
+}
+
 function void PlatformInstanceRelease(void)
 {
     if (!WinInstanceMutex) return;

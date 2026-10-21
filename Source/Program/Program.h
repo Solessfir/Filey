@@ -1336,6 +1336,7 @@ typedef struct Prog_State {
     b32 noTrashConfirm;       // emptying the Recycle Bin or the Trash does not ask first
     b32 separateInstances;    // each run of the program opens a window of its own, rather than a tab in the one already open
     b32 separateWindow;       // started as a window of its own beside that one, which keeps the session
+    b32 tabDropOther;         // a dragged tab is over another of the program's windows, which letting go hands it to
     // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;
@@ -1608,6 +1609,7 @@ function const Prog_Icon *Prog_PathIcon(Prog_State *state, String path, P_FileKi
 function const Prog_Icon *Prog_FolderIcon(Prog_State *state, String path);
 function void Prog_ReloadFolderIcon(Prog_State *state, String path);
 function void Prog_ReloadIcons(Prog_State *state);
+function P_FileError Prog_OpenWindow(Prog_State *state, String path);
 function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog_Entry *entry);
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);
 function const Prog_Icon *Prog_ThumbnailStandIn(Prog_State *state, String directory, const Prog_Entry *entry, i32 size);

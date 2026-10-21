@@ -2707,7 +2707,8 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
     Prog__DefaultQuick(state);
     Prog__EnsureTab(state);
     Arena temporary = {0};
-    String absolute = P_AbsolutePath(&temporary, path);
+    // This PC is no folder to resolve.
+    String absolute = StrIsEqual(path, Prog_ThisPC) ? path : P_AbsolutePath(&temporary, path);
     if (absolute.length) Prog_RequestDirectory(state, absolute, true, 0);
     else state->error = S("Cannot resolve the initial directory");
     ArenaRelease(&temporary);
@@ -3112,7 +3113,9 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
             state->historyAt = historyAt;
         } break;
         case Prog_TabDrop_Window: {
-            P_FileError error = P_OpenWindow(&state->frameArena, path);
+            // Over another of the program's windows it goes there, and over anything else into a window of its own.
+            if (PlatformOtherWindowAtPointer(path)) break;
+            P_FileError error = Prog_OpenWindow(state, path);
             if (error.code) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
@@ -3969,6 +3972,12 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);
+}
+
+// A window of its own for `path`, the run started for it told This PC by a flag, as it is no folder.
+function P_FileError Prog_OpenWindow(Prog_State *state, String path)
+{
+    return P_OpenWindow(&state->frameArena, StrIsEqual(path, Prog_ThisPC) ? S("--this-pc") : path);
 }
 
 // Folders a later run of the program handed this one, a line each, each in a new tab of the active panel after its shown one, the last shown.

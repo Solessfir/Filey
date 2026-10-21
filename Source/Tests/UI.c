@@ -96,6 +96,7 @@ function void P_WakeWindow(void) {}
 function void PlatformWindowToggleMaximize(void) { ++TestWindowCalls[1]; }
 function void PlatformWindowToggleFullscreen(void) {}
 function void PlatformWindowClose(void) { ++TestWindowCalls[2]; }
+function b32 PlatformOtherWindowAtPointer(String paths) { (void)paths; return false; }
 function void PlatformWindowStartMove(void) { ++TestWindowCalls[3]; }
 function void PlatformWindowSetSize(i32 width, i32 height, b32 maximized) {}
 function void PlatformWindowRestoredSize(i32 *width, i32 *height) { *width = *height = 0; }

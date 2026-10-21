@@ -325,6 +325,8 @@ int main(void)
     ArrayStr startPaths = P_StartupPaths(startup.arena);
     // With one window for the settings, a later run hands its folders to the one already open and quits; New Window's runs get their own.
     b32 separateWindow = P_StartupFlag(S("--new-window"));
+    // This PC, which is no folder, comes as a flag from a window that opens another for it.
+    if (P_StartupFlag(S("--this-pc"))) ArrayPush(startup.arena, startPaths, Prog_ThisPC);
     if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, startPaths)) {
         ReleaseScratch(startup);
         return 0;

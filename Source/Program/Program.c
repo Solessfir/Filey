@@ -7416,13 +7416,17 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     String path = state->tabDrop.fromSlot < state->tabCount ? Prog_TabPath(state, state->tabDrop.fromSlot) : (String){0};
     Prog__UsePanel(state, state->activePanel);
     b32 copy = (UI->mods & KeyMod_Control) != 0;
-    String action = state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? S("Copy to a new window") : S("Move to a new window (Ctrl to copy)"))
+    String action = state->tabDrop.kind == Prog_TabDrop_Window && state->tabDropOther ? (copy ? S("Copy to that window") : S("Move to that window (Ctrl to copy)"))
+                  : state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? S("Copy to a new window") : S("Move to a new window (Ctrl to copy)"))
                   : copy ? S("Copy") : S("Move (Ctrl to copy)");
-    f32 width = floorf(m->line * 12.0f), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
+    // Wide enough for what it says, and kept inside the window, which it cannot draw outside of.
+    f32 width = MaxF32(floorf(m->line * 12.0f), R_TextWidth(m->font, action) + 2 * m->gap), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
     // A translucent theme's panels would leave it unreadable over the list, so it takes the menus' color there.
     R_Color face = theme->panel.a < 1 ? theme->menu : theme->panel, foot = theme->background.a < 1 ? theme->menu : theme->background;
     R_Rect view = UI->root->rect;
-    UI_SetNextFloatingOffset((UI_Vec2){ floorf(UI->mouse.x - view.x0 - width * 0.3f), floorf(UI->mouse.y - view.y0 + m->gap) });
+    f32 x = UI__Clamp(floorf(UI->mouse.x - view.x0 - width * 0.3f), 0, MaxF32(0, view.x1 - view.x0 - width));
+    f32 y = UI__Clamp(floorf(UI->mouse.y - view.y0 + m->gap), 0, MaxF32(0, view.y1 - view.y0 - height - m->row));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height + m->row));
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -9233,6 +9237,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     if (state->tabDrag) {
         if (!UI__Contains(view, UI->mouse)) state->tabDrop.kind = Prog_TabDrop_Window;
+        state->tabDropOther = state->tabDrop.kind == Prog_TabDrop_Window && PlatformOtherWindowAtPointer(S(""));
         Prog__TabGhost(state, scale, m);
     }
     Prog__Transfers(state, m);

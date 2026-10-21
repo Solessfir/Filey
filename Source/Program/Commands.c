@@ -3346,7 +3346,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->row < state->history.header.count) Prog_RequestDirectory(state, state->history.v[command->row], false, command->row);
             } break;
             case Prog_CommandKind_NewWindow: {
-                P_FileError error = P_OpenWindow(&state->frameArena, Prog_TabPath(state, state->activeTab));
+                P_FileError error = Prog_OpenWindow(state, Prog_TabPath(state, state->activeTab));
                 if (error.code) {
                     ArenaClear(&state->errorArena);
                     state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
