@@ -173,7 +173,9 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     // Type-keyed icons come from the name and attributes alone, so the shell does not open the file.
     // Shared generic keys use a neutral name, since the first file to request one decides it for all.
     String key = P_FileIconKey(scratch.arena, path, kind);
-    b32 byType = !exact && !StrIsEqual(key, path);
+    // A bare name, with no folder, is known by its type alone, as a file only in the cloud is, which reading would download.
+    b32 bare = !StrIndexChar(path, '/', SSF_None).exists && !StrIndexChar(path, '\\', SSF_None).exists;
+    b32 byType = !exact && (!StrIsEqual(key, path) || bare);
     b32 generic = !exact && (StrIsEqual(key, S("/file")) || StrIsEqual(key, S("/folder")));
     wchar *wide = P__FilePathWide(scratch.arena, generic ? S("item") : path);
     b32 result = false;

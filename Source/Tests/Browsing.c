@@ -889,6 +889,11 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(!loaded || (image.width > 0 && image.height > 0 && image.pixels != NULL));
     loaded = P_LoadFileIcon(&arena, fixture->path, P_FileKind_Directory, 16, 1, true, &image);
     Check(!loaded || (image.width > 0 && image.height > 0));
+    // A bare name, as a file only in the cloud is asked by, gets its type's icon though no such file is there to read.
+    loaded = P_LoadFileIcon(&arena, S("nowhere.exe"), P_FileKind_File, 16, 1, false, &image);
+#if defined(_WIN32)
+    Check(loaded && image.width > 0);
+#endif
     // A picture is its own thumbnail.
     local_persist const char pixel[] = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\xda\x63\xfc\xcf\xc0\x50\x0f\x00\x04\x85\x01\x80\x84\xa9\x8c\x21\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
     String picture = Prog_JoinPath(&arena, fixture->path, S("pixel.png"));

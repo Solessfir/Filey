@@ -352,6 +352,7 @@ function b32 P_IconThemeChanged(void);
 // The image may be larger or smaller; scaling is left to the caller.
 // May touch the disk, so run it in a job.
 // `exact` asks for the icon of this very item, as for special folders such as the desktop, rather than the one of its type.
+// A bare name, with no folder, gets its type's icon, from the name alone.
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, f32 scale, b32 exact, P_Image *image);
 // A large picture for icon views, fitting a size x size square: the system's thumbnail where it makes one (an image's contents, a folder's preview),
 // else the icon unless `thumbnailOnly`, which then fails. A program Linux runs to make it is stopped once `cancel`, which may be NULL, is.
