@@ -257,6 +257,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_RecentsCheck,
     Prog_JobKind_GitBranches,  // the local branches of the repository at `path`
     Prog_JobKind_GitSwitch,    // `git switch name` in `path`
+    Prog_JobKind_GitPull,      // `git pull --ff-only` in `path`
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
@@ -433,6 +434,7 @@ typedef struct Prog_JobInput {
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
     b32 redo;              // Undo: the step came from the redo stack
+    b32 fetch;             // Git: fetches from the remote first
     // Index lists `paths`, the index entries `entries`, keeps at most `room` of what it finds and adds that to the file `name` when there is one,
     // emptied first with `paths` as its roots when `restart` is set. IndexLoad reads the index file `name`; IndexFinish moves `path` over `name`.
     u32 *entries;
@@ -516,6 +518,7 @@ typedef struct Prog_Repos {
 // it, -1 for each when that is not known, and the changes not yet committed, in all and in the folder.
 typedef struct Prog_GitStatus {
     String branch;
+    String root;     // the repository's folder
     i32 ahead, behind;
     u32 changes;
     u32 counts[Prog_GitMark_Count];  // the changes by kind, a deletion counted as a change
@@ -731,6 +734,7 @@ typedef enum Prog_Option {
     Prog_Option_Breadcrumbs,
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
+    Prog_Option_GitFetch,
     Prog_Option_CompressionLevel,
     Prog_Option_VideoCodec,
     Prog_Option_VideoQuality,
@@ -1488,6 +1492,13 @@ typedef struct Prog_State {
     // While several items are selected, the rows show boxes that check them in place of their icons.
     b32 showCheckboxes;
     b32 noTrashConfirm;       // emptying the Recycle Bin or the Trash does not ask first
+    // git.fetch: the shown folder's repository is fetched from its remote now and then, which keeps the commits to pull counted; the last one
+    // fetched and when, so that each is fetched at most every few minutes.
+    b32 gitFetch;
+    char gitFetchedRoot[1024];
+    u32 gitFetchedLength;
+    u64 gitFetchedTime;
+    P_Job *gitPullJob;
     b32 separateInstances;    // each run of the program opens a window of its own, rather than a tab in the one already open
     b32 separateWindow;       // started as a window of its own beside that one, which keeps the session
     b32 tabDropOther;         // a dragged tab is over another of the program's windows, which letting go hands it to
@@ -1820,6 +1831,7 @@ function b32 Prog_IsTorrent(String text);
 function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function String Prog_TorrentListing(Arena *arena, String path);
 function void Prog_DownloadTorrentFile(Prog_State *state, String path);
+function void Prog_GitPull(Prog_State *state);
 function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel);
 function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);

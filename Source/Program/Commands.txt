@@ -1750,6 +1750,12 @@ command NoticesUnmuteAll {
     tooltip = "Show the kinds of notice muted with their bell again."
 }
 
+command GitPull {
+    label   = "Git Pull^update,fetch,commits,remote"
+    tooltip = "Bring the shown folder's repository up to its remote, only where that moves it forward, without merging."
+    repeat  = "false"
+}
+
 command GitBranchesOpen {
 }
 

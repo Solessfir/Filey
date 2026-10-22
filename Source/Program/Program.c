@@ -653,7 +653,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->separateInstances = false;
+    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->separateInstances = state->gitFetch = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
@@ -774,6 +774,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->noHighlight = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("checkboxes"))) {
             state->showCheckboxes = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("git.fetch"))) {
+            state->gitFetch = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("trash.confirm"))) {
             state->noTrashConfirm = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("instances.single"))) {
@@ -921,6 +923,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
+    StrBuildStr(arena, &text, S("\n# Whether the shown folder's git repository is fetched now and then, as far as that needs no sign-in, to count the commits to pull.\n"
+                                "# git.fetch = false\n"));
     StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
                                 "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"
                                 "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"));
@@ -1035,6 +1039,9 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionSwitch, 2, SInit("checkboxes") },
     [Prog_Option_ConfirmEmptyTrash] = { TrInit("Confirm Emptying Recycle Bin"), TrInit("Ask before permanently deleting everything in the Recycle Bin."),
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
+    [Prog_Option_GitFetch] = { TrInit("Fetch Repositories"),
+                               TrInit("Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone."),
+                               Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("git.fetch") },
     [Prog_Option_CompressionLevel] = { TrInit("Compression Level"), TrInit("How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest."),
                                        Prog_OptionControl_Slider, 0, 9, NULL, 0, SInit("archive.level") },
     [Prog_Option_VideoCodec] = { TrInit("Video Codec"), TrInit("What Compress Video encodes to, on the graphics card when it has an encoder for it: NVENC, AMF or Quick Sync."),
@@ -1165,6 +1172,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
+        case Prog_Option_GitFetch: return state->gitFetch;
         case Prog_Option_CompressionLevel: return state->archiveLevel;
         case Prog_Option_VideoCodec: return state->videoCodec;
         case Prog_Option_VideoQuality: return state->videoQuality;
@@ -2878,6 +2886,13 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
             Prog__Spacer(UI_Pixels(gap), UI_Pixels(inner));
             Prog__Label(changes[mark], UI_TextContent(), inner, 0, Prog__GitInk((Prog_GitMark)mark), 0);
         }
+    }
+    // Commits to pull are pulled by the button beside it, as git can without merging.
+    if (state->git.behind > 0) {
+        UI_Interaction pull = Prog__TextButton(StrFormat(frame, "GitPull/%" PRIu64, Prog__PanelId(state)), Icon_Download, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)),
+                                               Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, !state->gitPullJob, m);
+        Prog__NoteTooltip(state, Prog_CommandKind_GitPull, (String){0});
+        if (pull.clicked && !state->gitPullJob) Prog_QueueCommand(state, Prog_CommandKind_GitPull, 0, 0, pull.clickOrder);
     }
     Prog__Spacer(UI_Pixels(m->gap - pad), UI_Pixels(bar));
 }

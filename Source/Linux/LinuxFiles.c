@@ -1869,8 +1869,8 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
 }
 
 // The command gets a process group of its own, so that stopping or pausing it reaches the programs it started too, as yt-dlp's ffmpeg.
-function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, b32 errors, u32 timeoutMilliseconds, P_CommandOutput *output,
-                           void *user, const P_CancelToken *cancel, P_Progress *progress)
+function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount, b32 errors,
+                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress)
 {
     if (!count) return false;
     Scratch scratch = GetScratchEx(conflict);
@@ -1888,6 +1888,25 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
     char **args = ArenaPushArray(scratch.arena, count + 1, char *);
     for (u32 i = 0; i < count; ++i) args[i] = P__FilePathCString(scratch.arena, arguments[i]);
     char *folder = P__FilePathCString(scratch.arena, directory);
+    // The program's own environment with `environment` over it, as getenv takes the first of a name.
+    char **variables = environ;
+    if (environmentCount) {
+        u64 own = 0;
+        while (environ[own]) ++own;
+        variables = ArenaPushArray(scratch.arena, own + environmentCount + 1, char *);
+        u64 kept = 0;
+        for (u32 i = 0; i < environmentCount; ++i) variables[kept++] = P__FilePathCString(scratch.arena, environment[i]);
+        for (u64 i = 0; i < own; ++i) {
+            String entry = StrFromCStr(environ[i]);
+            Index equals = StrIndexChar(entry, '=', SSF_None);
+            b32 replaced = false;
+            for (u32 j = 0; equals.exists && j < environmentCount && !replaced; ++j) {
+                replaced = environment[j].length > equals.value && environment[j].value[equals.value] == '=' && StrIsEqual(StrFromTo(entry, 0, (i64)equals.value + 1), StrFromTo(environment[j], 0, (i64)equals.value + 1));
+            }
+            if (!replaced) variables[kept++] = environ[i];
+        }
+        variables[kept] = NULL;
+    }
     i32 ends[2] = {0};
     b32 result = false;
     if (program && folder && pipe2(ends, O_CLOEXEC) == 0) {
@@ -1901,7 +1920,7 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
                 dup2(quiet, 0);
                 if (!errors) dup2(quiet, 2);
             }
-            if (chdir(folder) == 0) execve(program, args, environ);
+            if (chdir(folder) == 0) execve(program, args, variables);
             _exit(127);
         }
         close(ends[1]);
@@ -1955,18 +1974,24 @@ function void P__CollectOutput(void *user, String text)
     StrBuildStr(collected->arena, &collected->text, text);
 }
 
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
+                              u32 timeoutMilliseconds, String *output, b32 errors)
 {
     P__CommandText collected = { .arena = arena };
-    b32 result = P__RunCommand(arena, directory, arguments, count, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
+    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
     *output = collected.text.buffer;
     return result;
+}
+
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+{
+    return P_RunCommandWith(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors);
 }
 
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
                                 P_Progress *progress)
 {
-    return P__RunCommand(NULL, directory, arguments, count, errors, 0, output, user, cancel, progress);
+    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress);
 }
 
 function b32 P_PathExists(String path)

@@ -785,8 +785,8 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
 
 // The programs a command runs are kept in a job object that closes with them, so that stopping one stops what it started too, as yt-dlp's
 // ffmpeg. ntdll's NtSuspendProcess pauses them, which no documented call does for a whole process.
-function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, b32 errors, u32 timeoutMilliseconds, P_CommandOutput *output,
-                           void *user, const P_CancelToken *cancel, P_Progress *progress)
+function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount, b32 errors,
+                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress)
 {
     if (!count) return false;
     typedef LONG (WINAPI *SuspendCall)(HANDLE);
@@ -807,6 +807,33 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
     wchar *wide = ArenaPushArray(scratch.arena, (u64)length + 1, wchar);
     MultiByteToWideChar(CP_UTF8, 0, line.buffer.value, (i32)line.buffer.length, wide, length);
     wchar *folder = P__FilePathWide(scratch.arena, directory);
+    // The program's own environment with `environment` over it, each "NAME=value" ended by a zero, the whole ended by another.
+    wchar *block = NULL;
+    if (environmentCount) {
+        StrBuilder joined = {0};
+        wchar *own = GetEnvironmentStringsW();
+        for (const wchar *at = own; at && *at; at += lstrlenW(at) + 1) {
+            String entry = P__FileStringWide(scratch.arena, at, lstrlenW(at));
+            Index equals = StrIndexChar(entry, '=', SSF_None);
+            b32 replaced = false;
+            for (u32 i = 0; equals.exists && equals.value && i < environmentCount && !replaced; ++i) {
+                Index named = StrIndexChar(environment[i], '=', SSF_None);
+                // Windows' names match whatever their case.
+                replaced = named.exists && named.value == equals.value;
+                for (u64 c = 0; replaced && c < named.value; ++c) {
+                    char a = entry.value[c], b = environment[i].value[c];
+                    replaced = (a >= 'a' && a <= 'z' ? a - 32 : a) == (b >= 'a' && b <= 'z' ? b - 32 : b);
+                }
+            }
+            if (!replaced) StrBuildStr(scratch.arena, &joined, entry), StrBuildChar(scratch.arena, &joined, 0);
+        }
+        if (own) FreeEnvironmentStringsW(own);
+        for (u32 i = 0; i < environmentCount; ++i) StrBuildStr(scratch.arena, &joined, environment[i]), StrBuildChar(scratch.arena, &joined, 0);
+        StrBuildChar(scratch.arena, &joined, 0);
+        i32 wideLength = MultiByteToWideChar(CP_UTF8, 0, joined.buffer.value, (i32)joined.buffer.length, NULL, 0);
+        block = ArenaPushArray(scratch.arena, (u64)wideLength + 1, wchar);
+        MultiByteToWideChar(CP_UTF8, 0, joined.buffer.value, (i32)joined.buffer.length, block, wideLength);
+    }
     SECURITY_ATTRIBUTES inherit = { .nLength = sizeof(inherit), .bInheritHandle = TRUE };
     HANDLE readEnd = NULL, writeEnd = NULL;
     HANDLE group = CreateJobObjectW(NULL, NULL);
@@ -819,7 +846,7 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
         SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
         STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = errors ? writeEnd : NULL, .hStdInput = NULL };
         PROCESS_INFORMATION process = {0};
-        b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, folder, &startup, &process) != 0;
+        b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, block, folder, &startup, &process) != 0;
         CloseHandle(writeEnd);
         if (started) {
             if (group) AssignProcessToJobObject(group, process.hProcess);
@@ -880,18 +907,24 @@ function void P__CollectOutput(void *user, String text)
     StrBuildStr(collected->arena, &collected->text, text);
 }
 
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
+                              u32 timeoutMilliseconds, String *output, b32 errors)
 {
     P__CommandText collected = { .arena = arena };
-    b32 result = P__RunCommand(arena, directory, arguments, count, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
+    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
     *output = collected.text.buffer;
     return result;
+}
+
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+{
+    return P_RunCommandWith(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors);
 }
 
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
                                 P_Progress *progress)
 {
-    return P__RunCommand(NULL, directory, arguments, count, errors, 0, output, user, cancel, progress);
+    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress);
 }
 
 function b32 P_IsDirectory(String path)

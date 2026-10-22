@@ -1085,8 +1085,14 @@ function void TestFileIcons(TestFileFixture *fixture)
     String made = {0};
     Check(!P_CreateItem(&arena, fixture->path, S(".git"), true, &made).code);
     Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, Prog_JoinPath(&arena, fixture->path, S(".git")), S("HEAD")), S("ref: refs/heads/topic\n")).code);
-    Prog_GitStatus git = Prog_FindGitStatus(&arena, Prog_JoinPath(&arena, fixture->path, S("Folder2")));
-    Check(StrIsEqual(git.branch, S("topic")) && git.ahead == -1 && git.behind == -1);
+    Prog_GitStatus git = Prog_FindGitStatus(&arena, Prog_JoinPath(&arena, fixture->path, S("Folder2")), false);
+    Check(StrIsEqual(git.branch, S("topic")) && git.ahead == -1 && git.behind == -1 && StrIsEqual(git.root, fixture->path));
+    // A command's own environment reaches it, over the program's, as git's quieting does; git var prints the editor it was given.
+    {
+        String editor[] = { S("GIT_EDITOR=filey-test-editor") }, asked[] = { S("git"), S("var"), S("GIT_EDITOR") }, said = {0};
+        Check(P_RunCommandWith(&arena, fixture->path, asked, CArrayCount(asked), editor, CArrayCount(editor), 10000, &said, false));
+        Check(StrIndexStr(said, S("filey-test-editor"), SSF_None).exists);
+    }
     Check(P__TestRemovePath(fixture, S(".git/HEAD"), false) && P__TestRemovePath(fixture, S(".git"), true));
     String part = {0};
     Check(P_ReadFileAt(&arena, plain, 1, 8, &part) && StrIsEqual(part, S("\x02")));

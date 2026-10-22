@@ -301,6 +301,9 @@ function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *conte
 // output, with `errors` what it wrote to its standard error too, such as git's messages; false when it could not start, ran past
 // `timeoutMilliseconds` (it is then stopped) or exited with an error.
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors);
+// P_RunCommand with `environment`, "NAME=value" each, set for the command alone over the program's own.
+function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
+                              u32 timeoutMilliseconds, String *output, b32 errors);
 // What a command writes, handed over as it comes.
 typedef void P_CommandOutput(void *user, String text);
 // Runs a command as P_RunCommand does but without a time limit, handing what it writes to `output` as it comes. `cancel` stops it and the

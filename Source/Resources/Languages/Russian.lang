@@ -2839,3 +2839,21 @@ Pause the download.
 Stop the download; downloading it again goes on from here.
 = Остановить загрузку; повторная загрузка продолжится с этого места.
 
+Git Pull
+= Git Pull
+
+Bring the shown folder's repository up to its remote, only where that moves it forward, without merging.
+= Подтянуть репозиторий текущей папки до удалённого, только если это просто сдвиг вперёд, без слияния.
+
+Couldn't pull
+= Не удалось выполнить pull
+
+git could not pull
+= git не смог выполнить pull
+
+Fetch Repositories
+= Получать изменения репозиториев
+
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
+= Время от времени, не чаще раза в пять минут, выполнять fetch для git-репозитория текущей папки, чтобы считать коммиты для pull; репозитории, требующие входа, не трогаются.
+

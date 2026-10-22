@@ -1345,7 +1345,11 @@ function b32 Prog__ReadGitHead(Arena *arena, String at, String *head)
     return found;
 }
 
-function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
+// What git is run with, so that a command that needs a sign-in fails at once rather than asking for one where no one can answer.
+#define Prog__GitQuiet { S("GIT_TERMINAL_PROMPT=0"), S("GCM_INTERACTIVE=never") }
+
+// The git status of the repository `folder` is in; with `fetch` its remote's commits are fetched first, as far as that needs no sign-in.
+function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder, b32 fetch)
 {
     Prog_GitStatus result = { .ahead = -1, .behind = -1 };
     if (!folder.length || StrIsEqual(folder, Prog_ThisPC)) return result;
@@ -1353,6 +1357,11 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
         String head = {0};
         if (!Prog__ReadGitHead(arena, at, &head)) continue;
         result.branch = Prog_GitBranch(head);
+        result.root = at;
+        if (fetch) {
+            String quiet[] = Prog__GitQuiet, fetching[] = { S("git"), S("fetch"), S("--quiet") }, said = {0};
+            P_RunCommandWith(arena, folder, fetching, CArrayCount(fetching), quiet, CArrayCount(quiet), 30000, &said, true);
+        }
         String arguments[] = { S("git"), S("rev-list"), S("--left-right"), S("--count"), S("HEAD...@{upstream}") };
         String counts = {0};
         if (P_RunCommand(arena, folder, arguments, CArrayCount(arguments), 3000, &counts, false)) {
@@ -1934,7 +1943,7 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     if (input->kind == Prog_JobKind_Git) {
         Prog_GitStatus *result = ArenaPushStruct(&job->arena, Prog_GitStatus);
-        *result = Prog_FindGitStatus(&job->arena, input->path);
+        *result = Prog_FindGitStatus(&job->arena, input->path, input->fetch);
         job->result = result;
         return;
     }
@@ -1985,11 +1994,23 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     // Switching branch never forces it: git carries changes not committed along, and refuses, changing nothing, where they would be
     // overwritten, which its message then says.
-    if (input->kind == Prog_JobKind_GitSwitch) {
+    // A pull only ever moves the branch forward, never merging or rebasing; git refuses, changing nothing, where it cannot.
+    if (input->kind == Prog_JobKind_GitSwitch || input->kind == Prog_JobKind_GitPull) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
-        String arguments[] = { S("git"), S("switch"), input->name }, said = {0};
-        if (!P_RunCommand(&job->arena, input->path, arguments, CArrayCount(arguments), 15000, &said, true)) {
-            // Its lines and their tabs as one line for the status bar.
+        b32 pull = input->kind == Prog_JobKind_GitPull;
+        String switching[] = { S("git"), S("switch"), input->name }, pulling[] = { S("git"), S("pull"), S("--ff-only"), S("--quiet") }, said = {0};
+        String quiet[] = Prog__GitQuiet;
+        if (!P_RunCommandWith(&job->arena, input->path, pull ? pulling : switching, pull ? CArrayCount(pulling) : CArrayCount(switching), quiet, CArrayCount(quiet),
+                              pull ? 120000 : 15000, &said, true)) {
+            // Its lines and their tabs as one line for the status bar, without git's hints on what to do instead.
+            StrBuilder kept = {0};
+            for (u64 at = 0; at < said.length;) {
+                Index end = StrIndexChar(StrFrom(said, at), '\n', SSF_CountOnFail);
+                String line = StrFromTo(said, at, (i64)Min(at + end.value + 1, said.length));
+                at += end.value + 1;
+                if (!(line.length >= 5 && StrIsEqual(StrFromTo(line, 0, 5), S("hint:")))) StrBuildStr(&job->arena, &kept, line);
+            }
+            said = kept.buffer;
             StrBuilder message = {0};
             for (u64 i = 0; i < said.length; ++i) {
                 char c = said.value[i] == '\n' || said.value[i] == '\r' || said.value[i] == '\t' ? ' ' : said.value[i];
@@ -1998,7 +2019,7 @@ function void Prog__DirectoryJob(P_Job *job)
             }
             String text = message.buffer;
             while (text.length && text.value[text.length - 1] == ' ') --text.length;
-            *error = (P_FileError){ 1, text.length ? text : S("git could not switch") };
+            *error = (P_FileError){ 1, text.length ? text : pull ? TrMark("git could not pull") : S("git could not switch") };
         }
         job->result = error;
         return;
@@ -2414,6 +2435,10 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Git;
     input->path = StrCopy(&job->arena, folder);
+    // A repository is fetched at most every five minutes, the one last fetched by its folder.
+    String fetched = StrMake(state->gitFetchedRoot, state->gitFetchedLength);
+    b32 inside = fetched.length && folder.length >= fetched.length && StrIsEqual(StrFromTo(folder, 0, (i64)fetched.length), fetched);
+    input->fetch = state->gitFetch && (!inside || state->gitTime - state->gitFetchedTime > UINT64_C(300000000));
     job->input = input;
     state->gitJob = job;
     P_JobSubmit(job);
@@ -2494,6 +2519,7 @@ function String Prog__NoticeKey(Arena *arena, String verb)
 // A kind of notice as Options lists it: "rename.failed" as "Rename failed", the rest by their own names.
 function String Prog_NoticeKindName(Arena *arena, String key)
 {
+    if (StrIsEqual(key, S("pull.failed"))) return Tr("Couldn't pull");
     if (StrIsEqual(key, S("undo.nothing"))) return Tr("Nothing to undo or redo");
     if (StrIsEqual(key, S("pasteshortcut.failed"))) return Tr("Paste shortcut failed");
     Index dot = StrIndexChar(key, '.', SSF_None);
@@ -2650,6 +2676,20 @@ function void Prog_ToggleBranches(Prog_State *state)
     input->path = StrCopy(&job->arena, state->directory.path);
     job->input = input;
     state->branchesJob = job;
+    P_JobSubmit(job);
+}
+
+// Pulls the shown folder's repository's new commits in a job, one at a time.
+function void Prog_GitPull(Prog_State *state)
+{
+    if (state->gitPullJob || !state->git.branch.length) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_GitPull;
+    input->path = StrCopy(&job->arena, state->directory.path);
+    job->input = input;
+    state->gitPullJob = job;
     P_JobSubmit(job);
 }
 
@@ -5124,6 +5164,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Git) {
             if (state->gitJob == job) state->gitJob = NULL;
             const Prog_GitStatus *status = job->result;
+            // Fetched or not, as one that failed would only fail again soon.
+            if (input->fetch && status && status->root.length && status->root.length <= sizeof(state->gitFetchedRoot)) {
+                MemCopy(state->gitFetchedRoot, status->root.value, status->root.length);
+                state->gitFetchedLength = (u32)status->root.length;
+                state->gitFetchedTime = PlatformNowMicroseconds();
+            }
             if (status && StrIsEqual(input->path, state->directory.path)) {
                 ArenaClear(&state->gitArena);
                 state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
@@ -5145,6 +5191,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 for (u64 i = 0; i < state->branches.header.count; ++i) if (StrIsEqual(state->branches.v[i], state->git.branch)) state->branchesHighlight = (u32)i;
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_GitPull) {
+            if (state->gitPullJob == job) state->gitPullJob = NULL;
+            const P_FileError *error = job->result;
+            if (error && error->code) Prog_Notify(state, Prog_NoticeKind_Error, S("pull.failed"), Tr("Couldn't pull"), error->message);
+            Prog_RequestGitStatus(state, state->directory.path);
+            if (!error || !error->code) Prog_Reload(state);
+            changed = true;
         } else if (input->kind == Prog_JobKind_GitSwitch) {
             const P_FileError *error = job->result;
             // Refused, nothing changed, and its message stays in the status bar, which a listing would clear; else the files change with
