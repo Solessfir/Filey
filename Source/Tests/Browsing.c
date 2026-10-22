@@ -475,6 +475,14 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(!Prog_OptionIsDefault(&quiet, Prog_Option_Font));
         Prog_RestoreOption(&quiet, Prog_Option_Font);
         Check(Prog_OptionIsDefault(&quiet, Prog_Option_Font));
+        // ffprobe's compact lines read by field, and its numbers, ratios too; media files by their extensions.
+        {
+            String line = S("codec_name=h264|codec_type=video|width=640|avg_frame_rate=30000/1001");
+            Check(StrIsEqual(Prog__MediaField(line, S("codec_type")), S("video")) && !Prog__MediaField(line, S("codec")).length);
+            f64 fps = Prog__MediaNumber(Prog__MediaField(line, S("avg_frame_rate")));
+            Check(fps > 29.96 && fps < 29.98 && Prog__MediaNumber(S("5.250000")) == 5.25 && Prog__MediaNumber(S("0/0")) == 0);
+            Check(Prog_IsAudio(S("a/Song.FLAC")) && Prog_IsVideo(S("clip.mkv")) && !Prog_IsAudio(S("clip.mkv")) && !Prog_IsVideo(S("notes")));
+        }
         // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a
         // built-in language's name adds to it; English again takes them all away.
         {

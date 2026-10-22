@@ -9490,7 +9490,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     String none = S("--");
     String size = folder ? (entry->measured ? Prog_FormatSize(frame, entry->bytes) : none) : Prog_FormatSize(frame, entry->file.size);
     String created = entry->file.createdTimeUnix ? P_FormatFileTime(frame, entry->file.createdTimeUnix) : none;
-    String labels[7], values[7];
+    String labels[16], values[16];
     u32 count = 0;
     labels[count] = Tr("Path"), values[count++] = path;
     labels[count] = Tr("Type"), values[count++] = Prog_Tr(entry->type);
@@ -9501,6 +9501,14 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = Tr("Created"), values[count++] = created;
     labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
+    // An audio or video file's details, once its preview has read them.
+    for (u64 at = 0; state->previewMedia.length && at < state->previewMedia.length && count < CArrayCount(labels);) {
+        Index end = StrIndexChar(StrFrom(state->previewMedia, at), '\n', SSF_CountOnFail);
+        String line = StrFromTo(state->previewMedia, at, (i64)(at + end.value));
+        at += end.value + 1;
+        Index tab = StrIndexChar(line, '\t', SSF_None);
+        if (tab.exists) labels[count] = Prog_Tr(StrFromTo(line, 0, (i64)tab.value)), values[count++] = StrFrom(line, tab.value + 1);
+    }
     // Where the system has permissions, a row of their letters, owner's, group's and others', each turned on and off by a click.
     u16 mode = entry->file.mode;
     if (mode) state->permissionsPath = Prog_JoinPath(frame, state->directory.path, entry->file.name);

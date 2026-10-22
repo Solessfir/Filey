@@ -2007,6 +2007,9 @@ function void Prog__DirectoryJob(P_Job *job)
         P_Image image = {0};
         P_FileArray items = {0};
         b32 model = !input->hex && !input->folder && !input->archive && Prog_ModelMesh(&job->arena, path, input->size, &job->cancelToken, &result->model);
+        b32 media = !input->hex && !input->folder && !input->archive, audio = media && Prog_IsAudio(path), video = media && Prog_IsVideo(path);
+        f64 seconds = 0;
+        if (audio || video) result->media = Prog_MediaDetails(&job->arena, path, &seconds);
         if (input->archive) {
             // Counted up to the same limit as a listing; short of it, that is all there is.
             if (!P_IsCancelled(&job->cancelToken)) {
@@ -2026,6 +2029,16 @@ function void Prog__DirectoryJob(P_Job *job)
                    P_LoadImageFile(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             // Its first page, before the text, which a PDF of plain ASCII would read as, and the sizes of all of them, to scroll through.
             result->pdfPages = P_PdfPages(&job->arena, path, Prog_MaxPdfPages, &result->pdfSizes);
+            result->pixels = image.pixels;
+            result->width = image.width;
+            result->height = image.height;
+            result->image = true;
+        } else if (audio && !P_IsCancelled(&job->cancelToken) && Prog_MediaWaveform(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+            result->pixels = image.pixels;
+            result->width = image.width;
+            result->height = image.height;
+            result->image = true;
+        } else if (video && !P_IsCancelled(&job->cancelToken) && Prog_MediaFrame(&job->arena, path, seconds, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
             result->width = image.width;
             result->height = image.height;
@@ -5004,6 +5017,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             } else if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
+                state->previewMedia = StrCopy(&state->previewArena, preview->media);
                 state->previewAnchor = state->previewCaret = 0;
                 state->previewTextFocus = false;
                 state->previewHex = false;

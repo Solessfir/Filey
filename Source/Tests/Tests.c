@@ -34,6 +34,7 @@
 #include "Program/Blp.c"
 #include "Program/Models.c"
 #include "Program/Office.c"
+#include "Program/Media.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
 

@@ -2072,7 +2072,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     Prog__DropModel(&state->model);
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
-    state->previewText = (String){0};
+    state->previewText = state->previewMedia = (String){0};
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;

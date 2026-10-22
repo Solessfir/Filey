@@ -586,6 +586,7 @@ typedef struct Prog_Preview {
     u32 pdfPages;                   // a PDF's pages, with each one's width and height in points
     f32 *pdfSizes;
     Prog_ModelShape model;          // a 3D model's mesh, when it has indices
+    String media;                   // an audio or video file's details from ffprobe, a "label\tvalue" line each
 } Prog_Preview;
 
 // Pages of a PDF read at most, and drawn ones kept at once, each in a texture of its own.
@@ -1103,7 +1104,7 @@ typedef struct Prog_PdfView {
 //   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
 //     picked for its version previewKeptVersion
 #define Prog_PreviewFields(X) \
-    X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(R_TextureHandle, previewTexture) \
+    X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(R_TextureHandle, previewTexture) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
@@ -1786,6 +1787,13 @@ function b32 Prog_LoadBlp(Arena *arena, String path, i32 maxSide, P_Image *out, 
 // A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.
 function b32 Prog_IsOffice(String path);
 function String Prog_OfficeText(Arena *arena, String path, u64 size);
+// An audio or video file by its extension, the details ffprobe reads of it with its length in seconds, an audio file's waveform and a video's frame
+// from ffmpeg; nothing without the tools.
+function b32 Prog_IsAudio(String path);
+function b32 Prog_IsVideo(String path);
+function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds);
+function b32 Prog_MediaWaveform(Arena *arena, String path, i32 side, P_Image *image, i32 *width, i32 *height);
+function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, i32 side, P_Image *image, i32 *width, i32 *height);
 function String Prog_FormatSize(Arena *arena, u64 bytes);
 function void Prog_InspectFolder(Prog_State *state, String path);
 function i32 Prog_CompareNames(String a, String b);
