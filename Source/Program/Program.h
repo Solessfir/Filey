@@ -363,6 +363,7 @@ typedef enum Prog_ArchiveOp {
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
     enum8(Prog_ArchiveOp) archiveOp;
+    u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;
@@ -695,6 +696,7 @@ typedef enum Prog_Option {
     Prog_Option_Breadcrumbs,
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
+    Prog_Option_CompressionLevel,
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
     Prog_Option_StoreRecents,
@@ -1447,6 +1449,7 @@ typedef struct Prog_State {
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;
     enum8(Prog_StoreRecents) storeRecents;
+    u8 archiveLevel;  // the compression level of the archives Filey writes, 0 to 9
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
     b32 showRecents, sortRecents;
     b32 noVSync;

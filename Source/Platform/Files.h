@@ -58,7 +58,8 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
 // Copies the items at `paths` on disk into the folder `inner` of `archive`, in place of what has their names there, making the archive when
 // it is not there yet. The archive is rewritten
 // beside it and put in place once complete, so that a cancel leaves it as it was; formats libarchive cannot write, such as RAR, fail.
-function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, P_Progress *progress, const P_CancelToken *cancel);
+// `level` is how hard the items are compressed, from 0, stored as they are, to 9, the smallest, where the format has levels.
+function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, u32 level, P_Progress *progress, const P_CancelToken *cancel);
 // Whether P_AddToArchive writes the archive `archive`, by its name alone: zip, 7z and tar, not RAR or cabinets, which no free library writes.
 function b32 P_ArchiveWritable(String archive);
 // Starts dragging the items `names` of the folder `inner` in `archive`, which a drop copies out. Linux takes them out into P_RunFolder first;

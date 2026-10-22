@@ -439,6 +439,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
+    state->archiveLevel = 9;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
@@ -518,6 +519,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             }
         } else if (StrIsEqual(name, S("newtab"))) {
             for (u32 i = 0; i < Prog_NewTab_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabs[i])) state->newTab = (u8)i;
+        } else if (StrIsEqual(name, S("archive.level"))) {
+            if (number >= 0 && number <= 9) state->archiveLevel = (u8)number;
         } else if (StrIsEqual(name, S("notices"))) {
             for (u32 i = 0; i <= Prog_NoticeKind_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNotices[i])) state->noticeLevel = (u8)i;
         } else if (StrIsEqual(name, S("recents.store"))) {
@@ -658,6 +661,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
+                                "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"
                                 "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n\n"
                                 "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
@@ -786,6 +790,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionSwitch, 2, SInit("checkboxes") },
     [Prog_Option_ConfirmEmptyTrash] = { SInit("Confirm Emptying Recycle Bin"), SInit("Ask before permanently deleting everything in the Recycle Bin."),
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
+    [Prog_Option_CompressionLevel] = { SInit("Compression Level"), SInit("How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest."),
+                                       Prog_OptionControl_Slider, 0, 9, NULL, 0, SInit("archive.level") },
     [Prog_Option_Notices] = { SInit("Notifications"), SInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
     [Prog_Option_MutedNotices] = { SInit("Muted Notifications"), SInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
@@ -908,6 +914,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
+        case Prog_Option_CompressionLevel: return state->archiveLevel;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
         case Prog_Option_MutedNotices: return (i32)state->mutedNotices.header.count;
@@ -1416,6 +1423,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_Notices: return Prog_NoticeKind_Info;
         case Prog_Option_CharacterKeyAction: return Prog_CharacterKeys_TypeInFilter;
         case Prog_Option_PopupBlur: return 24;
+        case Prog_Option_CompressionLevel: return 9;
         case Prog_Option_PopupOpacity: return (i32)floorf(Prog_ThemeGlass.menu.a * 100 + 0.5f);
         case Prog_Option_WindowOpacity: return (i32)floorf(Prog_ThemeGlass.window.a * 100 + 0.5f);
         case Prog_Option_Backdrop: return PlatformBackdrop_Acrylic;

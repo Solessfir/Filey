@@ -2073,6 +2073,7 @@ function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String
     input->panel = Prog__PanelId(state);
     input->kind = (u8)kind;
     input->archiveOp = (u8)op;
+    input->archiveLevel = state->archiveLevel;
     input->path = StrCopy(&job->arena, directory);
     input->paths = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
     for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);

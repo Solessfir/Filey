@@ -353,7 +353,7 @@ function b32 P_ArchiveWritable(String archive)
 }
 
 // A writer to `path` in the format and with the compression of `reader`'s archive, whose first header is read, or of what `like` is named.
-function void *P__ArchiveWriter(void *reader, String path, String like)
+function void *P__ArchiveWriter(void *reader, String path, String like, u32 level)
 {
     P__Archive *a = &P__archive;
     i32 format = 0, filter = 0;
@@ -373,6 +373,12 @@ function void *P__ArchiveWriter(void *reader, String path, String like)
     // Names go in as UTF-8 rather than in the system's code page, which has no letters for most of them; formats that always store
     // Unicode, as 7z does, have no such option and say so, which changes nothing.
     if (ok) a->writeOptions(writer, "hdrcharset=UTF-8");
+    // The level for whichever of the format and its filter take one; the others say they do not, which changes nothing.
+    if (ok) {
+        char option[32];
+        snprintf(option, sizeof(option), "compression-level=%u", Min(level, 9u));
+        a->writeOptions(writer, option);
+    }
     ok = ok && a->writeOpen(writer, native) == 0;
     if (!ok && writer) {
         a->writeFree(writer);
@@ -383,7 +389,7 @@ function void *P__ArchiveWriter(void *reader, String path, String like)
 }
 
 // The progress counts the archive file read through as it is copied over, then the items added.
-function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, P_Progress *progress, const P_CancelToken *cancel)
+function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, u32 level, P_Progress *progress, const P_CancelToken *cancel)
 {
     if (!P__LoadArchive() || !P__archive.writable) return P__FileError(arena, P__ArchiveUnsupported);
     P__Archive *a = &P__archive;
@@ -411,7 +417,7 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
     b32 folder = false;
     // Everything already there is copied over, but for what the new items replace.
     while (!error && reader && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
-        if (!writer && !(writer = P__ArchiveWriter(reader, part, archive))) error = P__ArchiveUnsupported;
+        if (!writer && !(writer = P__ArchiveWriter(reader, part, archive, level))) error = P__ArchiveUnsupported;
         b32 replaced = false;
         for (u64 k = 0; k < count && !replaced; ++k) {
             replaced = StrIsEqual(name, names[k]) || (name.length > names[k].length && name.value[names[k].length] == '/' && StrIsEqual(StrFromTo(name, 0, (i64)names[k].length), names[k]));
@@ -429,7 +435,7 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
         P__ArchiveAdvance(progress, reader, &read);
     }
     if (!error && P_IsCancelled(cancel)) error = P__ArchiveCancelled;
-    if (!error && !writer && !(writer = P__ArchiveWriter(NULL, part, archive))) error = P__ArchiveUnsupported;
+    if (!error && !writer && !(writer = P__ArchiveWriter(NULL, part, archive, level))) error = P__ArchiveUnsupported;
     for (u64 k = 0; k < count && !error; ++k) error = P__ArchiveWritePath(writer, paths[k], names[k], progress, cancel);
     if (writer && a->writeClose(writer) != 0 && !error) error = P__ArchiveFailed;
     if (writer) a->writeFree(writer);

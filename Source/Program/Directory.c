@@ -823,7 +823,7 @@ function P_FileError Prog__ArchiveOp(Arena *arena, const Prog_JobInput *input, A
     P_FileError result = {0};
     if (input->archiveOp == Prog_ArchiveOp_Compress) {
         String archive = Prog_JoinPath(arena, input->path, input->name);
-        result = P_AddToArchive(arena, archive, (String){0}, input->paths, input->pathCount, input->progress, cancel);
+        result = P_AddToArchive(arena, archive, (String){0}, input->paths, input->pathCount, input->archiveLevel, input->progress, cancel);
         if (!result.code) ArrayPush(arena, *placed, archive);
         return result;
     }
@@ -873,7 +873,7 @@ function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, Ar
             for (u64 i = 0; i < input->pathCount; ++i) taken[i] = Prog_JoinPath(scratch.arena, through, names[i]);
             sources = taken;
         }
-        if (!result.code) result = P_AddToArchive(arena, toArchive, toInner, sources, input->pathCount, input->progress, cancel);
+        if (!result.code) result = P_AddToArchive(arena, toArchive, toInner, sources, input->pathCount, input->archiveLevel, input->progress, cancel);
     }
     ReleaseScratch(scratch);
     return result;
@@ -5114,8 +5114,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // Copies, moves and new items that went through can be undone.
             if (!error.code && input->kind == Prog_JobKind_Transfer && job->result) {
                 const Prog_Transferred *result = job->result;
-                // What was pasted into the folder shown is selected once its listing shows it, all of it.
-                if (result->placed.header.count && StrIsEqual(state->directory.path, input->path)) {
+                // A new archive is selected and renamed once the listing shows it, as a new folder is, its name before .zip ready to be typed over.
+                String packed = input->archiveOp == Prog_ArchiveOp_Compress && result->placed.header.count == 1 ? Prog_EntryLeaf(result->placed.v[0]) : (String){0};
+                if (packed.length && packed.length <= sizeof(state->selectText) && StrIsEqual(state->directory.path, input->path)) {
+                    MemCopy(state->selectText, packed.value, packed.length);
+                    state->selectLength = (u32)packed.length;
+                    state->selectRename = true;
+                } else if (result->placed.header.count && StrIsEqual(state->directory.path, input->path)) {
+                    // What was pasted into the folder shown is selected once its listing shows it, all of it.
                     ArenaClear(&state->pickArena);
                     state->pickNames = (ArrayStr){0};
                     for (u64 i = 0; i < result->placed.header.count; ++i) {
