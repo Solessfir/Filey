@@ -713,6 +713,7 @@ typedef enum Prog_Option {
     Prog_Option_Transparency,
     Prog_Option_WindowOpacity,
     Prog_Option_PopupBlur,
+    Prog_Option_PopupOpacity,
     Prog_Option_Backdrop,
     Prog_Option_Count,
 } Prog_Option;

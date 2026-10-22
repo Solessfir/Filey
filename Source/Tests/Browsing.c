@@ -2852,6 +2852,9 @@ function void TestSettings(void)
     hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_MouseX2, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_Forward);
     Check(Prog_ThemeGlassUser.menu.a == Prog_ThemeGlass.menu.a && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
+    Prog_ApplySettings(&state, S("glass.popupOpacity = 80\n"));
+    Check(Prog_OptionValue(&state, Prog_Option_PopupOpacity) == 80 && !Prog_OptionIsDefault(&state, Prog_Option_PopupOpacity));
+    Prog_ApplySettings(&state, (String){0});
     ArenaRelease(&arena);
 }
 
