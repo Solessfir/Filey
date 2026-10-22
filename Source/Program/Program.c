@@ -7756,6 +7756,8 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextText(state->paletteCompact ? Icon_FileX : Icon_FileText);
             UI_Block *details = UI_AddBlockFromKey(detailsKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
             Prog__NoteTooltip(state, Prog_CommandKind_PaletteToggleDetails, S("Toggle Extra Details"));
+            // Over the palette, which keeps the window's other tips out.
+            if (state->tooltipKey == details->key) state->tooltipAbove = true;
             UI_Interaction toggle = UI_InteractionFromBlock(details);
             if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteToggleDetails, 0, 0, toggle.clickOrder);
             f32 apart = floorf(6.4f * s + 0.5f);
