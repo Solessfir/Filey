@@ -1036,7 +1036,7 @@ typedef struct Prog_PdfView {
 //   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
 //     picked for its version previewKeptVersion
 #define Prog_PreviewFields(X) \
-    X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(R_TextureHandle, previewTexture) \
+    X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(R_TextureHandle, previewTexture) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
@@ -1516,8 +1516,6 @@ typedef struct Prog_State {
     u32 inspectorFontSize;
     enum8(Prog_InspectorLayout) inspectorLayout;
     b32 inspectorBelow;       // where the last frame put it, which Toggle Inspector Layout turns around
-    b32 inspectorDetails;     // the card of the item's details under its name
-    b32 inspectorDetailsFolded; // showing only its title
     b32 swallowText;          // the next character comes from a key that ran a command
     Key hotkeyLead;           // the last key, when it starts a sequence such as "G G"
     // A hotkey chip being rebound: the next key press replaces hotkey `hotkeySlot` of `hotkeyKind`, or adds one when the slot is past its last;

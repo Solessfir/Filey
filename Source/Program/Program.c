@@ -8400,12 +8400,12 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
         UI_Parent(title) {
+            // Folding it, then closing it at the far right.
             Prog__Label(entry->file.name, UI_Flex(), head, 0, theme->text, 0);
-            Prog__ToolbarButton(state, S("InspectorDetailsClose"), Icon_SquareX, Prog_CommandKind_InspectorToggleDetails, true, m);
-            Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(head));
             UI_Interaction fold = Prog__TextButton(S("InspectorDetailsFold"), state->inspectorDetailsFolded ? Icon_ChevronRight : Icon_ChevronDown, m->icons,
                                                    UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, true, m);
             if (fold.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorFoldDetails, 0, 0, fold.clickOrder);
+            Prog__ToolbarButton(state, S("InspectorDetailsClose"), Icon_X, Prog_CommandKind_InspectorToggleDetails, true, m);
         }
         if (!state->inspectorDetailsFolded) {
             Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -8965,7 +8965,10 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             // The item's name, and beside it the button for the card of its details.
             String name = entry ? entry->file.name : Prog_PathName(state, state->directory.path);
             Prog__Label(name, UI_TextContent(), bar, 0, theme->text, 0);
-            if (entry) Prog__ToolbarButton(state, S("InspectorDetailsButton"), Icon_ChevronRight, Prog_CommandKind_InspectorToggleDetails, true, m);
+            if (entry) {
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+                Prog__ToolbarButton(state, S("InspectorDetailsButton"), Icon_ChevronRight, Prog_CommandKind_InspectorToggleDetails, true, m);
+            }
             Prog__Spacer(UI_Pixels(floorf(m->inset * 0.4f)), UI_Pixels(bar));
         }
         if (text && state->previewHex) {
