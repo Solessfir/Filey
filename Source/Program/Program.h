@@ -1617,6 +1617,10 @@ typedef struct Prog_State {
     ArrayStr recents;
     Prog_RecentRank *recentRanks;  // one for each of the recents
     u32 recentOrdinal;             // the last one's, counting up across runs
+    // The files cut to the clipboard, by their paths, dimmed in the lists until the clipboard is set again or they are pasted.
+    Arena cutArena;
+    struct { MapHeader header; struct { String key; b32 value; } *v; } cutPaths;
+    u32 cutSequence;
     P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
     b32 recentsCheckAgain;
     u64 recentsCheckTime;

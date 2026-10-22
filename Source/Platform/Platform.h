@@ -238,6 +238,8 @@ function void   PlatformClipboardSetText(String text);
 // Files on the clipboard as full paths, the way file managers exchange them, and whether they were cut rather than copied.
 function void   PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut);
 function b32    PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut);
+// A number that changes whenever the clipboard is set again, by Filey or another program.
+function u32    PlatformClipboardSequence(void);
 
 // Returns the events received since the previous call.
 // The list stays valid until the next call.

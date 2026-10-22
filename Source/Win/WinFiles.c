@@ -591,7 +591,11 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
                 String old = P__FileStringWide(scratch.arena, mapping->pszOldPath, mapping->cchOldPath);
                 for (u64 i = 0; i < count; ++i) {
                     if (!P__PathWithin(old, paths[i]) || !P__PathWithin(paths[i], old)) {
-                        if (!P__PathWithin(old, placed[i]) || !P__PathWithin(placed[i], old)) continue;
+                        // The shell may give the folder its long name where the path had its short one, as in "SOLESS~1", which leaves the
+                        // item's own name to tell which it is.
+                        String oldName = P__PlacedPath(scratch.arena, S(""), old), name = P__PlacedPath(scratch.arena, S(""), paths[i]);
+                        b32 named = P__PathWithin(oldName, name) && P__PathWithin(name, oldName);
+                        if (!named && (!P__PathWithin(old, placed[i]) || !P__PathWithin(placed[i], old))) continue;
                     }
                     String fresh = P__FileStringWide(arena, mapping->pszNewPath, mapping->cchNewPath);
                     for (u64 c = 0; c < fresh.length; ++c) if (fresh.value[c] == '\\') ((char *)fresh.value)[c] = '/';

@@ -2278,12 +2278,24 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
     switch (kind) {
         case Prog_CommandKind_CopySelection:
         case Prog_CommandKind_CutSelection: {
-            if (count) PlatformClipboardSetFiles(paths, count, kind == Prog_CommandKind_CutSelection);
+            if (!count) break;
+            PlatformClipboardSetFiles(paths, count, kind == Prog_CommandKind_CutSelection);
+            ArenaClear(&state->cutArena);
+            state->cutPaths = (typeof(state->cutPaths)){0};
+            if (kind == Prog_CommandKind_CutSelection) {
+                for (u64 i = 0; i < count; ++i) MapsPut(&state->cutArena, state->cutPaths, StrCopy(&state->cutArena, paths[i]), true);
+                state->cutSequence = PlatformClipboardSequence();
+            }
         } break;
         case Prog_CommandKind_Paste: {
             ArrayStr files = {0};
             b32 cut = false;
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
+            // Cut files pasted are no longer dimmed where they were.
+            if (cut) {
+                ArenaClear(&state->cutArena);
+                state->cutPaths = (typeof(state->cutPaths)){0};
+            }
         } break;
         case Prog_CommandKind_PasteLink: {
             ArrayStr files = {0};
@@ -3733,6 +3745,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     Prog__UsePanel(state, state->activePanel);
     Prog_KeepLockedView(state);
+    // Cut files stay dimmed only while the clipboard still holds them.
+    if (state->cutPaths.header.count && PlatformClipboardSequence() != state->cutSequence) {
+        ArenaClear(&state->cutArena);
+        state->cutPaths = (typeof(state->cutPaths)){0};
+        changed = true;
+    }
     // The recents are checked for folders gone at the start and every minute after; opening Go To checks them at once.
     if (!state->recentsCheckTime || PlatformNowMicroseconds() - state->recentsCheckTime > Millions(60)) Prog_CheckRecents(state);
     // Transfers redraw while they run, for their progress and questions.

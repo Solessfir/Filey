@@ -4908,6 +4908,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // Copies, moves and new items that went through can be undone.
             if (!error.code && input->kind == Prog_JobKind_Transfer && job->result) {
                 const Prog_Transferred *result = job->result;
+                // What was pasted into the folder shown is selected once its listing shows it, all of it.
+                if (result->placed.header.count && StrIsEqual(state->directory.path, input->path)) {
+                    ArenaClear(&state->pickArena);
+                    state->pickNames = (ArrayStr){0};
+                    for (u64 i = 0; i < result->placed.header.count; ++i) {
+                        ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, Prog__FolderName(result->placed.v[i])));
+                    }
+                }
                 if (result->placed.header.count == input->pathCount) {
                     Prog_PushUndo(state, input->move ? Prog_UndoKind_Move : Prog_UndoKind_Copy, input->move ? input->paths : NULL, result->placed.v, input->pathCount);
                     if (input->move) Prog__FollowMoved(state, input->paths, result->placed.v, input->pathCount);

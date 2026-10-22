@@ -970,6 +970,11 @@ function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
     ReleaseScratch(scratch);
 }
 
+function u32 PlatformClipboardSequence(void)
+{
+    return (u32)GetClipboardSequenceNumber();
+}
+
 function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
 {
     *paths = (ArrayStr){0};

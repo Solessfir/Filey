@@ -2989,6 +2989,7 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
 }
 
 function b32 Prog__EntryFaded(const Prog_Entry *entry);
+function b32 Prog__EntryCut(const Prog_State *state, const Prog_Entry *entry);
 
 // The color of a name git marks, as code editors show them: new in green, changed in amber and conflicting in red, darker on a light
 // scheme.
@@ -3008,7 +3009,7 @@ function R_Color Prog__ItemInk(const Prog_State *state, const Prog_Entry *entry,
     const Prog_Theme *theme = Prog_CurrentTheme();
     if (entry->selected) return theme->contentSelection;
     if (hot) return theme->contentHover;
-    if (!name || Prog__EntryFaded(entry)) return theme->textDim;
+    if (!name || Prog__EntryFaded(entry) || Prog__EntryCut(state, entry)) return theme->textDim;
     Prog_GitMark mark = state->git.marks.header.count ? (Prog_GitMark)MapsGet(state->git.marks, u8, entry->file.name) : Prog_GitMark_None;
     if (mark) return Prog__GitInk(mark);
     return entry->file.kind == P_FileKind_Directory ? theme->folder : theme->file;
@@ -3057,6 +3058,16 @@ function void Prog__ItemBox(Prog_ItemLook look, UI_Size width, const Prog_Metric
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
 }
 
+// Whether the item is among the files cut to the clipboard, which are dimmed as hidden ones are until they are pasted.
+function b32 Prog__EntryCut(const Prog_State *state, const Prog_Entry *entry)
+{
+    if (!state->cutPaths.header.count) return false;
+    Scratch scratch = GetScratch();
+    b32 result = MapsGet(state->cutPaths, b32, Prog_JoinPath(scratch.arena, state->directory.path, entry->file.name));
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // Hidden and dot-named items are faded whether or not the OS marks them hidden.
 function b32 Prog__EntryFaded(const Prog_Entry *entry)
 {
@@ -3072,7 +3083,7 @@ function f32 Prog__ListIconInset(const Prog_Metrics *m) { return floorf(7.2f * m
 function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 size, f32 width, f32 height, f32 alignX, f32 inset, b32 highlighted, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    b32 faded = Prog__EntryFaded(entry);
+    b32 faded = Prog__EntryFaded(entry) || Prog__EntryCut(state, entry);
     b32 thumbnail = size > (f32)state->iconSize;
     // A drive spinning up a disc shows a spinner until it answers.
     const P_Place *drive = entry->drive ? Prog_PathDrive(state, entry->file.name) : NULL;

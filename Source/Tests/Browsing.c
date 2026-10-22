@@ -1889,6 +1889,9 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Check(TestClipboardFiles.header.count == 1 && !TestClipboardCut && StrIsEqual(TestClipboardFiles.v[0], Prog_JoinPath(&arena, root, S("a.txt"))));
     TestFileCommand(&state, Prog_CommandKind_Paste);
     Check(TestWaitCount(&state, 3) && !state.error.length);
+    // What was pasted is selected, and only that.
+    Check(TestWaitDirectory(&state));
+    Check(state.selectedCount == 1 && !state.directory.entries[TestEntryIndex(&state, S("a.txt"))].selected);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
     TestFileCommand(&state, Prog_CommandKind_Duplicate);
     Check(TestWaitCount(&state, 4) && !state.error.length);
@@ -1896,7 +1899,12 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     // Cut and Paste in another folder moves.
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
     TestRenameKey(&state, Key_X, KeyMod_Control);
-    Check(TestClipboardCut);
+    Check(TestClipboardCut && Prog__EntryCut(&state, &state.directory.entries[TestEntryIndex(&state, S("a.txt"))]));
+    // Copying something else over it leaves it undimmed, and cutting it again dims it.
+    TestRenameKey(&state, Key_C, KeyMod_Control);
+    Check(!Prog__EntryCut(&state, &state.directory.entries[TestEntryIndex(&state, S("a.txt"))]));
+    TestRenameKey(&state, Key_X, KeyMod_Control);
+    Check(Prog__EntryCut(&state, &state.directory.entries[TestEntryIndex(&state, S("a.txt"))]));
     TestBrowsingCommand(&state, Prog_CommandKind_SelectRow, TestEntryIndex(&state, S("New folder")));
     ArenaClear(&state.frameArena);
     Prog_QueueCommand(&state, Prog_CommandKind_SelectRow, TestEntryIndex(&state, S("New folder")), 2, 0);
@@ -1904,7 +1912,7 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state) && !state.directory.count);
     TestFileCommand(&state, Prog_CommandKind_Paste);
     Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) != UINT64_MAX);
-    Check(!TestHasFile(&arena, fixture, S("Commands"), S("a.txt")));
+    Check(!TestHasFile(&arena, fixture, S("Commands"), S("a.txt")) && !state.cutPaths.header.count);
 
     // Pasting where the name is taken asks first, and the answer is carried out: here the file is replaced. Windows leaves taken names to the shell's own question.
 #if defined(__linux__)

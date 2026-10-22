@@ -67,6 +67,7 @@ function String PlatformClipboardGetText(Arena *arena)
 }
 
 global b32 TestClipboardCut;
+global u32 TestClipboardSequence;
 
 function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
 {
@@ -75,7 +76,10 @@ function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
     TestClipboardFiles = (ArrayStr){0};
     for (u64 i = 0; i < count; ++i) ArrayPush(&TestClipboardArena, TestClipboardFiles, StrCopy(&TestClipboardArena, paths[i]));
     TestClipboardCut = cut;
+    ++TestClipboardSequence;
 }
+
+function u32 PlatformClipboardSequence(void) { return TestClipboardSequence; }
 
 function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
 {

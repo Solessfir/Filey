@@ -60,6 +60,7 @@ typedef struct LinuxWindowState {
     u32 enterSerial;          // of the pointer's arrival, which setting its shape needs; 0 while it is elsewhere
     PlatformCursor cursor;
     Arena clipboardArena;     // what Filey offers while it owns the selection
+    u32 clipboardSequence;    // up one each time Filey offers something and each time another program takes the selection from it
     const char *clipboardMimes[8];
     String clipboardData[8];
     u32 clipboardCount;
@@ -697,6 +698,7 @@ function void DataSourceCancelled(void *data, struct wl_data_source *source)
         LinuxEndDrag(source);
         return;
     }
+    if (source == Wl.source) ++Wl.clipboardSequence;
     wl_data_source_destroy(source);
     if (source == Wl.source) {
         Wl.source = NULL;
@@ -1353,6 +1355,7 @@ function void LinuxEnsureDataDevice(void)
 // Starts offering the clipboard data added with LinuxClipboardAdd; LinuxClipboardBegin drops the previous offer.
 function void LinuxClipboardBegin(void)
 {
+    ++Wl.clipboardSequence;
     if (Wl.source) wl_data_source_destroy(Wl.source);
     Wl.source = NULL;
     ArenaClear(&Wl.clipboardArena);
@@ -1474,6 +1477,11 @@ function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
     for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) LinuxClipboardAdd(LinuxTextMimes[i], text.buffer);
     LinuxClipboardOffer();
     ReleaseScratch(scratch);
+}
+
+function u32 PlatformClipboardSequence(void)
+{
+    return Wl.clipboardSequence;
 }
 
 function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
