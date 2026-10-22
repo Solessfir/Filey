@@ -3093,7 +3093,8 @@ function u32 Prog__EditOffsetAt(const Prog_TextEdit *edit, const R_Font *font, f
 function void Prog__EditMouse(Prog_State *state, UI_Block *block, const Prog_TextEdit *edit, f32 x, Prog_CommandKind kind, const Prog_Metrics *m)
 {
     UI_Interaction interaction = UI_InteractionFromBlock(block);
-    b32 drag = interaction.active && !interaction.pressed;
+    // A drag once the pointer moves; held still, as between a double click's press and its release, the word it selected stays selected.
+    b32 drag = interaction.active && !interaction.pressed && interaction.isDragging;
     if (interaction.button != MouseButton_Left || (!interaction.pressed && !drag)) return;
     u32 at = Prog__EditOffsetAt(edit, m->font, UI->mouse.x - block->rect.x0 - x + Prog__EditScroll(edit));
     Prog_Command *command = Prog_QueueCommand(state, kind, at, interaction.pressCount, interaction.pressed ? interaction.pressOrder : 0);
