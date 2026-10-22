@@ -701,6 +701,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->archiveLevel = 9;
     state->videoCodec = 0;
     state->videoQuality = 20;
+    state->downloadAudio = false;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
@@ -790,6 +791,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             if (number >= 0 && number <= 9) state->archiveLevel = (u8)number;
         } else if (StrIsEqual(name, S("video.codec"))) {
             for (u32 i = 0; i < CArrayCount(Prog_OptionVideoCodecs); ++i) if (Prog__EqualFolded(value, Prog_OptionVideoCodecs[i])) state->videoCodec = (u8)i;
+        } else if (StrIsEqual(name, S("download.audio"))) {
+            state->downloadAudio = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("video.quality"))) {
             if (number >= 0 && number <= 51) state->videoQuality = (u8)number;
         } else if (StrIsEqual(name, S("notices"))) {
@@ -958,7 +961,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
     StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
-                                "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"));
+                                "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"
+                                "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"));
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n"
                                                "# Unset, the system's language when Filey has it built in, and English otherwise.\n# language = %S\n", Prog_SystemLanguage()));
     // The glass settings, at their defaults.
@@ -1076,6 +1080,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                  Prog_OptionControl_Choice, 0, 0, Prog_OptionVideoCodecs, CArrayCount(Prog_OptionVideoCodecs), SInit("video.codec") },
     [Prog_Option_VideoQuality] = { TrInit("Video Quality"), TrInit("The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does."),
                                    Prog_OptionControl_Slider, 0, 51, NULL, 0, SInit("video.quality") },
+    [Prog_Option_DownloadAudio] = { TrInit("Download Audio Only"), TrInit("A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3."),
+                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("download.audio") },
     [Prog_Option_Notices] = { TrInit("Notifications"), TrInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
     [Prog_Option_MutedNotices] = { TrInit("Muted Notifications"), TrInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
@@ -1201,6 +1207,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_CompressionLevel: return state->archiveLevel;
         case Prog_Option_VideoCodec: return state->videoCodec;
         case Prog_Option_VideoQuality: return state->videoQuality;
+        case Prog_Option_DownloadAudio: return state->downloadAudio;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
         case Prog_Option_Language: {
@@ -8650,7 +8657,8 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
-                String title = transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
+                String title = transfer->op == Prog_TransferOp_Download ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
+                             : transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
                              : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
                                               : StrFormat(&state->frameArena, TrN(items, "Copying %u item to %S", "Copying %u items to %S"), (u32)items, target);

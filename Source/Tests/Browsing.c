@@ -491,6 +491,14 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Prog__EncodingOutput(&encoding, S("00000\r\nspeed= 2.5x\nNo such filter\n"));
             Check(atomic_load(&progress.doneBytes) == 5500 && StrIsEqual(Prog__TransferName(&quiet.frameArena, &progress), S("clip.mkv \u00B7 2.5x")));
             Check(StrIsEqual(StrMake(encoding.message, encoding.messageLength), S("No such filter")));
+            // yt-dlp's marked lines: the title, how far a part is with its name holding spaces, the finished file and errors; only web addresses
+            // are downloaded.
+            P_Progress fetched = {0};
+            Prog__Fetch fetch = { .progress = &fetched };
+            Prog__FetchOutput(&fetch, S("FILEYTITLE Me at the zoo\nFILEY 1024 NA 4096 2048.5 3 Me at the zoo.f1.mp4.part\n[info] noise\nERROR: Gone\nFILEYDONE C:/v/Me.mp4\n"));
+            Check(atomic_load(&fetched.totalBytes) == 4096 && atomic_load(&fetched.doneBytes) == 1024 && StrIsEqual(StrMake(fetch.part, fetch.partLength), S("Me at the zoo.f1.mp4.part")));
+            Check(StrIsEqual(StrMake(fetch.done, fetch.doneLength), S("C:/v/Me.mp4")) && StrIsEqual(StrMake(fetch.message, fetch.messageLength), S("Gone")));
+            Check(Prog_IsWebUrl(S("https://youtu.be/x")) && Prog_IsWebUrl(S("HTTP://a.b")) && !Prog_IsWebUrl(S("ftp://a")) && !Prog_IsWebUrl(S("https://a b")));
         }
         // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a
         // built-in language's name adds to it; English again takes them all away.

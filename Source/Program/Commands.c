@@ -2149,6 +2149,7 @@ function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String
     input->archiveLevel = state->archiveLevel;
     input->videoCodec = state->videoCodec;
     input->videoQuality = state->videoQuality;
+    input->downloadAudio = state->downloadAudio;
     input->path = StrCopy(&job->arena, directory);
     input->paths = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
     for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);
@@ -2450,7 +2451,12 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_Paste: {
             ArrayStr files = {0};
             b32 cut = false;
+            // A web address pasted without files is downloaded into the folder.
+            String url = Prog__TrimSpaces(PlatformClipboardGetText(frame));
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
+            else if (Prog_IsWebUrl(url) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) && !StrIsEqual(state->directory.path, Prog_ThisPC)) {
+                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Download);
+            }
             // Cut files pasted are no longer dimmed where they were.
             if (cut) {
                 ArenaClear(&state->cutArena);

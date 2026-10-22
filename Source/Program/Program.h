@@ -378,6 +378,7 @@ typedef enum Prog_TransferOp {
     Prog_TransferOp_ExtractHere,
     Prog_TransferOp_ExtractToFolder,
     Prog_TransferOp_CompressVideo,  // encodes the videos `paths` again, each beside itself as "<name> (compressed).mp4"
+    Prog_TransferOp_Download,       // downloads the video at the web address `paths[0]` into `path` with yt-dlp
     Prog_TransferOp_Count,
 } Prog_TransferOp;
 
@@ -386,6 +387,7 @@ typedef struct Prog_JobInput {
     enum8(Prog_TransferOp) transferOp;
     u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
     u8 videoCodec, videoQuality;  // what a video is compressed to
+    b32 downloadAudio;            // a download is the sound alone
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;
@@ -728,6 +730,7 @@ typedef enum Prog_Option {
     Prog_Option_CompressionLevel,
     Prog_Option_VideoCodec,
     Prog_Option_VideoQuality,
+    Prog_Option_DownloadAudio,
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
     Prog_Option_StoreRecents,
@@ -1499,6 +1502,7 @@ typedef struct Prog_State {
     u8 archiveLevel;  // the compression level of the archives Filey writes, 0 to 9
     u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
     u8 videoQuality;  // its constant quality, 0 (best) to 51
+    b32 downloadAudio;  // downloads by URL take the sound alone, as MP3
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
     b32 showRecents, sortRecents;
     b32 noVSync;
@@ -1802,6 +1806,8 @@ function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds);
 function b32 Prog_MediaWaveform(Arena *arena, String path, i32 side, P_Image *image, i32 *width, i32 *height);
 function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, i32 side, P_Image *image, i32 *width, i32 *height);
 function u64 Prog_MediaLength(Arena *arena, String path);
+function b32 Prog_IsWebUrl(String text);
+function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, String output, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);

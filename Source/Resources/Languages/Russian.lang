@@ -2782,3 +2782,18 @@ Compressing %u videos
 FFmpeg is not installed, or could not read the video
 = FFmpeg не установлен или не смог прочитать видео
 
+Download failed
+= Не удалось скачать
+
+Downloading into %S
+= Загрузка в %S
+
+Download Audio Only
+= Скачивать только звук
+
+A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3.
+= Вставленная в папку веб-ссылка скачивается через yt-dlp; этот параметр берёт только звук в MP3.
+
+yt-dlp is not installed, or found nothing to download there
+= yt-dlp не установлен или ничего не нашёл по этой ссылке
+

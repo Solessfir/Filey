@@ -1,5 +1,5 @@
 // Audio and video through the FFmpeg tools found on the PATH: the details ffprobe reads of a file, an audio file's waveform and a video's frame,
-// and videos compressed, on the graphics card when it has an encoder.
+// and videos compressed, on the graphics card when it has an encoder; and downloads by URL with yt-dlp.
 
 function b32 Prog__HasExtension(String path, const String *extensions, u32 count)
 {
@@ -294,6 +294,137 @@ function u64 Prog_MediaLength(Arena *arena, String path)
     String output = {0};
     Scratch scratch = GetScratchEx(arena);
     u64 result = P_RunCommand(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), 10000, &output, false) ? (u64)(Prog__MediaNumber(output) * 1000) : 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// `seconds` as "0:42" or "1:02:03", for how long a download has left.
+function String Prog__MediaClock(Arena *arena, u64 seconds)
+{
+    u64 hours = seconds / 3600;
+    return hours ? StrFormat(arena, "%u:%02u:%02u", (u32)hours, (u32)(seconds / 60 % 60), (u32)(seconds % 60)) : StrFormat(arena, "%u:%02u", (u32)(seconds / 60), (u32)(seconds % 60));
+}
+
+// What yt-dlp writes as it downloads, through the lines its templates mark: the title, how far each part is with its speed and time left
+// and where it is written, the finished file, and its errors.
+typedef struct Prog__Fetch {
+    P_Progress *progress;
+    char pending[2048];
+    u64 pendingLength;
+    char title[256];
+    u64 titleLength;
+    char part[512];       // the part being written, removed when the download stops short
+    u64 partLength;
+    char done[1024];      // the finished file
+    u64 doneLength;
+    char message[256];
+    u64 messageLength;
+} Prog__Fetch;
+
+function void Prog__FetchKeep(char *into, u64 room, u64 *length, String text)
+{
+    *length = Min(text.length, room);
+    MemCopy(into, text.value, *length);
+}
+
+function void Prog__FetchLine(Prog__Fetch *fetch, String line)
+{
+    if (line.length && line.value[line.length - 1] == '\r') --line.length;
+    Scratch scratch = GetScratch();
+    if (line.length > 11 && StrIsEqual(StrFromTo(line, 0, 11), S("FILEYTITLE "))) {
+        Prog__FetchKeep(fetch->title, sizeof(fetch->title), &fetch->titleLength, StrFrom(line, 11));
+        if (fetch->progress) P_ProgressName(fetch->progress, StrMake(fetch->title, fetch->titleLength));
+    } else if (line.length > 10 && StrIsEqual(StrFromTo(line, 0, 10), S("FILEYDONE "))) {
+        Prog__FetchKeep(fetch->done, sizeof(fetch->done), &fetch->doneLength, StrFrom(line, 10));
+    } else if (line.length > 6 && StrIsEqual(StrFromTo(line, 0, 6), S("FILEY "))) {
+        // Downloaded, total, estimated total, speed and seconds left, "NA" for those not known yet, then the part's name, which may hold spaces.
+        String fields[5] = {0}, rest = StrFrom(line, 6);
+        for (u32 i = 0; i < 5; ++i) {
+            Index space = StrIndexChar(rest, ' ', SSF_CountOnFail);
+            fields[i] = StrFromTo(rest, 0, (i64)space.value);
+            rest = StrFrom(rest, Min(space.value + 1, rest.length));
+        }
+        Prog__FetchKeep(fetch->part, sizeof(fetch->part), &fetch->partLength, rest);
+        if (fetch->progress) {
+            u64 total = (u64)Prog__MediaNumber(fields[1]);
+            if (!total) total = (u64)Prog__MediaNumber(fields[2]);
+            atomic_store(&fetch->progress->totalBytes, total);
+            atomic_store(&fetch->progress->doneBytes, Min((u64)Prog__MediaNumber(fields[0]), total));
+            StrBuilder name = {0};
+            StrBuildStr(scratch.arena, &name, fetch->titleLength ? StrMake(fetch->title, fetch->titleLength) : rest);
+            f64 speed = Prog__MediaNumber(fields[3]);
+            if (speed > 0) StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S/s", Prog_FormatSize(scratch.arena, (u64)speed)));
+            if (fields[4].length && fields[4].value[0] != 'N') StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S", Prog__MediaClock(scratch.arena, (u64)Prog__MediaNumber(fields[4]))));
+            P_ProgressName(fetch->progress, name.buffer);
+        }
+    } else if (line.length > 7 && StrIsEqual(StrFromTo(line, 0, 7), S("ERROR: "))) {
+        Prog__FetchKeep(fetch->message, sizeof(fetch->message), &fetch->messageLength, StrFrom(line, 7));
+    }
+    ReleaseScratch(scratch);
+}
+
+function void Prog__FetchOutput(void *user, String text)
+{
+    Prog__Fetch *fetch = user;
+    for (u64 i = 0; i < text.length; ++i) {
+        char c = text.value[i];
+        if (c == '\n') {
+            Prog__FetchLine(fetch, StrMake(fetch->pending, fetch->pendingLength));
+            fetch->pendingLength = 0;
+        } else if (fetch->pendingLength < sizeof(fetch->pending)) {
+            fetch->pending[fetch->pendingLength++] = c;
+        }
+    }
+}
+
+// Whether `text` is a web address yt-dlp may download from: http or https, without spaces.
+function b32 Prog_IsWebUrl(String text)
+{
+    b32 web = (text.length > 8 && Prog__EqualFolded(StrFromTo(text, 0, 8), S("https://"))) || (text.length > 7 && Prog__EqualFolded(StrFromTo(text, 0, 7), S("http://")));
+    return web && !StrIndexChar(text, ' ', SSF_None).exists && !StrIndexChar(text, '\n', SSF_None).exists;
+}
+
+// Downloads the video at the web address `url` into `folder` with yt-dlp, at its best quality as MP4, or with `audio` its sound alone as MP3,
+// named after its title. The finished file goes into `placed`; a cancel or a failure leaves no part behind.
+function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String arguments[32];
+    u32 count = 0;
+#define Prog__Argument(text) (arguments[count++] = (text))
+    Prog__Argument(S("yt-dlp")), Prog__Argument(S("--encoding")), Prog__Argument(S("utf-8")), Prog__Argument(S("--newline")), Prog__Argument(S("--no-colors"));
+    Prog__Argument(S("--no-playlist")), Prog__Argument(S("--progress")), Prog__Argument(S("--no-simulate"));
+    if (audio) {
+        Prog__Argument(S("-f")), Prog__Argument(S("ba/b")), Prog__Argument(S("-x")), Prog__Argument(S("--audio-format")), Prog__Argument(S("mp3"));
+        Prog__Argument(S("--audio-quality")), Prog__Argument(S("0"));
+    } else {
+        Prog__Argument(S("-f")), Prog__Argument(S("bv*+ba/b")), Prog__Argument(S("--merge-output-format")), Prog__Argument(S("mp4"));
+    }
+    Prog__Argument(S("--progress-template"));
+    Prog__Argument(S("download:FILEY %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s %(progress.tmpfilename)s"));
+    Prog__Argument(S("--print")), Prog__Argument(S("before_dl:FILEYTITLE %(title)s"));
+    Prog__Argument(S("--print")), Prog__Argument(S("after_move:FILEYDONE %(filepath)s"));
+    Prog__Argument(S("-o")), Prog__Argument(S("%(title)s.%(ext)s")), Prog__Argument(S("--")), Prog__Argument(url);
+#undef Prog__Argument
+    Prog__Fetch *fetch = ArenaPushStruct(scratch.arena, Prog__Fetch);
+    fetch->progress = progress;
+    if (progress) {
+        atomic_store(&progress->totalItems, 1);
+        P_ProgressName(progress, url);
+    }
+    b32 done = P_RunCommandStream(folder, arguments, count, true, Prog__FetchOutput, fetch, cancel, progress);
+    P_FileError result = {0};
+    if (done && fetch->doneLength) {
+        ArrayPush(arena, *placed, StrCopy(arena, StrMake(fetch->done, fetch->doneLength)));
+        if (progress) atomic_store(&progress->doneItems, 1);
+    } else {
+        if (fetch->partLength) {
+            String part = Prog_JoinPath(scratch.arena, folder, StrMake(fetch->part, fetch->partLength));
+            if (P_PathExists(part)) P_DeleteItems(scratch.arena, &part, 1, false, NULL);
+        }
+        String message = fetch->messageLength ? StrCopy(arena, StrMake(fetch->message, fetch->messageLength)) : TrMark("yt-dlp is not installed, or found nothing to download there");
+        result = (P_FileError){ .code = 1, .message = message };
+    }
     ReleaseScratch(scratch);
     return result;
 }

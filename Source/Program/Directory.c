@@ -861,6 +861,7 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         }
         return result;
     }
+    if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Pack) {
         String archive = Prog_JoinPath(arena, input->path, input->name);
         result = P_AddToArchive(arena, archive, (String){0}, input->paths, input->pathCount, input->archiveLevel, input->progress, cancel);
@@ -5242,11 +5243,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
+            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
-                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
                 Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
