@@ -812,6 +812,21 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state));
     Check(state.error.length && state.directory.count == 1 && state.directory.entries[0].selected && state.hasFocus && state.hasAnchor);
     Check(state.history.header.count == 4 && state.historyAt == 3 && StrIsEqual(state.history.v[3], state.directory.path));
+    // A crash report the last run left is offered once, with a button to report it, and marked as offered; the issue's text goes into its link
+    // encoded.
+    {
+        Check(P__TestMakeDirectory(fixture, S("CrashCache")) && P__TestMakeDirectory(fixture, S("CrashCache/Crashes")) &&
+              P__TestWriteFile(fixture, S("CrashCache/Crashes/Filey-0.1.0-1.dmp"), 4, false));
+        Prog_State crashed = { .cacheDirectory = Prog_JoinPath(&state.frameArena, fixture->path, S("CrashCache")) };
+        Prog_CheckCrashes(&crashed);
+        Check(crashed.noticeCount == 1 && crashed.notices[0].action == Prog_CommandKind_CrashReport && StrIsEqual(crashed.crashReport, S("Filey-0.1.0-1.seen.dmp")));
+        Check(P_PathExists(Prog_JoinPath(&state.frameArena, fixture->path, S("CrashCache/Crashes/Filey-0.1.0-1.seen.dmp"))));
+        Prog_CheckCrashes(&crashed);
+        Check(crashed.noticeCount == 1);
+        Check(StrIsEqual(Prog_UrlEncode(&state.frameArena, S("a b/c\n~")), S("a%20b%2Fc%0A~")));
+        Check(P__TestRemovePath(fixture, S("CrashCache/Crashes/Filey-0.1.0-1.seen.dmp"), false) && P__TestRemovePath(fixture, S("CrashCache/Crashes"), true) &&
+              P__TestRemovePath(fixture, S("CrashCache"), true));
+    }
     // A folder shown that is then deleted lists the folder above it when listed again, as a stale tab does, in its place in the history.
     {
         Check(P__TestMakeDirectory(fixture, S("Doomed")));

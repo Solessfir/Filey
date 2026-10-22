@@ -17,6 +17,7 @@
 #include <windows.data.pdf.h>
 #include <windows.storage.streams.h>
 #include <shcore.h>
+#include <dbghelp.h>
 #pragma pop_macro("global")
 #pragma pop_macro("function")
 
@@ -310,6 +311,54 @@ function P_FileError P_OpenFileExplorer(Arena *arena, String path)
     HINSTANCE launched = ShellExecuteW(NULL, L"open", L"explorer.exe", folder, NULL, SW_SHOWNORMAL);
     ReleaseScratch(scratch);
     return (INT_PTR)launched > 32 ? (P_FileError){0} : P__FileError(arena, GetLastError());
+}
+
+function P_FileError P_OpenUrl(Arena *arena, String url)
+{
+    Scratch scratch = GetScratchEx(arena);
+    i32 count = MultiByteToWideChar(CP_UTF8, 0, url.value, (i32)url.length, NULL, 0);
+    wchar *wide = ArenaPushArray(scratch.arena, (u64)count + 1, wchar);
+    MultiByteToWideChar(CP_UTF8, 0, url.value, (i32)url.length, wide, count);
+    // Below 33 is a failure.
+    u32 error = (INT_PTR)ShellExecuteW(NULL, L"open", wide, NULL, NULL, SW_SHOWNORMAL) > 32 ? 0 : GetLastError();
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error ? error : ERROR_NO_ASSOCIATION) : (P_FileError){0};
+}
+
+// Where crash reports go and the version they are named after, ready before any crash, as the handler does as little as it can.
+global wchar P__crashFolder[MAX_PATH];
+global wchar P__crashVersion[32];
+typedef BOOL (WINAPI *P__MiniDumpWriter)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION, PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
+global P__MiniDumpWriter P__miniDumpWrite;
+
+function LONG WINAPI P__OnCrash(EXCEPTION_POINTERS *exception)
+{
+    if (!P__miniDumpWrite || !P__crashFolder[0]) return EXCEPTION_CONTINUE_SEARCH;
+    CreateDirectoryW(P__crashFolder, NULL);
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    wchar path[MAX_PATH + 64];
+    swprintf(path, CArrayCount(path), L"%ls\\Filey-%ls-%04u%02u%02u-%02u%02u%02u.dmp", P__crashFolder, P__crashVersion, now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file != INVALID_HANDLE_VALUE) {
+        // The plain kind: the threads, their stacks and the modules, not the rest of memory.
+        MINIDUMP_EXCEPTION_INFORMATION info = { .ThreadId = GetCurrentThreadId(), .ExceptionPointers = exception, .ClientPointers = FALSE };
+        P__miniDumpWrite(GetCurrentProcess(), GetCurrentProcessId(), file, MiniDumpNormal, &info, NULL, NULL);
+        CloseHandle(file);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+function void P_CatchCrashes(String folder, String version)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, folder);
+    if (wide && lstrlenW(wide) < (i32)CArrayCount(P__crashFolder)) lstrcpynW(P__crashFolder, wide, CArrayCount(P__crashFolder));
+    MultiByteToWideChar(CP_UTF8, 0, version.value, (i32)Min(version.length, (u64)CArrayCount(P__crashVersion) - 1), P__crashVersion, CArrayCount(P__crashVersion) - 1);
+    ReleaseScratch(scratch);
+    HMODULE help = LoadLibraryW(L"dbghelp.dll");
+    P__miniDumpWrite = help ? (P__MiniDumpWriter)(void *)GetProcAddress(help, "MiniDumpWriteDump") : NULL;
+    SetUnhandledExceptionFilter(P__OnCrash);
 }
 
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)

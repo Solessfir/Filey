@@ -363,6 +363,18 @@ int main(void)
     }
     ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
     if (ok) Prog_LoadSettings(&loop.state, configDirectory, P_CacheDirectory(startup.arena));
+    // A crash from here on leaves a report in the cache folder, and one the last run left is offered to be reported.
+    if (ok && loop.state.cacheDirectory.length) {
+        P_CatchCrashes(Prog_CrashFolder(startup.arena, &loop.state), S(FILEY_VERSION));
+        Prog_CheckCrashes(&loop.state);
+#if defined(DEBUG)
+        // FILEY_TEST_CRASH=1 has a debug build crash as it starts, to try the crash report.
+        if (getenv("FILEY_TEST_CRASH")) {
+            volatile i32 *nowhere = NULL;
+            *nowhere = 1;
+        }
+#endif
+    }
     loop.state.separateWindow = separateWindow;
     // After the settings, so that these tabs start with their choices.
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);

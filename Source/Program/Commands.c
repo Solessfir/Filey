@@ -3243,6 +3243,47 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!kept) state->mutedOpen = false;
             } break;
             case Prog_CommandKind_NoticeCopy:
+            case Prog_CommandKind_CrashReport: {
+                for (u32 i = 0; i < state->noticeCount; ++i) {
+                    if (state->notices[i].id != command->row) continue;
+                    MemMove(&state->notices[i], &state->notices[i + 1], (state->noticeCount - i - 1) * sizeof(Prog_Notice));
+                    --state->noticeCount;
+                    break;
+                }
+                if (!state->crashReport.length) break;
+                Arena *frame = &state->frameArena;
+                String folder = Prog_CrashFolder(frame, state), name = state->crashReport;
+                // A text report, as Linux writes, goes into the issue itself; a minidump is attached by hand.
+                String details = {0};
+                if (Prog__ContainsFolded(name, S(".txt")) && P_ReadFile(frame, Prog_JoinPath(frame, folder, name), &details)) details = StrFromTo(details, 0, (i64)Min(details.length, (u64)3000));
+#if defined(_WIN32)
+                String system = S("Windows");
+#else
+                String system = S("Linux");
+#endif
+                // A minidump goes in a zip, as GitHub takes no .dmp files, which is put on the clipboard to paste into the issue and selected in the
+                // tab below to drag there instead.
+                String attached = {0};
+                if (!details.length) {
+                    String zip = StrFormat(frame, "%S.zip", name), dump = Prog_JoinPath(frame, folder, name), zipPath = Prog_JoinPath(frame, folder, zip);
+                    if (P_PathExists(zipPath) || !P_AddToArchive(frame, zipPath, (String){0}, &dump, 1, 9, NULL, NULL).code) {
+                        attached = zip;
+                        PlatformClipboardSetFiles(&zipPath, 1, false);
+                    }
+                }
+                String attach = attached.length ? StrFormat(frame, "Paste the crash report here (Ctrl+V): Filey copied `%S`. Or drag it here from the tab Filey opened.\n\n", attached)
+                                                : S("Please attach the crash report: drag it here from the tab Filey just opened.\n\n");
+                String body = StrFormat(frame, "**Filey version:** %s\n**System:** %S\n\n%S**What were you doing when Filey closed?**\n\n",
+                                        FILEY_VERSION, system, details.length ? StrFormat(frame, "```\n%S\n```\n\n", details) : attach);
+                String url = StrFormat(frame, "%s?title=%S&body=%S", Prog_IssuesUrl, Prog_UrlEncode(frame, S("Crash: ")), Prog_UrlEncode(frame, body));
+                P_FileError error = P_OpenUrl(frame, url);
+                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("crash.open"), S("Couldn't open the issue page"), error.message);
+                // The report's folder in a new tab, the report selected, ready to be dragged onto the issue.
+                Prog_OpenTab(state, folder, state->activeTab + 1, true);
+                ArenaClear(&state->pickArena);
+                state->pickNames = (ArrayStr){0};
+                ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, attached.length ? attached : name));
+            } break;
             case Prog_CommandKind_NoticeClose: {
                 for (u32 i = 0; i < state->noticeCount; ++i) {
                     Prog_Notice *notice = &state->notices[i];

@@ -2441,6 +2441,69 @@ function String Prog_NoticeKindName(Arena *arena, String key)
     return name;
 }
 
+function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message);
+
+// A notice with a button that runs `action` on it, which stays until the button is used or it is closed.
+function void Prog_NotifyAction(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message, Prog_CommandKind action, String label)
+{
+    u32 before = state->noticeCount;
+    u64 id = state->noticeIds;
+    Prog_Notify(state, kind, key, title, message);
+    if (state->noticeCount < before || state->noticeIds == id || !state->noticeCount) return;
+    Prog_Notice *notice = &state->notices[state->noticeCount - 1];
+    notice->action = (u16)action;
+    notice->actionLength = (u32)Min(label.length, sizeof(notice->actionLabel));
+    MemCopy(notice->actionLabel, label.value, notice->actionLength);
+}
+
+function b32 Prog__ContainsFolded(String text, String needle);
+
+// The folder crash reports go to, in the cache folder.
+function String Prog_CrashFolder(Arena *arena, const Prog_State *state)
+{
+    return state->cacheDirectory.length ? Prog_JoinPath(arena, state->cacheDirectory, S("Crashes")) : (String){0};
+}
+
+// Offers the newest crash report no start has offered yet to be reported, after marking every new one offered (".seen" before its extension).
+function void Prog_CheckCrashes(Prog_State *state)
+{
+    Scratch scratch = GetScratch();
+    String folder = Prog_CrashFolder(scratch.arena, state), newest = {0};
+    i64 newestTime = INT64_MIN;
+    P_DirectoryResult listing = folder.length ? P_EnumerateDirectory(scratch.arena, folder, NULL) : (P_DirectoryResult){0};
+    for (u64 i = 0; i < listing.files.header.count; ++i) {
+        const P_File *file = &listing.files.v[i];
+        if (file->kind != P_FileKind_File || Prog__ContainsFolded(file->name, S(".seen."))) continue;
+        Index dot = StrIndexChar(file->name, '.', SSF_SearchBackwards);
+        String seen = dot.exists ? StrFormat(scratch.arena, "%S.seen%S", StrFromTo(file->name, 0, (i64)dot.value), StrFrom(file->name, dot.value)) : StrFormat(scratch.arena, "%S.seen.", file->name);
+        if (P_RenamePath(scratch.arena, folder, file->name, seen).code) continue;
+        if (file->modifiedTimeUnix >= newestTime) newestTime = file->modifiedTimeUnix, newest = seen;
+    }
+    if (newest.length) {
+        state->crashReport = StrCopy(&state->settingsArena, newest);
+#if defined(_WIN32)
+        String message = S("A crash report was saved. Report on GitHub opens a new issue and copies the report: paste it into the issue (Ctrl+V) before submitting.");
+#else
+        String message = S("A crash report was saved. Report on GitHub opens a new issue with the report filled in, to look over before submitting.");
+#endif
+        Prog_NotifyAction(state, Prog_NoticeKind_Warning, S("crash.report"), S("Filey closed unexpectedly"), message, Prog_CommandKind_CrashReport, S("Report on GitHub"));
+    }
+    ReleaseScratch(scratch);
+}
+
+// `text` with every byte but letters, digits and -._~ written as %XX, for a web address.
+function String Prog_UrlEncode(Arena *arena, String text)
+{
+    StrBuilder out = {0};
+    for (u64 i = 0; i < text.length; ++i) {
+        u8 c = (u8)text.value[i];
+        b32 plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~';
+        if (plain) StrBuildChar(arena, &out, (char)c);
+        else StrBuildStr(arena, &out, StrFormat(arena, "%%%02X", c));
+    }
+    return out.buffer;
+}
+
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message)
 {
     // Those below the kinds the settings show are not shown, nor a kind muted.

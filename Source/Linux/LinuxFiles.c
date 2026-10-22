@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <execinfo.h>
 
 extern char **environ;
 
@@ -204,6 +205,71 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
         }
     }
     return result;
+}
+
+// Where crash reports go and the version they are named after, ready before any crash, as a signal handler can do little.
+global char P__crashFolder[PATH_MAX];
+global char P__crashVersion[32];
+
+// Appends `text`, or the number `value` with at least `digits` digits, to `out` at `*at`, as far as `room` lets it.
+function void P__CrashAppend(char *out, u64 room, u64 *at, const char *text, u64 value, u32 digits)
+{
+    char number[24];
+    u32 length = 0;
+    if (!text) {
+        do number[sizeof(number) - 1 - length++] = (char)('0' + value % 10), value /= 10; while ((value || length < digits) && length < sizeof(number));
+        text = number + sizeof(number) - length;
+    }
+    for (u64 i = 0; (length ? i < length : text[i] != 0) && *at + 1 < room; ++i) out[(*at)++] = text[i];
+    out[*at] = 0;
+}
+
+function void P__OnCrash(i32 signal)
+{
+    if (P__crashFolder[0]) {
+        mkdir(P__crashFolder, 0700);
+        char path[PATH_MAX + 64];
+        u64 at = 0;
+        time_t now = time(NULL);
+        P__CrashAppend(path, sizeof(path), &at, P__crashFolder, 0, 0);
+        P__CrashAppend(path, sizeof(path), &at, "/Filey-", 0, 0);
+        P__CrashAppend(path, sizeof(path), &at, P__crashVersion, 0, 0);
+        P__CrashAppend(path, sizeof(path), &at, "-", 0, 0);
+        P__CrashAppend(path, sizeof(path), &at, NULL, (u64)now, 1);
+        P__CrashAppend(path, sizeof(path), &at, ".txt", 0, 0);
+        i32 file = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (file >= 0) {
+            char head[96];
+            u64 used = 0;
+            P__CrashAppend(head, sizeof(head), &used, "Filey ", 0, 0);
+            P__CrashAppend(head, sizeof(head), &used, P__crashVersion, 0, 0);
+            P__CrashAppend(head, sizeof(head), &used, " stopped on signal ", 0, 0);
+            P__CrashAppend(head, sizeof(head), &used, NULL, (u64)signal, 1);
+            P__CrashAppend(head, sizeof(head), &used, "\n", 0, 0);
+            if (write(file, head, used) < 0) {}
+            void *frames[64];
+            backtrace_symbols_fd(frames, backtrace(frames, 64), file);
+            close(file);
+        }
+    }
+    // The system's own handling then, as the handler was set to go back to it.
+    raise(signal);
+}
+
+function void P_CatchCrashes(String folder, String version)
+{
+    if (folder.length >= sizeof(P__crashFolder)) return;
+    MemCopy(P__crashFolder, folder.value, folder.length);
+    P__crashFolder[folder.length] = 0;
+    u64 length = Min(version.length, (u64)sizeof(P__crashVersion) - 1);
+    MemCopy(P__crashVersion, version.value, length);
+    P__crashVersion[length] = 0;
+    // The first backtrace loads what it needs, which a signal handler could not.
+    void *warm[1];
+    backtrace(warm, 1);
+    struct sigaction action = { .sa_handler = P__OnCrash, .sa_flags = SA_RESETHAND | SA_NODEFER };
+    local_persist const i32 signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
+    for (u64 i = 0; i < CArrayCount(signals); ++i) sigaction(signals[i], &action, NULL);
 }
 
 // The executable `name` runs: itself when it has a slash, else the first match on PATH.

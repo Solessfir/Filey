@@ -369,6 +369,18 @@ function P_FileError P__OpenPath(Arena *arena, const P__AppData *data, String pa
 }
 
 // ponytail: `order` is unused until a Linux launcher protocol carries neighboring files.
+function P_FileError P_OpenUrl(Arena *arena, String url)
+{
+    Scratch scratch = GetScratchEx(arena);
+    u32 error = 0;
+    char *opener = P__FindExecutable(scratch.arena, S("xdg-open"), &error);
+    char *address = P__FilePathCString(scratch.arena, url);
+    char *args[] = { opener, address, NULL };
+    if (opener && address) error = P__Spawn(opener, args, NULL);
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
 {
     (void)order;

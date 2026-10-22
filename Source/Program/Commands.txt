@@ -1689,6 +1689,11 @@ command ColorPickerCancel {
 command NoticeCopy {
 }
 
+// A notice's own button, as a crash report's Report on GitHub: the issue page with the details filled in, and the report selected in a new tab
+// to attach. `row` is the notice.
+command CrashReport {
+}
+
 command NoticeClose {
 }
 

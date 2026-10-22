@@ -8175,7 +8175,7 @@ enum { Prog_NoticeInfoMicroseconds = 3000000, Prog_NoticeWarningMicroseconds = 6
 // How long `notice` has left before it is gone, or UINT64_MAX for an error, which stays until closed.
 function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now)
 {
-    if (notice->kind == Prog_NoticeKind_Error) return UINT64_MAX;
+    if (notice->kind == Prog_NoticeKind_Error || notice->action) return UINT64_MAX;
     u64 lasts = notice->kind == Prog_NoticeKind_Warning ? Prog_NoticeWarningMicroseconds : Prog_NoticeInfoMicroseconds, gone = now - Min(notice->since, now);
     return gone < lasts ? lasts - gone : 0;
 }
@@ -8227,7 +8227,8 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
         String title = StrMake((const char *)notice->title, notice->titleLength), message = StrMake((const char *)notice->message, notice->messageLength);
         String lines[4];
         u32 lineCount = Prog__WrapLines(frame, m->detail, message, width - 2 * pad - slot, lines, CArrayCount(lines));
-        f32 height = 2 * pad + m->row + (f32)lineCount * lineHeight;
+        f32 actionHeight = notice->action ? m->bar : 0;
+        f32 height = 2 * pad + m->row + (f32)lineCount * lineHeight + actionHeight;
         bottom -= height + m->gap;
         UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Notice/%" PRIu64, notice->id));
         UI_SetNextPrefWidth(UI_Pixels(width));
@@ -8278,6 +8279,20 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
                     Prog__Spacer(UI_Pixels(slot), UI_Pixels(lineHeight));
                     UI_SetNextFont(m->detail);
                     Prog__Label(lines[l], UI_Flex(), lineHeight, 0, theme->textDim, 0);
+                }
+            }
+            // Its own button, at the right under the message.
+            if (notice->action) {
+                UI_SetNextChildrenAlignment((UI_Vec2){ 1, 1 });
+                UI_Block *actions = Prog__Box(UI_Flex(), UI_Pixels(actionHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(actions) {
+                    Prog__Spacer(UI_Flex(), UI_Pixels(actionHeight));
+                    String label = StrMake((const char *)notice->actionLabel, notice->actionLength);
+                    UI_Interaction act = Prog__TextButton(StrFormat(frame, "NoticeAction/%" PRIu64, notice->id), label, NULL, UI_TextContent(), Prog__ToolbarButtonHeight(m), m->inset,
+                                                          theme->contentSelection, theme->contentSelection, theme->iconDisabled, true, m);
+                    UI->parent->last->props.colors.background = theme->selection;
+                    UI->parent->last->flags |= UI_Flag_DrawBackground;
+                    if (act.clicked) Prog_QueueCommand(state, (Prog_CommandKind)notice->action, notice->id, 0, act.clickOrder);
                 }
             }
         }

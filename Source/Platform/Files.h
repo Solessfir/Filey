@@ -125,6 +125,11 @@ typedef struct P_FileOrder {
 // May block while the application starts.
 // Run in a job.
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order);
+// Opens the web address `url` in the default browser.
+function P_FileError P_OpenUrl(Arena *arena, String url);
+// From now on a crash leaves a report in `folder`, named after Filey's `version` and the time: a minidump on Windows (the threads' stacks and
+// what they point at), the stack's addresses and functions as text on Linux. Main thread, once, early.
+function void P_CatchCrashes(String folder, String version);
 // Whether a program set to open files like `path` does, other than a file manager: the system's own, as Explorer's view of a zip is, or
 // Filey. An archive without one opens as a folder.
 function b32 P_OpensInApp(String path);

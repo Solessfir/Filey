@@ -3,6 +3,9 @@
 #include "../Platform/Files.h"
 
 // The version Filey shows; a release build passes its own through EXTRA_CFLAGS.
+// Where crashes are reported, a new issue of the project's.
+#define Prog_IssuesUrl "https://github.com/Solessfir/Filey/issues/new"
+
 #ifndef FILEY_VERSION
 #define FILEY_VERSION "0.1.0"
 #endif
@@ -606,6 +609,10 @@ typedef struct Prog_Notice {
     u8 key[48];   // what kind of notice it is, as "rename.failed", which muting it keeps out from then on
     u8 title[160];
     u8 message[640];
+    // A button under the message that runs `action` with the notice as its row; a notice with one stays until it is used or closed.
+    u16 action;
+    u32 actionLength;
+    u8 actionLabel[32];
 } Prog_Notice;
 
 enum { Prog_MaxNotices = 5 };
@@ -1381,6 +1388,7 @@ typedef struct Prog_State {
     b32 paletteKeyed;         // a key was pressed since Options opened, which shows its highlight only from then on
     u16 hotToolbarCommand;    // the command of the toolbar button under the pointer, which a press during a rename leaves to its click
     String permissionsPath;   // the item whose permissions the inspector shows this frame, which its letters change
+    String crashReport;       // the crash report the last start found, in settingsArena, which Report on GitHub offers
     u64 wakeAt;               // when the frame wants another without input, for what shows only after a while; 0 for no such time
     u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
