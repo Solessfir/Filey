@@ -2693,3 +2693,29 @@ Link
 %u pages
 = %u страница | %u страницы | %u страниц
 
+# Units of size and count, and a number with tenths, whose translation shows the decimal mark.
+
+B
+= Б
+
+kB
+= КБ
+
+MB
+= МБ
+
+GB
+= ГБ
+
+TB
+= ТБ
+
+K
+= К
+
+M
+= М
+
+1.5
+= 1,5
+

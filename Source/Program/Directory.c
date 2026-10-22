@@ -76,19 +76,41 @@ function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry)
 }
 
 // 1024-based with one decimal, cut rather than rounded, and dropped when zero: "1010 B", "1 kB", "1023.9 kB", "11.7 MB".
+// The units sizes and counts are shown in and the mark before their tenths, as the shown language writes them. The language sets them, and
+// jobs read them too, so they are kept in place rather than pointing into the language's arena.
+typedef struct Prog_Unit { char text[16]; u64 length; } Prog_Unit;
+typedef enum Prog_UnitKind { Prog_Unit_Bytes, Prog_Unit_Kilobytes, Prog_Unit_Megabytes, Prog_Unit_Gigabytes, Prog_Unit_Terabytes, Prog_Unit_Thousands, Prog_Unit_Millions, Prog_Unit_Count } Prog_UnitKind;
+global Prog_Unit Prog_Units[Prog_Unit_Count] = { { "B", 1 }, { "kB", 2 }, { "MB", 2 }, { "GB", 2 }, { "TB", 2 }, { "K", 1 }, { "M", 1 } };
+global char Prog_DecimalMark = '.';
+
+function String Prog_UnitText(Prog_UnitKind kind) { return StrMake(Prog_Units[kind].text, Prog_Units[kind].length); }
+
+// Takes the units from the shown language; a number with tenths, "1.5", is translated to show its decimal mark.
+function void Prog_UseUnits(void)
+{
+    local_persist const String english[Prog_Unit_Count] = { TrInit("B"), TrInit("kB"), TrInit("MB"), TrInit("GB"), TrInit("TB"), TrInit("K"), TrInit("M") };
+    for (u32 i = 0; i < Prog_Unit_Count; ++i) {
+        String shown = Prog_Tr(english[i]);
+        if (shown.length >= sizeof(Prog_Units[i].text)) shown = english[i];
+        MemCopy(Prog_Units[i].text, shown.value, shown.length);
+        Prog_Units[i].length = shown.length;
+    }
+    String sample = Tr("1.5");
+    Prog_DecimalMark = sample.length == 3 && sample.value[0] == '1' && sample.value[2] == '5' ? sample.value[1] : '.';
+}
+
 function String Prog_FormatSize(Arena *arena, u64 bytes)
 {
-    local_persist const char *units[] = { "kB", "MB", "GB", "TB" };
-    if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " B", bytes);
+    if (bytes < 1024) return StrFormat(arena, "%" PRIu64 " %S", bytes, Prog_UnitText(Prog_Unit_Bytes));
     // In whole numbers: the whole units, then the tenths the rest holds.
     // A tenth is the unit over ten cut to a whole byte, which makes the rest of a nearly full unit ten tenths, shown as nine.
-    u32 unit = 0, shift = 10;
-    while (unit + 1 < CArrayCount(units) && bytes >> (shift + 10)) {
+    u32 unit = Prog_Unit_Kilobytes, shift = 10;
+    while (unit < Prog_Unit_Terabytes && bytes >> (shift + 10)) {
         shift += 10;
         ++unit;
     }
     u64 whole = bytes >> shift, tenths = Min((bytes & ((UINT64_C(1) << shift) - 1)) / ((UINT64_C(1) << shift) / 10), UINT64_C(9));
-    return tenths ? StrFormat(arena, "%" PRIu64 ".%" PRIu64 " %s", whole, tenths, units[unit]) : StrFormat(arena, "%" PRIu64 " %s", whole, units[unit]);
+    return tenths ? StrFormat(arena, "%" PRIu64 "%c%" PRIu64 " %S", whole, Prog_DecimalMark, tenths, Prog_UnitText((Prog_UnitKind)unit)) : StrFormat(arena, "%" PRIu64 " %S", whole, Prog_UnitText((Prog_UnitKind)unit));
 }
 
 function u8 Prog__FoldAscii(u8 c)

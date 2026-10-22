@@ -498,8 +498,10 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
                 Prog_UseLanguage(&quiet, S("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"));
                 Check(StrIsEqual(quiet.menuPins.v[0], Tr("Open")) && !StrIsEqual(quiet.menuPins.v[0], S("Open")) && StrIsEqual(quiet.menuPins.v[1], S("Unknown Shell Item")));
                 Check(StrIsEqual(Prog_Untr(quiet.menuPins.v[0]), S("Open")));
+                // Sizes take the language's units and decimal mark.
+                Check(StrIsEqual(Prog_FormatSize(&quiet.frameArena, 1536), S("1,5 \u041A\u0411")));
                 Prog_UseLanguage(&quiet, (String){0});
-                Check(StrIsEqual(quiet.menuPins.v[0], S("Open")));
+                Check(StrIsEqual(quiet.menuPins.v[0], S("Open")) && StrIsEqual(Prog_FormatSize(&quiet.frameArena, 1536), S("1.5 kB")));
                 Prog__SetList(&quiet.menuPinArena, &quiet.menuPins, NULL, 0);
             }
             Check(Prog_LanguageIsCustom(S("Mine")) && !Prog_LanguageIsCustom(S("english")) && !Prog_LanguageIsCustom((String){0}) && !Prog_LanguageIsCustom(S("Русский")));

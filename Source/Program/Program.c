@@ -177,6 +177,7 @@ function void Prog_UseLanguage(Prog_State *state, String name)
     Prog__TranslateMenuLists(state, true);
     Prog__LoadLanguage(state, name);
     Prog__TranslateMenuLists(state, false);
+    Prog_UseUnits();
 }
 
 function void Prog__LoadLanguage(Prog_State *state, String name)
@@ -5799,9 +5800,9 @@ function String Prog__FormatCount(Arena *arena, u64 count)
 {
     if (count < 1000) return StrFormat(arena, "%" PRIu64, count);
     u64 unit = count < 1000000 ? 1000 : 1000000, tenths = count * 10 / unit;
-    String suffix = unit == 1000 ? S("K") : S("M");
+    String suffix = Prog_UnitText(unit == 1000 ? Prog_Unit_Thousands : Prog_Unit_Millions);
     // A whole number goes without its ".0", as "1M".
-    return tenths < 1000 && tenths % 10 ? StrFormat(arena, "%" PRIu64 ".%" PRIu64 "%S", tenths / 10, tenths % 10, suffix) : StrFormat(arena, "%" PRIu64 "%S", tenths / 10, suffix);
+    return tenths < 1000 && tenths % 10 ? StrFormat(arena, "%" PRIu64 "%c%" PRIu64 "%S", tenths / 10, Prog_DecimalMark, tenths % 10, suffix) : StrFormat(arena, "%" PRIu64 "%S", tenths / 10, suffix);
 }
 
 // The tip of a sidebar folder, beside its row: its name over its path, when it was made, what it holds once that is counted, and the click that opens it in a tab.
