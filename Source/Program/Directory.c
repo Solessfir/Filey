@@ -2883,6 +2883,12 @@ function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
     input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Save;
     input->path = Prog_JoinPath(&job->arena, state->configDirectory, file);
+    // The menu items are saved by their English text, which any language finds.
+    if (which == 3 || which == 6 || which == 7) {
+        String *english = ArenaPushArray(&job->arena, list.header.count + 1, String);
+        for (u64 i = 0; i < list.header.count; ++i) english[i] = Prog_Untr(list.v[i]);
+        list.v = english;
+    }
     input->name = which == 1 ? Prog__RecentsText(&job->arena, state) : Prog__ListText(&job->arena, list);
     job->input = input;
     P_JobSubmit(job);

@@ -491,6 +491,17 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(StrIsEqual(Tr("Two\nlines"), S("Deux\nlignes")));
             Prog_UseLanguage(&quiet, (String){0});
             Check(StrIsEqual(Tr("Open"), S("Open")));
+            // The menu items kept by their text follow the language shown, and are saved in English.
+            {
+                String pins[] = { S("Open"), S("Unknown Shell Item") };
+                Prog__SetList(&quiet.menuPinArena, &quiet.menuPins, pins, CArrayCount(pins));
+                Prog_UseLanguage(&quiet, S("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"));
+                Check(StrIsEqual(quiet.menuPins.v[0], Tr("Open")) && !StrIsEqual(quiet.menuPins.v[0], S("Open")) && StrIsEqual(quiet.menuPins.v[1], S("Unknown Shell Item")));
+                Check(StrIsEqual(Prog_Untr(quiet.menuPins.v[0]), S("Open")));
+                Prog_UseLanguage(&quiet, (String){0});
+                Check(StrIsEqual(quiet.menuPins.v[0], S("Open")));
+                Prog__SetList(&quiet.menuPinArena, &quiet.menuPins, NULL, 0);
+            }
             Check(Prog_LanguageIsCustom(S("Mine")) && !Prog_LanguageIsCustom(S("english")) && !Prog_LanguageIsCustom((String){0}) && !Prog_LanguageIsCustom(S("Русский")));
             Prog_UseLanguage(&quiet, S("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"));
             Check(StrIsEqual(Tr("Done"), S("\u0413\u043E\u0442\u043E\u0432\u043E")) && !StrIsEqual(Tr("Language"), S("Language")));

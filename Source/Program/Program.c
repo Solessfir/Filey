@@ -17,12 +17,22 @@ global const struct { String name; const u8 *text; u64 size; } Prog_BuiltInLangu
 // The chosen language's translations by their English text, each ending in a zero for TrF.
 global Arena Prog_LanguageArena;
 global struct { MapHeader header; struct { String key; String value; } *v; } Prog_LanguageMap;
+// The English text of each translation, for what is saved by the text shown, as the menus' items are.
+// ponytail: two English texts translated alike come back as the one put last; files of names, not texts, if that ever matters.
+global struct { MapHeader header; struct { String key; String value; } *v; } Prog_LanguageEnglish;
 
 function String Prog_Tr(String english)
 {
     if (!Prog_LanguageMap.header.count) return english;
     String *found = MapsGetPtrNull(Prog_LanguageMap, english);
     return found ? *found : english;
+}
+
+function String Prog_Untr(String shown)
+{
+    if (!Prog_LanguageEnglish.header.count) return shown;
+    String *found = MapsGetPtrNull(Prog_LanguageEnglish, shown);
+    return found ? *found : shown;
 }
 
 function const char *Prog_TrFormat(const char *english)
@@ -134,7 +144,11 @@ function void Prog_AddLanguageText(String text)
                 length += split.exists ? 1 : 0;
                 from = split.exists ? from + split.value + 3 : translation.length + 1;
             }
-            if (kept) MapsPut(&Prog_LanguageArena, Prog_LanguageMap, Prog__Unescape(&Prog_LanguageArena, english), StrMake(copy, length));
+            if (kept) {
+                String key = Prog__Unescape(&Prog_LanguageArena, english);
+                MapsPut(&Prog_LanguageArena, Prog_LanguageMap, key, StrMake(copy, length));
+                if (length == translation.length) MapsPut(&Prog_LanguageArena, Prog_LanguageEnglish, StrMake(copy, length), key);
+            }
             english = (String){0};
         } else {
             english = line;
@@ -142,11 +156,34 @@ function void Prog_AddLanguageText(String text)
     }
 }
 
+// The menu items pinned, hidden and moved, which are kept by the text shown, from the shown language to English or back.
+function void Prog__TranslateMenuLists(Prog_State *state, b32 toEnglish)
+{
+    struct { Arena *arena; ArrayStr *list; } lists[] = { { &state->menuPinArena, &state->menuPins }, { &state->menuHiddenArena, &state->menuHidden }, { &state->menuOrderArena, &state->menuOrder } };
+    Scratch scratch = GetScratch();
+    for (u32 l = 0; l < CArrayCount(lists); ++l) {
+        String *items = ArenaPushArray(scratch.arena, lists[l].list->header.count + 1, String);
+        for (u64 i = 0; i < lists[l].list->header.count; ++i) items[i] = toEnglish ? Prog_Untr(lists[l].list->v[i]) : Prog_Tr(lists[l].list->v[i]);
+        Prog__SetList(lists[l].arena, lists[l].list, items, lists[l].list->header.count);
+    }
+    ReleaseScratch(scratch);
+}
+
+function void Prog__LoadLanguage(Prog_State *state, String name);
+
 // Makes `name` the language shown: a built-in one, then a custom file of that name in the settings folder over it; English for none.
 function void Prog_UseLanguage(Prog_State *state, String name)
 {
+    Prog__TranslateMenuLists(state, true);
+    Prog__LoadLanguage(state, name);
+    Prog__TranslateMenuLists(state, false);
+}
+
+function void Prog__LoadLanguage(Prog_State *state, String name)
+{
     ArenaClear(&Prog_LanguageArena);
     Prog_LanguageMap = (typeof(Prog_LanguageMap)){0};
+    Prog_LanguageEnglish = (typeof(Prog_LanguageEnglish)){0};
     ArenaClear(&Prog__CommandTextArena);
     MemZero(Prog__CommandTexts, sizeof(Prog__CommandTexts));
     if (!name.length || Prog__EqualFolded(name, S("English"))) return;

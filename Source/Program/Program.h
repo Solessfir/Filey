@@ -7,6 +7,7 @@
 // format for StrFormat, whose translation keeps its conversions; TrInit() marks a literal in a table as one to translate where it shows. The
 // build lists every one of them (Meta/Strings.meta.h) for new language files.
 function String Prog_Tr(String english);
+function String Prog_Untr(String shown);
 function const char *Prog_TrFormat(const char *english);
 function const char *Prog_TrPlural(u64 count, const char *one, const char *other);
 #define Tr(text) Prog_Tr(S(text))
