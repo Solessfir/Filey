@@ -5909,7 +5909,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     String hotkeys[3];
     b8 idle[3] = {0};
     u32 hotkeyCount = plain || (detail.length && !described) ? 0 : Prog_HotkeyTexts(&state->frameArena, state, (Prog_CommandKind)state->tooltipKind, hotkeys, idle, 3);
-    if (described && !plain && !hotkeyCount) hotkeys[hotkeyCount++] = S("Blank");
+    if (described && !plain && !hotkeyCount) hotkeys[hotkeyCount++] = Tr("Blank");
     ArrayStr lines = detail.length ? StrSplit(&state->frameArena, detail, '\n') : (ArrayStr){0};
     f32 pad = floorf(9.6f * s + 0.5f), gap = floorf(4.8f * s + 0.5f), chipGap = floorf(8.0f * s + 0.5f), lineHeight = floorf(37.6f * s + 0.5f);
     f32 margin = floorf(6.4f * s + 0.5f);
