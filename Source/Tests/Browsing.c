@@ -2204,6 +2204,16 @@ function void TestTabs(TestFileFixture *fixture)
     b32 offeredFile = false;
     for (u32 i = 0; i < offered; ++i) offeredFile |= StrIsEqual(found[i].path, filePath);
     Check(!offeredFile);
+    // Alt+E searches the drive index too, which finds it after the short list.
+    state.gotoDrives = true;
+    for (u32 tries = 0; tries < 200; ++tries) {
+        ++state.ui.frameIndex;
+        found = Prog_GoToMatches(&state, &offered, &folder);
+        if (!state.gotoSearching) break;
+    }
+    for (u32 i = 0; i < offered; ++i) offeredFile |= StrIsEqual(found[i].path, filePath);
+    Check(offeredFile && !state.gotoSearching);
+    state.gotoDrives = false;
     Prog__AddRecent(&state, filePath, true, false);
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Prog__EditReplace(&state.palette, (const u8 *)fileName.value, (u32)fileName.length);

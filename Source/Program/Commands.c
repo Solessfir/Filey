@@ -913,11 +913,90 @@ function i32 Prog__GoToScore(const Prog_State *state, String name, String path, 
 }
 
 // Go To's search ranks matches by score; ranks of Prog_GoToRanks and above tie, which only long texts of several words reach.
-enum { Prog_GoToRanks = 8192, Prog_GoToPool = 2048 };
+// The drive index's matches rank after all of the short list's, by their own scores.
+enum { Prog_GoToShortRanks = 8192, Prog_GoToRanks = 2 * Prog_GoToShortRanks, Prog_GoToPool = 2048 };
 
 function u16 Prog__GoToRank(i32 score)
 {
-    return (u16)(Prog_GoToRanks - 1 - Min(Max(score, 0), (i32)Prog_GoToRanks - 1));
+    return (u16)(Prog_GoToShortRanks - 1 - Min(Max(score, 0), (i32)Prog_GoToShortRanks - 1));
+}
+
+typedef struct Prog__GoToFound {
+    u32 entry;
+    i32 score;
+} Prog__GoToFound;
+
+enum { Prog_GoToBlock = 2048 };
+
+// A frame's look through the drive index: the lanes take blocks of its entries in turn until the time is up, so that a block costly to
+// look through holds up no other lane, and the blocks taken are the first ones.
+typedef struct Prog__GoToLook {
+    const Prog_State *state;
+    const Prog_Index *index;
+    String text;
+    u64 first, count, until;
+    u32 floor;
+    atomic_uint_fast64_t next;  // the next block to take
+    Prog__GoToFound *found;     // per block, from its first entry's place on
+    u32 *foundCount;            // per block
+} Prog__GoToLook;
+
+// Whether `name` holds each of the words of `text`, apart from case.
+function b32 Prog__HoldsWords(String name, String text)
+{
+    for (u64 at = 0; at < text.length;) {
+        while (at < text.length && text.value[at] == ' ') ++at;
+        u64 end = at;
+        while (end < text.length && text.value[end] != ' ') ++end;
+        if (end > at && !Prog__ContainsFolded(name, StrFromTo(text, at, (i64)end))) return false;
+        at = end;
+    }
+    return true;
+}
+
+// Whether the index's `entry` is inside a hidden folder, a name starting with "." counting as hidden.
+function b32 Prog__GoToHidden(const Prog_Index *index, u32 entry)
+{
+    for (u32 at = entry < index->count ? index->parents[entry] : UINT32_MAX; at < index->count && index->parents[at] != UINT32_MAX; at = index->parents[at]) {
+        String name = Prog_IndexName(index, at);
+        if ((index->flags[at] & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.')) return true;
+    }
+    return false;
+}
+
+// The index's entries whose names hold each word typed whole, so that letters scattered through long names do not crowd the rest out;
+// what is inside a hidden folder only while the lists show hidden items.
+function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
+{
+    const Prog_Index *index = look->index;
+    u64 from = look->first + block * Prog_GoToBlock, to = Min(from + Prog_GoToBlock, look->first + look->count);
+    Prog__GoToFound *found = look->found + block * Prog_GoToBlock;
+    u32 count = 0;
+    for (u64 at = from; at < to; ++at) {
+        u32 entry = (u32)at;
+        String name = Prog_IndexName(index, entry);
+        // A root's name is its whole path.
+        if (index->parents[entry] == UINT32_MAX) name = Prog__FolderName(name);
+        if (!Prog__HoldsWords(name, look->text)) continue;
+        if (!look->state->showHidden && Prog__GoToHidden(index, entry)) continue;
+        char made[1024];
+        i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text);
+        if (score <= 0 || Prog_GoToShortRanks + Prog__GoToRank(score) >= look->floor) continue;
+        found[count++] = (Prog__GoToFound){ entry, score };
+    }
+    look->foundCount[block] = count;
+}
+
+function void Prog__GoToLane(void *user, u32 lane)
+{
+    (void)lane;
+    Prog__GoToLook *look = user;
+    u64 blocks = (look->count + Prog_GoToBlock - 1) / Prog_GoToBlock;
+    while (PlatformNowMicroseconds() < look->until) {
+        u64 block = atomic_fetch_add(&look->next, 1);
+        if (block >= blocks) break;
+        Prog__GoToBlock(look, block);
+    }
 }
 
 // Adds a match to the pool. A full pool keeps its better half in its order, the ranks before the one that would overflow it and of that one
@@ -965,8 +1044,10 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, places = state->places.header.count;
         u64 searched = state->searchPlaces.header.count, nearby = recents + bookmarks + places + searched, drives = state->drives.header.count;
         Arena *arena = &state->gotoFoundArena;
+        // With Alt+E the walk's index once it is done, and before then the last run's, unless there is none.
+        const Prog_Index *index = !state->gotoDrives ? NULL : state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;
         String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
-        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby + drives || state->gotoShowHidden != state->showHidden) {
+        if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby + drives || state->gotoShowHidden != state->showHidden || state->gotoIndex != index) {
             ArenaClear(arena);
             state->gotoPool = ArenaPushArray(arena, Prog_GoToPool, Prog_GoToItem);
             state->gotoRanks = ArenaPushArray(arena, Prog_GoToPool, u16);
@@ -974,6 +1055,9 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             state->gotoFloor = Prog_GoToRanks;
             state->gotoNearby = nearby + drives;
             state->gotoShowHidden = state->showHidden;
+            state->gotoIndex = index;
+            state->gotoScanAt = 0;
+            state->gotoScanFrame = UINT64_MAX;
             state->gotoSeen = (Prog_PathSet){0};
             state->gotoFoundTextLength = (u32)Min(text.length, (u64)sizeof(state->gotoFoundText));
             MemCopy(state->gotoFoundText, text.value, state->gotoFoundTextLength);
@@ -1019,6 +1103,39 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, (b8)file, (b8)(name.length && name.value[0] == '.'), {0}, NULL }, Prog__GoToRank(score));
             }
         }
+        // Once a frame, so that every look in a frame sees the same rows; the walk's new entries are reached in turn. Each frame looks for
+        // about 4 ms.
+        u64 entries = index ? index->count : 0;
+        if (index && state->gotoScanFrame != state->ui.frameIndex && state->gotoScanAt < entries) ProfileScope("GoToSearch") {
+            state->gotoScanFrame = state->ui.frameIndex;
+            Prog__GoToLook look = {
+                .state = state, .index = index, .text = text, .first = state->gotoScanAt, .count = Min(entries - state->gotoScanAt, (u64)1 << 20),
+                .until = PlatformNowMicroseconds() + 4000, .floor = state->gotoFloor,
+            };
+            u64 blocks = (look.count + Prog_GoToBlock - 1) / Prog_GoToBlock;
+            look.found = ArenaPushArrayNoZero(frame, look.count, Prog__GoToFound);
+            look.foundCount = ArenaPushArrayNoZero(frame, blocks, u32);
+            P_RunLanes(Max(1u, Min(P_ProcessorCount(), (u32)Prog_WalkLanes)), Prog__GoToLane, &look);
+            u64 taken = Min((u64)atomic_load(&look.next), blocks);
+            state->gotoScanAt = Min(look.first + taken * Prog_GoToBlock, entries);
+            // In the blocks' order, which is the walk's.
+            for (u64 block = 0; block < taken; ++block) {
+                for (u32 i = 0; i < look.foundCount[block]; ++i) {
+                    Prog__GoToFound found = look.found[block * Prog_GoToBlock + i];
+                    u16 rank = (u16)(Prog_GoToShortRanks + Prog__GoToRank(found.score));
+                    if (rank >= state->gotoFloor) continue;
+                    char made[1024];
+                    String path = Prog__IndexPathTo(made, sizeof(made), index, found.entry);
+                    // The short list's are not offered again.
+                    if (MapsGetPtrNull(state->gotoSeen, path)) continue;
+                    u8 flags = index->flags[found.entry];
+                    String name = Prog_IndexName(index, found.entry);
+                    b32 hidden = (flags & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.');
+                    Prog__GoToPool(state, frame, (Prog_GoToItem){ StrCopy(arena, path), Prog_GoToSection_Found, (b8)((flags & Prog_IndexFlag_File) != 0), (b8)hidden, {0}, NULL }, rank);
+                }
+            }
+        }
+        state->gotoSearching = index && state->gotoScanAt < entries;
         // A counting sort, which keeps the order within a rank.
         u32 pooled = state->gotoPooled;
         u32 *starts = ArenaPushArray(frame, Prog_GoToRanks + 1, u32);
@@ -3196,6 +3313,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_CloseMenu(state);
                 b32 edit = command->kind == Prog_CommandKind_EditPath;
                 if (!edit) Prog_CheckRecents(state);
+                state->gotoDrives = false;
                 state->paletteOpen = edit || !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_GoTo);
                 state->paletteMode = Prog_PaletteMode_GoTo;
                 state->palette = (Prog_TextEdit){0};
@@ -3921,6 +4039,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     // Select In Panel runs the highlighted row as Ctrl+Enter does.
                     if (own->command == Prog_CommandKind_GoToSelectInPanel && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = KeyMod_Control;
                     else if (!event->isRepeat || !Prog_Commands[own->command].noRepeat) Prog_QueueCommand(state, own->command, 0, 0, order);
+                    continue;
+                }
+                // Alt+E, which expands a folder in the lists, searches the drives as well, and again only the short list.
+                if (goTo && event->key == Key_E && (event->mods & KeyMod_Alt) && !(event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Super))) {
+                    state->gotoDrives = !state->gotoDrives;
+                    state->paletteHighlight = 0;
+                    state->gotoScroll = 0;
+                    state->swallowText = true;
                     continue;
                 }
                 // Tab goes on to the next folder down the list and Shift+Tab back up, around the ends; the character the key also types is

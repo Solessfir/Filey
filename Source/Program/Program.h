@@ -1446,6 +1446,11 @@ typedef struct Prog_State {
     u32 gotoFloor;            // the rank a match must beat, once the pool has been full
     u64 gotoNearby;
     b32 gotoShowHidden;       // what the shown tab showed of the hidden items when the pool was filled
+    b32 gotoDrives;           // Alt+E searches the drive index too, after the short list, until Go To closes
+    u64 gotoScanAt;           // the index's next entry to look at
+    u64 gotoScanFrame;        // the UI frame that looked last
+    const Prog_Index *gotoIndex;
+    b32 gotoSearching;        // the look through the index has not reached its end yet
     Prog_PathSet gotoSeen;
     u8 gotoFoundText[1024];
     u32 gotoFoundTextLength;

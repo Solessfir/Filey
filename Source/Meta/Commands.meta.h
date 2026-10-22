@@ -754,7 +754,7 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_E, .mods = KeyMod_Control | KeyMod_Shift, .command = Prog_CommandKind_OpenRelativePath },
     { .key = Key_Enter, .mods = KeyMod_Alt, .command = Prog_CommandKind_SelectionInspect },
     { .key = Key_R, .mods = KeyMod_Alt, .command = Prog_CommandKind_CalcDirsContents },
-    { .key = Key_E, .mods = KeyMod_Control, .command = Prog_CommandKind_ToggleExpandFolder },
+    { .key = Key_E, .mods = KeyMod_Alt, .command = Prog_CommandKind_ToggleExpandFolder },
     { .key = Key_T, .mods = KeyMod_Alt, .command = Prog_CommandKind_TypesPopupOpen },
     { .key = Key_Down, .mods = KeyMod_Alt, .command = Prog_CommandKind_FilesPopupOpen },
     { .key = Key_Left, .mods = KeyMod_Alt, .command = Prog_CommandKind_FilesPopupPrev },

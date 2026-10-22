@@ -689,7 +689,7 @@ command CalcDirsContents {
 command ToggleExpandFolder {
     label   = "Toggle Expand Folder^unfold,reveal,deep,hierarchy,directory"
     tooltip = "Recursively flatten all subfiles and subfolders into a single file listing."
-    hotkey  = "Ctrl+E"
+    hotkey  = "Alt+E"
 }
 
 command ApplyFilter {

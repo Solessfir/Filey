@@ -5866,9 +5866,12 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             }
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        local_persist const char *const keys[] = { "Up", "Down", 0, "Tab", 0, "Enter", 0, "Right", 0, "Ctrl+Enter", 0, "Escape", 0 };
-        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "next folder", 0, "to use", 0, "to expand", 0, "to open in panel", 0, "to dismiss" };
-        Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background, radius, m);
+        local_persist const char *const keys[] = { "Up", "Down", 0, "Tab", 0, "Enter", 0, "Right", 0, "Alt+E", 0, "Ctrl+Enter", 0, "Escape", 0 };
+        // Shorter than the other footers' words, as Go To has more keys to name.
+        local_persist const char *const words[] = { 0, 0, "navigate", 0, "next folder", 0, "open", 0, "expand", 0, "all drives", 0, "in panel", 0, "dismiss" };
+        local_persist const char *const wordsDrives[] = { 0, 0, "navigate", 0, "next folder", 0, "open", 0, "expand", 0, "places only", 0, "in panel", 0, "dismiss" };
+        if (state->gotoSearching) UI_KeepAnimating();
+        Prog__PaletteHints(keys, state->gotoDrives ? wordsDrives : words, CArrayCount(keys), footer, theme->background, radius, m);
     }
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
