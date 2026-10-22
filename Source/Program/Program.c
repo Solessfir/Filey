@@ -2912,8 +2912,9 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     f32 x0 = floorf(x + R_TextWidth(m->font, StrMake(text.value, from)) + 0.5f);
     f32 target = floorf(R_TextWidth(m->font, StrMake(text.value, to)) - R_TextWidth(m->font, StrMake(text.value, from)) + 0.5f);
     // The caret jumps where it goes, but the selection's width eases, so that clearing the text draws the selection back to its start;
-    // the caret waits for that.
-    f32 width = floorf(UI_Animate(UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditSelection/%p", (const void *)edit)), target, target) + 0.5f);
+    // the caret waits for that. Typed over, it goes at once, rather than sliding back over the text after what was typed.
+    UI_Key selection = UI_KeyFromStr(0, StrFormat(UI->frameArena, "EditSelection/%p", (const void *)edit));
+    f32 width = floorf((edit->typing ? UI_Slide(selection, target, 0) : UI_Animate(selection, target, target)) + 0.5f);
     f32 x1 = x0 + width;
     b32 collapsing = to == from && width > 0;
     f32 caretX = edit->cursor == from ? x0 : x0 + target;
