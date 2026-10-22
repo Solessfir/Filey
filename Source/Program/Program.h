@@ -1775,8 +1775,6 @@ typedef struct Prog_State {
     u32 userHotkeyCount;
     b8 hotkeyOverridden[Prog_CommandKind_Count];  // the command's default hotkeys give way to the settings' ones
     P_DirectoryWatch configWatch;
-    // Loud colors for telling UI surfaces apart; FILEY_DEBUG_THEME turns it on at startup.
-    b32 debugTheme;
     // "animations = false" in the settings: menus, scrolling and the caret change at once.
     b32 animationsOff;
     // A point smaller than the main font, for the details columns; the main font while unset.
@@ -1854,7 +1852,6 @@ function void Prog_DragSelection(Prog_State *state);
 function void Prog_Reload(Prog_State *state);
 function void Prog_BeginRename(Prog_State *state, u64 row);
 function void Prog_SetTransparent(Prog_State *state, b32 transparent);
-function void Prog_SetDebugTheme(Prog_State *state, b32 debug);
 function String Prog_EditText(const Prog_TextEdit *edit);
 function String Prog_EntryLeaf(String name);
 function String Prog_EntryParent(String name);

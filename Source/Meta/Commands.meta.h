@@ -349,8 +349,6 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_InspectorToggleLineNumbers,
     Prog_CommandKind_InspectorToggleHex,
     Prog_CommandKind_InspectorToggleWhitespace,
-    Prog_CommandKind_ToggleDebugTheme,
-    Prog_CommandKind_ToggleTransparency,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
 #endif
@@ -699,8 +697,6 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_InspectorToggleLineNumbers] = { .name = { "InspectorToggleLineNumbers", 26 }, .label = { "Toggle Inspector Line Numbers", 29 }, .aliases = { "show,hide", 9 }, .tooltip = { "Toggle display of line numbers for the previewed text in the inspector.", 71 } },
     [Prog_CommandKind_InspectorToggleHex] = { .name = { "InspectorToggleHex", 18 }, .label = { "Toggle Inspector Hex View", 25 }, .aliases = { "bytes,binary,hexadecimal", 24 }, .tooltip = { "Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.", 99 } },
     [Prog_CommandKind_InspectorToggleWhitespace] = { .name = { "InspectorToggleWhitespace", 25 }, .label = { "Toggle Inspector Whitespace", 27 }, .aliases = { "show,hide", 9 }, .tooltip = { "Toggle display of whitespace in the previewed text in the inspector.", 68 } },
-    [Prog_CommandKind_ToggleDebugTheme] = { .name = { "ToggleDebugTheme", 16 }, .label = { "Debug Colors", 12 }, .aliases = { "theme,debug", 11 }, .tooltip = { "Draw every UI surface in its own loud color.", 44 } },
-    [Prog_CommandKind_ToggleTransparency] = { .name = { "ToggleTransparency", 18 }, .label = { "Transparency", 12 }, .aliases = { "blur,acrylic,glass,translucent", 30 }, .tooltip = { "Show the desktop blurred through the window.", 44 }, .noRepeat = true },
 };
 
 global const Prog_Hotkey Prog_DefaultHotkeys[] = {
@@ -907,6 +903,5 @@ global const Prog_Hotkey Prog_DefaultHotkeys[] = {
     { .key = Key_F, .mods = KeyMod_Shift, .command = Prog_CommandKind_InspectorStartFilter },
     { .key = Key_Equals, .mods = KeyMod_Shift, .command = Prog_CommandKind_InspectorIncreaseContentsSize },
     { .key = Key_Minus, .mods = KeyMod_Shift, .command = Prog_CommandKind_InspectorDecreaseContentsSize },
-    { .key = Key_B, .mods = KeyMod_Control | KeyMod_Alt, .command = Prog_CommandKind_ToggleTransparency },
 };
 #endif

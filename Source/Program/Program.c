@@ -396,47 +396,6 @@ global const Prog_Theme Prog_ThemeGlass = {
     .disabledAmount = Prog_Gray(89),
 };
 
-// A distinct loud color for every role, so that screenshots show which surface draws where.
-global const Prog_Theme Prog_ThemeDebug = {
-    .window       = Prog_Rgb(60, 0, 60),
-    .background   = Prog_Rgb(10, 25, 80),
-    .inner        = Prog_Rgb(40, 0, 80),
-    .caption      = Prog_Rgb(80, 40, 0),
-    .menu         = Prog_Rgb(0, 70, 70),
-    .panel        = Prog_Rgb(10, 70, 20),
-    .alternateRow = Prog_Rgb(90, 80, 0),
-    .separator    = Prog_Rgb(255, 128, 0),
-    .hover        = Prog_Rgb(200, 0, 200),
-    .selection    = Prog_Rgb(150, 20, 20),
-    .focus        = Prog_Rgb(255, 255, 0),
-    .tabBorder    = Prog_Rgb(0, 255, 255),
-    .text         = Prog_Rgb(255, 255, 255),
-    .textDim      = Prog_Rgb(255, 170, 200),
-    .textHeading  = Prog_Rgb(150, 255, 150),
-    .textMatch    = Prog_Rgb(0, 170, 255),
-    .marquee      = Prog_Rgb(255, 0, 128),
-    .accent       = Prog_Rgb(0, 200, 0),
-    .track        = Prog_Rgb(90, 0, 90),
-    .outline      = Prog_Rgb(200, 120, 255),
-    .danger       = Prog_Rgb(255, 99, 88),
-    .icon         = Prog_Rgb(255, 230, 120),
-    .iconDisabled = Prog_Rgb(120, 100, 60),
-    .file         = Prog_Rgb(120, 255, 120),
-    .folder       = Prog_Rgb(120, 160, 255),
-    .contentHover = Prog_Rgb(255, 120, 255),
-    .contentSelection = Prog_Rgb(255, 255, 120),
-    .contentDisabledSelection = Prog_Rgb(180, 180, 90),
-    .outlineHover = Prog_Rgb(0, 255, 160),
-    .outlineSelection = Prog_Rgb(255, 160, 0),
-    .outlineDisabledSelection = Prog_Rgb(120, 80, 0),
-    .matchHover   = Prog_Rgb(255, 0, 128),
-    .matchSelection = Prog_Rgb(128, 255, 0),
-    .matchDisabledSelection = Prog_Rgb(90, 160, 40),
-    .hoverAmount  = Prog_Gray(89),
-    .hiddenAmount = Prog_Gray(89),
-    .disabledAmount = Prog_Gray(89),
-};
-
 // The built-in schemes' colors, in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's order of the groups.
 global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = {
     { 0x191919, 0x1F1F1F, 0x191919, 0x1F1F1F, 0x383C3D, 0x191919, 0x383838, 0x1F1F1F, 0x1C1C1C, 0x1C1C1C, 0x9A9A9A, 0xDDDEE0, 0x6B7078, 0x999999, 0xDDDEE0, 0xDDDEE0, 0xFF6358, 0x0079A6, 0x505050, 0x00ADEE, 0x00AAFF, 0x595959, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
@@ -528,7 +487,7 @@ global f32 Prog_GlassBlur = 24;
 
 function void Prog__ApplyTheme(Prog_State *state)
 {
-    Prog_Theme_ = state->debugTheme ? &Prog_ThemeDebug : state->transparent ? &Prog_ThemeGlassUser : &Prog_ThemeUser;
+    Prog_Theme_ = state->transparent ? &Prog_ThemeGlassUser : &Prog_ThemeUser;
     state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
 }
 
@@ -1771,12 +1730,6 @@ function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Pr
 function void Prog_SetTransparent(Prog_State *state, b32 transparent)
 {
     state->transparent = transparent;
-    Prog__ApplyTheme(state);
-}
-
-function void Prog_SetDebugTheme(Prog_State *state, b32 debug)
-{
-    state->debugTheme = debug;
     Prog__ApplyTheme(state);
 }
 

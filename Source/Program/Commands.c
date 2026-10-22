@@ -716,7 +716,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
-    Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
@@ -1359,9 +1359,6 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             if (P_CanInstall()) Prog__Item(.kind = Prog_CommandKind_SetupOpen, .icon = Icon_HardDriveDownload);
-            Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_ToggleTransparency, .icon = Icon_Blend, .toggle = true, .checked = state->transparent);
-            Prog__Item(.kind = Prog_CommandKind_ToggleDebugTheme, .icon = Icon_Palette, .toggle = true, .checked = state->debugTheme);
         } break;
         // The panel's views, its splits, its tabs, the app, then what the listing shows.
         case Prog_CommandKind_PanelMenu: {
@@ -3946,7 +3943,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), Tr("Couldn't open a new window"), error.message);
                 }
             } break;
-            case Prog_CommandKind_ToggleTransparency: Prog_SetOption(state, Prog_Option_Transparency, !state->transparent); break;
             case Prog_CommandKind_OpenOptions: {
                 Prog_CloseMenu(state);
                 state->paletteOpen = !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_Options);
@@ -3962,7 +3958,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 else Prog_SetOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
             } break;
             case Prog_CommandKind_OptionRestore: if (command->row < Prog_Option_Count) Prog_RestoreOption(state, (Prog_Option)command->row); break;
-            case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
             case Prog_CommandKind_WindowMove: state->moveRequested = true; break;
             case Prog_CommandKind_WindowMinimize: PlatformWindowMinimize(); break;
             case Prog_CommandKind_WindowToggleMaximize: PlatformWindowToggleMaximize(); break;

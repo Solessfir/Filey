@@ -933,9 +933,6 @@ global const char *const Prog_Strings[] = {
     "Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.",
     "Toggle Inspector Whitespace",
     "Toggle display of whitespace in the previewed text in the inspector.",
-    "Debug Colors",
-    "Draw every UI surface in its own loud color.",
-    "Show the desktop blurred through the window.",
     "",
 };
 

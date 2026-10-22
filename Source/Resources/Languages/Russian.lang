@@ -2574,15 +2574,6 @@ Toggle Inspector Whitespace
 Toggle display of whitespace in the previewed text in the inspector.
 = Показать или скрыть пробельные символы текста в инспекторе.
 
-Debug Colors
-= Отладочные цвета
-
-Draw every UI surface in its own loud color.
-= Рисовать каждую поверхность интерфейса своим ярким цветом.
-
-Show the desktop blurred through the window.
-= Показывать размытый рабочий стол сквозь окно.
-
 # Counted texts: the forms for one, a few and many, separated by " | ".
 
 Filter %u files...

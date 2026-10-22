@@ -40,8 +40,6 @@ square-x
 app-window
 copy
 terminal
-palette
-blend
 star
 arrow-down-a-z
 layout-panel-left
