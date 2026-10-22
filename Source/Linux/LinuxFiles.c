@@ -406,6 +406,13 @@ function void P__KeepDroppedFiles(const ArrayStr *paths, String directory, b32 m
     P__drop.filesMove = move;
 }
 
+function ArrayStr P_TakeShellDropped(Arena *arena, String *directory)
+{
+    (void)arena;
+    *directory = (String){0};
+    return (ArrayStr){0};
+}
+
 function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
 {
     ArrayStr result = {0};

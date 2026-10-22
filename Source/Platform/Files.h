@@ -441,3 +441,6 @@ function b32 P_DropPending(void);
 // since the last call, copied into `arena`, with that folder and whether they move, for the program to copy or move as a paste does.
 // Windows' shell carries other drops out itself.
 function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move);
+// The names of the items the system's shell dropped into `directory` since the last call, as Windows carries out drops itself, copied into
+// `arena`, for the program to select once they show; Linux's drops come through P_TakeDroppedFiles instead.
+function ArrayStr P_TakeShellDropped(Arena *arena, String *directory);

@@ -3812,6 +3812,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         Prog__FileJob(state, Prog_JobKind_Transfer, dropped.v, dropped.header.count, dropFolder, dropMove, (String){0});
         changed = true;
     }
+    // What the system's shell dropped into a panel's folder, as items dragged out of an archive, is selected once its listing holds it, as a
+    // paste's is.
+    ArrayStr landed = P_TakeShellDropped(&state->frameArena, &dropFolder);
+    if (landed.header.count) {
+        u32 current = state->currentPanel;
+        for (u32 panel = 0; panel < state->panelCount; ++panel) {
+            Prog__UsePanel(state, panel);
+            if (!Prog__SamePath(state->directory.path, dropFolder)) continue;
+            ArenaClear(&state->pickArena);
+            state->pickNames = (ArrayStr){0};
+            for (u64 i = 0; i < landed.header.count; ++i) ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, landed.v[i]));
+        }
+        Prog__UsePanel(state, current);
+        changed = true;
+    }
     // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
     if (pinned.header.count) {

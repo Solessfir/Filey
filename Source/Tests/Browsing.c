@@ -1005,6 +1005,25 @@ function void TestFileIcons(TestFileFixture *fixture)
         out = Prog_JoinPath(&arena, fixture->path, S("Out"));
         Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, out, NULL, NULL).code);
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, out, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
+#if defined(_WIN32)
+        // A drag of the archive's items, which the shell drops, is kept by the names they take where they land, to select them there.
+        {
+            P__EnsureCom();
+            IShellFolder *shell = P__ShellFolder(P__FilePathWide(&arena, folder));
+            IDataObject *data = NULL;
+            Check(shell && P__ShellChildren(shell, &name, 1, &P__IID_IDataObject, (void **)&data));
+            if (data) {
+                P__drop.bound = out;
+                P__DropKeepNames(data);
+                String landedIn = {0};
+                ArrayStr landed = P_TakeShellDropped(&arena, &landedIn);
+                Check(landed.header.count == 1 && StrIsEqual(landed.v[0], S("a.txt")) && StrIsEqual(landedIn, out));
+                data->lpVtbl->Release(data);
+                P__drop.bound = (String){0};
+            }
+            if (shell) shell->lpVtbl->Release(shell);
+        }
+#endif
         String copy = Prog_ArchiveCopy(&arena, Prog_JoinPath(&arena, folder, S("a.txt")), NULL, NULL);
         Check(copy.length && P_ReadFile(&arena, copy, &contents) && StrIsEqual(contents, S("hi")));
         String note = Prog_JoinPath(&arena, out, S("note.txt"));
@@ -1956,6 +1975,8 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     // What was pasted is selected, and only that.
     Check(TestWaitDirectory(&state));
     Check(state.selectedCount == 1 && !state.directory.entries[TestEntryIndex(&state, S("a.txt"))].selected);
+    // The keyboard goes with it, off the item copied.
+    Check(state.hasFocus && state.directory.entries[state.focusedRow].selected);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
     TestFileCommand(&state, Prog_CommandKind_Duplicate);
     Check(TestWaitCount(&state, 4) && !state.error.length);

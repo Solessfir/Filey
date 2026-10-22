@@ -5415,9 +5415,17 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         for (u64 i = 0; i < result->count; ++i) held += MapsGet(picked, b32, result->entries[i].file.name) != 0;
                         if (held || !samePath) {
                             state->selectedCount = 0;
+                            u64 first = UINT64_MAX;
                             for (u64 i = 0; i < result->count; ++i) {
                                 result->entries[i].selected = MapsGet(picked, b32, result->entries[i].file.name);
                                 state->selectedCount += result->entries[i].selected != 0;
+                                if (result->entries[i].selected && first == UINT64_MAX) first = i;
+                            }
+                            // The keyboard goes with them, unless a single pick took it.
+                            if (first != UINT64_MAX && pickRow >= result->count) {
+                                state->hasFocus = state->hasAnchor = true;
+                                state->focusedRow = state->anchorRow = first;
+                                state->revealFocus = true;
                             }
                             ArenaClear(&state->pickArena);
                             state->pickNames = (ArrayStr){0};

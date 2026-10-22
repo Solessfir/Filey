@@ -16,6 +16,7 @@ global const IID P__IID_IContextMenu3 = { 0xBCFCE0A0, 0xEC17, 0x11D0, { 0x8D, 0x
 global const IID P__IID_IUnknown      = { 0x00000000, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
 global const IID P__IID_IDataObject   = { 0x0000010E, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
 global const IID P__IID_IDropTarget   = { 0x00000122, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+global const IID P__IID_IShellItemArray = { 0xB63EA76D, 0x1F85, 0x456F, { 0xA1, 0x9C, 0x48, 0x15, 0x9E, 0xFA, 0x85, 0x8B } };
 
 #define P__MenuFirstId 1
 #define P__MenuLastId  0x7FFF
@@ -306,6 +307,9 @@ typedef struct P__Drop {
     Arena filesArena;
     ArrayStr files;       // dropped there, until the program takes them
     String filesDirectory;
+    Arena landedArena;
+    ArrayStr landed;      // the names of what the shell was handed to drop into `landedDirectory`, until the program takes them
+    String landedDirectory;
 } P__Drop;
 
 global P__Drop P__drop;
@@ -320,6 +324,17 @@ function void P_SetDropDirectory(String path)
 function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
 
 function b32 P_DropPending(void) { return P__drop.data != NULL; }
+
+function ArrayStr P_TakeShellDropped(Arena *arena, String *directory)
+{
+    ArrayStr result = {0};
+    for (u64 i = 0; i < P__drop.landed.header.count; ++i) ArrayPush(arena, result, StrCopy(arena, P__drop.landed.v[i]));
+    *directory = StrCopy(arena, P__drop.landedDirectory);
+    P__drop.landed = (ArrayStr){0};
+    P__drop.landedDirectory = (String){0};
+    ArenaClear(&P__drop.landedArena);
+    return result;
+}
 
 function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
 {
@@ -461,6 +476,63 @@ function void P__DropKeepFiles(IDataObject *data)
     ReleaseStgMedium(&medium);
 }
 
+// Keeps the names of the items in `data`, as they will be called in the folder they are dropped into, for P_TakeShellDropped: of the shell's
+// items, files and the insides of archives alike; else of the paths listed, which an archiver such as 7-Zip fills in only once the drop is
+// done; else of the files described for a drag out of another program.
+function void P__DropKeepNames(IDataObject *data)
+{
+    ArenaClear(&P__drop.landedArena);
+    P__drop.landed = (ArrayStr){0};
+    P__drop.landedDirectory = StrCopy(&P__drop.landedArena, P__drop.bound);
+    IShellItemArray *items = NULL;
+    if (SUCCEEDED(SHCreateShellItemArrayFromDataObject(data, &P__IID_IShellItemArray, (void **)&items))) {
+        DWORD count = 0;
+        items->lpVtbl->GetCount(items, &count);
+        for (DWORD i = 0; i < count; ++i) {
+            IShellItem *item = NULL;
+            wchar *name = NULL;
+            if (SUCCEEDED(items->lpVtbl->GetItemAt(items, i, &item)) && SUCCEEDED(item->lpVtbl->GetDisplayName(item, SIGDN_PARENTRELATIVEPARSING, &name))) {
+                ArrayPush(&P__drop.landedArena, P__drop.landed, P__FileStringWide(&P__drop.landedArena, name, lstrlenW(name)));
+            }
+            if (name) CoTaskMemFree(name);
+            if (item) item->lpVtbl->Release(item);
+        }
+        items->lpVtbl->Release(items);
+        if (P__drop.landed.header.count) return;
+    }
+    FORMATETC listed = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM paths = {0};
+    if (SUCCEEDED(data->lpVtbl->GetData(data, &listed, &paths))) {
+        HDROP drop = (HDROP)paths.hGlobal;
+        u32 count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
+        for (u32 i = 0; i < count; ++i) {
+            wchar path[1024];
+            u32 length = DragQueryFileW(drop, i, path, (u32)CArrayCount(path));
+            const wchar *leaf = length && length < CArrayCount(path) ? PathFindFileNameW(path) : L"";
+            if (leaf[0]) ArrayPush(&P__drop.landedArena, P__drop.landed, P__FileStringWide(&P__drop.landedArena, leaf, lstrlenW(leaf)));
+        }
+        ReleaseStgMedium(&paths);
+        if (P__drop.landed.header.count) return;
+    }
+    // A described file's name may go on into folders, of which only the first part lands in the folder.
+    FORMATETC format = { (CLIPFORMAT)RegisterClipboardFormatW(L"FileGroupDescriptorW"), NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM medium = {0};
+    if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) return;
+    const FILEGROUPDESCRIPTORW *group = GlobalLock(medium.hGlobal);
+    for (u32 i = 0; group && i < group->cItems; ++i) {
+        const wchar *path = group->fgd[i].cFileName;
+        i32 length = 0;
+        while (path[length] && path[length] != L'\\' && path[length] != L'/') ++length;
+        if (!length) continue;
+        String name = P__FileStringWide(&P__drop.landedArena, path, length);
+        b32 seen = false;
+        for (u64 j = 0; j < P__drop.landed.header.count && !seen; ++j) seen = StrIsEqual(P__drop.landed.v[j], name);
+        if (!seen) ArrayPush(&P__drop.landedArena, P__drop.landed, name);
+    }
+    if (group) GlobalUnlock(medium.hGlobal);
+    ReleaseStgMedium(&medium);
+}
+
 function b32 P__DropHasFiles(IDataObject *data)
 {
     FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
@@ -540,7 +612,10 @@ function b32 P__DropDrop(DWORD keys, POINTL point, DWORD *effect)
         P__DropKeepFiles(P__drop.data);
         result = true;
     } else if (P__drop.shell && *effect != DROPEFFECT_NONE) {
+        // The names first, since the shell may copy on a thread of its own and let the data go.
+        P__DropKeepNames(P__drop.data);
         result = SUCCEEDED(P__drop.shell->lpVtbl->Drop(P__drop.shell, P__drop.data, keys, point, effect));
+        if (!result) P__drop.landed = (ArrayStr){0};
         // Drop ends the shell target's drag; it must not also get DragLeave.
         P__drop.shell->lpVtbl->Release(P__drop.shell);
         P__drop.shell = NULL;
