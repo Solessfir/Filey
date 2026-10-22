@@ -681,6 +681,15 @@ function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
 function String P_TrashName(void) { return S("Recycle Bin"); }
 
+function String P_SystemLanguage(Arena *arena)
+{
+    wchar name[LOCALE_NAME_MAX_LENGTH];
+    i32 length = LCIDToLocaleName(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT), name, LOCALE_NAME_MAX_LENGTH, 0);
+    String result = length > 1 ? P__FileStringWide(arena, name, length - 1) : (String){0};
+    Index dash = StrIndexChar(result, '-', SSF_None);
+    return dash.exists ? StrFromTo(result, 0, (i64)dash.value) : result;
+}
+
 function String P_ExpandVariables(Arena *arena, String text, b32 final)
 {
     (void)final;

@@ -1343,6 +1343,21 @@ function b32 P_DeleteAsks(void) { return false; }
 function b32 P_HasSystemFiles(void) { return false; }
 function String P_TrashName(void) { return S("Trash"); }
 
+function String P_SystemLanguage(Arena *arena)
+{
+    // The first of the variables that name the language of messages, as gettext takes them; "C" and "POSIX" name none.
+    const char *names[] = { "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG" };
+    for (u32 i = 0; i < CArrayCount(names); ++i) {
+        const char *value = getenv(names[i]);
+        if (!value || !value[0]) continue;
+        String locale = StrFromCStr(value);
+        u64 end = 0;
+        while (end < locale.length && locale.value[end] >= 'a' && locale.value[end] <= 'z') ++end;
+        return end >= 2 ? StrCopy(arena, StrFromTo(locale, 0, (i64)end)) : (String){0};
+    }
+    return (String){0};
+}
+
 function b32 P_IsTrashFolder(String path)
 {
     // Worked out once, since every join of a path asks.

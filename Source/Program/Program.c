@@ -10,9 +10,24 @@
 global const u8 Prog__RussianLanguage[] = {
 #embed "../Resources/Languages/Russian.lang"
 };
-global const struct { String name; const u8 *text; u64 size; } Prog_BuiltInLanguages[] = {
-    { SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"), Prog__RussianLanguage, sizeof(Prog__RussianLanguage) },
+global const struct { String name; String code; const u8 *text; u64 size; } Prog_BuiltInLanguages[] = {
+    { SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"), SInit("ru"), Prog__RussianLanguage, sizeof(Prog__RussianLanguage) },
 };
+
+// The built-in language the system shows its text in, which is the one chosen until the settings choose another; English for none.
+function String Prog_SystemLanguage(void)
+{
+    local_persist String result;
+    local_persist b32 known;
+    if (!known) {
+        Scratch scratch = GetScratch();
+        String code = P_SystemLanguage(scratch.arena);
+        for (u64 i = 0; i < CArrayCount(Prog_BuiltInLanguages); ++i) if (StrIsEqual(code, Prog_BuiltInLanguages[i].code)) result = Prog_BuiltInLanguages[i].name;
+        ReleaseScratch(scratch);
+        known = true;
+    }
+    return result.length ? result : S("English");
+}
 
 // The chosen language's translations by their English text, each ending in a zero for TrF.
 global Arena Prog_LanguageArena;
@@ -685,7 +700,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->archiveLevel = 9;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
-    state->font.length = state->inspectorFont.length = state->language.length = 0;
+    state->font.length = state->inspectorFont.length = 0;
+    String system = Prog_SystemLanguage();
+    state->language.length = (u32)system.length;
+    MemCopy(state->language.text, system.value, system.length);
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
@@ -932,7 +950,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
-    StrBuildStr(arena, &text, S("\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n# language = English\n"));
+    StrBuildStr(arena, &text, StrFormat(arena, "\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n"
+                                               "# Unset, the system's language when Filey has it built in, and English otherwise.\n# language = %S\n", Prog_SystemLanguage()));
     // The glass settings, at their defaults.
     R_Color colors[2] = { Prog_ThemeGlass.window, Prog_ThemeGlass.menu };
     String hex[2];
@@ -1682,6 +1701,10 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_CharacterKeyAction: return Prog_CharacterKeys_TypeInFilter;
         case Prog_Option_PopupBlur: return 24;
         case Prog_Option_CompressionLevel: return 9;
+        case Prog_Option_Language: {
+            for (u32 i = 1; i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(Prog_SystemLanguage(), Prog_OptionLanguages[i])) return (i32)i;
+            return 0;
+        }
         case Prog_Option_PopupOpacity: return (i32)floorf(Prog_ThemeGlass.menu.a * 100 + 0.5f);
         case Prog_Option_WindowOpacity: return (i32)floorf(Prog_ThemeGlass.window.a * 100 + 0.5f);
         case Prog_Option_Backdrop: return PlatformBackdrop_Acrylic;

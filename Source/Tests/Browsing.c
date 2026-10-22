@@ -504,6 +504,18 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
                 Check(StrIsEqual(quiet.menuPins.v[0], S("Open")) && StrIsEqual(Prog_FormatSize(&quiet.frameArena, 1536), S("1.5 kB")));
                 Prog__SetList(&quiet.menuPinArena, &quiet.menuPins, NULL, 0);
             }
+#if !defined(_WIN32)
+            // The system's language is the first of the variables gettext reads, by its two letters.
+            {
+                const char *was = getenv("LANGUAGE");
+                setenv("LANGUAGE", "ru_RU:en", 1);
+                Check(StrIsEqual(P_SystemLanguage(&quiet.frameArena), S("ru")));
+                setenv("LANGUAGE", "C", 1);
+                Check(P_SystemLanguage(&quiet.frameArena).length == 0);
+                if (was) setenv("LANGUAGE", was, 1);
+                else unsetenv("LANGUAGE");
+            }
+#endif
             Check(Prog_LanguageIsCustom(S("Mine")) && !Prog_LanguageIsCustom(S("english")) && !Prog_LanguageIsCustom((String){0}) && !Prog_LanguageIsCustom(S("Русский")));
             Prog_UseLanguage(&quiet, S("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"));
             Check(StrIsEqual(Tr("Done"), S("\u0413\u043E\u0442\u043E\u0432\u043E")) && !StrIsEqual(Tr("Language"), S("Language")));
