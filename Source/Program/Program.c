@@ -1228,6 +1228,123 @@ function void Prog_EndHexEdit(Prog_State *state, b32 keep)
     ReleaseScratch(scratch);
 }
 
+// Arithmetic typed into a number's box, as in Unreal's: numbers, + - * / and parentheses, with the usual precedence and signs in front.
+typedef struct Prog__Expression {
+    String text;
+    u64 at;
+    u32 depth;
+} Prog__Expression;
+
+function void Prog__ExpressionSkip(Prog__Expression *e)
+{
+    while (e->at < e->text.length && (e->text.value[e->at] == ' ' || e->text.value[e->at] == '\t')) ++e->at;
+}
+
+function b32 Prog__ExpressionSum(Prog__Expression *e, f64 *value);
+
+function b32 Prog__ExpressionAtom(Prog__Expression *e, f64 *value)
+{
+    Prog__ExpressionSkip(e);
+    b32 negative = false;
+    while (e->at < e->text.length && (e->text.value[e->at] == '+' || e->text.value[e->at] == '-')) {
+        negative ^= e->text.value[e->at++] == '-';
+        Prog__ExpressionSkip(e);
+    }
+    if (e->at < e->text.length && e->text.value[e->at] == '(') {
+        if (++e->depth > 32) return false;
+        ++e->at;
+        if (!Prog__ExpressionSum(e, value)) return false;
+        Prog__ExpressionSkip(e);
+        --e->depth;
+        if (e->at >= e->text.length || e->text.value[e->at] != ')') return false;
+        ++e->at;
+    } else {
+        // Digits with a point or a comma between them, as the decimal separator is typed either way.
+        f64 number = 0, scale = 0;
+        u64 start = e->at;
+        for (; e->at < e->text.length; ++e->at) {
+            char c = e->text.value[e->at];
+            if (c >= '0' && c <= '9') {
+                if (scale > 0) number += (f64)(c - '0') * scale, scale *= 0.1;
+                else number = number * 10 + (f64)(c - '0');
+            } else if ((c == '.' || c == ',') && scale == 0) {
+                scale = 0.1;
+            } else {
+                break;
+            }
+        }
+        if (e->at == start || (e->at == start + 1 && scale > 0)) return false;
+        *value = number;
+    }
+    if (negative) *value = -*value;
+    return true;
+}
+
+function b32 Prog__ExpressionTerm(Prog__Expression *e, f64 *value)
+{
+    if (!Prog__ExpressionAtom(e, value)) return false;
+    for (;;) {
+        Prog__ExpressionSkip(e);
+        if (e->at >= e->text.length || (e->text.value[e->at] != '*' && e->text.value[e->at] != '/')) return true;
+        b32 divide = e->text.value[e->at++] == '/';
+        f64 right = 0;
+        if (!Prog__ExpressionAtom(e, &right) || (divide && right == 0)) return false;
+        *value = divide ? *value / right : *value * right;
+    }
+}
+
+function b32 Prog__ExpressionSum(Prog__Expression *e, f64 *value)
+{
+    if (!Prog__ExpressionTerm(e, value)) return false;
+    for (;;) {
+        Prog__ExpressionSkip(e);
+        if (e->at >= e->text.length || (e->text.value[e->at] != '+' && e->text.value[e->at] != '-')) return true;
+        b32 subtract = e->text.value[e->at++] == '-';
+        f64 right = 0;
+        if (!Prog__ExpressionTerm(e, &right)) return false;
+        *value = subtract ? *value - right : *value + right;
+    }
+}
+
+function b32 Prog_EvaluateExpression(String text, f64 *value)
+{
+    Prog__Expression e = { .text = text };
+    f64 result = 0;
+    if (text.length > 256 || !Prog__ExpressionSum(&e, &result)) return false;
+    Prog__ExpressionSkip(&e);
+    if (e.at != text.length || !isfinite(result)) return false;
+    *value = result;
+    return true;
+}
+
+// Starts typing in `option`'s slider, its value there selected to be typed over.
+function void Prog_BeginSliderEdit(Prog_State *state, Prog_Option option)
+{
+    if (option >= Prog_Option_Count || Prog_Options[option].control != Prog_OptionControl_Slider) return;
+    state->sliderOption = (u8)(option + 1);
+    state->sliderInvalid = false;
+    state->sliderEdit = (Prog_TextEdit){0};
+    String text = StrFormat(&state->frameArena, "%d", Prog_OptionValue(state, option));
+    Prog__EditReplace(&state->sliderEdit, (const u8 *)text.value, (u32)text.length);
+    state->sliderEdit.anchor = 0;
+}
+
+// Stops typing in a slider; `keep` sets its option to what was typed, worked out and rounded, which fails, typing on, while it does not read.
+function b32 Prog_EndSliderEdit(Prog_State *state, b32 keep)
+{
+    if (!state->sliderOption) return true;
+    Prog_Option option = (Prog_Option)(state->sliderOption - 1);
+    f64 value = 0;
+    if (keep && !Prog_EvaluateExpression(Prog_EditText(&state->sliderEdit), &value)) {
+        state->sliderInvalid = true;
+        return false;
+    }
+    state->sliderOption = 0;
+    state->sliderInvalid = false;
+    if (keep) Prog_SetOption(state, option, (i32)floor(value + 0.5));
+    return true;
+}
+
 // The box being typed in changes the color as soon as it reads as one: a number up to its channel's greatest, or six hex digits.
 function void Prog_PickerTyped(Prog_State *state)
 {
@@ -6137,46 +6254,58 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             }
         } break;
         case Prog_OptionControl_Slider: {
-            f32 wide = floorf(155.2f * s + 0.5f), track = floorf(12.8f * s + 0.5f), knob = floorf(20.8f * s + 0.5f);
+            // Its value inside a box filled from the left up to it: dragged along to set it, or clicked to type it, arithmetic too.
             f32 range = (f32)Max(desc->most - desc->least, 1), at = (f32)(value - desc->least) / range;
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionSlider/%u", (u32)option));
+            b32 typing = state->sliderOption == option + 1, hot = UI->hotKey == key;
             UI_SetNextPrefWidth(UI_Pixels(width));
-            UI_SetNextPrefHeight(UI_Pixels(knob));
-            UI_Block *slider = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "OptionSlider/%u", (u32)option)), UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(line);
+            R_Color border = typing ? (state->sliderInvalid ? theme->danger : theme->outlineSelection) : hot ? theme->outlineHover : theme->outline;
+            UI_SetNextColors((UI_Colors){ .background = typing ? theme->inner : theme->track, .border = border });
+            UI_Block *slider = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable | (typing ? 0 : UI_Flag_TakesWheel));
             UI_Interaction drag = UI_InteractionFromBlock(slider);
-            // The wheel over it steps it, a notch a step.
-            i32 notches = Prog__WheelNotches(slider);
-            if (notches) Prog__QueueOption(state, option, Max(desc->least, Min(desc->most, value + notches)), 0, false);
-            if (drag.pressed || (drag.active && drag.isDragging)) {
-                f32 along = UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / MaxF32(1, wide - knob), 0, 1);
-                i32 wanted = desc->least + (i32)floorf(along * range + 0.5f);
-                if (wanted != value) Prog__QueueOption(state, option, wanted, drag.pressOrder, true);
+            if (!typing) {
+                // The wheel over it steps it, a notch a step.
+                i32 notches = Prog__WheelNotches(slider);
+                if (notches) Prog__QueueOption(state, option, Max(desc->least, Min(desc->most, value + notches)), 0, false);
+                // A press only sets it once it moves; let go where it was pressed, it starts typing instead.
+                if (drag.pressed) state->sliderDragged = false;
+                if (drag.active && drag.isDragging) {
+                    state->sliderDragged = true;
+                    f32 along = UI__Clamp((UI->mouse.x - slider->rect.x0) / MaxF32(1, slider->rect.x1 - slider->rect.x0), 0, 1);
+                    i32 wanted = desc->least + (i32)floorf(along * range + 0.5f);
+                    if (wanted != value) Prog__QueueOption(state, option, wanted, drag.pressOrder, true);
+                }
+                // Saved once, where it is let go.
+                if (drag.released && state->sliderDragged) Prog__QueueOption(state, option, value, drag.pressOrder, false);
+                else if (drag.released) Prog_QueueCommand(state, Prog_CommandKind_OptionSliderEdit, (u64)option, 0, drag.pressOrder);
             }
-            // Saved once, where it is let go.
-            if (drag.released) Prog__QueueOption(state, option, value, drag.pressOrder, false);
+            if (typing && state->sliderInvalid) Prog__PopupTooltip(state, S("Not a number or a sum that makes one."));
             UI_Parent(slider) {
-                f32 middle = floorf((knob - track) * 0.5f), knobX = floorf(at * (wide - knob));
-                UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
-                UI_SetNextPrefWidth(UI_Pixels(wide));
-                UI_SetNextPrefHeight(UI_Pixels(track));
-                UI_SetNextCornerRadius(track * 0.5f);
-                UI_SetNextBorderThickness(line);
-                UI_SetNextColors((UI_Colors){ .background = theme->track, .border = theme->outline });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-                UI_SetNextFloatingOffset((UI_Vec2){ 0, middle });
-                UI_SetNextPrefWidth(UI_Pixels(knobX + knob * 0.5f));
-                UI_SetNextPrefHeight(UI_Pixels(track));
-                UI_SetNextCornerRadius(track * 0.5f);
-                UI_SetNextColors((UI_Colors){ .background = theme->selection });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                // The knob is solid in the color the fill shows over the track, which a translucent selection color would let show through it.
-                R_Color fill = theme->selection, under = theme->track;
-                R_Color solid = { fill.r * fill.a + under.r * (1 - fill.a), fill.g * fill.a + under.g * (1 - fill.a), fill.b * fill.a + under.b * (1 - fill.a), 1 };
-                UI_SetNextFloatingOffset((UI_Vec2){ knobX, 0 });
-                UI_SetNextPrefWidth(UI_Pixels(knob));
-                UI_SetNextPrefHeight(UI_Pixels(knob));
-                UI_SetNextCornerRadius(knob * 0.5f);
-                UI_SetNextColors((UI_Colors){ .background = fill.a < 1 && under.a >= 1 ? solid : fill });
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                if (typing) {
+                    // In the middle, where the value was, until it no longer fits.
+                    f32 typedWidth = R_TextWidth(m->font, Prog_EditText(&state->sliderEdit)) + Prog__CaretWidth(m);
+                    f32 inset = MaxF32(floorf(6.4f * s + 0.5f), floorf((width - typedWidth) * 0.5f));
+                    Prog__EditContents(&state->sliderEdit, inset, floorf((height - m->line) * 0.5f), true, 0, m);
+                } else {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                    UI_SetNextPrefWidth(UI_Pixels(floorf(at * width + 0.5f)));
+                    UI_SetNextPrefHeight(UI_Pixels(height));
+                    UI_SetNextCornerRadius(radius);
+                    UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    // Opacities are percentages.
+                    b32 percent = option == Prog_Option_InactiveOpacity || option == Prog_Option_WindowOpacity || option == Prog_Option_PopupOpacity;
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                    UI_SetNextPrefWidth(UI_Pixels(width));
+                    UI_SetNextPrefHeight(UI_Pixels(height));
+                    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                    UI_SetNextColors((UI_Colors){ .text = theme->text });
+                    UI_SetNextText(StrFormat(frame, percent ? "%d%%" : "%d", value));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
             }
         } break;
         case Prog_OptionControl_Expand: {

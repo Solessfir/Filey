@@ -1627,6 +1627,10 @@ command ColorPickerSet {
 command ColorHexEdit {
 }
 
+// A click on an option's slider, which starts typing its value in it; carries the option.
+command OptionSliderEdit {
+}
+
 // A press on one of the color picker's number boxes, which starts typing in it; carries the box, 1 to 7 for H, S, B, R, G, B and the hex.
 command ColorPickerEdit {
 }

@@ -475,6 +475,22 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(!Prog_OptionIsDefault(&quiet, Prog_Option_Font));
         Prog_RestoreOption(&quiet, Prog_Option_Font);
         Check(Prog_OptionIsDefault(&quiet, Prog_Option_Font));
+        // A slider takes arithmetic typed into it, worked out and rounded; what does not read keeps it typing.
+        f64 worked = 0;
+        Check(Prog_EvaluateExpression(S("2*2"), &worked) && worked == 4);
+        Check(Prog_EvaluateExpression(S(" 1 + 2 * (3 - 1) / 4 "), &worked) && worked == 2);
+        Check(Prog_EvaluateExpression(S("-(2.5+0,5)"), &worked) && worked == -3);
+        Check(Prog_EvaluateExpression(S("--3"), &worked) && worked == 3);
+        Check(!Prog_EvaluateExpression(S(""), &worked) && !Prog_EvaluateExpression(S("1/0"), &worked) && !Prog_EvaluateExpression(S("2*"), &worked));
+        Check(!Prog_EvaluateExpression(S("(1+2"), &worked) && !Prog_EvaluateExpression(S("abc"), &worked) && !Prog_EvaluateExpression(S("."), &worked));
+        Prog_BeginSliderEdit(&quiet, Prog_Option_Spacing);
+        Check(quiet.sliderOption == Prog_Option_Spacing + 1 && StrIsEqual(Prog_EditText(&quiet.sliderEdit), S("4")));
+        quiet.sliderEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&quiet.sliderEdit, (const u8 *)"oops", 4);
+        Check(!Prog_EndSliderEdit(&quiet, true) && quiet.sliderInvalid && quiet.sliderOption);
+        quiet.sliderEdit = (Prog_TextEdit){0};
+        Prog__EditReplace(&quiet.sliderEdit, (const u8 *)"3*2.4", 5);
+        Check(Prog_EndSliderEdit(&quiet, true) && !quiet.sliderOption && Prog_OptionValue(&quiet, Prog_Option_Spacing) == 7);
         // A muted kind does not show, whatever its text; an error too, once its kind is in the list by hand.
         Prog_State muted = {0};
         String names[] = { S("undo.nothing"), S("copy.failed") };

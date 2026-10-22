@@ -3137,6 +3137,14 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->colorPicking) Prog_PickHex(state, state->pickerOriginal);
                 Prog_CloseColorPicker(state);
             } break;
+            case Prog_CommandKind_OptionSliderEdit: {
+                if (command->row >= Prog_Option_Count) break;
+                Prog_BeginSliderEdit(state, (Prog_Option)command->row);
+                // Its row takes the highlight, as a press on the row would.
+                u8 options[Prog_Option_Count];
+                u32 shown = Prog_OptionMatches(state, options);
+                for (u32 i = 0; i < shown; ++i) if (options[i] == command->row) state->paletteHighlight = i;
+            } break;
             case Prog_CommandKind_ColorHexEdit: {
                 Prog_Option option = (Prog_Option)command->row;
                 if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorMatchDisabledSelection) break;
@@ -4031,6 +4039,25 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->swallowText = true;
             } else {
                 Prog__EditKey(state, hex, event);
+            }
+            continue;
+        }
+        // A slider being typed in takes the keyboard; Enter or a press anywhere sets it to what was typed, worked out, and Escape leaves it.
+        // Enter on what does not read keeps it typing, outlined; a press elsewhere then leaves it.
+        if (state->sliderOption && !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_Options)) Prog_EndSliderEdit(state, false);
+        if (state->sliderOption && event->kind == PlatformEventKind_MouseDown && !Prog_EndSliderEdit(state, true)) Prog_EndSliderEdit(state, false);
+        if (state->sliderOption && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            Prog_TextEdit *typed = &state->sliderEdit;
+            if (event->kind == PlatformEventKind_Text) {
+                if (typed->length < 64) Prog__EditInsert(typed, event->codepoint);
+                state->sliderInvalid = false;
+            } else if (event->key == Key_Escape || event->key == Key_Enter) {
+                Prog_EndSliderEdit(state, event->key == Key_Enter);
+                state->swallowText = true;
+            } else {
+                u32 version = typed->version;
+                Prog__EditKey(state, typed, event);
+                if (typed->version != version) state->sliderInvalid = false;
             }
             continue;
         }
