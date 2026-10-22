@@ -6278,7 +6278,10 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
     R_Rect r = entry->rect;
     if (UI->mouse.x >= r.x0 && UI->mouse.x < r.x1 && UI->mouse.y >= r.y0 && UI->mouse.y < r.y1) state->optionHovered = (u8)(option + 1);
     UI_Parent(entry) {
-        if (desc->control == Prog_OptionControl_Color) Prog__Spacer(UI_Pixels(floorf(24.0f * s + 0.5f)), UI_Pixels(face));
+        // The colors and the options that narrow the one above them sit in under it.
+        b32 nested = desc->control == Prog_OptionControl_Color || option == Prog_Option_SingleClickFoldersOnly ||
+                     (option >= Prog_Option_CalcFolderSizesSSD && option <= Prog_Option_CalcFolderSizesNetwork);
+        if (nested) Prog__Spacer(UI_Pixels(floorf(24.0f * s + 0.5f)), UI_Pixels(face));
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(face));
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
