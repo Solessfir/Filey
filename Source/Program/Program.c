@@ -2801,10 +2801,30 @@ function f32 Prog__CaretOpacity(const Prog_TextEdit *edit)
 
 // The text of `edit` with its selection and, when `caret` is set, its caret, floating at `x`, `y` in the current parent.
 // `caretGrow` lengthens the caret past the text line at both ends, as the palettes' tall fields draw it.
+// How far the text of `edit` is scrolled left in its box, which keeps the caret in sight once the text is wider than the box.
+function UI_Key Prog__EditScrollKey(const Prog_TextEdit *edit) { return UI_KeyFromStr(1, StrFormat(UI->frameArena, "EditScroll/%p", (const void *)edit)); }
+function f32 Prog__EditScroll(const Prog_TextEdit *edit) { return UI_Kept(Prog__EditScrollKey(edit)); }
+
 function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, f32 caretGrow, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String text = Prog_EditText(edit);
+    // A text wider than its box scrolls as far as keeps the caret in sight, and back once it fits; the box keeps the inset the text starts
+    // at on its other side too. The box is measured by a block of its own across it, as the boxes holding the texts have no keys of theirs.
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+    UI_SetNextPrefWidth(UI_Percent(1));
+    UI_SetNextPrefHeight(UI_Pixels(1));
+    UI_Block *across = UI_AddBlockFromKey(UI_KeyFromStr(1, StrFormat(UI->frameArena, "EditBox/%p", (const void *)edit)), UI_Flag_Floating);
+    f32 room = across->rect.x1 - across->rect.x0 - x - MaxF32(x, Prog__CaretWidth(m)), scroll = 0;
+    if (room > 0) {
+        f32 caretAt = R_TextWidth(m->font, StrMake(text.value, edit->cursor));
+        scroll = Prog__EditScroll(edit);
+        if (caretAt - scroll > room) scroll = caretAt - room;
+        if (caretAt < scroll) scroll = caretAt;
+        scroll = MaxF32(0, floorf(MinF32(scroll, MaxF32(0, R_TextWidth(m->font, text) - room))));
+    }
+    UI_Slide(Prog__EditScrollKey(edit), scroll, 1e9f);
+    x -= scroll;
     u32 from = Min(edit->cursor, edit->anchor), to = Max(edit->cursor, edit->anchor);
     f32 x0 = floorf(x + R_TextWidth(m->font, StrMake(text.value, from)) + 0.5f);
     f32 target = floorf(R_TextWidth(m->font, StrMake(text.value, to)) - R_TextWidth(m->font, StrMake(text.value, from)) + 0.5f);
@@ -2860,7 +2880,7 @@ function void Prog__EditMouse(Prog_State *state, UI_Block *block, const Prog_Tex
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     b32 drag = interaction.active && !interaction.pressed;
     if (interaction.button != MouseButton_Left || (!interaction.pressed && !drag)) return;
-    u32 at = Prog__EditOffsetAt(edit, m->font, UI->mouse.x - block->rect.x0 - x);
+    u32 at = Prog__EditOffsetAt(edit, m->font, UI->mouse.x - block->rect.x0 - x + Prog__EditScroll(edit));
     Prog_Command *command = Prog_QueueCommand(state, kind, at, interaction.pressCount, interaction.pressed ? interaction.pressOrder : 0);
     command->mods = interaction.mods | (drag ? KeyMod_Shift : 0);
 }
