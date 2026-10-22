@@ -2012,9 +2012,17 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     setenv("XDG_DATA_HOME", P__FilePathCString(&arena, data), 1);
     Prog_SelectRow(&state, TestEntryIndex(&state, S("a.txt")), 0);
     TestFileCommand(&state, Prog_CommandKind_Trash);
+    Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
+    // Undo takes it back out of the trash, selected, and Redo sends it there again.
+    TestBrowsingCommand(&state, Prog_CommandKind_Undo, 0);
+    for (u64 start = PlatformNowMicroseconds(); TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    Check(TestWaitDirectory(&state) && !state.error.length && TestEntryIndex(&state, S("a.txt")) != UINT64_MAX && !TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
+    Check(state.directory.entries[TestEntryIndex(&state, S("a.txt"))].selected && state.redo.header.count == 1);
+    TestBrowsingCommand(&state, Prog_CommandKind_Redo, 0);
+    for (u64 start = PlatformNowMicroseconds(); TestEntryIndex(&state, S("a.txt")) != UINT64_MAX && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    Check(TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
     if (saved.length) setenv("XDG_DATA_HOME", P__FilePathCString(&arena, saved), 1);
     else unsetenv("XDG_DATA_HOME");
-    Check(!state.error.length && TestEntryIndex(&state, S("a.txt")) == UINT64_MAX && TestHasFile(&arena, fixture, S("Commands/data/Trash/files"), S("a.txt")));
 
     // The context menu's items run the same commands.
     ArenaClear(&state.frameArena);

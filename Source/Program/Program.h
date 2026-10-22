@@ -247,6 +247,7 @@ typedef enum Prog_UndoKind {
     Prog_UndoKind_Create,
     Prog_UndoKind_Copy,
     Prog_UndoKind_Move,
+    Prog_UndoKind_Trash,  // `to` the items sent to the bin, which undoing takes back out
     Prog_UndoKind_Count,
 } Prog_UndoKind;
 

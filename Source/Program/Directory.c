@@ -1617,6 +1617,8 @@ function void Prog__CountFound(Prog_JobInput *input, const P_File *files, u64 co
     atomic_fetch_add(&input->shownFiles, shownFiles);
 }
 
+function b32 Prog__SamePath(String a, String b);
+
 function void Prog__DirectoryJob(P_Job *job)
 {
     Prog_JobInput *input = job->input;
@@ -1840,6 +1842,25 @@ function void Prog__DirectoryJob(P_Job *job)
             u64 count = 0;
             for (u64 i = 0; i < undo->count; ++i) if (undo->to[i].length) paths[count++] = undo->to[i];
             if (count) *error = P_TrashItems(&job->arena, paths, count);
+        } else if (undo->kind == Prog_UndoKind_Trash && input->redo) {
+            *error = P_TrashItems(&job->arena, undo->to, undo->count);
+        } else if (undo->kind == Prog_UndoKind_Trash) {
+            // Each item from the bin by where it was, the one deleted last where it holds several from the same place.
+            String bin = P_TrashFolder(&job->arena);
+            P_ArrayTrashed binned = P_ListTrash(&job->arena, bin, &job->cancelToken);
+            String *names = ArenaPushArray(&job->arena, Max(undo->count, (u64)1), String);
+            u64 found = 0;
+            for (u64 i = 0; i < undo->count; ++i) {
+                const P_Trashed *best = NULL;
+                for (u64 b = 0; b < binned.header.count; ++b) {
+                    const P_Trashed *item = &binned.v[b];
+                    if (!Prog__SamePath(Prog_JoinPath(&job->arena, item->original, item->name), undo->to[i])) continue;
+                    if (!best || item->deletedTimeUnix > best->deletedTimeUnix) best = item;
+                }
+                if (best) names[found++] = best->file.name;
+            }
+            if (found) *error = P_RestoreTrash(&job->arena, bin, names, found);
+            else *error = (P_FileError){ 1, S("They are no longer in the bin") };
         } else if (undo->kind == Prog_UndoKind_Move) {
             for (u64 i = 0; i < undo->count && !error->code; ++i) {
                 if (!undo->to[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
@@ -3461,6 +3482,23 @@ function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String 
     Prog__PushStep(&state->undoArena, &state->undo, kind, from, to, count);
 }
 
+// Whether `a` and `b` name the same place, whichever separators they use, and ignoring case, as Windows does.
+function b32 Prog__SamePath(String a, String b)
+{
+    while (a.length > 1 && (a.value[a.length - 1] == '/' || a.value[a.length - 1] == '\\')) --a.length;
+    while (b.length > 1 && (b.value[b.length - 1] == '/' || b.value[b.length - 1] == '\\')) --b.length;
+    if (a.length != b.length) return false;
+    for (u64 i = 0; i < a.length; ++i) {
+        u8 x = (u8)a.value[i], y = (u8)b.value[i];
+        if (x == '\\') x = '/';
+        if (y == '\\') y = '/';
+        if (x >= 'A' && x <= 'Z') x += 32;
+        if (y >= 'A' && y <= 'Z') y += 32;
+        if (x != y) return false;
+    }
+    return true;
+}
+
 // Reverses the newest step of the undo or the redo stack in a job; once it is done, the step back again goes on the other one.
 function void Prog__ReverseLast(Prog_State *state, b32 redo)
 {
@@ -4921,6 +4959,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     if (input->move) Prog__FollowMoved(state, input->paths, result->placed.v, input->pathCount);
                 }
             }
+            // Items sent to the bin can be taken back out.
+            if (!error.code && input->kind == Prog_JobKind_Trash) Prog_PushUndo(state, Prog_UndoKind_Trash, NULL, input->paths, input->pathCount);
             if (!error.code && input->kind == Prog_JobKind_Create && job->result) {
                 String created = Prog_JoinPath(&state->frameArena, input->path, ((Prog_Created *)job->result)->name);
                 Prog_PushUndo(state, Prog_UndoKind_Create, NULL, &created, 1);
@@ -4934,6 +4974,18 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (error && error->code) {
                 ArenaClear(&state->errorArena);
                 state->error = StrFormat(&state->errorArena, input->redo ? "Redo: %S" : "Undo: %S", error->message);
+            } else if (input->undo.kind == Prog_UndoKind_Trash) {
+                // Back out of the bin, or into it again, which the other stack then reverses; what came back is selected where it shows.
+                const Prog_Undo *done = &input->undo;
+                Prog__PushStep(input->redo ? &state->undoArena : &state->redoArena, input->redo ? &state->undo : &state->redo, Prog_UndoKind_Trash, NULL, done->to, done->count);
+                Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
+                if (!input->redo) {
+                    ArenaClear(&state->pickArena);
+                    state->pickNames = (ArrayStr){0};
+                    for (u64 i = 0; i < done->count; ++i) {
+                        if (Prog__SamePath(Prog_ParentPath(done->to[i]), state->directory.path)) ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, Prog_EntryLeaf(done->to[i])));
+                    }
+                }
             } else if (input->undo.kind == Prog_UndoKind_Rename || input->undo.kind == Prog_UndoKind_Move) {
                 // The items are back at `from`, so the way back to `to` is the same step the other way round. New items and copies went to the
                 // trash, which Redo does not take them out of.
