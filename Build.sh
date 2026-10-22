@@ -40,6 +40,10 @@ fi
 
 # EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 cflags="$cflags ${EXTRA_CFLAGS:-}"
+# FILEY_VERSION, such as 1.2.3 for a release, is the version the app shows; 0.1.0 without it.
+if [ -n "${FILEY_VERSION:-}" ]; then
+    cflags="$cflags -DFILEY_VERSION=\"$FILEY_VERSION\""
+fi
 
 app_packages="wayland-client wayland-cursor wayland-egl egl xkbcommon freetype2 fontconfig"
 app_cflags=$(pkg-config --cflags $app_packages)

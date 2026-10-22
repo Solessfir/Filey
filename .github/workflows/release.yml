@@ -1,0 +1,73 @@
+# A pushed tag such as v1.2.3 builds Filey 1.2.3 on Windows and Linux, runs the tests on both, and publishes a GitHub release with both
+# builds and notes made of the commits since the tag before.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # #embed needs Clang 19 or later, newer than the runner may have.
+      - name: Install LLVM
+        run: choco upgrade llvm -y --no-progress
+      - name: Build and test
+        shell: cmd
+        run: |
+          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
+          set "FILEY_VERSION=%GITHUB_REF_NAME:~1%"
+          call Build.bat release test
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          Compress-Archive -Path Bin/release/Filey.exe -DestinationPath "Filey-$version-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Filey-*-windows-x64.zip
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Ubuntu's own Clang is 18, older than #embed needs.
+      - name: Install Clang and the libraries
+        run: |
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 20
+          sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libegl-dev libfreetype-dev libfontconfig-dev libarchive13t64 git
+      - name: Build and test
+        run: CC=clang-20 FILEY_VERSION="${GITHUB_REF_NAME#v}" ./Build.sh release test
+      - name: Package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          folder="filey-$version"
+          mkdir -p "$folder/icons"
+          cp Bin/release/filey Source/Resources/filey.desktop Source/Resources/Filey.svg Source/Resources/filey-symbolic.svg "$folder/"
+          cp Source/Resources/Icons/filey-*.png "$folder/icons/"
+          tar -czf "filey-$version-linux-x64.tar.gz" "$folder"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: filey-*-linux-x64.tar.gz
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Filey-*-windows-x64.zip
+            filey-*-linux-x64.tar.gz
+          generate_release_notes: true

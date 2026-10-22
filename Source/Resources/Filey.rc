@@ -1,13 +1,20 @@
 // The app icon, which Explorer, the taskbar and the window show, and the details Explorer lists for the executable.
-// Built by Build.bat with llvm-rc.
+// Built by Build.bat with llvm-rc, which passes the version of a release build in FILEY_VERSION_TEXT and FILEY_VERSION_NUMBERS.
 
 #define FILEY_ICON 1
+
+#ifndef FILEY_VERSION_TEXT
+#define FILEY_VERSION_TEXT "0.1.0"
+#endif
+#ifndef FILEY_VERSION_NUMBERS
+#define FILEY_VERSION_NUMBERS 0,1,0,0
+#endif
 
 FILEY_ICON ICON "Filey.ico"
 
 1 VERSIONINFO
-FILEVERSION 0,1,0,0
-PRODUCTVERSION 0,1,0,0
+FILEVERSION FILEY_VERSION_NUMBERS
+PRODUCTVERSION FILEY_VERSION_NUMBERS
 FILEOS 0x40004
 FILETYPE 0x1
 BEGIN
@@ -17,8 +24,8 @@ BEGIN
         BEGIN
             VALUE "FileDescription", "Filey"
             VALUE "ProductName", "Filey"
-            VALUE "FileVersion", "0.1.0"
-            VALUE "ProductVersion", "0.1.0"
+            VALUE "FileVersion", FILEY_VERSION_TEXT
+            VALUE "ProductVersion", FILEY_VERSION_TEXT
             VALUE "OriginalFilename", "Filey.exe"
             VALUE "LegalCopyright", "MIT License"
         END

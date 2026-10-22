@@ -50,6 +50,13 @@ if "%MODE%"=="release" (
 if "%PROFILE%"=="1" set CFLAGS=%CFLAGS% -DPROFILE
 rem EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 set CFLAGS=%CFLAGS% %EXTRA_CFLAGS%
+rem FILEY_VERSION, such as 1.2.3 for a release, is the version the app and its executable's details show; 0.1.0 without it.
+set RCFLAGS=
+if defined FILEY_VERSION (
+    set CFLAGS=%CFLAGS% -DFILEY_VERSION=\"%FILEY_VERSION%\"
+    for /f "tokens=1-3 delims=.-+" %%a in ("%FILEY_VERSION%") do set "RCFLAGS=/D FILEY_VERSION_NUMBERS=%%a,%%b,%%c,0"
+)
+if defined FILEY_VERSION set RCFLAGS=%RCFLAGS% /D "FILEY_VERSION_TEXT=\"%FILEY_VERSION%\""
 
 rem Generators run on every build and rewrite their outputs only when the content changes.
 "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tools\Codegen.c" -o "%OUT%\Codegen.exe" || exit /b 1
@@ -61,7 +68,7 @@ if "%ANALYZE%"=="1" (
 
 "%CLANG%" -x c++ %CXXFLAGS% -c "%ROOT%Source\Win\WinFontRasterizer.cpp" -o "%OUT%\WinFontRasterizer.obj" || exit /b 1
 rem The icon and version details are a resource linked into the executable.
-"%RC%" /nologo /fo "%OUT%\Filey.res" "%ROOT%Source\Resources\Filey.rc" || exit /b 1
+"%RC%" /nologo %RCFLAGS% /fo "%OUT%\Filey.res" "%ROOT%Source\Resources\Filey.rc" || exit /b 1
 "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Unity.c" "%OUT%\WinFontRasterizer.obj" "%OUT%\Filey.res" %APP_LINK% -o "%OUT%\Filey.exe" || exit /b 1
 
 rem The tests keep several program states on the stack at once, more than Windows' default megabyte; Linux gives 8 MB.
