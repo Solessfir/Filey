@@ -1074,6 +1074,22 @@ function void TestFileIcons(TestFileFixture *fixture)
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, transfer.path, S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
         // What it took out is where it was placed, which is selected afterwards.
         Check(placed.header.count == 1 && StrIsEqual(placed.v[0], Prog_JoinPath(&arena, transfer.path, S("note.txt"))));
+        // Packing makes a new archive beside the items, and taking it out into a folder of its own puts its items there.
+        {
+            String packed[2] = { Prog_JoinPath(&arena, out, S("a.txt")), Prog_JoinPath(&arena, out, S("note.txt")) };
+            Prog_JobInput pack = { .kind = Prog_JobKind_Transfer, .archiveOp = Prog_ArchiveOp_Compress, .paths = packed, .pathCount = 2, .path = transfer.path, .name = S("pack2.zip") };
+            ArrayStr made = {0};
+            Check(!Prog__Transfer(&arena, &pack, &made, NULL).code && made.header.count == 1);
+            String archive2 = made.header.count ? made.v[0] : (String){0};
+            Check(P_EnumerateArchive(&arena, archive2, (String){0}, NULL).files.header.count == 2);
+            Prog_JobInput unpack = { .kind = Prog_JobKind_Transfer, .archiveOp = Prog_ArchiveOp_ExtractToFolder, .paths = &archive2, .pathCount = 1, .path = transfer.path, .name = S("pack2") };
+            ArrayStr taken = {0};
+            Check(!Prog__Transfer(&arena, &unpack, &taken, NULL).code && taken.header.count == 1);
+            Check(taken.header.count && P_ReadFile(&arena, Prog_JoinPath(&arena, taken.v[0], S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
+            Check(Prog__NameStem(S("box.tar.gz")).length == 3 && StrIsEqual(Prog__NameStem(S("notes.txt")), S("notes")) && StrIsEqual(Prog__NameStem(S("README")), S("README")));
+            Check(P__TestRemovePath(fixture, S("Out2/pack2/a.txt"), false) && P__TestRemovePath(fixture, S("Out2/pack2/note.txt"), false) && P__TestRemovePath(fixture, S("Out2/pack2"), true));
+            Check(P__TestRemovePath(fixture, S("Out2/pack2.zip"), false));
+        }
         Check(P__TestRemovePath(fixture, S("Out/a.txt"), false) && P__TestRemovePath(fixture, S("Out/note.txt"), false) && P__TestRemovePath(fixture, S("Out/ünï 日本.txt"), false) && P__TestRemovePath(fixture, S("Out/more.txt"), false) &&
               P__TestRemovePath(fixture, S("Out"), true));
         Check(P__TestRemovePath(fixture, S("Out2/note.txt"), false) && P__TestRemovePath(fixture, S("Out2"), true));

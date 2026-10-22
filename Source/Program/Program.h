@@ -350,8 +350,19 @@ typedef struct Prog_TreeTotals {
 
 typedef struct Prog_Partial Prog_Partial;
 
+// What a Transfer does with archives instead of copying: packs `paths` into the new archive `name` in `path`, or takes the archive `paths[0]`
+// out into `path` itself or into the new folder `name` there.
+typedef enum Prog_ArchiveOp {
+    Prog_ArchiveOp_None,
+    Prog_ArchiveOp_Compress,
+    Prog_ArchiveOp_ExtractHere,
+    Prog_ArchiveOp_ExtractToFolder,
+    Prog_ArchiveOp_Count,
+} Prog_ArchiveOp;
+
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
+    enum8(Prog_ArchiveOp) archiveOp;
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;

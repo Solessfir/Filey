@@ -55,7 +55,8 @@ typedef struct P_Progress P_Progress;
 // there gets a new one, as copies do. `progress`, which may be NULL, counts the archive read through and pauses as transfers do.
 function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, P_Progress *progress,
                                       const P_CancelToken *cancel);
-// Copies the items at `paths` on disk into the folder `inner` of `archive`, in place of what has their names there. The archive is rewritten
+// Copies the items at `paths` on disk into the folder `inner` of `archive`, in place of what has their names there, making the archive when
+// it is not there yet. The archive is rewritten
 // beside it and put in place once complete, so that a cancel leaves it as it was; formats libarchive cannot write, such as RAR, fail.
 function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, P_Progress *progress, const P_CancelToken *cancel);
 // Whether P_AddToArchive writes the archive `archive`, by its name alone: zip, 7z and tar, not RAR or cabinets, which no free library writes.
@@ -390,6 +391,10 @@ typedef enum P_MenuAction {
     P_MenuAction_EmptyTrash,
     P_MenuAction_Restore,
     P_MenuAction_RestoreAll,
+    P_MenuAction_CompressZip,
+    P_MenuAction_Compress7z,
+    P_MenuAction_ExtractHere,
+    P_MenuAction_ExtractToFolder,
     P_MenuAction_Count,
 } P_MenuAction;
 

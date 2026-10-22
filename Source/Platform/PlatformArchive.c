@@ -402,13 +402,15 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
     for (u64 k = 0; k < count && !error; ++k) error = P__ArchiveWritePath(NULL, paths[k], names[k], progress, cancel);
     Index slash = StrIndexChar(archive, '/', SSF_SearchBackwards);
     String part = slash.exists ? StrFormat(scratch.arena, "%S/.%S.part", StrFromTo(archive, 0, (i64)slash.value), StrFrom(archive, slash.value + 1)) : (String){0};
-    void *reader = error ? NULL : P__ArchiveRead(archive), *writer = NULL, *entry = NULL;
-    if (!error && (!reader || !part.length)) error = P__ArchiveFailed;
+    // An archive not there yet is made, with nothing to copy over.
+    b32 existing = P_PathExists(archive);
+    void *reader = error || !existing ? NULL : P__ArchiveRead(archive), *writer = NULL, *entry = NULL;
+    if (!error && ((existing && !reader) || !part.length)) error = P__ArchiveFailed;
     u64 read = UINT64_MAX;
     String name = {0};
     b32 folder = false;
     // Everything already there is copied over, but for what the new items replace.
-    while (!error && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
+    while (!error && reader && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
         if (!writer && !(writer = P__ArchiveWriter(reader, part, archive))) error = P__ArchiveUnsupported;
         b32 replaced = false;
         for (u64 k = 0; k < count && !replaced; ++k) {

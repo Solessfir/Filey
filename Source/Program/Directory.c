@@ -817,8 +817,39 @@ function String Prog_ArchiveCopy(Arena *arena, String path, P_Progress *progress
 // Copies or moves as P_TransferItems does, and copies into and out of archives: out of one by taking the items out, into one by adding
 // them, where items of another archive go by way of this run's folder. A move into or out of an archive copies, so that the archive and the
 // files it was made from both stay whole.
+// Carries out a Transfer's archive operation, with where its result was placed: the new archive, the new folder, or what came out.
+function P_FileError Prog__ArchiveOp(Arena *arena, const Prog_JobInput *input, ArrayStr *placed, const P_CancelToken *cancel)
+{
+    P_FileError result = {0};
+    if (input->archiveOp == Prog_ArchiveOp_Compress) {
+        String archive = Prog_JoinPath(arena, input->path, input->name);
+        result = P_AddToArchive(arena, archive, (String){0}, input->paths, input->pathCount, input->progress, cancel);
+        if (!result.code) ArrayPush(arena, *placed, archive);
+        return result;
+    }
+    if (!input->pathCount) return (P_FileError){ .code = 1, .message = S("No archive to take out") };
+    String archive = input->paths[0], into = input->path;
+    if (input->archiveOp == Prog_ArchiveOp_ExtractToFolder) {
+        String made = {0};
+        result = P_CreateItem(arena, input->path, input->name, true, &made);
+        if (result.code) return result;
+        into = Prog_JoinPath(arena, input->path, made);
+    }
+    // Everything at the archive's top, which brings the rest along.
+    P_DirectoryResult top = P_EnumerateArchive(arena, archive, (String){0}, cancel);
+    if (top.errorCode) return (P_FileError){ .code = top.errorCode, .message = top.errorString };
+    String *names = ArenaPushArray(arena, Max(top.files.header.count, (u64)1), String);
+    for (u64 i = 0; i < top.files.header.count; ++i) names[i] = top.files.v[i].name;
+    result = P_ExtractArchive(arena, archive, (String){0}, names, top.files.header.count, into, input->progress, cancel);
+    if (result.code) return result;
+    if (input->archiveOp == Prog_ArchiveOp_ExtractToFolder) ArrayPush(arena, *placed, into);
+    else for (u64 i = 0; i < top.files.header.count; ++i) ArrayPush(arena, *placed, Prog_JoinPath(arena, into, names[i]));
+    return result;
+}
+
 function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, ArrayStr *placed, const P_CancelToken *cancel)
 {
+    if (input->archiveOp) return Prog__ArchiveOp(arena, input, placed, cancel);
     String toArchive = {0}, toInner = {0}, fromArchive = {0}, fromInner = {0};
     b32 into = Prog_InArchive(input->path, &toArchive, &toInner);
     b32 outOf = input->pathCount && Prog_InArchive(Prog_ParentPath(input->paths[0]), &fromArchive, &fromInner);

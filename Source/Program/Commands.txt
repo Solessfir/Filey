@@ -823,6 +823,30 @@ command Duplicate {
     repeat  = "false"
 }
 
+command CompressZip {
+    label   = "Add To ZIP^compress,archive,pack,zip"
+    tooltip = "Pack the selected items into a new zip archive beside them."
+    repeat  = "false"
+}
+
+command Compress7z {
+    label   = "Add To 7z^compress,archive,pack,7zip"
+    tooltip = "Pack the selected items into a new 7z archive beside them."
+    repeat  = "false"
+}
+
+command ExtractHere {
+    label   = "Extract Here^uncompress,unpack,archive,unzip"
+    tooltip = "Take everything out of the selected archive into the folder it is in."
+    repeat  = "false"
+}
+
+command ExtractToFolder {
+    label   = "Extract To Folder^uncompress,unpack,archive,unzip"
+    tooltip = "Take everything out of the selected archive into a new folder named after it."
+    repeat  = "false"
+}
+
 command CopyAsPath {
     label   = "Copy As Path"
     tooltip = "Copy selected file paths to the clipboard, or the folder's path when nothing is selected."
