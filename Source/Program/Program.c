@@ -4312,7 +4312,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextCornerRadius(m->radius);
             UI_SetNextFont(m->icons);
             UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = removeHot ? theme->text : theme->icon });
-            UI_SetNextText(Icon_Trash2);
+            // An x, as what removes something from a list does elsewhere; the bin's icon is for deleting.
+            UI_SetNextText(Icon_X);
             UI_Block *remove = UI_AddBlockFromKey(removeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (removeHot ? UI_Flag_DrawBackground : 0));
             UI_Interaction removing = UI_InteractionFromBlock(remove);
             if (removing.clicked) Prog_QueueCommand(state, Prog_CommandKind_RemoveBookmark, index, 0, removing.clickOrder);
