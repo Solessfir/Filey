@@ -676,7 +676,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
-    Prog_CommandKind_RecentsClear, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
@@ -749,6 +749,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_Redo: return state->redo.header.count != 0;
         case Prog_CommandKind_ApplyFilter: case Prog_CommandKind_RemoveFilter: return state->filter.length || state->filtering;
         case Prog_CommandKind_RecentsClear: return state->recents.header.count != 0;
+        case Prog_CommandKind_NoticesUnmuteAll: return state->mutedNotices.header.count != 0;
         case Prog_CommandKind_BookmarksClear: return state->bookmarks.header.count != 0;
         case Prog_CommandKind_FolderViewsClear: return state->folderViews.header.count != 0;
         case Prog_CommandKind_PanelSelectNext: case Prog_CommandKind_PanelSelectPrev: case Prog_CommandKind_PanelLeft: case Prog_CommandKind_PanelRight:
@@ -1892,7 +1893,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         state->createdRenames = owner != UINT32_MAX && StrIsEqual(state->menu.items[owner].verb, S("new"));
         P_FileError error = P_ContextMenuInvoke(&state->frameArena, &state->menu, item.id);
         ArenaClear(&state->errorArena);
-        if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "%S failed", item.label), error.message);
+        if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("menu.failed"), StrFormat(&state->frameArena, "%S failed", item.label), error.message);
         // The watch would catch the change too; reloading now shows it without waiting.
         Prog_Reload(state);
         // The bin has no watch, and the shell moves its items on after the command returns, so a job waits for them to leave it.
@@ -2547,7 +2548,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             ArrayStr folders = Prog__OpenFolders(state, &state->frameArena);
             for (u64 i = 0; i < folders.header.count && !error.code; ++i) error = Prog_OpenWindow(state, folders.v[i], (String){0});
             if (error.code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open a new window"), error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), S("Couldn't open a new window"), error.message);
             }
         } break;
             case Prog_CommandKind_OpenInRightSplit:
@@ -3037,7 +3038,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 b32 install = command->kind == Prog_CommandKind_SetupInstall;
                 P_FileError error = install ? P_InstallApply(&state->frameArena, state->setupDesktop, state->setupOnPath, state->setupDefault) : P_Uninstall(&state->frameArena);
                 if (error.code) {
-                    Prog_Notify(state, Prog_NoticeKind_Error, install ? S("Install failed") : S("Uninstall failed"), error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, install ? S("install.failed") : S("uninstall.failed"), install ? S("Install failed") : S("Uninstall failed"), error.message);
                 }
                 Prog__ReadSetup(state);
             } break;
@@ -3068,6 +3069,33 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColorPickerSet: if (state->colorPicking) Prog_PickColor(state, (u32)command->row, (f32)((f64)command->target / 1e6)); break;
             case Prog_CommandKind_ColorPickerClose: Prog_CloseColorPicker(state); break;
             case Prog_CommandKind_GitBranchesOpen: Prog_ToggleBranches(state); break;
+            case Prog_CommandKind_NoticeMute: {
+                // Its kind joins the muted ones, and every notice of that kind goes.
+                String key = {0};
+                for (u32 i = 0; i < state->noticeCount; ++i) {
+                    if (state->notices[i].id == command->row) key = StrCopy(&state->frameArena, StrMake((const char *)state->notices[i].key, state->notices[i].keyLength));
+                }
+                if (!key.length) break;
+                u64 count = state->mutedNotices.header.count;
+                String *names = ArenaPushArray(&state->frameArena, count + 1, String);
+                b32 known = false;
+                for (u64 i = 0; i < count; ++i) known |= StrIsEqual(names[i] = state->mutedNotices.v[i], key);
+                if (!known) names[count++] = key;
+                Prog__SetList(&state->mutedArena, &state->mutedNotices, names, count);
+                Prog__SaveList(state, Prog_MutedNoticesFile, state->mutedNotices);
+                for (u32 i = 0; i < state->noticeCount;) {
+                    if (!StrIsEqual(StrMake((const char *)state->notices[i].key, state->notices[i].keyLength), key)) {
+                        ++i;
+                        continue;
+                    }
+                    MemMove(&state->notices[i], &state->notices[i + 1], (state->noticeCount - i - 1) * sizeof(Prog_Notice));
+                    --state->noticeCount;
+                }
+            } break;
+            case Prog_CommandKind_NoticesUnmuteAll: {
+                Prog__SetList(&state->mutedArena, &state->mutedNotices, NULL, 0);
+                Prog__SaveList(state, Prog_MutedNoticesFile, state->mutedNotices);
+            } break;
             case Prog_CommandKind_NoticeCopy:
             case Prog_CommandKind_NoticeClose: {
                 for (u32 i = 0; i < state->noticeCount; ++i) {
@@ -3429,6 +3457,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (desc->control == Prog_OptionControl_Font) Prog__OpenFontPicker(state, option);
                     if (desc->control == Prog_OptionControl_Expand) state->colorsExpanded = !state->colorsExpanded;
                     if (desc->control == Prog_OptionControl_Color) Prog__OpenColorPicker(state, option);
+                    if (desc->control == Prog_OptionControl_Muted) Prog_QueueCommand(state, Prog_CommandKind_NoticesUnmuteAll, 0, 0, UINT64_MAX);
                     u32 choices = 0;
                     Prog_OptionChoices(state, option, &state->frameArena, &choices);
                     // A scheme opens the schemes' dropdown.
@@ -3517,7 +3546,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ConsoleOpen: {
                 P_FileError error = state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC) ? P_OpenConsole(&state->frameArena, state->directory.path) : (P_FileError){0};
                 if (error.code) {
-                    Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open the console"), error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, S("console.failed"), S("Couldn't open the console"), error.message);
                 }
             } break;
             case Prog_CommandKind_ToggleFullscreen: PlatformWindowToggleFullscreen(); break;
@@ -3527,7 +3556,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_NewWindow: {
                 P_FileError error = Prog_OpenWindow(state, Prog_TabPath(state, state->activeTab), Prog__TabTraits(state, state->activeTab));
                 if (error.code) {
-                    Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open a new window"), error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), S("Couldn't open a new window"), error.message);
                 }
             } break;
             case Prog_CommandKind_ToggleTransparency: Prog_SetOption(state, Prog_Option_Transparency, !state->transparent); break;

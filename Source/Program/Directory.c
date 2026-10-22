@@ -2383,10 +2383,24 @@ function void Prog__NextRepoStatus(Prog_State *state)
 function b32 Prog_PathOnline(const Prog_State *state, String path);
 
 // Shows a notice, or counts up the same one shown, which then comes back to the front.
-function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String title, String message)
+// The kind of the notice of an operation that failed, from its verb: "Paste shortcut" gives "pasteshortcut.failed".
+function String Prog__NoticeKey(Arena *arena, String verb)
 {
-    // Those below the kinds the settings show are not shown.
+    StrBuilder key = {0};
+    for (u64 i = 0; i < verb.length; ++i) {
+        u8 c = (u8)verb.value[i];
+        if (c != ' ') StrBuildChar(arena, &key, (char)(c >= 'A' && c <= 'Z' ? c + 32 : c));
+    }
+    StrBuildStr(arena, &key, S(".failed"));
+    return key.buffer;
+}
+
+function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message)
+{
+    // Those below the kinds the settings show are not shown, nor a kind muted.
     if (kind < state->noticeLevel) return;
+    for (u64 i = 0; i < state->mutedNotices.header.count; ++i) if (StrIsEqual(state->mutedNotices.v[i], key)) return;
+    key = StrFromTo(key, 0, (i64)Min(key.length, sizeof(state->notices[0].key)));
     title = StrFromTo(title, 0, (i64)Min(title.length, sizeof(state->notices[0].title)));
     message = StrFromTo(message, 0, (i64)Min(message.length, sizeof(state->notices[0].message)));
     Prog_Notice notice = { .kind = (u8)kind, .count = 1, .since = PlatformNowMicroseconds() };
@@ -2403,6 +2417,8 @@ function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String title,
     }
     if (notice.count == 1) {
         notice.id = ++state->noticeIds;
+        notice.keyLength = (u32)key.length;
+        MemCopy(notice.key, key.value, key.length);
         notice.titleLength = (u32)title.length;
         notice.messageLength = (u32)message.length;
         MemCopy(notice.title, title.value, title.length);
@@ -2608,6 +2624,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 #define Prog_FolderViewsFile S("FolderViews.conf")
 #define Prog_MenuPinsFile S("MenuPins.conf")
 #define Prog_QuickCommandsFile S("QuickCommands.conf")
+#define Prog_MutedNoticesFile S("MutedNotices.conf")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
 // What a first visit scores.
@@ -2617,7 +2634,8 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 // The save slot of each list file.
 function u32 Prog__SaveSlot(String file)
 {
-    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4 : 0;
+    return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4
+         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -2856,6 +2874,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Prog__LoadRecents(state);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog__LoadList(state, Prog_MenuPinsFile, &state->menuPinArena, &state->menuPins, &found);
+    Prog__LoadList(state, Prog_MutedNoticesFile, &state->mutedArena, &state->mutedNotices, &found);
     Prog__LoadList(state, Prog_QuickCommandsFile, &state->quickArena, &state->quickCommands, &found);
     if (!found) Prog__DefaultQuick(state);
     Prog_ReloadSettingsFile(state);
@@ -3506,7 +3525,7 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
             if (PlatformOtherWindowAtPointer(StrFormat(&state->frameArena, "%S\t%S", path, traits))) break;
             P_FileError error = Prog_OpenWindow(state, path, traits);
             if (error.code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open a new window"), error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), S("Couldn't open a new window"), error.message);
                 return;
             }
         } break;
@@ -3595,7 +3614,7 @@ function void Prog__ReverseLast(Prog_State *state, b32 redo)
     state->error = (String){0};
     Prog_ArrayUndo *stack = redo ? &state->redo : &state->undo;
     if (!stack->header.count) {
-        Prog_Notify(state, Prog_NoticeKind_Info, redo ? S("Nothing to redo") : S("Nothing to undo"), (String){0});
+        Prog_Notify(state, Prog_NoticeKind_Info, S("undo.nothing"), redo ? S("Nothing to redo") : S("Nothing to undo"), (String){0});
         return;
     }
     Prog_Undo undo = stack->v[--stack->header.count];
@@ -4227,7 +4246,7 @@ function void Prog_SetLayout(Prog_State *state, String name, String text, b32 re
     for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "layout %S\n%Send\n", names.v[i], texts.v[i]));
     P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_LayoutsFile), file.buffer);
     if (error.code) {
-        Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't save the layouts"), error.message);
+        Prog_Notify(state, Prog_NoticeKind_Error, S("layouts.failed"), S("Couldn't save the layouts"), error.message);
     }
     ReleaseScratch(scratch);
 }
@@ -4934,7 +4953,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // Refused, nothing changed, and its message stays in the status bar, which a listing would clear; else the files change with
             // the branch, and the branch and its changes are asked again.
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "Couldn't switch to \"%S\"", input->name), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("switch.failed"), StrFormat(&state->frameArena, "Couldn't switch to \"%S\"", input->name), error->message);
             } else {
                 Prog_RequestGitStatus(state, state->directory.path);
                 Prog_Reload(state);
@@ -4997,14 +5016,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             P_FileError *error = job->result;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "Couldn't open \"%S\"", Prog__FolderName(input->path)), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("open.failed"), StrFormat(&state->frameArena, "Couldn't open \"%S\"", Prog__FolderName(input->path)), error->message);
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_Rename) {
             P_FileError *error = job->result;
             changed = true;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "Couldn't rename \"%S\"", input->name), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("rename.failed"), StrFormat(&state->frameArena, "Couldn't rename \"%S\"", input->name), error->message);
             } else {
                 String from = Prog_JoinPath(&state->frameArena, input->path, input->name), to = Prog_JoinPath(&state->frameArena, input->path, input->newName);
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
@@ -5040,7 +5059,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
-                Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "%S failed", verb), error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), StrFormat(&state->frameArena, "%S failed", verb), error.message);
             } else if (created && StrIsEqual(state->directory.path, input->path)) {
                 // The new item is selected once the listing shows it, and a new file or folder renamed.
                 String name = ((Prog_Created *)job->result)->name;
@@ -5079,7 +5098,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_FileError *error = job->result;
             changed = true;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, input->redo ? S("Redo failed") : S("Undo failed"), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, input->redo ? S("redo.failed") : S("undo.failed"), input->redo ? S("Redo failed") : S("Undo failed"), error->message);
             } else if (input->undo.kind == Prog_UndoKind_Trash) {
                 // Back out of the bin, or into it again, which the other stack then reverses; what came back is selected where it shows.
                 const Prog_Undo *done = &input->undo;
@@ -5221,15 +5240,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Save) {
             P_FileError *error = job->result;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "Couldn't save \"%S\"", Prog__FolderName(input->path)), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("save.failed"), StrFormat(&state->frameArena, "Couldn't save \"%S\"", Prog__FolderName(input->path)), error->message);
                 changed = true;
             }
-            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile };
+            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
                 state->saveAgain[slot] = false;
-                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : state->bookmarks);
+                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {
@@ -5572,6 +5591,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->undoArena);
     ArenaRelease(&state->redoArena);
     ArenaRelease(&state->menuPinArena);
+    ArenaRelease(&state->mutedArena);
     ArenaRelease(&state->quickArena);
     ArenaRelease(&state->sizeArena);
     ArenaRelease(&state->tipArena);

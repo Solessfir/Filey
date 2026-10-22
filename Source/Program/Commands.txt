@@ -1639,6 +1639,15 @@ command NoticeCopy {
 command NoticeClose {
 }
 
+// A notice's bell: that kind of notice is not shown again; carries the notice's id.
+command NoticeMute {
+}
+
+command NoticesUnmuteAll {
+    label   = "Restore Muted Notifications^notices,unmute,show"
+    tooltip = "Show the kinds of notice muted with their bell again."
+}
+
 command GitBranchesOpen {
 }
 

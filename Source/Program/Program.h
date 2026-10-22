@@ -590,7 +590,8 @@ typedef struct Prog_Notice {
     u64 since;    // when it came, or came again, or was last under the pointer, which its fading counts from
     enum8(Prog_NoticeKind) kind;
     u32 count;
-    u32 titleLength, messageLength;
+    u32 titleLength, messageLength, keyLength;
+    u8 key[48];   // what kind of notice it is, as "rename.failed", which muting it keeps out from then on
     u8 title[160];
     u8 message[640];
 } Prog_Notice;
@@ -684,6 +685,7 @@ typedef enum Prog_Option {
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
     Prog_Option_Notices,
+    Prog_Option_MutedNotices,
     Prog_Option_StoreRecents,
     Prog_Option_ShowRecents,
     Prog_Option_SortRecents,
@@ -723,6 +725,7 @@ typedef enum Prog_OptionControl {
     Prog_OptionControl_Font,  // a font family's name, chosen from the installed ones
     Prog_OptionControl_Expand,  // opens and closes the rows after it
     Prog_OptionControl_Color,   // one of the scheme's colors, which the color picker changes
+    Prog_OptionControl_Muted,   // how many kinds of notice are muted, and a button that shows them again
     Prog_OptionControl_Count,
 } Prog_OptionControl;
 
@@ -1657,6 +1660,8 @@ typedef struct Prog_State {
     u32 branchesHighlight, branchesScroll;
     UI_Key branchesAnchor;    // the branch's button, which the dropdown hangs under
     Prog_Notice notices[Prog_MaxNotices];  // oldest first
+    Arena mutedArena;
+    ArrayStr mutedNotices;  // the kinds of notice not shown, from MutedNotices.conf
     u32 noticeCount;
     u64 noticeIds;
     P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
@@ -1664,8 +1669,8 @@ typedef struct Prog_State {
     u64 recentsCheckTime;
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[5];            // bookmarks, recents, folder views, menu pins, quick commands
-    b32 saveAgain[5];
+    b32 saving[6];            // bookmarks, recents, folder views, menu pins, quick commands, muted notices
+    b32 saveAgain[6];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.conf.
     Arena folderViewArena;
     ArrayStr folderViews;
@@ -1780,7 +1785,8 @@ function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);
 function void Prog_CheckRecents(Prog_State *state);
-function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String title, String message);
+function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message);
+function String Prog__NoticeKey(Arena *arena, String verb);
 function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now);
 function void Prog_ToggleBranches(Prog_State *state);
 function void Prog_SwitchBranch(Prog_State *state, String branch);

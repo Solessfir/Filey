@@ -785,6 +785,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
     [Prog_Option_Notices] = { SInit("Notifications"), SInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
+    [Prog_Option_MutedNotices] = { SInit("Muted Notifications"), SInit("Kinds of notice muted with their bell, in MutedNotices.conf; Restore shows them again."),
+                                   Prog_OptionControl_Muted, 0, 0, NULL, 0, {0} },
     [Prog_Option_StoreRecents] = { SInit("Store Recents"), SInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
     [Prog_Option_ShowRecents] = { SInit("Highlight Recents"), SInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
@@ -903,6 +905,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
+        case Prog_Option_MutedNotices: return (i32)state->mutedNotices.header.count;
         case Prog_Option_ShowRecents: return state->showRecents;
         case Prog_Option_SortRecents: return state->sortRecents;
         case Prog_Option_LoadOnStartup: {
@@ -1070,7 +1073,7 @@ function void Prog_SetScheme(Prog_State *state, String name, String text, b32 re
     for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "scheme %S\n%Send\n", names.v[i], texts.v[i]));
     P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SchemesFile), file.buffer);
     if (error.code) {
-        Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't save the color schemes"), error.message);
+        Prog_Notify(state, Prog_NoticeKind_Error, S("schemes.failed"), S("Couldn't save the color schemes"), error.message);
     }
     ReleaseScratch(scratch);
 }
@@ -6117,6 +6120,19 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_Interaction interaction = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable));
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerOpen, (u64)option, 0, interaction.clickOrder);
         } break;
+        case Prog_OptionControl_Muted: {
+            // How many kinds are muted, and a button that shows them again.
+            u64 count = state->mutedNotices.header.count;
+            Prog__Label(count ? StrFormat(frame, "%" PRIu64 " muted", count) : S("None muted"), UI_TextContent(), height, 0, theme->textDim, 0);
+            Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(height));
+            UI_Interaction restore = Prog__TextButton(S("OptionMutedRestore"), S("Restore"), NULL, UI_TextContent(), height, floorf(8.0f * s + 0.5f), theme->text, theme->textHeading,
+                                                      theme->iconDisabled, count != 0, m);
+            if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticesUnmuteAll, 0, 0, restore.clickOrder);
+            // Filled as the choices' buttons are.
+            UI->parent->last->props.colors.background = theme->track;
+            UI->parent->last->props.cornerRadius = radius;
+            UI->parent->last->flags |= UI_Flag_DrawBackground;
+        } break;
         case Prog_OptionControl_Font: {
             // The family's name, which a click lets be chosen from the installed ones.
             const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
@@ -7901,16 +7917,24 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
         UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = edge });
         UI_Block *card = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         b32 hovered = UI->hotKey && (UI->hotKey == key || UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id)) ||
+                                     UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "NoticeMute/%" PRIu64, notice->id)) ||
                                      UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "NoticeClose/%" PRIu64, notice->id)));
         if (hovered && notice->kind != Prog_NoticeKind_Error) notice->since = now;
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(head) {
                 Prog__Icon(icon, slot, m->row, tint, 0, m);
-                Prog__Label(Prog__Ellipsize(frame, m->font, title, width - 2 * pad - slot - 2 * m->row - (notice->count > 1 ? m->line * 2 : 0)), UI_Flex(), m->row, 0, theme->text, 0);
+                Prog__Label(Prog__Ellipsize(frame, m->font, title, width - 2 * pad - slot - 3 * m->row - (notice->count > 1 ? m->line * 2 : 0)), UI_Flex(), m->row, 0, theme->text, 0);
                 if (notice->count > 1) {
                     UI_SetNextFont(m->detail);
                     Prog__Label(StrFormat(frame, "\u00D7%u", notice->count), UI_TextContent(), m->row, floorf(4.0f * m->scale + 0.5f), theme->textDim, 0);
+                }
+                // A warning or an info can be muted; an error only by hand, in MutedNotices.conf.
+                if (notice->kind != Prog_NoticeKind_Error && notice->keyLength) {
+                    UI_Interaction mute = Prog__TextButton(StrFormat(frame, "NoticeMute/%" PRIu64, notice->id), Icon_BellOff, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
+                                                           theme->icon, theme->text, theme->iconDisabled, true, m);
+                    if (mute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeMute, notice->id, 0, mute.clickOrder);
+                    Prog__PopupTooltip(state, S("Don't show this again."));
                 }
                 UI_Interaction copy = Prog__TextButton(StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id), Icon_Copy, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
                                                        theme->icon, theme->text, theme->iconDisabled, true, m);

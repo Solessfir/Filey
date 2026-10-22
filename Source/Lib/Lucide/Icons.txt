@@ -86,3 +86,4 @@ hard-drive-download
 circle-x
 triangle-alert
 info
+bell-off

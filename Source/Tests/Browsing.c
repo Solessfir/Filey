@@ -447,23 +447,34 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     // The same notice again counts up and comes to the front; a sixth pushes the oldest out; an error stays, an info fades.
     {
         Prog_State noticed = {0};
-        Prog_Notify(&noticed, Prog_NoticeKind_Error, S("Copy failed"), S("Access is denied."));
-        Prog_Notify(&noticed, Prog_NoticeKind_Info, S("Nothing to undo"), (String){0});
-        Prog_Notify(&noticed, Prog_NoticeKind_Error, S("Copy failed"), S("Access is denied."));
+        Prog_Notify(&noticed, Prog_NoticeKind_Error, S("copy.failed"), S("Copy failed"), S("Access is denied."));
+        Prog_Notify(&noticed, Prog_NoticeKind_Info, S("undo.nothing"), S("Nothing to undo"), (String){0});
+        Prog_Notify(&noticed, Prog_NoticeKind_Error, S("copy.failed"), S("Copy failed"), S("Access is denied."));
         Check(noticed.noticeCount == 2 && noticed.notices[1].count == 2 && noticed.notices[1].kind == Prog_NoticeKind_Error && noticed.notices[0].count == 1);
-        for (u32 i = 0; i < 5; ++i) Prog_Notify(&noticed, Prog_NoticeKind_Warning, S("Warned"), StrFormat(&noticed.frameArena, "%u", i));
+        for (u32 i = 0; i < 5; ++i) Prog_Notify(&noticed, Prog_NoticeKind_Warning, S("test.warned"), S("Warned"), StrFormat(&noticed.frameArena, "%u", i));
         Check(noticed.noticeCount == Prog_MaxNotices && noticed.notices[0].kind == Prog_NoticeKind_Warning);
         Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Error, .since = 0 }, UINT64_C(1) << 40) == UINT64_MAX);
         Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Info, .since = 0 }, UINT64_C(1) << 40) == 0);
         // Set to errors only, a warning does not show; set to none, nothing does.
         Prog_State quiet = {0};
         Prog_ApplySettings(&quiet, S("notices = errors\n"));
-        Prog_Notify(&quiet, Prog_NoticeKind_Warning, S("Warned"), (String){0});
-        Prog_Notify(&quiet, Prog_NoticeKind_Error, S("Failed"), (String){0});
+        Prog_Notify(&quiet, Prog_NoticeKind_Warning, S("test.warned"), S("Warned"), (String){0});
+        Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed"), (String){0});
         Check(quiet.noticeCount == 1 && quiet.notices[0].kind == Prog_NoticeKind_Error && Prog_OptionValue(&quiet, Prog_Option_Notices) == Prog_NoticeKind_Error);
         Prog_ApplySettings(&quiet, S("notices = off\n"));
-        Prog_Notify(&quiet, Prog_NoticeKind_Error, S("Failed again"), (String){0});
+        Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed again"), (String){0});
         Check(quiet.noticeCount == 1);
+        // A muted kind does not show, whatever its text; an error too, once its kind is in the list by hand.
+        Prog_State muted = {0};
+        String names[] = { S("undo.nothing"), S("copy.failed") };
+        Prog__SetList(&muted.mutedArena, &muted.mutedNotices, names, CArrayCount(names));
+        Prog_Notify(&muted, Prog_NoticeKind_Info, S("undo.nothing"), S("Nothing to redo"), (String){0});
+        Prog_Notify(&muted, Prog_NoticeKind_Error, S("copy.failed"), S("Copy failed"), S("Access is denied."));
+        Prog_Notify(&muted, Prog_NoticeKind_Error, S("move.failed"), S("Move failed"), S("Access is denied."));
+        Check(muted.noticeCount == 1 && StrIsEqual(StrMake((const char *)muted.notices[0].key, muted.notices[0].keyLength), S("move.failed")));
+        Check(StrIsEqual(Prog__NoticeKey(&muted.frameArena, S("Paste shortcut")), S("pasteshortcut.failed")));
+        ArenaRelease(&muted.frameArena);
+        ArenaRelease(&muted.mutedArena);
         ArenaRelease(&noticed.frameArena);
     }
     // git status, read for a folder inside the repository and for its top: each item's mark, and its folders' the most telling inside.
