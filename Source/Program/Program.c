@@ -3291,6 +3291,8 @@ function R_Color Prog__ItemInk(const Prog_State *state, const Prog_Entry *entry,
     if (!name || Prog__EntryFaded(entry) || Prog__EntryCut(state, entry)) return theme->textDim;
     Prog_GitMark mark = state->git.marks.header.count ? (Prog_GitMark)MapsGet(state->git.marks, u8, entry->file.name) : Prog_GitMark_None;
     if (mark) return Prog__GitInk(mark);
+    // A file anyone may run, where the system says, in the accent, as terminals color them.
+    if (entry->file.kind == P_FileKind_File && (entry->file.mode & 0111)) return theme->accent;
     return entry->file.kind == P_FileKind_Directory ? theme->folder : theme->file;
 }
 
@@ -9004,7 +9006,10 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = S("Created"), values[count++] = created;
     labels[count] = S("Modified"), values[count++] = Prog_EntryModified(frame, entry);
-    f32 height = head + (state->inspectorDetailsFolded ? 0 : m->separator + (f32)count * row + top + bottom);
+    // Where the system has permissions, a row of their letters, owner's, group's and others', each turned on and off by a click.
+    u16 mode = entry->file.mode;
+    if (mode) state->permissionsPath = Prog_JoinPath(frame, state->directory.path, entry->file.name);
+    f32 height = head + (state->inspectorDetailsFolded ? 0 : m->separator + (f32)(count + (mode ? 1 : 0)) * row + top + bottom);
     UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -9039,6 +9044,37 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                     f32 room = width - left - right - m->gap - R_TextWidth(m->detail, labels[i]);
                     UI_SetNextFont(m->detail);
                     Prog__Label(Prog__Ellipsize(frame, m->detail, values[i], room), UI_Flex(), row, 0, theme->textDim, 1);
+                }
+            }
+            if (mode) {
+                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(S("Permissions"), UI_TextContent(), row, 0, theme->text, 0);
+                    Prog__Spacer(UI_Flex(), UI_Pixels(row));
+                    local_persist const char letters[3] = { 'r', 'w', 'x' };
+                    f32 cell = floorf(14.4f * s + 0.5f), apart = floorf(6.4f * s + 0.5f);
+                    for (u32 bit = 0; bit < 9; ++bit) {
+                        if (bit && bit % 3 == 0) Prog__Spacer(UI_Pixels(apart), UI_Pixels(row));
+                        u16 flag = (u16)(0400 >> bit);
+                        b32 on = (mode & flag) != 0;
+                        UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Permission/%u", bit));
+                        b32 hot = UI->hotKey == key;
+                        UI_SetNextPrefWidth(UI_Pixels(cell));
+                        UI_SetNextPrefHeight(UI_Pixels(cell));
+                        UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+                        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                        UI_SetNextFont(m->detail);
+                        UI_SetNextColors((UI_Colors){ .background = on ? theme->selection : theme->track, .text = on ? theme->contentSelection : hot ? theme->text : theme->textDim });
+                        UI_SetNextText(on ? StrMake(&letters[bit % 3], 1) : S("-"));
+                        UI_Block *letter = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
+                        UI_Interaction toggle = UI_InteractionFromBlock(letter);
+                        if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_PermissionsSet, 0, 0, toggle.clickOrder)->target = (u64)(mode ^ flag);
+                        local_persist const char *who[3] = { "owner", "group", "others" }, *what[3] = { "read", "write", "run" };
+                        if (hot) Prog__PopupTooltip(state, StrFormat(frame, "%s may %s", who[bit / 3], what[bit % 3]));
+                    }
                 }
             }
         }
@@ -10249,6 +10285,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
 {
     state->iconsPending = 0;
     state->hotToolbarCommand = Prog_CommandKind_None;
+    state->permissionsPath = (String){0};
     state->tabGhost = NULL;
     state->foreignOver = false;
     state->hasHoverRow = false;

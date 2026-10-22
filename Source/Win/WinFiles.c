@@ -355,6 +355,12 @@ function b32 P__ValidFileName(String name)
            !StrIndexChar(name, '/', SSF_None).exists && !StrIndexChar(name, '\\', SSF_None).exists;
 }
 
+function P_FileError P_SetMode(Arena *arena, String path, u16 mode)
+{
+    (void)path, (void)mode;
+    return P__FileError(arena, ERROR_NOT_SUPPORTED);
+}
+
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)
 {
     if (!P__ValidFileName(from) || !P__ValidFileName(to)) return P__FileError(arena, ERROR_INVALID_NAME);

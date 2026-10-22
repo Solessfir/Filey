@@ -1179,6 +1179,20 @@ function void TestRename(TestFileFixture *fixture)
     Check(P_RenamePath(&arena, fixture->path, S("plain.txt"), (String){0}).code);
     Check(!P_RenamePath(&arena, fixture->path, S("plain.txt"), S("plain2.txt")).code);
     Check(!P_RenamePath(&arena, fixture->path, S("plain2.txt"), S("plain.txt")).code);
+    // Where the system has permissions, the listing has them, and they can be set; Windows has none to set.
+    {
+        String plainPath = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));
+#if defined(_WIN32)
+        Check(P_SetMode(&arena, plainPath, 0755).code);
+#else
+        Check(!P_SetMode(&arena, plainPath, 0755).code);
+        P_DirectoryResult listed = P_EnumerateDirectory(&arena, fixture->path, NULL);
+        u16 mode = 0;
+        for (u64 i = 0; i < listed.files.header.count; ++i) if (StrIsEqual(listed.files.v[i].name, S("plain.txt"))) mode = listed.files.v[i].mode;
+        Check(mode == 0755);
+        Check(!P_SetMode(&arena, plainPath, 0644).code);
+#endif
+    }
 
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));

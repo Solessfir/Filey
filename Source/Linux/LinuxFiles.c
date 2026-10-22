@@ -175,6 +175,7 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                 if (file.metadataValid) {
                     file.kind = S_ISDIR(metadata.stx_mode) ? P_FileKind_Directory : S_ISREG(metadata.stx_mode) ? P_FileKind_File : P_FileKind_Other;
                     file.size = metadata.stx_size;
+                    file.mode = (u16)(metadata.stx_mode & 07777);
                     file.modifiedTimeUnix = (i64)metadata.stx_mtime.tv_sec;
                     file.accessedTimeUnix = (i64)metadata.stx_atime.tv_sec;
                     file.createdTimeUnix = (metadata.stx_mask & STATX_BTIME) ? (i64)metadata.stx_btime.tv_sec : 0;
@@ -429,6 +430,15 @@ function ArrayStr P_TakeDroppedFiles(Arena *arena, String *directory, b32 *move)
 function b32 P__ValidFileName(String name)
 {
     return name.length && !StrIsEqual(name, S(".")) && !StrIsEqual(name, S("..")) && !StrIndexChar(name, '/', SSF_None).exists;
+}
+
+function P_FileError P_SetMode(Arena *arena, String path, u16 mode)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, path);
+    u32 error = !native ? (u32)errno : chmod(native, (mode_t)(mode & 07777)) != 0 ? (u32)errno : 0;
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)

@@ -21,6 +21,7 @@ typedef struct P_File {
     b8 system;          // marked as the system's own, on Windows
     b8 metadataValid;
     b8 symbolicLink;
+    u16 mode;           // the permission bits where the system has them, as on Linux (owner, group, others: read, write, run); 0 elsewhere
 } P_File;
 
 typedef struct P_FileArray {
@@ -150,6 +151,8 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch);
 // Never replaces an existing item, and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to);
+// Gives the item at `path` the permission bits `mode`, as P_File's are; where the system has none, as on Windows, it fails.
+function P_FileError P_SetMode(Arena *arena, String path, u16 mode);
 
 // File operations Filey carries out itself.
 // Each may touch slow disks or many files, so run them in jobs.

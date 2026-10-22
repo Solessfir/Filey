@@ -3137,6 +3137,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->colorPicking) Prog_PickHex(state, state->pickerOriginal);
                 Prog_CloseColorPicker(state);
             } break;
+            case Prog_CommandKind_PermissionsSet: {
+                // ponytail: chmod on the main thread, a quick call on local disks; a job if a slow network mount ever shows it.
+                if (!state->permissionsPath.length) break;
+                P_FileError error = P_SetMode(&state->frameArena, state->permissionsPath, (u16)command->target);
+                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("permissions.failed"), S("Couldn't change permissions"), error.message);
+                else Prog_Reload(state);
+            } break;
             case Prog_CommandKind_OptionSliderEdit: {
                 if (command->row >= Prog_Option_Count) break;
                 Prog_BeginSliderEdit(state, (Prog_Option)command->row);
