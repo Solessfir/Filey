@@ -1547,6 +1547,24 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
     return result;
 }
 
+function ArrayStr P_SearchPlaces(Arena *arena)
+{
+    ArrayStr result = {0};
+    const char *homeValue = getenv("HOME");
+    String home = homeValue && homeValue[0] == '/' ? StrFromCStr(homeValue) : (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    String folders[] = {
+        home.length ? StrFormat(scratch.arena, "%S/.config", home) : (String){0}, home.length ? StrFormat(scratch.arena, "%S/.local/share", home) : (String){0},
+        home.length ? StrFormat(scratch.arena, "%S/.cache", home) : (String){0}, home.length ? StrFormat(scratch.arena, "%S/.local/share/applications", home) : (String){0},
+        S("/usr/share/applications"), S("/usr/share/fonts"), S("/etc"), S("/opt"),
+    };
+    for (u32 i = 0; i < CArrayCount(folders); ++i) {
+        if (folders[i].length && P_IsDirectory(folders[i])) ArrayPush(arena, result, P_AbsolutePath(arena, folders[i]));
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function ArrayStr P_PathRoots(Arena *arena)
 {
     ArrayStr result = {0};

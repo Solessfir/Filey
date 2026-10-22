@@ -589,7 +589,8 @@ typedef struct Prog_Places {
     P_ArrayPlace places;
     P_ArrayPlace drives;
     ArrayStr roots;
-    ArrayStr missing;  // the bookmarks whose folders are gone
+    ArrayStr searched;  // P_SearchPlaces
+    ArrayStr missing;   // the bookmarks whose folders are gone
 } Prog_Places;
 
 typedef enum Prog_PaletteMode {
@@ -1443,17 +1444,11 @@ typedef struct Prog_State {
     u16 *gotoRanks;
     u32 gotoPooled;
     u32 gotoFloor;            // the rank a match must beat, once the pool has been full
-    u64 gotoScanAt;           // the index's next entry to look at
-    u64 gotoScanFrame;        // the UI frame that looked last
     u64 gotoNearby;
-    const Prog_Index *gotoIndex;
-    b32 gotoShowHidden;            // what the shown tab showed of the hidden items when the pool was filled
-    Prog_PathSet gotoNearbyNames;  // the names of the folders close at hand, which the index finds again only under them
-    Prog_PathSet gotoNearbyPaths;
+    b32 gotoShowHidden;       // what the shown tab showed of the hidden items when the pool was filled
     Prog_PathSet gotoSeen;
     u8 gotoFoundText[1024];
     u32 gotoFoundTextLength;
-    b32 gotoSearching;        // the look has not reached the end yet
     Prog_Transfer transfers[Prog_MaxTransfers];
     Arena sizeArena;
     Prog_SizeMap sizes;
@@ -1588,6 +1583,7 @@ typedef struct Prog_State {
     P_ArrayPlace places;
     P_ArrayPlace drives;
     ArrayStr pathRoots;       // folders that breadcrumbs start from, for folders inside them
+    ArrayStr searchPlaces;    // the folders Go To searches besides the places shown, from P_SearchPlaces
     ArrayStr missingBookmarks;  // bookmarks whose folders were gone at the last listing, which the sidebar fades
     P_Job *placesJob;
     u64 placesTime;

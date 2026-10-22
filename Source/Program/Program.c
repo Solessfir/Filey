@@ -5635,7 +5635,6 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     u32 count;
     String folder;
     Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
-    if (state->gotoSearching) UI_KeepAnimating();
     if (state->paletteHighlight != UINT32_MAX) state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, row = m->row;
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);

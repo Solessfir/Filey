@@ -285,23 +285,6 @@ function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMar
     return result;
 }
 
-// The most three quarters of a path's score can add for `typed`: each letter placed right after the last, after a lowercase letter
-// as an uppercase one and after a space, the first at the start, and no letter left over.
-function i32 Prog_FuzzyPathBest(String typed)
-{
-    i32 result = 0;
-    for (u64 at = 0; at < typed.length;) {
-        i32 letters = 0;
-        while (at < typed.length && typed.value[at] == ' ') ++at;
-        while (at < typed.length && typed.value[at] != ' ') {
-            StrDecodeUtf8(typed, &at);
-            letters += letters < Prog_FuzzyTerm;
-        }
-        if (letters) result += ((150 + 255 * (letters - 1)) * 3 + 3) / 4 + 1;
-    }
-    return result;
-}
-
 // What the filter scores an entry with: its own name, and the folder it is in for a listing of the subfolders too.
 function i32 Prog_EntryScore(String name, String filter, u8 *marks)
 {
@@ -2012,6 +1995,7 @@ function void Prog__DirectoryJob(P_Job *job)
             result->places = P_UserPlaces(&job->arena);
             result->drives = P_Drives(&job->arena);
             result->roots = P_PathRoots(&job->arena);
+            result->searched = P_SearchPlaces(&job->arena);
             for (u64 i = 0; i < input->pathCount; ++i) if (!P_PathExists(input->paths[i])) ArrayPush(&job->arena, result->missing, input->paths[i]);
         }
         job->result = result;
@@ -5108,6 +5092,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
                 state->drives = result->drives;
                 state->pathRoots = result->roots;
+                state->searchPlaces = result->searched;
                 state->missingBookmarks = result->missing;
                 changed = true;
             }

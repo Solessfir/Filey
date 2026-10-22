@@ -264,6 +264,10 @@ typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;
 function P_ArrayPlace P_UserPlaces(Arena *arena);
 // Folders that the breadcrumbs of the folders inside them start from: the user's places, and on Windows the local and roaming app data.
 function ArrayStr P_PathRoots(Arena *arena);
+// Folders Go To searches besides the user's places that exist: on Windows the app data folders, the Start menu and Startup, Favorites,
+// Program Files, the users' folder, the system's, the fonts', ProgramData and Windows; elsewhere the configuration, data and cache folders,
+// the applications' and fonts' folders, /etc and /opt.
+function ArrayStr P_SearchPlaces(Arena *arena);
 // Mounted drives with their sizes; network drives may be slow to answer, so run it in a job.
 function P_ArrayPlace P_Drives(Arena *arena);
 // The folder Filey keeps its settings in, created when missing; empty when there is none.
