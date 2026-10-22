@@ -1186,6 +1186,9 @@ function P_DriveKind P_PathDriveKind(String path)
         // NFS, SMB, CIFS, SMB2 and 9p (which WSL mounts Windows drives with).
         local_persist const u64 remote[] = { 0x6969, 0x517B, 0xFF534D42, 0xFE534D42, 0x01021997 };
         for (u64 i = 0; i < CArrayCount(remote); ++i) if ((u64)(u32)system.f_type == remote[i]) result = P_DriveKind_Network;
+        // A FUSE file system with no disk under it, as rclone's, Filen's, gvfs's and sshfs's mounts are, is a network one; ntfs-3g and the
+        // like are FUSE on a disk, which their device says.
+        if ((u32)system.f_type == 0x65735546 && stat(native, &info) == 0 && !major(info.st_dev)) result = P_DriveKind_Network;
     }
     // The block device's queue says whether it spins; a partition's is its disk's, one folder up.
     if (result != P_DriveKind_Network && stat(native, &info) == 0 && major(info.st_dev)) {

@@ -316,7 +316,9 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                 .hidden = (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0 || data.cFileName[0] == L'.',
                 .system = (data.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0,
                 .metadataValid = true,
-                .symbolicLink = (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0,
+                // A cloud drive's placeholders are reparse points too, of tags of their own; only links and junctions lead elsewhere.
+                .symbolicLink = (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 && (data.dwReserved0 == IO_REPARSE_TAG_SYMLINK || data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT),
+                .online = !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && (data.dwFileAttributes & (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE)) != 0,
             };
             ArrayPush(arena, result.files, file);
         } while (FindNextFileW(find, &data));

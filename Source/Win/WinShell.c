@@ -707,6 +707,11 @@ function P_DriveKind P_PathDriveKind(String path)
     if (path.length < 2 || path.value[1] != ':') return P_DriveKind_SolidState;
     wchar root[] = { (wchar)path.value[0], L':', L'\\', 0 }, volume[] = { L'\\', L'\\', L'.', L'\\', (wchar)path.value[0], L':', 0 };
     if (GetDriveTypeW(root) == DRIVE_REMOTE) return P_DriveKind_Network;
+    // Cloud drives mounted as local ones count as network ones: rclone's and Filen's through WinFsp, and Google Drive's by its label.
+    wchar label[MAX_PATH + 1] = {0}, system[MAX_PATH + 1] = {0};
+    if (GetVolumeInformationW(root, label, CArrayCount(label), NULL, NULL, NULL, system, CArrayCount(system))) {
+        if (!wcsncmp(system, L"FUSE", 4) || wcsstr(system, L"WinFsp") || !lstrcmpiW(label, L"Google Drive")) return P_DriveKind_Network;
+    }
     // The volume opened without access rights still answers whether it seeks, without elevation.
     HANDLE handle = CreateFileW(volume, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (handle == INVALID_HANDLE_VALUE) return P_DriveKind_SolidState;

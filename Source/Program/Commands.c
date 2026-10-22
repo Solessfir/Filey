@@ -2005,9 +2005,11 @@ function void Prog__UpdatePreview(Prog_State *state)
     String want = {0};
     b32 folder = false, archive = false;
     u64 size = 0, stamp = 0;
+    b32 online = false;
     if (!state->loading && state->hasFocus && state->focusedRow < state->directory.count) {
         const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
         want = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
+        online = entry->file.online;
         folder = entry->file.kind == P_FileKind_Directory;
         archive = Prog_PreviewsArchive(state, entry);
         size = entry->file.size;
@@ -2049,6 +2051,11 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewLineCount = state->previewRowColumns = 0;
     state->inspectorResetScroll = true;
     if (!want.length) return;
+    // A file only in the cloud is not read, which would download it; opening it does.
+    if (online && !folder) {
+        state->previewText = StrCopy(&state->previewArena, S("This file is only in the cloud. Open it to download it, and preview it after."));
+        return;
+    }
     if (folder || archive) Prog_ListInInspector(state, want);
     Prog__SubmitPreview(state, want, folder, archive, size);
 }

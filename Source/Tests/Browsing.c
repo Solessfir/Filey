@@ -1982,9 +1982,13 @@ function void TestFileCommand(Prog_State *state, Prog_CommandKind kind)
 }
 
 // A watch reload can land before the one a command starts, so checks on the result wait for it.
+// Waits for the listing to hold `count` items, the copies and moves under way to be done, and the listing they ask for after.
 function b32 TestWaitCount(Prog_State *state, u64 count)
 {
-    for (u64 start = PlatformNowMicroseconds(); (state->directory.count != count || state->directoryJob) && PlatformNowMicroseconds() - start < Millions(5);) {
+    for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(5);) {
+        b32 transferring = false;
+        for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;
+        if (state->directory.count == count && !state->directoryJob && !transferring) break;
         Prog_TakeCompletions(state);
         P__TestPause();
     }

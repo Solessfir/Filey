@@ -253,7 +253,8 @@ function void Prog__ResetIcons(Prog_State *state, i32 size)
 // The icon views' picture of `entry` for drawing at `size`, loaded at its tier; the last tier's while this one's loads.
 function const Prog_Icon *Prog_ThumbnailIcon(Prog_State *state, String directory, const Prog_Entry *entry, i32 size)
 {
-    if (state->iconSize <= 0 || size <= 0) return NULL;
+    // A file only in the cloud would be downloaded to draw it.
+    if (state->iconSize <= 0 || size <= 0 || entry->file.online) return NULL;
     Prog_ThumbnailSlot *slot = Prog__ThumbnailSlot(state, Prog__ThumbnailTier(size));
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     P_FileKind kind = entry->drive ? P_FileKind_Drive : entry->file.kind;
@@ -269,7 +270,7 @@ enum { Prog_WarmSize = 256, Prog_MaxWarmed = 50000 };
 
 function void Prog_WarmThumbnail(Prog_State *state, String directory, const Prog_Entry *entry)
 {
-    if (state->iconSize <= 0 || entry->drive || entry->file.kind != P_FileKind_File || !Prog_ShowsThumbnails(state)) return;
+    if (state->iconSize <= 0 || entry->drive || entry->file.kind != P_FileKind_File || entry->file.online || !Prog_ShowsThumbnails(state)) return;
     String path = Prog_JoinPath(&state->frameArena, directory, entry->file.name);
     // Models are drawn by Filey, not by the system's cache.
     if (Prog_IsModel(path) || Prog_IsBlp(path)) return;
