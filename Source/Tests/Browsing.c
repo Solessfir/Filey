@@ -1037,6 +1037,8 @@ function void TestFileIcons(TestFileFixture *fixture)
         ArrayStr placed = {0};
         Check(!Prog__Transfer(&arena, &transfer, &placed, NULL).code);
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, transfer.path, S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
+        // What it took out is where it was placed, which is selected afterwards.
+        Check(placed.header.count == 1 && StrIsEqual(placed.v[0], Prog_JoinPath(&arena, transfer.path, S("note.txt"))));
         Check(P__TestRemovePath(fixture, S("Out/a.txt"), false) && P__TestRemovePath(fixture, S("Out/note.txt"), false) && P__TestRemovePath(fixture, S("Out/ünï 日本.txt"), false) && P__TestRemovePath(fixture, S("Out/more.txt"), false) &&
               P__TestRemovePath(fixture, S("Out"), true));
         Check(P__TestRemovePath(fixture, S("Out2/note.txt"), false) && P__TestRemovePath(fixture, S("Out2"), true));

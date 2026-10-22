@@ -829,6 +829,8 @@ function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, Ar
     P_FileError result = {0};
     if (!into) {
         result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, input->path, input->progress, cancel);
+        // Taken out under their own names, which are selected as a copy's are.
+        for (u64 i = 0; !result.code && placed && i < input->pathCount; ++i) ArrayPush(arena, *placed, Prog_JoinPath(arena, input->path, names[i]));
     } else {
         const String *sources = input->paths;
         if (outOf) {
