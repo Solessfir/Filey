@@ -5034,7 +5034,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_FileError *error = job->result;
             changed = true;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("rename.failed"), StrFormat(&state->frameArena, "Couldn't rename \"%S\"", input->name), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("rename.failed"), StrFormat(&state->frameArena, "Couldn't rename \"%S\" to \"%S\"", input->name, input->newName), error->message);
             } else {
                 String from = Prog_JoinPath(&state->frameArena, input->path, input->name), to = Prog_JoinPath(&state->frameArena, input->path, input->newName);
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
