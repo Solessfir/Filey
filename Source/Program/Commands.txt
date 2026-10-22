@@ -549,8 +549,8 @@ command TextRedo {
 }
 
 command TextDeleteLeftToSpace {
-    label   = "Delete Left To Space"
-    tooltip = "Delete back from the text caret to the previous space."
+    label   = "Delete Left Part"
+    tooltip = "Delete back from the text caret to the previous space, slash or dot."
     hotkey  = "Ctrl+W"
     scope   = "Text"
 }

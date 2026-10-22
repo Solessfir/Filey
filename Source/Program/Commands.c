@@ -1443,6 +1443,12 @@ function String Prog_EditText(const Prog_TextEdit *edit)
 }
 
 // The next codepoint boundary before (`step` < 0) or after `at`.
+// Whether `c` parts a path or a name for Ctrl+W: spaces, slashes, dots and the punctuation a command line parts words with.
+function b32 Prog__PathSeparator(u8 c)
+{
+    return c == ' ' || c == '/' || c == '\\' || c == '.' || c == ':' || c == '@' || c == '=' || c == ',' || c == ';' || c == '|' || c == '{' || c == '}' || c == '\'' || c == '"';
+}
+
 function u32 Prog__EditStep(const Prog_TextEdit *edit, u32 at, i32 step)
 {
     if (step < 0) {
@@ -1653,9 +1659,11 @@ function b32 Prog__EditCommand(Prog_TextEdit *edit, Prog_CommandKind kind)
             if (kind == Prog_CommandKind_TextDeleteToStart) edit->anchor = 0;
             else if (kind == Prog_CommandKind_TextDeleteToEnd) edit->anchor = edit->length;
             else if (from == to) {
+                // Back over the separators before the caret, then to the one before them, as fish's Ctrl+W takes a path's last part, or
+                // the "png" off a file name.
                 u32 at = edit->cursor;
-                while (at && edit->text[at - 1] == ' ') --at;
-                while (at && edit->text[at - 1] != ' ') --at;
+                while (at && Prog__PathSeparator(edit->text[at - 1])) --at;
+                while (at && !Prog__PathSeparator(edit->text[at - 1])) --at;
                 edit->anchor = at;
             }
             if (edit->anchor != edit->cursor) Prog__EditReplace(edit, NULL, 0);

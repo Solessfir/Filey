@@ -488,6 +488,12 @@ function void TestTextEditWords(void)
     Check(Prog__EditKey(&state, &typed, &undo) && StrIsEqual(Prog_EditText(&typed), S("ab")));
     typed.anchor = 0;
     Check(Prog__EditCommand(&typed, Prog_CommandKind_TextUppercase) && StrIsEqual(Prog_EditText(&typed), S("AB")) && typed.anchor == 0 && typed.cursor == 2);
+    // Ctrl+W takes a path's last part, then the separator and the part before it, as fish's does.
+    Prog_TextEdit path = {0};
+    Prog__EditReplace(&path, (const u8 *)"C:/images/exec-ce7b.png", 23);
+    Check(Prog__EditCommand(&path, Prog_CommandKind_TextDeleteLeftToSpace) && StrIsEqual(Prog_EditText(&path), S("C:/images/exec-ce7b.")));
+    Check(Prog__EditCommand(&path, Prog_CommandKind_TextDeleteLeftToSpace) && StrIsEqual(Prog_EditText(&path), S("C:/images/")));
+    Check(Prog__EditCommand(&path, Prog_CommandKind_TextDeleteLeftToSpace) && StrIsEqual(Prog_EditText(&path), S("C:/")));
     // Keys the boxes do not take go on to the browser.
     PlatformEvent letter = { .kind = PlatformEventKind_KeyDown, .key = Key_J };
     Check(!Prog__EditKey(&state, &typed, &letter));
