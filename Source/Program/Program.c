@@ -6787,7 +6787,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     if (!state->zoomShown) return;
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale;
-    f32 width = floorf(166.4f * s + 0.5f), height = floorf(237.6f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
+    f32 width = floorf(180.0f * s + 0.5f), height = floorf(237.6f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
     f32 x = anchor.x1 - width, y = anchor.y0 - floorf(1.6f * s + 0.5f) - height;
     // The gap down to the button counts as the popup, so that the pointer can cross it.
     state->zoomBox = (R_Rect){ x, y, x + width, anchor.y0 };
@@ -6843,22 +6843,27 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         }
-        // The slider: a track from XL Icons down to Details, filled below the thumb.
-        f32 track = floorf(12.8f * s + 0.5f), knob = floorf(20.0f * s + 0.5f);
-        f32 trackX = width - floorf(10.4f * s + 0.5f) - track, trackTop = topRow + floorf(1.6f * s + 0.5f), trackBottom = bottomRow - floorf(0.8f * s + 0.5f);
-        // The thumb eases to a new zoom; it starts where the zoom is when the popup shows.
+        // The slider, as Options' are: a box from XL Icons down to Details, filled from the bottom up to the zoom, which it shows inside.
+        f32 column = floorf(30.4f * s + 0.5f), corner = floorf(4.0f * s + 0.5f);
+        f32 columnX = width - floorf(10.4f * s + 0.5f) - column, columnTop = topRow - floorf(8.0f * s + 0.5f), columnBottom = bottomRow + floorf(8.0f * s + 0.5f);
+        // The fill eases to a new zoom; it starts where the zoom is when the popup shows.
         f32 target = Prog__ZoomY(Prog__ZoomFraction(state->zoom));
         f32 thumb = floorf(UI_Animate(UI_KeyFromStr(0, S("ZoomPopupThumb")), target, target) + 0.5f);
-        // Pressing or dragging along the slider sets the icon size it points at, or the nearest view below M Icons.
-        UI_SetNextPrefWidth(UI_Pixels(knob + 2 * floorf(4.0f * s + 0.5f)));
-        UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop + knob));
-        UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f) - floorf(4.0f * s + 0.5f), trackTop - floorf(knob * 0.5f) });
-        UI_Block *slider = UI_AddBlockFromKey(sliderKey, UI_Flag_Floating | UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
+        b32 hot = UI->hotKey == sliderKey || UI->activeKey == sliderKey;
+        UI_SetNextPrefWidth(UI_Pixels(column));
+        UI_SetNextPrefHeight(UI_Pixels(columnBottom - columnTop));
+        UI_SetNextFloatingOffset((UI_Vec2){ columnX, columnTop });
+        UI_SetNextCornerRadius(corner);
+        UI_SetNextOpacity(opacity);
+        UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * s + 0.5f)));
+        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->outlineHover : theme->outline });
+        UI_Block *slider = UI_AddBlockFromKey(sliderKey, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
         UI_Interaction drag = UI_InteractionFromBlock(slider);
         // The wheel over it zooms, as Ctrl+wheel does anywhere.
         i32 notches = Prog__WheelNotches(slider);
         if (notches) state->zoomWheelTime = UI->nowMicroseconds;
         for (i32 i = 0; i < (notches < 0 ? -notches : notches); ++i) Prog_QueueCommand(state, notches > 0 ? Prog_CommandKind_ZoomIn : Prog_CommandKind_ZoomOut, 0, 0, 0);
+        // Pressing or dragging along the slider sets the icon size it points at, or the nearest view below M Icons.
         if (drag.pressed || (drag.active && drag.isDragging)) {
             f32 at = UI->mouse.y - box->rect.y0;
             u32 wanted = Prog_ZoomIcons;
@@ -6866,28 +6871,25 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
             else wanted = (u32)MaxF32(0, (f32)Prog_ZoomIcons - floorf((at - iconsRow) / pitch + 0.5f) * Prog_ZoomList);
             if (wanted != state->zoom) Prog_QueueCommand(state, Prog_CommandKind_ZoomSet, wanted, 0, drag.pressOrder);
         }
-        UI_SetNextPrefWidth(UI_Pixels(track));
-        UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop));
-        UI_SetNextFloatingOffset((UI_Vec2){ trackX, trackTop });
-        UI_SetNextCornerRadius(track * 0.5f);
-        UI_SetNextOpacity(opacity);
-        UI_SetNextColors((UI_Colors){ .background = theme->track });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-        // Shorter than it is wide, the knob covers it, and drawn rounded at its width it would stand out above the knob.
-        if (trackBottom - thumb >= track) {
-            UI_SetNextPrefWidth(UI_Pixels(track));
-            UI_SetNextPrefHeight(UI_Pixels(trackBottom - thumb));
-            UI_SetNextFloatingOffset((UI_Vec2){ trackX, thumb });
-            UI_SetNextCornerRadius(track * 0.5f);
+        UI_Parent(slider) {
+            // Full at XL Icons, empty at Details, the box's ends past the rows counting as theirs.
+            f32 top = thumb <= topRow ? 0 : thumb >= bottomRow ? columnBottom - columnTop : thumb - columnTop;
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
+            UI_SetNextPrefWidth(UI_Pixels(column));
+            UI_SetNextPrefHeight(UI_Pixels(columnBottom - columnTop - top));
+            UI_SetNextCornerRadius(corner);
             UI_SetNextColors((UI_Colors){ .background = theme->accent });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            f32 label = floorf(m->detail->lineHeight + 8.0f * s + 0.5f);
+            UI_SetNextFloatingOffset((UI_Vec2){ 0, columnBottom - columnTop - label });
+            UI_SetNextPrefWidth(UI_Pixels(column));
+            UI_SetNextPrefHeight(UI_Pixels(label));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextFont(m->detail);
+            UI_SetNextColors((UI_Colors){ .text = theme->text });
+            UI_SetNextText(StrFormat(&state->frameArena, "%u%%", state->zoom / 10));
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
         }
-        UI_SetNextPrefWidth(UI_Pixels(knob));
-        UI_SetNextPrefHeight(UI_Pixels(knob));
-        UI_SetNextFloatingOffset((UI_Vec2){ trackX + floorf((track - knob) * 0.5f), thumb - floorf(knob * 0.5f) });
-        UI_SetNextCornerRadius(knob * 0.5f);
-        UI_SetNextColors((UI_Colors){ .background = theme->accent });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
     #undef Prog__ZoomY
 }
