@@ -3,6 +3,15 @@
 #include "../Platform/Files.h"
 
 // The version Filey shows; a release build passes its own through EXTRA_CFLAGS.
+// Translation: the text shown for `english` in the chosen language, English where the language has none. Tr() takes a literal, TrF() a
+// format for StrFormat, whose translation keeps its conversions; TrInit() marks a literal in a table as one to translate where it shows. The
+// build lists every one of them (Meta/Strings.meta.h) for new language files.
+function String Prog_Tr(String english);
+function const char *Prog_TrFormat(const char *english);
+#define Tr(text) Prog_Tr(S(text))
+#define TrF(text) Prog_TrFormat(text)
+#define TrInit(text) SInit(text)
+
 // Where crashes are reported, a new issue of the project's.
 #define Prog_IssuesUrl "https://github.com/Solessfir/Filey/issues/new"
 
@@ -647,6 +656,7 @@ typedef enum Prog_PaletteMode {
 
 // The options the Options popup lists, each kept in Settings.conf.
 typedef enum Prog_Option {
+    Prog_Option_Language,
     Prog_Option_Font,
     Prog_Option_FontSize,
     Prog_Option_InspectorFont,
@@ -1479,6 +1489,10 @@ typedef struct Prog_State {
     b32 noHighlight;          // inspector.highlight = false: the inspector shows code in one color
     // The families of the UI's text and of the inspector's, by name.
     Prog_FontName font, inspectorFont;
+    // The language Filey shows its text in by its name, empty for English, and the custom ones in the settings folder (<name>.lang).
+    Prog_FontName language;
+    Arena languagesArena;
+    ArrayStr languageNames;
     b32 noFolderSizes;
     b32 noFolderSizesSolidState, folderSizesSpinning, folderSizesNetwork;
     // In its tab mode it finds the active panel's tabs, in a box under that panel's tab list button; the highlight indexes Prog_TabMatches.
@@ -1856,6 +1870,10 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
 function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option option, Arena *arena, u32 *count);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
+function void Prog_UseLanguage(Prog_State *state, String name);
+function b32 Prog_LanguageIsCustom(String name);
+function void Prog_ListLanguages(Prog_State *state);
+function String Prog_LanguageTemplate(Arena *arena, String name);
 function b32 Prog_OptionIsDefault(const Prog_State *state, Prog_Option option);
 function void Prog_RestoreOption(Prog_State *state, Prog_Option option);
 function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count);

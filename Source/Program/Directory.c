@@ -2482,11 +2482,11 @@ function void Prog_CheckCrashes(Prog_State *state)
     if (newest.length) {
         state->crashReport = StrCopy(&state->settingsArena, newest);
 #if defined(_WIN32)
-        String message = S("A crash report was saved. Report on GitHub opens a new issue and copies the report: paste it into the issue (Ctrl+V) before submitting.");
+        String message = Tr("A crash report was saved. Report on GitHub opens a new issue and copies the report: paste it into the issue (Ctrl+V) before submitting.");
 #else
-        String message = S("A crash report was saved. Report on GitHub opens a new issue with the report filled in, to look over before submitting.");
+        String message = Tr("A crash report was saved. Report on GitHub opens a new issue with the report filled in, to look over before submitting.");
 #endif
-        Prog_NotifyAction(state, Prog_NoticeKind_Warning, S("crash.report"), S("Filey closed unexpectedly"), message, Prog_CommandKind_CrashReport, S("Report on GitHub"));
+        Prog_NotifyAction(state, Prog_NoticeKind_Warning, S("crash.report"), Tr("Filey closed unexpectedly"), message, Prog_CommandKind_CrashReport, Tr("Report on GitHub"));
     }
     ReleaseScratch(scratch);
 }
@@ -2985,6 +2985,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Prog__LoadRecents(state);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog__LoadList(state, Prog_MenuPinsFile, &state->menuPinArena, &state->menuPins, &found);
+    Prog_ListLanguages(state);
     Prog__LoadList(state, Prog_MenuHiddenFile, &state->menuHiddenArena, &state->menuHidden, &found);
     Prog__LoadList(state, Prog_MenuOrderFile, &state->menuOrderArena, &state->menuOrder, &found);
     Prog__LoadList(state, Prog_MutedNoticesFile, &state->mutedArena, &state->mutedNotices, &found);
@@ -3000,16 +3001,22 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
 // What Settings.conf and Schemes.conf hold, as a hash, which tells whether either has changed since they were applied.
 function u64 Prog__SettingsHash(Prog_State *state, String *settings, Arena *arena)
 {
-    String schemes = {0};
+    String schemes = {0}, language = {0};
     *settings = (String){0};
     if (state->configDirectory.length) {
         P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Settings.conf")), settings);
         P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Schemes.conf")), &schemes);
+        // The chosen language's own file, which applies again once saved.
+        if (state->language.length) {
+            P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, StrFormat(arena, "%S.lang", StrMake(state->language.text, state->language.length))), &language);
+        }
     }
     u64 hash = UINT64_C(14695981039346656037);
     for (u64 i = 0; i < settings->length; ++i) hash = (hash ^ (u8)settings->value[i]) * UINT64_C(1099511628211);
     hash = (hash ^ 0xFF) * UINT64_C(1099511628211);
     for (u64 i = 0; i < schemes.length; ++i) hash = (hash ^ (u8)schemes.value[i]) * UINT64_C(1099511628211);
+    hash = (hash ^ 0xFF) * UINT64_C(1099511628211);
+    for (u64 i = 0; i < language.length; ++i) hash = (hash ^ (u8)language.value[i]) * UINT64_C(1099511628211);
     return hash;
 }
 
@@ -4818,6 +4825,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     // Saved settings apply at once.
     // The index is written into the same folder while a walk goes on, so only a change to the settings or the schemes applies them again.
     if (P_DirectoryWatchTakeChanged(&state->configWatch)) {
+        // A language file made or taken away there changes the Language choices.
+        Prog_ListLanguages(state);
         Scratch scratch = GetScratch();
         String text = {0};
         if (Prog__SettingsHash(state, &text, scratch.arena) != state->settingsHash) {

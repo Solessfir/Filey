@@ -475,6 +475,23 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(!Prog_OptionIsDefault(&quiet, Prog_Option_Font));
         Prog_RestoreOption(&quiet, Prog_Option_Font);
         Check(Prog_OptionIsDefault(&quiet, Prog_Option_Font));
+        // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a
+        // built-in language's name adds to it; English again takes them all away.
+        {
+            Check(Prog__SameConversions(S("%u of %S"), S("%S? no %u")) == false && Prog__SameConversions(S("%u files, 100%%"), S("%u fichiers")));
+            Prog_UseLanguage(&quiet, S("English"));
+            Prog_AddLanguageText(S("# comment\nOpen\n= Ouvrir\n\n%u muted\n= %S muet\nEmpty\n= \nDone\n= Fini\n"));
+            Check(StrIsEqual(Tr("Open"), S("Ouvrir")) && StrIsEqual(Tr("Done"), S("Fini")) && StrIsEqual(Tr("Empty"), S("Empty")));
+            Check(!strcmp(TrF("%u muted"), "%u muted"));
+            Prog_UseLanguage(&quiet, (String){0});
+            Check(StrIsEqual(Tr("Open"), S("Open")));
+            Check(Prog_LanguageIsCustom(S("Mine")) && !Prog_LanguageIsCustom(S("english")) && !Prog_LanguageIsCustom((String){0}) && !Prog_LanguageIsCustom(S("Русский")));
+            Prog_UseLanguage(&quiet, S("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"));
+            Check(StrIsEqual(Tr("Done"), S("\u0413\u043E\u0442\u043E\u0432\u043E")) && !StrIsEqual(Tr("Language"), S("Language")));
+            String made = Prog_LanguageTemplate(&quiet.frameArena, S("Mine"));
+            Check(TestEndsWith(StrFromTo(made, 0, (i64)StrIndexChar(made, '\n', SSF_None).value), S("Mine")) && Prog__ContainsFolded(made, S("Done\n= \u0413\u043E\u0442\u043E\u0432\u043E\n")));
+            Prog_UseLanguage(&quiet, (String){0});
+        }
         // A slider takes arithmetic typed into it, worked out and rounded; what does not read keeps it typing.
         f64 worked = 0;
         Check(Prog_EvaluateExpression(S("2*2"), &worked) && worked == 4);

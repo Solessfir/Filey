@@ -267,7 +267,7 @@ function void P_CatchCrashes(String folder, String version)
     // The first backtrace loads what it needs, which a signal handler could not.
     void *warm[1];
     backtrace(warm, 1);
-    struct sigaction action = { .sa_handler = P__OnCrash, .sa_flags = SA_RESETHAND | SA_NODEFER };
+    struct sigaction action = { .sa_handler = P__OnCrash, .sa_flags = (i32)(SA_RESETHAND | SA_NODEFER) };
     local_persist const i32 signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
     for (u64 i = 0; i < CArrayCount(signals); ++i) sigaction(signals[i], &action, NULL);
 }

@@ -4,6 +4,147 @@
 #include <math.h>
 
 #include "Meta/Icons.meta.h"
+#include "Meta/Strings.meta.h"
+
+// The languages built into Filey: their names as they call themselves, and their text, as a language file has it.
+global const u8 Prog__RussianLanguage[] = {
+#embed "../Resources/Languages/Russian.lang"
+};
+global const struct { String name; const u8 *text; u64 size; } Prog_BuiltInLanguages[] = {
+    { SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"), Prog__RussianLanguage, sizeof(Prog__RussianLanguage) },
+};
+
+// The chosen language's translations by their English text, each ending in a zero for TrF.
+global Arena Prog_LanguageArena;
+global struct { MapHeader header; struct { String key; String value; } *v; } Prog_LanguageMap;
+
+function String Prog_Tr(String english)
+{
+    if (!Prog_LanguageMap.header.count) return english;
+    String *found = MapsGetPtrNull(Prog_LanguageMap, english);
+    return found ? *found : english;
+}
+
+function const char *Prog_TrFormat(const char *english)
+{
+    String found = Prog_Tr(StrFromCStr(english));
+    return found.value;
+}
+
+// The next conversion of a format from `*at`, as "%u" or "%.2f", past any "%%"; false at the end.
+function b32 Prog__NextConversion(String s, u64 *at, String *conversion)
+{
+    while (*at < s.length) {
+        if (s.value[*at] != '%') {
+            ++*at;
+            continue;
+        }
+        if (*at + 1 < s.length && s.value[*at + 1] == '%') {
+            *at += 2;
+            continue;
+        }
+        u64 end = *at + 1;
+        while (end < s.length && !((s.value[end] >= 'a' && s.value[end] <= 'z') || (s.value[end] >= 'A' && s.value[end] <= 'Z'))) ++end;
+        *conversion = StrFromTo(s, *at, (i64)Min(end + 1, s.length));
+        *at = end + 1;
+        return true;
+    }
+    return false;
+}
+
+// Whether `a` and `b` have the same conversions in the same order, which a translated format must keep.
+function b32 Prog__SameConversions(String a, String b)
+{
+    u64 i = 0, j = 0;
+    for (;;) {
+        String x = {0}, y = {0};
+        b32 more = Prog__NextConversion(a, &i, &x), other = Prog__NextConversion(b, &j, &y);
+        if (more != other) return false;
+        if (!more) return true;
+        if (!StrIsEqual(x, y)) return false;
+    }
+}
+
+// Adds the entries of a language file's `text` over those there: each an English line, then its translation on a line of its own after "= ";
+// lines starting with '#' are comments. A translation left empty, or one whose conversions differ from its English text's, is left out.
+function void Prog_AddLanguageText(String text)
+{
+    String english = {0};
+    for (u64 at = 0; at < text.length;) {
+        Index end = StrIndexChar(StrFrom(text, at), '\n', SSF_CountOnFail);
+        String line = StrFromTo(text, at, (i64)(at + end.value));
+        at += end.value + 1;
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (!line.length || line.value[0] == '#') continue;
+        if (line.length >= 1 && line.value[0] == '=') {
+            String translation = StrFrom(line, line.length >= 2 && line.value[1] == ' ' ? 2 : 1);
+            if (english.length && translation.length && Prog__SameConversions(english, translation)) {
+                char *copy = ArenaPushArray(&Prog_LanguageArena, translation.length + 1, char);
+                MemCopy(copy, translation.value, translation.length);
+                MapsPut(&Prog_LanguageArena, Prog_LanguageMap, StrCopy(&Prog_LanguageArena, english), StrMake(copy, translation.length));
+            }
+            english = (String){0};
+        } else {
+            english = line;
+        }
+    }
+}
+
+// Makes `name` the language shown: a built-in one, then a custom file of that name in the settings folder over it; English for none.
+function void Prog_UseLanguage(Prog_State *state, String name)
+{
+    ArenaClear(&Prog_LanguageArena);
+    Prog_LanguageMap = (typeof(Prog_LanguageMap)){0};
+    if (!name.length || Prog__EqualFolded(name, S("English"))) return;
+    for (u64 i = 0; i < CArrayCount(Prog_BuiltInLanguages); ++i) {
+        if (StrIsEqual(name, Prog_BuiltInLanguages[i].name)) Prog_AddLanguageText(StrMake((const char *)Prog_BuiltInLanguages[i].text, Prog_BuiltInLanguages[i].size));
+    }
+    if (!state->configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    String text = {0};
+    if (P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, StrFormat(scratch.arena, "%S.lang", name)), &text)) Prog_AddLanguageText(text);
+    ReleaseScratch(scratch);
+}
+
+// Any other name than English's and a built-in language's is a custom language's.
+function b32 Prog_LanguageIsCustom(String name)
+{
+    b32 result = name.length && !Prog__EqualFolded(name, S("English"));
+    for (u64 i = 0; i < CArrayCount(Prog_BuiltInLanguages); ++i) result &= !StrIsEqual(name, Prog_BuiltInLanguages[i].name);
+    return result;
+}
+
+// The custom languages in the settings folder by name, those named as a built-in one left out, as they only add to it.
+function void Prog_ListLanguages(Prog_State *state)
+{
+    ArenaClear(&state->languagesArena);
+    state->languageNames = (ArrayStr){0};
+    if (!state->configDirectory.length) return;
+    Scratch scratch = GetScratch();
+    P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, state->configDirectory, NULL);
+    for (u64 i = 0; i < listing.files.header.count; ++i) {
+        String file = listing.files.v[i].name;
+        if (listing.files.v[i].kind != P_FileKind_File || file.length <= 5 || !Prog__EqualFolded(StrFrom(file, file.length - 5), S(".lang"))) continue;
+        String name = StrFromTo(file, 0, (i64)file.length - 5);
+        if (Prog_LanguageIsCustom(name)) ArrayPush(&state->languagesArena, state->languageNames, StrCopy(&state->languagesArena, name));
+    }
+    ReleaseScratch(scratch);
+}
+
+// A language file of every translatable string, each with the shown language's translation where it has one, for a translation of one's own.
+function String Prog_LanguageTemplate(Arena *arena, String name)
+{
+    StrBuilder text = {0};
+    StrBuildStr(arena, &text, StrFormat(arena, "# Filey language: %S\n"
+                                               "# Each entry is Filey's English text on one line and its translation on the next, after \"= \".\n"
+                                               "# An entry left empty shows in English. Keep the %%u, %%S and other conversions of a line, in their order.\n"
+                                               "# Saved, the file applies at once while this language is chosen in Options.\n\n", name));
+    for (u64 i = 0; i + 1 < CArrayCount(Prog_Strings); ++i) {
+        String english = StrFromCStr(Prog_Strings[i]), shown = Prog_Tr(english);
+        StrBuildStr(arena, &text, StrFormat(arena, "%S\n= %S\n\n", english, shown.value == english.value ? S("") : shown));
+    }
+    return text.buffer;
+}
 
 #define Prog_Gray(v)     { (v) / 255.0f, (v) / 255.0f, (v) / 255.0f, 1 }
 #define Prog_Rgb(r, g, b) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, 1 }
@@ -442,7 +583,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->archiveLevel = 9;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
-    state->font.length = state->inspectorFont.length = 0;
+    state->font.length = state->inspectorFont.length = state->language.length = 0;
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
     u32 inspectorFontSize = Prog_InspectorFontSize;
@@ -519,6 +660,9 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             }
         } else if (StrIsEqual(name, S("newtab"))) {
             for (u32 i = 0; i < Prog_NewTab_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabs[i])) state->newTab = (u8)i;
+        } else if (StrIsEqual(name, S("language"))) {
+            state->language.length = (u32)Min(value.length, (u64)sizeof(state->language.text));
+            MemCopy(state->language.text, value.value, state->language.length);
         } else if (StrIsEqual(name, S("archive.level"))) {
             if (number >= 0 && number <= 9) state->archiveLevel = (u8)number;
         } else if (StrIsEqual(name, S("notices"))) {
@@ -631,6 +775,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         state->settingInspectorLayout = (u8)(inspectorLayout + 1);
     }
     Prog__ApplyTheme(state);
+    Prog_UseLanguage(state, StrMake(state->language.text, state->language.length));
 }
 
 // Every setting, commented out at its default, for a first edit.
@@ -685,6 +830,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
+    StrBuildStr(arena, &text, S("\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n# language = English\n"));
     // The glass settings, at their defaults.
     R_Color colors[2] = { Prog_ThemeGlass.window, Prog_ThemeGlass.menu };
     String hex[2];
@@ -710,146 +856,150 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 
 // The options of the Options popup, in its order.
 global const String Prog_OptionSwitch[] = { SInit("false"), SInit("true") };
+// English, then the built-in languages; the custom ones follow.
+global const String Prog_OptionLanguages[] = { SInit("English"), SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439") };
 global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
 global const String Prog_OptionBorders[] = { SInit("default"), SInit("1"), SInit("2"), SInit("3") };
 global const String Prog_OptionBackdrops[] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
-    [Prog_Option_Font] = { SInit("Font"), SInit("The system-installed font name that is applied to the entire UI."), Prog_OptionControl_Font, 0, 0, NULL, 0, SInit("font") },
-    [Prog_Option_InspectorFont] = { SInit("Inspector Font"), SInit("The system-installed font used when previewing text contents in the inspector."), Prog_OptionControl_Font, 0, 0,
+    [Prog_Option_Language] = { TrInit("Language"), TrInit("The language of Filey's text. Create Custom Language starts a translation of your own, as a file to fill in."),
+                               Prog_OptionControl_Choice, 0, 0, Prog_OptionLanguages, CArrayCount(Prog_OptionLanguages), SInit("language") },
+    [Prog_Option_Font] = { TrInit("Font"), TrInit("The system-installed font name that is applied to the entire UI."), Prog_OptionControl_Font, 0, 0, NULL, 0, SInit("font") },
+    [Prog_Option_InspectorFont] = { TrInit("Inspector Font"), TrInit("The system-installed font used when previewing text contents in the inspector."), Prog_OptionControl_Font, 0, 0,
                                     NULL, 0, SInit("inspector.font") },
-    [Prog_Option_FontSize] = { SInit("Font Size"), SInit("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, SInit("scale") },
-    [Prog_Option_InspectorFontSize] = { SInit("Inspector Font Size"), SInit("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
+    [Prog_Option_FontSize] = { TrInit("Font Size"), TrInit("Determines the scale of the whole UI."), Prog_OptionControl_Stepper, 6, 24, NULL, 0, SInit("scale") },
+    [Prog_Option_InspectorFontSize] = { TrInit("Inspector Font Size"), TrInit("Specifies the font size used to display text contents in the inspector."), Prog_OptionControl_Stepper,
                                         Prog_InspectorFontMin, Prog_InspectorFontMax, NULL, 0, SInit("inspector.fontSize") },
-    [Prog_Option_Borders] = { SInit("Border Size"), SInit("Thickness of the lines between areas and of the outlines of panels, tabs and popups."),
+    [Prog_Option_Borders] = { TrInit("Border Size"), TrInit("Thickness of the lines between areas and of the outlines of panels, tabs and popups."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionBorders, CArrayCount(Prog_OptionBorders), SInit("borders") },
-    [Prog_Option_Spacing] = { SInit("Spacing"), SInit("Defines the space between items in a list."), Prog_OptionControl_Slider, 0, 13, NULL, 0, SInit("spacing") },
-    [Prog_Option_Animations] = { SInit("Animations"), SInit("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_Spacing] = { TrInit("Spacing"), TrInit("Defines the space between items in a list."), Prog_OptionControl_Slider, 0, 13, NULL, 0, SInit("spacing") },
+    [Prog_Option_Animations] = { TrInit("Animations"), TrInit("Applies animations to new popups, view scrolling, text cursor, etc."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, SInit("animations") },
-    [Prog_Option_RoundCorners] = { SInit("Round Corners"), SInit("Applies rounding to the corners of UI elements such as popups, buttons, and selections."), Prog_OptionControl_Switch,
+    [Prog_Option_RoundCorners] = { TrInit("Round Corners"), TrInit("Applies rounding to the corners of UI elements such as popups, buttons, and selections."), Prog_OptionControl_Switch,
                                    0, 1, Prog_OptionCorners, 2, SInit("corners") },
-    [Prog_Option_InlineSubmenus] = { SInit("Inline Submenus"), SInit("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_InlineSubmenus] = { TrInit("Inline Submenus"), TrInit("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("menus.inline") },
-    [Prog_Option_SystemScheme] = { SInit("System Light / Dark Scheme"), SInit("Automatically adapt between light and dark color schemes based on system settings."),
+    [Prog_Option_SystemScheme] = { TrInit("System Light / Dark Scheme"), TrInit("Automatically adapt between light and dark color schemes based on system settings."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("theme.system") },
-    [Prog_Option_ColorScheme] = { SInit("Color Scheme"), SInit("Applies a color palette to all UI elements."),
+    [Prog_Option_ColorScheme] = { TrInit("Color Scheme"), TrInit("Applies a color palette to all UI elements."),
                                   Prog_OptionControl_Choice, 0, 0, Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), SInit("theme") },
-    [Prog_Option_LightScheme] = { SInit("Light Color Scheme"), SInit("Color theme applied when the system uses bright colors."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_LightScheme] = { TrInit("Light Color Scheme"), TrInit("Color theme applied when the system uses bright colors."), Prog_OptionControl_Choice, 0, 0,
                                   Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), SInit("theme.light") },
-    [Prog_Option_DarkScheme] = { SInit("Dark Color Scheme"), SInit("Color theme applied when the system uses dark colors."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_DarkScheme] = { TrInit("Dark Color Scheme"), TrInit("Color theme applied when the system uses dark colors."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionSchemes, CArrayCount(Prog_OptionSchemes), SInit("theme") },
-    [Prog_Option_ColorGroups] = { SInit("Color Scheme"), SInit("Exposes the individual components of the selected color scheme."), Prog_OptionControl_Expand, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorClear] = { SInit("Clear"), SInit("Background color visible only between panel borders."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorCaption] = { SInit("Caption"), SInit("Background color for caption bar."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorBackground] = { SInit("Background"), SInit("Background color for panels and windows."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorSurface] = { SInit("Surface"), SInit("Background color for popups, sidebar, and floating regions like the footer."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorForeground] = { SInit("Foreground"), SInit("Background color for scrollbar, dropdowns and other buttons."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorInner] = { SInit("Inner"), SInit("Background color for text field."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorBorder] = { SInit("Border"), SInit("Border color for panels, windows, and popups."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorOutline] = { SInit("Outline"), SInit("Outline color for UI elements like buttons and toggles."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorSeparator] = { SInit("Separator"), SInit("Color for line separators between item rows."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorAlternatingRow] = { SInit("Alternating Row"), SInit("Background color for alternating rows in lists and columns."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorIconTint] = { SInit("Icon"), SInit("Color of all non-system icons in the UI."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorText] = { SInit("Text"), SInit("Color of primary UI text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorSecondary] = { SInit("Secondary"), SInit("Color for secondary text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorGroup] = { SInit("Group"), SInit("Color for sections that can be opened or closed."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorFile] = { SInit("File"), SInit("Text color for file items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorFolder] = { SInit("Folder"), SInit("Text color for folder items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorWarning] = { SInit("Warning"), SInit("Background color for buttons requiring extra attention."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorProgress] = { SInit("Progress"), SInit("Fill color for slider and toggle."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorSelection] = { SInit("Selection"), SInit("Background color of selected items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorRectSelection] = { SInit("Rect selection"), SInit("Color of the rectangle when selecting multiple items in a panel."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorMatch] = { SInit("Match"), SInit("Color for matching letters in filtered text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorHidden] = { SInit("Hidden Opacity"), SInit("Controls the opacity of hidden/system files using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorHover] = { SInit("Hover Opacity"), SInit("Blends the selection with the background when hovering using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorDisabled] = { SInit("Disabled Opacity"), SInit("Controls the opacity of disabled items using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorContentHover] = { SInit("Content Hover"), SInit("Color of the content when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorContentSelection] = { SInit("Content Selection"), SInit("Color of the content when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorContentDisabledSelection] = { SInit("Content Disabled Selection"), SInit("Color of the content when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorOutlineHover] = { SInit("Outline Hover"), SInit("Color of the outlines when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorOutlineSelection] = { SInit("Outline Selection"), SInit("Color of the outlines when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorOutlineDisabledSelection] = { SInit("Outline Disabled Selection"), SInit("Color of the outlines when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorMatchHover] = { SInit("Match Hover"), SInit("Color for matching letters in filtered text when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorMatchSelection] = { SInit("Match Selection"), SInit("Color for matching letters in filtered text when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_ColorMatchDisabledSelection] = { SInit("Match Disabled Selection"), SInit("Color for matching letters in filtered text when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
-    [Prog_Option_AlternatingRows] = { SInit("Alternating Row Colors"), SInit("Applies alternating row colors to improve readability and distinguish adjacent rows."),
+    [Prog_Option_ColorGroups] = { TrInit("Color Scheme"), TrInit("Exposes the individual components of the selected color scheme."), Prog_OptionControl_Expand, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorClear] = { TrInit("Clear"), TrInit("Background color visible only between panel borders."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorCaption] = { TrInit("Caption"), TrInit("Background color for caption bar."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorBackground] = { TrInit("Background"), TrInit("Background color for panels and windows."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSurface] = { TrInit("Surface"), TrInit("Background color for popups, sidebar, and floating regions like the footer."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorForeground] = { TrInit("Foreground"), TrInit("Background color for scrollbar, dropdowns and other buttons."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorInner] = { TrInit("Inner"), TrInit("Background color for text field."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorBorder] = { TrInit("Border"), TrInit("Border color for panels, windows, and popups."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutline] = { TrInit("Outline"), TrInit("Outline color for UI elements like buttons and toggles."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSeparator] = { TrInit("Separator"), TrInit("Color for line separators between item rows."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorAlternatingRow] = { TrInit("Alternating Row"), TrInit("Background color for alternating rows in lists and columns."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorIconTint] = { TrInit("Icon"), TrInit("Color of all non-system icons in the UI."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorText] = { TrInit("Text"), TrInit("Color of primary UI text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSecondary] = { TrInit("Secondary"), TrInit("Color for secondary text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorGroup] = { TrInit("Group"), TrInit("Color for sections that can be opened or closed."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorFile] = { TrInit("File"), TrInit("Text color for file items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorFolder] = { TrInit("Folder"), TrInit("Text color for folder items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorWarning] = { TrInit("Warning"), TrInit("Background color for buttons requiring extra attention."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorProgress] = { TrInit("Progress"), TrInit("Fill color for slider and toggle."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorSelection] = { TrInit("Selection"), TrInit("Background color of selected items."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorRectSelection] = { TrInit("Rect selection"), TrInit("Color of the rectangle when selecting multiple items in a panel."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatch] = { TrInit("Match"), TrInit("Color for matching letters in filtered text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorHidden] = { TrInit("Hidden Opacity"), TrInit("Controls the opacity of hidden/system files using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorHover] = { TrInit("Hover Opacity"), TrInit("Blends the selection with the background when hovering using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorDisabled] = { TrInit("Disabled Opacity"), TrInit("Controls the opacity of disabled items using the brightness value."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorContentHover] = { TrInit("Content Hover"), TrInit("Color of the content when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorContentSelection] = { TrInit("Content Selection"), TrInit("Color of the content when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorContentDisabledSelection] = { TrInit("Content Disabled Selection"), TrInit("Color of the content when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutlineHover] = { TrInit("Outline Hover"), TrInit("Color of the outlines when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutlineSelection] = { TrInit("Outline Selection"), TrInit("Color of the outlines when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorOutlineDisabledSelection] = { TrInit("Outline Disabled Selection"), TrInit("Color of the outlines when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatchHover] = { TrInit("Match Hover"), TrInit("Color for matching letters in filtered text when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatchSelection] = { TrInit("Match Selection"), TrInit("Color for matching letters in filtered text when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorMatchDisabledSelection] = { TrInit("Match Disabled Selection"), TrInit("Color for matching letters in filtered text when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_AlternatingRows] = { TrInit("Alternating Row Colors"), TrInit("Applies alternating row colors to improve readability and distinguish adjacent rows."),
                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("rows.alternate") },
-    [Prog_Option_InactiveOpacity] = { SInit("Inactive Panel Contents Opacity"), SInit("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
+    [Prog_Option_InactiveOpacity] = { TrInit("Inactive Panel Contents Opacity"), TrInit("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
                                       0, 100, NULL, 0, SInit("inactive.opacity") },
-    [Prog_Option_ShowFileExtension] = { SInit("Show File Extension"), SInit("Toggle the visibility of file extensions."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShowFileExtension] = { TrInit("Show File Extension"), TrInit("Toggle the visibility of file extensions."), Prog_OptionControl_Switch, 0, 1,
                                         Prog_OptionSwitch, 2, SInit("files.extensions") },
-    [Prog_Option_ShowHiddenFiles] = { SInit("Show Hidden Files"), SInit("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShowHiddenFiles] = { TrInit("Show Hidden Files"), TrInit("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
                                       Prog_OptionSwitch, 2, SInit("files.hidden") },
-    [Prog_Option_ShowSystemFiles] = { SInit("Show System Files"), SInit("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("files.system") },
-    [Prog_Option_ShortenedPaths] = { SInit("Display Compact Paths"), SInit("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShowSystemFiles] = { TrInit("Show System Files"), TrInit("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("files.system") },
+    [Prog_Option_ShortenedPaths] = { TrInit("Display Compact Paths"), TrInit("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("paths.short") },
-    [Prog_Option_Breadcrumbs] = { SInit("Display Path Breadcrumbs"), SInit("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_Breadcrumbs] = { TrInit("Display Path Breadcrumbs"), TrInit("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, SInit("paths.trail") },
-    [Prog_Option_ShowCheckboxes] = { SInit("Show Selection Boxes"), SInit("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShowCheckboxes] = { TrInit("Show Selection Boxes"), TrInit("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("checkboxes") },
-    [Prog_Option_ConfirmEmptyTrash] = { SInit("Confirm Emptying Recycle Bin"), SInit("Ask before permanently deleting everything in the Recycle Bin."),
+    [Prog_Option_ConfirmEmptyTrash] = { TrInit("Confirm Emptying Recycle Bin"), TrInit("Ask before permanently deleting everything in the Recycle Bin."),
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
-    [Prog_Option_CompressionLevel] = { SInit("Compression Level"), SInit("How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest."),
+    [Prog_Option_CompressionLevel] = { TrInit("Compression Level"), TrInit("How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest."),
                                        Prog_OptionControl_Slider, 0, 9, NULL, 0, SInit("archive.level") },
-    [Prog_Option_Notices] = { SInit("Notifications"), SInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
+    [Prog_Option_Notices] = { TrInit("Notifications"), TrInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
-    [Prog_Option_MutedNotices] = { SInit("Muted Notifications"), SInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
+    [Prog_Option_MutedNotices] = { TrInit("Muted Notifications"), TrInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
                                    Prog_OptionControl_Muted, 0, 0, NULL, 0, {0} },
-    [Prog_Option_StoreRecents] = { SInit("Store Recents"), SInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_StoreRecents] = { TrInit("Store Recents"), TrInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
-    [Prog_Option_ShowRecents] = { SInit("Highlight Recents"), SInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ShowRecents] = { TrInit("Highlight Recents"), TrInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, SInit("recents.highlight") },
-    [Prog_Option_SortRecents] = { SInit("Sort Recents On Top"), SInit("Sort recently accessed files and directories to the top."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_SortRecents] = { TrInit("Sort Recents On Top"), TrInit("Sort recently accessed files and directories to the top."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, SInit("recents.sort") },
-    [Prog_Option_LoadThumbnails] = { SInit("Load Thumbnails"), SInit("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_LoadThumbnails] = { TrInit("Load Thumbnails"), TrInit("Criteria for loading thumbnails of listed directories."), Prog_OptionControl_Choice, 0, 0,
                                      Prog_OptionThumbnails, CArrayCount(Prog_OptionThumbnails), SInit("thumbnails") },
-    [Prog_Option_CalcFolderSizes] = { SInit("Calculate Folder Sizes"), SInit("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_CalcFolderSizes] = { TrInit("Calculate Folder Sizes"), TrInit("Calculates folder sizes by scanning their contents."), Prog_OptionControl_Switch, 0, 1,
                                       Prog_OptionSwitch, 2, SInit("folders.size") },
-    [Prog_Option_CalcFolderSizesSSD] = { SInit("SSDs"), SInit("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_CalcFolderSizesSSD] = { TrInit("SSDs"), TrInit("Calculate folder sizes on local SSD drives."), Prog_OptionControl_Switch, 0, 1,
                                          Prog_OptionSwitch, 2, SInit("folders.size.ssd") },
-    [Prog_Option_CalcFolderSizesHDD] = { SInit("HDDs"), SInit("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_CalcFolderSizesHDD] = { TrInit("HDDs"), TrInit("Calculate folder sizes on local HDD drives."), Prog_OptionControl_Switch, 0, 1,
                                          Prog_OptionSwitch, 2, SInit("folders.size.hdd") },
-    [Prog_Option_CalcFolderSizesNetwork] = { SInit("Network Locations"), SInit("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
+    [Prog_Option_CalcFolderSizesNetwork] = { TrInit("Network Locations"), TrInit("Calculate folder sizes on network drives and shared locations."), Prog_OptionControl_Switch,
                                              0, 1, Prog_OptionSwitch, 2, SInit("folders.size.network") },
-    [Prog_Option_ActOnPress] = { SInit("Act On Press"), SInit("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_ActOnPress] = { TrInit("Act On Press"), TrInit("Whether interactions register on mouse press or release."), Prog_OptionControl_Switch, 0, 1,
                                  Prog_OptionSwitch, 2, SInit("click.onPress") },
-    [Prog_Option_SingleClick] = { SInit("Single-click To Open"), SInit("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("click.single") },
-    [Prog_Option_SingleClickFoldersOnly] = { SInit("Folders Only"), SInit("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_SingleClick] = { TrInit("Single-click To Open"), TrInit("Open items with a single click."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("click.single") },
+    [Prog_Option_SingleClickFoldersOnly] = { TrInit("Folders Only"), TrInit("Single click applies to folders only."), Prog_OptionControl_Switch, 0, 1,
                                              Prog_OptionSwitch, 2, SInit("click.singleFoldersOnly") },
-    [Prog_Option_HoverToSelect] = { SInit("Point To Select"), SInit("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("hover.select") },
-    [Prog_Option_HoverToFocus] = { SInit("Point To Focus Panel"), SInit("Give the keyboard to the panel the pointer moves over."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_HoverToSelect] = { TrInit("Point To Select"), TrInit("Select items by hovering over them."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("hover.select") },
+    [Prog_Option_HoverToFocus] = { TrInit("Point To Focus Panel"), TrInit("Give the keyboard to the panel the pointer moves over."), Prog_OptionControl_Switch, 0, 1,
                                    Prog_OptionSwitch, 2, SInit("hover.focus") },
-    [Prog_Option_UnderlineOnHover] = { SInit("Underline On Point"), SInit("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_UnderlineOnHover] = { TrInit("Underline On Point"), TrInit("Underlines items only when pointing at them."), Prog_OptionControl_Switch, 0, 1,
                                        Prog_OptionSwitch, 2, SInit("hover.underline") },
-    [Prog_Option_DoubleClickToParent] = { SInit("Double-click To Parent"), SInit("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_DoubleClickToParent] = { TrInit("Double-click To Parent"), TrInit("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
                                           Prog_OptionSwitch, 2, SInit("click.doubleToParent") },
-    [Prog_Option_Overscroll] = { SInit("Scroll Beyond Last Item"), SInit("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("scroll.over") },
-    [Prog_Option_ReverseScroll] = { SInit("Reverse Scroll Direction"), SInit("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_Overscroll] = { TrInit("Scroll Beyond Last Item"), TrInit("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("scroll.over") },
+    [Prog_Option_ReverseScroll] = { TrInit("Reverse Scroll Direction"), TrInit("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
                                     Prog_OptionSwitch, 2, SInit("scroll.reverse") },
-    [Prog_Option_CharacterKeyAction] = { SInit("Character Key Action"), SInit("Determines the action when you press raw character keys without modifiers."),
+    [Prog_Option_CharacterKeyAction] = { TrInit("Character Key Action"), TrInit("Determines the action when you press raw character keys without modifiers."),
                                          Prog_OptionControl_Choice, 0, 0, Prog_OptionCharacterKeys, Prog_CharacterKeys_Count, SInit("keys.character") },
-    [Prog_Option_InspectorLayout] = { SInit("Inspector Layout"), SInit("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_InspectorLayout] = { TrInit("Inspector Layout"), TrInit("Default layout for opening the new inspector."), Prog_OptionControl_Choice, 0, 0,
                                       Prog_OptionLayouts, CArrayCount(Prog_OptionLayouts), SInit("inspector.layout") },
-    [Prog_Option_HighlightCode] = { SInit("Highlight Code"), SInit("Color keywords, strings, comments and numbers of code in the inspector."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_HighlightCode] = { TrInit("Highlight Code"), TrInit("Color keywords, strings, comments and numbers of code in the inspector."), Prog_OptionControl_Switch, 0, 1,
                                     Prog_OptionSwitch, 2, SInit("inspector.highlight") },
-    [Prog_Option_LoadOnStartup] = { SInit("Load On Startup"), SInit("Previous session, location, or custom layout to load on startup."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_LoadOnStartup] = { TrInit("Load On Startup"), TrInit("Previous session, location, or custom layout to load on startup."), Prog_OptionControl_Choice, 0, 0,
                                     Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
-    [Prog_Option_NewTabShow] = { SInit("New Tab Show"), SInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_NewTabShow] = { TrInit("New Tab Show"), TrInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), SInit("newtab") },
-    [Prog_Option_SingleWindow] = { SInit("Open In One Window"), SInit("Starting Filey or opening a folder from elsewhere uses the open window, in a new tab."),
+    [Prog_Option_SingleWindow] = { TrInit("Open In One Window"), TrInit("Starting Filey or opening a folder from elsewhere uses the open window, in a new tab."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("instances.single") },
-    [Prog_Option_VSync] = { SInit("VSync"), SInit("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
+    [Prog_Option_VSync] = { TrInit("VSync"), TrInit("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
                             Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("vsync") },
-    [Prog_Option_Transparency] = { SInit("Transparency"), SInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
+    [Prog_Option_Transparency] = { TrInit("Transparency"), TrInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
                                    Prog_OptionSwitch, 2, SInit("transparent") },
-    [Prog_Option_WindowOpacity] = { SInit("Window Opacity"), SInit("How much the window's color covers what is behind it while the window is transparent."),
+    [Prog_Option_WindowOpacity] = { TrInit("Window Opacity"), TrInit("How much the window's color covers what is behind it while the window is transparent."),
                                     Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.opacity") },
-    [Prog_Option_PopupBlur] = { SInit("Popup Blur"), SInit("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
+    [Prog_Option_PopupBlur] = { TrInit("Popup Blur"), TrInit("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
                                 NULL, 0, SInit("glass.blur") },
-    [Prog_Option_PopupOpacity] = { SInit("Popup Opacity"), SInit("How much the color of menus and popups covers the blur under them while the window is transparent."),
+    [Prog_Option_PopupOpacity] = { TrInit("Popup Opacity"), TrInit("How much the color of menus and popups covers the blur under them while the window is transparent."),
                                    Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.popupOpacity") },
-    [Prog_Option_Backdrop] = { SInit("Backdrop"), SInit("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_Backdrop] = { TrInit("Backdrop"), TrInit("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
                                Prog_OptionBackdrops, CArrayCount(Prog_OptionBackdrops), SInit("glass.backdrop") },
 };
 
@@ -885,7 +1035,7 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         if ((i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) && !state->systemScheme) continue;
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
-        if (!typed.length || Prog_FuzzyScore(Prog_Options[i].label, Prog_Options[i].tooltip, typed, NULL, NULL) > 0) found[count++] = (u8)i;
+        if (!typed.length || Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) > 0) found[count++] = (u8)i;
     }
     return count;
 }
@@ -917,6 +1067,12 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_CompressionLevel: return state->archiveLevel;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
+        case Prog_Option_Language: {
+            String name = StrMake(state->language.text, state->language.length);
+            for (u32 i = 1; name.length && i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(name, Prog_OptionLanguages[i])) return (i32)i;
+            for (u64 i = 0; name.length && i < state->languageNames.header.count; ++i) if (StrIsEqual(name, state->languageNames.v[i])) return (i32)(CArrayCount(Prog_OptionLanguages) + i);
+            return 0;
+        }
         case Prog_Option_MutedNotices: return (i32)state->mutedNotices.header.count;
         case Prog_Option_ShowRecents: return state->showRecents;
         case Prog_Option_SortRecents: return state->sortRecents;
@@ -1016,7 +1172,7 @@ function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option o
     *count = desc->choiceCount;
     // The schemes take the custom ones after the built-in ones.
     b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
-    const ArrayStr *more = option == Prog_Option_LoadOnStartup ? &state->layoutNames : schemes ? &state->schemeNames : NULL;
+    const ArrayStr *more = option == Prog_Option_LoadOnStartup ? &state->layoutNames : schemes ? &state->schemeNames : option == Prog_Option_Language ? &state->languageNames : NULL;
     if (!more || !more->header.count) return desc->choices;
     String *all = ArenaPushArray(arena, desc->choiceCount + more->header.count, String);
     for (u32 i = 0; i < desc->choiceCount; ++i) all[i] = desc->choices[i];
@@ -5194,7 +5350,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 scrolls = height > (placedBefore ? view.y1 - state->menuTop : view.y1 - view.y0);
     f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
     // Wide enough for the search field's hint beside its two buttons, a little apart from them.
-    f32 fieldWidth = search ? iconLeft + iconColumn + R_TextWidth(m->font, S("Select a system command...")) + floorf(8.0f * m->scale + 0.5f) + 2 * Prog__ToolbarButtonWidth(m) + 2 * pad : 0;
+    f32 fieldWidth = search ? iconLeft + iconColumn + R_TextWidth(m->font, Tr("Select a system command...")) + floorf(8.0f * m->scale + 0.5f) + 2 * Prog__ToolbarButtonWidth(m) + 2 * pad : 0;
     f32 width = floorf(MinF32(MaxF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + star + 2 * pad, fieldWidth), m->line * 12), m->line * 36)) + gutter;
     if (flat) width = floorf(UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuWidth/%u", state->menuSerial)), width, width) + 0.5f);
     f32 x = level == 0 && state->menuRight > 0 ? state->menuRight - width : place.x, y = place.y;
@@ -5317,7 +5473,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((fieldHeight - m->line) * 0.5f) });
                         UI_SetNextPrefHeight(UI_Pixels(m->line));
                         UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                        UI_SetNextText(S("Select a system command..."));
+                        UI_SetNextText(Tr("Select a system command..."));
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                     }
                     Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, 0, m);
@@ -5328,7 +5484,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 UI_Interaction pencil = Prog__TextButton(S("MenuEditOpen"), Icon_Pencil, m->iconsMedium, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text,
                                                          theme->iconDisabled, true, m);
                 if (pencil.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditOpen, 0, 0, pencil.clickOrder);
-                Prog__PopupTooltip(state, S("Edit menu: hide items and change their order"));
+                Prog__PopupTooltip(state, Tr("Edit menu: hide items and change their order"));
                 // A button at its end closes the menu, in the middle of the field's height and as far from its end as from its top.
                 UI_Interaction close = Prog__CloseButton(S("MenuSearchClose"), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, close.clickOrder);
@@ -6178,15 +6334,22 @@ function void Prog__QueueOption(Prog_State *state, Prog_Option option, i32 value
 // A choice's name as the popup shows it: longer words where Settings.conf has shorter ones, else with a capital first letter.
 function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
 {
-    if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return S("Local Disks");
-    if (option == Prog_Option_Borders && !StrIsEqual(name, S("default"))) return StrFormat(arena, "%S px", name);
-    if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return S("Horizontal");
-    if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return S("Vertical");
-    if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return S("Last Session");
+    // A language goes by its own name.
+    if (option == Prog_Option_Language) return name;
+    // The names below come of the settings' words with a capital first letter; listed here, they are translated as the rest are.
+    local_persist const String words[] = { TrInit("Square"), TrInit("Round"), TrInit("Auto"), TrInit("Never"), TrInit("Always"), TrInit("Default"), TrInit("Acrylic"),
+                                           TrInit("Mica"), TrInit("Tabbed"), TrInit("None"), TrInit("Persistent"), TrInit("Session"), TrInit("Root"), TrInit("Home"),
+                                           TrInit("Current"), TrInit("All") };
+    (void)words;
+    if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return Tr("Local Disks");
+    if (option == Prog_Option_Borders && !StrIsEqual(name, S("default"))) return StrFormat(arena, TrF("%S px"), name);
+    if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return Tr("Horizontal");
+    if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return Tr("Vertical");
+    if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return Tr("Last Session");
     if (option == Prog_Option_Notices) {
-        if (StrIsEqual(name, S("warnings"))) return S("Warnings And Errors");
-        if (StrIsEqual(name, S("errors"))) return S("Errors Only");
-        if (StrIsEqual(name, S("off"))) return S("None");
+        if (StrIsEqual(name, S("warnings"))) return Tr("Warnings And Errors");
+        if (StrIsEqual(name, S("errors"))) return Tr("Errors Only");
+        if (StrIsEqual(name, S("off"))) return Tr("None");
     }
     // A custom scheme keeps its own name, and the reference's has its own.
     b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
@@ -6197,13 +6360,13 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     // A layout keeps its own name.
     if (option == Prog_Option_LoadOnStartup && !StrIsEqual(name, S("root")) && !StrIsEqual(name, S("home"))) return name;
     if (option == Prog_Option_CharacterKeyAction) {
-        if (StrIsEqual(name, S("filter"))) return S("Type In Filter");
-        if (StrIsEqual(name, S("hotkey"))) return S("Trigger Hotkey");
-        if (StrIsEqual(name, S("select"))) return S("Select Typed Item");
+        if (StrIsEqual(name, S("filter"))) return Tr("Type In Filter");
+        if (StrIsEqual(name, S("hotkey"))) return Tr("Trigger Hotkey");
+        if (StrIsEqual(name, S("select"))) return Tr("Select Typed Item");
     }
     String result = StrCopy(arena, name);
     if (result.length && result.value[0] >= 'a' && result.value[0] <= 'z') ((char *)result.value)[0] = (char)(result.value[0] - 'a' + 'A');
-    return result;
+    return Prog_Tr(result);
 }
 
 // A switch `wide` by `tall` with a knob `inset` from its edges, on while `on`, which reports its clicks.
@@ -6246,7 +6409,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
         UI_Interaction restore = Prog__TextButton(StrFormat(frame, "OptionRestore/%u", (u32)option), Icon_RotateCcwSquare, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)),
                                                   height, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
         if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_OptionRestore, (u64)option, 0, restore.clickOrder);
-        Prog__PopupTooltip(state, S("Restore default setting (Backspace)."));
+        Prog__PopupTooltip(state, Tr("Restore default setting (Backspace)."));
         Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(height));
     }
     switch (desc->control) {
@@ -6305,7 +6468,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                 if (drag.released && state->sliderDragged) Prog__QueueOption(state, option, value, drag.pressOrder, false);
                 else if (drag.released) Prog_QueueCommand(state, Prog_CommandKind_OptionSliderEdit, (u64)option, 0, drag.pressOrder);
             }
-            if (typing && state->sliderInvalid) Prog__PopupTooltip(state, S("Not a number or a sum that makes one."));
+            if (typing && state->sliderInvalid) Prog__PopupTooltip(state, Tr("Not a number or a sum that makes one."));
             UI_Parent(slider) {
                 if (typing) {
                     // In the middle, where the value was, until it no longer fits.
@@ -6380,14 +6543,14 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                 f32 chevron = floorf(20.8f * s + 0.5f);
                 R_Color ink = open ? theme->contentSelection : count ? theme->text : theme->textDim;
                 Prog__Spacer(UI_Pixels(count ? chevron : 0), UI_Pixels(height));
-                Prog__Label(count ? StrFormat(frame, "%" PRIu64 " muted", count) : S("None"), UI_Flex(), height, 0, ink, 0.5f);
+                Prog__Label(count ? StrFormat(frame, TrF("%u muted"), (u32)count) : Tr("None"), UI_Flex(), height, 0, ink, 0.5f);
                 if (count) Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
             }
         } break;
         case Prog_OptionControl_Font: {
             // The family's name, which a click lets be chosen from the installed ones.
             const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
-            String name = font->length ? StrMake(font->text, font->length) : S("Default");
+            String name = font->length ? StrMake(font->text, font->length) : Tr("Default");
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)option));
             b32 hot = UI->hotKey == key;
             UI_SetNextPrefWidth(UI_Pixels(width));
@@ -6463,10 +6626,10 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
         UI_SetNextChildrenPadding((UI_Padding){ 0, state->paletteCompact ? floorf((face - m->line) * 0.5f) : floorf(4.8f * s + 0.5f), 0, 0 });
         UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
         UI_Parent(texts) {
-            Prog__MarkedText(desc->label, NULL, m->font, m->line, option == Prog_Option_ColorGroups ? theme->textHeading : theme->text);
+            Prog__MarkedText(Prog_Tr(desc->label), NULL, m->font, m->line, option == Prog_Option_ColorGroups ? theme->textHeading : theme->text);
             if (!state->paletteCompact) {
                 Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
-                Prog__MarkedText(desc->tooltip, NULL, m->detail, m->detail->lineHeight, theme->textDim);
+                Prog__MarkedText(Prog_Tr(desc->tooltip), NULL, m->detail, m->detail->lineHeight, theme->textDim);
             }
         }
         Prog__OptionControl(state, option, m);
@@ -7987,7 +8150,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(options ? S("Select an option...") : S("Select a command..."));
+                    UI_SetNextText(options ? Tr("Select an option...") : Tr("Select a command..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
@@ -8505,13 +8668,13 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
         UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(header) {
             Prog__Icon(Icon_Pencil, grip, head, theme->icon, 0, m);
-            Prog__Label(S("Edit Menu"), UI_Flex(), head, 0, theme->text, 0);
+            Prog__Label(Tr("Edit Menu"), UI_Flex(), head, 0, theme->text, 0);
             b32 changed = state->menuHidden.header.count || state->menuOrder.header.count;
-            UI_Interaction reset = Prog__TextButton(S("MenuEditReset"), S("Reset"), NULL, UI_TextContent(), button, m->inset, theme->text, theme->text, theme->iconDisabled, changed, m);
+            UI_Interaction reset = Prog__TextButton(S("MenuEditReset"), Tr("Reset"), NULL, UI_TextContent(), button, m->inset, theme->text, theme->text, theme->iconDisabled, changed, m);
             if (reset.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditReset, 0, 0, reset.clickOrder);
-            Prog__PopupTooltip(state, S("Bring back the system's own order and every item"));
+            Prog__PopupTooltip(state, Tr("Bring back the system's own order and every item"));
             Prog__Spacer(UI_Pixels(floorf(pad * 0.5f)), UI_Pixels(head));
-            UI_Interaction done = Prog__TextButton(S("MenuEditDone"), S("Done"), NULL, UI_TextContent(), button, m->inset, theme->contentSelection, theme->contentSelection, theme->iconDisabled, true, m);
+            UI_Interaction done = Prog__TextButton(S("MenuEditDone"), Tr("Done"), NULL, UI_TextContent(), button, m->inset, theme->contentSelection, theme->contentSelection, theme->iconDisabled, true, m);
             UI->parent->last->props.colors.background = theme->selection;
             UI->parent->last->flags |= UI_Flag_DrawBackground;
             if (done.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditClose, 0, 0, done.clickOrder);
@@ -8593,7 +8756,7 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
             UI_Block *heading = Prog__Box(UI_Flex(), UI_Pixels(title), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(heading) {
                 UI_SetNextFont(m->detail);
-                Prog__Label(StrFormat(frame, "Hidden \xC2\xB7 %u", hiddenCount), UI_Flex(), title, 0, theme->textDim, 0);
+                Prog__Label(StrFormat(frame, TrF("Hidden \xC2\xB7 %u"), hiddenCount), UI_Flex(), title, 0, theme->textDim, 0);
             }
             for (u32 k = 0; k < hiddenCount; ++k) {
                 u32 index = hidden[k];

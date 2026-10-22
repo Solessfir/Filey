@@ -1336,6 +1336,12 @@ command OpenOptions {
     repeat  = "false"
 }
 
+command LanguageCreate {
+    label   = "Create Custom Language^translation,locale,localization,translate"
+    tooltip = "Write a language file of every text Filey shows, with the shown language's translations, to translate in an editor; it is chosen at once."
+    repeat  = "false"
+}
+
 command OpenSettings {
     label   = "Edit Settings File^preferences,options,config,theme,colors,hotkeys,keys,scale"
     tooltip = "Open the settings file, whose saved changes apply at once."

@@ -1,0 +1,665 @@
+# Filey language: Русский
+# Each entry is Filey's English text on one line and its translation on the next, after "= ".
+
+Language
+= Язык
+
+The language of Filey's text. Create Custom Language starts a translation of your own, as a file to fill in.
+= Язык интерфейса Filey. Команда «Создать свой язык» начинает собственный перевод в виде файла для заполнения.
+
+Font
+= Шрифт
+
+The system-installed font name that is applied to the entire UI.
+= Установленный в системе шрифт, которым показан весь интерфейс.
+
+Inspector Font
+= Шрифт инспектора
+
+The system-installed font used when previewing text contents in the inspector.
+= Установленный в системе шрифт для просмотра текста в инспекторе.
+
+Font Size
+= Размер шрифта
+
+Determines the scale of the whole UI.
+= Задаёт масштаб всего интерфейса.
+
+Inspector Font Size
+= Размер шрифта инспектора
+
+Specifies the font size used to display text contents in the inspector.
+= Размер шрифта, которым инспектор показывает текст.
+
+Border Size
+= Толщина рамок
+
+Thickness of the lines between areas and of the outlines of panels, tabs and popups.
+= Толщина линий между областями и контуров панелей, вкладок и всплывающих окон.
+
+Spacing
+= Интервал
+
+Defines the space between items in a list.
+= Расстояние между элементами списка.
+
+Animations
+= Анимации
+
+Applies animations to new popups, view scrolling, text cursor, etc.
+= Анимирует новые всплывающие окна, прокрутку, текстовый курсор и прочее.
+
+Round Corners
+= Скруглённые углы
+
+Applies rounding to the corners of UI elements such as popups, buttons, and selections.
+= Скругляет углы элементов интерфейса: всплывающих окон, кнопок и выделения.
+
+Inline Submenus
+= Встроенные подменю
+
+Opens a menu's submenus inside it, under their item, rather than beside it.
+= Открывает подменю внутри меню, под его пунктом, а не сбоку.
+
+System Light / Dark Scheme
+= Светлая или тёмная схема по системе
+
+Automatically adapt between light and dark color schemes based on system settings.
+= Переключает светлую и тёмную цветовые схемы вслед за настройками системы.
+
+Color Scheme
+= Цветовая схема
+
+Applies a color palette to all UI elements.
+= Палитра цветов для всех элементов интерфейса.
+
+Light Color Scheme
+= Светлая цветовая схема
+
+Color theme applied when the system uses bright colors.
+= Цветовая схема, когда в системе светлое оформление.
+
+Dark Color Scheme
+= Тёмная цветовая схема
+
+Color theme applied when the system uses dark colors.
+= Цветовая схема, когда в системе тёмное оформление.
+
+Exposes the individual components of the selected color scheme.
+= Показывает отдельные цвета выбранной схемы.
+
+Clear
+= Фон окна
+
+Background color visible only between panel borders.
+= Цвет фона, видимый только между границами панелей.
+
+Caption
+= Заголовок
+
+Background color for caption bar.
+= Цвет фона строки заголовка.
+
+Background
+= Фон
+
+Background color for panels and windows.
+= Цвет фона панелей и окон.
+
+Surface
+= Поверхность
+
+Background color for popups, sidebar, and floating regions like the footer.
+= Цвет фона всплывающих окон, боковой панели и плавающих областей, например нижней строки.
+
+Foreground
+= Передний план
+
+Background color for scrollbar, dropdowns and other buttons.
+= Цвет фона полос прокрутки, выпадающих списков и других кнопок.
+
+Inner
+= Поле ввода
+
+Background color for text field.
+= Цвет фона текстовых полей.
+
+Border
+= Граница
+
+Border color for panels, windows, and popups.
+= Цвет границ панелей, окон и всплывающих окон.
+
+Outline
+= Контур
+
+Outline color for UI elements like buttons and toggles.
+= Цвет контуров элементов вроде кнопок и переключателей.
+
+Separator
+= Разделитель
+
+Color for line separators between item rows.
+= Цвет линий между строками элементов.
+
+Alternating Row
+= Чередующаяся строка
+
+Background color for alternating rows in lists and columns.
+= Цвет фона чередующихся строк в списках и колонках.
+
+Icon
+= Значок
+
+Color of all non-system icons in the UI.
+= Цвет всех несистемных значков интерфейса.
+
+Text
+= Текст
+
+Color of primary UI text.
+= Цвет основного текста интерфейса.
+
+Secondary
+= Второстепенный
+
+Color for secondary text.
+= Цвет второстепенного текста.
+
+Group
+= Группа
+
+Color for sections that can be opened or closed.
+= Цвет разделов, которые можно раскрыть и свернуть.
+
+File
+= Файл
+
+Text color for file items.
+= Цвет текста файлов.
+
+Folder
+= Папка
+
+Text color for folder items.
+= Цвет текста папок.
+
+Warning
+= Предупреждение
+
+Background color for buttons requiring extra attention.
+= Цвет фона кнопок, требующих особого внимания.
+
+Progress
+= Прогресс
+
+Fill color for slider and toggle.
+= Цвет заливки ползунков и переключателей.
+
+Selection
+= Выделение
+
+Background color of selected items.
+= Цвет фона выделенных элементов.
+
+Rect selection
+= Рамка выделения
+
+Color of the rectangle when selecting multiple items in a panel.
+= Цвет рамки при выделении нескольких элементов в панели.
+
+Match
+= Совпадение
+
+Color for matching letters in filtered text.
+= Цвет совпадающих букв в отфильтрованном тексте.
+
+Hidden Opacity
+= Непрозрачность скрытых
+
+Controls the opacity of hidden/system files using the brightness value.
+= Задаёт непрозрачность скрытых и системных файлов через яркость.
+
+Hover Opacity
+= Непрозрачность наведения
+
+Blends the selection with the background when hovering using the brightness value.
+= Смешивает выделение с фоном при наведении, по значению яркости.
+
+Disabled Opacity
+= Непрозрачность недоступных
+
+Controls the opacity of disabled items using the brightness value.
+= Задаёт непрозрачность недоступных элементов через яркость.
+
+Content Hover
+= Содержимое при наведении
+
+Color of the content when items are hovered.
+= Цвет содержимого элементов под указателем.
+
+Content Selection
+= Содержимое выделения
+
+Color of the content when items are selected.
+= Цвет содержимого выделенных элементов.
+
+Content Disabled Selection
+= Содержимое недоступного выделения
+
+Color of the content when items are both disabled and selected.
+= Цвет содержимого элементов, которые недоступны и выделены.
+
+Outline Hover
+= Контур при наведении
+
+Color of the outlines when items are hovered.
+= Цвет контуров элементов под указателем.
+
+Outline Selection
+= Контур выделения
+
+Color of the outlines when items are selected.
+= Цвет контуров выделенных элементов.
+
+Outline Disabled Selection
+= Контур недоступного выделения
+
+Color of the outlines when items are both disabled and selected.
+= Цвет контуров элементов, которые недоступны и выделены.
+
+Match Hover
+= Совпадение при наведении
+
+Color for matching letters in filtered text when items are hovered.
+= Цвет совпадающих букв у элементов под указателем.
+
+Match Selection
+= Совпадение в выделении
+
+Color for matching letters in filtered text when items are selected.
+= Цвет совпадающих букв у выделенных элементов.
+
+Match Disabled Selection
+= Совпадение в недоступном выделении
+
+Color for matching letters in filtered text when items are both disabled and selected.
+= Цвет совпадающих букв у элементов, которые недоступны и выделены.
+
+Alternating Row Colors
+= Чередование цвета строк
+
+Applies alternating row colors to improve readability and distinguish adjacent rows.
+= Чередует цвет строк, чтобы их было легче читать и различать.
+
+Inactive Panel Contents Opacity
+= Непрозрачность неактивной панели
+
+Applies dimming to inactive panel contents to make the active panel stand out.
+= Приглушает содержимое неактивных панелей, чтобы выделить активную.
+
+Show File Extension
+= Показывать расширения файлов
+
+Toggle the visibility of file extensions.
+= Показывает или скрывает расширения файлов.
+
+Show Hidden Files
+= Показывать скрытые файлы
+
+Toggle the visibility of hidden and dot files (e.g., .gitignore, .config).
+= Показывает или скрывает скрытые файлы и файлы с точкой (например, .gitignore, .config).
+
+Show System Files
+= Показывать системные файлы
+
+Toggle the visibility of system files.
+= Показывает или скрывает системные файлы.
+
+Display Compact Paths
+= Короткие пути
+
+Trim paths from the first recognized folder.
+= Обрезает путь до первой известной папки.
+
+Display Path Breadcrumbs
+= Цепочка пути
+
+Show previously visited subfolders in the address bar.
+= Показывает в адресной строке посещённые ранее вложенные папки.
+
+Show Selection Boxes
+= Флажки выделения
+
+Toggle visibility of checkboxes when selecting multiple items in a panel.
+= Показывает флажки при выделении нескольких элементов в панели.
+
+Confirm Emptying Recycle Bin
+= Подтверждать очистку корзины
+
+Ask before permanently deleting everything in the Recycle Bin.
+= Спрашивает, прежде чем навсегда удалить всё из корзины.
+
+Compression Level
+= Степень сжатия
+
+How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest.
+= Насколько сильно сжимаются архивы, которые Filey создаёт или пополняет: 0 — без сжатия, 9 — меньше всего и дольше всего.
+
+Notifications
+= Уведомления
+
+Which notices show in the window's corner: all, warnings and errors, errors only, or none.
+= Какие уведомления показывать в углу окна: все, предупреждения и ошибки, только ошибки или никаких.
+
+Muted Notifications
+= Отключённые уведомления
+
+Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again.
+= Виды уведомлений, отключённые кнопкой с колокольчиком; хранятся в MutedNotices.conf, а из списка их можно вернуть.
+
+Store Recents
+= Хранить недавние
+
+Determines how recently accessed files are stored.
+= Как долго хранятся недавно открытые файлы.
+
+Highlight Recents
+= Отмечать недавние
+
+Mark recently accessed files and directories.
+= Отмечает недавно открытые файлы и папки.
+
+Sort Recents On Top
+= Недавние сверху
+
+Sort recently accessed files and directories to the top.
+= Ставит недавно открытые файлы и папки в начало списка.
+
+Load Thumbnails
+= Загружать эскизы
+
+Criteria for loading thumbnails of listed directories.
+= Когда загружать эскизы файлов в папках.
+
+Calculate Folder Sizes
+= Считать размер папок
+
+Calculates folder sizes by scanning their contents.
+= Считает размер папок, обходя их содержимое.
+
+SSDs
+= SSD
+
+Calculate folder sizes on local SSD drives.
+= Считать размер папок на локальных SSD.
+
+HDDs
+= HDD
+
+Calculate folder sizes on local HDD drives.
+= Считать размер папок на локальных жёстких дисках.
+
+Network Locations
+= Сетевые расположения
+
+Calculate folder sizes on network drives and shared locations.
+= Считать размер папок на сетевых дисках и в общих папках.
+
+Act On Press
+= Действие при нажатии
+
+Whether interactions register on mouse press or release.
+= Срабатывают ли действия при нажатии кнопки мыши или при отпускании.
+
+Single-click To Open
+= Открывать одним щелчком
+
+Open items with a single click.
+= Открывает элементы одним щелчком.
+
+Folders Only
+= Только папки
+
+Single click applies to folders only.
+= Один щелчок действует только для папок.
+
+Point To Select
+= Выделять наведением
+
+Select items by hovering over them.
+= Выделяет элементы при наведении указателя.
+
+Point To Focus Panel
+= Фокус панели наведением
+
+Give the keyboard to the panel the pointer moves over.
+= Передаёт клавиатуру панели, над которой проходит указатель.
+
+Underline On Point
+= Подчёркивать при наведении
+
+Underlines items only when pointing at them.
+= Подчёркивает элементы, только когда на них наведён указатель.
+
+Double-click To Parent
+= Двойной щелчок — вверх
+
+Go to parent folder by double clicking background.
+= Двойной щелчок по пустому месту переходит в родительскую папку.
+
+Scroll Beyond Last Item
+= Прокрутка за последний элемент
+
+Allows scrolling past the last item for extra space.
+= Позволяет прокручивать дальше последнего элемента.
+
+Reverse Scroll Direction
+= Обратная прокрутка
+
+Reverses the scroll direction in scrollable views.
+= Меняет направление прокрутки на обратное.
+
+Character Key Action
+= Действие клавиш с буквами
+
+Determines the action when you press raw character keys without modifiers.
+= Что делает нажатие клавиши с буквой без модификаторов.
+
+Inspector Layout
+= Расположение инспектора
+
+Default layout for opening the new inspector.
+= Где открывается новый инспектор.
+
+Highlight Code
+= Подсветка кода
+
+Color keywords, strings, comments and numbers of code in the inspector.
+= Раскрашивает в инспекторе ключевые слова, строки, комментарии и числа в коде.
+
+Load On Startup
+= При запуске открывать
+
+Previous session, location, or custom layout to load on startup.
+= Что открывать при запуске: прошлый сеанс, место или сохранённую раскладку.
+
+New Tab Show
+= Новая вкладка открывает
+
+Location to open in a new tab.
+= Что открывается в новой вкладке.
+
+Open In One Window
+= Открывать в одном окне
+
+Starting Filey or opening a folder from elsewhere uses the open window, in a new tab.
+= Запуск Filey или открытие папки извне идёт в уже открытое окно, новой вкладкой.
+
+VSync
+= Вертикальная синхронизация
+
+Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag.
+= Снижает нагрузку при бурной активности, например быстрых движениях мыши, ценой небольшой задержки ввода.
+
+Transparency
+= Прозрачность
+
+Shows what is behind the window through it, blurred.
+= Показывает размытым то, что находится за окном.
+
+Window Opacity
+= Непрозрачность окна
+
+How much the window's color covers what is behind it while the window is transparent.
+= Насколько цвет окна закрывает то, что за ним, когда окно прозрачно.
+
+Popup Blur
+= Размытие всплывающих окон
+
+How far menus and popups blur what is under them while the window is transparent.
+= Насколько меню и всплывающие окна размывают то, что под ними, когда окно прозрачно.
+
+Popup Opacity
+= Непрозрачность всплывающих окон
+
+How much the color of menus and popups covers the blur under them while the window is transparent.
+= Насколько цвет меню и всплывающих окон закрывает размытие под ними, когда окно прозрачно.
+
+Backdrop
+= Подложка
+
+What Windows draws behind the transparent window.
+= Что Windows рисует за прозрачным окном.
+
+Select a system command...
+= Выберите системную команду...
+
+Edit menu: hide items and change their order
+= Изменить меню: скрыть пункты и поменять их порядок
+
+Square
+= Прямые
+
+Round
+= Скруглённые
+
+Auto
+= Авто
+
+Never
+= Никогда
+
+Always
+= Всегда
+
+Default
+= По умолчанию
+
+Acrylic
+= Акрил
+
+Mica
+= Слюда
+
+Tabbed
+= С вкладками
+
+None
+= Нет
+
+Persistent
+= Постоянно
+
+Session
+= На сеанс
+
+Root
+= Этот компьютер
+
+Home
+= Домашняя папка
+
+Current
+= Текущая папка
+
+All
+= Все
+
+Local Disks
+= Локальные диски
+
+%S px
+= %S пикс.
+
+Horizontal
+= Горизонтально
+
+Vertical
+= Вертикально
+
+Last Session
+= Прошлый сеанс
+
+Warnings And Errors
+= Предупреждения и ошибки
+
+Errors Only
+= Только ошибки
+
+Type In Filter
+= Ввод в фильтр
+
+Trigger Hotkey
+= Сочетание клавиш
+
+Select Typed Item
+= Выбор по набранному
+
+Restore default setting (Backspace).
+= Вернуть значение по умолчанию (Backspace).
+
+Not a number or a sum that makes one.
+= Это не число и не выражение, дающее число.
+
+%u muted
+= Отключено: %u
+
+Select an option...
+= Выберите параметр...
+
+Select a command...
+= Выберите команду...
+
+Edit Menu
+= Изменение меню
+
+Reset
+= Сбросить
+
+Bring back the system's own order and every item
+= Вернуть системный порядок и все пункты
+
+Done
+= Готово
+
+Hidden · %u
+= Скрыто · %u
+
+A crash report was saved. Report on GitHub opens a new issue and copies the report: paste it into the issue (Ctrl+V) before submitting.
+= Сохранён отчёт о сбое. Кнопка «Сообщить на GitHub» открывает новое обращение и копирует отчёт: вставьте его в обращение (Ctrl+V) перед отправкой.
+
+A crash report was saved. Report on GitHub opens a new issue with the report filled in, to look over before submitting.
+= Сохранён отчёт о сбое. Кнопка «Сообщить на GitHub» открывает новое обращение с уже вставленным отчётом — проверьте его перед отправкой.
+
+Filey closed unexpectedly
+= Filey неожиданно закрылся
+
+Report on GitHub
+= Сообщить на GitHub
+
+Custom language ready
+= Свой язык готов
+
+Open %S in a text editor and write the translations; each save shows at once.
+= Откройте %S в текстовом редакторе и впишите переводы — каждое сохранение сразу видно.

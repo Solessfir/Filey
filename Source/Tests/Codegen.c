@@ -52,6 +52,14 @@ function void TestCodegenParse(void)
         Check(TestCodegenContains(emitted, S(".scope = Prog_HotkeyScope_Rename }")));
     }
 
+    // The translatable strings are the literals of Tr, TrF and TrInit as written, each once; neither a macro's own #define nor a longer name counts.
+    {
+        ArrayStr strings = {0};
+        Codegen_CollectStrings(&arena, S("#define Tr(text) Prog_Tr(S(text))\nx = Tr(\"Open\"); y = TrF(\"%u \\\"items\\\"\"); z = TrInit(\"Open\"); w = NoTr(\"Skip\");\n"), &strings);
+        Check(strings.header.count == 2 && StrIsEqual(strings.v[0], S("Open")) && StrIsEqual(strings.v[1], S("%u \\\"items\\\"")));
+        Check(TestCodegenContains(Codegen_EmitStrings(&arena, strings), S("    \"Open\",\n")));
+    }
+
     // Each malformed input reports the offending line.
     struct { String input; String error; } failures[] = {
         { S("comand Open {\n}"), S("line 1: expected `command Name {`") },

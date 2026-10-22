@@ -715,7 +715,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_GoToSelectInPanel, Prog_CommandKind_GoToBack, Prog_CommandKind_GoToForward, Prog_CommandKind_GoToUp,
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
-    Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
+    Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose, Prog_CommandKind_ToggleTransparency, Prog_CommandKind_ToggleDebugTheme,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen,
     Prog__PaletteGroup(Options),
@@ -2911,6 +2911,26 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 u32 size = state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize;
                 b32 up = command->kind == Prog_CommandKind_InspectorIncreaseContentsSize;
                 state->inspectorFontSize = up ? Min(size + 1, (u32)Prog_InspectorFontMax) : Max(size - 1, (u32)Prog_InspectorFontMin);
+            } break;
+            case Prog_CommandKind_LanguageCreate: {
+                // Named after the language shown, as its own; an existing file of that name is opened as it is.
+                if (!state->configDirectory.length) break;
+                Arena *frame = &state->frameArena;
+                String shown = StrMake(state->language.text, state->language.length);
+                // A custom language chosen is opened again, its file made anew if it has gone.
+                String name = Prog_LanguageIsCustom(shown) ? shown : StrFormat(frame, "%S (custom)", shown.length ? shown : S("English"));
+                String path = Prog_JoinPath(frame, state->configDirectory, StrFormat(frame, "%S.lang", name)), existing = {0};
+                if (!P_ReadFile(frame, path, &existing)) P_WriteFile(frame, path, Prog_LanguageTemplate(frame, name));
+                Prog_ListLanguages(state);
+                Prog_SetOptionText(state, Prog_Option_Language, name);
+                // The file selected in its folder in a new tab, to open in the editor of one's choice, as no program opens .lang files yet.
+                String file = StrFormat(frame, "%S.lang", name);
+                Prog_OpenTab(state, state->configDirectory, state->activeTab + 1, true);
+                ArenaClear(&state->pickArena);
+                state->pickNames = (ArrayStr){0};
+                ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, file));
+                Prog_Notify(state, Prog_NoticeKind_Info, S("language.created"), Tr("Custom language ready"),
+                            StrFormat(frame, TrF("Open %S in a text editor and write the translations; each save shows at once."), file));
             } break;
             case Prog_CommandKind_OpenSettings: {
                 // A first open writes every setting there is, commented out at its default.
