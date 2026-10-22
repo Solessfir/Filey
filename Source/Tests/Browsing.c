@@ -2200,7 +2200,7 @@ function void TestTabs(TestFileFixture *fixture)
     Prog__EditReplace(&state.palette, (const u8 *)fileName.value, (u32)fileName.length);
     found = Prog_GoToMatches(&state, &offered, &folder);
     Check(offered >= 1 && found[0].file && TestEndsWith(found[0].path, fileName));
-    // A hidden one, or one inside a hidden folder, only while the hidden items show.
+    // One inside a hidden folder only while the hidden items show; a hidden item itself is found by its name either way.
     if (hiddenName.length) {
         b32 shown = state.showHidden;
         for (u32 pass = 0; pass < 2; ++pass) {

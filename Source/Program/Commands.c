@@ -913,7 +913,7 @@ function i32 Prog__GoToScore(const Prog_State *state, String name, String path, 
 }
 
 // Go To's search ranks matches by score; ranks of Prog_GoToRanks and above tie, which only long texts of several words reach.
-enum { Prog_GoToRanks = 8192, Prog_GoToPool = 2048, Prog_GoToPlaceBonus = 50, Prog_GoToRecentBonus = 30 };
+enum { Prog_GoToRanks = 8192, Prog_GoToPool = 2048, Prog_GoToPlaceBonus = 50, Prog_GoToRecentBonus = 30, Prog_GoToInsideBonus = 20 };
 
 function u16 Prog__GoToRank(i32 score)
 {
@@ -952,10 +952,10 @@ typedef struct Prog__GoToLook {
     u32 *foundCount;            // per block
 } Prog__GoToLook;
 
-// Whether the index's `entry` is hidden or inside a hidden folder, a name starting with "." counting as hidden.
+// Whether the index's `entry` is inside a hidden folder, a name starting with "." counting as hidden.
 function b32 Prog__GoToHidden(const Prog_Index *index, u32 entry)
 {
-    for (u32 at = entry; at < index->count && index->parents[at] != UINT32_MAX; at = index->parents[at]) {
+    for (u32 at = entry < index->count ? index->parents[entry] : UINT32_MAX; at < index->count && index->parents[at] != UINT32_MAX; at = index->parents[at]) {
         String name = Prog_IndexName(index, at);
         if ((index->flags[at] & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.')) return true;
     }
@@ -983,11 +983,15 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
         i32 nameScore = Prog_FuzzyScore(name, (String){0}, look->text, NULL, NULL);
         if (nameScore <= 0 && !inside) continue;
         // A name that cannot get past the floor with the best path there is does not have its path looked at.
-        if (Prog__GoToRank(nameScore + look->pathBest) >= look->floor) continue;
+        if (Prog__GoToRank(nameScore + look->pathBest + (inside ? Prog_GoToInsideBonus : 0)) >= look->floor) continue;
         char made[1024];
         i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text);
-        if (score <= 0 || Prog__GoToRank(score) >= look->floor) continue;
-        if (!look->state->showHidden && Prog__GoToHidden(index, entry)) continue;
+        if (score <= 0) continue;
+        // What is right inside the folders close at hand outranks the rest of the drive. A hidden item is found by its own name, as AppData
+        // is, but what is inside a hidden folder only while the lists show hidden items, or when it is close at hand.
+        if (inside) score += Prog_GoToInsideBonus;
+        if (Prog__GoToRank(score) >= look->floor) continue;
+        if (!inside && !look->state->showHidden && Prog__GoToHidden(index, entry)) continue;
         found[count++] = (Prog__GoToFound){ entry, score };
     }
     look->foundCount[block] = count;
