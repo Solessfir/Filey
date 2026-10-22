@@ -1462,7 +1462,7 @@ typedef struct Prog_State {
     // How the lists look: the space between their items and how much inactive panels show, as offsets from the default 4 and 60 so that
     // {0} has them, square corners and every other row tinted.
     i32 spacingShift;
-    u8 borderPixels;          // the lines' and outlines' thickness in pixels, 0 for the default
+    u8 borderSize;            // the outlines' thickness, a Prog_OptionBorders index: 1 to 3 pixels in halves
     i32 inactiveShift;
     b32 squareCorners;
     b32 alternatingRows;

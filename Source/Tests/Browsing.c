@@ -3027,12 +3027,12 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
         Prog_ApplySettings(&look, S("trash.confirm = off\n"));
         Check(look.noTrashConfirm && !Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
-        // Borders at their default thickness unless set in whole pixels, and back to it for anything else.
+        // Borders are 1 pixel unless set in half pixels up to 3, and back to it for anything else, as the old "default".
         Check(Prog_OptionValue(&look, Prog_Option_Borders) == 0);
-        Prog_ApplySettings(&look, S("borders = 1\n"));
-        Check(look.borderPixels == 1 && Prog_OptionValue(&look, Prog_Option_Borders) == 1);
-        Prog_ApplySettings(&look, S("borders = 9\n"));
-        Check(look.borderPixels == 0);
+        Prog_ApplySettings(&look, S("borders = 2.5\n"));
+        Check(look.borderSize == 3 && Prog_OptionValue(&look, Prog_Option_Borders) == 3);
+        Prog_ApplySettings(&look, S("borders = default\n"));
+        Check(look.borderSize == 0);
         // One window for every run, unless turned off.
         Check(Prog_OptionValue(&look, Prog_Option_SingleWindow));
         Prog_ApplySettings(&look, S("instances.single = off\n"));

@@ -642,7 +642,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->scheme = 0;
     state->systemScheme = false;
     state->spacingShift = 0;
-    state->borderPixels = 0;
+    state->borderSize = 0;
     state->squareCorners = false;
     state->alternatingRows = false;
     state->inactiveShift = 0;
@@ -715,7 +715,9 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("theme.system"))) {
             state->systemScheme = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
         } else if (StrIsEqual(name, S("borders"))) {
-            state->borderPixels = number >= 1 && number <= 3 ? (u8)number : 0;
+            // In half pixels from 1 to 3; anything else is 1.
+            f32 halves = floorf(number * 2 + 0.5f);
+            state->borderSize = halves >= 2 && halves <= 6 ? (u8)(halves - 2) : 0;
         } else if (StrIsEqual(name, S("spacing"))) {
             if (number >= 0 && number <= 13) state->spacingShift = (i32)number - 4;
         } else if (StrIsEqual(name, S("corners"))) {
@@ -878,7 +880,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = sirius\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
-                                "# The thickness of the lines between areas and of the outlines, in pixels from 1 to 3, or default.\n# borders = default\n\n"
+                                "# The thickness of the outlines, in pixels: 1, 1.5, 2, 2.5 or 3; the lines between areas take the nearest whole pixels.\n# borders = 1\n\n"
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
                                 "# give the keyboard to the panel it moves over, underline only the pointed name in single-click mode,\n"
                                 "# go up with a double click on the background, scroll past the last item, and turn the wheel around.\n"
@@ -954,7 +956,7 @@ global const String Prog_OptionLanguages[] = { SInit("English"), SInit("\u0420\u
 global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
-global const String Prog_OptionBorders[] = { SInit("default"), SInit("1"), SInit("2"), SInit("3") };
+global const String Prog_OptionBorders[] = { SInit("1"), SInit("1.5"), SInit("2"), SInit("2.5"), SInit("3") };
 global const String Prog_OptionBackdrops[] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_Language] = { TrInit("Language"), TrInit("The language of Filey's text. Create Custom Language starts a translation of your own, as a file to fill in."),
@@ -1150,7 +1152,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ColorScheme: case Prog_Option_DarkScheme: return state->scheme;
         case Prog_Option_LightScheme: return state->lightScheme;
         case Prog_Option_Spacing: return 4 + state->spacingShift;
-        case Prog_Option_Borders: return (i32)state->borderPixels;
+        case Prog_Option_Borders: return (i32)state->borderSize;
         case Prog_Option_RoundCorners: return !state->squareCorners;
         case Prog_Option_InlineSubmenus: return state->menuInline;
         case Prog_Option_SystemScheme: return state->systemScheme;
@@ -6446,7 +6448,7 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     (void)words;
     if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return Tr("Local Disks");
     if (option == Prog_Option_VideoCodec) return StrIsEqual(name, S("hevc")) ? NoTr("HEVC (H.265)") : StrIsEqual(name, S("h264")) ? NoTr("H.264") : NoTr("AV1");
-    if (option == Prog_Option_Borders && !StrIsEqual(name, S("default"))) return StrFormat(arena, TrF("%S px"), name);
+    if (option == Prog_Option_Borders) return StrFormat(arena, TrF("%S px"), name);
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return Tr("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return Tr("Vertical");
     if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return Tr("Last Session");
@@ -10917,8 +10919,11 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     if (state->sidebarWidth > 0) metrics.sidebar = floorf(state->sidebarWidth * scale + 0.5f);
     // Spacing moves the rows apart or together from the default 4, two pixels a step at 125%.
     metrics.row = MaxF32(metrics.line + 2, metrics.row + (f32)state->spacingShift * floorf(1.6f * scale + 0.5f));
-    // A border size in whole pixels draws the lines between areas and the outlines alike, crisp at any scale.
-    if (state->borderPixels) metrics.separator = metrics.stroke = (f32)state->borderPixels;
+    // The border size is in pixels at any scale: the outlines' as it is, half pixels drawn soft, and the lines between areas, which the
+    // layout sizes boxes by, in the nearest whole pixels, so that they stay crisp.
+    f32 border = 1 + 0.5f * (f32)state->borderSize;
+    metrics.stroke = border;
+    metrics.separator = floorf(border + 0.5f);
     UI->squareCorners = state->squareCorners;
     UI->reverseScroll = state->reverseScroll;
     metrics.detail = state->smallFont ? state->smallFont : font;
