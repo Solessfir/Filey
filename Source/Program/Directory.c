@@ -2122,6 +2122,7 @@ function void Prog__DirectoryJob(P_Job *job)
             result->hidden = listing.hidden;
             break;
         }
+        result->gone = result->error.code != 0;
     }
     if (result->error.code || result->cancelled) return;
     P_FileArray files = listing.files;
@@ -5306,7 +5307,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->error = (String){0};
                     state->errorListing = false;
                 }
-                if (result->error.code) {
+                if (result->error.code && result->gone && !input->addHistory) {
+                    // Nothing above it to show, the tab goes where a new one opens, This PC in place of the folder it showed.
+                    Prog_RequestDirectory(state, Prog_NewTabPath(state, &state->frameArena, Prog_ThisPC), true, 0);
+                } else if (result->error.code) {
                     state->errorListing = true;
                     state->error = StrFormat(&state->errorArena, "%S: %S", input->path, result->error.message);
                     state->sort = state->directory.sort;

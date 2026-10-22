@@ -990,6 +990,7 @@ typedef struct Prog_Directory {
     u64 totalFiles;
     P_FileError error;
     b32 cancelled;
+    b32 gone;  // the folder and every one above it are gone, as on a drive taken away
     enum8(Prog_Sort) sort;
     b32 descending;
     enum8(Prog_FolderSort) folderSort;

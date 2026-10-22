@@ -819,6 +819,17 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
         Check(TestWaitDirectory(&state));
     }
+#if defined(_WIN32)
+    // A tab on a drive that is gone, with nothing above its folder to show, goes where a new tab opens.
+    {
+        char letter = 0;
+        for (char c = 'Z'; c >= 'G' && !letter; --c) if (!P_PathExists(StrFormat(&state.frameArena, "%c:/", c))) letter = c;
+        if (letter) {
+            Prog_RequestDirectory(&state, StrFormat(&state.frameArena, "%c:/Gone/Folder", letter), false, state.historyAt);
+            Check(TestWaitDirectory(&state) && TestWaitDirectory(&state) && !state.error.length && StrIsEqual(state.directory.path, Prog_ThisPC));
+        }
+    }
+#endif
     TestStaleCompletion(&state, fixture);
 finish:
     Prog_Release(&state);
