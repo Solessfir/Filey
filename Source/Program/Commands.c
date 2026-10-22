@@ -700,7 +700,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -1472,6 +1472,32 @@ function void Prog__MenuAddArchive(Prog_State *state)
 
 function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item);
 
+function void Prog__StopPlayer(Prog_State *state)
+{
+    if (state->playerJob) P_RequestCancel(&state->playerJob->cancelToken);
+    state->playerJob = NULL;
+}
+
+// Plays the audio file at `path` from `start` milliseconds in, in place of what played.
+function void Prog__StartPlayer(Prog_State *state, String path, u64 start)
+{
+    Prog__StopPlayer(state);
+    state->playerSlot ^= 1;
+    P_Progress *progress = &state->playerProgress[state->playerSlot];
+    *progress = (P_Progress){0};
+    atomic_store(&progress->doneBytes, start);
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Play;
+    input->path = StrCopy(&job->arena, path);
+    input->offset = start;
+    input->progress = progress;
+    job->input = input;
+    P_JobSubmit(job);
+    state->playerJob = job;
+    state->playerHash = MapHashBytes(path.value, path.length);
+}
+
 // Compress Video after the Archive submenu, when a video is among the items, and Download Torrent for a .torrent.
 function void Prog__MenuAddVideo(Prog_State *state)
 {
@@ -2108,6 +2134,9 @@ function void Prog__UpdatePreview(Prog_State *state)
     ArenaClear(&state->previewArena);
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = state->previewMedia = (String){0};
+    state->previewSeconds = 0;
+    // What played stops once another item is shown.
+    if (state->playerJob && state->playerHash != MapHashBytes(want.value, want.length)) Prog__StopPlayer(state);
     state->previewAnchor = state->previewCaret = 0;
     state->previewTextFocus = false;
     state->previewPicture = state->previewImage = false;
@@ -2903,6 +2932,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 u32 back = state->currentPanel;
                 if (owner && Prog_PanelIndex(state, owner) != UINT32_MAX) Prog__UsePanel(state, Prog_PanelIndex(state, owner));
                 state->previewShown = !state->previewShown;
+                // What the inspector played stops with it, as nothing else shows it or pauses it.
+                if (!state->previewShown) Prog__StopPlayer(state);
                 Prog__UsePanel(state, back);
             } break;
             // A document's prose wraps by its own switch, so that unwrapping one leaves code files as they were.
@@ -4080,6 +4111,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_PasteLink:
             case Prog_CommandKind_CreateFolder:
             case Prog_CommandKind_CreateFile: Prog__FileCommand(state, command->kind); break;
+            case Prog_CommandKind_InspectorPlay: {
+                // The shown audio file plays, or pauses and goes on where it is; one played to its end starts again.
+                if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
+                String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
+                P_Progress *progress = &state->playerProgress[state->playerSlot];
+                if (state->playerJob && state->playerHash == MapHashBytes(path.value, path.length)) atomic_store(&progress->paused, !atomic_load(&progress->paused));
+                else Prog__StartPlayer(state, path, 0);
+            } break;
+            case Prog_CommandKind_InspectorSeek: {
+                if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
+                Prog__StartPlayer(state, Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name), command->target);
+            } break;
+            case Prog_CommandKind_InspectorVideoCodec: Prog_SetOption(state, Prog_Option_VideoCodec, (i32)command->row); break;
+            case Prog_CommandKind_InspectorVideoQuality: Prog_SetOption(state, Prog_Option_VideoQuality, (i32)state->videoQuality + (command->row ? 1 : -1)); break;
             case Prog_CommandKind_SelectionRestore: {
                 // Only the bin's items have somewhere to go back to.
                 if (state->loading || !P_IsTrashFolder(state->directory.path)) break;

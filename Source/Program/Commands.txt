@@ -852,6 +852,24 @@ command CompressVideo {
     repeat  = "false"
 }
 
+command InspectorPlay {
+    label   = "Play Audio^pause,listen,music,sound"
+    tooltip = "Play the audio file shown in the inspector, or pause it."
+    repeat  = "false"
+}
+
+// A press on the inspector's waveform; carries the milliseconds in to play from.
+command InspectorSeek {
+}
+
+// The inspector's codec for Compress Video; carries the Prog_OptionVideoCodecs index.
+command InspectorVideoCodec {
+}
+
+// The inspector's quality step for Compress Video; carries 0 to lower it and 1 to raise it.
+command InspectorVideoQuality {
+}
+
 command DownloadTorrent {
     label   = "Download Torrent^aria2c,magnet,bittorrent"
     tooltip = "Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents."

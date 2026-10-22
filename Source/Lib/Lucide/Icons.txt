@@ -90,3 +90,5 @@ pencil
 grip-vertical
 circle-minus
 circle-plus
+download
+shrink

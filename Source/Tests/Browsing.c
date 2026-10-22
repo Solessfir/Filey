@@ -507,6 +507,13 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(StrIsEqual(Prog__TransferName(&quiet.frameArena, &seeded), S("bbb \u00B7 31 peers \u00B7 22 MB/s \u00B7 1:10")));
             Check(StrIsEqual(StrMake(torrent.done, torrent.doneLength), S("C:/t/Big Buck Bunny")) && StrIsEqual(StrMake(torrent.message, torrent.messageLength), S("Bad")));
             Check(Prog_IsTorrent(S("magnet:?xt=urn:btih:dd82")) && Prog_IsTorrent(S("C:/a/b.TORRENT")) && !Prog_IsTorrent(S("b.torrent.txt")));
+            // ffplay's -stats line, rewritten in place, counts the milliseconds played; its "nan" before the clock starts counts nothing.
+            P_Progress played = {0};
+            Prog__Player player = { .progress = &played };
+            Prog__PlayerOutput(&player, S("    nan    :  0.000 fd=   0\r   1.98 M-A:  0.000 fd=   0\r  12.5"));
+            Check(atomic_load(&played.doneBytes) == 1980);
+            Prog__PlayerOutput(&player, S("0 M-A: 0.000\r"));
+            Check(atomic_load(&played.doneBytes) == 12500);
             Check(Prog_IsWebUrl(S("https://youtu.be/x")) && Prog_IsWebUrl(S("HTTP://a.b")) && !Prog_IsWebUrl(S("ftp://a")) && !Prog_IsWebUrl(S("https://a b")));
         }
         // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a

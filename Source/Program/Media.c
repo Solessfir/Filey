@@ -1,5 +1,6 @@
 // Audio and video through the FFmpeg tools found on the PATH: the details ffprobe reads of a file, an audio file's waveform and a video's frame,
-// and videos compressed, on the graphics card when it has an encoder; downloads by URL with yt-dlp, and torrents with aria2c.
+// videos compressed, on the graphics card when it has an encoder, and audio played with ffplay; downloads by URL with yt-dlp, and torrents
+// with aria2c.
 
 function b32 Prog__HasExtension(String path, const String *extensions, u32 count)
 {
@@ -572,4 +573,40 @@ function String Prog_TorrentListing(Arena *arena, String path)
         if (!(line.length >= 11 && StrIsEqual(StrFromTo(line, 0, 11), NoTr("Magnet URI:"))) && !(line.length >= 3 && StrIsEqual(StrFromTo(line, 0, 3), S(">>>")))) StrBuildStr(arena, &text, line);
     }
     return text.buffer;
+}
+
+// What ffplay's -stats line says as it plays, rewritten in place with carriage returns: the seconds of the file played, first.
+typedef struct Prog__Player {
+    P_Progress *progress;
+    char pending[256];
+    u64 pendingLength;
+} Prog__Player;
+
+function void Prog__PlayerOutput(void *user, String text)
+{
+    Prog__Player *player = user;
+    for (u64 i = 0; i < text.length; ++i) {
+        char c = text.value[i];
+        if (c != '\n' && c != '\r') {
+            if (player->pendingLength < sizeof(player->pending)) player->pending[player->pendingLength++] = c;
+            continue;
+        }
+        String line = StrMake(player->pending, player->pendingLength);
+        player->pendingLength = 0;
+        while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
+        if (line.length && line.value[0] >= '0' && line.value[0] <= '9' && player->progress) atomic_store(&player->progress->doneBytes, (u64)(Prog__MediaNumber(line) * 1000));
+    }
+}
+
+// Plays the audio file at `path` from `start` milliseconds in with ffplay, without a window, keeping `progress`'s done count at the
+// milliseconds played; pausing `progress` pauses it, and a cancel stops it. False when ffplay is not there or cannot play it.
+function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel)
+{
+    Scratch scratch = GetScratch();
+    String arguments[] = { S("ffplay"), S("-nodisp"), S("-autoexit"), S("-hide_banner"), S("-loglevel"), S("error"), S("-stats"), S("-ss"),
+                           StrFormat(scratch.arena, "%.3f", (f64)start / 1000), path };
+    Prog__Player player = { .progress = progress };
+    b32 result = P_RunCommandStream(Prog_ParentPath(path), arguments, CArrayCount(arguments), true, Prog__PlayerOutput, &player, cancel, progress);
+    ReleaseScratch(scratch);
+    return result;
 }

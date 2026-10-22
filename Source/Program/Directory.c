@@ -2030,6 +2030,7 @@ function void Prog__DirectoryJob(P_Job *job)
         b32 media = !input->hex && !input->folder && !input->archive, audio = media && Prog_IsAudio(path), video = media && Prog_IsVideo(path);
         f64 seconds = 0;
         if (audio || video) result->media = Prog_MediaDetails(&job->arena, path, &seconds);
+        result->seconds = seconds;
         if (input->archive) {
             // Counted up to the same limit as a listing; short of it, that is all there is.
             if (!P_IsCancelled(&job->cancelToken)) {
@@ -2130,6 +2131,10 @@ function void Prog__DirectoryJob(P_Job *job)
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         *error = P_WriteFile(&job->arena, input->path, input->name);
         job->result = error;
+        return;
+    }
+    if (input->kind == Prog_JobKind_Play) {
+        Prog_PlayAudio(input->path, input->offset, input->progress, &job->cancelToken);
         return;
     }
     if (input->kind == Prog_JobKind_WarmMenu) {
@@ -5010,7 +5015,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu ||
+        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         if (owner == UINT32_MAX) {
@@ -5040,6 +5045,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewJob = NULL;
                 state->previewText = StrCopy(&state->previewArena, preview->text);
                 state->previewMedia = StrCopy(&state->previewArena, preview->media);
+                state->previewSeconds = preview->seconds;
                 state->previewAnchor = state->previewCaret = 0;
                 state->previewTextFocus = false;
                 state->previewHex = false;
@@ -5453,6 +5459,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                                                  : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
+        } else if (input->kind == Prog_JobKind_Play) {
+            if (job == state->playerJob) state->playerJob = NULL;
         } else if (input->kind == Prog_JobKind_Measure) {
             Prog_Measured *result = job->result;
             if (state->measureJob == job) state->measureJob = NULL;

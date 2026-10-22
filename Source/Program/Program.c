@@ -10051,6 +10051,22 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefHeight(UI_Pixels(shownHeight));
             UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+            // An audio file's waveform shows how far it has played, and a press on it plays from there.
+            b32 audio = state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
+            f32 start = view->rect.x0 + left + x;
+            if (audio && drag.clicked && !drag.isDragging && UI->mouse.x >= start && UI->mouse.x < start + shownWidth) {
+                f64 along = (f64)(UI->mouse.x - start) / (f64)shownWidth;
+                Prog_QueueCommand(state, Prog_CommandKind_InspectorSeek, 0, 0, drag.clickOrder)->target = (u64)(along * state->previewSeconds * 1000);
+            }
+            if (audio && state->playerJob && state->playerHash == MapHashBytes(state->previewPath.value, state->previewPath.length)) {
+                f64 along = MinF64((f64)atomic_load(&state->playerProgress[state->playerSlot].doneBytes) / (state->previewSeconds * 1000), 1);
+                f32 head = MaxF32(1, floorf(1.6f * s + 0.5f));
+                UI_SetNextFloatingOffset((UI_Vec2){ x + floorf((f32)along * shownWidth) - floorf(head * 0.5f), y });
+                UI_SetNextPrefWidth(UI_Pixels(head));
+                UI_SetNextPrefHeight(UI_Pixels(shownHeight));
+                UI_SetNextColors((UI_Colors){ .background = theme->text });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
             // Its edge, for pictures with clear parts.
             f32 line = MaxF32(1, floorf(0.8f * s + 0.5f));
             UI_SetNextFloatingOffset((UI_Vec2){ x - line, y - line });
@@ -10088,6 +10104,72 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextBorderThickness(MaxF32(1, floorf(1.2f * s + 0.5f)));
             UI_SetNextColors((UI_Colors){ .border = theme->text });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage | UI_Flag_DrawBorder);
+        }
+    }
+}
+
+// A toolbar button that runs `kind` on `row`, with `kind`'s tooltip or `tip`.
+function void Prog__ToolbarRowButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, u64 row, String tip, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                  theme->icon, theme->text, theme->iconDisabled, true, m);
+    if (tip.length) Prog__DescribeTooltip(state, kind, tip);
+    else Prog__NoteTooltip(state, kind, (String){0});
+    if (interaction.clicked) Prog_QueueCommand(state, kind, row, 0, interaction.clickOrder);
+}
+
+// The inspector toolbar's tools for an audio file, a video or a torrent: playing it with how far it is; the codec and quality of Compress
+// Video, which Options sets too, and the button that starts it; downloading the torrent, or pausing and stopping its download.
+function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f32 tight, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, bar = Prog__StripHeight(m), apart = floorf(6.4f * s + 0.5f);
+    Arena *frame = &state->frameArena;
+    String path = Prog_JoinPath(frame, state->directory.path, entry->file.name);
+    u64 hash = MapHashBytes(path.value, path.length);
+    Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+    Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+    if (Prog_IsAudio(entry->file.name)) {
+        P_Progress *progress = &state->playerProgress[state->playerSlot];
+        b32 mine = state->playerJob && state->playerHash == hash, playing = mine && !atomic_load(&progress->paused);
+        Prog__ToolbarRowButton(state, S("InspectorPlay"), playing ? Icon_Pause : Icon_Play, Prog_CommandKind_InspectorPlay, 0, (String){0}, m);
+        if (mine) {
+            u64 at = atomic_load(&progress->doneBytes), length = (u64)(state->previewSeconds * 1000);
+            String clock = length ? StrFormat(frame, "%S / %S", Prog__Clock(frame, Min(at, length)), Prog__Clock(frame, length)) : Prog__Clock(frame, at);
+            UI_SetNextFont(m->detail);
+            Prog__LabelPadded(clock, UI_TextContent(), bar, apart, apart, theme->textDim, 0);
+            if (playing) UI_KeepAnimating();
+        }
+    } else if (Prog_IsVideo(entry->file.name)) {
+        local_persist const String codecKeys[3] = { SInit("InspectorCodecHevc"), SInit("InspectorCodecH264"), SInit("InspectorCodecAv1") };
+        const String codecLabels[3] = { NoTr("HEVC"), NoTr("H.264"), NoTr("AV1") };
+        const R_Font *codecFonts[3] = { m->detail, m->detail, m->detail };
+        local_persist const String codecTips[3] = { TrInit("Compress Video encodes to HEVC (H.265): small files that most players play."),
+                                                    TrInit("Compress Video encodes to H.264: larger, but plays everywhere."),
+                                                    TrInit("Compress Video encodes to AV1: the smallest, for newer players and graphics cards.") };
+        Prog__ChoiceGroup(state, codecKeys, codecLabels, codecFonts, codecTips, 3, state->videoCodec, Prog_CommandKind_InspectorVideoCodec, Prog_CommandKind_CompressVideo, m);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+        String tip = Tr("Compress Video's quality: lower is better and larger; 18 to 23 looks as the original does.");
+        Prog__ToolbarRowButton(state, S("InspectorQualityDown"), Icon_Minus, Prog_CommandKind_InspectorVideoQuality, 0, tip, m);
+        UI_SetNextFont(m->detail);
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        Prog__LabelPadded(StrFormat(frame, TrF("Q %u"), (u32)state->videoQuality), UI_Pixels(floorf(36.0f * s + 0.5f)), bar, 0, 0, theme->text, 0.5f);
+        Prog__ToolbarRowButton(state, S("InspectorQualityUp"), Icon_Plus, Prog_CommandKind_InspectorVideoQuality, 1, tip, m);
+        Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
+        Prog__ToolbarButton(state, S("InspectorCompress"), Icon_Shrink, Prog_CommandKind_CompressVideo, true, m);
+    } else {
+        u32 slot = UINT32_MAX;
+        for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) slot = i;
+        if (slot == UINT32_MAX) {
+            Prog__ToolbarButton(state, S("InspectorDownload"), Icon_Download, Prog_CommandKind_DownloadTorrent, true, m);
+        } else {
+            b32 paused = atomic_load(&state->transfers[slot].progress.paused);
+            Prog__ToolbarRowButton(state, S("InspectorTorrentPause"), paused ? Icon_Play : Icon_Pause, Prog_CommandKind_TransferPause, slot,
+                                   paused ? Tr("Go on with the download.") : Tr("Pause the download."), m);
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
+            Prog__ToolbarRowButton(state, S("InspectorTorrentCancel"), Icon_X, Prog_CommandKind_TransferCancel, slot, Tr("Stop the download; downloading it again goes on from here."), m);
         }
     }
 }
@@ -10133,7 +10215,9 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             };
             Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, layoutTips, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout,
                               Prog_CommandKind_InspectorChangeLayout, m);
-            if (image) {
+            // An audio file's waveform and a video's frame leave the zoom to the pictures, for their own tools.
+            b32 media = entry && (Prog_IsAudio(entry->file.name) || Prog_IsVideo(entry->file.name));
+            if (image && !media) {
                 // An image's scales the same way, then its grid and minimap.
                 local_persist const String scaleKeys[Prog_ImageScale_Count] = { SInit("InspectorScaleFit"), SInit("InspectorScaleOriginal"), SInit("InspectorScaleCustom") };
                 const String scaleLabels[Prog_ImageScale_Count] = { Icon_Minimize2, S("1:1"), Icon_Maximize2 };
@@ -10154,6 +10238,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 if (grid.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorToggleImageGrid, 0, 0, grid.clickOrder);
                 Prog__ToolbarButton(state, S("InspectorMinimap"), state->imageHideMinimap ? Icon_LocateOff : Icon_Locate, Prog_CommandKind_InspectorToggleImageMinimap, true, m);
             }
+            if (entry && (Prog_IsAudio(entry->file.name) || Prog_IsVideo(entry->file.name) || Prog_IsTorrent(entry->file.name))) Prog__InspectorTools(state, entry, tight, m);
             if (text) {
                 f32 apart = floorf(6.4f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));

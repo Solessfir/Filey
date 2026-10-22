@@ -260,6 +260,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
+    Prog_JobKind_Play,         // plays the audio file `path` from `offset` milliseconds in
     Prog_JobKind_Count,
 } Prog_JobKind;
 
@@ -594,6 +595,7 @@ typedef struct Prog_Preview {
     f32 *pdfSizes;
     Prog_ModelShape model;          // a 3D model's mesh, when it has indices
     String media;                   // an audio or video file's details from ffprobe, a "label\tvalue" line each
+    f64 seconds;                    // and its length
 } Prog_Preview;
 
 // Pages of a PDF read at most, and drawn ones kept at once, each in a texture of its own.
@@ -1114,7 +1116,7 @@ typedef struct Prog_PdfView {
 //   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
 //     picked for its version previewKeptVersion
 #define Prog_PreviewFields(X) \
-    X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(R_TextureHandle, previewTexture) \
+    X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
@@ -1566,6 +1568,12 @@ typedef struct Prog_State {
     u8 gotoFoundText[1024];
     u32 gotoFoundTextLength;
     Prog_Transfer transfers[Prog_MaxTransfers];
+    // The audio file the inspector plays, by the hash of its path: its job, and the progress that counts the milliseconds played and pauses
+    // it, two in turn, so that a job stopped for a seek does not write over the next one's.
+    P_Job *playerJob;
+    P_Progress playerProgress[2];
+    u32 playerSlot;
+    u64 playerHash;
     Arena sizeArena;
     Prog_SizeMap sizes;
     // File operations Undo can reverse, newest last, and the renames and moves it reversed, which Redo makes again until another operation.
@@ -1813,6 +1821,7 @@ function b32 Prog_IsTorrent(String text);
 function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function String Prog_TorrentListing(Arena *arena, String path);
 function void Prog_DownloadTorrentFile(Prog_State *state, String path);
+function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel);
 function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, String output, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel);

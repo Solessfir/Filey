@@ -2818,3 +2818,33 @@ Download Torrent
 Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents.
 = Скачать выбранные .torrent-файлы рядом с ними через aria2c; так же открывается торрент, если для торрентов не назначена программа.
 
+Play Audio
+= Воспроизвести звук
+
+Play the audio file shown in the inspector, or pause it.
+= Воспроизвести аудиофайл из инспектора или поставить на паузу.
+
+Compress Video encodes to HEVC (H.265): small files that most players play.
+= «Сжать видео» кодирует в HEVC (H.265): маленькие файлы, которые играет большинство плееров.
+
+Compress Video encodes to H.264: larger, but plays everywhere.
+= «Сжать видео» кодирует в H.264: крупнее, зато играет везде.
+
+Compress Video encodes to AV1: the smallest, for newer players and graphics cards.
+= «Сжать видео» кодирует в AV1: самые маленькие файлы, для новых плееров и видеокарт.
+
+Compress Video's quality: lower is better and larger; 18 to 23 looks as the original does.
+= Качество «Сжать видео»: меньше значит лучше и крупнее; от 18 до 23 выглядит как оригинал.
+
+Q %u
+= К %u
+
+Go on with the download.
+= Продолжить загрузку.
+
+Pause the download.
+= Приостановить загрузку.
+
+Stop the download; downloading it again goes on from here.
+= Остановить загрузку; повторная загрузка продолжится с этого места.
+
