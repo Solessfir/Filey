@@ -1632,6 +1632,13 @@ command ColorPickerCancel {
 }
 
 // A press on the git branch in the path bar, which opens the dropdown of the repository's branches, or closes it.
+// A notice's buttons: Copy puts its text on the clipboard and Close takes it away; each carries the notice's id.
+command NoticeCopy {
+}
+
+command NoticeClose {
+}
+
 command GitBranchesOpen {
 }
 

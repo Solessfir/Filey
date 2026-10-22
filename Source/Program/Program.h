@@ -577,6 +577,26 @@ typedef enum Prog_ImageScale {
 } Prog_ImageScale;
 
 // A copy or move's result: where each item went, for undoing it.
+// A notice in the window's corner: an error stays until closed, a warning and an info fade after a while, and the same one again counts up.
+typedef enum Prog_NoticeKind {
+    Prog_NoticeKind_Info,
+    Prog_NoticeKind_Warning,
+    Prog_NoticeKind_Error,
+    Prog_NoticeKind_Count,
+} Prog_NoticeKind;
+
+typedef struct Prog_Notice {
+    u64 id;       // keys its card and its buttons' commands
+    u64 since;    // when it came, or came again, or was last under the pointer, which its fading counts from
+    enum8(Prog_NoticeKind) kind;
+    u32 count;
+    u32 titleLength, messageLength;
+    u8 title[160];
+    u8 message[640];
+} Prog_Notice;
+
+enum { Prog_MaxNotices = 5 };
+
 typedef struct Prog_Transferred {
     P_FileError error;  // first, as for the other file operations' results
     ArrayStr placed;
@@ -1634,6 +1654,9 @@ typedef struct Prog_State {
     Prog_TextEdit branchesSearch;
     u32 branchesHighlight, branchesScroll;
     UI_Key branchesAnchor;    // the branch's button, which the dropdown hangs under
+    Prog_Notice notices[Prog_MaxNotices];  // oldest first
+    u32 noticeCount;
+    u64 noticeIds;
     P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
     b32 recentsCheckAgain;
     u64 recentsCheckTime;
@@ -1755,6 +1778,8 @@ function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);
 function void Prog_CheckRecents(Prog_State *state);
+function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String title, String message);
+function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now);
 function void Prog_ToggleBranches(Prog_State *state);
 function void Prog_SwitchBranch(Prog_State *state, String branch);
 function u32 Prog_BranchMatches(const Prog_State *state, u32 *found);

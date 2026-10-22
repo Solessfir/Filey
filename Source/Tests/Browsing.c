@@ -444,6 +444,19 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(!Prog_PathOnline(&offline, S("/run/media/me/Other")) && !Prog_PathOnline(&offline, S("/run/media/me/StickTwo")));
         ArenaRelease(&arena);
     }
+    // The same notice again counts up and comes to the front; a sixth pushes the oldest out; an error stays, an info fades.
+    {
+        Prog_State noticed = {0};
+        Prog_Notify(&noticed, Prog_NoticeKind_Error, S("Copy failed"), S("Access is denied."));
+        Prog_Notify(&noticed, Prog_NoticeKind_Info, S("Nothing to undo"), (String){0});
+        Prog_Notify(&noticed, Prog_NoticeKind_Error, S("Copy failed"), S("Access is denied."));
+        Check(noticed.noticeCount == 2 && noticed.notices[1].count == 2 && noticed.notices[1].kind == Prog_NoticeKind_Error && noticed.notices[0].count == 1);
+        for (u32 i = 0; i < 5; ++i) Prog_Notify(&noticed, Prog_NoticeKind_Warning, S("Warned"), StrFormat(&noticed.frameArena, "%u", i));
+        Check(noticed.noticeCount == Prog_MaxNotices && noticed.notices[0].kind == Prog_NoticeKind_Warning);
+        Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Error, .since = 0 }, UINT64_C(1) << 40) == UINT64_MAX);
+        Check(Prog_NoticeLeft(&(Prog_Notice){ .kind = Prog_NoticeKind_Info, .since = 0 }, UINT64_C(1) << 40) == 0);
+        ArenaRelease(&noticed.frameArena);
+    }
     // git status, read for a folder inside the repository and for its top: each item's mark, and its folders' the most telling inside.
     {
         Arena arena = {0};
@@ -2836,7 +2849,7 @@ function void TestUndo(TestFileFixture *fixture)
     }
     Check(TestHasFile(&arena, fixture, S(""), S("plain.txt")) && !TestHasFile(&arena, fixture, S("UndoTarget"), S("plain.txt")));
     Prog_UndoLast(&state);
-    Check(StrIsEqual(state.error, S("Nothing to undo")));
+    Check(state.noticeCount && StrIsEqual(StrMake((const char *)state.notices[state.noticeCount - 1].title, state.notices[state.noticeCount - 1].titleLength), S("Nothing to undo")));
     // Redo moves it again, which Undo can then reverse once more.
     for (start = PlatformNowMicroseconds(); !state.redo.header.count && PlatformNowMicroseconds() - start < Millions(5);) {
         Prog_TakeCompletions(&state);
@@ -2856,7 +2869,7 @@ function void TestUndo(TestFileFixture *fixture)
     }
     Check(TestHasFile(&arena, fixture, S(""), S("plain.txt")));
     Prog_UndoLast(&state);
-    Check(StrIsEqual(state.error, S("Nothing to undo")));
+    Check(state.noticeCount && StrIsEqual(StrMake((const char *)state.notices[state.noticeCount - 1].title, state.notices[state.noticeCount - 1].titleLength), S("Nothing to undo")));
     Check(TestWaitDirectory(&state));
     Prog_Release(&state);
     Check(P__TestRemovePath(fixture, S("UndoTarget"), true));

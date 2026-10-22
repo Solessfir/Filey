@@ -83,3 +83,6 @@ pause
 play
 star-filled
 hard-drive-download
+circle-x
+triangle-alert
+info

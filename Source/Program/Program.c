@@ -1061,8 +1061,7 @@ function void Prog_SetScheme(Prog_State *state, String name, String text, b32 re
     for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "scheme %S\n%Send\n", names.v[i], texts.v[i]));
     P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SchemesFile), file.buffer);
     if (error.code) {
-        ArenaClear(&state->errorArena);
-        state->error = StrFormat(&state->errorArena, "Save schemes: %S", error.message);
+        Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't save the color schemes"), error.message);
     }
     ReleaseScratch(scratch);
 }
@@ -7791,7 +7790,117 @@ function String Prog__TransferName(Arena *arena, P_Progress *progress)
 }
 
 // Copies and moves that take a while, in cards at the bottom right: what goes where, the file being copied, how far it is, and a question when a name is taken.
-function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
+// How long a warning and an info show, from when they came or were last under the pointer, and how long they take to fade.
+enum { Prog_NoticeInfoMicroseconds = 3000000, Prog_NoticeWarningMicroseconds = 6000000, Prog_NoticeFadeMicroseconds = 300000 };
+
+// How long `notice` has left before it is gone, or UINT64_MAX for an error, which stays until closed.
+function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now)
+{
+    if (notice->kind == Prog_NoticeKind_Error) return UINT64_MAX;
+    u64 lasts = notice->kind == Prog_NoticeKind_Warning ? Prog_NoticeWarningMicroseconds : Prog_NoticeInfoMicroseconds, gone = now - Min(notice->since, now);
+    return gone < lasts ? lasts - gone : 0;
+}
+
+// `text` broken at its spaces into lines no wider than `width`, at most `most`, the last one cut with an ellipsis when more is left.
+function u32 Prog__WrapLines(Arena *arena, const R_Font *font, String text, f32 width, String *lines, u32 most)
+{
+    u32 count = 0;
+    u64 at = 0;
+    while (at < text.length && count < most) {
+        while (at < text.length && text.value[at] == ' ') ++at;
+        if (at >= text.length) break;
+        if (count + 1 == most) {
+            lines[count++] = Prog__Ellipsize(arena, font, StrFrom(text, at), width);
+            break;
+        }
+        // As many words as fit, or the first one whole however long.
+        u64 end = at, fit = at;
+        while (end < text.length) {
+            u64 next = end;
+            while (next < text.length && text.value[next] == ' ') ++next;
+            while (next < text.length && text.value[next] != ' ') ++next;
+            if (fit > at && R_TextWidth(font, StrFromTo(text, at, (i64)next)) > width) break;
+            fit = end = next;
+        }
+        lines[count++] = Prog__Ellipsize(arena, font, StrFromTo(text, at, (i64)fit), width);
+        at = fit;
+    }
+    return count;
+}
+
+// The notices over the copy and move cards, the newest lowest, from `bottom` up: the kind's icon in its color, the title, how many times
+// it came, and buttons to copy it and close it, over its message, a few lines at most. A notice under the pointer does not fade.
+function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m)
+{
+    if (!state->noticeCount) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    Arena *frame = &state->frameArena;
+    u64 now = PlatformNowMicroseconds();
+    f32 width = floorf(MinF32(m->line * 26, view.x1 - view.x0 - 2 * m->inset)), pad = m->inset * 0.75f, lineHeight = m->detail->lineHeight + floorf(1.6f * m->scale + 0.5f);
+    f32 slot = floorf(m->line * 1.6f + 0.5f);
+    for (u32 n = state->noticeCount; n-- > 0;) {
+        Prog_Notice *notice = &state->notices[n];
+        u64 left = Prog_NoticeLeft(notice, now);
+        if (!left) continue;
+        R_Color tint = notice->kind == Prog_NoticeKind_Error ? theme->danger : notice->kind == Prog_NoticeKind_Warning ? Prog__GitInk(Prog_GitMark_Modified) : theme->accent;
+        String icon = notice->kind == Prog_NoticeKind_Error ? Icon_CircleX : notice->kind == Prog_NoticeKind_Warning ? Icon_TriangleAlert : Icon_Info;
+        String title = StrMake((const char *)notice->title, notice->titleLength), message = StrMake((const char *)notice->message, notice->messageLength);
+        String lines[4];
+        u32 lineCount = Prog__WrapLines(frame, m->detail, message, width - 2 * pad - slot, lines, CArrayCount(lines));
+        f32 height = 2 * pad + m->row + (f32)lineCount * lineHeight;
+        bottom -= height + m->gap;
+        UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Notice/%" PRIu64, notice->id));
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - width - m->inset, floorf(bottom) });
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextBlur(Prog__FloatingBlur(m));
+        // It fades in its last moment, and comes in as the menus do.
+        f32 opacity = MinF32(Prog__FadeIn(key), left < Prog_NoticeFadeMicroseconds ? (f32)left / (f32)Prog_NoticeFadeMicroseconds : 1);
+        UI_SetNextOpacity(opacity);
+        R_Color edge = tint;
+        edge.a *= 0.7f;
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = edge });
+        UI_Block *card = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+        b32 hovered = UI->hotKey && (UI->hotKey == key || UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id)) ||
+                                     UI->hotKey == UI_KeyFromStr(0, StrFormat(frame, "NoticeClose/%" PRIu64, notice->id)));
+        if (hovered && notice->kind != Prog_NoticeKind_Error) notice->since = now;
+        UI_Parent(card) {
+            UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(head) {
+                Prog__Icon(icon, slot, m->row, tint, 0, m);
+                Prog__Label(Prog__Ellipsize(frame, m->font, title, width - 2 * pad - slot - 2 * m->row - (notice->count > 1 ? m->line * 2 : 0)), UI_Flex(), m->row, 0, theme->text, 0);
+                if (notice->count > 1) {
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(StrFormat(frame, "\u00D7%u", notice->count), UI_TextContent(), m->row, floorf(4.0f * m->scale + 0.5f), theme->textDim, 0);
+                }
+                UI_Interaction copy = Prog__TextButton(StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id), Icon_Copy, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
+                                                       theme->icon, theme->text, theme->iconDisabled, true, m);
+                if (copy.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeCopy, notice->id, 0, copy.clickOrder);
+                Prog__PopupTooltip(state, S("Copy the message."));
+                UI_Interaction close = Prog__TextButton(StrFormat(frame, "NoticeClose/%" PRIu64, notice->id), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                                        theme->icon, theme->text, theme->iconDisabled, true, m);
+                if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeClose, notice->id, 0, close.clickOrder);
+            }
+            for (u32 l = 0; l < lineCount; ++l) {
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    Prog__Spacer(UI_Pixels(slot), UI_Pixels(lineHeight));
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(lines[l], UI_Flex(), lineHeight, 0, theme->textDim, 0);
+                }
+            }
+        }
+        if (left != UINT64_MAX) UI_KeepAnimating();
+    }
+}
+
+// The copy and move cards in the window's corner, the newest lowest; it gives where the highest starts, for the notices over them.
+function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
@@ -7899,6 +8008,7 @@ function void Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             }
         }
     }
+    return bottom;
 }
 
 // Asks before a permanent delete, over a dimmed window that takes every click.
@@ -9883,7 +9993,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         state->tabDropOther = state->tabDrop.kind == Prog_TabDrop_Window && PlatformOtherWindowAtPointer(S(""));
         Prog__TabGhost(state, scale, m);
     }
-    Prog__Transfers(state, m);
+    Prog__Notices(state, Prog__Transfers(state, m), m);
     Prog__ContextMenu(state, m);
     Prog__TypesPopup(state, m);
     Prog__FilesPopup(state, m);

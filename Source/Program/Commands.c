@@ -981,7 +981,7 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
         if (!look->state->showHidden && Prog__GoToHidden(index, entry)) continue;
         char made[1024];
         i32 score = Prog__GoToScore(look->state, name, Prog__IndexPathTo(made, sizeof(made), index, entry), look->text);
-        if (score <= 0 || Prog_GoToShortRanks + Prog__GoToRank(score) >= look->floor) continue;
+        if (score <= 0 || (u32)Prog_GoToShortRanks + Prog__GoToRank(score) >= look->floor) continue;
         found[count++] = (Prog__GoToFound){ entry, score };
     }
     look->foundCount[block] = count;
@@ -1884,7 +1884,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         state->createdRenames = owner != UINT32_MAX && StrIsEqual(state->menu.items[owner].verb, S("new"));
         P_FileError error = P_ContextMenuInvoke(&state->frameArena, &state->menu, item.id);
         ArenaClear(&state->errorArena);
-        state->error = error.code ? StrFormat(&state->errorArena, "%S: %S", item.label, error.message) : (String){0};
+        if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, StrFormat(&state->frameArena, "%S failed", item.label), error.message);
         // The watch would catch the change too; reloading now shows it without waiting.
         Prog_Reload(state);
         // The bin has no watch, and the shell moves its items on after the command returns, so a job waits for them to leave it.
@@ -2539,8 +2539,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             ArrayStr folders = Prog__OpenFolders(state, &state->frameArena);
             for (u64 i = 0; i < folders.header.count && !error.code; ++i) error = Prog_OpenWindow(state, folders.v[i], (String){0});
             if (error.code) {
-                ArenaClear(&state->errorArena);
-                state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open a new window"), error.message);
             }
         } break;
             case Prog_CommandKind_OpenInRightSplit:
@@ -3030,8 +3029,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 b32 install = command->kind == Prog_CommandKind_SetupInstall;
                 P_FileError error = install ? P_InstallApply(&state->frameArena, state->setupDesktop, state->setupOnPath, state->setupDefault) : P_Uninstall(&state->frameArena);
                 if (error.code) {
-                    ArenaClear(&state->errorArena);
-                    state->error = StrFormat(&state->errorArena, "%s: %S", install ? "Install" : "Uninstall", error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, install ? S("Install failed") : S("Uninstall failed"), error.message);
                 }
                 Prog__ReadSetup(state);
             } break;
@@ -3062,6 +3060,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColorPickerSet: if (state->colorPicking) Prog_PickColor(state, (u32)command->row, (f32)((f64)command->target / 1e6)); break;
             case Prog_CommandKind_ColorPickerClose: Prog_CloseColorPicker(state); break;
             case Prog_CommandKind_GitBranchesOpen: Prog_ToggleBranches(state); break;
+            case Prog_CommandKind_NoticeCopy:
+            case Prog_CommandKind_NoticeClose: {
+                for (u32 i = 0; i < state->noticeCount; ++i) {
+                    Prog_Notice *notice = &state->notices[i];
+                    if (notice->id != command->row) continue;
+                    if (command->kind == Prog_CommandKind_NoticeCopy) {
+                        String title = StrMake((const char *)notice->title, notice->titleLength), message = StrMake((const char *)notice->message, notice->messageLength);
+                        PlatformClipboardSetText(message.length ? StrFormat(&state->frameArena, "%S: %S", title, message) : title);
+                        break;
+                    }
+                    MemMove(&state->notices[i], &state->notices[i + 1], (state->noticeCount - i - 1) * sizeof(Prog_Notice));
+                    --state->noticeCount;
+                    break;
+                }
+            } break;
             case Prog_CommandKind_GitBranchSwitch: {
                 if (command->row >= state->branches.header.count) break;
                 String branch = StrCopy(&state->frameArena, state->branches.v[command->row]);
@@ -3496,8 +3509,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ConsoleOpen: {
                 P_FileError error = state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC) ? P_OpenConsole(&state->frameArena, state->directory.path) : (P_FileError){0};
                 if (error.code) {
-                    ArenaClear(&state->errorArena);
-                    state->error = StrFormat(&state->errorArena, "Open console: %S", error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open the console"), error.message);
                 }
             } break;
             case Prog_CommandKind_ToggleFullscreen: PlatformWindowToggleFullscreen(); break;
@@ -3507,8 +3519,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_NewWindow: {
                 P_FileError error = Prog_OpenWindow(state, Prog_TabPath(state, state->activeTab), Prog__TabTraits(state, state->activeTab));
                 if (error.code) {
-                    ArenaClear(&state->errorArena);
-                    state->error = StrFormat(&state->errorArena, "New window: %S", error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, S("Couldn't open a new window"), error.message);
                 }
             } break;
             case Prog_CommandKind_ToggleTransparency: Prog_SetOption(state, Prog_Option_Transparency, !state->transparent); break;
@@ -3770,6 +3781,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     Prog__UsePanel(state, state->activePanel);
     Prog_KeepLockedView(state);
+    for (u32 i = 0; i < state->noticeCount;) {
+        if (Prog_NoticeLeft(&state->notices[i], PlatformNowMicroseconds())) {
+            ++i;
+            continue;
+        }
+        MemMove(&state->notices[i], &state->notices[i + 1], (state->noticeCount - i - 1) * sizeof(Prog_Notice));
+        --state->noticeCount;
+        changed = true;
+    }
     // Cut files stay dimmed only while the clipboard still holds them.
     if (state->cutPaths.header.count && PlatformClipboardSequence() != state->cutSequence) {
         ArenaClear(&state->cutArena);
