@@ -11,6 +11,7 @@
 ## Look
 
 - The shown tab's bottom right curve has a faint pixel where it meets the strip's line, which the reference's does not.
+- Low priority: the pinned taskbar button still shows the app icon smaller than its neighbors (26 by 20 pixels against 30 wide at 125%), though `Filey.exe` carries the new, fuller icon (full width at 32 pixels); refreshing the icon cache and pinning again did not change it. Find which image the pinned button draws, as from the Start menu shortcut or another size in the `.ico`.
 
 ## Command palette parity
 
