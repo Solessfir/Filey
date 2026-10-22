@@ -1574,6 +1574,7 @@ typedef struct Prog_State {
     P_Progress playerProgress[2];
     u32 playerSlot;
     u64 playerHash;
+    b32 scrubbing;  // the playhead follows the pointer over the waveform until the press ends
     Arena sizeArena;
     Prog_SizeMap sizes;
     // File operations Undo can reverse, newest last, and the renames and moves it reversed, which Redo makes again until another operation.

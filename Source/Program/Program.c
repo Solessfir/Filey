@@ -9957,8 +9957,9 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     // the point under the pointer, which stays where it is.
     f32 wanted = scale;
     if (UI->hotKey == view->key && UI->wheel.y != 0 && !(UI->mods & KeyMod_Control)) wanted = MinF32(MaxF32(scale * powf(1.2f, UI->wheel.y), least), 32.0f);
-    b32 toFit = drag.pressed && drag.pressCount == 2 && state->imageScaleMode != Prog_ImageScale_Fit;
-    if (drag.pressed && drag.pressCount == 2) wanted = toFit ? least : 1;
+    b32 audio = state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
+    b32 toFit = !audio && drag.pressed && drag.pressCount == 2 && state->imageScaleMode != Prog_ImageScale_Fit;
+    if (!audio && drag.pressed && drag.pressCount == 2) wanted = toFit ? least : 1;
     if (wanted != scale || toFit) {
         f32 px = UI->mouse.x - view->rect.x0 - left, py = UI->mouse.y - view->rect.y0 - top;
         f32 u = (px - ((roomWidth - width * scale) * 0.5f + state->imagePan.x)) / scale, v = (py - ((roomHeight - height * scale) * 0.5f + state->imagePan.y)) / scale;
@@ -9970,7 +9971,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     }
     f32 shownWidth = floorf(width * scale + 0.5f), shownHeight = floorf(height * scale + 0.5f);
     if (drag.pressed) state->imageDragFrom = UI->mouse;
-    if (drag.active && drag.isDragging) {
+    if (drag.active && drag.isDragging && !audio) {
         state->imagePan.x += UI->mouse.x - state->imageDragFrom.x;
         state->imagePan.y += UI->mouse.y - state->imageDragFrom.y;
         state->imageDragFrom = UI->mouse;
@@ -10006,15 +10007,21 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefHeight(UI_Pixels(shownHeight));
             UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
-            // An audio file's waveform shows how far it has played, and a press on it plays from there.
-            b32 audio = state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
+            // An audio file's waveform shows how far it has played. A press on it, and a drag after, moves the playhead under the pointer,
+            // and letting go plays from there, so that ffplay starts again once rather than at every step.
             f32 start = view->rect.x0 + left + x;
-            if (audio && drag.clicked && !drag.isDragging && UI->mouse.x >= start && UI->mouse.x < start + shownWidth) {
-                f64 along = (f64)(UI->mouse.x - start) / (f64)shownWidth;
-                Prog_QueueCommand(state, Prog_CommandKind_InspectorSeek, 0, 0, drag.clickOrder)->target = (u64)(along * state->previewSeconds * 1000);
+            f32 pointed = UI__Clamp((UI->mouse.x - start) / MaxF32(shownWidth, 1), 0, 1);
+            if (audio && drag.pressed && UI->mouse.x >= start && UI->mouse.x < start + shownWidth) state->scrubbing = true;
+            if (!audio || (!drag.active && !drag.released)) state->scrubbing = false;
+            // The frame it is let go in still shows it where it was dropped, as the seek starts playing from there only on the next.
+            b32 dropped = state->scrubbing && drag.released;
+            if (dropped) {
+                Prog_QueueCommand(state, Prog_CommandKind_InspectorSeek, 0, 0, UINT64_MAX)->target = (u64)((f64)pointed * state->previewSeconds * 1000);
+                state->scrubbing = false;
             }
-            if (audio && state->playerJob && state->playerHash == MapHashBytes(state->previewPath.value, state->previewPath.length)) {
-                f64 along = MinF64((f64)atomic_load(&state->playerProgress[state->playerSlot].doneBytes) / (state->previewSeconds * 1000), 1);
+            b32 played = audio && state->playerJob && state->playerHash == MapHashBytes(state->previewPath.value, state->previewPath.length);
+            if (state->scrubbing || dropped || played) {
+                f64 along = state->scrubbing || dropped ? (f64)pointed : MinF64((f64)atomic_load(&state->playerProgress[state->playerSlot].doneBytes) / (state->previewSeconds * 1000), 1);
                 f32 head = MaxF32(1, floorf(1.6f * s + 0.5f));
                 UI_SetNextFloatingOffset((UI_Vec2){ x + floorf((f32)along * shownWidth) - floorf(head * 0.5f), y });
                 UI_SetNextPrefWidth(UI_Pixels(head));
