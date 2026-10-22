@@ -114,11 +114,51 @@ function b32 Prog_MenuIsExpanded(const Prog_State *state, u32 index)
 
 // The open system menu in its pinned order: the pinned items first, in the order they were pinned, then a line and the rest as the system gave
 // them; their submenus' children follow unchanged. Its icons are worked out again for the new places.
+// Where `label` is in `list`, or -1.
+function i64 Prog__ListPlace(const ArrayStr *list, String label)
+{
+    for (u64 i = 0; label.length && i < list->header.count; ++i) if (StrIsEqual(list->v[i], label)) return (i64)i;
+    return -1;
+}
+
+// `base` as the menu editor left it: the top level without its hidden items, and those it ordered in its order, in the places they had
+// between the rest; the submenus as they are.
+function P_ContextMenu Prog__ShapeMenu(Prog_State *state, P_ContextMenu base)
+{
+    if (!state->menuHidden.header.count && !state->menuOrder.header.count) return base;
+    Arena *frame = &state->frameArena;
+    u32 *roots = ArenaPushArray(frame, base.rootCount + 1, u32), kept = 0;
+    for (u32 i = 0; i < base.rootCount; ++i) {
+        if (!base.items[i].separator && Prog__ListPlace(&state->menuHidden, base.items[i].label) >= 0) continue;
+        roots[kept++] = i;
+    }
+    // The ordered ones fill their own places again, sorted by where the order has them.
+    u32 *slots = ArenaPushArray(frame, kept + 1, u32), *moved = ArenaPushArray(frame, kept + 1, u32), count = 0;
+    for (u32 k = 0; k < kept; ++k) {
+        const P_MenuItem *item = &base.items[roots[k]];
+        if (!item->separator && Prog__ListPlace(&state->menuOrder, item->label) >= 0) slots[count] = k, moved[count++] = roots[k];
+    }
+    for (u32 a = 1; a < count; ++a) {
+        u32 take = moved[a];
+        i64 rank = Prog__ListPlace(&state->menuOrder, base.items[take].label);
+        u32 b = a;
+        for (; b > 0 && Prog__ListPlace(&state->menuOrder, base.items[moved[b - 1]].label) > rank; --b) moved[b] = moved[b - 1];
+        moved[b] = take;
+    }
+    for (u32 j = 0; j < count; ++j) roots[slots[j]] = moved[j];
+    u32 children = base.count - base.rootCount;
+    P_MenuItem *items = ArenaPushArray(frame, kept + children + 1, P_MenuItem);
+    for (u32 k = 0; k < kept; ++k) items[k] = base.items[roots[k]];
+    for (u32 c = 0; c < children; ++c) items[kept + c] = base.items[base.rootCount + c];
+    for (u32 i = 0; i < kept + children; ++i) if (items[i].childCount) items[i].firstChild = items[i].firstChild - base.rootCount + kept;
+    return (P_ContextMenu){ .items = items, .count = kept + children, .rootCount = kept, .native = base.native };
+}
+
 function void Prog__ApplyMenuPins(Prog_State *state)
 {
     if (state->menuCommands || !state->menuOpen) return;
     if (!state->menuBase.items) state->menuBase = state->menu;
-    P_ContextMenu base = state->menuBase;
+    P_ContextMenu base = Prog__ShapeMenu(state, state->menuBase);
     u32 *order = ArenaPushArray(&state->frameArena, base.rootCount + (u32)state->menuPins.header.count + 1, u32);
     b8 *taken = ArenaPushArray(&state->frameArena, base.rootCount + 1, b8);
     u32 pinned = 0;
@@ -3442,6 +3482,79 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__SetList(&state->quickArena, &state->quickCommands, names, count);
                 Prog__SaveList(state, Prog_QuickCommandsFile, state->quickCommands);
             } break;
+            case Prog_CommandKind_MenuEditOpen: {
+                // The top level of the menu as the system gave it, each label once, then in the order the editor keeps.
+                if (!state->menuOpen || state->menuCommands) break;
+                P_ContextMenu base = state->menuBase.items ? state->menuBase : state->menu;
+                ArenaClear(&state->menuEditArena);
+                state->menuEditLabels = state->menuEditSystem = (ArrayStr){0};
+                state->menuEditSubs = ArenaPushArray(&state->menuEditArena, base.rootCount + 1, b8);
+                for (u32 i = 0; i < base.rootCount; ++i) {
+                    const P_MenuItem *item = &base.items[i];
+                    if (item->separator || !item->label.length || Prog__ListPlace(&state->menuEditSystem, item->label) >= 0) continue;
+                    state->menuEditSubs[state->menuEditSystem.header.count] = item->childCount != 0;
+                    ArrayPush(&state->menuEditArena, state->menuEditSystem, StrCopy(&state->menuEditArena, item->label));
+                }
+                u64 total = state->menuEditSystem.header.count;
+                String *ordered = ArenaPushArray(&state->frameArena, total + 1, String);
+                b8 *subs = ArenaPushArray(&state->frameArena, total + 1, b8);
+                u64 at = 0;
+                for (u64 o = 0; o < state->menuOrder.header.count; ++o) {
+                    i64 found = Prog__ListPlace(&state->menuEditSystem, state->menuOrder.v[o]);
+                    if (found >= 0 && Prog__ListPlace(&(ArrayStr){ .header.count = at, .v = ordered }, state->menuOrder.v[o]) < 0) subs[at] = state->menuEditSubs[found], ordered[at++] = state->menuEditSystem.v[found];
+                }
+                for (u64 i = 0; i < total; ++i) {
+                    if (Prog__ListPlace(&(ArrayStr){ .header.count = at, .v = ordered }, state->menuEditSystem.v[i]) < 0) subs[at] = state->menuEditSubs[i], ordered[at++] = state->menuEditSystem.v[i];
+                }
+                for (u64 i = 0; i < at; ++i) {
+                    ArrayPush(&state->menuEditArena, state->menuEditLabels, ordered[i]);
+                    state->menuEditSubs[i] = subs[i];
+                }
+                state->menuEditAt = state->menuRects[0];
+                state->menuEditDrag = 0;
+                Prog_CloseMenu(state);
+                state->menuEditing = at != 0;
+            } break;
+            case Prog_CommandKind_MenuEditClose: state->menuEditing = false, state->menuEditDrag = 0; break;
+            case Prog_CommandKind_MenuEditToggle: {
+                if (!state->menuEditing || command->row >= state->menuEditLabels.header.count) break;
+                String label = state->menuEditLabels.v[command->row];
+                String *hidden = ArenaPushArray(&state->frameArena, state->menuHidden.header.count + 1, String);
+                u64 count = 0;
+                b32 was = Prog__ListPlace(&state->menuHidden, label) >= 0;
+                for (u64 i = 0; i < state->menuHidden.header.count; ++i) if (!StrIsEqual(state->menuHidden.v[i], label)) hidden[count++] = state->menuHidden.v[i];
+                if (!was) hidden[count++] = label;
+                Prog__SetList(&state->menuHiddenArena, &state->menuHidden, hidden, count);
+                Prog__SaveList(state, Prog_MenuHiddenFile, state->menuHidden);
+            } break;
+            case Prog_CommandKind_MenuEditMove: {
+                u64 total = state->menuEditLabels.header.count, from = command->row, to = Min(command->target, total);
+                if (!state->menuEditing || from >= total || to == from || to == from + 1) break;
+                String label = state->menuEditLabels.v[from];
+                b8 sub = state->menuEditSubs[from];
+                if (to > from) --to;
+                for (u64 i = from; i + 1 < total; ++i) state->menuEditLabels.v[i] = state->menuEditLabels.v[i + 1], state->menuEditSubs[i] = state->menuEditSubs[i + 1];
+                for (u64 i = total - 1; i > to; --i) state->menuEditLabels.v[i] = state->menuEditLabels.v[i - 1], state->menuEditSubs[i] = state->menuEditSubs[i - 1];
+                state->menuEditLabels.v[to] = label, state->menuEditSubs[to] = sub;
+                // The whole top level in its new order, which the items of other menus keep places around.
+                Prog__SetList(&state->menuOrderArena, &state->menuOrder, state->menuEditLabels.v, total);
+                Prog__SaveList(state, Prog_MenuOrderFile, state->menuOrder);
+            } break;
+            case Prog_CommandKind_MenuEditReset: {
+                if (!state->menuEditing) break;
+                Prog__SetList(&state->menuHiddenArena, &state->menuHidden, NULL, 0);
+                Prog__SetList(&state->menuOrderArena, &state->menuOrder, NULL, 0);
+                Prog__SaveList(state, Prog_MenuHiddenFile, state->menuHidden);
+                Prog__SaveList(state, Prog_MenuOrderFile, state->menuOrder);
+                // The list in the system's order; its submenus' marks follow the labels.
+                u64 total = state->menuEditSystem.header.count;
+                b8 *subs = ArenaPushArray(&state->frameArena, total + 1, b8);
+                for (u64 i = 0; i < total; ++i) {
+                    i64 was = Prog__ListPlace(&state->menuEditLabels, state->menuEditSystem.v[i]);
+                    subs[i] = was >= 0 ? state->menuEditSubs[was] : false;
+                }
+                for (u64 i = 0; i < total; ++i) state->menuEditLabels.v[i] = state->menuEditSystem.v[i], state->menuEditSubs[i] = subs[i];
+            } break;
             case Prog_CommandKind_MenuPinToggle: {
                 if (state->menuOpen && command->row < state->menu.count) {
                     String label = StrCopy(&state->frameArena, state->menu.items[command->row].label);
@@ -4143,6 +4256,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->swallowText = true;
             } else {
                 Prog__EditKey(state, hex, event);
+            }
+            continue;
+        }
+        // The menu editor takes the keyboard: Enter and Escape close it.
+        if (state->menuEditing && (event->kind == PlatformEventKind_KeyDown || event->kind == PlatformEventKind_Text)) {
+            if (event->kind == PlatformEventKind_KeyDown && (event->key == Key_Escape || event->key == Key_Enter)) {
+                Prog_QueueCommand(state, Prog_CommandKind_MenuEditClose, 0, 0, order);
+                state->swallowText = true;
             }
             continue;
         }

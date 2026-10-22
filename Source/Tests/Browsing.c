@@ -2256,7 +2256,7 @@ function void TestTabs(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
         Check(TestWaitDirectory(&state) && state.zoom == 0 && state.sort == Prog_Sort_Name && !state.descending);
         TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
-        state.zoom = zoom, state.sort = sort, state.descending = false;
+        state.zoom = zoom, state.sort = (u8)sort, state.descending = false;
     }
     state.newTab = Prog_NewTab_Current;
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);

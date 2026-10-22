@@ -69,6 +69,7 @@ typedef struct Prog_Loop {
     R_Font detailFont;
     R_Font icons;
     R_Font smallIcons;
+    R_Font mediumIcons;
     f32 fontScale;    // the display scale the fonts were rasterized for
     // The inspector's monospace font, made at its size once it is first shown.
     Arena monoArena;
@@ -104,7 +105,7 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
 {
     const f32 fontPixelSize = 9.0f * (96.0f / 72.0f);
     Arena arena = {0};
-    R_Font font = {0}, detailFont = {0}, icons = {0}, smallIcons = {0};
+    R_Font font = {0}, detailFont = {0}, icons = {0}, smallIcons = {0}, mediumIcons = {0};
     const Prog_FontName *name = &loop->state.font;
     String family = name->length ? StrMake(name->text, name->length) : S("Segoe UI");
     // Icons are a little smaller than the text's line height, which gives their strokes the right weight.
@@ -113,12 +114,15 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f + 0.5f),
                                     Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &icons) &&
              R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f * 0.7f + 0.5f),
-                                    Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &smallIcons);
+                                    Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &smallIcons) &&
+             R_FontCreateFromMemory(&arena, Icon_FontData, sizeof(Icon_FontData), floorf(font.lineHeight * 0.92f * 0.82f + 0.5f),
+                                    Icon_FirstRune, Icon_FirstRune + Icon_Count - 1, &mediumIcons);
     if (!ok) {
         R_FontRelease(&font);
         R_FontRelease(&detailFont);
         R_FontRelease(&icons);
         R_FontRelease(&smallIcons);
+        R_FontRelease(&mediumIcons);
         ArenaRelease(&arena);
         return false;
     }
@@ -126,6 +130,7 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     R_FontRelease(&loop->detailFont);
     R_FontRelease(&loop->icons);
     R_FontRelease(&loop->smallIcons);
+    R_FontRelease(&loop->mediumIcons);
     ArenaRelease(&loop->fontArena);
     loop->fontArena = arena;
     loop->font = font;
@@ -134,6 +139,8 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     loop->icons = icons;
     loop->smallIcons = smallIcons;
     loop->state.smallIcons = &loop->smallIcons;
+    loop->mediumIcons = mediumIcons;
+    loop->state.mediumIcons = &loop->mediumIcons;
     loop->fontScale = scale;
     loop->fontName = *name;
     return true;

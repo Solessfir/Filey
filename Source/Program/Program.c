@@ -1493,6 +1493,7 @@ typedef struct Prog_Metrics {
     const R_Font *detail;  // the details columns beside the names
     const R_Font *icons;
     const R_Font *iconsSmall;
+    const R_Font *iconsMedium;
 } Prog_Metrics;
 
 function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32 scale)
@@ -1503,6 +1504,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
         .detail = font,
         .icons = icons,
         .iconsSmall = icons,
+        .iconsMedium = icons,
         .line = line,
         .row = floorf(line * 1.6f + 0.5f),
         .bar = floorf(line * 2.1f + 0.5f),
@@ -5190,7 +5192,9 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     b32 placedBefore = flat && state->menuTopSerial == state->menuSerial + 1;
     b32 scrolls = height > (placedBefore ? view.y1 - state->menuTop : view.y1 - view.y0);
     f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
-    f32 width = floorf(MinF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + star + 2 * pad, m->line * 12), m->line * 36)) + gutter;
+    // Wide enough for the search field's hint beside its two buttons, a little apart from them.
+    f32 fieldWidth = search ? iconLeft + iconColumn + R_TextWidth(m->font, S("Select a system command...")) + floorf(8.0f * m->scale + 0.5f) + 2 * Prog__ToolbarButtonWidth(m) + 2 * pad : 0;
+    f32 width = floorf(MinF32(MaxF32(MaxF32(rowWidth + iconLeft + iconColumn + m->inset + arrow + star + 2 * pad, fieldWidth), m->line * 12), m->line * 36)) + gutter;
     if (flat) width = floorf(UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuWidth/%u", state->menuSerial)), width, width) + 0.5f);
     f32 x = level == 0 && state->menuRight > 0 ? state->menuRight - width : place.x, y = place.y;
     // Submenus open to the right of their item, or to the left when there is no room; a menu pushed in from the right edge keeps a margin.
@@ -5317,6 +5321,13 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     }
                     Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, 0, m);
                 }
+                // A pencil opens the menu editor in its place, a little apart from the text; a little smaller than the icons, as it fills more of
+                // its square than the cross beside it.
+                Prog__Spacer(UI_Pixels(floorf(8.0f * m->scale + 0.5f)), UI_Pixels(fieldHeight));
+                UI_Interaction pencil = Prog__TextButton(S("MenuEditOpen"), Icon_Pencil, m->iconsMedium, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text,
+                                                         theme->iconDisabled, true, m);
+                if (pencil.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditOpen, 0, 0, pencil.clickOrder);
+                Prog__PopupTooltip(state, S("Edit menu: hide items and change their order"));
                 // A button at its end closes the menu, in the middle of the field's height and as far from its end as from its top.
                 UI_Interaction close = Prog__CloseButton(S("MenuSearchClose"), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, close.clickOrder);
@@ -8426,6 +8437,170 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// The menu editor, in the place of the system menu whose pencil opened it: the top level's items in their order, each with dots to drag it by
+// and a minus that hides it, then the hidden ones, each with a plus that brings it back. Reset brings back the system's order and every item.
+function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->menuEditing) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    f32 s = m->scale;
+    R_Rect view = UI->root->rect;
+    // A press anywhere else closes it.
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_MenuEditClose, 0, 0, outside.pressOrder);
+    u64 total = state->menuEditLabels.header.count;
+    u32 *shown = ArenaPushArray(frame, total + 1, u32), *hidden = ArenaPushArray(frame, total + 1, u32), shownCount = 0, hiddenCount = 0;
+    f32 widest = 0;
+    for (u64 i = 0; i < total; ++i) {
+        String label = state->menuEditLabels.v[i];
+        if (Prog__ListPlace(&state->menuHidden, label) >= 0) hidden[hiddenCount++] = (u32)i;
+        else shown[shownCount++] = (u32)i;
+        widest = MaxF32(widest, R_TextWidth(m->font, label));
+    }
+    f32 pad = floorf(6.4f * s + 0.5f), head = floorf(35.2f * s + 0.5f), row = floorf(24.0f * s + 0.5f), grip = floorf(20.8f * s + 0.5f), radius = floorf(10.0f * s + 0.5f);
+    f32 button = Prog__ToolbarButtonHeight(m), title = floorf(24.0f * s + 0.5f), chevron = floorf(16.0f * s + 0.5f);
+    f32 width = MaxF32(state->menuEditAt.x1 - state->menuEditAt.x0, widest + grip + chevron + button + 4 * pad + m->gap);
+    width = floorf(MinF32(MaxF32(width, 260.0f * s), view.x1 - view.x0 - 2 * pad));
+    f32 listHeight = (f32)shownCount * row, hiddenHeight = hiddenCount ? m->separator + title + (f32)hiddenCount * row + pad : 0;
+    // Below the header, what does not fit in the window scrolls.
+    f32 content = pad + listHeight + pad + hiddenHeight, room = MaxF32(row, view.y1 - view.y0 - head - m->separator - 2 * pad);
+    f32 bodyHeight = MinF32(content, room);
+    b32 scrolls = content > bodyHeight + 0.5f;
+    f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
+    f32 height = head + m->separator + bodyHeight;
+    f32 x = floorf(MaxF32(view.x0, MinF32(state->menuEditAt.x0, view.x1 - width))), y = floorf(MaxF32(view.y0, MinF32(state->menuEditAt.y0, view.y1 - height)));
+    Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, 1, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextBorderThickness(m->stroke);
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditor")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_MouseClickable);
+    UI_Parent(box) {
+        UI_SetNextChildrenPadding((UI_Padding){ 2 * pad, 0, pad, 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_Block *header = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(header) {
+            Prog__Icon(Icon_Pencil, grip, head, theme->icon, 0, m);
+            Prog__Label(S("Edit Menu"), UI_Flex(), head, 0, theme->text, 0);
+            b32 changed = state->menuHidden.header.count || state->menuOrder.header.count;
+            UI_Interaction reset = Prog__TextButton(S("MenuEditReset"), S("Reset"), NULL, UI_TextContent(), button, m->inset, theme->text, theme->text, theme->iconDisabled, changed, m);
+            if (reset.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditReset, 0, 0, reset.clickOrder);
+            Prog__PopupTooltip(state, S("Bring back the system's own order and every item"));
+            Prog__Spacer(UI_Pixels(floorf(pad * 0.5f)), UI_Pixels(head));
+            UI_Interaction done = Prog__TextButton(S("MenuEditDone"), S("Done"), NULL, UI_TextContent(), button, m->inset, theme->contentSelection, theme->contentSelection, theme->iconDisabled, true, m);
+            UI->parent->last->props.colors.background = theme->selection;
+            UI->parent->last->flags |= UI_Flag_DrawBackground;
+            if (done.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditClose, 0, 0, done.clickOrder);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextPrefWidth(UI_Flex());
+        UI_SetNextPrefHeight(UI_Pixels(bodyHeight));
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, gutter, 0 });
+        UI_Block *body = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditBody")), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
+        UI_Block *outer = UI_PushParent(body);
+        Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("MenuEditList")), 0);
+        list->props.width = UI_Flex(), list->props.height = UI_Pixels(listHeight), list->props.childrenLayout = UI_Layout_Vertical;
+        // Where a row dragged by its dots would go: before the row whose middle the pointer is above.
+        u32 dragged = state->menuEditDrag ? state->menuEditDrag - 1 : UINT32_MAX;
+        u32 landing = (u32)Min(Max((i64)floorf((UI->mouse.y - list->rect.y0) / MaxF32(1, row) + 0.5f), (i64)0), (i64)shownCount);
+        b32 anyActive = false;
+        UI_Parent(list) {
+            for (u32 k = 0; k < shownCount; ++k) {
+                u32 index = shown[k];
+                String label = state->menuEditLabels.v[index];
+                UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                if (k == dragged) UI_SetNextOpacity(0.35f);
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    UI_Key gripKey = UI_KeyFromStr(0, StrFormat(frame, "MenuEditGrip/%S", label));
+                    UI_SetNextPrefWidth(UI_Pixels(grip));
+                    UI_SetNextPrefHeight(UI_Pixels(row));
+                    UI_Block *handle = UI_AddBlockFromKey(gripKey, UI_Flag_LeftMouseClickable);
+                    UI_Interaction drag = UI_InteractionFromBlock(handle);
+                    anyActive |= drag.active;
+                    if (drag.active && drag.isDragging) state->menuEditDrag = k + 1;
+                    if (drag.released && state->menuEditDrag == k + 1) {
+                        u64 before = landing < shownCount ? shown[landing] : (shownCount ? (u64)shown[shownCount - 1] + 1 : 0);
+                        Prog_QueueCommand(state, Prog_CommandKind_MenuEditMove, index, 0, drag.pressOrder)->target = before;
+                        state->menuEditDrag = 0;
+                    }
+                    UI_Parent(handle) Prog__Icon(Icon_GripVertical, grip, row, UI->hotKey == gripKey || drag.active ? theme->text : theme->textDim, 0.5f, m);
+                    Prog__Label(label, UI_Flex(), row, 0, theme->text, 0);
+                    if (state->menuEditSubs[index]) Prog__Icon(Icon_ChevronRight, chevron, row, theme->textDim, 0.5f, m);
+                    UI_Interaction hide = Prog__TextButton(StrFormat(frame, "MenuEditHide/%S", label), Icon_CircleMinus, m->icons, UI_Pixels(button), button, 0, theme->icon, theme->text,
+                                                           theme->iconDisabled, true, m);
+                    if (hide.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditToggle, index, 0, hide.clickOrder);
+                }
+            }
+            if (state->menuEditDrag && dragged < shownCount) {
+                // The line where it lands, and the row itself carried under the pointer.
+                if (landing != dragged && landing != dragged + 1) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ pad + grip, (f32)landing * row - floorf(m->stroke) });
+                    UI_SetNextPrefWidth(UI_Pixels(width - 2 * pad - grip - gutter));
+                    UI_SetNextPrefHeight(UI_Pixels(MaxF32(2, floorf(1.6f * s + 0.5f))));
+                    UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                }
+                f32 carried = MinF32(MaxF32(UI->mouse.y - list->rect.y0 - row * 0.5f, -row * 0.5f), listHeight - row * 0.5f);
+                UI_SetNextFloatingOffset((UI_Vec2){ floorf(pad * 0.5f), floorf(carried) });
+                UI_SetNextPrefWidth(UI_Pixels(width - pad - gutter));
+                UI_SetNextPrefHeight(UI_Pixels(row));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(pad * 0.5f), 0, pad, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextCornerRadius(floorf(5.0f * s + 0.5f));
+                UI_SetNextBorderThickness(m->stroke);
+                UI_SetNextColors((UI_Colors){ .background = theme->track, .border = theme->selection });
+                UI_Block *lifted = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                UI_Parent(lifted) {
+                    Prog__Icon(Icon_GripVertical, grip, row, theme->text, 0.5f, m);
+                    Prog__Label(state->menuEditLabels.v[shown[dragged]], UI_Flex(), row, 0, theme->text, 0);
+                }
+            }
+        }
+        if (!anyActive) state->menuEditDrag = 0;
+        Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        if (hiddenCount) {
+            Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
+            UI_SetNextChildrenPadding((UI_Padding){ 2 * pad, 0, pad, 0 });
+            UI_Block *heading = Prog__Box(UI_Flex(), UI_Pixels(title), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(heading) {
+                UI_SetNextFont(m->detail);
+                Prog__Label(StrFormat(frame, "Hidden \xC2\xB7 %u", hiddenCount), UI_Flex(), title, 0, theme->textDim, 0);
+            }
+            for (u32 k = 0; k < hiddenCount; ++k) {
+                u32 index = hidden[k];
+                String label = state->menuEditLabels.v[index];
+                UI_SetNextChildrenPadding((UI_Padding){ pad + grip, 0, pad, 0 });
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    Prog__Label(label, UI_Flex(), row, 0, theme->textDim, 0);
+                    UI_Interaction back = Prog__TextButton(StrFormat(frame, "MenuEditShow/%S", label), Icon_CirclePlus, m->icons, UI_Pixels(button), button, 0, theme->accent, theme->text,
+                                                           theme->iconDisabled, true, m);
+                    if (back.clicked) Prog_QueueCommand(state, Prog_CommandKind_MenuEditToggle, index, 0, back.clickOrder);
+                }
+            }
+            Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        }
+        UI_PopParent(outer);
+        // The bar goes by the list's last layout, which a list just opened has yet to have, so another frame follows for it.
+        if (scrolls && body->rect.y1 <= body->rect.y0) UI_KeepAnimating();
+        if (scrolls) Prog__ScrollBar(body, row, S("MenuEdit"), 1, m);
+    }
+}
+
 function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->menuOpen) {
@@ -10329,6 +10504,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     UI->reverseScroll = state->reverseScroll;
     metrics.detail = state->smallFont ? state->smallFont : font;
     metrics.iconsSmall = state->smallIcons ? state->smallIcons : icons;
+    metrics.iconsMedium = state->mediumIcons ? state->mediumIcons : icons;
     i32 iconSize = (i32)floorf(16.0f * scale + 0.5f);
     // Icons from another theme or the system's updated ones are loaded again in place; a new size's start over.
     b32 iconsChanged = P_IconThemeChanged();
@@ -10405,6 +10581,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     Prog__Notices(state, Prog__Transfers(state, m), m);
     Prog__ContextMenu(state, m);
+    Prog__MenuEditor(state, m);
     Prog__TypesPopup(state, m);
     Prog__FilesPopup(state, m);
     Prog__ZoomPopup(state, m);

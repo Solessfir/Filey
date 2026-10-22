@@ -1298,6 +1298,21 @@ typedef struct Prog_State {
     // before they were put in that order.
     Arena menuPinArena;
     ArrayStr menuPins;
+    // What the menu editor did to the system menus' top level, by the items' labels: those hidden (MenuHidden.conf), and the order the editor
+    // left them in (MenuOrder.conf), which they keep in the places they take between the items it never saw.
+    Arena menuHiddenArena;
+    ArrayStr menuHidden;
+    Arena menuOrderArena;
+    ArrayStr menuOrder;
+    // The menu editor, open in the place of the menu it was opened from (menuEditAt): that menu's top level by label, in the order shown and
+    // the system's own, whether each opens a submenu, and the row being dragged, plus one.
+    b32 menuEditing;
+    R_Rect menuEditAt;
+    Arena menuEditArena;
+    ArrayStr menuEditLabels;
+    ArrayStr menuEditSystem;
+    b8 *menuEditSubs;
+    u32 menuEditDrag;
     // The palette's Quick group: the starred commands by name, in the order they were starred.
     Arena quickArena;
     ArrayStr quickCommands;
@@ -1694,8 +1709,8 @@ typedef struct Prog_State {
     u64 recentsCheckTime;
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[6];            // bookmarks, recents, folder views, menu pins, quick commands, muted notices
-    b32 saveAgain[6];
+    b32 saving[8];            // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order
+    b32 saveAgain[8];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.conf.
     Arena folderViewArena;
     ArrayStr folderViews;
@@ -1715,6 +1730,7 @@ typedef struct Prog_State {
     // A point smaller than the main font, for the details columns; the main font while unset.
     const R_Font *smallFont;
     const R_Font *smallIcons;  // the icons at about two thirds of their size
+    const R_Font *mediumIcons; // and at four fifths, for an icon that fills more of its square than those beside it
     // Set by the app so that the first listing loads shell extensions in the background; the first context menu would otherwise stall on them.
     b32 warmMenus;
 } Prog_State;

@@ -274,6 +274,23 @@ command HotkeyRestore {
 command MenuPinToggle {
 }
 
+// The menu editor: opened by the system menu's pencil, closed by Done, a press outside, Enter or Escape; an item hidden or shown again (`row` is
+// its place in the editor's list), moved (`row` from, `target` the place it goes before), and the system's own order and items brought back.
+command MenuEditOpen {
+}
+
+command MenuEditClose {
+}
+
+command MenuEditToggle {
+}
+
+command MenuEditMove {
+}
+
+command MenuEditReset {
+}
+
 command ContextMenuClose {
 }
 

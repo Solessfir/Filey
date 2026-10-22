@@ -2671,6 +2671,8 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 #define Prog_MenuPinsFile S("MenuPins.conf")
 #define Prog_QuickCommandsFile S("QuickCommands.conf")
 #define Prog_MutedNoticesFile S("MutedNotices.conf")
+#define Prog_MenuHiddenFile S("MenuHidden.conf")
+#define Prog_MenuOrderFile S("MenuOrder.conf")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
 // What a first visit scores.
@@ -2681,7 +2683,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 function u32 Prog__SaveSlot(String file)
 {
     return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4
-         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : 0;
+         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : StrIsEqual(file, Prog_MenuHiddenFile) ? 6 : StrIsEqual(file, Prog_MenuOrderFile) ? 7 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -2920,6 +2922,8 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Prog__LoadRecents(state);
     Prog__LoadList(state, Prog_FolderViewsFile, &state->folderViewArena, &state->folderViews, &found);
     Prog__LoadList(state, Prog_MenuPinsFile, &state->menuPinArena, &state->menuPins, &found);
+    Prog__LoadList(state, Prog_MenuHiddenFile, &state->menuHiddenArena, &state->menuHidden, &found);
+    Prog__LoadList(state, Prog_MenuOrderFile, &state->menuOrderArena, &state->menuOrder, &found);
     Prog__LoadList(state, Prog_MutedNoticesFile, &state->mutedArena, &state->mutedNotices, &found);
     Prog__LoadList(state, Prog_QuickCommandsFile, &state->quickArena, &state->quickCommands, &found);
     if (!found) Prog__DefaultQuick(state);
@@ -5298,12 +5302,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_Notify(state, Prog_NoticeKind_Error, S("save.failed"), StrFormat(&state->frameArena, "Couldn't save \"%S\"", Prog__FolderName(input->path)), error->message);
                 changed = true;
             }
-            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile };
+            const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile, Prog_MenuHiddenFile,
+                                     Prog_MenuOrderFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
                 state->saveAgain[slot] = false;
-                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices : state->bookmarks);
+                Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices
+                                                 : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Measure) {

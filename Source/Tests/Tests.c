@@ -625,6 +625,21 @@ function void TestContextMenuModel(void)
     Check(state.menuHighlight == 1);
     Prog__MenuMove(&state, -1);
     Check(state.menuHighlight == 6);
+    // The menu editor's work: B hidden, D and A ordered, which take the places A and D had, D's submenu still found from it.
+    {
+        P_MenuItem edited[] = {
+            { .label = S("A"), .id = 1 }, { .label = S("B"), .id = 2 }, { .separator = true }, { .label = S("C"), .id = 3 }, { .label = S("D"), .id = 4, .firstChild = 5, .childCount = 1 },
+            { .label = S("E"), .id = 5 },
+        };
+        Prog_State shaping = {0};
+        String hiddenLabels[] = { S("B") }, orderLabels[] = { S("D"), S("A") };
+        Prog__SetList(&shaping.menuHiddenArena, &shaping.menuHidden, hiddenLabels, 1);
+        Prog__SetList(&shaping.menuOrderArena, &shaping.menuOrder, orderLabels, 2);
+        P_ContextMenu shaped = Prog__ShapeMenu(&shaping, (P_ContextMenu){ .items = edited, .count = CArrayCount(edited), .rootCount = 5 });
+        Check(shaped.rootCount == 4 && shaped.count == 5);
+        Check(StrIsEqual(shaped.items[0].label, S("D")) && shaped.items[1].separator && StrIsEqual(shaped.items[2].label, S("C")) && StrIsEqual(shaped.items[3].label, S("A")));
+        Check(shaped.items[0].childCount == 1 && StrIsEqual(shaped.items[shaped.items[0].firstChild].label, S("E")));
+    }
 }
 
 // The sidebar shows the best recents with the three opened last always among them, and every tenth open lowers all the others.

@@ -86,3 +86,7 @@ circle-x
 triangle-alert
 info
 bell-off
+pencil
+grip-vertical
+circle-minus
+circle-plus
