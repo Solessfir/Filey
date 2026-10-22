@@ -1594,6 +1594,13 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
+// The close button of popups, cards and lists, one size and look everywhere: a toolbar button's, with the icon font's cross.
+function UI_Interaction Prog__CloseButton(String identity, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    return Prog__TextButton(identity, Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+}
+
 // Toolbar button that opens one of Filey's menus below it, lit in the selection color while that menu is open, `height` tall or the
 // toolbar's at 0. A button in the window's right half lines its menu up with its right edge.
 function void Prog__MenuButton(Prog_State *state, String identity, String icon, Prog_CommandKind kind, b32 enabled, f32 height, const Prog_Metrics *m)
@@ -5107,8 +5114,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, 0, m);
                 }
                 // A button at its end closes the menu.
-                UI_Interaction close = Prog__TextButton(S("MenuSearchClose"), Icon_X, m->icons, UI_Pixels(floorf(28.8f * m->scale + 0.5f)), fieldHeight, 0,
-                                                        theme->textDim, theme->text, theme->iconDisabled, true, m);
+                UI_Interaction close = Prog__CloseButton(S("MenuSearchClose"), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, close.clickOrder);
             }
             UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY + fieldHeight });
@@ -5539,8 +5545,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
             }
-            UI_Interaction close = Prog__TextButton(S("TabSearchClose"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            UI_Interaction close = Prog__CloseButton(S("TabSearchClose"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -5813,8 +5818,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(field));
             Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
             Prog__Spacer(UI_Pixels(floorf(5.6f * s + 0.5f)), UI_Pixels(field));
-            UI_Interaction close = Prog__TextButton(S("GoToClose"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            UI_Interaction close = Prog__CloseButton(S("GoToClose"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -6355,7 +6359,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
             Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
             Prog__Box(UI_Pixels(line), UI_Pixels(floorf(m->line * 1.15f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
             Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
-            UI_Interaction close = Prog__TextButton(S("TypesClose"), Icon_X, m->icons, UI_Pixels(button), fieldHeight, 0, theme->textDim, theme->text, theme->iconDisabled, true, m);
+            UI_Interaction close = Prog__CloseButton(S("TypesClose"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesPopupClose, 0, 0, close.clickOrder);
             Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
         }
@@ -6438,7 +6442,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
         for (u64 i = 0; i < state->filesCount; ++i) state->filesWidest = MaxF32(state->filesWidest, R_TextWidth(m->font, state->filesItems[i].file.name));
     }
     f32 pad = floorf(6.4f * s + 0.5f), fieldHeight = floorf(32.0f * s + 0.5f), pitch = floorf(25.6f * s + 0.5f), line = MaxF32(1, floorf(1.6f * s + 0.5f));
-    f32 radius = floorf(8.0f * s + 0.5f), button = floorf(28.0f * s + 0.5f), above = floorf(2.4f * s + 0.5f), iconSize = (f32)state->iconSize;
+    f32 radius = floorf(8.0f * s + 0.5f), above = floorf(2.4f * s + 0.5f), iconSize = (f32)state->iconSize;
     // Under its crumb; before the first layout has placed the crumb, under the top of the window.
     R_Rect anchor = state->filesAnchor;
     f32 x = anchor.x1 > anchor.x0 ? anchor.x0 : view.x0 + m->bar * 4, y = anchor.y1 > anchor.y0 ? anchor.y1 + floorf(2.4f * s + 0.5f) : view.y0 + m->bar * 2;
@@ -6477,7 +6481,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
                 }
                 Prog__EditContents(&state->filesSearch, 0, top, true, 0, m);
             }
-            UI_Interaction close = Prog__TextButton(S("FilesClose"), Icon_X, m->icons, UI_Pixels(button), fieldHeight, 0, theme->textDim, theme->text, theme->iconDisabled, true, m);
+            UI_Interaction close = Prog__CloseButton(S("FilesClose"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupClose, 0, 0, close.clickOrder);
             Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
         }
@@ -6732,8 +6736,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
             }
-            UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            UI_Interaction close = Prog__CloseButton(S("PaletteCloseButton"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -7131,7 +7134,7 @@ function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
                 Prog__Spacer(UI_Pixels(lead), UI_Pixels(row));
                 Prog__Label(i == count ? S("Restore all") : Prog_NoticeKindName(frame, state->mutedNotices.v[i]), UI_Flex(), row, 0, ink, 0);
                 if (i < count) {
-                    UI_Interaction unmute = Prog__TextButton(StrFormat(frame, "Muted/%" PRIu64 "/Unmute", i), Icon_X, m->icons, UI_Pixels(slot), row, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+                    UI_Interaction unmute = Prog__CloseButton(StrFormat(frame, "Muted/%" PRIu64 "/Unmute", i), m);
                     if (unmute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeUnmute, i, 0, unmute.clickOrder);
                     Prog__PopupTooltip(state, S("Remove from the muted ones, which shows it again."));
                 }
@@ -7759,8 +7762,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(field));
             Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(field));
-            UI_Interaction close = Prog__TextButton(S("PaletteCloseButton"), Icon_X, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
-                                                    theme->icon, theme->text, theme->iconDisabled, true, m);
+            UI_Interaction close = Prog__CloseButton(S("PaletteCloseButton"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -8014,8 +8016,7 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
                                                        theme->icon, theme->text, theme->iconDisabled, true, m);
                 if (copy.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeCopy, notice->id, 0, copy.clickOrder);
                 Prog__PopupTooltip(state, S("Copy the message."));
-                UI_Interaction close = Prog__TextButton(StrFormat(frame, "NoticeClose/%" PRIu64, notice->id), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
-                                                        theme->icon, theme->text, theme->iconDisabled, true, m);
+                UI_Interaction close = Prog__CloseButton(StrFormat(frame, "NoticeClose/%" PRIu64, notice->id), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeClose, notice->id, 0, close.clickOrder);
             }
             for (u32 l = 0; l < lineCount; ++l) {
