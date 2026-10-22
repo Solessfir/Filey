@@ -2897,8 +2897,12 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
     UI_SetNextPrefWidth(UI_Percent(1));
     UI_SetNextPrefHeight(UI_Pixels(1));
+    // A box given its width in pixels, as the rename box growing with its text is, has this frame's width to go by rather than the last's,
+    // which would scroll the text for a frame as each letter widens it.
+    UI_Block *box = UI->parent;
     UI_Block *across = UI_AddBlockFromKey(UI_KeyFromStr(1, StrFormat(UI->frameArena, "EditBox/%p", (const void *)edit)), UI_Flag_Floating);
-    f32 room = across->rect.x1 - across->rect.x0 - x - MaxF32(x, Prog__CaretWidth(m)), scroll = 0;
+    f32 boxWidth = box->props.width.kind == UI_SizeKind_Pixels ? box->props.width.value : across->rect.x1 - across->rect.x0;
+    f32 room = boxWidth - x - MaxF32(x, Prog__CaretWidth(m)), scroll = 0;
     if (room > 0) {
         f32 caretAt = R_TextWidth(m->font, StrMake(text.value, edit->cursor));
         scroll = Prog__EditScroll(edit);
@@ -2991,7 +2995,13 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, b32 icons, const
         UI_SetNextChildrenPadding((UI_Padding){ m->gap - pad, 0, m->gap, 0 });
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
     }
-    UI_Block *cell = UI_AddBlock(icons ? 0 : UI_Flag_Clip);
+    UI_Block *cell = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameCell")), icons ? 0 : UI_Flag_Clip);
+    // In a row, the box grows with its text as far as the cell goes, the name column's or, in the list view, the last layout's, and its text
+    // scrolls past that.
+    if (!icons) {
+        f32 cellWidth = width.kind == UI_SizeKind_Pixels ? width.value : cell->rect.x1 - cell->rect.x0;
+        if (cellWidth > 0) boxWidth = MaxF32(0, MinF32(boxWidth, cellWidth - (m->gap - pad) - m->gap));
+    }
     UI_Parent(cell) {
         UI_SetNextPrefWidth(UI_Pixels(boxWidth));
         UI_SetNextPrefHeight(UI_Pixels(height));
