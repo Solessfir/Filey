@@ -952,6 +952,19 @@ typedef struct Prog__GoToLook {
     u32 *foundCount;            // per block
 } Prog__GoToLook;
 
+// Whether `name` holds each of the words of `text`, apart from case.
+function b32 Prog__HoldsWords(String name, String text)
+{
+    for (u64 at = 0; at < text.length;) {
+        while (at < text.length && text.value[at] == ' ') ++at;
+        u64 end = at;
+        while (end < text.length && text.value[end] != ' ') ++end;
+        if (end > at && !Prog__ContainsFolded(name, StrFromTo(text, at, (i64)end))) return false;
+        at = end;
+    }
+    return true;
+}
+
 // Whether the index's `entry` is inside a hidden folder, a name starting with "." counting as hidden.
 function b32 Prog__GoToHidden(const Prog_Index *index, u32 entry)
 {
@@ -980,6 +993,9 @@ function void Prog__GoToBlock(Prog__GoToLook *look, u64 block)
             lastParent = parent;
             inside = Prog__GoToNearby(look->state, index, parent);
         }
+        // Beyond the folders close at hand only folders are found, and only by a name holding each word typed whole, so that the rest of
+        // the drive's files and letters scattered through long names do not crowd out what is near.
+        if (!inside && ((index->flags[entry] & Prog_IndexFlag_File) || !Prog__HoldsWords(name, look->text))) continue;
         i32 nameScore = Prog_FuzzyScore(name, (String){0}, look->text, NULL, NULL);
         if (nameScore <= 0 && !inside) continue;
         // A name that cannot get past the floor with the best path there is does not have its path looked at.
