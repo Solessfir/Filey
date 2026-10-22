@@ -5295,6 +5295,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_SetNextPrefWidth(UI_Pixels(bandWidth));
             UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
             UI_SetNextChildrenPadding((UI_Padding){ pad - fieldInset, 0, pad - fieldInset, 0 });
             UI_SetNextCornerRadius(MaxF32(0, radius - fieldInset));
             UI_SetNextShape(R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight | (border->shape & (R_Shape_SquareTopLeft | R_Shape_SquareTopRight)));
@@ -5316,9 +5317,10 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     }
                     Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, 0, m);
                 }
-                // A button at its end closes the menu.
+                // A button at its end closes the menu, in the middle of the field's height and as far from its end as from its top.
                 UI_Interaction close = Prog__CloseButton(S("MenuSearchClose"), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_ContextMenuClose, 0, 0, close.clickOrder);
+                Prog__Spacer(UI_Pixels(MaxF32(0, floorf((fieldHeight - Prog__ToolbarButtonHeight(m)) * 0.5f) - (pad - fieldInset))), UI_Pixels(fieldHeight));
             }
             UI_SetNextFloatingOffset((UI_Vec2){ bandX, bandY + fieldHeight });
             UI_SetNextPrefWidth(UI_Pixels(bandWidth));
