@@ -473,6 +473,8 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_Notify(&muted, Prog_NoticeKind_Error, S("move.failed"), S("Move failed"), S("Access is denied."));
         Check(muted.noticeCount == 1 && StrIsEqual(StrMake((const char *)muted.notices[0].key, muted.notices[0].keyLength), S("move.failed")));
         Check(StrIsEqual(Prog__NoticeKey(&muted.frameArena, S("Paste shortcut")), S("pasteshortcut.failed")));
+        Check(StrIsEqual(Prog_NoticeKindName(&muted.frameArena, S("rename.failed")), S("Rename failed")) && StrIsEqual(Prog_NoticeKindName(&muted.frameArena, S("undo.nothing")), S("Nothing to undo or redo")));
+        Check(StrIsEqual(Prog_NoticeKindName(&muted.frameArena, S("custom")), S("custom")));
         ArenaRelease(&muted.frameArena);
         ArenaRelease(&muted.mutedArena);
         ArenaRelease(&noticed.frameArena);

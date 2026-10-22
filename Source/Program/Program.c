@@ -785,7 +785,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
     [Prog_Option_Notices] = { SInit("Notifications"), SInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
-    [Prog_Option_MutedNotices] = { SInit("Muted Notifications"), SInit("Kinds of notice muted with their bell, in MutedNotices.conf; Restore shows them again."),
+    [Prog_Option_MutedNotices] = { SInit("Muted Notifications"), SInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
                                    Prog_OptionControl_Muted, 0, 0, NULL, 0, {0} },
     [Prog_Option_StoreRecents] = { SInit("Store Recents"), SInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
@@ -6121,17 +6121,27 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerOpen, (u64)option, 0, interaction.clickOrder);
         } break;
         case Prog_OptionControl_Muted: {
-            // How many kinds are muted, and a button that shows them again.
+            // How many kinds are muted, on a button like a choice's that opens the dropdown of them.
             u64 count = state->mutedNotices.header.count;
-            Prog__Label(count ? StrFormat(frame, "%" PRIu64 " muted", count) : S("None muted"), UI_TextContent(), height, 0, theme->textDim, 0);
-            Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(height));
-            UI_Interaction restore = Prog__TextButton(S("OptionMutedRestore"), S("Restore"), NULL, UI_TextContent(), height, floorf(8.0f * s + 0.5f), theme->text, theme->textHeading,
-                                                      theme->iconDisabled, count != 0, m);
-            if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticesUnmuteAll, 0, 0, restore.clickOrder);
-            // Filled as the choices' buttons are.
-            UI->parent->last->props.colors.background = theme->track;
-            UI->parent->last->props.cornerRadius = radius;
-            UI->parent->last->flags |= UI_Flag_DrawBackground;
+            UI_Key key = UI_KeyFromStr(0, S("OptionMuted"));
+            b32 hot = UI->hotKey == key && count, open = state->mutedOpen;
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(height));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextBorderThickness(line);
+            UI_SetNextColors((UI_Colors){ .background = open ? theme->selection : theme->track, .border = open ? theme->selection : hot ? theme->textDim : theme->outline });
+            UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | (count ? UI_Flag_LeftMouseClickable : 0));
+            UI_Interaction interaction = UI_InteractionFromBlock(button);
+            if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_MutedNoticesOpen, 0, 0, interaction.clickOrder);
+            UI_Parent(button) {
+                f32 chevron = floorf(20.8f * s + 0.5f);
+                R_Color ink = open ? theme->contentSelection : count ? theme->text : theme->textDim;
+                Prog__Spacer(UI_Pixels(count ? chevron : 0), UI_Pixels(height));
+                Prog__Label(count ? StrFormat(frame, "%" PRIu64 " muted", count) : S("None"), UI_Flex(), height, 0, ink, 0.5f);
+                if (count) Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
+            }
         } break;
         case Prog_OptionControl_Font: {
             // The family's name, which a click lets be chosen from the installed ones.
@@ -7061,6 +7071,70 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
                     if (current) Prog__Icon(Icon_Check, floorf(24.0f * s + 0.5f), face, ink, 0.5f, m);
                 }
                 if (i + 1 < first + shown) Prog__Spacer(UI_Flex(), UI_Pixels(line));
+            }
+        }
+    }
+}
+
+// The dropdown of the muted kinds of notice under their option: each by its name with a button that shows it again, then one that shows
+// them all again.
+function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->mutedOpen) return;
+    Arena *frame = &state->frameArena;
+    UI_Block *button = UI__Find(UI_KeyFromStr(0, S("OptionMuted")));
+    u64 count = state->mutedNotices.header.count;
+    if (!button || button->rect.x1 <= button->rect.x0 || !count) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    f32 s = m->scale, row = floorf(25.6f * s + 0.5f), pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f));
+    f32 slot = floorf(24.8f * s + 0.5f), lead = floorf(14.4f * s + 0.5f) - inset, radius = floorf(6.4f * s + 0.5f);
+    f32 width = floorf(240.0f * s + 0.5f);
+    for (u64 i = 0; i < count; ++i) width = MaxF32(width, 2 * inset + lead + R_TextWidth(m->font, Prog_NoticeKindName(frame, state->mutedNotices.v[i])) + slot + inset);
+    f32 height = 2 * pad + (f32)(count + 1) * row + line;
+    f32 x = MinF32(button->rect.x0 - view.x0, view.x1 - view.x0 - width), y = button->rect.y1 - view.y0 + floorf(0.8f * s + 0.5f);
+    if (y + height > view.y1 - view.y0) y = MaxF32(0, button->rect.y0 - view.y0 - floorf(0.8f * s + 0.5f) - height);
+    // A press anywhere else closes it.
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("MutedCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_MutedNoticesOpen, 0, 0, outside.pressOrder);
+    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ inset, pad, inset, pad });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(line);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Muted")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        for (u64 i = 0; i <= count; ++i) {
+            // A line before the last row, which shows them all again.
+            if (i == count) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+            // A kind is shown again by its x alone; the last row, which shows them all again, as a whole.
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Muted/%" PRIu64, i));
+            b32 all = i == count, lit = all && UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(row));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+            UI_SetNextColors((UI_Colors){ .background = theme->selection });
+            UI_Block *entry = UI_AddBlockFromKey(key, (all ? UI_Flag_LeftMouseClickable : 0) | (lit ? UI_Flag_DrawBackground : 0));
+            UI_Interaction interaction = UI_InteractionFromBlock(entry);
+            if (all && interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticesUnmuteAll, 0, 0, interaction.clickOrder);
+            UI_Parent(entry) {
+                R_Color ink = lit ? theme->contentSelection : theme->text;
+                Prog__Spacer(UI_Pixels(lead), UI_Pixels(row));
+                Prog__Label(i == count ? S("Restore all") : Prog_NoticeKindName(frame, state->mutedNotices.v[i]), UI_Flex(), row, 0, ink, 0);
+                if (i < count) {
+                    UI_Interaction unmute = Prog__TextButton(StrFormat(frame, "Muted/%" PRIu64 "/Unmute", i), Icon_X, m->icons, UI_Pixels(slot), row, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+                    if (unmute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeUnmute, i, 0, unmute.clickOrder);
+                    Prog__PopupTooltip(state, S("Remove from the muted ones, which shows it again."));
+                }
             }
         }
     }
@@ -10058,6 +10132,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
     Prog__SchemesDropdown(state, m);
+    Prog__MutedDropdown(state, m);
     Prog__BranchesDropdown(state, m);
     Prog__HotkeyQuestion(state, m);
     Prog__Tooltip(state, m);

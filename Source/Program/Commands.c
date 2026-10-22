@@ -3095,6 +3095,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_NoticesUnmuteAll: {
                 Prog__SetList(&state->mutedArena, &state->mutedNotices, NULL, 0);
                 Prog__SaveList(state, Prog_MutedNoticesFile, state->mutedNotices);
+                state->mutedOpen = false;
+            } break;
+            case Prog_CommandKind_MutedNoticesOpen: state->mutedOpen = !state->mutedOpen && state->mutedNotices.header.count; break;
+            case Prog_CommandKind_NoticeUnmute: {
+                u64 count = state->mutedNotices.header.count;
+                if (command->row >= count) break;
+                String *names = ArenaPushArray(&state->frameArena, count, String);
+                u64 kept = 0;
+                for (u64 i = 0; i < count; ++i) if (i != command->row) names[kept++] = state->mutedNotices.v[i];
+                Prog__SetList(&state->mutedArena, &state->mutedNotices, names, kept);
+                Prog__SaveList(state, Prog_MutedNoticesFile, state->mutedNotices);
+                // The last one shown again closes it.
+                if (!kept) state->mutedOpen = false;
             } break;
             case Prog_CommandKind_NoticeCopy:
             case Prog_CommandKind_NoticeClose: {
@@ -3457,7 +3470,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     if (desc->control == Prog_OptionControl_Font) Prog__OpenFontPicker(state, option);
                     if (desc->control == Prog_OptionControl_Expand) state->colorsExpanded = !state->colorsExpanded;
                     if (desc->control == Prog_OptionControl_Color) Prog__OpenColorPicker(state, option);
-                    if (desc->control == Prog_OptionControl_Muted) Prog_QueueCommand(state, Prog_CommandKind_NoticesUnmuteAll, 0, 0, UINT64_MAX);
+                    if (desc->control == Prog_OptionControl_Muted) Prog_QueueCommand(state, Prog_CommandKind_MutedNoticesOpen, 0, 0, UINT64_MAX);
                     u32 choices = 0;
                     Prog_OptionChoices(state, option, &state->frameArena, &choices);
                     // A scheme opens the schemes' dropdown.
@@ -3807,7 +3820,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->bookmarkDrop = state->bookmarkDropShown;
     P_SetDropTakesFolders(state->bookmarkDrop != 0);
     // The schemes' dropdown goes with the Options it opened from.
-    if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0;
+    if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0, state->mutedOpen = false;
     Prog_SubmitIconRequests(state);
     // Each panel's shown tab previews its own item, or its folder's list's while the keyboard is in that list.
     for (u32 i = 0; i < state->panelCount; ++i) {
@@ -3966,6 +3979,11 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         // Filey Setup takes the keyboard while it shows, and Escape goes back to the panels.
         if (state->setupOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
             if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_SetupBack, 0, 0, order);
+            continue;
+        }
+        // The muted notices' dropdown closes with Escape, and keeps the rest of the keyboard from Options while open.
+        if (state->mutedOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) state->mutedOpen = false;
             continue;
         }
         // The schemes' dropdown takes the keyboard: Up and Down move its highlight, Enter shows that scheme and Escape closes it.

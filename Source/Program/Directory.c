@@ -2395,6 +2395,18 @@ function String Prog__NoticeKey(Arena *arena, String verb)
     return key.buffer;
 }
 
+// A kind of notice as Options lists it: "rename.failed" as "Rename failed", the rest by their own names.
+function String Prog_NoticeKindName(Arena *arena, String key)
+{
+    if (StrIsEqual(key, S("undo.nothing"))) return S("Nothing to undo or redo");
+    if (StrIsEqual(key, S("pasteshortcut.failed"))) return S("Paste shortcut failed");
+    Index dot = StrIndexChar(key, '.', SSF_None);
+    if (!dot.exists || !StrIsEqual(StrFrom(key, dot.value), S(".failed")) || !dot.value) return key;
+    String name = StrFormat(arena, "%S failed", StrFromTo(key, 0, (i64)dot.value));
+    if (name.value[0] >= 'a' && name.value[0] <= 'z') ((char *)name.value)[0] = (char)(name.value[0] - 32);
+    return name;
+}
+
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message)
 {
     // Those below the kinds the settings show are not shown, nor a kind muted.

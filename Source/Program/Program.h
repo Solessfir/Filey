@@ -1662,6 +1662,7 @@ typedef struct Prog_State {
     Prog_Notice notices[Prog_MaxNotices];  // oldest first
     Arena mutedArena;
     ArrayStr mutedNotices;  // the kinds of notice not shown, from MutedNotices.conf
+    b32 mutedOpen;          // the dropdown of them under their option
     u32 noticeCount;
     u64 noticeIds;
     P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
@@ -1787,6 +1788,7 @@ function u32 Prog_ChoiceAt(Prog_Option option, u32 place);
 function void Prog_CheckRecents(Prog_State *state);
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message);
 function String Prog__NoticeKey(Arena *arena, String verb);
+function String Prog_NoticeKindName(Arena *arena, String key);
 function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now);
 function void Prog_ToggleBranches(Prog_State *state);
 function void Prog_SwitchBranch(Prog_State *state, String branch);
