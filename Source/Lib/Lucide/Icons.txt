@@ -42,7 +42,6 @@ copy
 terminal
 palette
 blend
-trash-2
 star
 arrow-down-a-z
 layout-panel-left

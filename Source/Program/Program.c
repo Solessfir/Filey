@@ -4312,7 +4312,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextCornerRadius(m->radius);
             UI_SetNextFont(m->icons);
             UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = removeHot ? theme->text : theme->icon });
-            // An x, as what removes something from a list does elsewhere; the bin's icon is for deleting.
+            // An x, as everything that removes or deletes something from a list has.
             UI_SetNextText(Icon_X);
             UI_Block *remove = UI_AddBlockFromKey(removeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (removeHot ? UI_Flag_DrawBackground : 0));
             UI_Interaction removing = UI_InteractionFromBlock(remove);
@@ -6777,7 +6777,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
                     UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
                     UI_Parent(texts) Prog__MarkedText(name, marks, m->font, m->line, theme->text);
                     if (highlighted || hot) {
-                        UI_Interaction drop = Prog__TextButton(StrFormat(&state->frameArena, "LayoutDelete/%S", name), Icon_Trash2, m->icons, UI_Pixels(floorf(24.0f * s + 0.5f)), face, 0,
+                        UI_Interaction drop = Prog__TextButton(StrFormat(&state->frameArena, "LayoutDelete/%S", name), Icon_X, m->icons, UI_Pixels(floorf(24.0f * s + 0.5f)), face, 0,
                                                                theme->text, theme->text, theme->iconDisabled, true, m);
                         if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutDelete, i, 0, drop.clickOrder);
                         Prog__PopupTooltip(state, S("Delete layout."));
@@ -7250,7 +7250,7 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
                         if (fork.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeFork, i, 0, fork.clickOrder);
                         Prog__PopupTooltip(state, S("Create an editable copy of this color scheme."));
                         if (i >= Prog_BuiltInSchemes) {
-                            UI_Interaction drop = Prog__TextButton(StrFormat(frame, "Scheme/%u/Delete", i), Icon_Trash2, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
+                            UI_Interaction drop = Prog__TextButton(StrFormat(frame, "Scheme/%u/Delete", i), Icon_X, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
                             if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeDelete, i, 0, drop.clickOrder);
                             Prog__PopupTooltip(state, S("Delete color scheme."));
                         }
