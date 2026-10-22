@@ -483,6 +483,12 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Prog_AddLanguageText(S("# comment\nOpen\n= Ouvrir\n\n%u muted\n= %S muet\nEmpty\n= \nDone\n= Fini\n"));
             Check(StrIsEqual(Tr("Open"), S("Ouvrir")) && StrIsEqual(Tr("Done"), S("Fini")) && StrIsEqual(Tr("Empty"), S("Empty")));
             Check(!strcmp(TrF("%u muted"), "%u muted"));
+            // Counted texts take the form for their count, English's without a translation, and a line break is written as one.
+            Check(!strcmp(TrN(1, "%u file", "%u files"), "%u file") && !strcmp(TrN(2, "%u file", "%u files"), "%u files"));
+            Prog_AddLanguageText(S("%u files\n= %u f1 | %u f2 | %u f5\n%u rows\n= %u r1 | %S r2\nTwo\\nlines\n= Deux\\nlignes\n"));
+            Check(!strcmp(TrN(1, "%u file", "%u files"), "%u f1") && !strcmp(TrN(22, "%u file", "%u files"), "%u f2") && !strcmp(TrN(12, "%u file", "%u files"), "%u f5"));
+            Check(!strcmp(TrN(21, "%u file", "%u files"), "%u f1") && !strcmp(TrN(3, "%u row", "%u rows"), "%u rows"));
+            Check(StrIsEqual(Tr("Two\nlines"), S("Deux\nlignes")));
             Prog_UseLanguage(&quiet, (String){0});
             Check(StrIsEqual(Tr("Open"), S("Open")));
             Check(Prog_LanguageIsCustom(S("Mine")) && !Prog_LanguageIsCustom(S("english")) && !Prog_LanguageIsCustom((String){0}) && !Prog_LanguageIsCustom(S("Русский")));

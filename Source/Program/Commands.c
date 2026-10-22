@@ -11,7 +11,7 @@ function String Prog__CommandText(Prog_CommandKind kind, u32 which)
     if (kind >= Prog_CommandKind_Count) return (String){0};
     String *text = &Prog__CommandTexts[kind][which];
     if (!text->value) {
-        String source = which ? Prog_Commands[kind].tooltip : Prog_Commands[kind].label, bin = P_TrashName();
+        String source = Prog_Tr(which ? Prog_Commands[kind].tooltip : Prog_Commands[kind].label), bin = P_TrashName();
         Index at = StrIndexStr(source, S("Recycle Bin"), SSF_None);
         *text = !at.exists || StrIsEqual(bin, S("Recycle Bin")) ? source
               : StrFormat(&Prog__CommandTextArena, "%S%S%S", StrFromTo(source, 0, (i64)at.value), bin, StrFrom(source, at.value + S("Recycle Bin").length));
@@ -647,10 +647,10 @@ function u32 Prog_HotkeyChips(Arena *arena, const Prog_State *state, Prog_Comman
         String text = Prog_HotkeyString(arena, hotkeys[i], false);
         if (!text.length) continue;
         b32 here = recording && state->hotkeySlot == i;
-        out[count++] = (Prog_HotkeyChip){ .text = here ? S("Press A Key") : text, .slot = (u8)i, .recording = (b8)here,
+        out[count++] = (Prog_HotkeyChip){ .text = here ? Tr("Press A Key") : text, .slot = (u8)i, .recording = (b8)here,
                                           .idle = (b8)(!here && Prog_HotkeyIdle(state, hotkeys[i])), .conflict = (b8)(!here && Prog_HotkeyConflicts(state, hotkeys[i])) };
     }
-    if (recording && state->hotkeySlot >= found && count < max) out[count++] = (Prog_HotkeyChip){ .text = S("Press A Key"), .slot = state->hotkeySlot, .recording = true, .adds = true };
+    if (recording && state->hotkeySlot >= found && count < max) out[count++] = (Prog_HotkeyChip){ .text = Tr("Press A Key"), .slot = state->hotkeySlot, .recording = true, .adds = true };
     return count;
 }
 
@@ -867,7 +867,9 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
             if (state->paletteQuick || (state->paletteExpanded & (1u << group))) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
-        i32 score = Prog_FuzzyScore(Prog_CommandLabel((Prog_CommandKind)item), Prog_CommandTooltip((Prog_CommandKind)item), text, NULL, NULL);
+        // The English label, tooltip and aliases find a command in any language.
+        i32 score = Max(Prog_FuzzyScore(Prog_CommandLabel((Prog_CommandKind)item), Prog_CommandTooltip((Prog_CommandKind)item), text, NULL, NULL),
+                        Prog_FuzzyScore(Prog_Commands[item].label, Prog_Commands[item].tooltip, text, NULL, NULL));
         if (score <= 0) {
             if (!Prog_FilterMatch(Prog_Commands[item].aliases, text, NULL)) continue;
             score = INT32_MIN;
@@ -1339,7 +1341,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_TabShiftRight, .icon = Icon_ChevronsRight, .disabled = !Prog_CommandAvailable(state, Prog_CommandKind_TabShiftRight));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabDuplicate, .icon = Icon_Copy);
-            Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow, .label = S("Duplicate Tab To New Window"));
+            Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow, .label = Tr("Duplicate Tab To New Window"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
             u16 closers[] = { Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs, Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll };
@@ -1384,21 +1386,21 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             u64 at = command->row;
             // Name stays first and cannot be closed, and the last column has nowhere to go right.
             b32 name = at < set.count && set.kinds[at] == Prog_ColumnKind_Name;
-            Prog__Item(.kind = Prog_CommandKind_ColumnShiftLeft, .row = at, .label = S("Shift Column Left"), .icon = Icon_ChevronsLeft);
-            Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = S("Shift Column Right"), .icon = Icon_ChevronsRight, .disabled = (b8)(name || at + 1 >= set.count));
-            Prog__Item(.kind = Prog_CommandKind_ColumnFit, .row = at, .label = S("Size Column To Fit"), .icon = Icon_MoveHorizontal);
-            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = S("Close Column"), .icon = Icon_X, .disabled = (b8)name, .mouse = S("MouseMiddle"));
+            Prog__Item(.kind = Prog_CommandKind_ColumnShiftLeft, .row = at, .label = Tr("Shift Column Left"), .icon = Icon_ChevronsLeft);
+            Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = Tr("Shift Column Right"), .icon = Icon_ChevronsRight, .disabled = (b8)(name || at + 1 >= set.count));
+            Prog__Item(.kind = Prog_CommandKind_ColumnFit, .row = at, .label = Tr("Size Column To Fit"), .icon = Icon_MoveHorizontal);
+            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = Tr("Close Column"), .icon = Icon_X, .disabled = (b8)name, .mouse = S("MouseMiddle"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_SizeAllColumnsToFit, .icon = Icon_MoveHorizontal);
-            Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = S("Restore Default Columns"), .icon = Icon_RotateCcw);
+            Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = Tr("Restore Default Columns"), .icon = Icon_RotateCcw);
             Prog__Item(.kind = Prog_CommandKind_None);
             local_persist const String names[Prog_FolderColumnKinds] = {
-                SInit("Name"), SInit("Type"), SInit("Size"), SInit("Total Items"), SInit("Date Created"), SInit("Date Modified"), SInit("Date Accessed"), SInit("Volume Usage"), SInit("Folder Usage"), SInit("Git"),
+                TrInit("Name"), TrInit("Type"), TrInit("Size"), TrInit("Total Items"), TrInit("Date Created"), TrInit("Date Modified"), TrInit("Date Accessed"), TrInit("Volume Usage"), TrInit("Folder Usage"), TrInit("Git"),
             };
             for (u32 kind = 0; kind < Prog_FolderColumnKinds; ++kind) {
                 b32 shown = false;
                 for (u32 i = 0; i < set.count; ++i) shown |= set.kinds[i] == kind;
-                Prog__Item(.kind = Prog_CommandKind_ColumnToggle, .row = kind, .label = names[kind], .toggle = true, .checked = shown, .disabled = kind == Prog_ColumnKind_Name);
+                Prog__Item(.kind = Prog_CommandKind_ColumnToggle, .row = kind, .label = Prog_Tr(names[kind]), .toggle = true, .checked = shown, .disabled = kind == Prog_ColumnKind_Name);
             }
         } break;
         default: break;
@@ -1444,11 +1446,11 @@ function void Prog__MenuAddArchive(Prog_State *state)
     P_MenuItem children[4];
     u32 childCount = 0;
     if (archive) {
-        children[childCount++] = (P_MenuItem){ .label = S("Extract Here"), .action = P_MenuAction_ExtractHere };
-        children[childCount++] = (P_MenuItem){ .label = StrFormat(arena, "Extract to \"%S\"", Prog__NameStem(first->file.name)), .action = P_MenuAction_ExtractToFolder };
+        children[childCount++] = (P_MenuItem){ .label = Tr("Extract Here"), .action = P_MenuAction_ExtractHere };
+        children[childCount++] = (P_MenuItem){ .label = StrFormat(arena, TrF("Extract to \"%S\""), Prog__NameStem(first->file.name)), .action = P_MenuAction_ExtractToFolder };
     }
-    children[childCount++] = (P_MenuItem){ .label = StrFormat(arena, "Add to \"%S.zip\"", stem), .action = P_MenuAction_CompressZip };
-    children[childCount++] = (P_MenuItem){ .label = StrFormat(arena, "Add to \"%S.7z\"", stem), .action = P_MenuAction_Compress7z };
+    children[childCount++] = (P_MenuItem){ .label = StrFormat(arena, TrF("Add to \"%S.zip\""), stem), .action = P_MenuAction_CompressZip };
+    children[childCount++] = (P_MenuItem){ .label = StrFormat(arena, TrF("Add to \"%S.7z\""), stem), .action = P_MenuAction_Compress7z };
     // At the end of the top level, but before the system's Properties.
     u32 at = state->menu.rootCount;
     if (at && StrIsEqual(state->menu.items[at - 1].verb, S("properties"))) --at;
@@ -1459,7 +1461,7 @@ function void Prog__MenuAddArchive(Prog_State *state)
         items[j] = state->menu.items[i];
         if (items[j].childCount) items[j].firstChild += 1;
     }
-    items[at] = (P_MenuItem){ .label = S("Archive"), .firstChild = state->menu.count + 1, .childCount = childCount };
+    items[at] = (P_MenuItem){ .label = Tr("Archive"), .firstChild = state->menu.count + 1, .childCount = childCount };
     for (u32 i = 0; i < childCount; ++i) items[state->menu.count + 1 + i] = children[i];
     state->menu.items = items;
     state->menu.count = count;
@@ -1500,8 +1502,8 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     b32 restores = false;
     for (u32 i = 0; i < state->menu.rootCount; ++i) restores |= StrIsEqual(state->menu.items[i].verb, S("undelete"));
     if (P_IsTrashFolder(state->directory.path) && !restores && (state->menuRowCount || state->directory.count)) {
-        Prog__MenuPrepend(state, state->menuRowCount ? (P_MenuItem){ .label = S("Restore"), .action = P_MenuAction_Restore }
-                                                     : (P_MenuItem){ .label = S("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
+        Prog__MenuPrepend(state, state->menuRowCount ? (P_MenuItem){ .label = Tr("Restore"), .action = P_MenuAction_Restore }
+                                                     : (P_MenuItem){ .label = Tr("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
     }
     Prog__MenuAddArchive(state);
     // A menu left with nothing in it, as an empty bin's background is, does not open.
@@ -1977,7 +1979,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         state->createdRenames = owner != UINT32_MAX && StrIsEqual(state->menu.items[owner].verb, S("new"));
         P_FileError error = P_ContextMenuInvoke(&state->frameArena, &state->menu, item.id);
         ArenaClear(&state->errorArena);
-        if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("menu.failed"), StrFormat(&state->frameArena, "%S failed", item.label), error.message);
+        if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("menu.failed"), StrFormat(&state->frameArena, TrF("%S failed"), item.label), error.message);
         // The watch would catch the change too; reloading now shows it without waiting.
         Prog_Reload(state);
         // The bin has no watch, and the shell moves its items on after the command returns, so a job waits for them to leave it.
@@ -2093,7 +2095,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     if (!want.length) return;
     // A file only in the cloud is not read, which would download it; opening it does.
     if (online && !folder) {
-        state->previewText = StrCopy(&state->previewArena, S("This file is only in the cloud. Open it to download it, and preview it after."));
+        state->previewText = StrCopy(&state->previewArena, Tr("This file is only in the cloud. Open it to download it, and preview it after."));
         return;
     }
     if (folder || archive) Prog_ListInInspector(state, want);
@@ -2518,7 +2520,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_CreateFolder:
         case Prog_CommandKind_CreateFile: {
             b32 folder = kind == Prog_CommandKind_CreateFolder;
-            Prog__FileJob(state, Prog_JobKind_Create, NULL, 0, state->directory.path, folder, folder ? S("New folder") : S("New file"));
+            Prog__FileJob(state, Prog_JobKind_Create, NULL, 0, state->directory.path, folder, folder ? Tr("New folder") : Tr("New file"));
         } break;
         default: InvalidPath;
     }
@@ -2681,7 +2683,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             ArrayStr folders = Prog__OpenFolders(state, &state->frameArena);
             for (u64 i = 0; i < folders.header.count && !error.code; ++i) error = Prog_OpenWindow(state, folders.v[i], (String){0});
             if (error.code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), S("Couldn't open a new window"), error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), Tr("Couldn't open a new window"), error.message);
             }
         } break;
             case Prog_CommandKind_OpenInRightSplit:
@@ -2991,7 +2993,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 // The bin's menu starts with emptying it, while it holds anything.
                 if (P_IsTrashFolder(path) && P_TrashHasItems()) {
-                    Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, "Empty %S", Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
+                    Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, TrF("Empty %S"), Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
                 Prog__ApplyMenuPins(state);
                 // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled,
@@ -3191,7 +3193,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 b32 install = command->kind == Prog_CommandKind_SetupInstall;
                 P_FileError error = install ? P_InstallApply(&state->frameArena, state->setupDesktop, state->setupOnPath, state->setupDefault) : P_Uninstall(&state->frameArena);
                 if (error.code) {
-                    Prog_Notify(state, Prog_NoticeKind_Error, install ? S("install.failed") : S("uninstall.failed"), install ? S("Install failed") : S("Uninstall failed"), error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, install ? S("install.failed") : S("uninstall.failed"), install ? Tr("Install failed") : Tr("Uninstall failed"), error.message);
                 }
                 Prog__ReadSetup(state);
             } break;
@@ -3297,7 +3299,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                                         FILEY_VERSION, system, details.length ? StrFormat(frame, "```\n%S\n```\n\n", details) : attach);
                 String url = StrFormat(frame, "%s?title=%S&body=%S", Prog_IssuesUrl, Prog_UrlEncode(frame, S("Crash: ")), Prog_UrlEncode(frame, body));
                 P_FileError error = P_OpenUrl(frame, url);
-                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("crash.open"), S("Couldn't open the issue page"), error.message);
+                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("crash.open"), Tr("Couldn't open the issue page"), error.message);
                 // The report's folder in a new tab, the report selected, ready to be dragged onto the issue.
                 Prog_OpenTab(state, folder, state->activeTab + 1, true);
                 ArenaClear(&state->pickArena);
@@ -3335,7 +3337,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 // ponytail: chmod on the main thread, a quick call on local disks; a job if a slow network mount ever shows it.
                 if (!state->permissionsPath.length) break;
                 P_FileError error = P_SetMode(&state->frameArena, state->permissionsPath, (u16)command->target);
-                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("permissions.failed"), S("Couldn't change permissions"), error.message);
+                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("permissions.failed"), Tr("Couldn't change permissions"), error.message);
                 else Prog_Reload(state);
             } break;
             case Prog_CommandKind_OptionSliderEdit: {
@@ -3841,7 +3843,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ConsoleOpen: {
                 P_FileError error = state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC) ? P_OpenConsole(&state->frameArena, state->directory.path) : (P_FileError){0};
                 if (error.code) {
-                    Prog_Notify(state, Prog_NoticeKind_Error, S("console.failed"), S("Couldn't open the console"), error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, S("console.failed"), Tr("Couldn't open the console"), error.message);
                 }
             } break;
             case Prog_CommandKind_ToggleFullscreen: PlatformWindowToggleFullscreen(); break;
@@ -3851,7 +3853,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_NewWindow: {
                 P_FileError error = Prog_OpenWindow(state, Prog_TabPath(state, state->activeTab), Prog__TabTraits(state, state->activeTab));
                 if (error.code) {
-                    Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), S("Couldn't open a new window"), error.message);
+                    Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), Tr("Couldn't open a new window"), error.message);
                 }
             } break;
             case Prog_CommandKind_ToggleTransparency: Prog_SetOption(state, Prog_Option_Transparency, !state->transparent); break;

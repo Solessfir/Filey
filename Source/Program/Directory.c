@@ -2432,13 +2432,13 @@ function String Prog__NoticeKey(Arena *arena, String verb)
 // A kind of notice as Options lists it: "rename.failed" as "Rename failed", the rest by their own names.
 function String Prog_NoticeKindName(Arena *arena, String key)
 {
-    if (StrIsEqual(key, S("undo.nothing"))) return S("Nothing to undo or redo");
-    if (StrIsEqual(key, S("pasteshortcut.failed"))) return S("Paste shortcut failed");
+    if (StrIsEqual(key, S("undo.nothing"))) return Tr("Nothing to undo or redo");
+    if (StrIsEqual(key, S("pasteshortcut.failed"))) return Tr("Paste shortcut failed");
     Index dot = StrIndexChar(key, '.', SSF_None);
     if (!dot.exists || !StrIsEqual(StrFrom(key, dot.value), S(".failed")) || !dot.value) return key;
     String name = StrFormat(arena, "%S failed", StrFromTo(key, 0, (i64)dot.value));
     if (name.value[0] >= 'a' && name.value[0] <= 'z') ((char *)name.value)[0] = (char)(name.value[0] - 32);
-    return name;
+    return Prog_Tr(name);
 }
 
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, String title, String message);
@@ -3232,7 +3232,7 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
     // This PC is no folder to resolve.
     String absolute = StrIsEqual(path, Prog_ThisPC) ? path : P_AbsolutePath(&temporary, path);
     if (absolute.length) Prog_RequestDirectory(state, absolute, true, 0);
-    else state->error = S("Cannot resolve the initial directory");
+    else state->error = Tr("Cannot resolve the initial directory");
     ArenaRelease(&temporary);
     return true;
 }
@@ -3645,7 +3645,7 @@ function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop)
             if (PlatformOtherWindowAtPointer(StrFormat(&state->frameArena, "%S\t%S", path, traits))) break;
             P_FileError error = Prog_OpenWindow(state, path, traits);
             if (error.code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), S("Couldn't open a new window"), error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), Tr("Couldn't open a new window"), error.message);
                 return;
             }
         } break;
@@ -3734,7 +3734,7 @@ function void Prog__ReverseLast(Prog_State *state, b32 redo)
     state->error = (String){0};
     Prog_ArrayUndo *stack = redo ? &state->redo : &state->undo;
     if (!stack->header.count) {
-        Prog_Notify(state, Prog_NoticeKind_Info, S("undo.nothing"), redo ? S("Nothing to redo") : S("Nothing to undo"), (String){0});
+        Prog_Notify(state, Prog_NoticeKind_Info, S("undo.nothing"), redo ? Tr("Nothing to redo") : Tr("Nothing to undo"), (String){0});
         return;
     }
     Prog_Undo undo = stack->v[--stack->header.count];
@@ -4375,7 +4375,7 @@ function void Prog_SetLayout(Prog_State *state, String name, String text, b32 re
     for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "layout %S\n%Send\n", names.v[i], texts.v[i]));
     P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_LayoutsFile), file.buffer);
     if (error.code) {
-        Prog_Notify(state, Prog_NoticeKind_Error, S("layouts.failed"), S("Couldn't save the layouts"), error.message);
+        Prog_Notify(state, Prog_NoticeKind_Error, S("layouts.failed"), Tr("Couldn't save the layouts"), error.message);
     }
     ReleaseScratch(scratch);
 }
@@ -5078,7 +5078,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             // Refused, nothing changed, and its message stays in the status bar, which a listing would clear; else the files change with
             // the branch, and the branch and its changes are asked again.
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("switch.failed"), StrFormat(&state->frameArena, "Couldn't switch to \"%S\"", input->name), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("switch.failed"), StrFormat(&state->frameArena, TrF("Couldn't switch to \"%S\""), input->name), error->message);
             } else {
                 Prog_RequestGitStatus(state, state->directory.path);
                 Prog_Reload(state);
@@ -5141,14 +5141,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             P_FileError *error = job->result;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("open.failed"), StrFormat(&state->frameArena, "Couldn't open \"%S\"", Prog__FolderName(input->path)), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("open.failed"), StrFormat(&state->frameArena, TrF("Couldn't open \"%S\""), Prog__FolderName(input->path)), error->message);
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_Rename) {
             P_FileError *error = job->result;
             changed = true;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("rename.failed"), StrFormat(&state->frameArena, "Couldn't rename \"%S\" to \"%S\"", input->name, input->newName), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("rename.failed"), StrFormat(&state->frameArena, TrF("Couldn't rename \"%S\" to \"%S\""), input->name, input->newName), error->message);
             } else {
                 String from = Prog_JoinPath(&state->frameArena, input->path, input->name), to = Prog_JoinPath(&state->frameArena, input->path, input->newName);
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
@@ -5184,7 +5184,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
-                Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), StrFormat(&state->frameArena, "%S failed", verb), error.message);
+                String failed = input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                              : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
+                              : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
+                Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
             } else if (created && StrIsEqual(state->directory.path, input->path)) {
                 // The new item is selected once the listing shows it, and a new file or folder renamed.
                 String name = ((Prog_Created *)job->result)->name;
@@ -5229,7 +5232,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_FileError *error = job->result;
             changed = true;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, input->redo ? S("redo.failed") : S("undo.failed"), input->redo ? S("Redo failed") : S("Undo failed"), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, input->redo ? S("redo.failed") : S("undo.failed"), input->redo ? Tr("Redo failed") : Tr("Undo failed"), error->message);
             } else if (input->undo.kind == Prog_UndoKind_Trash) {
                 // Back out of the bin, or into it again, which the other stack then reverses; what came back is selected where it shows.
                 const Prog_Undo *done = &input->undo;
@@ -5371,7 +5374,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Save) {
             P_FileError *error = job->result;
             if (error && error->code) {
-                Prog_Notify(state, Prog_NoticeKind_Error, S("save.failed"), StrFormat(&state->frameArena, "Couldn't save \"%S\"", Prog__FolderName(input->path)), error->message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("save.failed"), StrFormat(&state->frameArena, TrF("Couldn't save \"%S\""), Prog__FolderName(input->path)), error->message);
                 changed = true;
             }
             const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile, Prog_MenuHiddenFile,

@@ -8,9 +8,11 @@
 // build lists every one of them (Meta/Strings.meta.h) for new language files.
 function String Prog_Tr(String english);
 function const char *Prog_TrFormat(const char *english);
+function const char *Prog_TrPlural(u64 count, const char *one, const char *other);
 #define Tr(text) Prog_Tr(S(text))
 #define TrF(text) Prog_TrFormat(text)
 #define TrInit(text) SInit(text)
+#define TrN(count, one, other) Prog_TrPlural(count, one, other)
 
 // Where crashes are reported, a new issue of the project's.
 #define Prog_IssuesUrl "https://github.com/Solessfir/Filey/issues/new"

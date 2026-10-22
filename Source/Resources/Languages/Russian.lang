@@ -663,3 +663,1994 @@ Custom language ready
 
 Open %S in a text editor and write the translations; each save shows at once.
 = Откройте %S в текстовом редакторе и впишите переводы — каждое сохранение сразу видно.
+Couldn't save the color schemes
+= Не удалось сохранить цветовые схемы
+
+Panel Menu
+= Меню панели
+
+Main Menu
+= Главное меню
+
+History
+= История
+
+View
+= Вид
+
+This PC
+= Этот компьютер
+
+Folder view settings saved and applied.\nIcons, sort, folders first, list columns.
+= Настройки вида папки сохранены и применены.\nЗначки, сортировка, папки первыми, столбцы списка.
+
+No folder view settings saved.\nUsing panel's view settings.
+= Настройки вида папки не сохранены.\nИспользуются настройки вида панели.
+
+This path is bookmarked.
+= Этот путь в закладках.
+
+This path is not bookmarked.
+= Этого пути нет в закладках.
+
+Switch branch.
+= Переключить ветку.
+
+Name
+= Имя
+
+Type
+= Тип
+
+Date Modified
+= Дата изменения
+
+Folders
+= Папки
+
+Files
+= Файлы
+
+Size
+= Размер
+
+Date Created
+= Дата создания
+
+Date Accessed
+= Дата доступа
+
+Folder Usage
+= Доля папки
+
+Volume Usage
+= Доля диска
+
+All items are currently hidden by view settings.
+= Все элементы сейчас скрыты настройками вида.
+
+This folder is empty.
+= Эта папка пуста.
+
+Loading %S...
+= Загрузка %S...
+
+Folders first, then files.
+= Сначала папки, затем файлы.
+
+Files first, then folders.
+= Сначала файлы, затем папки.
+
+Folders and files mixed.
+= Папки и файлы вперемешку.
+
+Filter...
+= Фильтр...
+
+Recents
+= Недавние
+
+Bookmarks
+= Закладки
+
+Storage
+= Хранилище
+
+Places
+= Места
+
+Conflicts with commands:
+= Конфликтует с командами:
+
+Delete hotkey.
+= Удалить сочетание клавиш.
+
+Mouse hotkeys cannot be changed.
+= Сочетания с мышью изменить нельзя.
+
+Character Key Action not set to Trigger Hotkey.
+= «Действие клавиш символов» не установлено на «Сочетание клавиш».
+
+Press to set or remove hotkey.
+= Нажмите, чтобы задать или убрать сочетание клавиш.
+
+Delete assigned hotkey?
+= Удалить назначенное сочетание клавиш?
+
+Cancel
+= Отмена
+
+Delete
+= Удалить
+
+Created:
+= Создано:
+
+Subfolders:
+= Подпапок:
+
+Subfiles:
+= Файлов внутри:
+
+Size:
+= Размер:
+
+Cmd:
+= Команда:
+
+Open In New Tab
+= Открыть в новой вкладке
+
+Search %u tabs...
+= Поиск по вкладкам (%u)...
+
+Open or expand a folder...
+= Откройте или раскройте папку...
+
+navigate
+= перейти
+
+next folder
+= следующая папка
+
+open
+= открыть
+
+expand
+= раскрыть
+
+all drives
+= все диски
+
+in panel
+= в панели
+
+dismiss
+= закрыть
+
+places only
+= только места
+
+Filter %u types...
+= Фильтр типов (%u)...
+
+Toggle All
+= Включить все
+
+Untoggle All
+= Выключить все
+
+Filter %S files...
+= Фильтр файлов (%S)...
+
+Zoom
+= Масштаб
+
+Select a layout...
+= Выберите раскладку...
+
+No layout has that name
+= Нет раскладки с таким именем
+
+No layouts saved yet; Save Layout keeps one
+= Раскладок пока нет; «Сохранить раскладку» сохранит текущую
+
+Delete layout.
+= Удалить раскладку.
+
+to navigate
+= перейти
+
+to use
+= выбрать
+
+to dismiss
+= закрыть
+
+Search fonts...
+= Поиск шрифтов...
+
+Listing the installed fonts...
+= Получение списка установленных шрифтов...
+
+No font has that name
+= Нет шрифта с таким именем
+
+Switch branch...
+= Переключить ветку...
+
+Listing the branches...
+= Получение списка веток...
+
+No branch has that name
+= Нет ветки с таким именем
+
+Restore all
+= Восстановить все
+
+Remove from the muted ones, which shows it again.
+= Убрать из отключённых, чтобы снова показывать.
+
+Create an editable copy of this color scheme.
+= Создать редактируемую копию этой цветовой схемы.
+
+Delete color scheme.
+= Удалить цветовую схему.
+
+Ok
+= ОК
+
+Save layout
+= Сохранить раскладку
+
+Type a new or existing layout name to update...
+= Введите новое имя или имя существующей раскладки для обновления...
+
+Save
+= Сохранить
+
+Update
+= Обновить
+
+Delete the custom color scheme "%S"?
+= Удалить пользовательскую цветовую схему «%S»?
+
+Delete the layout "%S"?
+= Удалить раскладку «%S»?
+
+Overwrite the existing layout "%S"?
+= Перезаписать существующую раскладку «%S»?
+
+Switch
+= Переключить
+
+Overwrite
+= Перезаписать
+
+Toggle Extra Details
+= Показать или скрыть подробности
+
+Remove from Quick.
+= Убрать из быстрых.
+
+Add to Quick.
+= Добавить в быстрые.
+
+Restore default hotkeys.
+= Восстановить стандартные сочетания клавиш.
+
+Assign new hotkey.
+= Назначить новое сочетание клавиш.
+
+Don't show this again.
+= Больше не показывать.
+
+Copy the message.
+= Скопировать сообщение.
+
+Extracting %S to open it
+= Извлечение %S для открытия
+
+"%S" is already in %S
+= «%S» уже есть в %S
+
+Replace
+= Заменить
+
+Keep Both
+= Оставить оба
+
+Skip
+= Пропустить
+
+For all: on
+= Для всех: вкл.
+
+For all: off
+= Для всех: выкл.
+
+Paused at %u%%
+= Пауза на %u%%
+
+Permanently delete everything in the %S?
+= Безвозвратно удалить всё содержимое: %S?
+
+Permanently delete "%S"?
+= Безвозвратно удалить «%S»?
+
+This cannot be undone.
+= Это действие нельзя отменить.
+
+Copy to that window
+= Скопировать в то окно
+
+Move to that window (Ctrl to copy)
+= Переместить в то окно (Ctrl, чтобы скопировать)
+
+Copy to a new window
+= Скопировать в новое окно
+
+Move to a new window (Ctrl to copy)
+= Переместить в новое окно (Ctrl, чтобы скопировать)
+
+Copy
+= Копировать
+
+Move (Ctrl to copy)
+= Переместить (Ctrl, чтобы скопировать)
+
+Path
+= Путь
+
+Subfolders
+= Подпапки
+
+Subfiles
+= Файлы внутри
+
+Created
+= Создан
+
+Modified
+= Изменён
+
+Permissions
+= Права доступа
+
+The owner may read
+= Владелец может читать
+
+The owner may write
+= Владелец может записывать
+
+The owner may run
+= Владелец может запускать
+
+The group may read
+= Группа может читать
+
+The group may write
+= Группа может записывать
+
+The group may run
+= Группа может запускать
+
+Others may read
+= Остальные могут читать
+
+Others may write
+= Остальные могут записывать
+
+Others may run
+= Остальные могут запускать
+
+(%u%% smaller)
+= (на %u%% меньше)
+
+(no smaller)
+= (не меньше)
+
+Loading...
+= Загрузка...
+
+Auto positions the inspector to the right or below based on available space.
+= Инспектор справа или снизу, в зависимости от свободного места.
+
+Forces the inspector to the right.
+= Инспектор всегда справа.
+
+Forces the inspector below.
+= Инспектор всегда снизу.
+
+Display image scaled to fit within the viewport.
+= Показать изображение, вписанное в область просмотра.
+
+Display image at its original source size, no scaling.
+= Показать изображение в исходном размере, без масштабирования.
+
+Display image with a custom scale adjustment.
+= Показать изображение в заданном масштабе.
+
+Counting...
+= Подсчёт...
+
+Nothing to preview
+= Нечего показать
+
+Extracting it from the archive to preview, %u%%
+= Извлечение из архива для просмотра, %u%%
+
+Filter %u lines...
+= Фильтр строк (%u)...
+
+Archive
+= Архив
+
+Installed version
+= Установлена версия
+
+A different version
+= Другая версия
+
+unknown
+= неизвестна
+
+is installed.
+= уже установлена.
+
+Standalone version
+= Переносная версия
+
+The same version is already installed at:
+= Та же версия уже установлена в:
+
+Installed Path:
+= Путь установки:
+
+Install Path:
+= Путь установки:
+
+Desktop shortcut:
+= Ярлык на рабочем столе:
+
+Add to PATH:
+= Добавить в PATH:
+
+Set as default:
+= По умолчанию:
+
+Creates a shortcut on the desktop for quick access to Filey.
+= Создаёт ярлык на рабочем столе для быстрого запуска Filey.
+
+Allows Filey to be launched from the command line using Filey.exe.
+= Позволяет запускать Filey из командной строки как Filey.exe.
+
+Opens folders with Filey and assigns it to the Win+E shortcut.
+= Открывает папки в Filey и назначает ему сочетание Win+E.
+
+All options can be enabled or disabled after install.
+= Все параметры можно включить или выключить после установки.
+
+Install
+= Установить
+
+Modify
+= Изменить
+
+Install & Replace
+= Установить с заменой
+
+This will install version %s on your PC.
+= Будет установлена версия %s.
+
+This will apply modifications to the existing installation.
+= Изменения будут применены к текущей установке.
+
+This will overwrite the existing version %S with version %s.
+= Установленная версия %S будет заменена версией %s.
+
+Back
+= Назад
+
+Press A Key
+= Нажмите клавишу
+
+Duplicate Tab To New Window
+= Дублировать вкладку в новое окно
+
+Shift Column Left
+= Сдвинуть столбец влево
+
+Shift Column Right
+= Сдвинуть столбец вправо
+
+Size Column To Fit
+= Подогнать ширину столбца
+
+Close Column
+= Закрыть столбец
+
+Restore Default Columns
+= Восстановить стандартные столбцы
+
+Total Items
+= Всего элементов
+
+Git
+= Git
+
+Extract Here
+= Извлечь сюда
+
+Extract to "%S"
+= Извлечь в «%S»
+
+Add to "%S.zip"
+= Добавить в «%S.zip»
+
+Add to "%S.7z"
+= Добавить в «%S.7z»
+
+Restore
+= Восстановить
+
+Restore all items
+= Восстановить все элементы
+
+%S failed
+= Ошибка: %S
+
+This file is only in the cloud. Open it to download it, and preview it after.
+= Этот файл есть только в облаке. Откройте его, чтобы скачать, и тогда его можно будет просмотреть.
+
+New folder
+= Новая папка
+
+New file
+= Новый файл
+
+Couldn't open a new window
+= Не удалось открыть новое окно
+
+Empty %S
+= Очистить %S
+
+Install failed
+= Не удалось установить
+
+Uninstall failed
+= Не удалось удалить
+
+Couldn't open the issue page
+= Не удалось открыть страницу отчёта
+
+Couldn't change permissions
+= Не удалось изменить права доступа
+
+Couldn't open the console
+= Не удалось открыть консоль
+
+Nothing to undo or redo
+= Нечего отменять или повторять
+
+Paste shortcut failed
+= Не удалось вставить ярлык
+
+Cannot resolve the initial directory
+= Не удалось определить начальную папку
+
+Nothing to redo
+= Нечего повторять
+
+Nothing to undo
+= Нечего отменять
+
+Couldn't save the layouts
+= Не удалось сохранить раскладки
+
+Couldn't switch to "%S"
+= Не удалось переключиться на «%S»
+
+Couldn't open "%S"
+= Не удалось открыть «%S»
+
+Couldn't rename "%S" to "%S"
+= Не удалось переименовать «%S» в «%S»
+
+Trash failed
+= Не удалось переместить в корзину
+
+Delete failed
+= Не удалось удалить
+
+Create failed
+= Не удалось создать
+
+Restore failed
+= Не удалось восстановить
+
+Move failed
+= Не удалось переместить
+
+Copy failed
+= Не удалось скопировать
+
+Redo failed
+= Не удалось повторить
+
+Undo failed
+= Не удалось отменить
+
+Couldn't save "%S"
+= Не удалось сохранить «%S»
+
+Open
+= Открыть
+
+Open the focused file or folder.
+= Открыть выделенный файл или папку.
+
+Refresh
+= Обновить
+
+Reload the current folder.
+= Перечитать текущую папку.
+
+Go Back
+= Назад
+
+Go to the previous folder in the history.
+= Перейти к предыдущей папке в истории.
+
+Go Forward
+= Вперёд
+
+Go to the next folder in the history.
+= Перейти к следующей папке в истории.
+
+Go Up
+= Вверх
+
+Go to the parent folder.
+= Перейти в родительскую папку.
+
+Toggle Hidden Files
+= Скрытые файлы
+
+Show or hide hidden files and folders.
+= Показать или скрыть скрытые файлы и папки.
+
+Select All
+= Выделить всё
+
+Select every item in the current folder.
+= Выделить все элементы текущей папки.
+
+Select Previous
+= Выделить предыдущий
+
+Select the previous item in the list.
+= Выделить предыдущий элемент списка.
+
+Select Next
+= Выделить следующий
+
+Select the next item in the list.
+= Выделить следующий элемент списка.
+
+Select Left
+= Выделить слева
+
+Select the item to the left.
+= Выделить элемент слева.
+
+Select Right
+= Выделить справа
+
+Select the item to the right.
+= Выделить элемент справа.
+
+Select First
+= Выделить первый
+
+Select the first item in the list.
+= Выделить первый элемент списка.
+
+Select Last
+= Выделить последний
+
+Select the last item in the list.
+= Выделить последний элемент списка.
+
+Scroll Select Up
+= Страница вверх с выделением
+
+Scroll up by a page and select an item.
+= Прокрутить на страницу вверх и выделить элемент.
+
+Scroll Select Down
+= Страница вниз с выделением
+
+Scroll down by a page and select an item.
+= Прокрутить на страницу вниз и выделить элемент.
+
+Move File Cursor To Previous
+= Курсор к предыдущему
+
+Move the file cursor to the previous item.
+= Переместить курсор к предыдущему элементу.
+
+Move File Cursor To Next
+= Курсор к следующему
+
+Move the file cursor to the next item.
+= Переместить курсор к следующему элементу.
+
+Move File Cursor Left
+= Курсор влево
+
+Move the file cursor to the left item.
+= Переместить курсор к элементу слева.
+
+Move File Cursor Right
+= Курсор вправо
+
+Move the file cursor to the right item.
+= Переместить курсор к элементу справа.
+
+Extend Select Previous
+= Расширить выделение назад
+
+Extend the selection to the previous item.
+= Расширить выделение до предыдущего элемента.
+
+Extend Select Next
+= Расширить выделение вперёд
+
+Extend the selection to the next item.
+= Расширить выделение до следующего элемента.
+
+Extend Select Left
+= Расширить выделение влево
+
+Extend the selection to the left item.
+= Расширить выделение до элемента слева.
+
+Extend Select Right
+= Расширить выделение вправо
+
+Extend the selection to the right item.
+= Расширить выделение до элемента справа.
+
+Extend Select First
+= Расширить выделение до первого
+
+Extend the selection to the first item.
+= Расширить выделение до первого элемента.
+
+Extend Select Last
+= Расширить выделение до последнего
+
+Extend the selection to the last item.
+= Расширить выделение до последнего элемента.
+
+Scroll Extend Select Up
+= Страница вверх с расширением выделения
+
+Scroll up by a page and extend the selection.
+= Прокрутить на страницу вверх и расширить выделение.
+
+Scroll Extend Select Down
+= Страница вниз с расширением выделения
+
+Scroll down by a page and extend the selection.
+= Прокрутить на страницу вниз и расширить выделение.
+
+Center Camera
+= Центрировать вид
+
+Center the camera on the current selection.
+= Прокрутить к текущему выделению.
+
+Context Menu
+= Контекстное меню
+
+Open the system context menu on the selection or the folder background.
+= Открыть системное контекстное меню для выделения или фона папки.
+
+Rename
+= Переименовать
+
+Rename the focused item in place.
+= Переименовать выделенный элемент на месте.
+
+Filter
+= Фильтр
+
+Start filtering the current folder's contents.
+= Начать фильтровать содержимое текущей папки.
+
+Insert Incremental ID
+= Вставить порядковый номер
+
+Insert an incremental ID at the text caret.
+= Вставить порядковый номер в позицию курсора.
+
+Insert Current Date
+= Вставить текущую дату
+
+Insert the current date at the text caret.
+= Вставить текущую дату в позицию курсора.
+
+Insert File Create Date
+= Вставить дату создания файла
+
+Insert the file's creation date at the text caret.
+= Вставить дату создания файла в позицию курсора.
+
+Insert File Last Modified Date
+= Вставить дату изменения файла
+
+Insert the file's last modified date at the text caret.
+= Вставить дату последнего изменения файла в позицию курсора.
+
+Rename Previous File
+= Переименовать предыдущий файл
+
+Apply rename to the current selection and jump to the previous file.
+= Применить переименование и перейти к предыдущему файлу.
+
+Rename Next File
+= Переименовать следующий файл
+
+Apply rename to the current selection and jump to the next file.
+= Применить переименование и перейти к следующему файлу.
+
+Move Left
+= Влево
+
+Move the text caret left.
+= Сдвинуть курсор влево.
+
+Extend Left
+= Выделить влево
+
+Extend the selection left from the text caret.
+= Расширить выделение влево от курсора.
+
+Move Right
+= Вправо
+
+Move the text caret right.
+= Сдвинуть курсор вправо.
+
+Extend Right
+= Выделить вправо
+
+Extend the selection right from the text caret.
+= Расширить выделение вправо от курсора.
+
+Move Left By Word
+= На слово влево
+
+Move the text caret left by a word.
+= Сдвинуть курсор на слово влево.
+
+Extend Left By Word
+= Выделить слово влево
+
+Extend the selection left by a word from the text caret.
+= Расширить выделение на слово влево от курсора.
+
+Move Right By Word
+= На слово вправо
+
+Move the text caret right by a word.
+= Сдвинуть курсор на слово вправо.
+
+Extend Right By Word
+= Выделить слово вправо
+
+Extend the selection right by a word from the text caret.
+= Расширить выделение на слово вправо от курсора.
+
+Move Home
+= В начало
+
+Move the text caret to the start of the line.
+= Переместить курсор в начало строки.
+
+Extend Home
+= Выделить до начала
+
+Extend the selection to the start of the line from the text caret.
+= Расширить выделение от курсора до начала строки.
+
+Move End
+= В конец
+
+Move the text caret to the end of the line.
+= Переместить курсор в конец строки.
+
+Extend End
+= Выделить до конца
+
+Extend the selection to the end of the line from the text caret.
+= Расширить выделение от курсора до конца строки.
+
+Delete Left
+= Удалить слева
+
+Delete the character to the left of the text caret.
+= Удалить символ слева от курсора.
+
+Delete Left By Word
+= Удалить слово слева
+
+Delete the word to the left of the text caret.
+= Удалить слово слева от курсора.
+
+Delete Right
+= Удалить справа
+
+Delete the character to the right of the text caret.
+= Удалить символ справа от курсора.
+
+Delete Right By Word
+= Удалить слово справа
+
+Delete the word to the right of the text caret.
+= Удалить слово справа от курсора.
+
+Select all text.
+= Выделить весь текст.
+
+Copy the selected text.
+= Скопировать выделенный текст.
+
+Cut
+= Вырезать
+
+Cut the selected text.
+= Вырезать выделенный текст.
+
+Paste
+= Вставить
+
+Paste the clipboard contents.
+= Вставить содержимое буфера обмена.
+
+Uppercase
+= Прописные
+
+Convert the selected text to uppercase.
+= Преобразовать выделенный текст в прописные буквы.
+
+Lowercase
+= Строчные
+
+Convert the selected text to lowercase.
+= Преобразовать выделенный текст в строчные буквы.
+
+Autocomplete
+= Автодополнение
+
+Autocomplete file names or paths, and toggle groups where possible.
+= Дополнить имя файла или путь, а где можно, свернуть или развернуть группы.
+
+Undo
+= Отменить
+
+Undo the last text-based action.
+= Отменить последнее действие с текстом.
+
+Redo
+= Повторить
+
+Redo the last text-based action.
+= Повторить последнее действие с текстом.
+
+Delete Left Part
+= Удалить часть слева
+
+Delete back from the text caret to the previous space, slash or dot.
+= Удалить текст от курсора назад до пробела, косой черты или точки.
+
+Delete To Start
+= Удалить до начала
+
+Delete from the text caret to the start of the line.
+= Удалить текст от курсора до начала строки.
+
+Delete To End
+= Удалить до конца
+
+Delete from the text caret to the end of the line.
+= Удалить текст от курсора до конца строки.
+
+Swap Characters
+= Поменять символы местами
+
+Swap the two characters at the text caret.
+= Поменять местами два символа у курсора.
+
+Swap Words
+= Поменять слова местами
+
+Swap the words before and after the text caret.
+= Поменять местами слова до и после курсора.
+
+Uppercase Word
+= Слово прописными
+
+Uppercase the rest of the word at the text caret.
+= Сделать прописными остаток слова у курсора.
+
+Lowercase Word
+= Слово строчными
+
+Lowercase the rest of the word at the text caret.
+= Сделать строчными остаток слова у курсора.
+
+Capitalize Word
+= Слово с заглавной
+
+Capitalize the rest of the word at the text caret.
+= Начать с заглавной буквы остаток слова у курсора.
+
+Expanded Search
+= Расширенный поиск
+
+Start searching through all subfiles and subfolders.
+= Искать среди всех вложенных файлов и папок.
+
+Toggle File Cursor Selection
+= Выделить элемент под курсором
+
+Toggle selection for the file or folder at the file cursor position without affecting other selections.
+= Выделить или снять выделение с элемента под курсором, не трогая остальные.
+
+Open In Right Split
+= Открыть в панели справа
+
+Open selected folders in the new panels to the right. For files, opens containing folders.
+= Открыть выбранные папки в новых панелях справа. Для файлов открываются содержащие их папки.
+
+Open In Bottom Split
+= Открыть в панели снизу
+
+Open selected folders in the new panels to the bottom. For files, opens containing folders.
+= Открыть выбранные папки в новых панелях снизу. Для файлов открываются содержащие их папки.
+
+Copy Files To Previous Panel
+= Копировать в предыдущую панель
+
+Copy selected files to the previous neighbor panel.
+= Скопировать выбранные файлы в предыдущую соседнюю панель.
+
+Copy Files To Next Panel
+= Копировать в следующую панель
+
+Copy selected files to the next neighbor panel.
+= Скопировать выбранные файлы в следующую соседнюю панель.
+
+Move Files To Previous Panel
+= Переместить в предыдущую панель
+
+Move selected files to the previous neighbor panel.
+= Переместить выбранные файлы в предыдущую соседнюю панель.
+
+Move Files To Next Panel
+= Переместить в следующую панель
+
+Move selected files to the next neighbor panel.
+= Переместить выбранные файлы в следующую соседнюю панель.
+
+Open Containing Path
+= Открыть расположение
+
+Open the target file or folder's real location in its containing folder.
+= Открыть настоящее расположение файла или папки в содержащей их папке.
+
+Open Containing Path In Tab
+= Открыть расположение во вкладке
+
+Open the target file or folder's real location in its containing folder in a new tab.
+= Открыть настоящее расположение файла или папки в новой вкладке.
+
+Open Relative Path
+= Открыть относительный путь
+
+Open selected file from flattened hierarchy in its parent folder.
+= Открыть файл из развёрнутого списка в его родительской папке.
+
+Open Relative Path In Tab
+= Открыть относительный путь во вкладке
+
+Open selected file from flattened hierarchy in its parent folder in a new tab.
+= Открыть файл из развёрнутого списка в его родительской папке в новой вкладке.
+
+Inspect
+= Свойства
+
+Open system properties window for the selected files.
+= Открыть системное окно свойств выбранных файлов.
+
+Refresh Folder Stats
+= Пересчитать папки
+
+Refresh total child size and item count for the selected folders.
+= Пересчитать размер и число элементов выбранных папок.
+
+Toggle Expand Folder
+= Развернуть папку
+
+Recursively flatten all subfiles and subfolders into a single file listing.
+= Показать все вложенные файлы и папки одним списком.
+
+Apply Filter to Folder
+= Применить фильтр
+
+Keep the filter and give the keyboard back to the list.
+= Оставить фильтр и вернуть клавиатуру списку.
+
+Remove Filter
+= Убрать фильтр
+
+Show every item again.
+= Снова показать все элементы.
+
+Pin Filter
+= Закрепить фильтр
+
+Retain the filter on folder change.
+= Сохранять фильтр при смене папки.
+
+Open Types Dropdown
+= Список типов
+
+Open the dropdown to toggle visibility for specific file types.
+= Открыть список для показа или скрытия отдельных типов файлов.
+
+Open Folder Dropdown
+= Список папок
+
+Open folder dropdown from the path header.
+= Открыть список папок из строки пути.
+
+Open Left Folder Dropdown
+= Список папок слева
+
+Open the folder dropdown for the parent directory to the left of the current one.
+= Открыть список папок для родительской папки слева от текущей.
+
+Open Right Folder Dropdown
+= Список папок справа
+
+Open the folder dropdown for the next child directory to the right of the current one.
+= Открыть список папок для следующей вложенной папки справа от текущей.
+
+Show Folders
+= Показывать папки
+
+List or hide the folder's subfolders.
+= Показать или скрыть подпапки.
+
+Show Files
+= Показывать файлы
+
+List or hide the folder's files.
+= Показать или скрыть файлы папки.
+
+Copy selected files in the folder, placing them in the system clipboard.
+= Скопировать выбранные файлы в системный буфер обмена.
+
+Cut selected files in the folder, placing them in the system clipboard.
+= Вырезать выбранные файлы в системный буфер обмена.
+
+Paste files from the system clipboard into the current folder.
+= Вставить файлы из системного буфера обмена в текущую папку.
+
+Trash
+= В корзину
+
+Move selected files into the Trash or Recycle Bin.
+= Переместить выбранные файлы в корзину.
+
+Permanently delete selected files!
+= Безвозвратно удалить выбранные файлы!
+
+Duplicate
+= Дублировать
+
+Duplicate selected files into the same folder.
+= Создать копии выбранных файлов в той же папке.
+
+Add To ZIP
+= Добавить в ZIP
+
+Pack the selected items into a new zip archive beside them.
+= Упаковать выбранное в новый zip-архив рядом.
+
+Add To 7z
+= Добавить в 7z
+
+Pack the selected items into a new 7z archive beside them.
+= Упаковать выбранное в новый 7z-архив рядом.
+
+Take everything out of the selected archive into the folder it is in.
+= Извлечь всё из выбранного архива в папку, где он лежит.
+
+Extract To Folder
+= Извлечь в папку
+
+Take everything out of the selected archive into a new folder named after it.
+= Извлечь всё из выбранного архива в новую папку с его именем.
+
+Copy As Path
+= Копировать как путь
+
+Copy selected file paths to the clipboard, or the folder's path when nothing is selected.
+= Скопировать пути выбранных файлов, а если ничего не выбрано, путь папки.
+
+Copy As Path (Smart)
+= Копировать как путь (умно)
+
+Copy selected file paths to the clipboard, adding quotes only when needed.
+= Скопировать пути выбранных файлов, добавляя кавычки только при необходимости.
+
+Paste Shortcut
+= Вставить ярлык
+
+Paste files as shortcuts from the system clipboard into the current folder.
+= Вставить файлы из буфера обмена в текущую папку как ярлыки.
+
+Create Folder
+= Создать папку
+
+Create an empty folder in the current folder and enter rename mode.
+= Создать пустую папку в текущей папке и сразу переименовать.
+
+Create File
+= Создать файл
+
+Create a file in the current folder and enter rename mode.
+= Создать файл в текущей папке и сразу переименовать.
+
+Open In Tab
+= Открыть во вкладке
+
+Open selected folders in new tabs. For files, opens containing folders.
+= Открыть выбранные папки в новых вкладках. Для файлов открываются содержащие их папки.
+
+Open In New Window
+= Открыть в новом окне
+
+Open selected folders in new windows. For files, opens containing folders.
+= Открыть выбранные папки в новых окнах. Для файлов открываются содержащие их папки.
+
+Open New Tab
+= Новая вкладка
+
+Open a new tab in the current folder.
+= Открыть новую вкладку в текущей папке.
+
+Duplicate Tab
+= Дублировать вкладку
+
+Duplicate the current tab in the same folder.
+= Создать копию текущей вкладки в той же папке.
+
+Shift Tab Left
+= Сдвинуть вкладку влево
+
+Shift the current tab to the left.
+= Сдвинуть текущую вкладку влево.
+
+Shift Tab Right
+= Сдвинуть вкладку вправо
+
+Shift the current tab to the right.
+= Сдвинуть текущую вкладку вправо.
+
+Close Tab
+= Закрыть вкладку
+
+Close the current tab.
+= Закрыть текущую вкладку.
+
+Close Other Tabs
+= Закрыть другие вкладки
+
+Close all tabs except the currently selected one.
+= Закрыть все вкладки, кроме текущей.
+
+Close Left Tabs
+= Закрыть вкладки слева
+
+Close all tabs to the left of the currently selected tab.
+= Закрыть все вкладки слева от текущей.
+
+Close Right Tabs
+= Закрыть вкладки справа
+
+Close all tabs to the right of the currently selected tab.
+= Закрыть все вкладки справа от текущей.
+
+Close All Tabs
+= Закрыть все вкладки
+
+Close the panel and all open tabs in it.
+= Закрыть панель и все её вкладки.
+
+Tab Menu
+= Меню вкладки
+
+Open dropdown menu for the selected tab.
+= Открыть меню текущей вкладки.
+
+Reopen Closed Tab
+= Вернуть закрытую вкладку
+
+Reopen the last closed tab from the list of previously closed tabs.
+= Снова открыть последнюю закрытую вкладку.
+
+Select Next Tab
+= Следующая вкладка
+
+Select the next tab if it exists.
+= Перейти к следующей вкладке, если она есть.
+
+Select Previous Tab
+= Предыдущая вкладка
+
+Select the previous tab if it exists.
+= Перейти к предыдущей вкладке, если она есть.
+
+Select 1st Tab
+= Вкладка 1
+
+Select the 1st tab.
+= Перейти к первой вкладке.
+
+Select 2nd Tab
+= Вкладка 2
+
+Select the 2nd tab if it exists.
+= Перейти ко второй вкладке, если она есть.
+
+Select 3rd Tab
+= Вкладка 3
+
+Select the 3rd tab if it exists.
+= Перейти к третьей вкладке, если она есть.
+
+Select 4th Tab
+= Вкладка 4
+
+Select the 4th tab if it exists.
+= Перейти к четвёртой вкладке, если она есть.
+
+Select 5th Tab
+= Вкладка 5
+
+Select the 5th tab if it exists.
+= Перейти к пятой вкладке, если она есть.
+
+Select 6th Tab
+= Вкладка 6
+
+Select the 6th tab if it exists.
+= Перейти к шестой вкладке, если она есть.
+
+Select 7th Tab
+= Вкладка 7
+
+Select the 7th tab if it exists.
+= Перейти к седьмой вкладке, если она есть.
+
+Select 8th Tab
+= Вкладка 8
+
+Select the 8th tab if it exists.
+= Перейти к восьмой вкладке, если она есть.
+
+Select Last Tab
+= Последняя вкладка
+
+Select the last tab.
+= Перейти к последней вкладке.
+
+Toggle Quick Access
+= Панель быстрого доступа
+
+Toggle the Quick Access sidebar.
+= Показать или скрыть боковую панель быстрого доступа.
+
+Filter Quick Access
+= Фильтр быстрого доступа
+
+Start filtering items in the Quick Access sidebar.
+= Начать фильтровать элементы боковой панели.
+
+Toggle Folder Bookmark
+= Закладка папки
+
+Toggle storing the currently open file path in the bookmarked section.
+= Добавить текущий путь в закладки или убрать его оттуда.
+
+Toggle Folder View
+= Запомнить вид папки
+
+Toggle preserving folder view settings: icons, sort order, folders first, and list columns.
+= Запоминать для папки настройки вида: значки, сортировку, папки первыми и столбцы списка.
+
+Toggle Highlight Recents
+= Подсветка недавних
+
+Toggle marking recently accessed files and directories.
+= Отмечать недавно открытые файлы и папки.
+
+Toggle Sort Recents
+= Недавние наверху
+
+Toggle sorting of recently accessed files and directories to the top.
+= Поднимать недавно открытые файлы и папки наверх.
+
+Cycle Folders Sort Order
+= Порядок папок
+
+Cycle how folders and files are sorted: folders first, files first or mixed together.
+= Переключить порядок: сначала папки, сначала файлы или вперемешку.
+
+Size All Columns To Fit
+= Подогнать все столбцы
+
+Size all header columns to fit their contents.
+= Подогнать ширину всех столбцов под содержимое.
+
+Increase Font Size
+= Увеличить шрифт
+
+Increase the main font size and scale up the whole UI.
+= Увеличить основной шрифт и весь интерфейс.
+
+Decrease Font Size
+= Уменьшить шрифт
+
+Decrease the main font size and scale down the whole UI.
+= Уменьшить основной шрифт и весь интерфейс.
+
+Reset Font Size
+= Сбросить размер шрифта
+
+Reset the main font size and restore the original UI scale.
+= Вернуть исходный размер шрифта и масштаб интерфейса.
+
+Increase Spacing
+= Увеличить интервал
+
+Increase the space between items in a list.
+= Увеличить расстояние между элементами списка.
+
+Decrease Spacing
+= Уменьшить интервал
+
+Decrease the space between items in a list.
+= Уменьшить расстояние между элементами списка.
+
+Toggle File Extension
+= Расширения файлов
+
+Show or hide the extensions of file names.
+= Показать или скрыть расширения в именах файлов.
+
+Toggle System Files
+= Системные файлы
+
+Show or hide system files.
+= Показать или скрыть системные файлы.
+
+Clear Folders Views
+= Сбросить виды папок
+
+Clear view settings for all folders.
+= Сбросить настройки вида для всех папок.
+
+Clear Bookmarks
+= Очистить закладки
+
+Clear all bookmarked file paths.
+= Удалить все закладки.
+
+Clear Recents
+= Очистить недавние
+
+Clear all recently visited or opened file paths.
+= Очистить список недавно посещённых и открытых путей.
+
+Minimize Window
+= Свернуть окно
+
+Minimize the currently opened window.
+= Свернуть текущее окно.
+
+Toggle Fullscreen
+= Развернуть окно
+
+Toggle fullscreen mode, maximizing or restoring the current window.
+= Развернуть текущее окно или вернуть его прежний размер.
+
+Open Console
+= Открыть консоль
+
+Open the OS native console on the currently opened file path.
+= Открыть системную консоль в текущей папке.
+
+Close Window
+= Закрыть окно
+
+Close the window and quit Filey.
+= Закрыть окно и выйти из Filey.
+
+Toggle Inspector
+= Инспектор
+
+Toggle inspector in currently active panel.
+= Показать или скрыть инспектор в активной панели.
+
+Restore selected files into their original location. Applicable in Recycle Bin.
+= Вернуть выбранные файлы на прежнее место. Работает в корзине.
+
+Restore Trash Items
+= Восстановить всё из корзины
+
+Restore all files from the Recycle Bin into their original locations.
+= Вернуть все файлы из корзины на прежние места.
+
+Empty Recycle Bin
+= Очистить корзину
+
+Permanently delete everything in the Recycle Bin.
+= Безвозвратно удалить всё содержимое корзины.
+
+Reverse the last rename, new item, copy or move.
+= Отменить последнее переименование, создание, копирование или перемещение.
+
+Make the last rename or move that Undo reversed again.
+= Повторить последнее переименование или перемещение, отменённое командой «Отменить».
+
+Options
+= Параметры
+
+Open the options popup to customize the application behavior.
+= Открыть окно параметров для настройки приложения.
+
+Create Custom Language
+= Создать свой язык
+
+Write a language file of every text Filey shows, with the shown language's translations, to translate in an editor; it is chosen at once.
+= Записать языковой файл со всеми текстами Filey и переводами текущего языка, чтобы переводить в редакторе; он сразу выбирается.
+
+Edit Settings File
+= Изменить файл настроек
+
+Open the settings file, whose saved changes apply at once.
+= Открыть файл настроек; сохранённые изменения применяются сразу.
+
+Edit Path
+= Изменить путь
+
+Type a path to go to, starting from the current folder's.
+= Ввести путь для перехода, начиная с пути текущей папки.
+
+Go To
+= Перейти
+
+Open a recent folder, or type a path and expand its folders.
+= Открыть недавнюю папку или ввести путь и раскрыть его папки.
+
+GoTo Move Back
+= «Перейти»: назад
+
+Navigate to the previous path in the undo stack.
+= Перейти к предыдущему пути в истории.
+
+GoTo Move Forward
+= «Перейти»: вперёд
+
+Navigate to the next path in the undo stack.
+= Перейти к следующему пути в истории.
+
+GoTo Move Up
+= «Перейти»: вверх
+
+Navigate to the parent file path in GoTo.
+= Перейти к родительскому пути в окне «Перейти».
+
+GoTo Select In Panel
+= «Перейти»: выделить в панели
+
+Select the current file in GoTo in the background panel and close the GoTo window.
+= Выделить текущий файл из окна «Перейти» в панели и закрыть окно.
+
+Quick Commands
+= Быстрые команды
+
+Open a popup that hosts all bookmarked commands from the command palette.
+= Открыть окно со всеми отмеченными командами из палитры.
+
+Command Palette
+= Палитра команд
+
+Find and run any command by name.
+= Найти и выполнить любую команду по имени.
+
+Search Tabs
+= Поиск вкладок
+
+Find an open tab by its folder's name or path.
+= Найти открытую вкладку по имени или пути папки.
+
+Menu
+= Меню
+
+Open the top left main menu.
+= Открыть главное меню в левом верхнем углу.
+
+New Window
+= Новое окно
+
+Open the current folder in a new window.
+= Открыть текущую папку в новом окне.
+
+Split Right
+= Разделить вправо
+
+Split current panel to the right.
+= Разделить текущую панель вправо.
+
+Split Bottom
+= Разделить вниз
+
+Split current panel to the bottom.
+= Разделить текущую панель вниз.
+
+Toggle Panel Zoom
+= Развернуть панель
+
+Zoom the panel to fill the window, or unzoom it if already zoomed.
+= Развернуть панель на всё окно или вернуть обратно.
+
+Even Panel Siblings
+= Выровнять соседние панели
+
+Even viewport size of all panels in the current panels layout group.
+= Выровнять размеры панелей в текущей группе.
+
+Even All Panels
+= Выровнять все панели
+
+Even viewport size of all panels.
+= Выровнять размеры всех панелей.
+
+Next Panel
+= Следующая панель
+
+Move to the next panel.
+= Перейти к следующей панели.
+
+Previous Panel
+= Предыдущая панель
+
+Move to the previous panel.
+= Перейти к предыдущей панели.
+
+Focus Left Panel
+= Панель слева
+
+Move the keyboard to the panel on the left.
+= Перевести клавиатуру на панель слева.
+
+Focus Right Panel
+= Панель справа
+
+Move the keyboard to the panel on the right.
+= Перевести клавиатуру на панель справа.
+
+Focus Upper Panel
+= Панель сверху
+
+Move the keyboard to the panel above.
+= Перевести клавиатуру на панель сверху.
+
+Focus Lower Panel
+= Панель снизу
+
+Move the keyboard to the panel below.
+= Перевести клавиатуру на панель снизу.
+
+Zoom In
+= Крупнее
+
+Show the files larger, one view step at a time.
+= Показать файлы крупнее, на один шаг вида.
+
+Zoom Out
+= Мельче
+
+Show the files smaller, one view step at a time.
+= Показать файлы мельче, на один шаг вида.
+
+View Details
+= Таблица
+
+Display files with detailed information and metadata.
+= Показать файлы с подробными сведениями.
+
+View List
+= Список
+
+Display files as a simple list with just icons and names.
+= Показать файлы простым списком из значков и имён.
+
+View Columns
+= Колонки
+
+Arrange files in multiple columns for easy scanning.
+= Расположить файлы в несколько колонок.
+
+View Medium Icons
+= Средние значки
+
+Display files as medium-sized icons for balanced detail.
+= Показать файлы средними значками.
+
+View Large Icons
+= Крупные значки
+
+Show files as large icons for easier recognition.
+= Показать файлы крупными значками.
+
+View XL Icons
+= Огромные значки
+
+Show files with extra large icons for high visibility.
+= Показать файлы очень крупными значками.
+
+Toggle Miller Columns
+= Колонки Миллера
+
+Toggle columns of the parent folders on the left and of the focused folder's contents on the right.
+= Показать колонки родительских папок слева и содержимого выделенной папки справа.
+
+Save Layout
+= Сохранить раскладку
+
+Save the current window layout: window dimensions, panels, sidebar, etc.
+= Сохранить раскладку окна: размеры, панели, боковую панель и прочее.
+
+Load Layout
+= Загрузить раскладку
+
+Load layout and apply it to the current window.
+= Загрузить раскладку и применить её к текущему окну.
+
+Open File Explorer
+= Открыть Проводник
+
+Open the OS native file explorer on the currently opened file path.
+= Открыть системный файловый менеджер в текущей папке.
+
+Filey Setup
+= Установка Filey
+
+Install or uninstall Filey, with options to create Desktop and Start menu shortcuts and add it to the PATH.
+= Установить или удалить Filey, с ярлыками на рабочем столе и в меню «Пуск» и добавлением в PATH.
+
+Restore Muted Notifications
+= Вернуть отключённые уведомления
+
+Show the kinds of notice muted with their bell again.
+= Снова показывать уведомления, отключённые колокольчиком.
+
+Sort By Name
+= Сортировать по имени
+
+Sort folder contents by name, treating neighbor digits as numbers.
+= Сортировать по имени, считая идущие подряд цифры числами.
+
+Sort By Size
+= Сортировать по размеру
+
+Sort folder contents by size, using the size of the children contents for folders.
+= Сортировать по размеру; для папок учитывается размер содержимого.
+
+Sort By Date Created
+= Сортировать по дате создания
+
+Sort folder contents by file creation date.
+= Сортировать по дате создания файлов.
+
+Sort By Date Modified
+= Сортировать по дате изменения
+
+Sort folder contents by file last modified date.
+= Сортировать по дате последнего изменения файлов.
+
+Sort By Date Accessed
+= Сортировать по дате доступа
+
+Sort folder contents by file last access date.
+= Сортировать по дате последнего доступа к файлам.
+
+Sort By Total Items
+= Сортировать по числу элементов
+
+Sort folder contents by children item count.
+= Сортировать по числу вложенных элементов.
+
+Sort By Type
+= Сортировать по типу
+
+Sort folder contents by file type.
+= Сортировать по типу файлов.
+
+Toggle Inspector Details
+= Подробности в инспекторе
+
+Toggle display of extra file metadata details in the inspector.
+= Показать или скрыть подробные сведения о файле в инспекторе.
+
+Toggle Inspector Layout
+= Расположение инспектора
+
+Toggle inspector layout between horizontal and vertical.
+= Переключить расположение инспектора: справа или снизу.
+
+Filter Inspector Content
+= Фильтр в инспекторе
+
+Start filtering contents in the inspector. Applicable to text and folder previews.
+= Начать фильтровать содержимое инспектора. Для текста и папок.
+
+Toggle Inspector Image Grid
+= Сетка изображения
+
+Toggle display of image grid to better differentiate background from the image contents.
+= Показать или скрыть сетку, чтобы отличать фон от изображения.
+
+Toggle Inspector Image Minimap
+= Миникарта изображения
+
+Toggle display of minimap when an image is being zoomed.
+= Показывать миникарту при увеличении изображения.
+
+Toggle Inspector Image Scale
+= Масштаб изображения
+
+Toggle inspector image scale between fit to viewport and original source size.
+= Переключить масштаб изображения: вписать или исходный размер.
+
+Scale Up Inspector Image
+= Увеличить изображение
+
+Scale Down Inspector Image
+= Уменьшить изображение
+
+Increase Contents Size
+= Крупнее в инспекторе
+
+Increase contents size in the inspector; font size for text, zoom for images, etc.
+= Увеличить содержимое инспектора: шрифт текста, масштаб изображения и т. п.
+
+Decrease Inspector Contents Size
+= Мельче в инспекторе
+
+Decrease contents size in the inspector; font size for text, zoom for images, etc.
+= Уменьшить содержимое инспектора: шрифт текста, масштаб изображения и т. п.
+
+Toggle Inspector Word Wrap
+= Перенос строк в инспекторе
+
+Toggle word wrap option of the previewed text in the inspector.
+= Включить или выключить перенос строк текста в инспекторе.
+
+Toggle Inspector Line Numbers
+= Номера строк в инспекторе
+
+Toggle display of line numbers for the previewed text in the inspector.
+= Показать или скрыть номера строк текста в инспекторе.
+
+Toggle Inspector Hex View
+= Шестнадцатеричный вид
+
+Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.
+= Показать байты любого файла в шестнадцатеричном виде или текст и изображения как есть.
+
+Toggle Inspector Whitespace
+= Пробельные символы в инспекторе
+
+Toggle display of whitespace in the previewed text in the inspector.
+= Показать или скрыть пробельные символы текста в инспекторе.
+
+Debug Colors
+= Отладочные цвета
+
+Draw every UI surface in its own loud color.
+= Рисовать каждую поверхность интерфейса своим ярким цветом.
+
+Show the desktop blurred through the window.
+= Показывать размытый рабочий стол сквозь окно.
+
+# Counted texts: the forms for one, a few and many, separated by " | ".
+
+Filter %u files...
+= Фильтр: %u файл... | Фильтр: %u файла... | Фильтр: %u файлов...
+
+%u changes not committed. Switch to "%S" and take them along?
+= %u изменение не зафиксировано. Переключиться на «%S» и взять его с собой? | %u изменения не зафиксированы. Переключиться на «%S» и взять их с собой? | %u изменений не зафиксировано. Переключиться на «%S» и взять их с собой?
+
+Moving %u items to %S
+= Перемещение %u элемента в %S | Перемещение %u элементов в %S | Перемещение %u элементов в %S
+
+Copying %u items to %S
+= Копирование %u элемента в %S | Копирование %u элементов в %S | Копирование %u элементов в %S
+
+Permanently delete %u items?
+= Безвозвратно удалить %u элемент? | Безвозвратно удалить %u элемента? | Безвозвратно удалить %u элементов?
+
+Over %S items, packed to %S
+= Более %S элемента, сжато до %S | Более %S элементов, сжато до %S | Более %S элементов, сжато до %S
+
+%S folders
+= %S папка | %S папки | %S папок
+
+%S files, %S, packed to %S
+= %S файл, %S, сжато до %S | %S файла, %S, сжато до %S | %S файлов, %S, сжато до %S
+
+Details
+= Таблица
+
+List
+= Список
+
+Columns
+= Колонки
+
+M Icons
+= Средние
+
+L Icons
+= Крупные
+
+XL Icons
+= Огромные
+
+Quick
+= Быстрые
+
+Folder
+= Папка
+
+Sort
+= Сортировка
+
+Inspector
+= Инспектор
+
+Panels
+= Панели
+
+Tabs
+= Вкладки
+
+Misc
+= Разное
+
+Text
+= Текст
+
+Scroll
+= Прокрутка
+

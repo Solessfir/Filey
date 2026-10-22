@@ -52,12 +52,15 @@ function void TestCodegenParse(void)
         Check(TestCodegenContains(emitted, S(".scope = Prog_HotkeyScope_Rename }")));
     }
 
-    // The translatable strings are the literals of Tr, TrF and TrInit as written, each once; neither a macro's own #define nor a longer name counts.
+    // The translatable strings are the literals of Tr, TrF and TrInit as written, each once, and TrN's other form; neither a macro's own #define nor a
+    // longer name counts.
     {
-        ArrayStr strings = {0};
-        Codegen_CollectStrings(&arena, S("#define Tr(text) Prog_Tr(S(text))\nx = Tr(\"Open\"); y = TrF(\"%u \\\"items\\\"\"); z = TrInit(\"Open\"); w = NoTr(\"Skip\");\n"), &strings);
+        ArrayStr strings = {0}, plurals = {0};
+        Codegen_CollectStrings(&arena, S("#define Tr(text) Prog_Tr(S(text))\nx = Tr(\"Open\"); y = TrF(\"%u \\\"items\\\"\"); z = TrInit(\"Open\"); w = NoTr(\"Skip\");\n"
+                                         "v = TrN(Count(a), \"%S file\", \"%S files\"); u = TrN(1, \"%S file\", \"%S files\");\n"), &strings, &plurals);
         Check(strings.header.count == 2 && StrIsEqual(strings.v[0], S("Open")) && StrIsEqual(strings.v[1], S("%u \\\"items\\\"")));
-        Check(TestCodegenContains(Codegen_EmitStrings(&arena, strings), S("    \"Open\",\n")));
+        Check(plurals.header.count == 1 && StrIsEqual(plurals.v[0], S("%S files")));
+        Check(TestCodegenContains(Codegen_EmitStrings(&arena, strings, plurals), S("    \"Open\",\n")));
     }
 
     // Each malformed input reports the offending line.

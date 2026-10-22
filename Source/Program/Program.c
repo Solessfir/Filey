@@ -31,6 +31,23 @@ function const char *Prog_TrFormat(const char *english)
     return found.value;
 }
 
+// The format of a counted text for `count`. A translation lists its forms apart by zeros, as its file separates them by " | ", and how many
+// there are tells them apart: two as English's, for one and the rest, three as the East Slavic languages', for one, a few and many.
+// ponytail: forms told apart by their number only; a language with other rules, as Polish's or Arabic's, needs its file to name them.
+function const char *Prog_TrPlural(u64 count, const char *one, const char *other)
+{
+    String found = Prog_Tr(StrFromCStr(other));
+    if (found.value == other) return count == 1 ? one : other;
+    u32 forms = 1;
+    for (u64 i = 0; i < found.length; ++i) forms += found.value[i] == 0;
+    u64 last = count % 10, tens = count % 100;
+    u32 form = forms == 2 ? count != 1
+             : forms >= 3 ? (last == 1 && tens != 11 ? 0 : last >= 2 && last <= 4 && (tens < 12 || tens > 14) ? 1 : 2) : 0;
+    const char *result = found.value;
+    while (form--) result += strlen(result) + 1;
+    return result;
+}
+
 // The next conversion of a format from `*at`, as "%u" or "%.2f", past any "%%"; false at the end.
 function b32 Prog__NextConversion(String s, u64 *at, String *conversion)
 {
@@ -65,8 +82,34 @@ function b32 Prog__SameConversions(String a, String b)
     }
 }
 
+// `text` with each "\\n" a line break, as a language file writes those of its one-line entries.
+function String Prog__Unescape(Arena *arena, String text)
+{
+    char *out = ArenaPushArray(arena, text.length + 1, char);
+    u64 length = 0;
+    for (u64 i = 0; i < text.length; ++i) {
+        b32 brk = text.value[i] == '\\' && i + 1 < text.length && text.value[i + 1] == 'n';
+        out[length++] = brk ? '\n' : text.value[i];
+        i += brk ? 1 : 0;
+    }
+    out[length] = 0;
+    return StrMake(out, length);
+}
+
+// `text` with each line break written "\\n", for a language file.
+function String Prog__Escape(Arena *arena, String text)
+{
+    StrBuilder out = {0};
+    for (u64 i = 0; i < text.length; ++i) {
+        if (text.value[i] == '\n') StrBuildStr(arena, &out, S("\\n"));
+        else StrBuildChar(arena, &out, text.value[i]);
+    }
+    return out.buffer.value ? out.buffer : S("");
+}
+
 // Adds the entries of a language file's `text` over those there: each an English line, then its translation on a line of its own after "= ";
-// lines starting with '#' are comments. A translation left empty, or one whose conversions differ from its English text's, is left out.
+// lines starting with '#' are comments. A translation left empty, or one whose conversions differ from its English text's, is left out; a
+// counted text's forms are separated by " | ", each with those conversions.
 function void Prog_AddLanguageText(String text)
 {
     String english = {0};
@@ -77,12 +120,21 @@ function void Prog_AddLanguageText(String text)
         if (line.length && line.value[line.length - 1] == '\r') --line.length;
         if (!line.length || line.value[0] == '#') continue;
         if (line.length >= 1 && line.value[0] == '=') {
-            String translation = StrFrom(line, line.length >= 2 && line.value[1] == ' ' ? 2 : 1);
-            if (english.length && translation.length && Prog__SameConversions(english, translation)) {
-                char *copy = ArenaPushArray(&Prog_LanguageArena, translation.length + 1, char);
-                MemCopy(copy, translation.value, translation.length);
-                MapsPut(&Prog_LanguageArena, Prog_LanguageMap, StrCopy(&Prog_LanguageArena, english), StrMake(copy, translation.length));
+            String translation = Prog__Unescape(&Prog_LanguageArena, StrFrom(line, line.length >= 2 && line.value[1] == ' ' ? 2 : 1));
+            char *copy = ArenaPushArray(&Prog_LanguageArena, translation.length + 1, char);
+            u64 length = 0;
+            b32 kept = english.length && translation.length;
+            for (u64 from = 0; kept && from <= translation.length;) {
+                Index split = StrIndexStr(StrFrom(translation, from), S(" | "), SSF_None);
+                String form = StrFromTo(translation, from, split.exists ? (i64)(from + split.value) : (i64)translation.length);
+                kept = form.length && Prog__SameConversions(english, form);
+                MemCopy(copy + length, form.value, form.length);
+                length += form.length;
+                copy[length] = 0;
+                length += split.exists ? 1 : 0;
+                from = split.exists ? from + split.value + 3 : translation.length + 1;
             }
+            if (kept) MapsPut(&Prog_LanguageArena, Prog_LanguageMap, Prog__Unescape(&Prog_LanguageArena, english), StrMake(copy, length));
             english = (String){0};
         } else {
             english = line;
@@ -95,6 +147,8 @@ function void Prog_UseLanguage(Prog_State *state, String name)
 {
     ArenaClear(&Prog_LanguageArena);
     Prog_LanguageMap = (typeof(Prog_LanguageMap)){0};
+    ArenaClear(&Prog__CommandTextArena);
+    MemZero(Prog__CommandTexts, sizeof(Prog__CommandTexts));
     if (!name.length || Prog__EqualFolded(name, S("English"))) return;
     for (u64 i = 0; i < CArrayCount(Prog_BuiltInLanguages); ++i) {
         if (StrIsEqual(name, Prog_BuiltInLanguages[i].name)) Prog_AddLanguageText(StrMake((const char *)Prog_BuiltInLanguages[i].text, Prog_BuiltInLanguages[i].size));
@@ -141,7 +195,17 @@ function String Prog_LanguageTemplate(Arena *arena, String name)
                                                "# Saved, the file applies at once while this language is chosen in Options.\n\n", name));
     for (u64 i = 0; i + 1 < CArrayCount(Prog_Strings); ++i) {
         String english = StrFromCStr(Prog_Strings[i]), shown = Prog_Tr(english);
-        StrBuildStr(arena, &text, StrFormat(arena, "%S\n= %S\n\n", english, shown.value == english.value ? S("") : shown));
+        StrBuildStr(arena, &text, StrFormat(arena, "%S\n= %S\n\n", Prog__Escape(arena, english), shown.value == english.value ? S("") : Prog__Escape(arena, shown)));
+    }
+    StrBuildStr(arena, &text, S("# Counted texts: the forms for one, then for the rest, separated by \" | \"; three forms are for one, a few and many, as Russian has.\n\n"));
+    for (u64 i = 0; i + 1 < CArrayCount(Prog_PluralStrings); ++i) {
+        String english = StrFromCStr(Prog_PluralStrings[i]), shown = Prog_Tr(english);
+        StrBuildStr(arena, &text, StrFormat(arena, "%S\n= ", english));
+        for (u64 c = 0; shown.value != english.value && c < shown.length; ++c) {
+            if (shown.value[c]) StrBuildChar(arena, &text, shown.value[c]);
+            else StrBuildStr(arena, &text, S(" | "));
+        }
+        StrBuildStr(arena, &text, S("\n\n"));
     }
     return text.buffer;
 }
@@ -1243,7 +1307,7 @@ function void Prog_SetScheme(Prog_State *state, String name, String text, b32 re
     for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "scheme %S\n%Send\n", names.v[i], texts.v[i]));
     P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SchemesFile), file.buffer);
     if (error.code) {
-        Prog_Notify(state, Prog_NoticeKind_Error, S("schemes.failed"), S("Couldn't save the color schemes"), error.message);
+        Prog_Notify(state, Prog_NoticeKind_Error, S("schemes.failed"), Tr("Couldn't save the color schemes"), error.message);
     }
     ReleaseScratch(scratch);
 }
@@ -1982,8 +2046,8 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
         }
     }
     // These open menus rather than run commands, so they name themselves; the tab list runs Search Tabs.
-    String tip = kind == Prog_CommandKind_PanelMenu ? S("Panel Menu") : kind == Prog_CommandKind_MainMenu ? S("Main Menu")
-               : kind == Prog_CommandKind_HistoryMenu ? S("History") : tabs ? (String){0} : S("View");
+    String tip = kind == Prog_CommandKind_PanelMenu ? Tr("Panel Menu") : kind == Prog_CommandKind_MainMenu ? Tr("Main Menu")
+               : kind == Prog_CommandKind_HistoryMenu ? Tr("History") : tabs ? (String){0} : Tr("View");
     if (enabled && !lit) Prog__NoteTooltip(state, kind, tip);
     UI_Interaction interaction = UI_InteractionFromBlock(block);
     R_Rect rect = block->rect;
@@ -2640,7 +2704,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     // The slot of the chevron between two crumbs.
     f32 chevron = floorf(m->line * 1.6f - 4.0f * m->scale);
     if (drive || thisPC) {
-        UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), S("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
+        UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), Tr("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
                                                  thisPC ? theme->text : theme->textDim, !thisPC, m);
         if (button.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(button), 0, 0, button.clickOrder);
         drive = drive || (thisPC && path.length);
@@ -2704,15 +2768,15 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     f32 width = floorf(25.6f * m->scale + 0.5f), height = Prog__ToolbarButtonHeight(m);
     UI_Interaction lock = Prog__TextButton(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,
                                            theme->icon, theme->text, theme->iconDisabled, path.length != 0, m);
-    if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_FolderViewToggle, kept ? S("Folder view settings saved and applied.\nIcons, sort, folders first, list columns.")
-                                                                                        : S("No folder view settings saved.\nUsing panel's view settings."));
+    if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_FolderViewToggle, kept ? Tr("Folder view settings saved and applied.\nIcons, sort, folders first, list columns.")
+                                                                                        : Tr("No folder view settings saved.\nUsing panel's view settings."));
     if (lock.clicked) Prog_QueueCommand(state, Prog_CommandKind_FolderViewToggle, 0, 0, lock.clickOrder);
     Prog__Spacer(UI_Pixels(apart), UI_Pixels(Prog__StripHeight(m)));
     b32 bookmarked = Prog_IsBookmarked(state, path);
     UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(width), height, 0,
                                                bookmarked ? theme->textMatch : theme->icon, bookmarked ? theme->textMatch : theme->text, theme->iconDisabled,
                                                path.length != 0, m);
-    if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_BookmarksToggle, bookmarked ? S("This path is bookmarked.") : S("This path is not bookmarked."));
+    if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_BookmarksToggle, bookmarked ? Tr("This path is bookmarked.") : Tr("This path is not bookmarked."));
     if (bookmark.clicked) Prog_QueueCommand(state, Prog_CommandKind_BookmarksToggle, 0, 0, bookmark.clickOrder);
 }
 
@@ -2758,7 +2822,7 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
     UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | ((open || hot) ? UI_Flag_DrawBackground : 0));
     UI_Interaction press = UI_InteractionFromBlock(button);
     if (press.clicked) Prog_QueueCommand(state, Prog_CommandKind_GitBranchesOpen, 0, 0, press.clickOrder);
-    Prog__PopupTooltip(state, S("Switch branch."));
+    Prog__PopupTooltip(state, Tr("Switch branch."));
     UI_Parent(button) {
         f32 inner = Prog__ToolbarButtonHeight(m);
         Prog__Icon(Icon_GitBranch, 0, inner, theme->icon, 0.5f, m);
@@ -2852,7 +2916,7 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
 };
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
-    SInit("Name"), SInit("Type"), SInit("Date Modified"), SInit("Folders"), SInit("Files"), SInit("Size"), SInit("Date Created"), SInit("Date Accessed"), SInit("Folder Usage"), SInit("Volume Usage"),
+    TrInit("Name"), TrInit("Type"), TrInit("Date Modified"), TrInit("Folders"), TrInit("Files"), TrInit("Size"), TrInit("Date Created"), TrInit("Date Accessed"), TrInit("Folder Usage"), TrInit("Volume Usage"),
     SInit("File System"), SInit("Free Space"), SInit("Percent Full"), SInit("Original Location"), SInit("Date Deleted"), SInit("Git"),
 };
 
@@ -2898,7 +2962,7 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
                 width = MaxF32(0, room - used);
             }
             b32 right = (id == Prog_ColumnId_Size && !drives) || id == Prog_ColumnId_FolderUsage || id == Prog_ColumnId_VolumeUsage;
-            result.v[result.count++] = (Prog_Column){ Prog_ColumnTitles[id], width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i + 1 < set.count) };
+            result.v[result.count++] = (Prog_Column){ Prog_Tr(Prog_ColumnTitles[id]), width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i + 1 < set.count) };
         }
     }
     return result;
@@ -4048,9 +4112,9 @@ function f32 Prog__ZoomFraction(u32 zoom) { return MinF32(1, (f32)zoom / (f32)Pr
 // The view's name, as the status bar and the zoom popup call it.
 function String Prog__ZoomName(u32 zoom)
 {
-    local_persist const String names[Prog_View_Count] = { SInit("Details"), SInit("List"), SInit("Columns"), {0} };
+    local_persist const String names[Prog_View_Count] = { TrInit("Details"), TrInit("List"), TrInit("Columns"), {0} };
     Prog_View view = Prog_ZoomView(zoom);
-    return view != Prog_View_Icons ? names[view] : zoom < Prog_ZoomLarge ? S("M Icons") : zoom < Prog_ZoomMax ? S("L Icons") : S("XL Icons");
+    return view != Prog_View_Icons ? Prog_Tr(names[view]) : zoom < Prog_ZoomLarge ? Tr("M Icons") : zoom < Prog_ZoomMax ? Tr("L Icons") : Tr("XL Icons");
 }
 
 // Icon views draw their icons from 48 logical pixels at 30% to 205 at 100%, in physical pixels.
@@ -4243,7 +4307,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > 2 * pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(floorf(viewHeight * 0.5f)));
         if (!state->viewCount && !state->loading) {
             // Centered a little below the top.
-            String empty = state->directory.count ? S("All items are currently hidden by view settings.") : S("This folder is empty.");
+            String empty = state->directory.count ? Tr("All items are currently hidden by view settings.") : Tr("This folder is empty.");
             Prog__Spacer(UI_Flex(), UI_Pixels(floorf(m->row * 0.65f)));
             Prog__Label(empty, UI_Flex(), m->row, 0, theme->textDim, 0.5f);
         }
@@ -4364,7 +4428,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 }
             } else {
                 Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, m);
-                String placeholder = StrFormat(&state->frameArena, "Filter %" PRIu64 " files...", state->directory.count);
+                String placeholder = StrFormat(&state->frameArena, TrN(state->directory.count, "Filter %u file...", "Filter %u files..."), (u32)state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
                 // In the pill's middle, as the buttons of the filter field are in theirs.
                 UI_Block *slot = Prog__Box(UI_Pixels(Prog__ToolbarButtonWidth(m)), UI_Pixels(m->pill), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -4382,7 +4446,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
         Prog_JobInput *walking = counting ? state->directoryJob->input : NULL;
         u64 found = walking ? atomic_load(&walking->foundFolders) + atomic_load(&walking->foundFiles) : 0;
         if (!status.length && state->loading && !found) {
-            status = StrFormat(&state->frameArena, "Loading %S...", walking->path);
+            status = StrFormat(&state->frameArena, TrF("Loading %S..."), walking->path);
         }
         if (!status.length) {
             // Shown out of everything the folder holds; one number when nothing is left out.
@@ -4442,8 +4506,8 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextPrefWidth(UI_Pixels(floorf(14.4f * m->scale + 0.5f)));
                 UI_SetNextPrefHeight(UI_Pixels(m->pill));
                 UI_Block *sortButton = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FolderSort")), UI_Flag_LeftMouseClickable);
-                local_persist const String sortTips[Prog_FolderSort_Count] = { SInit("Folders first, then files."), SInit("Files first, then folders."), SInit("Folders and files mixed.") };
-                Prog__DescribeTooltip(state, Prog_CommandKind_CycleFolderSort, sortTips[state->folderSort]);
+                local_persist const String sortTips[Prog_FolderSort_Count] = { TrInit("Folders first, then files."), TrInit("Files first, then folders."), TrInit("Folders and files mixed.") };
+                Prog__DescribeTooltip(state, Prog_CommandKind_CycleFolderSort, Prog_Tr(sortTips[state->folderSort]));
                 UI_Interaction sortClick = UI_InteractionFromBlock(sortButton);
                 if (sortClick.clicked) Prog_QueueCommand(state, Prog_CommandKind_CycleFolderSort, 0, 0, sortClick.clickOrder);
                 UI_Parent(sortButton) Prog__FolderSortIcon(state->folderSort, UI->hotKey == sortButton->key ? theme->text : theme->icon, theme->panel, m);
@@ -4731,7 +4795,7 @@ function void Prog__SidebarFilterBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextFloatingOffset((UI_Vec2){ pad, top });
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
                 UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                UI_SetNextText(S("Filter..."));
+                UI_SetNextText(Tr("Filter..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
             if (state->sidebarFilter.length || state->sidebarFiltering) Prog__EditContents(&state->sidebarFilter, pad, top, state->sidebarFiltering, 0, m);
@@ -4769,7 +4833,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         u64 indices[Prog_ShownRecentCount];
         u32 shown = 0, listed = Prog_ShownRecents(state, indices);
         for (u32 n = 0; n < listed; ++n) if (Prog__SidebarFinds(state, Prog_PathName(state, state->recents.v[indices[n]]))) indices[shown++] = indices[n];
-        if (shown || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Recents, S("Recents"), Icon_Clock, m);
+        if (shown || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Recents, Tr("Recents"), Icon_Clock, m);
         UI_Block *body = shown || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Recents, m) : NULL;
         if (body) UI_Parent(body) {
             // Each row eases to its place by its folder, so that one opened again travels up over the others while they move down to make
@@ -4796,7 +4860,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         }
         u64 count = state->bookmarks.header.count, found = 0;
         for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, state->bookmarks.v[i])) ? 1 : 0;
-        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, S("Bookmarks"), Icon_Bookmark, m);
+        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, Tr("Bookmarks"), Icon_Bookmark, m);
         // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
         R_Rect title = sidebar->last ? sidebar->last->rect : (R_Rect){0}, zone = title;
         u64 before = count;
@@ -4835,7 +4899,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         state->bookmarkDropShown = state->bookmarkGap;
         found = 0;
         for (u64 i = 0; i < state->drives.header.count; ++i) found += Prog__SidebarFinds(state, state->drives.v[i].name) ? 1 : 0;
-        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, S("Storage"), (String){0}, m);
+        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, Tr("Storage"), (String){0}, m);
         body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Storage, m) : NULL;
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
@@ -4845,7 +4909,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         }
         found = 0;
         for (u64 i = 0; i < state->places.header.count; ++i) found += Prog__SidebarFinds(state, state->places.v[i].name) ? 1 : 0;
-        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, S("Places"), Icon_Folder, m);
+        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_Folder, m);
         body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Places, m) : NULL;
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->places.header.count; ++i) {
@@ -4893,7 +4957,7 @@ function String Prog__ConflictText(Arena *arena, const Prog_State *state, Prog_C
     const Prog_Hotkey *hotkeys[16];
     u32 count = Prog_CommandHotkeys(state, kind, hotkeys, CArrayCount(hotkeys));
     StrBuilder out = {0};
-    StrBuildStr(arena, &out, S("Conflicts with commands:"));
+    StrBuildStr(arena, &out, Tr("Conflicts with commands:"));
     if (slot >= count) return out.buffer;
     const Prog_Hotkey *hotkey = hotkeys[slot];
     for (u32 k = Prog_CommandKind_None + 1; k < Prog_CommandKind_Count; ++k) {
@@ -4959,11 +5023,11 @@ function void Prog__HotkeyChipButton(Prog_State *state, String identity, Prog_Co
                     ask->target = chip->slot;
                     ask->at = (UI_Vec2){ remove->rect.x0, remove->rect.y1 + floorf(4.0f * m->scale + 0.5f) };
                 }
-                Prog__PopupTooltip(state, S("Delete hotkey."));
+                Prog__PopupTooltip(state, Tr("Delete hotkey."));
             }
         }
-        String tip = mouse ? S("Mouse hotkeys cannot be changed.") : chip->conflict ? Prog__ConflictText(frame, state, kind, chip->slot)
-                   : chip->idle ? S("Character Key Action not set to Trigger Hotkey.") : S("Press to set or remove hotkey.");
+        String tip = mouse ? Tr("Mouse hotkeys cannot be changed.") : chip->conflict ? Prog__ConflictText(frame, state, kind, chip->slot)
+                   : chip->idle ? Tr("Character Key Action not set to Trigger Hotkey.") : Tr("Press to set or remove hotkey.");
         if (!chip->recording) Prog__PopupTooltip(state, tip);
     }
 }
@@ -4979,7 +5043,7 @@ function void Prog__HotkeyQuestion(Prog_State *state, const Prog_Metrics *m)
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("HotkeyQuestionCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, outside.pressOrder);
-    String title = S("Delete assigned hotkey?");
+    String title = Tr("Delete assigned hotkey?");
     f32 button = floorf(96.0f * m->scale + 0.5f), gap = floorf(8.0f * m->scale + 0.5f), pad = floorf(8.0f * m->scale + 0.5f);
     f32 width = MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, 2 * button + gap + 2 * pad), height = m->row + m->bar + 3 * pad;
     f32 x = MinF32(state->hotkeyAskAt.x, view.x1 - width - m->inset), y = MinF32(state->hotkeyAskAt.y, view.y1 - height - m->inset);
@@ -5006,7 +5070,7 @@ function void Prog__HotkeyQuestion(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
             UI_SetNextBorderThickness(0.8f * m->scale);
             UI_SetNextColors((UI_Colors){ .background = UI->hotKey == key ? theme->hover : theme->track, .border = theme->outline, .text = theme->text });
-            UI_SetNextText(b ? S("Cancel") : S("Delete"));
+            UI_SetNextText(b ? Tr("Cancel") : Tr("Delete"));
             UI_Interaction pressed = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
             if (pressed.clicked && b) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, pressed.clickOrder);
             if (pressed.clicked && !b) Prog_QueueCommand(state, Prog_CommandKind_HotkeyDelete, state->hotkeyKind, 0, pressed.clickOrder)->target = state->hotkeySlot;
@@ -5713,14 +5777,14 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
     Arena *frame = &state->frameArena;
     b32 known = state->tipKnown;
     String waiting = S("...");
-    String labels[] = { Prog_PathName(state, path), S("Created:"), S("Subfolders:"), S("Subfiles:"), S("Size:"), S("Cmd:") };
+    String labels[] = { Prog_PathName(state, path), Tr("Created:"), Tr("Subfolders:"), Tr("Subfiles:"), Tr("Size:"), Tr("Cmd:") };
     String values[] = {
         Prog__CrumbPath(state, path),
         known && state->tip.created ? P_FormatFileTime(frame, state->tip.created) : known ? S("--") : waiting,
         known ? Prog__FormatCount(frame, state->tip.totals.folders) : waiting,
         known ? Prog__FormatCount(frame, state->tip.totals.files) : waiting,
         known ? Prog_FormatSize(frame, state->tip.totals.bytes) : waiting,
-        S("Open In New Tab"),
+        Tr("Open In New Tab"),
     };
     String chips[] = { S("Ctrl+MouseLeft"), S("MouseMiddle") };
     f32 column = 0, valueWidth = 0, chipGap = floorf(4.8f * s + 0.5f), chipPad = floorf(4.8f * s + 0.5f);
@@ -5793,7 +5857,7 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     f32 commandRow = plain ? 0 : described ? floorf(32.0f * s + 0.5f) : detail.length ? pitch : lineHeight;
     f32 bottom = described ? floorf((plain ? 8.8f : 4.8f) * s + 0.5f) : 0;
     f32 height = top + (f32)lines.header.count * pitch + commandRow + bottom;
-    String lead = S("Cmd:");
+    String lead = Tr("Cmd:");
     f32 width = plain ? 0 : R_TextWidth(m->font, lead) + gap + R_TextWidth(m->font, label);
     for (u32 i = 0; i < hotkeyCount; ++i) width += chipGap + MaxF32(R_TextWidth(m->detail, hotkeys[i]) + 2 * floorf(4.8f * s + 0.5f), floorf(30.4f * s + 0.5f));
     for (u64 i = 0; i < lines.header.count; ++i) width = MaxF32(width, R_TextWidth(m->font, lines.v[i]));
@@ -5866,7 +5930,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     u32 shown = Min(count - first, shownMax);
     // As wide as the longest name or path, within the window.
     // "tabs" even for one.
-    String hint = StrFormat(&state->frameArena, "Search %u tabs...", state->tabCount);
+    String hint = StrFormat(&state->frameArena, TrF("Search %u tabs..."), state->tabCount);
     f32 textWidth = R_TextWidth(m->font, hint) + floorf(16.0f * s + 0.5f);
     for (u32 i = 0; i < count; ++i) {
         String path = Prog_TabPath(state, matches[i]);
@@ -5963,7 +6027,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
                 UI_Parent(texts) {
-                    Prog__Label(path.length ? Prog_PathName(state, path) : S("This PC"), UI_Flex(), m->line, 0, theme->text, 0);
+                    Prog__Label(path.length ? Prog_PathName(state, path) : Tr("This PC"), UI_Flex(), m->line, 0, theme->text, 0);
                     if (where.length) {
                         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(2.4f * s + 0.5f)));
                         UI_SetNextFont(m->detail);
@@ -5991,7 +6055,7 @@ function f32 Prog__PaletteWidth(f32 view, f32 margin, f32 s)
 }
 
 // The keys that work a palette, in its footer: each key's chip, then what it does.
-function void Prog__PaletteHints(const char *const *keys, const char *const *words, u32 count, f32 height, R_Color background, f32 radius, const Prog_Metrics *m)
+function void Prog__PaletteHints(const char *const *keys, const String *words, u32 count, f32 height, R_Color background, f32 radius, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale;
@@ -6017,7 +6081,7 @@ function void Prog__PaletteHints(const char *const *keys, const char *const *wor
             Prog__Spacer(UI_Pixels(floorf(1.6f * s + 0.5f)), UI_Pixels(height));
         } else {
             UI_SetNextFont(m->detail);
-            Prog__LabelPadded(StrFromCStr(words[i]), UI_TextContent(), height, floorf(2.4f * s + 0.5f), floorf(12.8f * s + 0.5f), theme->textDim, 0);
+            Prog__LabelPadded(Prog_Tr(words[i]), UI_TextContent(), height, floorf(2.4f * s + 0.5f), floorf(12.8f * s + 0.5f), theme->textDim, 0);
         }
     }
 }
@@ -6173,7 +6237,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ floorf(3.2f * s + 0.5f), floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(S("Open or expand a folder..."));
+                    UI_SetNextText(Tr("Open or expand a folder..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
@@ -6216,11 +6280,11 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     UI_Interaction interaction = UI_InteractionFromBlock(title);
                     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GoToFold, (u64)at.section, 0, interaction.clickOrder);
                     UI_Parent(title) {
-                        local_persist const String titles[] = { SInit("Recents"), SInit("Bookmarks"), SInit("Storage"), SInit("Places") };
+                        local_persist const String titles[] = { TrInit("Recents"), TrInit("Bookmarks"), TrInit("Storage"), TrInit("Places") };
                         const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_Folder };
                         static_assert(CArrayCount(titles) == Prog_GoToSection_Folder, "a title for every section");
                         Prog__Icon(icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
-                        Prog__Label(titles[at.section], UI_Flex(), face, 0, theme->text, 0);
+                        Prog__Label(Prog_Tr(titles[at.section]), UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(folded ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
                     }
                     Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
@@ -6309,8 +6373,10 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const char *const keys[] = { "Up", "Down", 0, "Tab", 0, "Enter", 0, "Right", 0, "Alt+E", 0, "Ctrl+Enter", 0, "Escape", 0 };
         // Shorter than the other footers' words, as Go To has more keys to name.
-        local_persist const char *const words[] = { 0, 0, "navigate", 0, "next folder", 0, "open", 0, "expand", 0, "all drives", 0, "in panel", 0, "dismiss" };
-        local_persist const char *const wordsDrives[] = { 0, 0, "navigate", 0, "next folder", 0, "open", 0, "expand", 0, "places only", 0, "in panel", 0, "dismiss" };
+        local_persist const String words[] = { {0}, {0}, TrInit("navigate"), {0}, TrInit("next folder"), {0}, TrInit("open"), {0}, TrInit("expand"), {0}, TrInit("all drives"), {0},
+                                               TrInit("in panel"), {0}, TrInit("dismiss") };
+        local_persist const String wordsDrives[] = { {0}, {0}, TrInit("navigate"), {0}, TrInit("next folder"), {0}, TrInit("open"), {0}, TrInit("expand"), {0}, TrInit("places only"), {0},
+                                                     TrInit("in panel"), {0}, TrInit("dismiss") };
         if (state->gotoSearching) UI_KeepAnimating();
         Prog__PaletteHints(keys, state->gotoDrives ? wordsDrives : words, CArrayCount(keys), footer, theme->background, radius, m);
     }
@@ -6738,7 +6804,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(StrFormat(frame, "Filter %u types...", state->typeCount));
+                    UI_SetNextText(StrFormat(frame, TrF("Filter %u types..."), state->typeCount));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->typesSearch, 0, top, true, 0, m);
@@ -6747,11 +6813,11 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
             UI_Interaction all = Prog__TextButton(S("TypesToggleAll"), Icon_SquareCheck, m->icons, UI_Pixels(button), fieldHeight, 0, theme->icon, theme->text, theme->iconDisabled,
                                                   toggled < state->typeCount, m);
             if (all.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesToggleAll, 0, 0, all.clickOrder);
-            Prog__NoteTooltip(state, Prog_CommandKind_TypesToggleAll, S("Toggle All"));
+            Prog__NoteTooltip(state, Prog_CommandKind_TypesToggleAll, Tr("Toggle All"));
             UI_Interaction none = Prog__TextButton(S("TypesUntoggleAll"), Icon_SquareX, m->icons, UI_Pixels(button), fieldHeight, 0, theme->icon, theme->text, theme->iconDisabled,
                                                    toggled > 0, m);
             if (none.clicked) Prog_QueueCommand(state, Prog_CommandKind_TypesUntoggleAll, 0, 0, none.clickOrder);
-            Prog__NoteTooltip(state, Prog_CommandKind_TypesUntoggleAll, S("Untoggle All"));
+            Prog__NoteTooltip(state, Prog_CommandKind_TypesUntoggleAll, Tr("Untoggle All"));
             Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
             Prog__Box(UI_Pixels(line), UI_Pixels(floorf(m->line * 1.15f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
             Prog__Spacer(UI_Pixels(floorf(4.0f * s + 0.5f)), UI_Pixels(fieldHeight));
@@ -6872,7 +6938,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(StrFormat(frame, "Filter %S files...", many));
+                    UI_SetNextText(StrFormat(frame, TrF("Filter %S files..."), many));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->filesSearch, 0, top, true, 0, m);
@@ -6995,7 +7061,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("ZoomPopup")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     Prog_View view = Prog_ZoomView(state->zoom);
     u32 lit = view != Prog_View_Icons ? (u32)view : state->zoom < Prog_ZoomLarge ? 3u : state->zoom < Prog_ZoomMax ? 4u : 5u;
-    local_persist const String names[] = { SInit("Details"), SInit("List"), SInit("Columns"), SInit("M Icons"), SInit("L Icons"), SInit("XL Icons") };
+    local_persist const String names[] = { TrInit("Details"), TrInit("List"), TrInit("Columns"), TrInit("M Icons"), TrInit("L Icons"), TrInit("XL Icons") };
     const String icons[] = { Icon_List, Icon_Menu, Icon_Columns3, Icon_Image, Icon_Image, Icon_Image };
     f32 places[] = { 0, 0.1f, 0.2f, 0.3f, 0.65f, 1 };
     u32 levels[] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
@@ -7009,7 +7075,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_Block *heading = UI_AddBlock(UI_Flag_Floating);
         UI_Parent(heading) {
-            Prog__Label(S("Zoom"), UI_Flex(), header, 0, theme->textDim, 0);
+            Prog__Label(Tr("Zoom"), UI_Flex(), header, 0, theme->textDim, 0);
             Prog__Label(StrFormat(&state->frameArena, "%u%%", state->zoom / 10), UI_TextContent(), header, 0, theme->text, 0);
         }
         UI_SetNextFloatingOffset((UI_Vec2){ 0, header });
@@ -7035,7 +7101,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
             if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_ZoomSet, levels[i], 0, pick.clickOrder);
             UI_Parent(row) {
                 Prog__Icon(icons[i], floorf(30.4f * s + 0.5f), rowHeight, i == lit ? theme->text : theme->icon, 0.6f, m);
-                Prog__Label(names[i], UI_Flex(), rowHeight, 0, theme->text, 0);
+                Prog__Label(Prog_Tr(names[i]), UI_Flex(), rowHeight, 0, theme->text, 0);
             }
             // A line under every row but the last.
             if (i > 0) {
@@ -7142,7 +7208,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(S("Select a layout..."));
+                    UI_SetNextText(Tr("Select a layout..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
@@ -7156,7 +7222,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
             if (!count) {
-                Prog__Label(state->layoutNames.header.count ? S("No layout has that name") : S("No layouts saved yet; Save Layout keeps one"), UI_Flex(), row - line,
+                Prog__Label(state->layoutNames.header.count ? Tr("No layout has that name") : Tr("No layouts saved yet; Save Layout keeps one"), UI_Flex(), row - line,
                             floorf(8.0f * s + 0.5f), theme->textDim, 0);
             }
             for (u32 i = 0; i < count; ++i) {
@@ -7190,7 +7256,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
                         UI_Interaction drop = Prog__TextButton(StrFormat(&state->frameArena, "LayoutDelete/%S", name), Icon_X, m->icons, UI_Pixels(floorf(24.0f * s + 0.5f)), face, 0,
                                                                theme->text, theme->text, theme->iconDisabled, true, m);
                         if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutDelete, i, 0, drop.clickOrder);
-                        Prog__PopupTooltip(state, S("Delete layout."));
+                        Prog__PopupTooltip(state, Tr("Delete layout."));
                     }
                 }
                 if (i + 1 < count) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
@@ -7198,7 +7264,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
-        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
+        local_persist const String words[] = { {0}, {0}, TrInit("to navigate"), {0}, TrInit("to use"), {0}, TrInit("to dismiss") };
         Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background.a < 1 ? (R_Color){0} : theme->menu, radius, m);
     }
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -7310,7 +7376,7 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(S("Search fonts..."));
+                    UI_SetNextText(Tr("Search fonts..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->palette, 0, textTop, true, 0, m);
@@ -7323,10 +7389,10 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ inset, pad, inset + gutter, pad });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
-            if (!count) Prog__Label(state->fontsJob ? S("Listing the installed fonts...") : S("No font has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
+            if (!count) Prog__Label(state->fontsJob ? Tr("Listing the installed fonts...") : Tr("No font has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
             for (u32 i = first; i < first + shown; ++i) {
                 b32 standard = matches[i] == UINT32_MAX;
-                String name = standard ? S("Default") : state->fontNames[matches[i]];
+                String name = standard ? Tr("Default") : state->fontNames[matches[i]];
                 b32 chosen = standard ? !current->length : Prog__EqualFolded(name, StrMake(current->text, current->length));
                 UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Font/%S", name));
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
@@ -7442,7 +7508,7 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(S("Switch branch..."));
+                    UI_SetNextText(Tr("Switch branch..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->branchesSearch, 0, textTop, true, 0, m);
@@ -7452,7 +7518,7 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ inset, pad, inset, pad });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
-            if (!count) Prog__Label(state->branchesJob ? S("Listing the branches...") : S("No branch has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
+            if (!count) Prog__Label(state->branchesJob ? Tr("Listing the branches...") : Tr("No branch has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
             for (u32 i = first; i < first + shown; ++i) {
                 String name = state->branches.v[matches[i]];
                 b32 current = StrIsEqual(name, state->git.branch);
@@ -7545,11 +7611,11 @@ function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(entry) {
                 R_Color ink = lit ? theme->contentSelection : theme->text;
                 Prog__Spacer(UI_Pixels(lead), UI_Pixels(row));
-                Prog__Label(i == count ? S("Restore all") : Prog_NoticeKindName(frame, state->mutedNotices.v[i]), UI_Flex(), row, 0, ink, 0);
+                Prog__Label(i == count ? Tr("Restore all") : Prog_NoticeKindName(frame, state->mutedNotices.v[i]), UI_Flex(), row, 0, ink, 0);
                 if (i < count) {
                     UI_Interaction unmute = Prog__CloseButton(StrFormat(frame, "Muted/%" PRIu64 "/Unmute", i), m);
                     if (unmute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeUnmute, i, 0, unmute.clickOrder);
-                    Prog__PopupTooltip(state, S("Remove from the muted ones, which shows it again."));
+                    Prog__PopupTooltip(state, Tr("Remove from the muted ones, which shows it again."));
                 }
             }
         }
@@ -7658,11 +7724,11 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
                     if (lit && schemes) {
                         UI_Interaction fork = Prog__TextButton(StrFormat(frame, "Scheme/%u/Fork", i), Icon_Copy, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
                         if (fork.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeFork, i, 0, fork.clickOrder);
-                        Prog__PopupTooltip(state, S("Create an editable copy of this color scheme."));
+                        Prog__PopupTooltip(state, Tr("Create an editable copy of this color scheme."));
                         if (i >= Prog_BuiltInSchemes) {
                             UI_Interaction drop = Prog__TextButton(StrFormat(frame, "Scheme/%u/Delete", i), Icon_X, m->icons, UI_Pixels(slot), row, 0, ink, theme->text, theme->iconDisabled, true, m);
                             if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemeDelete, i, 0, drop.clickOrder);
-                            Prog__PopupTooltip(state, S("Delete color scheme."));
+                            Prog__PopupTooltip(state, Tr("Delete color scheme."));
                         }
                     }
                     Prog__Spacer(UI_Pixels(floorf(10.0f * s + 0.5f)), UI_Pixels(row));
@@ -7884,7 +7950,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
                         UI_SetNextBorderThickness(line);
                         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
                         UI_SetNextColors((UI_Colors){ .background = theme->track, .border = hot ? theme->outlineHover : theme->tabBorder, .text = theme->text });
-                        UI_SetNextText(b ? S("Cancel") : S("Ok"));
+                        UI_SetNextText(b ? Tr("Cancel") : Tr("Ok"));
                         UI_Interaction click = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
                         if (click.clicked) Prog_QueueCommand(state, b ? Prog_CommandKind_ColorPickerCancel : Prog_CommandKind_ColorPickerClose, 0, 0, click.clickOrder);
                         if (!b) Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(button));
@@ -7944,7 +8010,7 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     for (u64 i = 0; i < state->layoutNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->layoutNames.v[i], name);
     UI_Parent(panel) {
         UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
-        UI_Parent(title) Prog__Label(S("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
+        UI_Parent(title) Prog__Label(Tr("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
@@ -7953,7 +8019,7 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
                 UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                UI_SetNextText(S("Type a new or existing layout name to update..."));
+                UI_SetNextText(Tr("Type a new or existing layout name to update..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
             Prog__EditContents(&state->layoutName, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
@@ -7966,11 +8032,11 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(buttons) {
             Prog__Spacer(UI_Flex(), UI_Pixels(band));
             f32 apart = floorf(6.4f * s + 0.5f);
-            if (Prog__LayoutButton(state, S("LayoutSaveSave"), S("Save"), name.length != 0, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, 0);
+            if (Prog__LayoutButton(state, S("LayoutSaveSave"), Tr("Save"), name.length != 0, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, 0);
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
-            if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), S("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
+            if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), Tr("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
-            if (Prog__LayoutButton(state, S("LayoutSaveCancel"), S("Cancel"), true, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
+            if (Prog__LayoutButton(state, S("LayoutSaveCancel"), Tr("Cancel"), true, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
         }
     }
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -7997,9 +8063,9 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, outside.pressOrder);
     String name = StrMake((const char *)state->layoutAskName, state->layoutAskLength);
     b32 deleting = state->layoutAsk == Prog_LayoutAsk_Delete || state->layoutAsk == Prog_LayoutAsk_DeleteScheme, switching = state->layoutAsk == Prog_LayoutAsk_SwitchBranch;
-    String title = switching ? StrFormat(&state->frameArena, "%u change%s not committed. Switch to \"%S\" and take %s along?", state->git.changes, state->git.changes == 1 ? "" : "s", name, state->git.changes == 1 ? "it" : "them")
-                 : state->layoutAsk == Prog_LayoutAsk_DeleteScheme ? StrFormat(&state->frameArena, "Delete the custom color scheme \"%S\"?", name)
-                 : deleting ? StrFormat(&state->frameArena, "Delete the layout \"%S\"?", name) : StrFormat(&state->frameArena, "Overwrite the existing layout \"%S\"?", name);
+    String title = switching ? StrFormat(&state->frameArena, TrN(state->git.changes, "%u change not committed. Switch to \"%S\" and take it along?", "%u changes not committed. Switch to \"%S\" and take them along?"), state->git.changes, name)
+                 : state->layoutAsk == Prog_LayoutAsk_DeleteScheme ? StrFormat(&state->frameArena, TrF("Delete the custom color scheme \"%S\"?"), name)
+                 : deleting ? StrFormat(&state->frameArena, TrF("Delete the layout \"%S\"?"), name) : StrFormat(&state->frameArena, TrF("Overwrite the existing layout \"%S\"?"), name);
     f32 width = floorf(MinF32(MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, m->line * 20), view.x1 - view.x0 - 2 * m->inset));
     f32 height = floorf(m->row + m->bar + m->inset * 3);
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -8017,10 +8083,10 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
         UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
         UI_Parent(buttons) {
             Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
-            UI_Interaction cancel = Prog__TextButton(S("LayoutAskCancel"), S("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
+            UI_Interaction cancel = Prog__TextButton(S("LayoutAskCancel"), Tr("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
             if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, cancel.clickOrder);
             Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-            UI_Interaction confirm = Prog__TextButton(S("LayoutAskConfirm"), switching ? S("Switch") : deleting ? S("Delete") : S("Overwrite"), NULL, UI_TextContent(), m->bar * 0.8f,
+            UI_Interaction confirm = Prog__TextButton(S("LayoutAskConfirm"), switching ? Tr("Switch") : deleting ? Tr("Delete") : Tr("Overwrite"), NULL, UI_TextContent(), m->bar * 0.8f,
                                                       m->inset, switching ? theme->textHeading : theme->danger, switching ? theme->text : theme->danger, theme->textDim, true, m);
             if (confirm.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 1, 0, confirm.clickOrder);
         }
@@ -8168,7 +8234,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextFont(m->icons);
             UI_SetNextText(state->paletteCompact ? Icon_FileX : Icon_FileText);
             UI_Block *details = UI_AddBlockFromKey(detailsKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
-            Prog__NoteTooltip(state, Prog_CommandKind_PaletteToggleDetails, S("Toggle Extra Details"));
+            Prog__NoteTooltip(state, Prog_CommandKind_PaletteToggleDetails, Tr("Toggle Extra Details"));
             // Over the palette, which keeps the window's other tips out.
             if (state->tooltipKey == details->key) state->tooltipAbove = true;
             UI_Interaction toggle = UI_InteractionFromBlock(details);
@@ -8181,11 +8247,14 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
-        local_persist const String groupNames[] = { SInit("Quick"), SInit("Folder"), SInit("View"), SInit("Sort"), SInit("Inspector"), SInit("Panels"), SInit("Tabs"), SInit("Go To"), SInit("Misc"),
-                                                    SInit("Options"), SInit("Rename"), SInit("Text"), SInit("Scroll") };
+        local_persist const String groupNames[] = { TrInit("Quick"), TrInit("Folder"), TrInit("View"), TrInit("Sort"), TrInit("Inspector"), TrInit("Panels"), TrInit("Tabs"), TrInit("Go To"),
+                                                    TrInit("Misc"), TrInit("Options"), TrInit("Rename"), TrInit("Text"), TrInit("Scroll") };
         const String groupIcons[] = { Icon_StarFilled, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
                                                     Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextCursorInput, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
+        // The groups in front of found commands are as wide as the widest name, as some languages' are long.
+        f32 groupWidth = floorf(63.2f * s + 0.5f);
+        for (u32 g = 0; g < Prog_CommandGroup_Count; ++g) groupWidth = MaxF32(groupWidth, ceilf(R_TextWidth(m->font, Prog_Tr(groupNames[g])) + m->gap));
         // Room on the right for the scroll bar while there is one.
         f32 bar = floorf(6.4f * s + 0.5f), side = floorf(6.4f * s + 0.5f), gutter = count > visible ? floorf(19.2f * s + 0.5f) : side;
         UI_SetNextChildrenPadding((UI_Padding){ side, pad - floorf(lag), gutter, pad + floorf(lag) });
@@ -8226,14 +8295,14 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         // A group's title, which opens and closes it.
                         b32 open = state->paletteExpanded & (1u << at.group);
                         Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
-                        Prog__Label(groupNames[at.group], UI_Flex(), face, 0, theme->text, 0);
+                        Prog__Label(Prog_Tr(groupNames[at.group]), UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, floorf(m->line * 1.2f), face, icon, 0.5f, m);
                     } else {
                         String label = Prog_CommandLabel((Prog_CommandKind)at.kind), tooltip = Prog_CommandTooltip((Prog_CommandKind)at.kind);
                         if (searching) {
                             // A command found by searching shows its group in front of it.
                             Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
-                            Prog__Label(groupNames[at.group], UI_Pixels(floorf(63.2f * s + 0.5f)), face, 0, named, 0);
+                            Prog__Label(Prog_Tr(groupNames[at.group]), UI_Pixels(groupWidth), face, 0, named, 0);
                             Prog__Icon(Icon_ChevronRight, floorf(20.8f * s + 0.5f), face, icon, 0, m);
                         } else {
                             Prog__Spacer(UI_Pixels(slot + floorf(1.6f * s + 0.5f)), UI_Pixels(face));
@@ -8263,17 +8332,17 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                             UI_Interaction star = Prog__TextButton(StrFormat(&state->frameArena, "PaletteQuick/%u", (u32)at.kind), quick ? Icon_StarFilled : Icon_Star, m->icons,
                                                                    UI_Pixels(slot), face, 0, theme->text, theme->text, theme->iconDisabled, true, m);
                             if (star.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteQuickToggle, at.kind, 0, star.clickOrder);
-                            Prog__PopupTooltip(state, quick ? S("Remove from Quick.") : S("Add to Quick."));
+                            Prog__PopupTooltip(state, quick ? Tr("Remove from Quick.") : Tr("Add to Quick."));
                             if (Prog_HotkeysChanged(state, (Prog_CommandKind)at.kind)) {
                                 UI_Interaction restore = Prog__TextButton(StrFormat(&state->frameArena, "PaletteRestore/%u", (u32)at.kind), Icon_RotateCcw, m->icons, UI_Pixels(slot), face, 0,
                                                                           theme->text, theme->text, theme->iconDisabled, true, m);
                                 if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_HotkeyRestore, at.kind, 0, restore.clickOrder);
-                                Prog__PopupTooltip(state, S("Restore default hotkeys."));
+                                Prog__PopupTooltip(state, Tr("Restore default hotkeys."));
                             }
                             UI_Interaction add = Prog__TextButton(StrFormat(&state->frameArena, "PaletteAdd/%u", (u32)at.kind), Icon_Plus, m->icons, UI_Pixels(slot), face, 0,
                                                                   theme->text, theme->text, theme->iconDisabled, true, m);
                             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_HotkeyRecord, at.kind, 0, add.clickOrder)->target = Prog_NewHotkeySlot;
-                            Prog__PopupTooltip(state, S("Assign new hotkey."));
+                            Prog__PopupTooltip(state, Tr("Assign new hotkey."));
                         }
                         Prog_HotkeyChip chips[4];
                         u32 chipCount = Prog_HotkeyChips(&state->frameArena, state, (Prog_CommandKind)at.kind, chips, CArrayCount(chips));
@@ -8301,7 +8370,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         // The keys that work the palette.
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         local_persist const char *const keys[] = { "Up", "Down", 0, "Enter", 0, "Escape", 0 };
-        local_persist const char *const words[] = { 0, 0, "to navigate", 0, "to use", 0, "to dismiss" };
+        local_persist const String words[] = { {0}, {0}, TrInit("to navigate"), {0}, TrInit("to use"), {0}, TrInit("to dismiss") };
         // In its own band, unless the box is already in the menus' color, which a second coat would darken.
         Prog__PaletteHints(keys, words, CArrayCount(keys), footer, theme->background.a < 1 ? (R_Color){0} : theme->menu, radius, m);
     }
@@ -8427,12 +8496,12 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
                     UI_Interaction mute = Prog__TextButton(StrFormat(frame, "NoticeMute/%" PRIu64, notice->id), Icon_BellOff, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
                                                            theme->icon, theme->text, theme->iconDisabled, true, m);
                     if (mute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeMute, notice->id, 0, mute.clickOrder);
-                    Prog__PopupTooltip(state, S("Don't show this again."));
+                    Prog__PopupTooltip(state, Tr("Don't show this again."));
                 }
                 UI_Interaction copy = Prog__TextButton(StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id), Icon_Copy, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
                                                        theme->icon, theme->text, theme->iconDisabled, true, m);
                 if (copy.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeCopy, notice->id, 0, copy.clickOrder);
-                Prog__PopupTooltip(state, S("Copy the message."));
+                Prog__PopupTooltip(state, Tr("Copy the message."));
                 UI_Interaction close = Prog__CloseButton(StrFormat(frame, "NoticeClose/%" PRIu64, notice->id), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeClose, notice->id, 0, close.clickOrder);
             }
@@ -8496,8 +8565,9 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
-                String title = transfer->opening ? StrFormat(&state->frameArena, "Extracting %S to open it", target)
-                             : StrFormat(&state->frameArena, "%s %" PRIu64 " item%s to %S", transfer->move ? "Moving" : "Copying", items, items == 1 ? "" : "s", target);
+                String title = transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
+                             : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
+                                              : StrFormat(&state->frameArena, TrN(items, "Copying %u item to %S", "Copying %u items to %S"), (u32)items, target);
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
                 // Lucide draws these larger than its cross, which the smaller icons bring to its size.
                 UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", i), paused ? Icon_Play : Icon_Pause, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
@@ -8510,13 +8580,13 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             }
             if (asking) {
                 String name = StrFromCStr(progress->conflictName);
-                Prog__Label(StrFormat(&state->frameArena, "\"%S\" is already in %S", name, target), UI_Flex(), m->row, 0, theme->textHeading, 0);
+                Prog__Label(StrFormat(&state->frameArena, TrF("\"%S\" is already in %S"), name, target), UI_Flex(), m->row, 0, theme->textHeading, 0);
                 UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
                 UI_Parent(buttons) {
                     struct { String label; P_Conflict answer; b32 shown; } choices[] = {
-                        { S("Replace"), P_Conflict_Replace, !progress->conflictFolder },
-                        { S("Keep Both"), P_Conflict_KeepBoth, true },
-                        { S("Skip"), P_Conflict_Skip, true },
+                        { Tr("Replace"), P_Conflict_Replace, !progress->conflictFolder },
+                        { Tr("Keep Both"), P_Conflict_KeepBoth, true },
+                        { Tr("Skip"), P_Conflict_Skip, true },
                     };
                     for (u32 c = 0; c < CArrayCount(choices); ++c) {
                         if (!choices[c].shown) continue;
@@ -8528,7 +8598,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                     Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
                     // Only where more names may be taken.
                     if (items > 1) {
-                        UI_Interaction all = Prog__TextButton(StrFormat(&state->frameArena, "TransferAll/%u", i), transfer->answerAll ? S("For all: on") : S("For all: off"), NULL, UI_TextContent(),
+                        UI_Interaction all = Prog__TextButton(StrFormat(&state->frameArena, "TransferAll/%u", i), transfer->answerAll ? Tr("For all: on") : Tr("For all: off"), NULL, UI_TextContent(),
                                                               m->bar * 0.8f, m->inset * 0.75f, transfer->answerAll ? theme->textMatch : theme->textDim, theme->text, theme->textDim, true, m);
                         if (all.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferAnswerAll, i, 0, all.clickOrder);
                     }
@@ -8540,7 +8610,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                 UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
                 UI_Parent(now) {
                     Prog__Label(Prog__TransferName(&state->frameArena, progress), UI_Flex(), m->row, 0, theme->textDim, 0);
-                    Prog__Label(StrFormat(&state->frameArena, paused ? "Paused at %u%%" : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
+                    Prog__Label(StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
                 }
             }
             String amount = bytes ? StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
@@ -8587,9 +8657,9 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeleteCatcher")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, outside.pressOrder);
-    String title = state->confirmEmptyTrash ? StrFormat(&state->frameArena, "Permanently delete everything in the %S?", Prog_PathName(state, state->confirmPaths[0]))
-                 : state->confirmCount == 1 ? StrFormat(&state->frameArena, "Permanently delete \"%S\"?", Prog__FolderName(state->confirmPaths[0]))
-                                            : StrFormat(&state->frameArena, "Permanently delete %" PRIu64 " items?", state->confirmCount);
+    String title = state->confirmEmptyTrash ? StrFormat(&state->frameArena, TrF("Permanently delete everything in the %S?"), Prog_PathName(state, state->confirmPaths[0]))
+                 : state->confirmCount == 1 ? StrFormat(&state->frameArena, TrF("Permanently delete \"%S\"?"), Prog__FolderName(state->confirmPaths[0]))
+                                            : StrFormat(&state->frameArena, TrN(state->confirmCount, "Permanently delete %u item?", "Permanently delete %u items?"), (u32)state->confirmCount);
     f32 width = floorf(MinF32(MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, m->line * 20), view.x1 - view.x0 - 2 * m->inset));
     f32 height = floorf(m->row * 2 + m->bar + m->inset * 2);
     UI_SetNextPrefWidth(UI_Pixels(width));
@@ -8603,14 +8673,14 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("DeletePanel")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
         Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
-        Prog__Label(S("This cannot be undone."), UI_Flex(), m->row, 0, theme->textDim, 0);
+        Prog__Label(Tr("This cannot be undone."), UI_Flex(), m->row, 0, theme->textDim, 0);
         UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, theme->menu, 0);
         UI_Parent(buttons) {
             Prog__Spacer(UI_Flex(), UI_Pixels(m->bar));
-            UI_Interaction cancel = Prog__TextButton(S("DeleteCancel"), S("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
+            UI_Interaction cancel = Prog__TextButton(S("DeleteCancel"), Tr("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
             if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, cancel.clickOrder);
             Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-            UI_Interaction confirm = Prog__TextButton(S("DeleteConfirm"), S("Delete"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->danger, theme->danger, theme->textDim, true, m);
+            UI_Interaction confirm = Prog__TextButton(S("DeleteConfirm"), Tr("Delete"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->danger, theme->danger, theme->textDim, true, m);
             if (confirm.clicked) Prog_QueueCommand(state, Prog_CommandKind_DeleteConfirm, 0, 0, confirm.clickOrder);
         }
     }
@@ -8884,9 +8954,9 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     String path = state->tabDrop.fromSlot < state->tabCount ? Prog_TabPath(state, state->tabDrop.fromSlot) : (String){0};
     Prog__UsePanel(state, state->activePanel);
     b32 copy = (UI->mods & KeyMod_Control) != 0;
-    String action = state->tabDrop.kind == Prog_TabDrop_Window && state->tabDropOther ? (copy ? S("Copy to that window") : S("Move to that window (Ctrl to copy)"))
-                  : state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? S("Copy to a new window") : S("Move to a new window (Ctrl to copy)"))
-                  : copy ? S("Copy") : S("Move (Ctrl to copy)");
+    String action = state->tabDrop.kind == Prog_TabDrop_Window && state->tabDropOther ? (copy ? Tr("Copy to that window") : Tr("Move to that window (Ctrl to copy)"))
+                  : state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? Tr("Copy to a new window") : Tr("Move to a new window (Ctrl to copy)"))
+                  : copy ? Tr("Copy") : Tr("Move (Ctrl to copy)");
     // Wide enough for what it says, and kept inside the window, which it cannot draw outside of.
     f32 width = MaxF32(floorf(m->line * 12.0f), R_TextWidth(m->font, action) + 2 * m->gap), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
     // A translucent theme's panels would leave it unreadable over the list, so it takes the menus' color there.
@@ -9361,15 +9431,15 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     String created = entry->file.createdTimeUnix ? P_FormatFileTime(frame, entry->file.createdTimeUnix) : none;
     String labels[7], values[7];
     u32 count = 0;
-    labels[count] = S("Path"), values[count++] = path;
-    labels[count] = S("Type"), values[count++] = entry->type;
-    labels[count] = S("Size"), values[count++] = size;
+    labels[count] = Tr("Path"), values[count++] = path;
+    labels[count] = Tr("Type"), values[count++] = entry->type;
+    labels[count] = Tr("Size"), values[count++] = size;
     if (folder) {
-        labels[count] = S("Subfolders"), values[count++] = entry->measured && entry->folders ? StrFormat(frame, "%" PRIu64, entry->folders) : none;
-        labels[count] = S("Subfiles"), values[count++] = entry->measured && entry->files ? StrFormat(frame, "%" PRIu64, entry->files) : none;
+        labels[count] = Tr("Subfolders"), values[count++] = entry->measured && entry->folders ? StrFormat(frame, "%" PRIu64, entry->folders) : none;
+        labels[count] = Tr("Subfiles"), values[count++] = entry->measured && entry->files ? StrFormat(frame, "%" PRIu64, entry->files) : none;
     }
-    labels[count] = S("Created"), values[count++] = created;
-    labels[count] = S("Modified"), values[count++] = Prog_EntryModified(frame, entry);
+    labels[count] = Tr("Created"), values[count++] = created;
+    labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
     // Where the system has permissions, a row of their letters, owner's, group's and others', each turned on and off by a click.
     u16 mode = entry->file.mode;
     if (mode) state->permissionsPath = Prog_JoinPath(frame, state->directory.path, entry->file.name);
@@ -9416,7 +9486,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                 UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(line) {
                     UI_SetNextFont(m->detail);
-                    Prog__Label(S("Permissions"), UI_TextContent(), row, 0, theme->text, 0);
+                    Prog__Label(Tr("Permissions"), UI_TextContent(), row, 0, theme->text, 0);
                     Prog__Spacer(UI_Flex(), UI_Pixels(row));
                     local_persist const char letters[3] = { 'r', 'w', 'x' };
                     f32 cell = floorf(14.4f * s + 0.5f), apart = floorf(6.4f * s + 0.5f);
@@ -9436,8 +9506,12 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                         UI_Block *letter = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
                         UI_Interaction toggle = UI_InteractionFromBlock(letter);
                         if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_PermissionsSet, 0, 0, toggle.clickOrder)->target = (u64)(mode ^ flag);
-                        local_persist const char *who[3] = { "owner", "group", "others" }, *what[3] = { "read", "write", "run" };
-                        if (hot) Prog__PopupTooltip(state, StrFormat(frame, "%s may %s", who[bit / 3], what[bit % 3]));
+                        local_persist const String tips[9] = {
+                            TrInit("The owner may read"), TrInit("The owner may write"), TrInit("The owner may run"),
+                            TrInit("The group may read"), TrInit("The group may write"), TrInit("The group may run"),
+                            TrInit("Others may read"), TrInit("Others may write"), TrInit("Others may run"),
+                        };
+                        if (hot) Prog__PopupTooltip(state, Prog_Tr(tips[bit]));
                     }
                 }
             }
@@ -9476,14 +9550,17 @@ function void Prog__LeaveInspectorPanel(Prog_State *state, u64 owner)
 function String Prog_ArchiveSummary(Arena *arena, P_DirectoryTotals totals, u64 packed)
 {
     String size = Prog_FormatSize(arena, packed);
-    if (!totals.complete) return StrFormat(arena, "Over %S items, packed to %S", Prog__FormatCount(arena, totals.folders + totals.files), size);
+    u64 items = totals.folders + totals.files;
+    if (!totals.complete) return StrFormat(arena, TrN(items, "Over %S item, packed to %S", "Over %S items, packed to %S"), Prog__FormatCount(arena, items), size);
     StrBuilder text = {0};
-    if (totals.folders) StrBuildFormat(arena, &text, "%S %s, ", Prog__FormatCount(arena, totals.folders), totals.folders == 1 ? "folder" : "folders");
-    StrBuildFormat(arena, &text, "%S %s, %S, packed to %S", Prog__FormatCount(arena, totals.files), totals.files == 1 ? "file" : "files",
+    if (totals.folders) StrBuildFormat(arena, &text, TrN(totals.folders, "%S folder", "%S folders"), Prog__FormatCount(arena, totals.folders));
+    if (totals.folders) StrBuildStr(arena, &text, S(", "));
+    StrBuildFormat(arena, &text, TrN(totals.files, "%S file, %S, packed to %S", "%S files, %S, packed to %S"), Prog__FormatCount(arena, totals.files),
                    Prog_FormatSize(arena, totals.bytes), size);
     u32 saved = totals.bytes > packed ? (u32)((f64)(totals.bytes - packed) * 100.0 / (f64)totals.bytes + 0.5) : 0;
-    if (saved) StrBuildFormat(arena, &text, " (%u%% smaller)", saved);
-    else StrBuildStr(arena, &text, S(" (no smaller)"));
+    StrBuildChar(arena, &text, ' ');
+    if (saved) StrBuildFormat(arena, &text, TrF("(%u%% smaller)"), saved);
+    else StrBuildStr(arena, &text, Tr("(no smaller)"));
     return text.buffer;
 }
 
@@ -9499,7 +9576,7 @@ function void Prog__InspectorList(Prog_State *state, const Prog_Metrics *m)
     R_Rect rect = body->rect;
     u32 inner = Prog__EnterInspectorPanel(state, owner);
     if (inner == UINT32_MAX) {
-        UI_Parent(body) Prog__Label(S("Loading..."), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+        UI_Parent(body) Prog__Label(Tr("Loading..."), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
         return;
     }
     {
@@ -9595,7 +9672,7 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
             UI_SetNextFont(fonts && fonts[i] ? fonts[i] : m->icons);
             UI_SetNextText(labels[i]);
             UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (lit ? UI_Flag_DrawBackground : 0));
-            Prog__DescribeTooltip(state, tipKind, tips[i]);
+            Prog__DescribeTooltip(state, tipKind, Prog_Tr(tips[i]));
             UI_Interaction interaction = UI_InteractionFromBlock(button);
             if (interaction.clicked) Prog_QueueCommand(state, kind, i, 0, interaction.clickOrder);
         }
@@ -9930,7 +10007,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             const String layoutIcons[Prog_InspectorLayout_Count] = { Icon_PanelsTopLeft, Icon_PanelLeft, Icon_PanelTop };
             Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
             local_persist const String layoutTips[Prog_InspectorLayout_Count] = {
-                SInit("Auto positions the inspector to the right or below based on available space."), SInit("Forces the inspector to the right."), SInit("Forces the inspector below."),
+                TrInit("Auto positions the inspector to the right or below based on available space."), TrInit("Forces the inspector to the right."), TrInit("Forces the inspector below."),
             };
             Prog__ChoiceGroup(state, layoutKeys, layoutIcons, NULL, layoutTips, Prog_InspectorLayout_Count, state->inspectorLayout, Prog_CommandKind_InspectorSetLayout,
                               Prog_CommandKind_InspectorChangeLayout, m);
@@ -9940,8 +10017,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 const String scaleLabels[Prog_ImageScale_Count] = { Icon_Minimize2, S("1:1"), Icon_Maximize2 };
                 const R_Font *scaleFonts[Prog_ImageScale_Count] = { NULL, m->detail, NULL };
                 local_persist const String scaleTips[Prog_ImageScale_Count] = {
-                    SInit("Display image scaled to fit within the viewport."), SInit("Display image at its original source size, no scaling."),
-                    SInit("Display image with a custom scale adjustment."),
+                    TrInit("Display image scaled to fit within the viewport."), TrInit("Display image at its original source size, no scaling."),
+                    TrInit("Display image with a custom scale adjustment."),
                 };
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
                 Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -9999,7 +10076,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__InspectorImage(state, m);
         } else if (folder) {
             if (archive) {
-                String summary = state->previewArchiveCounted ? Prog_ArchiveSummary(&state->frameArena, state->previewArchiveTotals, entry->file.size) : S("Counting...");
+                String summary = state->previewArchiveCounted ? Prog_ArchiveSummary(&state->frameArena, state->previewArchiveTotals, entry->file.size) : Tr("Counting...");
                 Prog__Label(summary, UI_Flex(), m->row, m->inset, theme->textDim, 0);
             }
             Prog__InspectorList(state, m);
@@ -10012,7 +10089,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             UI_Parent(body) {
                 f32 room = (pane->rect.x1 - pane->rect.x0) - 2 * m->inset;
                 if (!entry) {
-                    Prog__Label(S("Nothing to preview"), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
+                    Prog__Label(Tr("Nothing to preview"), UI_Flex(), m->row, 0, theme->textDim, 0.5f);
                 } else {
                     // A picture as wide as the pane, but no taller than half of it.
                     f32 side = floorf(MinF32(room, MaxF32(0, (body->rect.y1 - body->rect.y0) * 0.5f)));
@@ -10041,7 +10118,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                     if (total && UI->nowMicroseconds - Min(state->previewSubmitted, UI->nowMicroseconds) >= 400000) {
                         f32 part = (f32)((f64)done / (f64)total), barWidth = floorf(MinF32(room, m->line * 16)), barHeight = MaxF32(3, floorf(4 * m->scale));
                         Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
-                        Prog__Label(StrFormat(&state->frameArena, "Extracting it from the archive to preview, %u%%", (u32)(part * 100)), UI_Flex(), m->row, 0, theme->text, 0);
+                        Prog__Label(StrFormat(&state->frameArena, TrF("Extracting it from the archive to preview, %u%%"), (u32)(part * 100)), UI_Flex(), m->row, 0, theme->text, 0);
                         UI_SetNextPrefWidth(UI_Pixels(barWidth));
                         UI_SetNextPrefHeight(UI_Pixels(barHeight));
                         UI_SetNextCornerRadius(barHeight * 0.5f);
@@ -10070,7 +10147,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             footer = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
         }
         if (footer) UI_Parent(footer) {
-            if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, "Filter %u lines...", state->previewLineCount), m);
+            if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
             if (pdf) {
                 String pages = state->pdf.pageCount == 1 ? S("1 page") : StrFormat(&state->frameArena, "%u pages", state->pdf.pageCount);
@@ -10100,7 +10177,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 facts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
                 UI_Parent(facts) {
                     f32 before = floorf(7.2f * s + 0.5f);
-                    Prog__LabelPadded(state->previewHex ? S("Hex") : state->previewArchive ? S("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
+                    Prog__LabelPadded(state->previewHex ? S("Hex") : state->previewArchive ? Tr("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
                     Prog__Icon(Icon_TextAlignStart, 0, m->pill, theme->icon, 0.5f, m);
                     // The lines the filter keeps out of all of them; for hex, the file's size.
                     String lines = state->previewHex ? Prog_FormatSize(&state->frameArena, state->hexSize)
@@ -10132,7 +10209,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(frame, "Miller/%S", column->path)), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
     if (!column->listed) {
-        UI_Parent(list) Prog__Label(S("Loading..."), UI_Flex(), m->row, m->gap, theme->textDim, 0);
+        UI_Parent(list) Prog__Label(Tr("Loading..."), UI_Flex(), m->row, m->gap, theme->textDim, 0);
         return;
     }
     u64 litRow = UINT64_MAX;
@@ -10578,13 +10655,13 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         // What runs and what is installed: the version in a brighter color.
         String before, version, after;
         if (setup->running) {
-            before = S("Installed version "), version = S(FILEY_VERSION), after = S(".");
+            before = StrFormat(frame, "%S ", Tr("Installed version")), version = S(FILEY_VERSION), after = S(".");
         } else if (!setup->installed) {
-            before = S("Standalone version "), version = S(FILEY_VERSION), after = S(".");
+            before = StrFormat(frame, "%S ", Tr("Standalone version")), version = S(FILEY_VERSION), after = S(".");
         } else if (setup->same) {
-            before = S("The same version is already installed at:"), version = after = (String){0};
+            before = Tr("The same version is already installed at:"), version = after = (String){0};
         } else {
-            before = S("A different version ("), version = setup->version.length ? setup->version : S("unknown"), after = S(") is installed.");
+            before = StrFormat(frame, "%S (", Tr("A different version")), version = setup->version.length ? setup->version : Tr("unknown"), after = StrFormat(frame, ") %S", Tr("is installed."));
         }
         f32 lineWidth = R_TextWidth(medium, before) + R_TextWidth(medium, version) + R_TextWidth(medium, after), x = middle - floorf(lineWidth * 0.5f), y = floorf(282.8f * s + 0.5f);
         Prog__SetupText(before, medium, theme->textDim, x, y);
@@ -10593,7 +10670,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         Prog__SetupLine(middle, floorf(318.4f * s + 0.5f), m);
         // Where it goes, which is always the same folder.
         f32 boxWidth = floorf(504.0f * s + 0.5f), boxLeft = middle - floorf(boxWidth * 0.5f), boxTop = floorf(393.6f * s + 0.5f), boxHeight = floorf(44.8f * s + 0.5f);
-        Prog__SetupText(setup->installed ? S("Installed Path:") : S("Install Path:"), large, theme->textDim, boxLeft, floorf(360.8f * s + 0.5f));
+        Prog__SetupText(setup->installed ? Tr("Installed Path:") : Tr("Install Path:"), large, theme->textDim, boxLeft, floorf(360.8f * s + 0.5f));
         UI_SetNextFloatingOffset((UI_Vec2){ boxLeft, boxTop });
         UI_SetNextPrefWidth(UI_Pixels(boxWidth));
         UI_SetNextPrefHeight(UI_Pixels(boxHeight));
@@ -10604,17 +10681,17 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         String folder = Prog__Ellipsize(frame, fine, P_NativePath(frame, setup->folder), boxWidth - floorf(17.6f * s + 0.5f));
         Prog__SetupText(folder, fine, theme->textDim, boxLeft + floorf(8.8f * s + 0.5f), boxTop + floorf(boxHeight * 0.5f));
         // The switches, each after its name, in two columns of two rows; the first column's second row is for the right-click entries.
-        local_persist const String names[3] = { SInit("Desktop shortcut:"), SInit("Add to PATH:"), SInit("Set as default:") };
-        local_persist const String tips[3] = { SInit("Creates a shortcut on the desktop for quick access to Filey."),
-                                                SInit("Allows Filey to be launched from the command line using Filey.exe."),
-                                                SInit("Opens folders with Filey and assigns it to the Win+E shortcut.") };
+        local_persist const String names[3] = { TrInit("Desktop shortcut:"), TrInit("Add to PATH:"), TrInit("Set as default:") };
+        local_persist const String tips[3] = { TrInit("Creates a shortcut on the desktop for quick access to Filey."),
+                                                TrInit("Allows Filey to be launched from the command line using Filey.exe."),
+                                                TrInit("Opens folders with Filey and assigns it to the Win+E shortcut.") };
         b32 values[3] = { state->setupDesktop, state->setupOnPath, state->setupDefault };
         u32 columns[3] = { 0, 1, 1 }, rows[3] = { 0, 1, 0 };
         f32 wide = floorf(45.6f * s + 0.5f), tall = floorf(28.8f * s + 0.5f);
         f32 labels[2] = { middle - floorf(225.6f * s + 0.5f), middle + floorf(18.4f * s + 0.5f) }, switches[2] = { middle - floorf(64.0f * s + 0.5f), middle + floorf(142.4f * s + 0.5f) };
         for (u32 i = 0; i < 3; ++i) {
             f32 row = floorf((484.4f + 43.2f * (f32)rows[i]) * s + 0.5f);
-            Prog__SetupText(names[i], medium, theme->textDim, labels[columns[i]], row + floorf(1.6f * s + 0.5f));
+            Prog__SetupText(Prog_Tr(names[i]), medium, theme->textDim, labels[columns[i]], row + floorf(1.6f * s + 0.5f));
             UI_SetNextFloatingOffset((UI_Vec2){ switches[columns[i]], row - floorf(tall * 0.5f) });
             UI_SetNextPrefWidth(UI_Pixels(wide));
             UI_SetNextPrefHeight(UI_Pixels(tall));
@@ -10626,22 +10703,22 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
             }
         }
         if (!setup->installed) {
-            String note = S("All options can be enabled or disabled after install.");
+            String note = Tr("All options can be enabled or disabled after install.");
             Prog__SetupText(note, fine, theme->textDim, middle - floorf(R_TextWidth(fine, note) * 0.5f), floorf(552.0f * s + 0.5f));
         }
         // Install, replace or change; changing does something only once a switch differs from the install.
         b32 changed = state->setupDesktop != setup->desktopShortcut || state->setupOnPath != setup->onPath || state->setupDefault != setup->setDefault;
-        String word = !setup->installed ? S("Install") : setup->same ? S("Modify") : S("Install & Replace");
-        String tip = !setup->installed ? StrFormat(frame, "This will install version %s on your PC.", FILEY_VERSION)
-                   : setup->same ? S("This will apply modifications to the existing installation.")
-                                 : StrFormat(frame, "This will overwrite the existing version %S with version %s.", setup->version, FILEY_VERSION);
+        String word = !setup->installed ? Tr("Install") : setup->same ? Tr("Modify") : Tr("Install & Replace");
+        String tip = !setup->installed ? StrFormat(frame, TrF("This will install version %s on your PC."), FILEY_VERSION)
+                   : setup->same ? Tr("This will apply modifications to the existing installation.")
+                                 : StrFormat(frame, TrF("This will overwrite the existing version %S with version %s."), setup->version, FILEY_VERSION);
         Prog__SetupButton(state, S("SetupInstall"), word, tip, Prog_CommandKind_SetupInstall, !setup->installed || !setup->same || changed, middle, floorf(608.0f * s + 0.5f), large, m);
         Prog__SetupLine(middle, floorf(646.4f * s + 0.5f), m);
         if (setup->installed) {
             Prog__SetupButton(state, S("SetupUninstall"), S("Uninstall"), S("This will remove the current version from your PC, including its shortcuts, default program registration and PATH changes."),
                               Prog_CommandKind_SetupUninstall, true, middle, floorf(688.8f * s + 0.5f), large, m);
         }
-        Prog__SetupButton(state, S("SetupBack"), S("Back"), (String){0}, Prog_CommandKind_SetupBack, true, middle, floorf((setup->installed ? 744.0f : 688.8f) * s + 0.5f), large, m);
+        Prog__SetupButton(state, S("SetupBack"), Tr("Back"), (String){0}, Prog_CommandKind_SetupBack, true, middle, floorf((setup->installed ? 744.0f : 688.8f) * s + 0.5f), large, m);
     }
 }
 
