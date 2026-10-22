@@ -683,6 +683,7 @@ typedef enum Prog_Option {
     Prog_Option_Breadcrumbs,
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
+    Prog_Option_Notices,
     Prog_Option_StoreRecents,
     Prog_Option_ShowRecents,
     Prog_Option_SortRecents,
@@ -1422,6 +1423,7 @@ typedef struct Prog_State {
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;
     enum8(Prog_StoreRecents) storeRecents;
+    u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
     b32 showRecents, sortRecents;
     b32 noVSync;
     b32 noHighlight;          // inspector.highlight = false: the inspector shows code in one color

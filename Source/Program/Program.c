@@ -363,6 +363,8 @@ function f32 Prog__ParseNumber(String value)
 
 // The words Settings.conf has for the choices of the start, new tabs and recents.
 global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { SInit("persistent"), SInit("session"), SInit("never") };
+// The notices shown, by Prog_NoticeKind: all of them, warnings and errors, errors, or none.
+global const String Prog_OptionNotices[Prog_NoticeKind_Count + 1] = { SInit("all"), SInit("warnings"), SInit("errors"), SInit("off") };
 global const String Prog_OptionStartups[Prog_Startup_Count] = { SInit("session"), SInit("root"), SInit("home") };
 global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { SInit("root"), SInit("home"), SInit("current") };
 global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit("filter"), SInit("hotkey"), SInit("select") };
@@ -436,6 +438,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
+    state->noticeLevel = Prog_NoticeKind_Info;
     state->showRecents = state->sortRecents = state->noVSync = false;
     state->font.length = state->inspectorFont.length = 0;
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
@@ -512,6 +515,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             }
         } else if (StrIsEqual(name, S("newtab"))) {
             for (u32 i = 0; i < Prog_NewTab_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabs[i])) state->newTab = (u8)i;
+        } else if (StrIsEqual(name, S("notices"))) {
+            for (u32 i = 0; i <= Prog_NoticeKind_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNotices[i])) state->noticeLevel = (u8)i;
         } else if (StrIsEqual(name, S("recents.store"))) {
             for (u32 i = 0; i < Prog_StoreRecents_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStoreRecents[i])) state->storeRecents = (u8)i;
         } else if (StrIsEqual(name, S("recents.highlight"))) {
@@ -654,6 +659,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# startup = session\n# newtab = root\n\n"
                                 "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
                                 "# than opening another window.\n# instances.single = true\n\n"
+                                "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
                                 "# recents.store = persistent\n# recents.highlight = false\n# recents.sort = false\n\n"
                                 "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = true\n\n"
@@ -777,6 +783,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionSwitch, 2, SInit("checkboxes") },
     [Prog_Option_ConfirmEmptyTrash] = { SInit("Confirm Emptying Recycle Bin"), SInit("Ask before permanently deleting everything in the Recycle Bin."),
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
+    [Prog_Option_Notices] = { SInit("Notifications"), SInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
+                              Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
     [Prog_Option_StoreRecents] = { SInit("Store Recents"), SInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
     [Prog_Option_ShowRecents] = { SInit("Highlight Recents"), SInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
@@ -894,6 +902,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
         case Prog_Option_StoreRecents: return state->storeRecents;
+        case Prog_Option_Notices: return state->noticeLevel;
         case Prog_Option_ShowRecents: return state->showRecents;
         case Prog_Option_SortRecents: return state->sortRecents;
         case Prog_Option_LoadOnStartup: {
@@ -5950,6 +5959,11 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return S("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return S("Vertical");
     if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return S("Last Session");
+    if (option == Prog_Option_Notices) {
+        if (StrIsEqual(name, S("warnings"))) return S("Warnings And Errors");
+        if (StrIsEqual(name, S("errors"))) return S("Errors Only");
+        if (StrIsEqual(name, S("off"))) return S("None");
+    }
     // A custom scheme keeps its own name, and the reference's has its own.
     b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
     if (schemes && StrIsEqual(name, S("fullmoon"))) return S("Full Moon");

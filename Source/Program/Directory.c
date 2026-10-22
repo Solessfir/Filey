@@ -2385,6 +2385,8 @@ function b32 Prog_PathOnline(const Prog_State *state, String path);
 // Shows a notice, or counts up the same one shown, which then comes back to the front.
 function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String title, String message)
 {
+    // Those below the kinds the settings show are not shown.
+    if (kind < state->noticeLevel) return;
     title = StrFromTo(title, 0, (i64)Min(title.length, sizeof(state->notices[0].title)));
     message = StrFromTo(message, 0, (i64)Min(message.length, sizeof(state->notices[0].message)));
     Prog_Notice notice = { .kind = (u8)kind, .count = 1, .since = PlatformNowMicroseconds() };
