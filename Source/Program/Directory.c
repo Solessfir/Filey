@@ -827,7 +827,7 @@ function P_FileError Prog__ArchiveOp(Arena *arena, const Prog_JobInput *input, A
         if (!result.code) ArrayPush(arena, *placed, archive);
         return result;
     }
-    if (!input->pathCount) return (P_FileError){ .code = 1, .message = S("No archive to take out") };
+    if (!input->pathCount) return (P_FileError){ .code = 1, .message = TrMark("No archive to take out") };
     String archive = input->paths[0], into = input->path;
     if (input->archiveOp == Prog_ArchiveOp_ExtractToFolder) {
         String made = {0};
@@ -866,7 +866,7 @@ function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, Ar
         const String *sources = input->paths;
         if (outOf) {
             String run = P_RunFolder(scratch.arena), made = {0};
-            result = run.length ? P_CreateItem(scratch.arena, run, S("transfer"), true, &made) : (P_FileError){ .code = 1, .message = S("No temporary folder to take the items out into") };
+            result = run.length ? P_CreateItem(scratch.arena, run, S("transfer"), true, &made) : (P_FileError){ .code = 1, .message = TrMark("No temporary folder to take the items out into") };
             String through = Prog_JoinPath(scratch.arena, run, made);
             if (!result.code) result = P_ExtractArchive(arena, fromArchive, fromInner, names, input->pathCount, through, input->progress, cancel);
             String *taken = ArenaPushArray(scratch.arena, Max(input->pathCount, (u64)1), String);
@@ -1876,7 +1876,7 @@ function void Prog__DirectoryJob(P_Job *job)
                 if (best) names[found++] = best->file.name;
             }
             if (found) *error = P_RestoreTrash(&job->arena, bin, names, found);
-            else *error = (P_FileError){ 1, S("They are no longer in the bin") };
+            else *error = (P_FileError){ 1, TrMark("They are no longer in the bin") };
         } else if (undo->kind == Prog_UndoKind_Move) {
             for (u64 i = 0; i < undo->count && !error->code; ++i) {
                 if (!undo->to[i].length || StrIsEqual(undo->to[i], undo->from[i])) continue;
@@ -2245,7 +2245,7 @@ function void Prog__FillListing(Arena *arena, const Prog_JobInput *input, P_File
             MapsPut(arena, types, StrCopy(arena, typeKey), entry->type);
         }
         ArenaPopTo(keys.arena, mark);
-        if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? S("Folder link") : S("Link");
+        if (file.symbolicLink) entry->type = file.kind == P_FileKind_Directory ? TrMark("Folder link") : TrMark("Link");
     }
     ReleaseScratch(keys);
     if (input->expanded) ProfileScope("FolderTotals") {
@@ -2509,6 +2509,8 @@ function void Prog_Notify(Prog_State *state, Prog_NoticeKind kind, String key, S
     // Those below the kinds the settings show are not shown, nor a kind muted.
     if (kind < state->noticeLevel) return;
     for (u64 i = 0; i < state->mutedNotices.header.count; ++i) if (StrIsEqual(state->mutedNotices.v[i], key)) return;
+    // A message from a job is in English.
+    message = Prog_Tr(message);
     key = StrFromTo(key, 0, (i64)Min(key.length, sizeof(state->notices[0].key)));
     title = StrFromTo(title, 0, (i64)Min(title.length, sizeof(state->notices[0].title)));
     message = StrFromTo(message, 0, (i64)Min(message.length, sizeof(state->notices[0].message)));

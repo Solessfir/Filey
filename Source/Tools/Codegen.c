@@ -280,11 +280,11 @@ function String Codegen__Literal(String text, u64 *at)
     return StrFromTo(text, start, (i64)*at);
 }
 
-// The translatable strings of `text`, a source file, added once each: the literals of Tr("..."), TrF("...") and TrInit("...") to `strings`,
+// The translatable strings of `text`, a source file, added once each: the literals of Tr("..."), TrF("..."), TrInit("...") and TrMark("...") to `strings`,
 // and the other form of each TrN(count, "one", "other") to `plurals`, as written, escapes and all; a #define line is the macro itself, not a use.
 function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *strings, ArrayStr *plurals)
 {
-    const String marks[] = { S("Tr(\""), S("TrF(\""), S("TrInit(\""), S("TrN(") };
+    const String marks[] = { S("Tr(\""), S("TrF(\""), S("TrInit(\""), S("TrMark(\""), S("TrN(") };
     for (u64 at = 0; at < text.length; ++at) {
         b32 lineStart = at == 0 || text.value[at - 1] == '\n';
         if (lineStart && text.length - at >= 7 && StrIsEqual(StrFromTo(text, at, (i64)(at + 7)), S("#define"))) {
@@ -295,7 +295,7 @@ function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *string
         for (u32 m = 0; m < CArrayCount(marks); ++m) {
             if (text.length - at < marks[m].length || !StrIsEqual(StrFromTo(text, at, (i64)(at + marks[m].length)), marks[m])) continue;
             at += marks[m].length - 1;
-            if (m < 3) {
+            if (m < 4) {
                 Codegen_AddString(arena, strings, Codegen__Literal(text, &at));
                 break;
             }

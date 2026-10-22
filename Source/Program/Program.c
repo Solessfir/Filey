@@ -3474,7 +3474,7 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
         for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = (String){0};
         u64 total = entry->file.size, used = total - Min(entry->freeBytes, total);
         values[Prog_ColumnId_Name] = Prog_EntryName(state, entry);
-        values[Prog_ColumnId_Type] = entry->type;
+        values[Prog_ColumnId_Type] = Prog_Tr(entry->type);
         values[Prog_ColumnId_FileSystem] = entry->fileSystem;
         if (total) {
             values[Prog_ColumnId_Size] = Prog_FormatSize(frame, total);
@@ -3507,7 +3507,7 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
     if (state->volumeBytes && (entry->file.kind != P_FileKind_Directory || entry->measured)) volumeUsage = StrFormat(frame, "%u%%", (u32)((f64)bytes * 100.0 / (f64)state->volumeBytes + 0.5));
     String created = entry->file.metadataValid && entry->file.createdTimeUnix ? P_FormatFileTime(frame, entry->file.createdTimeUnix) : (String){0};
     String accessed = entry->file.metadataValid && entry->file.accessedTimeUnix ? P_FormatFileTime(frame, entry->file.accessedTimeUnix) : (String){0};
-    String result[Prog_ColumnId_Count] = { entry->file.name, entry->type, Prog_EntryModified(frame, entry), folders, files, size, created, accessed, folderUsage, volumeUsage };
+    String result[Prog_ColumnId_Count] = { entry->file.name, Prog_Tr(entry->type), Prog_EntryModified(frame, entry), folders, files, size, created, accessed, folderUsage, volumeUsage };
     for (u32 i = 0; i < Prog_ColumnId_Count; ++i) values[i] = result[i];
     values[Prog_ColumnId_Name] = Prog_EntryName(state, entry);
     // A binned item shows where it came from and when it went.
@@ -4090,8 +4090,8 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
                 }
                 Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(3.2f * m->scale + 0.5f)));
                 String free = values[Prog_ColumnId_FileSystem].length
-                            ? StrFormat(&state->frameArena, "%S free of %S (%S)", values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size], values[Prog_ColumnId_FileSystem])
-                            : StrFormat(&state->frameArena, "%S free of %S", values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size]);
+                            ? StrFormat(&state->frameArena, TrF("%S free of %S (%S)"), values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size], values[Prog_ColumnId_FileSystem])
+                            : StrFormat(&state->frameArena, TrF("%S free of %S"), values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size]);
                 UI_SetNextFont(m->detail);
                 Prog__Label(Prog__Ellipsize(&state->frameArena, m->detail, free, text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
             }
@@ -7869,7 +7869,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefHeight(UI_Pixels(head));
             UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
             UI_SetNextColors((UI_Colors){ .text = theme->text });
-            UI_SetNextText(StrFormat(&state->frameArena, "%S color", Prog_Options[state->colorOption].label));
+            UI_SetNextText(StrFormat(&state->frameArena, TrF("%S color"), Prog_Tr(Prog_Options[state->colorOption].label)));
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
         }
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
@@ -8650,8 +8650,8 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                     Prog__Label(StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
                 }
             }
-            String amount = bytes ? StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
-                                  : StrFormat(&state->frameArena, "%" PRIu64 " of %" PRIu64, Min(doneItems, items), items);
+            String amount = bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
+                                  : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
             UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(line) {
                 f32 barWidth = floorf(width * 0.55f), barHeight = MaxF32(3, floorf(4 * m->scale));
@@ -9469,7 +9469,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     String labels[7], values[7];
     u32 count = 0;
     labels[count] = Tr("Path"), values[count++] = path;
-    labels[count] = Tr("Type"), values[count++] = entry->type;
+    labels[count] = Tr("Type"), values[count++] = Prog_Tr(entry->type);
     labels[count] = Tr("Size"), values[count++] = size;
     if (folder) {
         labels[count] = Tr("Subfolders"), values[count++] = entry->measured && entry->folders ? StrFormat(frame, "%" PRIu64, entry->folders) : none;
@@ -10144,9 +10144,12 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                         Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
                     }
                     Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
+                    Arena *frame = &state->frameArena;
+                    String type = Prog_Tr(entry->type);
                     String details = entry->file.kind == P_FileKind_Directory
-                        ? (entry->measured ? StrFormat(&state->frameArena, "%S, %" PRIu64 " folders, %" PRIu64 " files, %S", entry->type, entry->folders, entry->files, Prog_FormatSize(&state->frameArena, entry->bytes)) : entry->type)
-                        : StrFormat(&state->frameArena, "%S, %S", entry->type, Prog_FormatSize(&state->frameArena, entry->file.size));
+                        ? (entry->measured ? StrFormat(frame, "%S, %S, %S, %S", type, StrFormat(frame, TrN(entry->folders, "%u folder", "%u folders"), (u32)entry->folders),
+                                                       StrFormat(frame, TrN(entry->files, "%u file", "%u files"), (u32)entry->files), Prog_FormatSize(frame, entry->bytes)) : type)
+                        : StrFormat(frame, "%S, %S", type, Prog_FormatSize(frame, entry->file.size));
                     Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
                     Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
                     // A file inside an archive is taken out before it shows, which a large one takes a while for.
@@ -10169,7 +10172,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                             UI_SetNextColors((UI_Colors){ .background = theme->accent });
                             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                         }
-                        Prog__Label(StrFormat(&state->frameArena, "%S of %S", Prog_FormatSize(&state->frameArena, done), Prog_FormatSize(&state->frameArena, total)), UI_Flex(), m->row, 0,
+                        Prog__Label(StrFormat(&state->frameArena, TrF("%S of %S"), Prog_FormatSize(&state->frameArena, done), Prog_FormatSize(&state->frameArena, total)), UI_Flex(), m->row, 0,
                                     theme->textDim, 0);
                     }
                     if (taking) UI_KeepAnimating();
@@ -10187,7 +10190,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
             if (pdf) {
-                String pages = state->pdf.pageCount == 1 ? S("1 page") : StrFormat(&state->frameArena, "%u pages", state->pdf.pageCount);
+                String pages = StrFormat(&state->frameArena, TrN(state->pdf.pageCount, "%u page", "%u pages"), state->pdf.pageCount);
                 Prog__LabelPadded(pages, UI_TextContent(), m->pill, 0, radius, theme->textDim, 0);
             }
             if (image) {

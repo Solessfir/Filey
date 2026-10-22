@@ -2654,3 +2654,42 @@ Text
 Scroll
 = Прокрутка
 
+No archive to take out
+= Нет архива для извлечения
+
+No temporary folder to take the items out into
+= Нет временной папки для извлечения
+
+They are no longer in the bin
+= Их уже нет в корзине
+
+Folder link
+= Ссылка на папку
+
+Link
+= Ссылка
+
+%u folders
+= %u папка | %u папки | %u папок
+
+%u files
+= %u файл | %u файла | %u файлов
+
+%S free of %S (%S)
+= %S свободно из %S (%S)
+
+%S free of %S
+= %S свободно из %S
+
+%S color
+= Цвет: %S
+
+%S of %S
+= %S из %S
+
+%u of %u
+= %u из %u
+
+%u pages
+= %u страница | %u страницы | %u страниц
+
