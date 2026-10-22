@@ -5933,12 +5933,9 @@ function UI_Interaction Prog__Switch(UI_Key key, b32 on, f32 wide, f32 tall, f32
         UI_SetNextPrefWidth(UI_Pixels(knob));
         UI_SetNextPrefHeight(UI_Pixels(knob));
         UI_SetNextCornerRadius(knob * 0.5f);
-        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-        // A check on the knob while on; off, the track's color says it alone.
-        UI_SetNextFont(m->iconsSmall);
-        UI_SetNextText(Icon_Check);
-        UI_SetNextColors((UI_Colors){ .background = on ? theme->text : theme->textDim, .text = theme->textDim });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | (on ? UI_Flag_DrawText : 0));
+        // The knob's side and the track's color say whether it is on, without a check on it.
+        UI_SetNextColors((UI_Colors){ .background = on ? theme->text : theme->textDim });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
     return result;
 }
