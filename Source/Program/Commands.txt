@@ -852,6 +852,12 @@ command CompressVideo {
     repeat  = "false"
 }
 
+command DownloadTorrent {
+    label   = "Download Torrent^aria2c,magnet,bittorrent"
+    tooltip = "Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents."
+    repeat  = "false"
+}
+
 command Compress7z {
     label   = "Add To 7z^compress,archive,pack,7zip"
     tooltip = "Pack the selected items into a new 7z archive beside them."

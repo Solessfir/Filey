@@ -416,6 +416,7 @@ typedef enum P_MenuAction {
     P_MenuAction_ExtractHere,
     P_MenuAction_ExtractToFolder,
     P_MenuAction_CompressVideo,
+    P_MenuAction_DownloadTorrent,
     P_MenuAction_Count,
 } P_MenuAction;
 

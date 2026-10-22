@@ -861,6 +861,7 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         }
         return result;
     }
+    if (input->transferOp == Prog_TransferOp_Torrent) return Prog_DownloadTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Pack) {
         String archive = Prog_JoinPath(arena, input->path, input->name);
@@ -2057,6 +2058,8 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = image.width;
             result->height = image.height;
             result->image = true;
+        } else if (!input->folder && !input->hex && Prog_IsTorrent(path) && (result->text = Prog_TorrentListing(&job->arena, path)).length) {
+            // What the torrent holds, which its bencoded bytes would show as a jumble.
         } else if (video && !P_IsCancelled(&job->cancelToken) && Prog_MediaFrame(&job->arena, path, seconds, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
             result->width = image.width;
@@ -5243,11 +5246,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
+            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
-                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
                 Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
@@ -5715,8 +5718,25 @@ function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods)
 
 // Opens the file at `path` in its program, from a job. One inside an archive is taken out first, with a card of how far that is when there is
 // a free slot for it.
+// Downloads the .torrent file at `path` beside itself with aria2c, unless its download is under way.
+function void Prog_DownloadTorrentFile(Prog_State *state, String path)
+{
+    u64 hash = MapHashBytes(path.value, path.length);
+    for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) return;
+    Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, (String){0}, Prog_TransferOp_Torrent);
+    for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
+        if (state->transfers[i].job && state->transfers[i].op == Prog_TransferOp_Torrent && !state->transfers[i].sourceHash) state->transfers[i].sourceHash = hash;
+    }
+}
+
 function void Prog_OpenFile(Prog_State *state, String path)
 {
+    // A torrent without a program of its own downloads beside itself.
+    String archive = {0}, inner = {0};
+    if (Prog_IsTorrent(path) && !Prog_ArchiveSplit(path, &archive, &inner) && !P_OpensInApp(path)) {
+        Prog_DownloadTorrentFile(state, path);
+        return;
+    }
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->panel = Prog__PanelId(state);
@@ -5725,7 +5745,6 @@ function void Prog_OpenFile(Prog_State *state, String path)
     input->sort = state->directory.sort;
     input->descending = state->directory.descending;
     input->path = StrCopy(&job->arena, path);
-    String archive = {0}, inner = {0};
     for (u32 i = 0; Prog_ArchiveSplit(path, &archive, &inner) && inner.length && i < Prog_MaxTransfers; ++i) {
         Prog_Transfer *transfer = &state->transfers[i];
         if (transfer->job) continue;

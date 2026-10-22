@@ -1,5 +1,5 @@
 // Audio and video through the FFmpeg tools found on the PATH: the details ffprobe reads of a file, an audio file's waveform and a video's frame,
-// and videos compressed, on the graphics card when it has an encoder; and downloads by URL with yt-dlp.
+// and videos compressed, on the graphics card when it has an encoder; downloads by URL with yt-dlp, and torrents with aria2c.
 
 function b32 Prog__HasExtension(String path, const String *extensions, u32 count)
 {
@@ -427,4 +427,149 @@ function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+// Whether `text` is a torrent aria2c downloads: a magnet link, or a .torrent file or web address.
+function b32 Prog_IsTorrent(String text)
+{
+    if (text.length > 8 && Prog__EqualFolded(StrFromTo(text, 0, 8), S("magnet:?"))) return true;
+    return text.length > 8 && Prog__EqualFolded(StrFrom(text, text.length - 8), S(".torrent")) && !StrIndexChar(text, '\n', SSF_None).exists;
+}
+
+// A size as aria2c writes one, "263MiB" or "1.4GiB", in bytes.
+function u64 Prog__TorrentBytes(String text)
+{
+    f64 number = Prog__MediaNumber(text);
+    u64 unit = 1;
+    if (StrIndexChar(text, 'K', SSF_None).exists) unit = UINT64_C(1) << 10;
+    else if (StrIndexChar(text, 'M', SSF_None).exists) unit = UINT64_C(1) << 20;
+    else if (StrIndexChar(text, 'G', SSF_None).exists) unit = UINT64_C(1) << 30;
+    else if (StrIndexChar(text, 'T', SSF_None).exists) unit = UINT64_C(1) << 40;
+    return (u64)(number * (f64)unit);
+}
+
+// A time as aria2c writes one, "1h5m30s", in seconds.
+function u64 Prog__TorrentSeconds(String text)
+{
+    u64 result = 0, number = 0;
+    for (u64 i = 0; i < text.length; ++i) {
+        char c = text.value[i];
+        if (c >= '0' && c <= '9') number = number * 10 + (u64)(c - '0');
+        else result += number * (c == 'h' ? 3600 : c == 'm' ? 60 : 1), number = 0;
+    }
+    return result;
+}
+
+// What aria2c writes as it downloads: its readout of how far it is, "[#gid 30MiB/263MiB(11%) CN:31 SD:3 DL:22MiB ETA:10s]", the finished
+// download's path and its errors.
+typedef struct Prog__Torrent {
+    P_Progress *progress;
+    String name;
+    char pending[1024];
+    u64 pendingLength;
+    char done[1024];
+    u64 doneLength;
+    char message[256];
+    u64 messageLength;
+} Prog__Torrent;
+
+function void Prog__TorrentLine(Prog__Torrent *torrent, String line)
+{
+    while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
+    Index notice = StrIndexStr(line, NoTr("Download complete: "), SSF_None);
+    Index error = StrIndexStr(line, S("[ERROR] "), SSF_None);
+    if (notice.exists) {
+        // The metadata of a magnet link completes first, in memory.
+        String path = StrFrom(line, notice.value + 19);
+        if (path.length && path.value[0] != '[') Prog__FetchKeep(torrent->done, sizeof(torrent->done), &torrent->doneLength, path);
+    } else if (error.exists) {
+        Prog__FetchKeep(torrent->message, sizeof(torrent->message), &torrent->messageLength, StrFrom(line, error.value + 8));
+    } else if (line.length > 2 && line.value[0] == '[' && line.value[1] == '#' && torrent->progress) {
+        Scratch scratch = GetScratch();
+        StrBuilder name = {0};
+        StrBuildStr(scratch.arena, &name, torrent->name);
+        u64 at = StrIndexChar(line, ' ', SSF_CountOnFail).value + 1;
+        for (String rest = StrFrom(line, Min(at, line.length)); rest.length;) {
+            Index space = StrIndexChar(rest, ' ', SSF_CountOnFail);
+            String field = StrFromTo(rest, 0, (i64)space.value);
+            rest = StrFrom(rest, Min(space.value + 1, rest.length));
+            if (field.length && field.value[field.length - 1] == ']') --field.length;
+            Index slash = StrIndexChar(field, '/', SSF_None);
+            if (slash.exists && !StrIndexChar(field, ':', SSF_None).exists) {
+                u64 total = Prog__TorrentBytes(StrFrom(field, slash.value + 1));
+                atomic_store(&torrent->progress->totalBytes, total);
+                atomic_store(&torrent->progress->doneBytes, Min(Prog__TorrentBytes(StrFromTo(field, 0, (i64)slash.value)), total));
+            } else if (field.length > 3 && StrIsEqual(StrFromTo(field, 0, 3), S("DL:"))) {
+                StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S/s", Prog_FormatSize(scratch.arena, Prog__TorrentBytes(StrFrom(field, 3)))));
+            } else if (field.length > 3 && StrIsEqual(StrFromTo(field, 0, 3), S("CN:"))) {
+                StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S %S", StrFrom(field, 3), S("peers")));
+            } else if (field.length > 4 && StrIsEqual(StrFromTo(field, 0, 4), S("ETA:"))) {
+                StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S", Prog__MediaClock(scratch.arena, Prog__TorrentSeconds(StrFrom(field, 4)))));
+            }
+        }
+        P_ProgressName(torrent->progress, name.buffer);
+        ReleaseScratch(scratch);
+    }
+}
+
+function void Prog__TorrentOutput(void *user, String text)
+{
+    Prog__Torrent *torrent = user;
+    // The readout is rewritten in place with carriage returns, which end its lines as newlines do.
+    for (u64 i = 0; i < text.length; ++i) {
+        char c = text.value[i];
+        if (c == '\n' || c == '\r') {
+            Prog__TorrentLine(torrent, StrMake(torrent->pending, torrent->pendingLength));
+            torrent->pendingLength = 0;
+        } else if (torrent->pendingLength < sizeof(torrent->pending)) {
+            torrent->pending[torrent->pendingLength++] = c;
+        }
+    }
+}
+
+// Downloads the torrent `source`, a .torrent file, its web address or a magnet link, into `folder` with aria2c, without seeding after. What
+// came down goes into `placed`. A cancel keeps what is down already, which downloading it again goes on from.
+function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String arguments[] = { S("aria2c"), StrFormat(scratch.arena, "--dir=%S", folder), S("--seed-time=0"), S("--summary-interval=0"), S("--console-log-level=notice"),
+                           S("--enable-color=false"), S("--file-allocation=none"), S("--show-console-readout=true"), S("--follow-torrent=mem"), S("--"), source };
+    Prog__Torrent *torrent = ArenaPushStruct(scratch.arena, Prog__Torrent);
+    torrent->progress = progress;
+    b32 magnet = source.length > 8 && Prog__EqualFolded(StrFromTo(source, 0, 8), S("magnet:?"));
+    torrent->name = magnet ? TrMark("Magnet link") : Prog__NameStem(Prog_EntryLeaf(source));
+    if (progress) {
+        atomic_store(&progress->totalItems, 1);
+        P_ProgressName(progress, torrent->name);
+    }
+    b32 done = P_RunCommandStream(folder, arguments, CArrayCount(arguments), true, Prog__TorrentOutput, torrent, cancel, progress);
+    P_FileError result = {0};
+    if (done) {
+        if (torrent->doneLength) ArrayPush(arena, *placed, StrCopy(arena, StrMake(torrent->done, torrent->doneLength)));
+        if (progress) atomic_store(&progress->doneItems, 1);
+    } else {
+        String message = torrent->messageLength ? StrCopy(arena, StrMake(torrent->message, torrent->messageLength)) : TrMark("aria2c is not installed, or could not download the torrent");
+        result = (P_FileError){ .code = 1, .message = message };
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// What aria2c tells of the .torrent file at `path`: its name, size and files, for the inspector; empty without aria2c.
+function String Prog_TorrentListing(Arena *arena, String path)
+{
+    String arguments[] = { S("aria2c"), S("--show-files=true"), S("--"), path };
+    String output = {0};
+    if (!P_RunCommand(arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), 10000, &output, false)) return (String){0};
+    // From the name on, which leaves out the trackers, without the magnet link or aria2c's own lines.
+    Index name = StrIndexStr(output, S("Name: "), SSF_None);
+    String rest = name.exists ? StrFrom(output, name.value) : output;
+    StrBuilder text = {0};
+    for (u64 at = 0; at < rest.length;) {
+        Index end = StrIndexChar(StrFrom(rest, at), '\n', SSF_CountOnFail);
+        String line = StrFromTo(rest, at, (i64)Min(at + end.value + 1, rest.length));
+        at += end.value + 1;
+        if (!(line.length >= 11 && StrIsEqual(StrFromTo(line, 0, 11), NoTr("Magnet URI:"))) && !(line.length >= 3 && StrIsEqual(StrFromTo(line, 0, 3), S(">>>")))) StrBuildStr(arena, &text, line);
+    }
+    return text.buffer;
 }

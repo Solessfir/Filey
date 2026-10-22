@@ -8657,7 +8657,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
-                String title = transfer->op == Prog_TransferOp_Download ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
+                String title = transfer->op == Prog_TransferOp_Download || transfer->op == Prog_TransferOp_Torrent ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
                              : transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
                              : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
@@ -9537,6 +9537,23 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = Tr("Created"), values[count++] = created;
     labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
+    // A torrent under way: how far it is, its speed, peers and time left.
+    u64 hash = 0;
+    if (Prog_IsTorrent(entry->file.name)) {
+        String full = Prog_JoinPath(frame, state->directory.path, entry->file.name);
+        hash = MapHashBytes(full.value, full.length);
+    }
+    for (u32 i = 0; hash && i < Prog_MaxTransfers && count < CArrayCount(labels); ++i) {
+        Prog_Transfer *transfer = &state->transfers[i];
+        if (!transfer->job || transfer->sourceHash != hash) continue;
+        u64 bytes = atomic_load(&transfer->progress.totalBytes), done = atomic_load(&transfer->progress.doneBytes);
+        String status = Prog__TransferName(frame, &transfer->progress);
+        Index dot = StrIndexStr(status, S(" \u00B7 "), SSF_None);
+        String rest = dot.exists ? StrFrom(status, dot.value + 4) : (String){0};
+        labels[count] = Tr("Downloaded"), values[count++] = bytes ? StrFormat(frame, "%S / %S (%u%%)", Prog_FormatSize(frame, done), Prog_FormatSize(frame, bytes), (u32)(done * 100 / bytes))
+                                                                  : Tr("Starting...");
+        if (rest.length) labels[count] = Tr("Status"), values[count++] = rest;
+    }
     // An audio or video file's details, once its preview has read them.
     for (u64 at = 0; state->previewMedia.length && at < state->previewMedia.length && count < CArrayCount(labels);) {
         Index end = StrIndexChar(StrFrom(state->previewMedia, at), '\n', SSF_CountOnFail);

@@ -498,6 +498,15 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Prog__FetchOutput(&fetch, S("FILEYTITLE Me at the zoo\nFILEY 1024 NA 4096 2048.5 3 Me at the zoo.f1.mp4.part\n[info] noise\nERROR: Gone\nFILEYDONE C:/v/Me.mp4\n"));
             Check(atomic_load(&fetched.totalBytes) == 4096 && atomic_load(&fetched.doneBytes) == 1024 && StrIsEqual(StrMake(fetch.part, fetch.partLength), S("Me at the zoo.f1.mp4.part")));
             Check(StrIsEqual(StrMake(fetch.done, fetch.doneLength), S("C:/v/Me.mp4")) && StrIsEqual(StrMake(fetch.message, fetch.messageLength), S("Gone")));
+            // aria2c's readout, rewritten in place with carriage returns, its finished path and errors; torrents by link or name.
+            P_Progress seeded = {0};
+            Prog__Torrent torrent = { .progress = &seeded, .name = S("bbb") };
+            Prog__TorrentOutput(&torrent, S("[#9cb939 30MiB/263MiB(11%) CN:31 SD:3 DL:22MiB ETA:1m10s]\r   \r\n10/23 [NOTICE] Download complete: [MEMORY][METADATA]x\n"
+                                            "10/23 [NOTICE] Download complete: C:/t/Big Buck Bunny\n10/23 [ERROR] Bad\n"));
+            Check(atomic_load(&seeded.totalBytes) == (UINT64_C(263) << 20) && atomic_load(&seeded.doneBytes) == (UINT64_C(30) << 20));
+            Check(StrIsEqual(Prog__TransferName(&quiet.frameArena, &seeded), S("bbb \u00B7 31 peers \u00B7 22 MB/s \u00B7 1:10")));
+            Check(StrIsEqual(StrMake(torrent.done, torrent.doneLength), S("C:/t/Big Buck Bunny")) && StrIsEqual(StrMake(torrent.message, torrent.messageLength), S("Bad")));
+            Check(Prog_IsTorrent(S("magnet:?xt=urn:btih:dd82")) && Prog_IsTorrent(S("C:/a/b.TORRENT")) && !Prog_IsTorrent(S("b.torrent.txt")));
             Check(Prog_IsWebUrl(S("https://youtu.be/x")) && Prog_IsWebUrl(S("HTTP://a.b")) && !Prog_IsWebUrl(S("ftp://a")) && !Prog_IsWebUrl(S("https://a b")));
         }
         // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a

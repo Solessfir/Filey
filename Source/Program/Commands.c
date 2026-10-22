@@ -681,7 +681,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_OpenInWindow, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
     Prog_CommandKind_PasteLink,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_SelectionRestore, Prog_CommandKind_TrashRestoreAll,
-    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_CompressZip, Prog_CommandKind_Compress7z, Prog_CommandKind_ExtractHere, Prog_CommandKind_ExtractToFolder, Prog_CommandKind_CompressVideo, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
+    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_CompressZip, Prog_CommandKind_Compress7z, Prog_CommandKind_ExtractHere, Prog_CommandKind_ExtractToFolder, Prog_CommandKind_CompressVideo, Prog_CommandKind_DownloadTorrent, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_CopyAsPathSmart, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
@@ -763,6 +763,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_Duplicate: return item && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_CompressZip: case Prog_CommandKind_Compress7z: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_CompressVideo: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
+        case Prog_CommandKind_DownloadTorrent: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_ExtractHere: case Prog_CommandKind_ExtractToFolder:
             return focused && !state->directory.archive && Prog_IsArchiveName(state->directory.entries[state->focusedRow].file.name);
         case Prog_CommandKind_Rename: return focused && !P_IsTrashFolder(state->directory.path);
@@ -1469,13 +1470,22 @@ function void Prog__MenuAddArchive(Prog_State *state)
     state->menu.rootCount += 1;
 }
 
-// Compress Video after the Archive submenu, when a video is among the items.
+function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item);
+
+// Compress Video after the Archive submenu, when a video is among the items, and Download Torrent for a .torrent.
 function void Prog__MenuAddVideo(Prog_State *state)
 {
     if (state->directory.archive || P_IsTrashFolder(state->directory.path)) return;
-    b32 video = false;
+    b32 video = false, torrent = false;
     for (u32 i = 0; i < state->menuRowCount; ++i) video |= Prog_IsVideo(state->directory.entries[state->menuRows[i]].file.name);
-    if (!video) return;
+    for (u32 i = 0; i < state->menuRowCount; ++i) torrent |= Prog_IsTorrent(state->directory.entries[state->menuRows[i]].file.name);
+    if (video) Prog__MenuAddLast(state, (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_CompressVideo), .action = P_MenuAction_CompressVideo });
+    if (torrent) Prog__MenuAddLast(state, (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_DownloadTorrent), .action = P_MenuAction_DownloadTorrent });
+}
+
+// `item` at the end of the menu's top level, but before the system's Properties.
+function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item)
+{
     u32 at = state->menu.rootCount;
     if (at && StrIsEqual(state->menu.items[at - 1].verb, S("properties"))) --at;
     P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 1, P_MenuItem);
@@ -1484,7 +1494,7 @@ function void Prog__MenuAddVideo(Prog_State *state)
         items[j] = state->menu.items[i];
         if (items[j].childCount) items[j].firstChild += 1;
     }
-    items[at] = (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_CompressVideo), .action = P_MenuAction_CompressVideo };
+    items[at] = item;
     state->menu.items = items;
     state->menu.count += 1;
     state->menu.rootCount += 1;
@@ -1965,11 +1975,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 18);
+        static_assert(P_MenuAction_Count == 19);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_CompressZip] = Prog_CommandKind_CompressZip,
             [P_MenuAction_Compress7z] = Prog_CommandKind_Compress7z,
             [P_MenuAction_CompressVideo] = Prog_CommandKind_CompressVideo,
+            [P_MenuAction_DownloadTorrent] = Prog_CommandKind_DownloadTorrent,
             [P_MenuAction_ExtractHere] = Prog_CommandKind_ExtractHere,
             [P_MenuAction_ExtractToFolder] = Prog_CommandKind_ExtractToFolder,
             [P_MenuAction_Cut] = Prog_CommandKind_CutSelection,
@@ -2454,7 +2465,11 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             // A web address pasted without files is downloaded into the folder.
             String url = Prog__TrimSpaces(PlatformClipboardGetText(frame));
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
-            else if (Prog_IsWebUrl(url) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) && !StrIsEqual(state->directory.path, Prog_ThisPC)) {
+            else if (Prog_IsTorrent(url) && (Prog_IsWebUrl(url) || url.value[0] == 'm' || url.value[0] == 'M') && !state->directory.archive && !P_IsTrashFolder(state->directory.path) &&
+                     !StrIsEqual(state->directory.path, Prog_ThisPC)) {
+                // A magnet link or a .torrent's web address, which aria2c downloads.
+                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Torrent);
+            } else if (Prog_IsWebUrl(url) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) && !StrIsEqual(state->directory.path, Prog_ThisPC)) {
                 Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Download);
             }
             // Cut files pasted are no longer dimmed where they were.
@@ -2525,6 +2540,11 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             u64 videos = 0;
             for (u64 i = 0; i < count; ++i) if (Prog_IsVideo(paths[i])) paths[videos++] = paths[i];
             if (videos) Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, videos, Prog_ParentPath(paths[0]), false, (String){0}, Prog_TransferOp_CompressVideo);
+        } break;
+        case Prog_CommandKind_DownloadTorrent: {
+            // With aria2c, whatever program the system opens torrents with.
+            if (state->directory.archive || P_IsTrashFolder(state->directory.path)) break;
+            for (u64 i = 0; i < count; ++i) if (Prog_IsTorrent(paths[i])) Prog_DownloadTorrentFile(state, paths[i]);
         } break;
         case Prog_CommandKind_CopyAsPath: {
             // Without a selection, the shown folder's path.
@@ -4052,6 +4072,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_CompressZip:
             case Prog_CommandKind_Compress7z:
             case Prog_CommandKind_CompressVideo:
+            case Prog_CommandKind_DownloadTorrent:
             case Prog_CommandKind_ExtractHere:
             case Prog_CommandKind_ExtractToFolder:
             case Prog_CommandKind_CopyAsPath:

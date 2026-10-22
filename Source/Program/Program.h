@@ -379,6 +379,7 @@ typedef enum Prog_TransferOp {
     Prog_TransferOp_ExtractToFolder,
     Prog_TransferOp_CompressVideo,  // encodes the videos `paths` again, each beside itself as "<name> (compressed).mp4"
     Prog_TransferOp_Download,       // downloads the video at the web address `paths[0]` into `path` with yt-dlp
+    Prog_TransferOp_Torrent,        // downloads the torrent `paths[0]`, a file, web address or magnet link, into `path` with aria2c
     Prog_TransferOp_Count,
 } Prog_TransferOp;
 
@@ -458,6 +459,7 @@ typedef struct Prog_Transfer {
     u8 target[256];      // the target folder's name
     u32 targetLength;
     enum8(Prog_TransferOp) op;
+    u64 sourceHash;      // a torrent's: the hash of its .torrent file's path, by which the inspector finds its download
 } Prog_Transfer;
 
 #define Prog_MaxTransfers 4
@@ -1807,6 +1809,11 @@ function b32 Prog_MediaWaveform(Arena *arena, String path, i32 side, P_Image *im
 function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, i32 side, P_Image *image, i32 *width, i32 *height);
 function u64 Prog_MediaLength(Arena *arena, String path);
 function b32 Prog_IsWebUrl(String text);
+function b32 Prog_IsTorrent(String text);
+function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
+function String Prog_TorrentListing(Arena *arena, String path);
+function void Prog_DownloadTorrentFile(Prog_State *state, String path);
+function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, String output, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel);
 function String Prog__NameStem(String name);

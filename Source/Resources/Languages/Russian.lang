@@ -2797,3 +2797,24 @@ A web address pasted into a folder is downloaded with yt-dlp; this takes its sou
 yt-dlp is not installed, or found nothing to download there
 = yt-dlp не установлен или ничего не нашёл по этой ссылке
 
+Magnet link
+= Magnet-ссылка
+
+aria2c is not installed, or could not download the torrent
+= aria2c не установлен или не смог скачать торрент
+
+Downloaded
+= Скачано
+
+Starting...
+= Запуск...
+
+Status
+= Состояние
+
+Download Torrent
+= Скачать торрент
+
+Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents.
+= Скачать выбранные .torrent-файлы рядом с ними через aria2c; так же открывается торрент, если для торрентов не назначена программа.
+
