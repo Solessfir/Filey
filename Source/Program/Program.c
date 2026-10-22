@@ -7090,7 +7090,8 @@ function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
     if (!button || button->rect.x1 <= button->rect.x0 || !count) return;
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
-    f32 s = m->scale, row = floorf(25.6f * s + 0.5f), pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f));
+    // Taller than the choices' rows, so that an x's hover keeps clear of the line under it.
+    f32 s = m->scale, row = floorf(30.4f * s + 0.5f), pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f));
     f32 slot = floorf(24.8f * s + 0.5f), lead = floorf(14.4f * s + 0.5f) - inset, radius = floorf(6.4f * s + 0.5f);
     f32 width = floorf(240.0f * s + 0.5f);
     for (u64 i = 0; i < count; ++i) width = MaxF32(width, 2 * inset + lead + R_TextWidth(m->font, Prog_NoticeKindName(frame, state->mutedNotices.v[i])) + slot + inset);
@@ -7124,6 +7125,7 @@ function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefHeight(UI_Pixels(row));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ 0, 0, floorf(2.4f * s + 0.5f), 0 });
             UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
             UI_SetNextColors((UI_Colors){ .background = theme->selection });
             UI_Block *entry = UI_AddBlockFromKey(key, (all ? UI_Flag_LeftMouseClickable : 0) | (lit ? UI_Flag_DrawBackground : 0));
