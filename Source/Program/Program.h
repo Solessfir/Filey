@@ -1349,6 +1349,7 @@ typedef struct Prog_State {
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     u32 paletteScroll;        // the first command row shown
     b32 paletteKeyed;         // a key was pressed since Options opened, which shows its highlight only from then on
+    u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
@@ -1805,6 +1806,8 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found);
 function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option option, Arena *arena, u32 *count);
 function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option);
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value);
+function b32 Prog_OptionIsDefault(const Prog_State *state, Prog_Option option);
+function void Prog_RestoreOption(Prog_State *state, Prog_Option option);
 function void Prog_SetHotkeys(Prog_State *state, Prog_CommandKind kind, const Prog_Hotkey *hotkeys, u32 count);
 function void Prog_GatherTypes(Prog_State *state);
 function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 value);

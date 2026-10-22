@@ -464,6 +464,17 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_ApplySettings(&quiet, S("notices = off\n"));
         Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed again"), (String){0});
         Check(quiet.noticeCount == 1);
+        // Without a settings file, every option is at its default; one set away from it goes back with a restore.
+        Prog_State fresh = {0};
+        Prog_ApplySettings(&fresh, (String){0});
+        for (u32 o = 0; o < Prog_Option_Count; ++o) Check(Prog_OptionIsDefault(&fresh, (Prog_Option)o));
+        Check(!Prog_OptionIsDefault(&quiet, Prog_Option_Notices));
+        Prog_RestoreOption(&quiet, Prog_Option_Notices);
+        Check(Prog_OptionIsDefault(&quiet, Prog_Option_Notices) && quiet.noticeLevel == Prog_NoticeKind_Info);
+        Prog_ApplySettings(&quiet, S("font = Consolas\n"));
+        Check(!Prog_OptionIsDefault(&quiet, Prog_Option_Font));
+        Prog_RestoreOption(&quiet, Prog_Option_Font);
+        Check(Prog_OptionIsDefault(&quiet, Prog_Option_Font));
         // A muted kind does not show, whatever its text; an error too, once its kind is in the list by hand.
         Prog_State muted = {0};
         String names[] = { S("undo.nothing"), S("copy.failed") };

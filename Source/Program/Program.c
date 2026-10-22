@@ -439,7 +439,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
     state->noticeLevel = Prog_NoticeKind_Info;
-    state->showRecents = state->sortRecents = state->noVSync = false;
+    state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
     state->noFolderSizes = state->noFolderSizesSolidState = state->folderSizesSpinning = state->folderSizesNetwork = false;
     b32 showHidden = false;
@@ -1274,6 +1274,51 @@ function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
         (option >= Prog_Option_CalcFolderSizes && option <= Prog_Option_CalcFolderSizesNetwork)) {
         Prog_Reload(state);
     }
+}
+
+// What `option` is while Settings.conf leaves it out.
+function i32 Prog__OptionDefault(Prog_Option option)
+{
+    switch (option) {
+        case Prog_Option_FontSize: return 9;
+        case Prog_Option_InspectorFontSize: return Prog_InspectorFontSize;
+        case Prog_Option_InspectorLayout: return Prog_InspectorLayout_Auto;
+        case Prog_Option_LightScheme: return 1;
+        case Prog_Option_Spacing: return 4;
+        case Prog_Option_InactiveOpacity: return 60;
+        case Prog_Option_LoadOnStartup: return Prog_Startup_LastSession;
+        case Prog_Option_NewTabShow: return Prog_NewTab_Root;
+        case Prog_Option_StoreRecents: return Prog_StoreRecents_Persistent;
+        case Prog_Option_Notices: return Prog_NoticeKind_Info;
+        case Prog_Option_CharacterKeyAction: return Prog_CharacterKeys_TypeInFilter;
+        case Prog_Option_PopupBlur: return 24;
+        case Prog_Option_WindowOpacity: return (i32)floorf(Prog_ThemeGlass.window.a * 100 + 0.5f);
+        case Prog_Option_Backdrop: return PlatformBackdrop_Acrylic;
+        case Prog_Option_LoadThumbnails: case Prog_Option_Animations: case Prog_Option_RoundCorners: case Prog_Option_ShowFileExtension:
+        case Prog_Option_ShortenedPaths: case Prog_Option_Breadcrumbs: case Prog_Option_ConfirmEmptyTrash: case Prog_Option_SingleWindow:
+        case Prog_Option_VSync: case Prog_Option_HighlightCode: case Prog_Option_CalcFolderSizes: case Prog_Option_CalcFolderSizesSSD:
+        case Prog_Option_ActOnPress: case Prog_Option_UnderlineOnHover: case Prog_Option_Overscroll: return 1;
+        default: return 0;
+    }
+}
+
+// Whether `option` is at its default; the colors, which follow the scheme, and the muted notices always are.
+function b32 Prog_OptionIsDefault(const Prog_State *state, Prog_Option option)
+{
+    if (option >= Prog_Option_Count) return true;
+    switch (Prog_Options[option].control) {
+        case Prog_OptionControl_Font: return !(option == Prog_Option_InspectorFont ? state->inspectorFont : state->font).length;
+        case Prog_OptionControl_Switch: case Prog_OptionControl_Stepper: case Prog_OptionControl_Slider: case Prog_OptionControl_Choice:
+            return Prog_OptionValue(state, option) == Prog__OptionDefault(option);
+        default: return true;
+    }
+}
+
+function void Prog_RestoreOption(Prog_State *state, Prog_Option option)
+{
+    if (Prog_OptionIsDefault(state, option)) return;
+    if (Prog_Options[option].control == Prog_OptionControl_Font) Prog_SetOptionText(state, option, (String){0});
+    else Prog_SetOption(state, option, Prog__OptionDefault(option));
 }
 
 // Gives `kind` the hotkeys `hotkeys` in Settings.conf, in place of its defaults; without a config folder only for this run.
@@ -6025,6 +6070,14 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
     Arena *frame = &state->frameArena;
     f32 s = m->scale, width = floorf(162.4f * s + 0.5f), height = floorf(21.6f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f)), radius = floorf(4.0f * s + 0.5f);
     i32 value = Prog_OptionValue(state, option);
+    // An option away from its default offers to go back to it.
+    if (!Prog_OptionIsDefault(state, option)) {
+        UI_Interaction restore = Prog__TextButton(StrFormat(frame, "OptionRestore/%u", (u32)option), Icon_RotateCcwSquare, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)),
+                                                  height, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
+        if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_OptionRestore, (u64)option, 0, restore.clickOrder);
+        Prog__PopupTooltip(state, S("Restore default setting (Backspace)."));
+        Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(height));
+    }
     switch (desc->control) {
         case Prog_OptionControl_Switch: {
             UI_Interaction interaction = Prog__Switch(UI_KeyFromStr(0, StrFormat(frame, "OptionSwitch/%u", (u32)option)), value, floorf(41.6f * s + 0.5f), floorf(22.4f * s + 0.5f),
@@ -6168,17 +6221,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
         case Prog_OptionControl_Choice: {
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
             b32 hot = UI->hotKey == key;
-            b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
             b32 open = state->schemesOpen == option + 1;
-            // A scheme other than its default offers to go back to it.
-            i32 standard = option == Prog_Option_LightScheme ? 1 : 0;
-            if (schemes && value != standard) {
-                UI_Interaction restore = Prog__TextButton(StrFormat(frame, "OptionRestore/%u", (u32)option), Icon_RotateCcwSquare, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)),
-                                                          height, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
-                if (restore.clicked) Prog__QueueOption(state, option, standard, restore.clickOrder, false);
-                Prog__PopupTooltip(state, S("Restore default setting."));
-                Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(height));
-            }
             UI_SetNextPrefWidth(UI_Pixels(width));
             UI_SetNextPrefHeight(UI_Pixels(height));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -6223,6 +6266,9 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
     UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (hot ? UI_Flag_DrawBackground : 0) | (highlighted || hot ? UI_Flag_DrawBorder : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(entry);
     if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, index, 0, interaction.clickOrder);
+    // Over its own controls too, for Backspace to restore it.
+    R_Rect r = entry->rect;
+    if (UI->mouse.x >= r.x0 && UI->mouse.x < r.x1 && UI->mouse.y >= r.y0 && UI->mouse.y < r.y1) state->optionHovered = (u8)(option + 1);
     UI_Parent(entry) {
         if (desc->control == Prog_OptionControl_Color) Prog__Spacer(UI_Pixels(floorf(24.0f * s + 0.5f)), UI_Pixels(face));
         UI_SetNextPrefWidth(UI_Flex());
@@ -7780,6 +7826,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         f32 bar = floorf(6.4f * s + 0.5f), side = floorf(6.4f * s + 0.5f), gutter = count > visible ? floorf(19.2f * s + 0.5f) : side;
         UI_SetNextChildrenPadding((UI_Padding){ side, pad - floorf(lag), gutter, pad + floorf(lag) });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
+        state->optionHovered = 0;
         UI_Parent(list) {
             for (u32 i = first; i < first + shown; ++i) {
                 if (options) {

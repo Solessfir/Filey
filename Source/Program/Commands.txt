@@ -1305,6 +1305,10 @@ command OpenSettings {
 command OptionSet {
 }
 
+// An option's restore button and Backspace over it: `row` is the option, set back to its default.
+command OptionRestore {
+}
+
 // The zoom popup's slider and rows: `row` is the zoom level.
 command ZoomSet {
 }

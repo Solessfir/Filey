@@ -3587,6 +3587,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->pressCount) Prog_PreviewOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
                 else Prog_SetOption(state, (Prog_Option)command->row, (i32)(i64)command->target);
             } break;
+            case Prog_CommandKind_OptionRestore: if (command->row < Prog_Option_Count) Prog_RestoreOption(state, (Prog_Option)command->row); break;
             case Prog_CommandKind_ToggleDebugTheme: Prog_SetDebugTheme(state, !state->debugTheme); break;
             case Prog_CommandKind_WindowMove: state->moveRequested = true; break;
             case Prog_CommandKind_WindowMinimize: PlatformWindowMinimize(); break;
@@ -4125,6 +4126,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 else if (!goTo && state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
                 else if (!goTo && state->paletteMode == Prog_PaletteMode_Fonts) count = Prog_FontMatches(state, ArenaPushArray(&state->frameArena, state->fontCount + 1, u32));
                 else if (!goTo) count = state->paletteMode == Prog_PaletteMode_Tabs ? Prog_TabMatches(state, tabs) : Prog_PaletteMatches(state, matches);
+                // In Options with nothing typed, Backspace sets the option under the pointer back to its default, else the highlighted one.
+                if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && event->key == Key_Backspace && !(event->mods & (KeyMod_Control | KeyMod_Alt | KeyMod_Super))) {
+                    u32 option = state->optionHovered ? state->optionHovered - 1u : state->paletteKeyed && state->paletteHighlight < count ? options[state->paletteHighlight] : Prog_Option_Count;
+                    if (option < Prog_Option_Count) Prog_QueueCommand(state, Prog_CommandKind_OptionRestore, option, 0, order);
+                    continue;
+                }
                 // In Options, Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
                 if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && (event->key == Key_Left || event->key == Key_Right)) {
                     Prog_Option option = (Prog_Option)options[state->paletteHighlight];
