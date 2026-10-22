@@ -2248,6 +2248,16 @@ function void TestTabs(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     Check(state.tabCount == 2 && state.activeTab == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    // It starts in the default view, whatever the shown tab's zoom and sort.
+    {
+        u32 zoom = state.zoom;
+        Prog_Sort sort = state.sort;
+        state.zoom = Prog_ZoomIcons, state.sort = Prog_Sort_Size, state.descending = true;
+        TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+        Check(TestWaitDirectory(&state) && state.zoom == 0 && state.sort == Prog_Sort_Name && !state.descending);
+        TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+        state.zoom = zoom, state.sort = sort, state.descending = false;
+    }
     state.newTab = Prog_NewTab_Current;
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     state.newTab = Prog_NewTab_Root;
