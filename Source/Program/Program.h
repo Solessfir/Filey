@@ -1351,6 +1351,7 @@ typedef struct Prog_State {
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     u32 paletteScroll;        // the first command row shown
     b32 paletteKeyed;         // a key was pressed since Options opened, which shows its highlight only from then on
+    u16 hotToolbarCommand;    // the command of the toolbar button under the pointer, which a press during a rename leaves to its click
     u64 wakeAt;               // when the frame wants another without input, for what shows only after a while; 0 for no such time
     u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed

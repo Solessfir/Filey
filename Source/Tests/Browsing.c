@@ -1166,6 +1166,11 @@ function void TestRename(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_EditText(&state.rename), S("txt")));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.renaming && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX);
+    // The mouse's back button cancels it too, on its way back.
+    Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));
+    TestRenameType(&state, S("gone"));
+    TestRenameKey(&state, Key_MouseX1, 0);
+    Check(!state.renaming && TestWaitDirectory(&state) && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX && TestEntryIndex(&state, S("gone.txt")) == UINT64_MAX);
 
     // Enter renames on a job, then the new name is selected.
     Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));

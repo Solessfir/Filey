@@ -4311,12 +4311,14 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
             if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_DeleteCancel, 0, 0, order);
             continue;
         }
-        // The rename box takes the keyboard; a click anywhere else commits it.
+        // The rename box takes the keyboard; a click anywhere else commits it, but going back or forward, by the toolbar, the keys or the
+        // mouse's side buttons, cancels it and goes.
         if (state->renaming) {
+            b32 historyButton = state->hotToolbarCommand == Prog_CommandKind_Back || state->hotToolbarCommand == Prog_CommandKind_Forward;
             if (event->kind == PlatformEventKind_MouseDown) {
                 R_Rect box = state->renameRect;
                 if (!(event->x >= box.x0 && event->x < box.x1 && event->y >= box.y0 && event->y < box.y1)) {
-                    Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);
+                    Prog_QueueCommand(state, historyButton ? Prog_CommandKind_RenameCancel : Prog_CommandKind_RenameCommit, 0, 0, order);
                 }
             } else if (event->kind == PlatformEventKind_Text) {
                 Prog__EditInsert(&state->rename, event->codepoint);
@@ -4324,8 +4326,13 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 // Of the hotkeys only the rename box's own reach it.
                 KeyMods held = event->mods & (KeyMod_Shift | KeyMod_Control | KeyMod_Alt | KeyMod_Super);
                 const Prog_Hotkey *own = Prog_FindHotkey(state, Prog_HotkeyScope_Rename, Key_None, event->key, held);
+                const Prog_Hotkey *browser = own ? NULL : Prog_FindHotkey(state, Prog_HotkeyScope_Browser, Key_None, event->key, held);
                 if (own) {
                     Prog_QueueCommand(state, own->command, 0, 0, order);
+                    state->swallowText = true;
+                } else if (browser && (browser->command == Prog_CommandKind_Back || browser->command == Prog_CommandKind_Forward)) {
+                    Prog_QueueCommand(state, Prog_CommandKind_RenameCancel, 0, 0, order);
+                    Prog_QueueCommand(state, browser->command, 0, 0, order);
                     state->swallowText = true;
                 }
                 else if (event->key == Key_Enter) Prog_QueueCommand(state, Prog_CommandKind_RenameCommit, 0, 0, order);

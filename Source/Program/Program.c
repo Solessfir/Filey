@@ -1650,6 +1650,7 @@ function void Prog__ToolbarButton(Prog_State *state, String identity, String ico
     UI_Interaction interaction = Prog__TextButton(identity, icon, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
                                                   theme->icon, theme->text, theme->iconDisabled, enabled, m);
     if (enabled) Prog__NoteTooltip(state, kind, (String){0});
+    if (interaction.hot) state->hotToolbarCommand = (u16)kind;
     if (interaction.clicked) Prog_QueueCommand(state, kind, 0, 0, interaction.clickOrder);
 }
 
@@ -10093,6 +10094,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->iconsPending = 0;
+    state->hotToolbarCommand = Prog_CommandKind_None;
     state->tabGhost = NULL;
     state->foreignOver = false;
     state->hasHoverRow = false;
