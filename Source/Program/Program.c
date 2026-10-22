@@ -2406,8 +2406,24 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_SetNextScrollOffset((UI_Vec2){ 1e9f, 0 });
-        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Breadcrumbs")), UI_Flag_Clip);
-        UI_Parent(crumbs) Prog__Breadcrumbs(state, m);
+        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Breadcrumbs/%" PRIu64, Prog__PanelId(state))), UI_Flag_Clip);
+        UI_Parent(crumbs) {
+            Prog__Breadcrumbs(state, m);
+            // A path copied flashes the path bar: the selection color washes in and out over it.
+            u64 since = UI->nowMicroseconds > state->pathFlashTime ? UI->nowMicroseconds - state->pathFlashTime : 0;
+            if (state->pathFlashTime && since < 450000 && crumbs->rect.x1 > crumbs->rect.x0) {
+                R_Color flash = theme->selection;
+                flash.a *= 0.45f * (UI->animate ? sinf(3.14159265f * (f32)since / 450000.0f) : 1);
+                f32 inset = floorf(3.2f * m->scale + 0.5f);
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, inset });
+                UI_SetNextPrefWidth(UI_Pixels(crumbs->rect.x1 - crumbs->rect.x0));
+                UI_SetNextPrefHeight(UI_Pixels(bar - 2 * inset));
+                UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = flash });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                UI_KeepAnimating();
+            }
+        }
         Prog__GitStatus(state, m);
         Prog__MenuButton(state, S("PanelMenu"), Icon_EllipsisVertical, Prog_CommandKind_PanelMenu, true, 0, m);
         Prog__Spacer(UI_Pixels(m->inset * 0.4f), UI_Pixels(bar));

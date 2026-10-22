@@ -2339,7 +2339,10 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_CopyAsPath: {
             // Without a selection, the shown folder's path.
             if (!state->selectedCount) {
-                if (state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC)) PlatformClipboardSetText(P_NativePath(frame, state->directory.path));
+                if (state->directory.path.length && !StrIsEqual(state->directory.path, Prog_ThisPC)) {
+                    PlatformClipboardSetText(P_NativePath(frame, state->directory.path));
+                    state->pathFlashTime = PlatformNowMicroseconds();
+                }
                 break;
             }
             StrBuilder text = {0};
@@ -2347,7 +2350,10 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
                 if (i) StrBuildChar(frame, &text, '\n');
                 StrBuildStr(frame, &text, P_NativePath(frame, paths[i]));
             }
-            if (count) PlatformClipboardSetText(text.buffer);
+            if (count) {
+                PlatformClipboardSetText(text.buffer);
+                state->pathFlashTime = PlatformNowMicroseconds();
+            }
         } break;
         case Prog_CommandKind_CopyAsPathSmart: {
             String *shown = paths;
@@ -2358,6 +2364,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
                 shownCount = 1;
             }
             PlatformClipboardSetText(Prog_QuotedPaths(frame, shown, shownCount));
+            state->pathFlashTime = PlatformNowMicroseconds();
         } break;
         case Prog_CommandKind_CreateFolder:
         case Prog_CommandKind_CreateFile: {
