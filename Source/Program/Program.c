@@ -2360,25 +2360,58 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
     if (!state->git.branch.length) return;
     const Prog_Theme *theme = Prog_CurrentTheme();
     Arena *frame = &state->frameArena;
-    f32 bar = Prog__StripHeight(m), gap = floorf(8.0f * m->scale + 0.5f), close = floorf(3.2f * m->scale + 0.5f);
-    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
-    Prog__Icon(Icon_GitBranch, 0, bar, theme->icon, 0.5f, m);
-    Prog__Spacer(UI_Pixels(close), UI_Pixels(bar));
-    Prog__Label(state->git.branch, UI_TextContent(), bar, 0, theme->text, 0);
+    f32 bar = Prog__StripHeight(m), gap = floorf(8.0f * m->scale + 0.5f), close = floorf(3.2f * m->scale + 0.5f), pad = floorf(6.4f * m->scale + 0.5f);
+    // Its parts' texts first, for the width of the button they make, which opens the dropdown of the repository's branches.
+    String counts[2] = {0}, changes[Prog_GitMark_Count] = {0};
+    local_persist const char *const signs[Prog_GitMark_Count] = { 0, "?", "+", "~", "!" };
+    f32 width = 2 * pad + R_TextWidth(m->icons, Icon_GitBranch) + close + R_TextWidth(m->font, state->git.branch);
     for (u32 side = 0; side < 2; ++side) {
         i32 count = side ? state->git.behind : state->git.ahead;
         if (count <= 0) continue;
-        Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
-        Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, bar, theme->textMatch, 0.5f, m);
-        Prog__Label(StrFormat(frame, "%d", count), UI_TextContent(), bar, 0, theme->textMatch, 0);
+        counts[side] = StrFormat(frame, "%d", count);
+        width += gap + R_TextWidth(m->iconsSmall, side ? Icon_ArrowDown : Icon_ArrowUp) + R_TextWidth(m->font, counts[side]);
     }
-    local_persist const char *const signs[Prog_GitMark_Count] = { 0, "?", "+", "~", "!" };
     for (u32 mark = Prog_GitMark_Untracked; mark < Prog_GitMark_Count; ++mark) {
         if (!state->git.counts[mark]) continue;
-        Prog__Spacer(UI_Pixels(gap), UI_Pixels(bar));
-        Prog__Label(StrFormat(frame, "%s%u", signs[mark], state->git.counts[mark]), UI_TextContent(), bar, 0, Prog__GitInk((Prog_GitMark)mark), 0);
+        changes[mark] = StrFormat(frame, "%s%u", signs[mark], state->git.counts[mark]);
+        width += gap + R_TextWidth(m->font, changes[mark]);
     }
-    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
+    UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "GitStatus/%" PRIu64, Prog__PanelId(state)));
+    b32 open = state->branchesOpen && state->branchesPanel == Prog__PanelId(state), hot = UI->hotKey == key;
+    // The panel's keys are its own, so the dropdown, built over everything, finds the button by the key it had.
+    if (open) state->branchesAnchor = key;
+    R_Color washed = theme->selection;
+    washed.a *= theme->hoverAmount.r;
+    Prog__Spacer(UI_Pixels(m->gap - pad), UI_Pixels(bar));
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(Prog__ToolbarButtonHeight(m)));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+    UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
+    UI_SetNextColors((UI_Colors){ .background = open ? theme->selection : washed });
+    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | ((open || hot) ? UI_Flag_DrawBackground : 0));
+    UI_Interaction press = UI_InteractionFromBlock(button);
+    if (press.clicked) Prog_QueueCommand(state, Prog_CommandKind_GitBranchesOpen, 0, 0, press.clickOrder);
+    Prog__PopupTooltip(state, S("Switch branch."));
+    UI_Parent(button) {
+        f32 inner = Prog__ToolbarButtonHeight(m);
+        Prog__Icon(Icon_GitBranch, 0, inner, theme->icon, 0.5f, m);
+        Prog__Spacer(UI_Pixels(close), UI_Pixels(inner));
+        Prog__Label(state->git.branch, UI_TextContent(), inner, 0, open ? theme->contentSelection : theme->text, 0);
+        for (u32 side = 0; side < 2; ++side) {
+            if (!counts[side].length) continue;
+            Prog__Spacer(UI_Pixels(gap), UI_Pixels(inner));
+            Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, inner, theme->textMatch, 0.5f, m);
+            Prog__Label(counts[side], UI_TextContent(), inner, 0, theme->textMatch, 0);
+        }
+        for (u32 mark = Prog_GitMark_Untracked; mark < Prog_GitMark_Count; ++mark) {
+            if (!changes[mark].length) continue;
+            Prog__Spacer(UI_Pixels(gap), UI_Pixels(inner));
+            Prog__Label(changes[mark], UI_TextContent(), inner, 0, Prog__GitInk((Prog_GitMark)mark), 0);
+        }
+    }
+    Prog__Spacer(UI_Pixels(m->gap - pad), UI_Pixels(bar));
 }
 
 function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
@@ -6872,6 +6905,118 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+// The listed branches holding what is typed, as indices into them, in git's order.
+function u32 Prog_BranchMatches(const Prog_State *state, u32 *found)
+{
+    String typed = Prog_EditText(&state->branchesSearch);
+    u32 count = 0;
+    for (u64 i = 0; i < state->branches.header.count; ++i) {
+        if (!typed.length || Prog_FilterMatch(state->branches.v[i], typed, NULL)) found[count++] = (u32)i;
+    }
+    return count;
+}
+
+// The dropdown of git branches under the branch in a panel's path bar: a search row over the repository's local branches, with the one
+// checked out checked.
+function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->branchesOpen) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    Arena *frame = &state->frameArena;
+    UI_Block *anchorBlock = UI__Find(state->branchesAnchor);
+    if (!anchorBlock || anchorBlock->rect.x1 <= anchorBlock->rect.x0) return;
+    R_Rect anchor = anchorBlock->rect;
+    // A press anywhere else closes it.
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("BranchesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_GitBranchesOpen, 0, 0, outside.pressOrder)->panel = state->branchesPanel;
+    u32 *matches = ArenaPushArray(frame, state->branches.header.count + 1, u32);
+    u32 count = Prog_BranchMatches(state, matches);
+    state->branchesHighlight = count ? Min(state->branchesHighlight, count - 1) : 0;
+    f32 s = m->scale, line = m->separator, pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
+    f32 field = floorf(28.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line, radius = floorf(6.4f * s + 0.5f), gap = floorf(0.8f * s + 0.5f);
+    f32 width = MaxF32(anchor.x1 - anchor.x0, floorf(240.0f * s + 0.5f));
+    f32 x = UI__Clamp(anchor.x1 - view.x0 - width, 0, MaxF32(0, view.x1 - view.x0 - width));
+    u32 visible = (u32)UI__Clamp(floorf((view.y1 - anchor.y1 - gap - field - line - 2 * pad + line) / row), 1, 12);
+    if (state->branchesHighlight < state->branchesScroll) state->branchesScroll = state->branchesHighlight;
+    if (state->branchesHighlight >= state->branchesScroll + visible) state->branchesScroll = state->branchesHighlight - visible + 1;
+    state->branchesScroll = count > visible ? Min(state->branchesScroll, count - visible) : 0;
+    u32 first = state->branchesScroll, shown = Min(count - Min(first, count), visible);
+    f32 listHeight = (f32)Max(shown, 1u) * row - line + 2 * pad, height = field + line + listHeight, y = anchor.y1 - view.y0 + gap;
+    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(line);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Branches")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(10.4f * s + 0.5f), 0, inset, 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(box) {
+            Prog__Icon(Icon_Search, floorf(20.8f * s + 0.5f), field, theme->textDim, 0, m);
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(field));
+            UI_Block *text = UI_AddBlock(UI_Flag_Clip);
+            UI_Parent(text) {
+                f32 textTop = floorf((field - m->line) * 0.5f + 0.5f);
+                if (!state->branchesSearch.length) {
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
+                    UI_SetNextPrefHeight(UI_Pixels(m->line));
+                    UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                    UI_SetNextText(S("Switch branch..."));
+                    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                }
+                Prog__EditContents(&state->branchesSearch, 0, textTop, true, 0, m);
+            }
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ inset, pad, inset, pad });
+        UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
+        UI_Parent(list) {
+            if (!count) Prog__Label(state->branchesJob ? S("Listing the branches...") : S("No branch has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
+            for (u32 i = first; i < first + shown; ++i) {
+                String name = state->branches.v[matches[i]];
+                b32 current = StrIsEqual(name, state->git.branch);
+                UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Branch/%S", name));
+                b32 highlighted = i == state->branchesHighlight, hot = UI->hotKey == key && !highlighted;
+                f32 face = row - line;
+                R_Color washed = theme->selection;
+                washed.a *= theme->hoverAmount.r;
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(face));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(4.0f * s + 0.5f), 0 });
+                UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed });
+                UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0));
+                UI_Interaction interaction = UI_InteractionFromBlock(entry);
+                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_GitBranchSwitch, matches[i], 0, interaction.clickOrder)->panel = state->branchesPanel;
+                UI_Parent(entry) {
+                    R_Color ink = highlighted ? theme->contentSelection : theme->text;
+                    u8 *marks = state->branchesSearch.length ? ArenaPushArray(frame, name.length + 1, u8) : NULL;
+                    if (marks) Prog_FilterMatch(name, Prog_EditText(&state->branchesSearch), marks);
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(face));
+                    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((face - m->line) * 0.5f), 0, 0 });
+                    UI_Block *texts = UI_AddBlock(UI_Flag_Clip);
+                    UI_Parent(texts) Prog__MarkedText(name, marks, m->font, m->line, ink);
+                    // The branch checked out.
+                    if (current) Prog__Icon(Icon_Check, floorf(24.0f * s + 0.5f), face, ink, 0.5f, m);
+                }
+                if (i + 1 < first + shown) Prog__Spacer(UI_Flex(), UI_Pixels(line));
+            }
+        }
+    }
+}
+
 // The choice shown at `place` in an option's dropdown: the choices in their order but Character Key Action's, which lists Trigger Hotkey
 // before Type In Filter, its default and first in Settings.conf's order.
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place)
@@ -7312,8 +7457,9 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
     UI_Interaction outside = UI_InteractionFromBlock(catcher);
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, outside.pressOrder);
     String name = StrMake((const char *)state->layoutAskName, state->layoutAskLength);
-    b32 deleting = state->layoutAsk == Prog_LayoutAsk_Delete || state->layoutAsk == Prog_LayoutAsk_DeleteScheme;
-    String title = state->layoutAsk == Prog_LayoutAsk_DeleteScheme ? StrFormat(&state->frameArena, "Delete the custom color scheme \"%S\"?", name)
+    b32 deleting = state->layoutAsk == Prog_LayoutAsk_Delete || state->layoutAsk == Prog_LayoutAsk_DeleteScheme, switching = state->layoutAsk == Prog_LayoutAsk_SwitchBranch;
+    String title = switching ? StrFormat(&state->frameArena, "%u change%s not committed. Switch to \"%S\" and take %s along?", state->git.changes, state->git.changes == 1 ? "" : "s", name, state->git.changes == 1 ? "it" : "them")
+                 : state->layoutAsk == Prog_LayoutAsk_DeleteScheme ? StrFormat(&state->frameArena, "Delete the custom color scheme \"%S\"?", name)
                  : deleting ? StrFormat(&state->frameArena, "Delete the layout \"%S\"?", name) : StrFormat(&state->frameArena, "Overwrite the existing layout \"%S\"?", name);
     f32 width = floorf(MinF32(MaxF32(R_TextWidth(m->font, title) + 2 * m->inset, m->line * 20), view.x1 - view.x0 - 2 * m->inset));
     f32 height = floorf(m->row + m->bar + m->inset * 3);
@@ -7335,8 +7481,8 @@ function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
             UI_Interaction cancel = Prog__TextButton(S("LayoutAskCancel"), S("Cancel"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset, theme->textHeading, theme->text, theme->textDim, true, m);
             if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, cancel.clickOrder);
             Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->bar));
-            UI_Interaction confirm = Prog__TextButton(S("LayoutAskConfirm"), deleting ? S("Delete") : S("Overwrite"), NULL, UI_TextContent(), m->bar * 0.8f, m->inset,
-                                                      theme->danger, theme->danger, theme->textDim, true, m);
+            UI_Interaction confirm = Prog__TextButton(S("LayoutAskConfirm"), switching ? S("Switch") : deleting ? S("Delete") : S("Overwrite"), NULL, UI_TextContent(), m->bar * 0.8f,
+                                                      m->inset, switching ? theme->textHeading : theme->danger, switching ? theme->text : theme->danger, theme->textDim, true, m);
             if (confirm.clicked) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 1, 0, confirm.clickOrder);
         }
     }
@@ -9744,6 +9890,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__ZoomPopup(state, m);
     Prog__Palette(state, m);
     Prog__SchemesDropdown(state, m);
+    Prog__BranchesDropdown(state, m);
     Prog__HotkeyQuestion(state, m);
     Prog__Tooltip(state, m);
     Prog__DeleteConfirmation(state, m);

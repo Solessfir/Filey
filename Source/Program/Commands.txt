@@ -1631,6 +1631,14 @@ command ColorPickerEdit {
 command ColorPickerCancel {
 }
 
+// A press on the git branch in the path bar, which opens the dropdown of the repository's branches, or closes it.
+command GitBranchesOpen {
+}
+
+// A branch from that dropdown, which is switched to; carries its place among the branches listed.
+command GitBranchSwitch {
+}
+
 command ColorPickerClose {
 }
 

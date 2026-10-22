@@ -251,7 +251,7 @@ function String P__ConfiguredTheme(Arena *arena)
 {
     // GTK on Wayland takes it from GSettings, which dconf reads back only where something set it, so GNOME's own default does not hide the files.
     String arguments[] = { S("dconf"), S("read"), S("/org/gnome/desktop/interface/icon-theme") }, output = {0};
-    if (P_RunCommand(arena, (String){0}, arguments, CArrayCount(arguments), 1000, &output)) {
+    if (P_RunCommand(arena, (String){0}, arguments, CArrayCount(arguments), 1000, &output, false)) {
         // "'Win11-dark'\n"
         while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == '\'')) --output.length;
         while (output.length && output.value[0] == '\'') output = StrFrom(output, 1);

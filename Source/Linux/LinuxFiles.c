@@ -1765,7 +1765,7 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return length == 0;
 }
 
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output)
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
 {
     *output = (String){0};
     if (!count) return false;
@@ -1791,9 +1791,10 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
         if (child == 0) {
             i32 quiet = open("/dev/null", O_RDWR);
             dup2(ends[1], 1);
+            if (errors) dup2(ends[1], 2);
             if (quiet >= 0) {
                 dup2(quiet, 0);
-                dup2(quiet, 2);
+                if (!errors) dup2(quiet, 2);
             }
             if (chdir(folder) == 0) execve(program, args, environ);
             _exit(127);

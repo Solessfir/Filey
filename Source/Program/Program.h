@@ -235,6 +235,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Git,
     Prog_JobKind_Repos,
     Prog_JobKind_RecentsCheck,
+    Prog_JobKind_GitBranches,  // the local branches of the repository at `path`
+    Prog_JobKind_GitSwitch,    // `git switch name` in `path`
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
@@ -848,6 +850,7 @@ typedef enum Prog_LayoutAsk {
     Prog_LayoutAsk_Overwrite,
     Prog_LayoutAsk_Delete,
     Prog_LayoutAsk_DeleteScheme,
+    Prog_LayoutAsk_SwitchBranch,  // switching branch with changes not committed, which go along
     Prog_LayoutAsk_Count,
 } Prog_LayoutAsk;
 
@@ -1093,7 +1096,7 @@ typedef struct Prog_Tab {
 //   miller, millerColumns: Miller columns are on, and the folders they list, made in millerArena once they first show
 //   pickNames, pickScroll: a moved tab's selection, in pickArena, and its scroll, which its first listing here takes
 #define Prog_PanelFields(X) \
-    X(Arena, errorArena) X(String, error) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
+    X(Arena, errorArena) X(String, error) X(b32, errorListing) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
     X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) \
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
@@ -1621,6 +1624,16 @@ typedef struct Prog_State {
     Arena cutArena;
     struct { MapHeader header; struct { String key; b32 value; } *v; } cutPaths;
     u32 cutSequence;
+    // The dropdown of git branches under a panel's branch in the path bar: the repository's local branches once listed, and what is
+    // typed to find one.
+    b32 branchesOpen;
+    u64 branchesPanel;
+    Arena branchesArena;
+    ArrayStr branches;
+    P_Job *branchesJob;
+    Prog_TextEdit branchesSearch;
+    u32 branchesHighlight, branchesScroll;
+    UI_Key branchesAnchor;    // the branch's button, which the dropdown hangs under
     P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
     b32 recentsCheckAgain;
     u64 recentsCheckTime;
@@ -1742,6 +1755,9 @@ function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);
 function void Prog_CheckRecents(Prog_State *state);
+function void Prog_ToggleBranches(Prog_State *state);
+function void Prog_SwitchBranch(Prog_State *state, String branch);
+function u32 Prog_BranchMatches(const Prog_State *state, u32 *found);
 function String Prog_ColumnsText(Arena *arena, Prog_ColumnSet set);
 function b32 Prog_ParseColumns(String word, Prog_ColumnSet *set);
 function void Prog_ToggleFolderView(Prog_State *state);

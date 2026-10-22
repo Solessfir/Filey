@@ -280,8 +280,9 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents);
 // Reads at most `limit` bytes from the start of the file at `path`.
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents);
 // Runs `arguments[0]`, found on the PATH, with the rest of `arguments` in `directory`, without a window, and gives what it wrote to its standard
-// output; false when it could not start, ran past `timeoutMilliseconds` (it is then stopped) or exited with an error.
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output);
+// output, with `errors` what it wrote to its standard error too, such as git's messages; false when it could not start, ran past
+// `timeoutMilliseconds` (it is then stopped) or exited with an error.
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors);
 // Whether anything is at `path`, a link itself included.
 function b32 P_PathExists(String path);
 // Where the item at `path` really is: a shortcut's or link's target, with the links on the way to it followed; false when that cannot be told,

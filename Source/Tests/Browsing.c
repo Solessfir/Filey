@@ -987,18 +987,18 @@ function void TestFileIcons(TestFileFixture *fixture)
         String output = {0}, tarred = Prog_JoinPath(&arena, fixture->path, S("box.tar.gz"));
         const String make[] = { S("tar"), S("-czf"), S("box.tar.gz"), S("inside-tar.txt") };
         Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fixture->path, S("inside-tar.txt")), S("t")).code);
-        Check(P_RunCommand(&arena, fixture->path, make, CArrayCount(make), 10000, &output));
+        Check(P_RunCommand(&arena, fixture->path, make, CArrayCount(make), 10000, &output, false));
         String added = Prog_JoinPath(&arena, fixture->path, S("pixel.png"));
         Check(!P_AddToArchive(&arena, tarred, (String){0}, &added, 1, NULL, NULL).code);
         const String list[] = { S("tar"), S("-tzf"), S("box.tar.gz") };
-        Check(P_RunCommand(&arena, fixture->path, list, CArrayCount(list), 10000, &output) && StrIndexStr(output, S("inside-tar.txt"), SSF_None).exists &&
+        Check(P_RunCommand(&arena, fixture->path, list, CArrayCount(list), 10000, &output, false) && StrIndexStr(output, S("inside-tar.txt"), SSF_None).exists &&
               StrIndexStr(output, S("pixel.png"), SSF_None).exists);
         Check(P_ArchiveWritable(tarred) && P_ArchiveWritable(S("a.7z")) && !P_ArchiveWritable(S("a.rar")) && !P_ArchiveWritable(S("a.cab")));
 #if defined(_WIN32)
         // Windows' tar makes a 7z too, which then takes a file as well.
         String sevened = Prog_JoinPath(&arena, fixture->path, S("box.7z"));
         const String pack[] = { S("tar"), S("-a"), S("-cf"), S("box.7z"), S("inside-tar.txt") };
-        Check(P_RunCommand(&arena, fixture->path, pack, CArrayCount(pack), 10000, &output));
+        Check(P_RunCommand(&arena, fixture->path, pack, CArrayCount(pack), 10000, &output, false));
         Check(!P_AddToArchive(&arena, sevened, (String){0}, &added, 1, NULL, NULL).code && P_EnumerateArchive(&arena, sevened, (String){0}, NULL).files.header.count == 2);
         Check(P__TestRemovePath(fixture, S("box.7z"), false));
 #endif

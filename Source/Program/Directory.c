@@ -1280,7 +1280,7 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
         result.branch = Prog_GitBranch(head);
         String arguments[] = { S("git"), S("rev-list"), S("--left-right"), S("--count"), S("HEAD...@{upstream}") };
         String counts = {0};
-        if (P_RunCommand(arena, folder, arguments, CArrayCount(arguments), 3000, &counts)) {
+        if (P_RunCommand(arena, folder, arguments, CArrayCount(arguments), 3000, &counts, false)) {
             u64 ahead = 0, behind = 0;
             String rest = counts;
             if (Prog__TakeNumber(&rest, &ahead) && Prog__TakeNumber(&rest, &behind)) {
@@ -1290,7 +1290,7 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
         }
         String status[] = { S("git"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=normal") };
         String changes = {0};
-        if (P_RunCommand(arena, folder, status, CArrayCount(status), 5000, &changes)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
+        if (P_RunCommand(arena, folder, status, CArrayCount(status), 5000, &changes, false)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
         break;
     }
     return result;
@@ -1873,7 +1873,7 @@ function void Prog__DirectoryJob(P_Job *job)
             Prog_Repo repo = { Prog_GitBranch(head), -1 };
             String status[] = { S("git"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=no") };
             String changes = {0};
-            if (input->offset && P_RunCommand(&job->arena, folder, status, CArrayCount(status), 4000, &changes)) {
+            if (input->offset && P_RunCommand(&job->arena, folder, status, CArrayCount(status), 4000, &changes, false)) {
                 Prog_GitStatus counted = {0};
                 Prog_ReadGitChanges(&job->arena, folder, folder, changes, &counted);
                 repo.changes = (i32)counted.changes;
@@ -1891,6 +1891,41 @@ function void Prog__DirectoryJob(P_Job *job)
         }
         input->rowCount = gone;
         job->result = input;
+        return;
+    }
+    // The local branches of the repository `path` is in, a line each, sorted by git.
+    if (input->kind == Prog_JobKind_GitBranches) {
+        ArrayStr *result = ArenaPushStruct(&job->arena, ArrayStr);
+        String arguments[] = { S("git"), S("for-each-ref"), S("--format=%(refname:short)"), S("refs/heads/") }, listed = {0};
+        if (P_RunCommand(&job->arena, input->path, arguments, CArrayCount(arguments), 5000, &listed, false)) {
+            ArrayStr lines = StrSplit(&job->arena, listed, '\n');
+            for (u64 i = 0; i < lines.header.count; ++i) {
+                String line = lines.v[i];
+                while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+                if (line.length) ArrayPush(&job->arena, *result, line);
+            }
+        }
+        job->result = result;
+        return;
+    }
+    // Switching branch never forces it: git carries changes not committed along, and refuses, changing nothing, where they would be
+    // overwritten, which its message then says.
+    if (input->kind == Prog_JobKind_GitSwitch) {
+        P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        String arguments[] = { S("git"), S("switch"), input->name }, said = {0};
+        if (!P_RunCommand(&job->arena, input->path, arguments, CArrayCount(arguments), 15000, &said, true)) {
+            // Its lines and their tabs as one line for the status bar.
+            StrBuilder message = {0};
+            for (u64 i = 0; i < said.length; ++i) {
+                char c = said.value[i] == '\n' || said.value[i] == '\r' || said.value[i] == '\t' ? ' ' : said.value[i];
+                if (c == ' ' && (!message.buffer.length || message.buffer.value[message.buffer.length - 1] == ' ')) continue;
+                StrBuildChar(&job->arena, &message, c);
+            }
+            String text = message.buffer;
+            while (text.length && text.value[text.length - 1] == ' ') --text.length;
+            *error = (P_FileError){ 1, text.length ? text : S("git could not switch") };
+        }
+        job->result = error;
         return;
     }
     if (input->kind == Prog_JobKind_HexPage) {
@@ -2368,6 +2403,43 @@ function void Prog_CheckRecents(Prog_State *state)
     }
     job->input = input;
     state->recentsCheckJob = job;
+    P_JobSubmit(job);
+}
+
+// The dropdown of the branches of the repository the panel shows, or closed again.
+function void Prog_ToggleBranches(Prog_State *state)
+{
+    if (state->branchesOpen && state->branchesPanel == Prog__PanelId(state)) {
+        state->branchesOpen = false;
+        return;
+    }
+    state->branchesOpen = true;
+    state->branchesPanel = Prog__PanelId(state);
+    state->branchesSearch = (Prog_TextEdit){0};
+    state->branchesHighlight = state->branchesScroll = 0;
+    ArenaClear(&state->branchesArena);
+    state->branches = (ArrayStr){0};
+    if (state->branchesJob) P_RequestCancel(&state->branchesJob->cancelToken);
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_GitBranches;
+    input->path = StrCopy(&job->arena, state->directory.path);
+    job->input = input;
+    state->branchesJob = job;
+    P_JobSubmit(job);
+}
+
+// Switches the shown folder's repository to `branch` in a job.
+function void Prog_SwitchBranch(Prog_State *state, String branch)
+{
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_GitSwitch;
+    input->path = StrCopy(&job->arena, state->directory.path);
+    input->name = StrCopy(&job->arena, branch);
+    job->input = input;
     P_JobSubmit(job);
 }
 
@@ -4814,6 +4886,29 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
+        } else if (input->kind == Prog_JobKind_GitBranches) {
+            if (state->branchesJob == job) {
+                state->branchesJob = NULL;
+                const ArrayStr *found = job->result;
+                ArenaClear(&state->branchesArena);
+                state->branches = (ArrayStr){0};
+                for (u64 i = 0; found && i < found->header.count; ++i) ArrayPush(&state->branchesArena, state->branches, StrCopy(&state->branchesArena, found->v[i]));
+                // The highlight starts on the branch checked out.
+                for (u64 i = 0; i < state->branches.header.count; ++i) if (StrIsEqual(state->branches.v[i], state->git.branch)) state->branchesHighlight = (u32)i;
+                changed = true;
+            }
+        } else if (input->kind == Prog_JobKind_GitSwitch) {
+            const P_FileError *error = job->result;
+            // Refused, nothing changed, and its message stays in the status bar, which a listing would clear; else the files change with
+            // the branch, and the branch and its changes are asked again.
+            if (error && error->code) {
+                ArenaClear(&state->errorArena);
+                state->error = StrFormat(&state->errorArena, "Switch to %S: %S", input->name, error->message);
+            } else {
+                Prog_RequestGitStatus(state, state->directory.path);
+                Prog_Reload(state);
+            }
+            changed = true;
         } else if (input->kind == Prog_JobKind_RecentsCheck) {
             if (state->recentsCheckJob == job) state->recentsCheckJob = NULL;
             // The recents left out by path, as they may have changed since the check started.
@@ -5151,9 +5246,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             changed = true;
             Prog_Directory *result = job->result;
             if (result && !result->cancelled && !P_IsCancelled(&job->cancelToken)) {
-                ArenaClear(&state->errorArena);
-                state->error = (String){0};
+                // A listing that went through ends the error of one that did not, or any error once the panel shows another folder, but
+                // not that of an operation in this folder, which a refresh as the operation changes the folder would otherwise hide.
+                if (state->errorListing || result->error.code || !StrIsEqual(state->directory.path, result->path)) {
+                    ArenaClear(&state->errorArena);
+                    state->error = (String){0};
+                    state->errorListing = false;
+                }
                 if (result->error.code) {
+                    state->errorListing = true;
                     state->error = StrFormat(&state->errorArena, "%S: %S", input->path, result->error.message);
                     state->sort = state->directory.sort;
                     state->descending = state->directory.descending;
@@ -5246,17 +5347,22 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         state->focusedRow = state->anchorRow = pickRow;
                         state->revealFocus = !state->pickScrollSet;
                     }
-                    // A moved tab's selection, all of it, by name.
+                    // A moved tab's selection, or what was pasted or put back, all of it, by name. A listing of the same folder that holds none
+                    // of them, as one asked for before they came may, leaves them to the next.
                     if (state->pickNames.header.count) {
                         struct { MapHeader header; struct { String key; b32 value; } *v; } picked = {0};
                         for (u64 i = 0; i < state->pickNames.header.count; ++i) MapsPut(&state->frameArena, picked, state->pickNames.v[i], true);
-                        state->selectedCount = 0;
-                        for (u64 i = 0; i < result->count; ++i) {
-                            result->entries[i].selected = MapsGet(picked, b32, result->entries[i].file.name);
-                            state->selectedCount += result->entries[i].selected != 0;
+                        u64 held = 0;
+                        for (u64 i = 0; i < result->count; ++i) held += MapsGet(picked, b32, result->entries[i].file.name) != 0;
+                        if (held || !samePath) {
+                            state->selectedCount = 0;
+                            for (u64 i = 0; i < result->count; ++i) {
+                                result->entries[i].selected = MapsGet(picked, b32, result->entries[i].file.name);
+                                state->selectedCount += result->entries[i].selected != 0;
+                            }
+                            ArenaClear(&state->pickArena);
+                            state->pickNames = (ArrayStr){0};
                         }
-                        ArenaClear(&state->pickArena);
-                        state->pickNames = (ArrayStr){0};
                     }
                     // Another folder's repository is looked for at once; the same folder's, listed again, now and then, for commits made meanwhile.
                     if (!samePath || PlatformNowMicroseconds() - state->gitTime > Millions(3)) {

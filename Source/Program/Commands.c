@@ -2232,6 +2232,7 @@ function void Prog__LayoutAnswer(Prog_State *state, b32 yes)
         state->layoutSaving = false;
     }
     if (ask == Prog_LayoutAsk_Delete) Prog_SetLayout(state, name, (String){0}, true);
+    if (ask == Prog_LayoutAsk_SwitchBranch) Prog_SwitchBranch(state, name);
     // A deleted scheme that was shown gives way to the reference's dark one.
     if (ask == Prog_LayoutAsk_DeleteScheme) {
         Prog_SetScheme(state, name, (String){0}, true);
@@ -3060,6 +3061,16 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColorPickerOpen: Prog__OpenColorPicker(state, (Prog_Option)command->row); break;
             case Prog_CommandKind_ColorPickerSet: if (state->colorPicking) Prog_PickColor(state, (u32)command->row, (f32)((f64)command->target / 1e6)); break;
             case Prog_CommandKind_ColorPickerClose: Prog_CloseColorPicker(state); break;
+            case Prog_CommandKind_GitBranchesOpen: Prog_ToggleBranches(state); break;
+            case Prog_CommandKind_GitBranchSwitch: {
+                if (command->row >= state->branches.header.count) break;
+                String branch = StrCopy(&state->frameArena, state->branches.v[command->row]);
+                state->branchesOpen = false;
+                if (StrIsEqual(branch, state->git.branch)) break;
+                // With changes not committed it asks first, as they go along to the other branch.
+                if (state->git.changes) Prog__LayoutAsk(state, Prog_LayoutAsk_SwitchBranch, branch);
+                else Prog_SwitchBranch(state, branch);
+            } break;
             case Prog_CommandKind_ColorPickerCancel: {
                 if (state->colorPicking) Prog_PickHex(state, state->pickerOriginal);
                 Prog_CloseColorPicker(state);
@@ -3929,6 +3940,26 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->swallowText = true;
             } else {
                 Prog__EditKey(state, hex, event);
+            }
+            continue;
+        }
+        // The branches' dropdown takes the keyboard: typing finds a branch, Up and Down move the highlight, Enter switches to it, and Escape
+        // clears what was typed, then closes it.
+        if (state->branchesOpen && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            u32 *found = ArenaPushArray(&state->frameArena, state->branches.header.count + 1, u32);
+            u32 count = Prog_BranchMatches(state, found);
+            if (event->kind == PlatformEventKind_Text) {
+                Prog__EditInsert(&state->branchesSearch, event->codepoint);
+                state->branchesHighlight = 0;
+            } else if (event->key == Key_Escape) {
+                if (state->branchesSearch.length) state->branchesSearch = (Prog_TextEdit){0};
+                else state->branchesOpen = false;
+            } else if (event->key == Key_Enter && !event->isRepeat) {
+                if (state->branchesHighlight < count) Prog_QueueCommand(state, Prog_CommandKind_GitBranchSwitch, found[state->branchesHighlight], 0, order);
+            } else if ((event->key == Key_Up || event->key == Key_Down) && count) {
+                state->branchesHighlight = (state->branchesHighlight + (event->key == Key_Up ? count - 1 : 1)) % count;
+            } else if (Prog__EditKey(state, &state->branchesSearch, event)) {
+                state->branchesHighlight = 0;
             }
             continue;
         }

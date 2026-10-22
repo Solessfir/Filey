@@ -764,7 +764,7 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return result;
 }
 
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output)
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
 {
     *output = (String){0};
     if (!count) return false;
@@ -784,7 +784,7 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
     b32 result = false;
     if (folder && CreatePipe(&readEnd, &writeEnd, &inherit, 0)) {
         SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
-        STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = NULL, .hStdInput = NULL };
+        STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = errors ? writeEnd : NULL, .hStdInput = NULL };
         PROCESS_INFORMATION process = {0};
         b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, folder, &startup, &process) != 0;
         CloseHandle(writeEnd);
