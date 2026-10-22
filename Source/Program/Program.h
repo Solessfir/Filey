@@ -1110,7 +1110,7 @@ typedef struct Prog_Tab {
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
 //   filtering: the filter box has the keyboard; filterRect: its last layout
 //   listing, measureJob, sortPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort later
-//   watch, watchDirty, watchReloadTime: the shown folder's watch, which reloads it at most every Prog_WatchInterval
+//   watch, watchDirty: the shown folder's watch, and a change it saw that waits for the listing under way
 //   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
 //   renameCreatedUntil: until then, select the one item a listing of this folder adds, and rename it with createdRenames
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
@@ -1127,7 +1127,7 @@ typedef struct Prog_Tab {
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
-    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(u64, watchReloadTime) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
+    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
@@ -1350,6 +1350,7 @@ typedef struct Prog_State {
     u32 paletteHighlight;     // UINT32_MAX for none, which Go To starts with from Edit Path
     u32 paletteScroll;        // the first command row shown
     b32 paletteKeyed;         // a key was pressed since Options opened, which shows its highlight only from then on
+    u64 wakeAt;               // when the frame wants another without input, for what shows only after a while; 0 for no such time
     u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open

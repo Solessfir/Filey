@@ -758,10 +758,12 @@ function PlatformWindowInfo PlatformWindowGetInfo(void)
     };
 }
 
-function PlatformEventList PlatformPollEvents(b32 wait)
+function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
 {
     if (wait && EventQueue.pending.count == 0) {
-        WaitMessage();
+        u64 now = PlatformNowMicroseconds();
+        if (!wakeAt) WaitMessage();
+        else if (wakeAt > now) MsgWaitForMultipleObjects(0, NULL, FALSE, (DWORD)((wakeAt - now + 999) / 1000), QS_ALLINPUT);
     }
 
     MSG message;

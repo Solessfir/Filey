@@ -243,8 +243,8 @@ function u32    PlatformClipboardSequence(void);
 
 // Returns the events received since the previous call.
 // The list stays valid until the next call.
-// With `wait`, blocks until an event or background wakeup arrives.
-function PlatformEventList PlatformPollEvents(b32 wait);
+// With `wait`, blocks until an event or background wakeup arrives, or until the time `wakeAt` (PlatformNowMicroseconds) when it is not 0.
+function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt);
 
 typedef void PlatformFrameCallback(void *user, PlatformEventList events);
 // Native modal loops may request a frame before PlatformPollEvents returns.

@@ -131,9 +131,11 @@ function P_FileError P_OpenFileExplorer(Arena *arena, String path);
 function P_FileError P_OpenWindow(Arena *arena, String path, String option);
 // Starts the system's console in the folder `directory`: cmd.exe in the default terminal on Windows, the desktop's terminal on Linux.
 function P_FileError P_OpenConsole(Arena *arena, String directory);
-// Reports changes to the items of one folder, not of its subfolders, from a thread of its own.
+// Reports changes to the items of one folder, not of its subfolders, from a thread of its own, at most every P_WatchPause milliseconds, so
+// that a folder that keeps changing, as one a download writes into, or a burst such as a copy or a build, brings a few reloads.
 // {0} is a stopped watch.
 // `wake` runs on that thread when a change follows a call to P_DirectoryWatchTakeChanged.
+#define P_WatchPause 100
 typedef struct P_DirectoryWatch {
     Arena arena;
     void *native;

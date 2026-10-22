@@ -1061,7 +1061,7 @@ function PlatformWindowInfo PlatformWindowGetInfo(void)
 
 function void LinuxTakeInstanceMessage(void);
 
-function PlatformEventList PlatformPollEvents(b32 wait)
+function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
 {
     wl_display_dispatch_pending(Wl.display);
     LinuxGenerateRepeats();
@@ -1081,6 +1081,10 @@ function PlatformEventList PlatformPollEvents(b32 wait)
             if (Wl.repeating) {
                 i32 repeat = Wl.repeatNextUs > now ? (i32)((Wl.repeatNextUs - now + 999) / 1000) : 0;
                 timeout = timeout < 0 ? repeat : Min(timeout, repeat);
+            }
+            if (wakeAt && !pacing) {
+                i32 due = wakeAt > now ? (i32)Min((wakeAt - now + 999) / 1000, (u64)INT32_MAX) : 0;
+                timeout = timeout < 0 ? due : Min(timeout, due);
             }
         }
 

@@ -4633,9 +4633,6 @@ function void Prog_MoveTab(Prog_State *state, u32 from, u32 to)
     state->activeTab = active;
 }
 
-// Coalesces bursts such as a copy or a build into a few reloads.
-#define Prog_WatchInterval UINT64_C(100000)
-
 // What a finished job's input still holds for the window: an expanded listing's last rows, if they were never taken.
 function void Prog__ReleaseJob(P_Job *job)
 {
@@ -4725,13 +4722,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (u32 panel = 0; panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);
         if (P_DirectoryWatchTakeChanged(&state->watch)) state->watchDirty = true;
-        if (state->watchDirty && !state->directoryJob && now - state->watchReloadTime >= Prog_WatchInterval) {
+        // A change while the folder is being listed reloads it once that is done, which wakes the window.
+        if (state->watchDirty && !state->directoryJob) {
             state->watchDirty = false;
-            state->watchReloadTime = now;
             Prog_Reload(state);
         }
-        // A deferred reload needs frames until it runs.
-        changed |= state->watchDirty;
         // An expanded listing shows the rows found so far while its walk goes on.
         Prog_JobInput *walking = state->directoryJob ? state->directoryJob->input : NULL;
         if (walking && walking->partial) {
@@ -4765,9 +4760,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         state->placesJob = job;
         P_JobSubmit(job);
     }
-    // The index starts from the drives once they are known and walks on a slice at a time, while the last run's is read to search meanwhile.
+    // The index starts from the drives the first time Go To searches them, Alt+E, and walks on a slice at a time, while the last run's is
+    // read to search meanwhile; a walk of every drive would take the disk and the processor from everything else for minutes.
     Prog_Index *index = &state->index;
-    if (!state->indexStarted && state->drives.header.count) {
+    if (!state->indexStarted && state->gotoDrives && state->drives.header.count) {
         state->indexStarted = true;
         for (u64 i = 0; i < state->drives.header.count; ++i) {
             String root = state->drives.v[i].path;

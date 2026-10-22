@@ -185,6 +185,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
     loop->inFrame = true;
     ProfileScope("Frame") {
         ArenaClear(&state->frameArena);
+        state->wakeAt = 0;
         b32 completed = false, handled = false;
         ProfileScope("TakeCompletions") completed = Prog_TakeCompletions(state);
         PlatformWindowInfo window = PlatformWindowGetInfo();
@@ -401,7 +402,7 @@ int main(void)
     PlatformSetModalFrameCallback(Prog__Frame, &loop);
     while (loop.running) {
         PlatformEventList events = {0};
-        ProfileScope("PollEvents") events = PlatformPollEvents(!loop.needsFrame);
+        ProfileScope("PollEvents") events = PlatformPollEvents(!loop.needsFrame, loop.state.wakeAt);
         Prog__Frame(&loop, events);
         if (loop.state.moveRequested) {
             loop.state.moveRequested = false;

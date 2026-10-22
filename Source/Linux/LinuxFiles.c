@@ -470,6 +470,8 @@ function void *P__WatchThread(void *user)
             while (read(watch->notify, events, sizeof(events)) > 0) {}
             // Only the first change since the program last looked needs a wakeup.
             if (!atomic_exchange(&watch->changed, true) && watch->wake) watch->wake(watch->user);
+            // Changes during the pause wait in the queue.
+            if (poll(fds, 1, P_WatchPause) > 0) break;
         } else if (fds[1].revents) {
             break;
         }

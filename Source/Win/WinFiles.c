@@ -384,6 +384,8 @@ function DWORD WINAPI P__WatchThread(void *user)
         // Only the first change since the program last looked needs a wakeup.
         if (!atomic_exchange(&watch->changed, true) && watch->wake) watch->wake(watch->user);
         if (!FindNextChangeNotification(watch->change)) break;
+        // Changes during the pause are kept and signal the handle again.
+        if (WaitForSingleObject(watch->stop, P_WatchPause) == WAIT_OBJECT_0) break;
     }
     return 0;
 }

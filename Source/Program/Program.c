@@ -1434,6 +1434,12 @@ function void Prog__LabelPadded(String text, UI_Size width, f32 height, f32 left
 
 // The fill of a box floating over the window, such as the palette: the background, or the menus' fill where a translucent theme leaves it clear,
 // so that what is under the box does not show through.
+// Asks for a frame at `at` without input, the earliest of those asked for in a frame.
+function void Prog_WakeAt(Prog_State *state, u64 at)
+{
+    state->wakeAt = state->wakeAt ? Min(state->wakeAt, at) : at;
+}
+
 function R_Color Prog__FloatingFill(void)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -2155,9 +2161,13 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                         }
                     }
                 }
-                // A spinner stands in for the folder while the shown tab's listing is on its way, or while its drive spins up a disc.
+                // A spinner stands in for the folder while the shown tab's listing is on its way, or while its drive spins up a disc; for a
+                // refresh, as while a download writes into the folder, only once it has taken a second.
                 const P_Place *drive = Prog_PathDrive(state, path);
-                const Prog_Icon *spinner = (shown && state->directoryJob) || (drive && drive->busy) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
+                u64 listing = shown && state->directoryJob ? UI->nowMicroseconds - Min(state->listStarted, UI->nowMicroseconds) : 0;
+                b32 slow = shown && state->directoryJob && (state->loading || listing >= 1000000);
+                if (shown && state->directoryJob && !slow) Prog_WakeAt(state, state->listStarted + 1000000);
+                const Prog_Icon *spinner = slow || (drive && drive->busy) ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
                 if (spinner) UI_KeepAnimating();
                 const Prog_Icon *icon = spinner ? spinner : path.length ? Prog_FolderIcon(state, path) : NULL;
                 if (icon) {
@@ -4109,7 +4119,8 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     Prog__StatusIcon(Icon_Clock, 0, m->pill, theme->icon, m);
                     Prog__LabelPadded(StrFormat(&state->frameArena, "%.2f sec", (f64)took / 1e6), UI_TextContent(), m->pill, floorf(7.2f * m->scale + 0.5f), floorf(9.6f * m->scale + 0.5f), theme->text, 0);
                 }
-                if (state->directoryJob) UI_KeepAnimating();
+                if (counting) UI_KeepAnimating();
+                else if (state->directoryJob) Prog_WakeAt(state, state->listStarted + 1000000);
                 for (u32 i = 0; i < 2; ++i) {
                     // Both while a walk counts, so that the text does not jump between one number and two as they meet and part.
                     String text = shown[i] == total[i] && !found ? Prog__FormatCount(&state->frameArena, total[i])

@@ -1994,7 +1994,7 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
         Check(!P_DeleteItems(&arena, &other, 1, false, &token).code);
         // The refresh the folder's watch defers for the files that changed comes before the next steps.
         u64 settle = PlatformNowMicroseconds();
-        while (PlatformNowMicroseconds() - settle < 2 * Prog_WatchInterval) P__TestPause();
+        while (PlatformNowMicroseconds() - settle < UINT64_C(2000) * P_WatchPause) P__TestPause();
         Prog_TakeCompletions(&state);
         Check(TestWaitDirectory(&state));
     }
@@ -2224,6 +2224,10 @@ function void TestTabs(TestFileFixture *fixture)
     Check(!P_CreateItem(&driveArena, fixture->path, S("Cache"), true, &created).code);
     String cache = Prog_JoinPath(&driveArena, fixture->path, created);
     state.configDirectory = state.cacheDirectory = cache;
+    // It waits for Go To to search the drives.
+    Prog_TakeCompletions(&state);
+    Check(!state.indexStarted);
+    state.gotoDrives = true;
     start = PlatformNowMicroseconds();
     do {
         Prog_TakeCompletions(&state);
