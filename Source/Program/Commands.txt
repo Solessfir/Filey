@@ -846,6 +846,12 @@ command CompressZip {
     repeat  = "false"
 }
 
+command CompressVideo {
+    label   = "Compress Video^ffmpeg,encode,nvenc,shrink,hevc"
+    tooltip = "Encode the selected videos again, smaller, on the graphics card when it can, each beside itself."
+    repeat  = "false"
+}
+
 command Compress7z {
     label   = "Add To 7z^compress,archive,pack,7zip"
     tooltip = "Pack the selected items into a new 7z archive beside them."

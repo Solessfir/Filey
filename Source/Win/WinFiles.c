@@ -93,7 +93,7 @@ function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progr
             a->entryFree(entry);
         }
         if (file != INVALID_HANDLE_VALUE) {
-            P__ProgressName(progress, StrFrom(name, StrIndexChar(name, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
+            P_ProgressName(progress, StrFrom(name, StrIndexChar(name, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
             u8 *buffer = ArenaPushArrayNoZero(scratch.arena, 65536, u8);
             for (DWORD got = 0; !error;) {
                 if (!ReadFile(file, buffer, 65536, &got, NULL)) error = GetLastError();
@@ -783,11 +783,20 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return result;
 }
 
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+// The programs a command runs are kept in a job object that closes with them, so that stopping one stops what it started too, as yt-dlp's
+// ffmpeg. ntdll's NtSuspendProcess pauses them, which no documented call does for a whole process.
+function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, b32 errors, u32 timeoutMilliseconds, P_CommandOutput *output,
+                           void *user, const P_CancelToken *cancel, P_Progress *progress)
 {
-    *output = (String){0};
     if (!count) return false;
-    Scratch scratch = GetScratchEx(arena);
+    typedef LONG (WINAPI *SuspendCall)(HANDLE);
+    local_persist SuspendCall suspend, resume;
+    if (!suspend) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        suspend = ntdll ? (SuspendCall)(void *)GetProcAddress(ntdll, "NtSuspendProcess") : NULL;
+        resume = ntdll ? (SuspendCall)(void *)GetProcAddress(ntdll, "NtResumeProcess") : NULL;
+    }
+    Scratch scratch = GetScratchEx(conflict);
     // The command line quotes the arguments that hold spaces, as the C runtime splits it again; these never hold quotes.
     StrBuilder line = {0};
     for (u32 i = 0; i < count; ++i) {
@@ -800,49 +809,89 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
     wchar *folder = P__FilePathWide(scratch.arena, directory);
     SECURITY_ATTRIBUTES inherit = { .nLength = sizeof(inherit), .bInheritHandle = TRUE };
     HANDLE readEnd = NULL, writeEnd = NULL;
+    HANDLE group = CreateJobObjectW(NULL, NULL);
+    if (group) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = { .BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE };
+        SetInformationJobObject(group, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
     b32 result = false;
     if (folder && CreatePipe(&readEnd, &writeEnd, &inherit, 0)) {
         SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
         STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = errors ? writeEnd : NULL, .hStdInput = NULL };
         PROCESS_INFORMATION process = {0};
-        b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, folder, &startup, &process) != 0;
+        b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, folder, &startup, &process) != 0;
         CloseHandle(writeEnd);
         if (started) {
+            if (group) AssignProcessToJobObject(group, process.hProcess);
+            ResumeThread(process.hThread);
             CloseHandle(process.hThread);
-            StrBuilder out = {0};
             u64 began = GetTickCount64();
-            b32 late = false;
+            b32 stopped = false, suspended = false;
             for (;;) {
+                if (P_IsCancelled(cancel) || (timeoutMilliseconds && GetTickCount64() - began > timeoutMilliseconds)) {
+                    stopped = true;
+                    break;
+                }
+                b32 pause = progress && atomic_load(&progress->paused);
+                if (pause != suspended && suspend && resume) {
+                    (pause ? suspend : resume)(process.hProcess);
+                    suspended = pause;
+                }
                 DWORD waiting = 0;
                 if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &waiting, NULL)) break;
                 if (waiting) {
                     char bytes[4096];
                     DWORD read = 0;
                     if (!ReadFile(readEnd, bytes, (DWORD)Min((u64)waiting, sizeof(bytes)), &read, NULL) || !read) break;
-                    StrBuildStr(arena, &out, StrMake(bytes, read));
+                    output(user, StrMake(bytes, read));
                     continue;
                 }
-                if (GetTickCount64() - began > timeoutMilliseconds) {
-                    late = true;
-                    break;
-                }
                 // Done once it has exited and the pipe is drained.
-                if (WaitForSingleObject(process.hProcess, 5) == WAIT_OBJECT_0) {
+                if (WaitForSingleObject(process.hProcess, suspended ? 50 : 5) == WAIT_OBJECT_0) {
                     if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &waiting, NULL) || !waiting) break;
                 }
             }
             DWORD code = 1;
-            if (late) TerminateProcess(process.hProcess, 1);
+            if (suspended && resume) resume(process.hProcess);
+            if (stopped) {
+                if (group) TerminateJobObject(group, 1);
+                else TerminateProcess(process.hProcess, 1);
+            }
             WaitForSingleObject(process.hProcess, 1000);
             GetExitCodeProcess(process.hProcess, &code);
             CloseHandle(process.hProcess);
-            result = !late && code == 0;
-            *output = out.buffer;
+            result = !stopped && code == 0;
         }
         CloseHandle(readEnd);
     }
+    if (group) CloseHandle(group);
     ReleaseScratch(scratch);
     return result;
+}
+
+typedef struct P__CommandText {
+    Arena *arena;
+    StrBuilder text;
+} P__CommandText;
+
+function void P__CollectOutput(void *user, String text)
+{
+    P__CommandText *collected = user;
+    StrBuildStr(collected->arena, &collected->text, text);
+}
+
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+{
+    P__CommandText collected = { .arena = arena };
+    b32 result = P__RunCommand(arena, directory, arguments, count, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
+    *output = collected.text.buffer;
+    return result;
+}
+
+function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
+                                P_Progress *progress)
+{
+    return P__RunCommand(NULL, directory, arguments, count, errors, 0, output, user, cancel, progress);
 }
 
 function b32 P_IsDirectory(String path)

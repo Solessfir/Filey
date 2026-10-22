@@ -2755,3 +2755,30 @@ Duration
 Bitrate
 = Битрейт
 
+Video Codec
+= Видеокодек
+
+What Compress Video encodes to, on the graphics card when it has an encoder for it: NVENC, AMF or Quick Sync.
+= Во что кодирует «Сжать видео», на видеокарте, если у неё есть кодировщик: NVENC, AMF или Quick Sync.
+
+Video Quality
+= Качество видео
+
+The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does.
+= Постоянное качество для «Сжать видео»: меньше значит лучше и крупнее; от 18 до 23 выглядит как оригинал.
+
+Compress Video
+= Сжать видео
+
+Encode the selected videos again, smaller, on the graphics card when it can, each beside itself.
+= Перекодировать выбранные видео в меньший размер, на видеокарте, если можно, каждое рядом с исходным.
+
+Compress video failed
+= Не удалось сжать видео
+
+Compressing %u videos
+= Сжатие %u видео | Сжатие %u видео | Сжатие %u видео
+
+FFmpeg is not installed, or could not read the video
+= FFmpeg не установлен или не смог прочитать видео
+

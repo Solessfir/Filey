@@ -432,7 +432,7 @@ int main(int argc, char **argv)
 
     if (!Codegen__WriteIfChanged(&arena, outputPath.value, Codegen_EmitCommands(&arena, commands))) return 1;
     // The strings, in the order the files have them.
-    const char *sources[] = { "Program/Program.c", "Program/Commands.c", "Program/Directory.c" };
+    const char *sources[] = { "Program/Program.c", "Program/Commands.c", "Program/Directory.c", "Program/Media.c" };
     ArrayStr strings = {0}, plurals = {0};
     for (u32 i = 0; i < CArrayCount(sources); ++i) {
         String path = StrFormat(&arena, "%S/%s%c", source, sources[i], 0);

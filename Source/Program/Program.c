@@ -622,6 +622,7 @@ function f32 Prog__ParseNumber(String value)
 // The words Settings.conf has for the choices of the start, new tabs and recents.
 global const String Prog_OptionStoreRecents[Prog_StoreRecents_Count] = { SInit("persistent"), SInit("session"), SInit("never") };
 // The notices shown, by Prog_NoticeKind: all of them, warnings and errors, errors, or none.
+global const String Prog_OptionVideoCodecs[] = { SInit("hevc"), SInit("h264"), SInit("av1") };
 global const String Prog_OptionNotices[Prog_NoticeKind_Count + 1] = { SInit("all"), SInit("warnings"), SInit("errors"), SInit("off") };
 global const String Prog_OptionStartups[Prog_Startup_Count] = { SInit("session"), SInit("root"), SInit("home") };
 global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { SInit("root"), SInit("home"), SInit("current") };
@@ -698,6 +699,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->newTab = Prog_NewTab_Root;
     state->storeRecents = Prog_StoreRecents_Persistent;
     state->archiveLevel = 9;
+    state->videoCodec = 0;
+    state->videoQuality = 20;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
@@ -785,6 +788,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             MemCopy(state->language.text, value.value, state->language.length);
         } else if (StrIsEqual(name, S("archive.level"))) {
             if (number >= 0 && number <= 9) state->archiveLevel = (u8)number;
+        } else if (StrIsEqual(name, S("video.codec"))) {
+            for (u32 i = 0; i < CArrayCount(Prog_OptionVideoCodecs); ++i) if (Prog__EqualFolded(value, Prog_OptionVideoCodecs[i])) state->videoCodec = (u8)i;
+        } else if (StrIsEqual(name, S("video.quality"))) {
+            if (number >= 0 && number <= 51) state->videoQuality = (u8)number;
         } else if (StrIsEqual(name, S("notices"))) {
             for (u32 i = 0; i <= Prog_NoticeKind_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNotices[i])) state->noticeLevel = (u8)i;
         } else if (StrIsEqual(name, S("recents.store"))) {
@@ -950,6 +957,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
         StrBuildStr(arena, &text, a == 255 ? StrFormat(arena, "# color.%s = #%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b)
                                            : StrFormat(arena, "# color.%s = #%02x%02x%02x%02x\n", Prog_ThemeColors[i].name, r, g, b, a));
     }
+    StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
+                                "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"));
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n"
                                                "# Unset, the system's language when Filey has it built in, and English otherwise.\n# language = %S\n", Prog_SystemLanguage()));
     // The glass settings, at their defaults.
@@ -1063,6 +1072,10 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                         Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("trash.confirm") },
     [Prog_Option_CompressionLevel] = { TrInit("Compression Level"), TrInit("How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest."),
                                        Prog_OptionControl_Slider, 0, 9, NULL, 0, SInit("archive.level") },
+    [Prog_Option_VideoCodec] = { TrInit("Video Codec"), TrInit("What Compress Video encodes to, on the graphics card when it has an encoder for it: NVENC, AMF or Quick Sync."),
+                                 Prog_OptionControl_Choice, 0, 0, Prog_OptionVideoCodecs, CArrayCount(Prog_OptionVideoCodecs), SInit("video.codec") },
+    [Prog_Option_VideoQuality] = { TrInit("Video Quality"), TrInit("The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does."),
+                                   Prog_OptionControl_Slider, 0, 51, NULL, 0, SInit("video.quality") },
     [Prog_Option_Notices] = { TrInit("Notifications"), TrInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
     [Prog_Option_MutedNotices] = { TrInit("Muted Notifications"), TrInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
@@ -1186,6 +1199,8 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
         case Prog_Option_CompressionLevel: return state->archiveLevel;
+        case Prog_Option_VideoCodec: return state->videoCodec;
+        case Prog_Option_VideoQuality: return state->videoQuality;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
         case Prog_Option_Language: {
@@ -1701,6 +1716,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_CharacterKeyAction: return Prog_CharacterKeys_TypeInFilter;
         case Prog_Option_PopupBlur: return 24;
         case Prog_Option_CompressionLevel: return 9;
+        case Prog_Option_VideoQuality: return 20;
         case Prog_Option_Language: {
             for (u32 i = 1; i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(Prog_SystemLanguage(), Prog_OptionLanguages[i])) return (i32)i;
             return 0;
@@ -6469,6 +6485,7 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
                                            TrInit("Current"), TrInit("All") };
     (void)words;
     if (option == Prog_Option_LoadThumbnails && StrIsEqual(name, S("local"))) return Tr("Local Disks");
+    if (option == Prog_Option_VideoCodec) return StrIsEqual(name, S("hevc")) ? NoTr("HEVC (H.265)") : StrIsEqual(name, S("h264")) ? NoTr("H.264") : NoTr("AV1");
     if (option == Prog_Option_Borders && !StrIsEqual(name, S("default"))) return StrFormat(arena, TrF("%S px"), name);
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return Tr("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return Tr("Vertical");
@@ -8594,6 +8611,13 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
 }
 
 // The copy and move cards in the window's corner, the newest lowest; it gives where the highest starts, for the notices over them.
+// `milliseconds` as "1:23" or "1:02:03".
+function String Prog__Clock(Arena *arena, u64 milliseconds)
+{
+    u64 seconds = milliseconds / 1000, hours = seconds / 3600;
+    return hours ? StrFormat(arena, "%u:%02u:%02u", (u32)hours, (u32)(seconds / 60 % 60), (u32)(seconds % 60)) : StrFormat(arena, "%u:%02u", (u32)(seconds / 60), (u32)(seconds % 60));
+}
+
 function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -8626,7 +8650,8 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
-                String title = transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
+                String title = transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
+                             : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
                              : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
                                               : StrFormat(&state->frameArena, TrN(items, "Copying %u item to %S", "Copying %u items to %S"), (u32)items, target);
                 Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
@@ -8674,7 +8699,10 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                     Prog__Label(StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
                 }
             }
-            String amount = bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
+            // A video's progress is in milliseconds of it, shown as times.
+            String amount = transfer->op == Prog_TransferOp_CompressVideo && bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog__Clock(&state->frameArena, Min(doneBytes, bytes)),
+                                                                                               Prog__Clock(&state->frameArena, bytes))
+                          : bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
             UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(line) {

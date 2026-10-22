@@ -107,7 +107,7 @@ function b32 P__LoadArchive(void)
 }
 
 // Puts `name` up as the item being worked on, for the program to show.
-function void P__ProgressName(P_Progress *progress, String name)
+function void P_ProgressName(P_Progress *progress, String name)
 {
     atomic_fetch_add(&progress->nameVersion, 1);
     u64 length = 0;
@@ -309,7 +309,7 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
         if (k == count || !P__ArchivePathSafe(rest) || (type != 0100000 && type != 0040000)) continue;
         ArenaMark mark = ArenaGetMark(scratch.arena);
         String target = StrFormat(scratch.arena, "%S/%S%S", directory, placed[k], StrFrom(rest, names[k].length));
-        P__ProgressName(progress, StrFrom(rest, StrIndexChar(rest, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
+        P_ProgressName(progress, StrFrom(rest, StrIndexChar(rest, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
         if (type == 0040000) error = P__ArchiveMakeFolders(target);
         else error = P__ArchiveWriteFile(reader, target, a->mtime(entry), &read, progress, cancel);
         ArenaRestore(mark);

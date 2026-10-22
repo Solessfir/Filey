@@ -807,7 +807,7 @@ function u32 P__ArchiveWritePath(void *writer, String path, String name, P_Progr
         a->entryFree(entry);
     }
     if (!error && file && writer) {
-        P__ProgressName(progress, StrFrom(name, StrIndexChar(name, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
+        P_ProgressName(progress, StrFrom(name, StrIndexChar(name, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
         i32 in = open(native, O_RDONLY | O_CLOEXEC);
         if (in < 0) error = (u32)errno;
         char buffer[65536];
@@ -982,7 +982,7 @@ function u32 P__CopyAt(i32 sourceDir, const char *name, i32 targetDir, const cha
         close(in);
         return error;
     }
-    P__ProgressName(progress, StrFromCStr(name));
+    P_ProgressName(progress, StrFromCStr(name));
     u32 error = 0;
     // Its whole size is taken first on another file system, so that a file too big for the drive fails before anything is written, and it
     // lies in one piece. Not on its own, where the kernel may share the source's blocks, which takes no room.
@@ -1868,11 +1868,12 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return length == 0;
 }
 
-function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+// The command gets a process group of its own, so that stopping or pausing it reaches the programs it started too, as yt-dlp's ffmpeg.
+function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, b32 errors, u32 timeoutMilliseconds, P_CommandOutput *output,
+                           void *user, const P_CancelToken *cancel, P_Progress *progress)
 {
-    *output = (String){0};
     if (!count) return false;
-    Scratch scratch = GetScratchEx(arena);
+    Scratch scratch = GetScratchEx(conflict);
     // The program is looked up here, before the fork, since the child may only make async-signal-safe calls.
     char *program = NULL;
     const char *paths = getenv("PATH");
@@ -1892,6 +1893,7 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
     if (program && folder && pipe2(ends, O_CLOEXEC) == 0) {
         pid_t child = _Fork();
         if (child == 0) {
+            setpgid(0, 0);
             i32 quiet = open("/dev/null", O_RDWR);
             dup2(ends[1], 1);
             if (errors) dup2(ends[1], 2);
@@ -1904,38 +1906,67 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
         }
         close(ends[1]);
         if (child > 0) {
-            StrBuilder out = {0};
+            // Set from here too, as the child may not have run yet when a signal is sent to its group.
+            setpgid(child, child);
             u64 began = PlatformNowMicroseconds();
-            b32 late = false;
+            b32 stopped = false, suspended = false;
             for (;;) {
-                i64 left = (i64)timeoutMilliseconds - (i64)((PlatformNowMicroseconds() - began) / 1000);
-                if (left <= 0) {
-                    late = true;
+                if (P_IsCancelled(cancel) || (timeoutMilliseconds && (PlatformNowMicroseconds() - began) / 1000 > timeoutMilliseconds)) {
+                    stopped = true;
                     break;
                 }
+                b32 pause = progress && atomic_load(&progress->paused);
+                if (pause != suspended) {
+                    kill(-child, pause ? SIGSTOP : SIGCONT);
+                    suspended = pause;
+                }
+                // Woken at least every tenth of a second to see to a cancel or a pause.
                 struct pollfd wait = { .fd = ends[0], .events = POLLIN };
-                i32 ready = poll(&wait, 1, (i32)left);
+                i32 ready = poll(&wait, 1, 100);
                 if (ready < 0 && errno == EINTR) continue;
-                if (ready <= 0) {
-                    late = ready == 0;
-                    break;
-                }
+                if (ready < 0) break;
+                if (ready == 0) continue;
                 char bytes[4096];
                 ssize_t got = read(ends[0], bytes, sizeof(bytes));
                 if (got < 0 && errno == EINTR) continue;
                 if (got <= 0) break;
-                StrBuildStr(arena, &out, StrMake(bytes, (u64)got));
+                output(user, StrMake(bytes, (u64)got));
             }
-            if (late) kill(child, SIGKILL);
+            if (stopped) kill(-child, SIGKILL);
+            else if (suspended) kill(-child, SIGCONT);
             i32 status = 0;
             while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-            result = !late && WIFEXITED(status) && WEXITSTATUS(status) == 0;
-            *output = out.buffer;
+            result = !stopped && WIFEXITED(status) && WEXITSTATUS(status) == 0;
         }
         close(ends[0]);
     }
     ReleaseScratch(scratch);
     return result;
+}
+
+typedef struct P__CommandText {
+    Arena *arena;
+    StrBuilder text;
+} P__CommandText;
+
+function void P__CollectOutput(void *user, String text)
+{
+    P__CommandText *collected = user;
+    StrBuildStr(collected->arena, &collected->text, text);
+}
+
+function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
+{
+    P__CommandText collected = { .arena = arena };
+    b32 result = P__RunCommand(arena, directory, arguments, count, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
+    *output = collected.text.buffer;
+    return result;
+}
+
+function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
+                                P_Progress *progress)
+{
+    return P__RunCommand(NULL, directory, arguments, count, errors, 0, output, user, cancel, progress);
 }
 
 function b32 P_PathExists(String path)

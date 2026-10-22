@@ -482,6 +482,15 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             f64 fps = Prog__MediaNumber(Prog__MediaField(line, S("avg_frame_rate")));
             Check(fps > 29.96 && fps < 29.98 && Prog__MediaNumber(S("5.250000")) == 5.25 && Prog__MediaNumber(S("0/0")) == 0);
             Check(Prog_IsAudio(S("a/Song.FLAC")) && Prog_IsVideo(S("clip.mkv")) && !Prog_IsAudio(S("clip.mkv")) && !Prog_IsVideo(S("notes")));
+            // ffmpeg's -progress lines, however they are cut, move a compression's milliseconds on after those of the videos before, and
+            // a line of its own is its message.
+            P_Progress progress = {0};
+            atomic_store(&progress.totalBytes, 10000);
+            Prog__Encoding encoding = { .progress = &progress, .base = 4000, .name = S("clip.mkv") };
+            Prog__EncodingOutput(&encoding, S("frame=10\nout_time_us=15"));
+            Prog__EncodingOutput(&encoding, S("00000\r\nspeed= 2.5x\nNo such filter\n"));
+            Check(atomic_load(&progress.doneBytes) == 5500 && StrIsEqual(Prog__TransferName(&quiet.frameArena, &progress), S("clip.mkv \u00B7 2.5x")));
+            Check(StrIsEqual(StrMake(encoding.message, encoding.messageLength), S("No such filter")));
         }
         // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a
         // built-in language's name adds to it; English again takes them all away.
@@ -1153,12 +1162,12 @@ function void TestFileIcons(TestFileFixture *fixture)
         // Packing makes a new archive beside the items, and taking it out into a folder of its own puts its items there.
         {
             String packed[2] = { Prog_JoinPath(&arena, out, S("a.txt")), Prog_JoinPath(&arena, out, S("note.txt")) };
-            Prog_JobInput pack = { .kind = Prog_JobKind_Transfer, .archiveOp = Prog_ArchiveOp_Compress, .paths = packed, .pathCount = 2, .path = transfer.path, .name = S("pack2.zip") };
+            Prog_JobInput pack = { .kind = Prog_JobKind_Transfer, .transferOp = Prog_TransferOp_Pack, .paths = packed, .pathCount = 2, .path = transfer.path, .name = S("pack2.zip") };
             ArrayStr made = {0};
             Check(!Prog__Transfer(&arena, &pack, &made, NULL).code && made.header.count == 1);
             String archive2 = made.header.count ? made.v[0] : (String){0};
             Check(P_EnumerateArchive(&arena, archive2, (String){0}, NULL).files.header.count == 2);
-            Prog_JobInput unpack = { .kind = Prog_JobKind_Transfer, .archiveOp = Prog_ArchiveOp_ExtractToFolder, .paths = &archive2, .pathCount = 1, .path = transfer.path, .name = S("pack2") };
+            Prog_JobInput unpack = { .kind = Prog_JobKind_Transfer, .transferOp = Prog_TransferOp_ExtractToFolder, .paths = &archive2, .pathCount = 1, .path = transfer.path, .name = S("pack2") };
             ArrayStr taken = {0};
             Check(!Prog__Transfer(&arena, &unpack, &taken, NULL).code && taken.header.count == 1);
             Check(taken.header.count && P_ReadFile(&arena, Prog_JoinPath(&arena, taken.v[0], S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
@@ -1170,7 +1179,7 @@ function void TestFileIcons(TestFileFixture *fixture)
             for (u32 i = 0; i < 4000; ++i) StrBuildStr(&arena, &repeated, S("hello "));
             String text = Prog_JoinPath(&arena, transfer.path, S("text.txt")), stored = {0}, squeezed = {0};
             Check(!P_WriteFile(&arena, text, repeated.buffer).code);
-            Prog_JobInput loose = { .kind = Prog_JobKind_Transfer, .archiveOp = Prog_ArchiveOp_Compress, .archiveLevel = 0, .paths = &text, .pathCount = 1, .path = transfer.path, .name = S("stored.zip") };
+            Prog_JobInput loose = { .kind = Prog_JobKind_Transfer, .transferOp = Prog_TransferOp_Pack, .archiveLevel = 0, .paths = &text, .pathCount = 1, .path = transfer.path, .name = S("stored.zip") };
             Prog_JobInput tight = loose;
             tight.archiveLevel = 9, tight.name = S("squeezed.zip");
             ArrayStr unused = {0};

@@ -372,18 +372,20 @@ typedef struct Prog_Partial Prog_Partial;
 
 // What a Transfer does with archives instead of copying: packs `paths` into the new archive `name` in `path`, or takes the archive `paths[0]`
 // out into `path` itself or into the new folder `name` there.
-typedef enum Prog_ArchiveOp {
-    Prog_ArchiveOp_None,
-    Prog_ArchiveOp_Compress,
-    Prog_ArchiveOp_ExtractHere,
-    Prog_ArchiveOp_ExtractToFolder,
-    Prog_ArchiveOp_Count,
-} Prog_ArchiveOp;
+typedef enum Prog_TransferOp {
+    Prog_TransferOp_None,
+    Prog_TransferOp_Pack,
+    Prog_TransferOp_ExtractHere,
+    Prog_TransferOp_ExtractToFolder,
+    Prog_TransferOp_CompressVideo,  // encodes the videos `paths` again, each beside itself as "<name> (compressed).mp4"
+    Prog_TransferOp_Count,
+} Prog_TransferOp;
 
 typedef struct Prog_JobInput {
     enum8(Prog_JobKind) kind;
-    enum8(Prog_ArchiveOp) archiveOp;
+    enum8(Prog_TransferOp) transferOp;
     u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
+    u8 videoCodec, videoQuality;  // what a video is compressed to
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;
@@ -453,6 +455,7 @@ typedef struct Prog_Transfer {
     u64 started;         // quick ones finish before they would show
     u8 target[256];      // the target folder's name
     u32 targetLength;
+    enum8(Prog_TransferOp) op;
 } Prog_Transfer;
 
 #define Prog_MaxTransfers 4
@@ -723,6 +726,8 @@ typedef enum Prog_Option {
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
     Prog_Option_CompressionLevel,
+    Prog_Option_VideoCodec,
+    Prog_Option_VideoQuality,
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
     Prog_Option_StoreRecents,
@@ -1492,6 +1497,8 @@ typedef struct Prog_State {
     enum8(Prog_NewTab) newTab;
     enum8(Prog_StoreRecents) storeRecents;
     u8 archiveLevel;  // the compression level of the archives Filey writes, 0 to 9
+    u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
+    u8 videoQuality;  // its constant quality, 0 (best) to 51
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
     b32 showRecents, sortRecents;
     b32 noVSync;
@@ -1794,6 +1801,10 @@ function b32 Prog_IsVideo(String path);
 function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds);
 function b32 Prog_MediaWaveform(Arena *arena, String path, i32 side, P_Image *image, i32 *width, i32 *height);
 function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, i32 side, P_Image *image, i32 *width, i32 *height);
+function u64 Prog_MediaLength(Arena *arena, String path);
+function P_FileError Prog_CompressVideo(Arena *arena, String path, String output, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel);
+function String Prog__NameStem(String name);
+function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);
 function String Prog_FormatSize(Arena *arena, u64 bytes);
 function void Prog_InspectFolder(Prog_State *state, String path);
 function i32 Prog_CompareNames(String a, String b);

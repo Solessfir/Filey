@@ -681,7 +681,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_OpenInBottomSplit, Prog_CommandKind_OpenInWindow, Prog_CommandKind_CopySelection, Prog_CommandKind_CutSelection, Prog_CommandKind_Paste,
     Prog_CommandKind_PasteLink,
     Prog_CommandKind_Trash, Prog_CommandKind_SelectionDelete, Prog_CommandKind_SelectionRestore, Prog_CommandKind_TrashRestoreAll,
-    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_CompressZip, Prog_CommandKind_Compress7z, Prog_CommandKind_ExtractHere, Prog_CommandKind_ExtractToFolder, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
+    Prog_CommandKind_EmptyTrash, Prog_CommandKind_Duplicate, Prog_CommandKind_CompressZip, Prog_CommandKind_Compress7z, Prog_CommandKind_ExtractHere, Prog_CommandKind_ExtractToFolder, Prog_CommandKind_CompressVideo, Prog_CommandKind_Undo, Prog_CommandKind_Redo, Prog_CommandKind_Rename, Prog_CommandKind_SelectionInspect,
     Prog_CommandKind_SelectionCopyPrevPanel, Prog_CommandKind_SelectionCopyNextPanel, Prog_CommandKind_SelectionMovePrevPanel,
     Prog_CommandKind_SelectionMoveNextPanel, Prog_CommandKind_CopyAsPath, Prog_CommandKind_CopyAsPathSmart, Prog_CommandKind_OpenContainingPath, Prog_CommandKind_OpenContainingPathInTab,
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
@@ -762,6 +762,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         // What is in the bin is put back or deleted, not copied beside itself or renamed there.
         case Prog_CommandKind_Duplicate: return item && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_CompressZip: case Prog_CommandKind_Compress7z: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
+        case Prog_CommandKind_CompressVideo: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_ExtractHere: case Prog_CommandKind_ExtractToFolder:
             return focused && !state->directory.archive && Prog_IsArchiveName(state->directory.entries[state->focusedRow].file.name);
         case Prog_CommandKind_Rename: return focused && !P_IsTrashFolder(state->directory.path);
@@ -1468,6 +1469,27 @@ function void Prog__MenuAddArchive(Prog_State *state)
     state->menu.rootCount += 1;
 }
 
+// Compress Video after the Archive submenu, when a video is among the items.
+function void Prog__MenuAddVideo(Prog_State *state)
+{
+    if (state->directory.archive || P_IsTrashFolder(state->directory.path)) return;
+    b32 video = false;
+    for (u32 i = 0; i < state->menuRowCount; ++i) video |= Prog_IsVideo(state->directory.entries[state->menuRows[i]].file.name);
+    if (!video) return;
+    u32 at = state->menu.rootCount;
+    if (at && StrIsEqual(state->menu.items[at - 1].verb, S("properties"))) --at;
+    P_MenuItem *items = ArenaPushArray(&state->menuArena, state->menu.count + 1, P_MenuItem);
+    for (u32 i = 0, j = 0; i < state->menu.count; ++i, ++j) {
+        if (i == at) ++j;
+        items[j] = state->menu.items[i];
+        if (items[j].childCount) items[j].firstChild += 1;
+    }
+    items[at] = (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_CompressVideo), .action = P_MenuAction_CompressVideo };
+    state->menu.items = items;
+    state->menu.count += 1;
+    state->menu.rootCount += 1;
+}
+
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
 {
     Prog_CloseMenu(state);
@@ -1506,6 +1528,7 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
                                                      : (P_MenuItem){ .label = Tr("Restore all items"), .action = P_MenuAction_RestoreAll }, (String){0});
     }
     Prog__MenuAddArchive(state);
+    Prog__MenuAddVideo(state);
     // A menu left with nothing in it, as an empty bin's background is, does not open.
     if (!state->menu.count) {
         Prog_CloseMenu(state);
@@ -1942,10 +1965,11 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 17);
+        static_assert(P_MenuAction_Count == 18);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_CompressZip] = Prog_CommandKind_CompressZip,
             [P_MenuAction_Compress7z] = Prog_CommandKind_Compress7z,
+            [P_MenuAction_CompressVideo] = Prog_CommandKind_CompressVideo,
             [P_MenuAction_ExtractHere] = Prog_CommandKind_ExtractHere,
             [P_MenuAction_ExtractToFolder] = Prog_CommandKind_ExtractToFolder,
             [P_MenuAction_Cut] = Prog_CommandKind_CutSelection,
@@ -2114,15 +2138,17 @@ function void Prog__ScaleImage(Prog_State *state, b32 up)
     state->imageScaleMode = Prog_ImageScale_Custom;
 }
 
-function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_ArchiveOp op)
+function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op)
 {
     if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->panel = Prog__PanelId(state);
     input->kind = (u8)kind;
-    input->archiveOp = (u8)op;
+    input->transferOp = (u8)op;
     input->archiveLevel = state->archiveLevel;
+    input->videoCodec = state->videoCodec;
+    input->videoQuality = state->videoQuality;
     input->path = StrCopy(&job->arena, directory);
     input->paths = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
     for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);
@@ -2136,7 +2162,7 @@ function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String
         Prog_Transfer *transfer = &state->transfers[i];
         if (transfer->job) continue;
         String target = Prog_EntryLeaf(directory);
-        *transfer = (Prog_Transfer){ .job = job, .move = input->move, .started = PlatformNowMicroseconds(), .targetLength = (u32)Min(target.length, sizeof(transfer->target)) };
+        *transfer = (Prog_Transfer){ .job = job, .move = input->move, .op = (u8)op, .started = PlatformNowMicroseconds(), .targetLength = (u32)Min(target.length, sizeof(transfer->target)) };
         MemCopy(transfer->target, target.value, transfer->targetLength);
         atomic_store(&transfer->progress.policy, P_Conflict_Ask);
         input->progress = &transfer->progress;
@@ -2148,7 +2174,7 @@ function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String
 
 function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name)
 {
-    Prog__FileJobOp(state, kind, paths, count, directory, flag, name, Prog_ArchiveOp_None);
+    Prog__FileJobOp(state, kind, paths, count, directory, flag, name, Prog_TransferOp_None);
 }
 
 // `name` without its extension, and an archive's both of .tar.gz and the like.
@@ -2477,7 +2503,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             String folder = Prog_ParentPath(paths[0]);
             String stem = count == 1 ? (P_IsDirectory(paths[0]) ? Prog_EntryLeaf(paths[0]) : Prog__NameStem(Prog_EntryLeaf(paths[0]))) : Prog_EntryLeaf(folder);
             String name = Prog__FreeName(frame, folder, stem.length ? stem : S("Archive"), kind == Prog_CommandKind_CompressZip ? S(".zip") : S(".7z"));
-            Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, folder, false, name, Prog_ArchiveOp_Compress);
+            Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, folder, false, name, Prog_TransferOp_Pack);
         } break;
         case Prog_CommandKind_ExtractHere:
         case Prog_CommandKind_ExtractToFolder: {
@@ -2485,7 +2511,14 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             String folder = Prog_ParentPath(paths[0]);
             b32 here = kind == Prog_CommandKind_ExtractHere;
             String name = here ? (String){0} : Prog__FreeName(frame, folder, Prog__NameStem(Prog_EntryLeaf(paths[0])), (String){0});
-            Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, 1, folder, false, name, here ? Prog_ArchiveOp_ExtractHere : Prog_ArchiveOp_ExtractToFolder);
+            Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, 1, folder, false, name, here ? Prog_TransferOp_ExtractHere : Prog_TransferOp_ExtractToFolder);
+        } break;
+        case Prog_CommandKind_CompressVideo: {
+            // The videos among the items, each compressed beside itself.
+            if (!count || state->directory.archive || P_IsTrashFolder(state->directory.path)) break;
+            u64 videos = 0;
+            for (u64 i = 0; i < count; ++i) if (Prog_IsVideo(paths[i])) paths[videos++] = paths[i];
+            if (videos) Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, videos, Prog_ParentPath(paths[0]), false, (String){0}, Prog_TransferOp_CompressVideo);
         } break;
         case Prog_CommandKind_CopyAsPath: {
             // Without a selection, the shown folder's path.
@@ -4012,6 +4045,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_Duplicate:
             case Prog_CommandKind_CompressZip:
             case Prog_CommandKind_Compress7z:
+            case Prog_CommandKind_CompressVideo:
             case Prog_CommandKind_ExtractHere:
             case Prog_CommandKind_ExtractToFolder:
             case Prog_CommandKind_CopyAsPath:

@@ -840,10 +840,28 @@ function String Prog_ArchiveCopy(Arena *arena, String path, P_Progress *progress
 // them, where items of another archive go by way of this run's folder. A move into or out of an archive copies, so that the archive and the
 // files it was made from both stay whole.
 // Carries out a Transfer's archive operation, with where its result was placed: the new archive, the new folder, or what came out.
-function P_FileError Prog__ArchiveOp(Arena *arena, const Prog_JobInput *input, ArrayStr *placed, const P_CancelToken *cancel)
+function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, ArrayStr *placed, const P_CancelToken *cancel)
 {
     P_FileError result = {0};
-    if (input->archiveOp == Prog_ArchiveOp_Compress) {
+    if (input->transferOp == Prog_TransferOp_CompressVideo) {
+        // Counted in milliseconds of video, all of them first.
+        u64 *lengths = ArenaPushArray(arena, Max(input->pathCount, (u64)1), u64), total = 0, done = 0;
+        for (u64 i = 0; i < input->pathCount && !P_IsCancelled(cancel); ++i) total += lengths[i] = Prog_MediaLength(arena, input->paths[i]);
+        if (input->progress) {
+            atomic_store(&input->progress->totalBytes, Max(total, (u64)1));
+            atomic_store(&input->progress->totalItems, input->pathCount);
+        }
+        for (u64 i = 0; i < input->pathCount && !result.code && !P_IsCancelled(cancel); ++i) {
+            String folder = Prog_ParentPath(input->paths[i]);
+            String output = Prog_JoinPath(arena, folder, Prog__FreeName(arena, folder, StrFormat(arena, "%S (compressed)", Prog__NameStem(Prog_EntryLeaf(input->paths[i]))), S(".mp4")));
+            result = Prog_CompressVideo(arena, input->paths[i], output, input->videoCodec, input->videoQuality, done, input->progress, cancel);
+            if (!result.code) ArrayPush(arena, *placed, output);
+            done += lengths[i];
+            if (input->progress) atomic_store(&input->progress->doneItems, i + 1);
+        }
+        return result;
+    }
+    if (input->transferOp == Prog_TransferOp_Pack) {
         String archive = Prog_JoinPath(arena, input->path, input->name);
         result = P_AddToArchive(arena, archive, (String){0}, input->paths, input->pathCount, input->archiveLevel, input->progress, cancel);
         if (!result.code) ArrayPush(arena, *placed, archive);
@@ -851,7 +869,7 @@ function P_FileError Prog__ArchiveOp(Arena *arena, const Prog_JobInput *input, A
     }
     if (!input->pathCount) return (P_FileError){ .code = 1, .message = TrMark("No archive to take out") };
     String archive = input->paths[0], into = input->path;
-    if (input->archiveOp == Prog_ArchiveOp_ExtractToFolder) {
+    if (input->transferOp == Prog_TransferOp_ExtractToFolder) {
         String made = {0};
         result = P_CreateItem(arena, input->path, input->name, true, &made);
         if (result.code) return result;
@@ -864,14 +882,14 @@ function P_FileError Prog__ArchiveOp(Arena *arena, const Prog_JobInput *input, A
     for (u64 i = 0; i < top.files.header.count; ++i) names[i] = top.files.v[i].name;
     result = P_ExtractArchive(arena, archive, (String){0}, names, top.files.header.count, into, input->progress, cancel);
     if (result.code) return result;
-    if (input->archiveOp == Prog_ArchiveOp_ExtractToFolder) ArrayPush(arena, *placed, into);
+    if (input->transferOp == Prog_TransferOp_ExtractToFolder) ArrayPush(arena, *placed, into);
     else for (u64 i = 0; i < top.files.header.count; ++i) ArrayPush(arena, *placed, Prog_JoinPath(arena, into, names[i]));
     return result;
 }
 
 function P_FileError Prog__Transfer(Arena *arena, const Prog_JobInput *input, ArrayStr *placed, const P_CancelToken *cancel)
 {
-    if (input->archiveOp) return Prog__ArchiveOp(arena, input, placed, cancel);
+    if (input->transferOp) return Prog__TransferOp(arena, input, placed, cancel);
     String toArchive = {0}, toInner = {0}, fromArchive = {0}, fromInner = {0};
     b32 into = Prog_InArchive(input->path, &toArchive, &toInner);
     b32 outOf = input->pathCount && Prog_InArchive(Prog_ParentPath(input->paths[0]), &fromArchive, &fromInner);
@@ -5224,11 +5242,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
+            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
-                String failed = input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
                 Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
@@ -5245,7 +5263,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (!error.code && input->kind == Prog_JobKind_Transfer && job->result) {
                 const Prog_Transferred *result = job->result;
                 // A new archive is selected and renamed once the listing shows it, as a new folder is, its name before .zip ready to be typed over.
-                String packed = input->archiveOp == Prog_ArchiveOp_Compress && result->placed.header.count == 1 ? Prog_EntryLeaf(result->placed.v[0]) : (String){0};
+                String packed = input->transferOp == Prog_TransferOp_Pack && result->placed.header.count == 1 ? Prog_EntryLeaf(result->placed.v[0]) : (String){0};
                 if (packed.length && packed.length <= sizeof(state->selectText) && StrIsEqual(state->directory.path, input->path)) {
                     MemCopy(state->selectText, packed.value, packed.length);
                     state->selectLength = (u32)packed.length;

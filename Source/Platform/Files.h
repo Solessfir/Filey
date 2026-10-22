@@ -194,6 +194,9 @@ typedef struct P_Progress {
     atomic_char name[256];
 } P_Progress;
 
+// Puts `name` up as the item being worked on, for the program to show, cut to what `progress` holds.
+function void P_ProgressName(P_Progress *progress, String name);
+
 // Copies or moves the items at `paths` into `directory`.
 // `progress`, when not NULL, is kept current and says what taken names do; without it a taken name gets a number.
 // `placed`, when not NULL, receives in `arena` the path each item ended up at, in the order of `paths`, empty for one that was skipped.
@@ -298,6 +301,13 @@ function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *conte
 // output, with `errors` what it wrote to its standard error too, such as git's messages; false when it could not start, ran past
 // `timeoutMilliseconds` (it is then stopped) or exited with an error.
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors);
+// What a command writes, handed over as it comes.
+typedef void P_CommandOutput(void *user, String text);
+// Runs a command as P_RunCommand does but without a time limit, handing what it writes to `output` as it comes. `cancel` stops it and the
+// programs it started, and `progress`, which may be NULL, suspends them while it says paused. False when it could not start, was stopped
+// or exited with an error.
+function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
+                                P_Progress *progress);
 // Whether anything is at `path`, a link itself included.
 function b32 P_PathExists(String path);
 // Where the item at `path` really is: a shortcut's or link's target, with the links on the way to it followed; false when that cannot be told,
@@ -405,6 +415,7 @@ typedef enum P_MenuAction {
     P_MenuAction_Compress7z,
     P_MenuAction_ExtractHere,
     P_MenuAction_ExtractToFolder,
+    P_MenuAction_CompressVideo,
     P_MenuAction_Count,
 } P_MenuAction;
 
