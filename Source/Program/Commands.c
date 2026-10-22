@@ -12,9 +12,9 @@ function String Prog__CommandText(Prog_CommandKind kind, u32 which)
     String *text = &Prog__CommandTexts[kind][which];
     if (!text->value) {
         String source = Prog_Tr(which ? Prog_Commands[kind].tooltip : Prog_Commands[kind].label), bin = P_TrashName();
-        Index at = StrIndexStr(source, S("Recycle Bin"), SSF_None);
-        *text = !at.exists || StrIsEqual(bin, S("Recycle Bin")) ? source
-              : StrFormat(&Prog__CommandTextArena, "%S%S%S", StrFromTo(source, 0, (i64)at.value), bin, StrFrom(source, at.value + S("Recycle Bin").length));
+        Index at = StrIndexStr(source, NoTr("Recycle Bin"), SSF_None);
+        *text = !at.exists || StrIsEqual(bin, NoTr("Recycle Bin")) ? source
+              : StrFormat(&Prog__CommandTextArena, "%S%S%S", StrFromTo(source, 0, (i64)at.value), bin, StrFrom(source, at.value + NoTr("Recycle Bin").length));
         if (!text->value) *text = S("");
     }
     return *text;
@@ -3293,8 +3293,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                         PlatformClipboardSetFiles(&zipPath, 1, false);
                     }
                 }
-                String attach = attached.length ? StrFormat(frame, "Paste the crash report here (Ctrl+V): Filey copied `%S`. Or drag it here from the tab Filey opened.\n\n", attached)
-                                                : S("Please attach the crash report: drag it here from the tab Filey just opened.\n\n");
+                String attach = attached.length ? StrFormat(frame, NoTrF("Paste the crash report here (Ctrl+V): Filey copied `%S`. Or drag it here from the tab Filey opened.\n\n"), attached)
+                                                : NoTr("Please attach the crash report: drag it here from the tab Filey just opened.\n\n");
                 String body = StrFormat(frame, "**Filey version:** %s\n**System:** %S\n\n%S**What were you doing when Filey closed?**\n\n",
                                         FILEY_VERSION, system, details.length ? StrFormat(frame, "```\n%S\n```\n\n", details) : attach);
                 String url = StrFormat(frame, "%s?title=%S&body=%S", Prog_IssuesUrl, Prog_UrlEncode(frame, S("Crash: ")), Prog_UrlEncode(frame, body));

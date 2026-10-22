@@ -309,6 +309,56 @@ function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *string
     }
 }
 
+function b32 Codegen__EndsWith(String s, String end) { return s.length >= end.length && StrIsEqual(StrFrom(s, s.length - end.length), end); }
+
+// The text in `text`, a source file, that looks shown to the user but is not translated, one "line: text" for each, to fail the build with: a
+// literal that starts with a capitalized word and holds a space, outside Tr, TrF, TrInit, TrMark and TrN. NoTr and NoTrF keep one as it is on
+// purpose. Comments and preprocessor lines are left alone.
+function ArrayStr Codegen_UntranslatedStrings(Arena *arena, String text)
+{
+    ArrayStr result = {0};
+    u64 number = 0;
+    for (u64 at = 0; at < text.length;) {
+        u64 end = at;
+        while (end < text.length && text.value[end] != '\n') ++end;
+        String line = StrFromTo(text, at, (i64)end);
+        at = end + 1;
+        ++number;
+        u64 first = 0;
+        while (first < line.length && (line.value[first] == ' ' || line.value[first] == '\t')) ++first;
+        if (first < line.length && (line.value[first] == '#' || (line.value[first] == '/' && first + 1 < line.length && line.value[first + 1] == '/'))) continue;
+        Index comment = StrIndexStr(line, S(" // "), SSF_None);
+        if (comment.exists) line = StrFromTo(line, 0, (i64)comment.value);
+        for (u64 i = 0; i < line.length; ++i) {
+            if (line.value[i] == '\'' && i + 2 < line.length) {
+                i += line.value[i + 1] == '\\' ? 3 : 2;
+                continue;
+            }
+            if (line.value[i] != '"') continue;
+            u64 quote = i;
+            String literal = Codegen__Literal(line, &i);
+            b32 capitalized = literal.length > 2 && literal.value[0] >= 'A' && literal.value[0] <= 'Z' && literal.value[1] >= 'a' && literal.value[1] <= 'z';
+            u64 word = 1;
+            while (word < literal.length && literal.value[word] >= 'a' && literal.value[word] <= 'z') ++word;
+            if (!capitalized || word >= literal.length || !StrIndexChar(StrFrom(literal, word), ' ', SSF_None).exists) continue;
+            char next = literal.value[word];
+            if (next != ' ' && next != ',' && next != '.' && next != '?') continue;
+            String before = StrFromTo(line, 0, (i64)quote);
+            if (Codegen__EndsWith(before, S("Tr(")) || Codegen__EndsWith(before, S("TrF(")) || Codegen__EndsWith(before, S("TrInit(")) || Codegen__EndsWith(before, S("TrMark("))) continue;
+            // The two forms of a TrN, which come after its count.
+            u64 counted = 0;
+            b32 inCount = false;
+            for (u64 k = 0; k + 4 <= before.length; ++k) {
+                if (StrIsEqual(StrFromTo(before, k, (i64)k + 4), S("TrN(")) && (k == 0 || !Codegen__IsIdentifier(before.value[k - 1]))) inCount = true, counted = 0;
+                else if (inCount && before.value[k] == '"') ++counted;
+            }
+            if (inCount && counted <= 2) continue;
+            ArrayPush(arena, result, StrFormat(arena, "%u: %S", (u32)number, literal));
+        }
+    }
+    return result;
+}
+
 function String Codegen_EmitStrings(Arena *arena, ArrayStr strings, ArrayStr plurals)
 {
     StrBuilder out = {0};
@@ -392,6 +442,11 @@ int main(int argc, char **argv)
             return 1;
         }
         Codegen_CollectStrings(&arena, text, &strings, &plurals);
+        ArrayStr untranslated = Codegen_UntranslatedStrings(&arena, text);
+        for (u64 u = 0; u < untranslated.header.count; ++u) {
+            fprintf(stderr, "%s:%.*s  <- shown to the user? Write it Tr(\"...\"), or NoTr(\"...\") to keep it as it is\n", path.value, (int)untranslated.v[u].length, untranslated.v[u].value);
+        }
+        if (untranslated.header.count) return 1;
     }
     for (u64 i = 0; i < commands.header.count; ++i) {
         Codegen_AddString(&arena, &strings, commands.v[i].label);

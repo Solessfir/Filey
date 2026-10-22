@@ -1359,7 +1359,7 @@ function b32 Prog_ForkScheme(Prog_State *state, u32 scheme, Prog_Option option)
     Scratch scratch = GetScratch();
     String name = {0};
     for (u32 n = 1; n < 1000 && !name.length; ++n) {
-        String candidate = StrFormat(scratch.arena, "Custom %u", n);
+        String candidate = StrFormat(scratch.arena, NoTrF("Custom %u"), n);
         b32 taken = false;
         for (u64 i = 0; i < state->schemeNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->schemeNames.v[i], candidate);
         if (!taken) name = candidate;
@@ -2955,7 +2955,7 @@ global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
     TrInit("Name"), TrInit("Type"), TrInit("Date Modified"), TrInit("Folders"), TrInit("Files"), TrInit("Size"), TrInit("Date Created"), TrInit("Date Accessed"), TrInit("Folder Usage"), TrInit("Volume Usage"),
-    SInit("File System"), SInit("Free Space"), SInit("Percent Full"), SInit("Original Location"), SInit("Date Deleted"), SInit("Git"),
+    TrInit("File System"), TrInit("Free Space"), TrInit("Percent Full"), TrInit("Original Location"), TrInit("Date Deleted"), TrInit("Git"),
 };
 
 // The panel's columns laid out for rows `room` wide: each its share of it, however narrow,
@@ -6457,7 +6457,7 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     }
     // A custom scheme keeps its own name, and the reference's has its own.
     b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
-    if (schemes && StrIsEqual(name, S("fullmoon"))) return S("Full Moon");
+    if (schemes && StrIsEqual(name, S("fullmoon"))) return NoTr("Full Moon");
     b32 builtIn = false;
     for (u32 i = 0; i < Prog_BuiltInSchemes; ++i) builtIn |= StrIsEqual(name, Prog_OptionSchemes[i]);
     if (schemes && !builtIn) return name;
@@ -10756,7 +10756,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         Prog__SetupButton(state, S("SetupInstall"), word, tip, Prog_CommandKind_SetupInstall, !setup->installed || !setup->same || changed, middle, floorf(608.0f * s + 0.5f), large, m);
         Prog__SetupLine(middle, floorf(646.4f * s + 0.5f), m);
         if (setup->installed) {
-            Prog__SetupButton(state, S("SetupUninstall"), S("Uninstall"), S("This will remove the current version from your PC, including its shortcuts, default program registration and PATH changes."),
+            Prog__SetupButton(state, S("SetupUninstall"), Tr("Uninstall"), Tr("This will remove the current version from your PC, including its shortcuts, default program registration and PATH changes."),
                               Prog_CommandKind_SetupUninstall, true, middle, floorf(688.8f * s + 0.5f), large, m);
         }
         Prog__SetupButton(state, S("SetupBack"), Tr("Back"), (String){0}, Prog_CommandKind_SetupBack, true, middle, floorf((setup->installed ? 744.0f : 688.8f) * s + 0.5f), large, m);

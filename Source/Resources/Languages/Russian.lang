@@ -2719,3 +2719,24 @@ M
 1.5
 = 1,5
 
+File System
+= Файловая система
+
+Free Space
+= Свободно
+
+Percent Full
+= Заполнено
+
+Original Location
+= Исходное расположение
+
+Date Deleted
+= Дата удаления
+
+Uninstall
+= Удалить
+
+This will remove the current version from your PC, including its shortcuts, default program registration and PATH changes.
+= Текущая версия будет удалена с компьютера вместе с ярлыками, назначением программой по умолчанию и изменениями PATH.
+

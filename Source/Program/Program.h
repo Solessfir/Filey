@@ -16,6 +16,9 @@ function const char *Prog_TrPlural(u64 count, const char *one, const char *other
 #define TrN(count, one, other) Prog_TrPlural(count, one, other)
 // A text made where it cannot be translated, as on a worker thread, which is translated where it is shown.
 #define TrMark(text) S(text)
+// Text kept as it is on purpose, as a saved name or a file's, which the build's check for untranslated text passes over.
+#define NoTr(text) S(text)
+#define NoTrF(text) text
 
 // Where crashes are reported, a new issue of the project's.
 #define Prog_IssuesUrl "https://github.com/Solessfir/Filey/issues/new"
