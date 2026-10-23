@@ -1655,6 +1655,7 @@ typedef struct Prog_State {
     b32 volumeDragging;  // the volume follows the pointer along its bar until the press ends
     u8 volumeDragged;
     b32 scrubbing;  // the playhead follows the pointer over the waveform until the press ends
+    u64 playheadHeard, playheadAt;  // the milliseconds last heard and when that came, which the playhead goes on from smoothly
     Arena sizeArena;
     Prog_SizeMap sizes;
     // File operations Undo can reverse, newest last, and the renames and moves it reversed, which Redo makes again until another operation.

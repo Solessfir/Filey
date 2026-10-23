@@ -10276,13 +10276,10 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
                     }
                 }
             }
-            UI_SetNextFloatingOffset((UI_Vec2){ x, y });
-            UI_SetNextPrefWidth(UI_Pixels(shownWidth));
-            UI_SetNextPrefHeight(UI_Pixels(shownHeight));
-            UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, audio ? theme->accent : (R_Color){ 1, 1, 1, 1 });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
-            // An audio file's waveform shows how far it has played. A press on it, and a drag after, moves the playhead under the pointer,
-            // and letting go plays from there, so that ffmpeg starts again once rather than at every step.
+            // An audio file's waveform shows how far it has played: what is heard in the accent, the rest dimmed, with the playhead between,
+            // which goes on smoothly from what the player last said. A press on it, and a drag after, moves the playhead under the pointer,
+            // and letting go plays from there, so that ffmpeg starts again once rather than at every step; a faint line under the pointer
+            // shows where a press would go.
             f32 start = view->rect.x0 + left + x;
             f32 pointed = UI__Clamp((UI->mouse.x - start) / MaxF32(shownWidth, 1), 0, 1);
             if (audio && drag.pressed && UI->mouse.x >= start && UI->mouse.x < start + shownWidth) state->scrubbing = true;
@@ -10294,13 +10291,43 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
                 state->scrubbing = false;
             }
             b32 played = audio && state->playerJob && state->playerHash == MapHashBytes(state->previewPath.value, state->previewPath.length);
-            if (state->scrubbing || dropped || played) {
-                f64 along = state->scrubbing || dropped ? (f64)pointed : MinF64((f64)atomic_load(&state->playerProgress[state->playerSlot].doneBytes) / (state->previewSeconds * 1000), 1);
-                f32 head = MaxF32(1, floorf(1.6f * s + 0.5f));
-                UI_SetNextFloatingOffset((UI_Vec2){ x + floorf((f32)along * shownWidth) - floorf(head * 0.5f), y });
+            P_Progress *progress = &state->playerProgress[state->playerSlot];
+            u64 heard = atomic_load(&progress->doneBytes), now = UI->nowMicroseconds;
+            if (heard != state->playheadHeard) state->playheadHeard = heard, state->playheadAt = now;
+            u64 since = played && !atomic_load(&progress->paused) ? Min((now - Min(state->playheadAt, now)) / 1000, (u64)250) : 0;
+            f64 length = MaxF64(state->previewSeconds * 1000, 1);
+            f64 along = state->scrubbing || dropped ? (f64)pointed : played ? MinF64((f64)(heard + since) / length, 1) : 0;
+            b32 split = state->scrubbing || dropped || played;
+            f32 cut = split ? floorf((f32)along * shownWidth) : shownWidth;
+            R_Color dim = theme->accent;
+            dim.a *= 0.35f;
+            for (u32 part = 0; part < 2; ++part) {
+                f32 from = part ? cut : 0, to = part ? shownWidth : cut;
+                if (to <= from) continue;
+                UI_SetNextFloatingOffset((UI_Vec2){ x + from, y });
+                UI_SetNextPrefWidth(UI_Pixels(to - from));
+                UI_SetNextPrefHeight(UI_Pixels(shownHeight));
+                R_Rect uv = { from / shownWidth, 0, to / shownWidth, 1 };
+                R_Color tint = !audio ? (R_Color){ 1, 1, 1, 1 } : part ? dim : theme->accent;
+                UI_SetNextImage(state->previewTexture, audio ? uv : (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ to - from, shownHeight }, tint);
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+            }
+            f32 head = MaxF32(1, floorf(1.6f * s + 0.5f));
+            if (split) {
+                UI_SetNextFloatingOffset((UI_Vec2){ x + cut - floorf(head * 0.5f), y });
                 UI_SetNextPrefWidth(UI_Pixels(head));
                 UI_SetNextPrefHeight(UI_Pixels(shownHeight));
                 UI_SetNextColors((UI_Colors){ .background = theme->text });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                if (played && !atomic_load(&progress->paused)) UI_KeepAnimating();
+            }
+            if (audio && !state->scrubbing && UI->hotKey == view->key && UI->mouse.x >= start && UI->mouse.x < start + shownWidth) {
+                R_Color faint = theme->text;
+                faint.a *= 0.3f;
+                UI_SetNextFloatingOffset((UI_Vec2){ x + floorf(pointed * shownWidth) - floorf(head * 0.5f), y });
+                UI_SetNextPrefWidth(UI_Pixels(head));
+                UI_SetNextPrefHeight(UI_Pixels(shownHeight));
+                UI_SetNextColors((UI_Colors){ .background = faint });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
             // Its edge, for pictures with clear parts.

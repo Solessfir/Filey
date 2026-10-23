@@ -915,8 +915,12 @@ function void Prog__PlayerOutput(void *user, String text)
     Scratch scratch = GetScratch();
     u64 frames = 0;
     i16 *samples = Prog__PlayerFrames(player, scratch.arena, text, &frames);
-    u64 heard = P_AudioWrite(player->audio, samples, (u32)frames);
-    if (player->progress) atomic_store(&player->progress->doneBytes, player->start + heard * 1000 / Prog_PlayerRate);
+    // A few hundredths of a second at a time, so that how far it has been heard keeps up rather than jumping by a whole piece.
+    for (u64 at = 0; at < frames; at += 1536) {
+        u32 slice = (u32)Min(frames - at, (u64)1536);
+        u64 heard = P_AudioWrite(player->audio, samples + at * 2, slice);
+        if (player->progress) atomic_store(&player->progress->doneBytes, player->start + heard * 1000 / Prog_PlayerRate);
+    }
     ReleaseScratch(scratch);
 }
 
