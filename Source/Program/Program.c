@@ -10293,7 +10293,16 @@ function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry,
         u32 first = (u32)Min((u64)MaxF32(0, floorf(list->scrollShown.y / row)), (u64)count);
         u32 last = (u32)Min((u64)first + (u64)ceilf(view / row) + 2, (u64)count);
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * row));
-        f32 width = list->rect.x1 - list->rect.x0 - gutter - 2 * m->inset - box - 2 * m->gap;
+        f32 width = list->rect.x1 - list->rect.x0 - gutter - 2 * m->inset - box - m->gap;
+        // Columns level from row to row: the widest size in sight, and once how far each is known, a usage bar and its percent in what the
+        // widest name in sight leaves, within bounds.
+        f32 sizeWidth = 0, nameWidth = 0;
+        for (u32 k = first; k < last; ++k) {
+            sizeWidth = MaxF32(sizeWidth, R_TextWidth(m->detail, Prog_FormatSize(frame, torrent->files[shown[k]].size)));
+            nameWidth = MaxF32(nameWidth, R_TextWidth(m->font, torrent->files[shown[k]].path));
+        }
+        sizeWidth += m->gap;
+        f32 usageWidth = state->torrentDone ? m->gap + floorf(UI__Clamp(width - sizeWidth - nameWidth - 2 * m->gap, 96.0f * s, 240.0f * s)) : 0;
         R_Color washed = theme->selection;
         washed.a *= theme->hoverAmount.r;
         for (u32 k = first; k < last; ++k) {
@@ -10315,29 +10324,20 @@ function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry,
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
                 // Its name whole where it fits, its folders cut first.
                 String size = Prog_FormatSize(frame, file->size);
-                f32 room = MaxF32(0, width - R_TextWidth(m->detail, size));
+                f32 room = MaxF32(0, width - sizeWidth - usageWidth);
                 Index slash = StrIndexChar(file->path, '/', SSF_SearchBackwards);
                 String folders = slash.exists ? StrFromTo(file->path, 0, (i64)slash.value + 1) : (String){0}, leaf = slash.exists ? StrFrom(file->path, slash.value + 1) : file->path;
                 f32 leafWidth = R_TextWidth(m->font, leaf);
                 if (folders.length) Prog__Label(Prog__Ellipsize(frame, m->font, folders, MaxF32(0, room - leafWidth)), UI_TextContent(), row, 0, theme->textDim, 0);
                 Prog__Label(Prog__Ellipsize(frame, m->font, leaf, room), UI_TextContent(), row, 0, state->torrentSkip[index] ? theme->textDim : theme->text, 0);
                 Prog__Spacer(UI_Flex(), UI_Pixels(row));
-                // How far it is once that is known: its percent beside its size, and a line along its bottom filled that far.
+                // How far it is once that is known: a bar filled that far, then its percent.
                 if (state->torrentDone) {
                     f32 share = file->size ? (f32)Min(state->torrentDone[index], file->size) / (f32)file->size : 1;
-                    UI_SetNextFont(m->detail);
-                    Prog__LabelPadded(StrFormat(frame, "%u%%", (u32)floorf(share * 100)), UI_TextContent(), row, m->gap, 0, share >= 1 ? theme->accent : theme->textDim, 1);
-                    f32 thick = MaxF32(1, floorf(1.6f * s + 0.5f)), left = m->inset + box + m->gap, across = MaxF32(0, list->rect.x1 - list->rect.x0 - gutter - left - m->inset);
-                    for (u32 layer = 0; layer < 2; ++layer) {
-                        UI_SetNextFloatingOffset((UI_Vec2){ left, row - thick });
-                        UI_SetNextPrefWidth(UI_Pixels(layer ? floorf(across * share) : across));
-                        UI_SetNextPrefHeight(UI_Pixels(thick));
-                        UI_SetNextColors((UI_Colors){ .background = layer ? theme->accent : theme->tabBorder });
-                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-                    }
+                    Prog__UsageCell(StrFormat(frame, "%u%%", (u32)floorf(share * 100)), usageWidth, row, m->gap, 0, share >= 1 ? theme->accent : theme->textDim, m);
                 }
                 UI_SetNextFont(m->detail);
-                Prog__LabelPadded(size, UI_TextContent(), row, m->gap, 0, theme->textDim, 1);
+                Prog__LabelPadded(size, UI_Pixels(sizeWidth), row, m->gap, 0, theme->textDim, 1);
             }
         }
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)(count - last) * row));
