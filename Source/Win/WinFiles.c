@@ -867,7 +867,9 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
         SetInformationJobObject(group, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
     }
     b32 result = false;
-    if (folder && CreatePipe(&readEnd, &writeEnd, &inherit, 0)) {
+    // A pipe of a megabyte, so that a program writing much, as ffmpeg's decoded sound, goes on while the wait below sleeps for the timer's
+    // step, which the system's few kilobytes would hold to a trickle.
+    if (folder && CreatePipe(&readEnd, &writeEnd, &inherit, 1 << 20)) {
         SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
         STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = errors ? writeEnd : NULL, .hStdInput = NULL };
         PROCESS_INFORMATION process = {0};
@@ -890,10 +892,15 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
                     P__PauseCommand(group, process.hProcess, pause);
                     suspended = pause;
                 }
+                // What it wrote before the pause waits in the pipe with it, as sound would otherwise play on from there.
+                if (suspended) {
+                    Sleep(50);
+                    continue;
+                }
                 DWORD waiting = 0;
                 if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &waiting, NULL)) break;
                 if (waiting) {
-                    char bytes[4096];
+                    char bytes[65536];
                     DWORD read = 0;
                     if (!ReadFile(readEnd, bytes, (DWORD)Min((u64)waiting, sizeof(bytes)), &read, NULL) || !read) break;
                     output(user, StrMake(bytes, read));

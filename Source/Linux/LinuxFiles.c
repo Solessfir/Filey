@@ -1972,13 +1972,18 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
                     kill(-child, pause ? SIGSTOP : SIGCONT);
                     suspended = pause;
                 }
+                // What it wrote before the pause waits in the pipe with it, as sound would otherwise play on from there.
+                if (suspended) {
+                    poll(NULL, 0, 50);
+                    continue;
+                }
                 // Woken at least every tenth of a second to see to a cancel or a pause.
                 struct pollfd wait = { .fd = ends[0], .events = POLLIN };
                 i32 ready = poll(&wait, 1, 100);
                 if (ready < 0 && errno == EINTR) continue;
                 if (ready < 0) break;
                 if (ready == 0) continue;
-                char bytes[4096];
+                char bytes[65536];
                 ssize_t got = read(ends[0], bytes, sizeof(bytes));
                 if (got < 0 && errno == EINTR) continue;
                 if (got <= 0) break;
