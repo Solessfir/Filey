@@ -546,6 +546,16 @@ function void TestUIScrolling(void)
             Check(content->clipRect.y0 == 0 && content->clipRect.y1 == 50);
         }
     }
+    // A long jump eases in from no further than two views away, either way.
+    UI_Block jump = { .rect = { 0, 0, 100, 50 }, .scrollOffset = { 0, 10000 } };
+    UI_LimitScrollEase(&jump);
+    Check(jump.scrollShown.y == 9900);
+    jump.scrollOffset.y = 0;
+    UI_LimitScrollEase(&jump);
+    Check(jump.scrollShown.y == 100);
+    jump.scrollOffset.y = 60;
+    UI_LimitScrollEase(&jump);
+    Check(jump.scrollShown.y == 100);
     UI_Release(&context);
     ArenaRelease(&frame);
 }

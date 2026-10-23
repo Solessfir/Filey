@@ -4281,6 +4281,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
         state->revealFocus = state->centerFocus = false;
     }
     if (snapScroll || !UI->animate) list->scrollShown = list->scrollOffset;
+    UI_LimitScrollEase(list);
     // Only lines near the viewport get blocks; spacers stand in for the rest. While scrolling eases, both ends of the way are covered.
     f32 scrollFrom = MinF32(list->scrollOffset.y, list->scrollShown.y), scrollTo = MaxF32(list->scrollOffset.y, list->scrollShown.y);
     u64 first = (u64)(Max(0.0f, scrollFrom) / pitch.y);
@@ -9214,6 +9215,7 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
+    UI_LimitScrollEase(view);
     // A view new this frame has no size yet, so its rows in sight come in the next.
     if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     u64 shownBytes = Min(state->hexSize, state->hexPageCount * Prog_HexPageBytes);
@@ -9307,6 +9309,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
+    UI_LimitScrollEase(view);
     if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     String text = state->previewText;
     u64 selectFrom = Min(state->previewAnchor, state->previewCaret), selectTo = Max(state->previewAnchor, state->previewCaret);
@@ -9900,6 +9903,7 @@ function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
+    UI_LimitScrollEase(view);
     // A view new this frame has no size yet, so its pages come in the next.
     if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     f32 width = floorf(MaxF32(1, view->rect.x1 - view->rect.x0 - left - right));
@@ -10408,6 +10412,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
         column->revealed = true;
     }
     // Only the rows near the view get blocks.
+    UI_LimitScrollEase(list);
     u64 first = (u64)(MaxF32(0, MinF32(list->scrollOffset.y, list->scrollShown.y)) / pitch), end = column->count;
     first = first > 2 ? first - 2 : 0;
     end = Min(end, first + (u64)((height + fabsf(list->scrollOffset.y - list->scrollShown.y)) / pitch) + 6);

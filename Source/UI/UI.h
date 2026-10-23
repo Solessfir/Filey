@@ -193,6 +193,9 @@ function void UI_SetNextScale(f32 scale);
 
 // Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.
 function f32 UI_Approach(f32 value, f32 target, f32 epsilon);
+// Keeps a scrollable block's eased scroll within two of its views of where it goes, so that a long jump eases in over its last stretch only.
+// A list calls it before it works out which rows to build from the two, which then never takes in the rows on the way.
+function void UI_LimitScrollEase(UI_Block *block);
 // The value kept under `key`, starting at `initial` the first frame it is asked for, eased toward `target`.
 function f32 UI_Animate(UI_Key key, f32 target, f32 initial);
 // A position or size kept under `key`: a change starts at most `cap` from `target` and eases the rest.

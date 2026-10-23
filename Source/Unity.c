@@ -260,7 +260,8 @@ function void Prog__Frame(void *user, PlatformEventList events)
         // The first frame waits for the folder, the sidebar and their icons, for a moment at most, so that the window opens whole rather
         // than filling in; until then it shows the theme's color.
         loop->shown = loop->shown || Prog_ReadyToShow(state) || PlatformNowMicroseconds() - loop->launchTime > 300000;
-        if (!loop->shown) loop->needsFrame = true;
+        // Until then it waits for the jobs it waits on, which wake it, or for that moment, rather than going round frame after frame.
+        if (!loop->shown) Prog_WakeAt(state, loop->launchTime + 300001);
         if (loop->shown) ProfileScope("Render") {
             if (loop->vsyncOff != state->noVSync) {
                 loop->vsyncOff = state->noVSync;

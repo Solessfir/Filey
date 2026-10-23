@@ -53,6 +53,12 @@ function f32 UI_Approach(f32 value, f32 target, f32 epsilon)
     return value + (target - value) * (1.0f - expf(-UI_AnimationRate * UI->dt));
 }
 
+function void UI_LimitScrollEase(UI_Block *block)
+{
+    f32 room = 2 * MaxF32(1, block->rect.y1 - block->rect.y0);
+    block->scrollShown.y = UI__Clamp(block->scrollShown.y, block->scrollOffset.y - room, block->scrollOffset.y + room);
+}
+
 function UI_Animation *UI__Animation(UI_Key key, f32 initial)
 {
     for (u32 i = 0; i < UI->animationCount; ++i) {
@@ -444,6 +450,7 @@ function void UI__Arrange(UI_Block *block, R_Rect rect, R_Rect clip)
     f32 maxX = MaxF32(0, content.x - inner.x), maxY = MaxF32(0, content.y - inner.y);
     block->scrollOffset.x = UI__Clamp(block->scrollOffset.x, 0, maxX);
     block->scrollOffset.y = UI__Clamp(block->scrollOffset.y, 0, maxY);
+    UI_LimitScrollEase(block);
     block->scrollShown.x = UI_Approach(UI__Clamp(block->scrollShown.x, 0, maxX), block->scrollOffset.x, 0.5f);
     block->scrollShown.y = UI_Approach(UI__Clamp(block->scrollShown.y, 0, maxY), block->scrollOffset.y, 0.5f);
     f32 alignment = horizontal ? block->props.childrenAlignment.x : block->props.childrenAlignment.y;
