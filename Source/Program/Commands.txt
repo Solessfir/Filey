@@ -1042,6 +1042,34 @@ command TabCloseAll {
 }
 
 // The shown tab's menu, which a right click on a tab opens too.
+command PathMenu {
+    label   = "Path Options^address,breadcrumbs,crumbs,path bar,menu"
+    tooltip = "Open the path bar's menu: open the folder elsewhere, edit or copy its path, and how the path shows."
+}
+
+// The path menu's items for the crumb it opened on; each carries the crumb, as NavigatePrefix does.
+command PathOpenInWindow {
+}
+
+command PathOpenInRightSplit {
+}
+
+command PathOpenInBottomSplit {
+}
+
+command PathCopy {
+}
+
+command ToggleCompactPath {
+    label   = "Toggle Compact Path^short,paths,trim,roots"
+    tooltip = "Show paths from the first recognized folder, as Pictures, or whole from the drive."
+}
+
+command ToggleBreadcrumbs {
+    label   = "Toggle Path Breadcrumbs^trail,visited,subfolders,crumbs"
+    tooltip = "Show or hide the subfolders visited past the shown folder in the path bar."
+}
+
 command TabMenu {
     label   = "Tab Menu"
     tooltip = "Open dropdown menu for the selected tab."
@@ -1496,6 +1524,8 @@ command PaletteClose {
 
 // The palette's button that shows or hides the descriptions under its commands.
 command PaletteToggleDetails {
+    label   = "Toggle Palette Details^command,descriptions,compact,tooltips"
+    tooltip = "Show or hide the descriptions under the commands in the palette."
 }
 
 // Filey's own menus, opened from their buttons at Prog_Command.at.

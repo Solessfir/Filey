@@ -2898,9 +2898,11 @@ function String Prog__GoToWhere(Prog_State *state, String path)
 }
 
 // "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
-// Every segment but the current one opens its folder.
-function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
+// Every segment but the current one opens its folder. The crumb under the pointer comes back, as the length of its path, 0 for This PC, or
+// UINT64_MAX for none.
+function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
 {
+    u64 hovered = UINT64_MAX;
     const Prog_Theme *theme = Prog_CurrentTheme();
     b32 thisPC = StrIsEqual(state->directory.path, Prog_ThisPC);
     u64 shownEnd;
@@ -2913,6 +2915,7 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), Tr("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
                                                  thisPC ? theme->text : theme->textDim, !thisPC, m);
         if (button.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(button), 0, 0, button.clickOrder);
+        if (UI->hotKey == UI_KeyFromStr(0, S("Crumb/ThisPC"))) hovered = 0;
         drive = drive || (thisPC && path.length);
     } else if (start == 1) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
@@ -2957,10 +2960,15 @@ function void Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
                 UI_Interaction interaction = Prog__TextButton(identity, segment, NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f,
                                                               theme->textDim, theme->text, current ? theme->text : theme->textDim, !current, m);
                 if (interaction.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(interaction), end, 0, interaction.clickOrder);
+                // The shown folder's crumb takes no clicks, so it is found under the pointer by its place.
+                UI_Block *crumb = UI->parent->last;
+                if (UI->hotKey == UI_KeyFromStr(0, identity) || (UI->mouseKnown && UI->mouse.x >= crumb->rect.x0 && UI->mouse.x < crumb->rect.x1 &&
+                                                                  UI->mouse.y >= crumb->rect.y0 && UI->mouse.y < crumb->rect.y1)) hovered = end;
             }
         }
         at = end + 1;
     }
+    return hovered;
 }
 
 // The buttons that keep the shown folder's view and bookmark it, `apart` from each other, each lit while it is so.
@@ -3081,9 +3089,13 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_SetNextScrollOffset((UI_Vec2){ 1e9f, 0 });
-        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Breadcrumbs/%" PRIu64, Prog__PanelId(state))), UI_Flag_Clip);
+        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Breadcrumbs/%" PRIu64, Prog__PanelId(state))), UI_Flag_Clip | UI_Flag_RightMouseClickable);
+        // A right click opens the path's menu for the crumb under the pointer, or the shown folder away from the crumbs.
+        UI_Interaction strip = UI_InteractionFromBlock(crumbs);
+        u64 hovered = UINT64_MAX;
+        if (state->currentPanel == state->activePanel) state->pathMenuAt = (UI_Vec2){ crumbs->rect.x0, crumbs->rect.y1 };
         UI_Parent(crumbs) {
-            Prog__Breadcrumbs(state, m);
+            hovered = Prog__Breadcrumbs(state, m);
             // A path copied flashes the path bar: the selection color washes in and out over it.
             u64 since = UI->nowMicroseconds > state->pathFlashTime ? UI->nowMicroseconds - state->pathFlashTime : 0;
             if (state->pathFlashTime && since < 450000 && crumbs->rect.x1 > crumbs->rect.x0) {
@@ -3098,6 +3110,11 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                 UI_KeepAnimating();
             }
+        }
+        if (strip.pressed && strip.button == MouseButton_Right) {
+            u64 shownEnd = 0;
+            Prog__CrumbsPath(state, &shownEnd);
+            Prog_QueueCommand(state, Prog_CommandKind_PathMenu, hovered != UINT64_MAX ? hovered : shownEnd, 0, strip.pressOrder)->at = UI->mouse;
         }
         Prog__GitStatus(state, m);
         Prog__MenuButton(state, S("PanelMenu"), Icon_EllipsisVertical, Prog_CommandKind_PanelMenu, true, 0, m);

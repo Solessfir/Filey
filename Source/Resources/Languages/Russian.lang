@@ -3054,3 +3054,48 @@ Update Filey
 
 Download the newer Filey and start again in it, with the panels and tabs as they are.
 = Загрузить новую версию Filey и перезапуститься в ней, с панелями и вкладками как есть.
+
+Open in New Tab
+= Открыть в новой вкладке
+
+Open in New Window
+= Открыть в новом окне
+
+Open in Right Split
+= Открыть в правой панели
+
+Open in Bottom Split
+= Открыть в нижней панели
+
+Copy Path
+= Копировать путь
+
+Compact Path
+= Сокращённый путь
+
+Path Breadcrumbs
+= Цепочка пути
+
+Path Options
+= Параметры пути
+
+Open the path bar's menu: open the folder elsewhere, edit or copy its path, and how the path shows.
+= Открыть меню адресной строки: открыть папку в другом месте, изменить или скопировать её путь и выбрать, как показывать путь.
+
+Toggle Compact Path
+= Сокращённый путь
+
+Show paths from the first recognized folder, as Pictures, or whole from the drive.
+= Показывать путь от первой известной папки, как «Изображения», или целиком от диска.
+
+Toggle Path Breadcrumbs
+= Цепочка пути
+
+Show or hide the subfolders visited past the shown folder in the path bar.
+= Показывать или скрывать в адресной строке посещённые вложенные папки после текущей.
+
+Toggle Palette Details
+= Подробности в палитре
+
+Show or hide the descriptions under the commands in the palette.
+= Показывать или скрывать описания под командами в палитре.

@@ -1796,6 +1796,7 @@ typedef struct Prog_State {
     b32 hotkeyChipShown;      // the build drew the chip, which stops recording once it is out of sight
     UI_Vec2 mainMenuAt;       // where the main menu opens from its button, for its hotkey too
     UI_Vec2 tabMenuAt;        // and the tab menu, under the active panel's shown tab
+    UI_Vec2 pathMenuAt;       // and the path menu, under the active panel's path bar
     enum8(Prog_CharacterKeys) characterKeys;
     // Select Typed Item: what was typed so far, and when its last character came; a pause starts it over.
     Prog_TextEdit typed;

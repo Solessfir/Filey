@@ -2422,6 +2422,17 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     state.selectedCount = 0;
     TestBrowsingCommand(&state, Prog_CommandKind_CopyAsPath, 0);
     Check(StrIsEqual(TestClipboard, P_NativePath(&arena, state.directory.path)));
+    // The path menu's Copy Path copies the crumb it opened on, a folder above the shown one too; This PC has no path to copy.
+    {
+        u64 shownEnd = 0;
+        String crumbs = Prog__CrumbsPath(&state, &shownEnd), parent = Prog_ParentPath(state.directory.path);
+        Check(StrIsEqual(Prog__CrumbTarget(&state, shownEnd), state.directory.path) && StrIsEqual(Prog__CrumbTarget(&state, 0), Prog_ThisPC));
+        TestBrowsingCommand(&state, Prog_CommandKind_PathCopy, parent.length);
+        Check(crumbs.length && StrIsEqual(TestClipboard, P_NativePath(&arena, parent)));
+        PlatformClipboardSetText(S("kept"));
+        TestBrowsingCommand(&state, Prog_CommandKind_PathCopy, 0);
+        Check(StrIsEqual(TestClipboard, S("kept")));
+    }
 
     // Pasting with nothing selected or on the clipboard does nothing.
     PlatformClipboardSetText(S("not files"));

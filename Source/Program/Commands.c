@@ -687,7 +687,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_TypesPopupOpen, Prog_CommandKind_FilesPopupOpen, Prog_CommandKind_FilesPopupPrev, Prog_CommandKind_FilesPopupNext,
-    Prog_CommandKind_EditPath, Prog_CommandKind_StartFilter, Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
+    Prog_CommandKind_EditPath, Prog_CommandKind_PathMenu, Prog_CommandKind_ToggleCompactPath, Prog_CommandKind_ToggleBreadcrumbs, Prog_CommandKind_StartFilter, Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
@@ -698,6 +698,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
     Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
+    Prog_CommandKind_PaletteToggleDetails,
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
@@ -1368,6 +1369,20 @@ function b32 Prog_CommandChecked(const Prog_State *state, Prog_CommandKind kind)
     }
 }
 
+function String Prog__CrumbsPath(Prog_State *state, u64 *shownEnd);
+
+// The folder of the crumb a path command carries, the length of its path in the crumbs' path, as a crumb's click does: the trail's while it
+// goes on from the shown folder; 0 is This PC, before a drive's name.
+function String Prog__CrumbTarget(Prog_State *state, u64 row)
+{
+    String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
+    String path = trail.length ? trail : state->directory.path;
+    if (row == 0) return Prog_ThisPC;
+    if (row > path.length) return (String){0};
+    // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
+    return StrFromTo(path, 0, (i64)(path.value[row - 1] == ':' ? row + 1 : row));
+}
+
 // Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
 function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 {
@@ -1432,6 +1447,23 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .icon = Icon_Eye, .toggle = true, .checked = state->showHidden);
             Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .icon = Icon_PanelLeft, .toggle = true, .checked = !state->sidebarHidden);
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .icon = Icon_Bookmark, .toggle = true, .checked = Prog_IsBookmarked(state, state->directory.path));
+        } break;
+        // The path bar's, for the crumb right-clicked or the shown folder: opening it elsewhere, its path, and how paths show.
+        case Prog_CommandKind_PathMenu: {
+            u64 at = command->row;
+            String target = Prog__CrumbTarget(state, at);
+            b32 folder = target.length && !StrIsEqual(target, Prog_ThisPC);
+            Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = at, .label = Tr("Open"), .icon = Icon_Folder, .disabled = (b8)(!target.length || StrIsEqual(target, state->directory.path)));
+            Prog__Item(.kind = Prog_CommandKind_PanelHeaderDirInTab, .row = at, .label = Tr("Open in New Tab"), .icon = Icon_SquarePlus, .disabled = (b8)!target.length, .mouse = S("MouseMiddle"));
+            Prog__Item(.kind = Prog_CommandKind_PathOpenInWindow, .row = at, .label = Tr("Open in New Window"), .icon = Icon_AppWindow, .disabled = (b8)!target.length);
+            Prog__Item(.kind = Prog_CommandKind_PathOpenInRightSplit, .row = at, .label = Tr("Open in Right Split"), .icon = Icon_UnfoldHorizontal, .disabled = (b8)!target.length);
+            Prog__Item(.kind = Prog_CommandKind_PathOpenInBottomSplit, .row = at, .label = Tr("Open in Bottom Split"), .icon = Icon_UnfoldVertical, .disabled = (b8)!target.length);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_EditPath, .icon = Icon_Pencil);
+            Prog__Item(.kind = Prog_CommandKind_PathCopy, .row = at, .label = Tr("Copy Path"), .icon = Icon_Copy, .disabled = (b8)!folder);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_ToggleCompactPath, .label = Tr("Compact Path"), .toggle = true, .checked = !state->fullPaths);
+            Prog__Item(.kind = Prog_CommandKind_ToggleBreadcrumbs, .label = Tr("Path Breadcrumbs"), .toggle = true, .checked = !state->noTrail);
         } break;
         // The header's, for the column right-clicked: moving it, its width, then which columns there are.
         case Prog_CommandKind_ColumnMenu: {
@@ -3280,20 +3312,31 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_NavigatePrefix:
             case Prog_CommandKind_PanelHeaderDirInTab: {
-                // The crumbs are the trail's while it goes on from the shown folder.
-                String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
-                String path = trail.length ? trail : state->directory.path, target = {0};
-                // Before a drive's name, This PC.
-                if (command->row == 0) target = Prog_ThisPC;
-                if (command->row > 0 && command->row <= path.length) {
-                    // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
-                    u64 length = path.value[command->row - 1] == ':' ? command->row + 1 : command->row;
-                    target = StrFromTo(path, 0, (i64)length);
-                }
+                String target = Prog__CrumbTarget(state, command->row);
                 if (!target.length) break;
                 if (command->kind == Prog_CommandKind_PanelHeaderDirInTab) Prog_OpenTab(state, StrCopy(&state->frameArena, target), state->activeTab + 1, false);
-                else if (command->row > 0 || !StrIsEqual(path, Prog_ThisPC)) Prog__PassToDirectory(state, target);
+                else if (!StrIsEqual(target, state->directory.path)) Prog__PassToDirectory(state, target);
             } break;
+            case Prog_CommandKind_PathOpenInWindow:
+            case Prog_CommandKind_PathOpenInRightSplit:
+            case Prog_CommandKind_PathOpenInBottomSplit: {
+                String target = StrCopy(&state->frameArena, Prog__CrumbTarget(state, command->row));
+                if (!target.length) break;
+                if (command->kind == Prog_CommandKind_PathOpenInWindow) {
+                    P_FileError error = Prog_OpenWindow(state, target, (String){0});
+                    if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("window.failed"), Tr("Couldn't open a new window"), error.message);
+                } else {
+                    Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_PathOpenInRightSplit ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, target);
+                }
+            } break;
+            case Prog_CommandKind_PathCopy: {
+                String target = Prog__CrumbTarget(state, command->row);
+                if (!target.length || StrIsEqual(target, Prog_ThisPC)) break;
+                PlatformClipboardSetText(P_NativePath(&state->frameArena, target));
+                state->pathFlashTime = PlatformNowMicroseconds();
+            } break;
+            case Prog_CommandKind_ToggleCompactPath: Prog_SetOption(state, Prog_Option_ShortenedPaths, state->fullPaths ? 1 : 0); break;
+            case Prog_CommandKind_ToggleBreadcrumbs: Prog_SetOption(state, Prog_Option_Breadcrumbs, state->noTrail ? 1 : 0); break;
             case Prog_CommandKind_ToggleHidden: {
                 state->showHidden = !state->showHidden;
                 Prog_Reload(state);
@@ -4119,10 +4162,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_HistoryMenu:
             case Prog_CommandKind_MainMenu:
             case Prog_CommandKind_PanelMenu:
+            case Prog_CommandKind_PathMenu:
             case Prog_CommandKind_TabMenu: {
-                // From a hotkey they open where their button or tab would open them.
+                // From a hotkey they open where their button or tab would open them, the path's for the shown folder.
                 if (command->at.x == 0 && command->at.y == 0 && command->kind != Prog_CommandKind_PanelMenu) {
-                    command->at = command->kind == Prog_CommandKind_TabMenu ? state->tabMenuAt : state->mainMenuAt;
+                    command->at = command->kind == Prog_CommandKind_TabMenu ? state->tabMenuAt : command->kind == Prog_CommandKind_PathMenu ? state->pathMenuAt : state->mainMenuAt;
+                    if (command->kind == Prog_CommandKind_PathMenu) Prog__CrumbsPath(state, &command->row);
                 }
                 Prog__OpenProgramMenu(state, command);
             } break;
