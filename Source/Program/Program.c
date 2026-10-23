@@ -8811,6 +8811,9 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
         UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = asking ? theme->accent : at == &stacks[sidebarStack] ? theme->tabBorder : theme->separator });
         UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Transfer/%u", i)),
                                             UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+        // A click shows where it goes, whichever panel has the keyboard.
+        UI_Interaction picked = UI_InteractionFromBlock(card);
+        if (picked.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferReveal, i, 0, picked.clickOrder)->panel = 0;
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
@@ -8940,7 +8943,13 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
             for (u32 k = 0; k < listed; ++k) {
                 String line = state->torrents.v[rows[k]];
                 Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
-                UI_Block *entry = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+                UI_SetNextPrefWidth(UI_Flex());
+                UI_SetNextPrefHeight(UI_Pixels(m->row));
+                UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                UI_Block *entry = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "TorrentWaiting/%u", (u32)rows[k])), UI_Flag_LeftMouseClickable);
+                UI_Interaction picked = UI_InteractionFromBlock(entry);
+                if (picked.clicked) Prog_QueueCommand(state, Prog_CommandKind_TorrentReveal, rows[k], 0, picked.clickOrder)->panel = 0;
                 UI_Parent(entry) {
                     Prog__Label(Prog__NameStem(Prog_EntryLeaf(StrFromTo(line, 0, (i64)tab.value))), UI_Flex(), m->row, 0, theme->textDim, 0);
                     UI_Interaction drop = Prog__WashedButton(StrFormat(&state->frameArena, "TorrentDrop/%u", (u32)rows[k]), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,

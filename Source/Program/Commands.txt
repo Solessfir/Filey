@@ -874,6 +874,10 @@ command InspectorVideoQuality {
 command TorrentDrop {
 }
 
+// A click on waiting torrent `row` of Torrents.conf's lines, which shows it in its folder with the inspector on its files.
+command TorrentReveal {
+}
+
 // A click on a torrent's file in the inspector, ticking it to be downloaded or not; carries its place in the torrent, or UINT64_MAX for all of them.
 command InspectorTorrentToggle {
 }
@@ -1324,6 +1328,10 @@ command TransferCancel {
 
 // Pauses transfer row's copy or move, or lets it go on.
 command TransferPause {
+}
+
+// A click on transfer row's card, which shows where it goes.
+command TransferReveal {
 }
 
 // The panel under a moving pointer takes the keyboard, which handing the command its panel does.

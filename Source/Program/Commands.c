@@ -2775,6 +2775,29 @@ function void Prog__OpenFilesPopup(Prog_State *state, String path, const u64 *en
     P_JobSubmit(job);
 }
 
+// Shows `folder` with `item` in it selected, when there is one: in the tab of a panel that shows it, the active ones first, or else in the
+// active tab. With `inspect`, the inspector opens on it, as for a torrent, whose files it lists with how far each has come.
+function void Prog__Reveal(Prog_State *state, String folder, String item, b32 inspect)
+{
+    folder = StrCopy(&state->frameArena, folder);
+    item = StrCopy(&state->frameArena, item);
+    u32 panel = UINT32_MAX, tab = 0;
+    for (u32 n = 0; n < state->panelCount && panel == UINT32_MAX; ++n) {
+        u32 p = (state->activePanel + n) % state->panelCount;
+        if (state->panels[p].inspectorOf) continue;
+        Prog__UsePanel(state, p);
+        for (u32 t = 0; t < state->tabCount && panel == UINT32_MAX; ++t) {
+            u32 at = (state->activeTab + t) % state->tabCount;
+            if (Prog__SamePath(Prog_TabPath(state, at), folder)) panel = p, tab = at;
+        }
+    }
+    Prog__ActivatePanel(state, panel != UINT32_MAX ? panel : state->activePanel);
+    if (panel != UINT32_MAX) Prog_SelectTab(state, tab);
+    if (item.length) Prog_ShowInFolder(state, Prog_JoinPath(&state->frameArena, folder, item), false);
+    else if (!Prog__SamePath(state->directory.path, folder)) Prog_RequestDirectory(state, folder, true, 0);
+    if (inspect) state->previewShown = true;
+}
+
 function b32 Prog_ProcessCommands(Prog_State *state)
 {
     b32 changed = state->commandFirst != NULL;
@@ -3765,6 +3788,22 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TransferCancel: {
                 Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;
                 if (transfer && transfer->job) P_RequestCancel(&transfer->job->cancelToken);
+            } break;
+            case Prog_CommandKind_TransferReveal: {
+                Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;
+                if (!transfer || !transfer->job || transfer->opening) break;
+                // What it writes there: what a copy or move brings, or what it reads beside its target, as a torrent's .torrent file or a video
+                // being compressed; a download's file has no name yet.
+                const Prog_JobInput *input = transfer->job->input;
+                String first = input->pathCount ? input->paths[0] : (String){0};
+                b32 shown = first.length && (input->transferOp == Prog_TransferOp_None || Prog__SamePath(Prog_ParentPath(first), input->path));
+                Prog__Reveal(state, input->path, shown ? Prog__FolderName(first) : (String){0}, input->transferOp == Prog_TransferOp_Torrent);
+            } break;
+            case Prog_CommandKind_TorrentReveal: {
+                if (command->row >= state->torrents.header.count) break;
+                String line = state->torrents.v[command->row];
+                String path = StrFromTo(line, 0, (i64)StrIndexChar(line, '\t', SSF_CountOnFail).value);
+                Prog__Reveal(state, Prog_ParentPath(path), Prog__FolderName(path), true);
             } break;
             case Prog_CommandKind_TransferPause: {
                 Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;
