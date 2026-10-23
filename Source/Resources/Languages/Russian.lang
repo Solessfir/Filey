@@ -2922,3 +2922,72 @@ Toggle Tree View
 
 Toggle unfolding folders in place in the list, their items indented under them.
 = Разворачивать папки прямо в списке, с их содержимым под ними с отступом.
+
+No Grouping
+= Без группировки
+
+List the items without group headings.
+= Показывать элементы без заголовков групп.
+
+Group By Type
+= Группировать по типу
+
+Group the items under headings by their type.
+= Группировать элементы под заголовками по их типу.
+
+Group By Date Modified
+= Группировать по дате изменения
+
+Group the items under headings by when they last changed: today, yesterday, earlier this week and so on.
+= Группировать элементы под заголовками по времени последнего изменения: сегодня, вчера, ранее на этой неделе и так далее.
+
+Group By Size
+= Группировать по размеру
+
+Group the items under headings by size, from empty to gigantic, the folders apart.
+= Группировать элементы под заголовками по размеру, от пустых до гигантских, папки отдельно.
+
+Today
+= Сегодня
+
+Yesterday
+= Вчера
+
+Earlier this week
+= Ранее на этой неделе
+
+Last week
+= На прошлой неделе
+
+Earlier this month
+= Ранее в этом месяце
+
+Last month
+= В прошлом месяце
+
+Earlier this year
+= Ранее в этом году
+
+A long time ago
+= Давно
+
+Empty
+= Пустые
+
+Tiny (under 16 kB)
+= Крошечные (до 16 КБ)
+
+Small (16 kB to 1 MB)
+= Маленькие (от 16 КБ до 1 МБ)
+
+Medium (1 to 128 MB)
+= Средние (от 1 до 128 МБ)
+
+Large (128 MB to 1 GB)
+= Большие (от 128 МБ до 1 ГБ)
+
+Huge (1 to 4 GB)
+= Огромные (от 1 до 4 ГБ)
+
+Gigantic (over 4 GB)
+= Гигантские (больше 4 ГБ)

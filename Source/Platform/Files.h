@@ -105,6 +105,8 @@ function b32 P_StartupFlag(String flag);
 // What follows `prefix`, such as "--tab=", in the argument that starts with it; empty without one.
 function String P_StartupOption(Arena *arena, String prefix);
 function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix);
+// How far local time is ahead of UTC at `timeUnix`, in seconds, daylight saving time included.
+function i64 P_LocalOffset(i64 timeUnix);
 // The local date of `timeUnix` as "2026-10-16", which a file name can hold; empty when it is out of range.
 function String P_FormatFileDate(Arena *arena, i64 timeUnix);
 // Now, in seconds since the Unix epoch.

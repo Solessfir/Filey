@@ -254,6 +254,17 @@ function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix)
     return result;
 }
 
+function i64 P_LocalOffset(i64 timeUnix)
+{
+    i64 ticks = 0;
+    if (ckd_add(&ticks, timeUnix, INT64_C(11644473600)) || ticks < 0 || ckd_mul(&ticks, ticks, INT64_C(10000000))) return 0;
+    FILETIME time = {.dwLowDateTime = (u32)((u64)ticks & UINT32_MAX), .dwHighDateTime = (u32)((u64)ticks >> 32)}, localTime = {0};
+    SYSTEMTIME utc = {0}, local = {0};
+    if (!FileTimeToSystemTime(&time, &utc) || !SystemTimeToTzSpecificLocalTime(NULL, &utc, &local) || !SystemTimeToFileTime(&local, &localTime)) return 0;
+    i64 localTicks = (i64)(((u64)localTime.dwHighDateTime << 32) | localTime.dwLowDateTime);
+    return (localTicks - ticks) / INT64_C(10000000);
+}
+
 function wchar *P__FileExtendedPath(Arena *arena, String path)
 {
     String absolute = P_AbsolutePath(arena, path);

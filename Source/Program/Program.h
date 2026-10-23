@@ -114,7 +114,27 @@ struct Prog_ViewSettings {
     b32 descending;
     enum8(Prog_FolderSort) folders;
     Prog_ColumnSet columns;
+    enum8(Prog_GroupBy) groupBy;
 };
+
+// What a list groups its items under headings by.
+typedef enum Prog_GroupBy {
+    Prog_GroupBy_None,
+    Prog_GroupBy_Type,
+    Prog_GroupBy_Modified,
+    Prog_GroupBy_Size,
+    Prog_GroupBy_Count,
+} Prog_GroupBy;
+
+// A heading of a grouped list and its items, view positions [start, start + count): none while it is folded, of the `total` it has.
+// `top` is where the last layout put the heading in the list's content.
+typedef struct Prog_ListGroup {
+    String label;
+    u64 start;
+    u64 count;
+    u64 total;
+    f32 top;
+} Prog_ListGroup;
 
 // Prog_CommandKind is generated from Program/Commands.txt.
 #include "Meta/Commands.meta.h"
@@ -1196,13 +1216,14 @@ typedef struct Prog_PdfView {
 // zoom, up to Prog_ZoomMax, the details columns (columnSet, see Prog_PanelColumns), and while a locked folder's view applies, the tab's own
 // (ownView, ownSettings), which the next folder without one gets back.
 // The filter keeps the rows it lets through in `view`, best match first and in listing order within a score; rows it hides are never selected, so commands cannot act on them.
+// With groupBy the view runs group after group, as `groups` says, and the groups folded away, by their labels in groupsFolded, leave their items out of it.
 #define Prog_TabFields(X) \
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) X(u32, zoom) X(Prog_ColumnSet, columnSet) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) \
-    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(b32, treeNested) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
-    X(Arena, viewArena) X(u64 *, view) X(u64 *, viewAt) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail) \
+    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(b32, treeNested) X(enum8(Prog_GroupBy), groupBy) X(Arena, groupArena) X(ArrayStr, groupsFolded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
+    X(Arena, viewArena) X(u64 *, view) X(u64 *, viewAt) X(u64, viewCount) X(u64, viewFolders) X(Prog_ListGroup *, groups) X(u32, groupCount) X(UI_Vec2, scroll) X(Prog_Trail, trail) \
     Prog_PreviewFields(X)
 
 #define Prog__TabField(type, name) type name;
@@ -1229,7 +1250,7 @@ typedef struct Prog_TreeWatches {
 //   reveals again while it changes; pageRows: lines visible in the last layout, for Page Up/Down
 //   tabs, tabCount, activeTab: the panel's Prog_MaxTabs tab slots, in tabArena from the first use; the shown one's slot holds nothing while it is shown
 //   gridColumns, gridPitch, gridItem: the list's last layout, in its coordinates (x from its left edge, y from the top of its content):
-//     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box
+//     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box; groupHeading: how tall a group's heading was
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
 //   filtering: the filter box has the keyboard; filterRect: its last layout
 //   listing, measureJob, sortPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort later
@@ -1247,7 +1268,7 @@ typedef struct Prog_TreeWatches {
     X(Arena, errorArena) X(String, error) X(b32, errorListing) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
     X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(f32, revealHeight) X(u64, pageRows) \
     X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) \
-    X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
+    X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) X(f32, groupHeading) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(Prog_TreeWatches, treeWatches) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
@@ -2005,6 +2026,8 @@ function i32 Prog_EntryScore(String name, String filter, u8 *marks);
 function void Prog_ApplyFilter(Prog_State *state, b32 edited);
 function void Prog_ClearFilter(Prog_State *state);
 function u64 Prog_ViewPosition(const Prog_State *state, u64 row);
+function u32 Prog_GroupAt(const Prog_State *state, u64 position);
+function void Prog_GroupToggle(Prog_State *state, u32 index);
 function void Prog_LoadSettings(Prog_State *state, String configDirectory, String cacheDirectory);
 function void Prog_SessionWindow(String configDirectory, PlatformWindowDesc *desc);
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);

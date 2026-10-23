@@ -100,6 +100,13 @@ function String P_FormatFileTime(Arena *arena, i64 modifiedTimeUnix)
     return StrFormat(arena, "%04d-%02d-%02d %02d:%02d", local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min);
 }
 
+function i64 P_LocalOffset(i64 timeUnix)
+{
+    time_t time = (time_t)timeUnix;
+    struct tm local = {0};
+    return localtime_r(&time, &local) ? (i64)local.tm_gmtoff : 0;
+}
+
 function String P_FormatFileDate(Arena *arena, i64 timeUnix)
 {
     time_t time = (time_t)timeUnix;

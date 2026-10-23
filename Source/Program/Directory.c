@@ -407,6 +407,188 @@ function void Prog__FilterLane(void *user, u32 lane)
 
 // Rebuilds the view from the filter, the folder and file toggles and the types shown, and drops hidden rows from the selection.
 // After an edit the focus moves to the first match, so that Enter opens it; a listing without a focused item puts it on the first one, as a cursor that selects nothing.
+// The date groups, newest first, and the size groups, smallest first and then the folders, which have no size of their own.
+global const String Prog_DateGroups[] = { TrInit("Today"), TrInit("Yesterday"), TrInit("Earlier this week"), TrInit("Last week"), TrInit("Earlier this month"),
+                                          TrInit("Last month"), TrInit("Earlier this year"), TrInit("A long time ago") };
+global const String Prog_SizeGroups[] = { TrInit("Empty"), TrInit("Tiny (under 16 kB)"), TrInit("Small (16 kB to 1 MB)"), TrInit("Medium (1 to 128 MB)"),
+                                          TrInit("Large (128 MB to 1 GB)"), TrInit("Huge (1 to 4 GB)"), TrInit("Gigantic (over 4 GB)"), TrInit("Folders") };
+
+// Days from 1970-01-01 to a date of the Gregorian calendar, and back to its year and month.
+function i64 Prog__DaysFromCivil(i64 year, i64 month, i64 day)
+{
+    year -= month <= 2;
+    i64 era = (year >= 0 ? year : year - 399) / 400, yearOfEra = year - era * 400;
+    i64 dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    return era * 146097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719468;
+}
+
+function void Prog__CivilFromDays(i64 days, i64 *year, i64 *month)
+{
+    days += 719468;
+    i64 era = (days >= 0 ? days : days - 146096) / 146097, dayOfEra = days - era * 146097;
+    i64 yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36524 - dayOfEra / 146096) / 365;
+    i64 dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100), shifted = (5 * dayOfYear + 2) / 153;
+    *month = shifted < 10 ? shifted + 3 : shifted - 9;
+    *year = yearOfEra + era * 400 + (*month <= 2);
+}
+
+// When local day `day`, counted from 1970-01-01, begins, in Unix seconds.
+function i64 Prog__LocalDayStart(i64 day)
+{
+    i64 guess = day * 86400 - P_LocalOffset(day * 86400);
+    return day * 86400 - P_LocalOffset(guess);
+}
+
+// Where the date groups after the first begin, in Unix seconds: yesterday, this week from its Monday, last week, this month, last month and
+// this year. An item goes in the first group whose start it is not before, so a group whose start comes after an earlier one's gets nothing.
+function void Prog__DateGroupStarts(i64 now, i64 starts[CArrayCount(Prog_DateGroups) - 1])
+{
+    i64 local = now + P_LocalOffset(now), today = (local >= 0 ? local : local - 86399) / 86400, monday = today - (today + 3) % 7, year = 0, month = 0;
+    Prog__CivilFromDays(today, &year, &month);
+    i64 days[] = { today, today - 1, monday, monday - 7, Prog__DaysFromCivil(year, month, 1),
+                   Prog__DaysFromCivil(month == 1 ? year - 1 : year, month == 1 ? 12 : month - 1, 1), Prog__DaysFromCivil(year, 1, 1) };
+    static_assert(CArrayCount(days) == CArrayCount(Prog_DateGroups) - 1);
+    for (u32 i = 0; i < CArrayCount(days); ++i) starts[i] = Prog__LocalDayStart(days[i]);
+}
+
+// Whether the list shows its items in groups; a tree's rows keep theirs under their folders.
+function b32 Prog__Grouped(const Prog_State *state)
+{
+    return state->groupBy != Prog_GroupBy_None && state->groupBy < Prog_GroupBy_Count && !(state->directory.tree && state->treeNested);
+}
+
+function b32 Prog__GroupFolded(const Prog_State *state, String label)
+{
+    for (u64 i = 0; i < state->groupsFolded.header.count; ++i) if (StrIsEqual(state->groupsFolded.v[i], label)) return true;
+    return false;
+}
+
+// Puts the view in groups, each in the view's order: types by name, the dates newest first and the sizes smallest first, the other way while
+// the list is sorted down by the same thing, and groups of folders first or last as the folders are. A folded group keeps its heading only.
+function void Prog__GroupView(Prog_State *state, Arena *scratch)
+{
+    state->groups = NULL;
+    state->groupCount = 0;
+    if (!Prog__Grouped(state) || !state->viewCount) return;
+    Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
+    ArrayStr labels = {0};
+    if (by == Prog_GroupBy_Modified) for (u32 i = 0; i < CArrayCount(Prog_DateGroups); ++i) ArrayPush(scratch, labels, Prog_DateGroups[i]);
+    if (by == Prog_GroupBy_Size) for (u32 i = 0; i < CArrayCount(Prog_SizeGroups); ++i) ArrayPush(scratch, labels, Prog_SizeGroups[i]);
+    i64 starts[CArrayCount(Prog_DateGroups) - 1] = {0};
+    if (by == Prog_GroupBy_Modified) Prog__DateGroupStarts(P_NowUnix(), starts);
+    local_persist const u64 sizeLimits[] = { 1, UINT64_C(16) << 10, UINT64_C(1) << 20, UINT64_C(128) << 20, UINT64_C(1) << 30, UINT64_C(4) << 30 };
+    u32 sizeFolders = CArrayCount(Prog_SizeGroups) - 1;
+    // Each item's group, by its label's index; a type's group is made as its first item comes.
+    struct { MapHeader header; struct { String key; u32 value; } *v; } types = {0};
+    u32 *of = ArenaPushArrayNoZero(scratch, state->viewCount, u32);
+    for (u64 p = 0; p < state->viewCount; ++p) {
+        const Prog_Entry *entry = &state->directory.entries[state->view[p]];
+        u32 id = 0;
+        if (by == Prog_GroupBy_Type) {
+            u32 *known = MapsGetPtrNull(types, entry->type);
+            if (known) {
+                id = *known;
+            } else {
+                id = (u32)labels.header.count;
+                ArrayPush(scratch, labels, entry->type);
+                MapsPut(scratch, types, entry->type, id);
+            }
+        } else if (by == Prog_GroupBy_Modified) {
+            while (id < CArrayCount(starts) && entry->file.modifiedTimeUnix < starts[id]) ++id;
+        } else if (entry->file.kind == P_FileKind_Directory) {
+            id = sizeFolders;
+        } else {
+            while (id < CArrayCount(sizeLimits) && entry->file.size >= sizeLimits[id]) ++id;
+        }
+        of[p] = id;
+    }
+    // A group of types or sizes whose first item is a folder holds folders, which go first or last; the dates mix them.
+    u32 count = (u32)labels.header.count;
+    b8 *seen = ArenaPushArray(scratch, count, b8);
+    u32 *place = ArenaPushArray(scratch, count, u32);
+    for (u64 p = 0; p < state->viewCount; ++p) {
+        if (seen[of[p]]) continue;
+        seen[of[p]] = true;
+        b32 folders = by != Prog_GroupBy_Modified && state->directory.entries[state->view[p]].file.kind == P_FileKind_Directory;
+        place[of[p]] = !folders || state->folderSort == Prog_FolderSort_Mixed ? 1 : state->folderSort == Prog_FolderSort_First ? 0 : 2;
+    }
+    // Then by name or by their own order, turned round while the list is sorted down by the same thing.
+    b32 reverse = (by == Prog_GroupBy_Type && state->sort == Prog_Sort_Type && state->descending) ||
+                  (by == Prog_GroupBy_Modified && state->sort == Prog_Sort_Modified && !state->descending) || (by == Prog_GroupBy_Size && state->sort == Prog_Sort_Size && state->descending);
+    u32 *order = ArenaPushArrayNoZero(scratch, count, u32), *rank = ArenaPushArrayNoZero(scratch, count, u32);
+    // ponytail: insertion sort, fine for the few hundred types a folder has at most.
+    for (u32 id = 0; id < count; ++id) {
+        u32 at = id;
+        for (; at > 0; --at) {
+            u32 other = order[at - 1];
+            i32 compare = place[id] != place[other] ? (place[id] < place[other] ? -1 : 1) : 0;
+            if (!compare) {
+                compare = by == Prog_GroupBy_Type ? Prog_CompareNames(labels.v[id], labels.v[other]) : id < other ? -1 : 1;
+                if (reverse) compare = -compare;
+            }
+            if (compare >= 0) break;
+            order[at] = other;
+        }
+        order[at] = id;
+    }
+    for (u32 r = 0; r < count; ++r) rank[order[r]] = r;
+    // Each group's items gathered in the view's order, which the folded ones leave out of it.
+    u64 *firsts = ArenaPushArray(scratch, count + 1, u64), *cursors = ArenaPushArrayNoZero(scratch, count, u64);
+    for (u64 p = 0; p < state->viewCount; ++p) ++firsts[rank[of[p]] + 1];
+    for (u32 r = 0; r < count; ++r) firsts[r + 1] += firsts[r];
+    MemCopy(cursors, firsts, count * sizeof(u64));
+    u64 *sorted = ArenaPushArrayNoZero(scratch, state->viewCount, u64);
+    for (u64 p = 0; p < state->viewCount; ++p) sorted[cursors[rank[of[p]]]++] = state->view[p];
+    state->groups = ArenaPushArray(&state->viewArena, count, Prog_ListGroup);
+    u64 shown = 0;
+    for (u32 r = 0; r < count; ++r) {
+        u64 total = firsts[r + 1] - firsts[r];
+        if (!total) continue;
+        String label = labels.v[order[r]];
+        b32 folded = Prog__GroupFolded(state, label);
+        state->groups[state->groupCount++] = (Prog_ListGroup){ .label = label, .start = shown, .count = folded ? 0 : total, .total = total };
+        for (u64 i = firsts[r]; i < firsts[r + 1]; ++i) {
+            if (folded) state->directory.entries[sorted[i]].selected = false;
+            else state->view[shown++] = sorted[i];
+        }
+    }
+    state->viewCount = shown;
+    state->viewFolders = state->selectedCount = 0;
+    for (u64 p = 0; p < shown; ++p) {
+        const Prog_Entry *entry = &state->directory.entries[state->view[p]];
+        state->viewFolders += entry->file.kind == P_FileKind_Directory;
+        state->selectedCount += entry->selected != 0;
+    }
+}
+
+// The group view position `position` is in: the last one whose items start at it or before.
+function u32 Prog_GroupAt(const Prog_State *state, u64 position)
+{
+    u32 low = 0, high = state->groupCount;
+    while (high - low > 1) {
+        u32 middle = low + (high - low) / 2;
+        if (state->groups[middle].start <= position) low = middle;
+        else high = middle;
+    }
+    return low;
+}
+
+// Folds group `index` away, leaving its heading, or shows its items again.
+function void Prog_GroupToggle(Prog_State *state, u32 index)
+{
+    if (index >= state->groupCount) return;
+    Scratch scratch = GetScratch();
+    String label = state->groups[index].label;
+    b32 folded = Prog__GroupFolded(state, label);
+    String *kept = ArenaPushArray(scratch.arena, state->groupsFolded.header.count + 1, String);
+    u64 count = 0;
+    for (u64 i = 0; i < state->groupsFolded.header.count; ++i) if (!StrIsEqual(state->groupsFolded.v[i], label)) kept[count++] = state->groupsFolded.v[i];
+    if (!folded) kept[count++] = label;
+    Prog__SetList(&state->groupArena, &state->groupsFolded, kept, count);
+    ReleaseScratch(scratch);
+    Prog_ApplyFilter(state, false);
+}
+
 function void Prog_ApplyFilter(Prog_State *state, b32 edited)
 {
     ProfileScope("ApplyFilter") {
@@ -451,6 +633,7 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
             for (u64 i = 0; i < state->viewCount; ++i) sorted[starts[ranks[i]]++] = state->view[i];
             MemCopy(state->view, sorted, state->viewCount * sizeof(u64));
         }
+        Prog__GroupView(state, scratch.arena);
         ReleaseScratch(scratch);
         // Each row's place in the view, as a filter orders it by how well it matches rather than by row.
         state->viewAt = ArenaPushArrayNoZero(&state->viewArena, Max(state->directory.count, (u64)1), u64);
@@ -3018,7 +3201,10 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     // Another folder starts flat unless the filter is pinned.
     if (state->directory.path.length && !StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
     // A tree starts folded in another folder.
-    if (state->directory.path.length && !StrIsEqual(path, state->directory.path)) Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0);
+    if (state->directory.path.length && !StrIsEqual(path, state->directory.path)) {
+        Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0);
+        Prog__SetList(&state->groupArena, &state->groupsFolded, NULL, 0);
+    }
     input->showHidden = state->showHidden;
     input->expanded = state->expanded;
     input->tree = state->tree && !state->expanded;
@@ -3757,6 +3943,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->directoryArena);
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->treeArena);
+    ArenaRelease(&state->groupArena);
     ArenaRelease(&state->viewArena);
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->pickArena);
@@ -3903,7 +4090,7 @@ function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make)
     state->panels[at] = (Prog_Panel){
         .id = ++state->nextPanelId,
         .inspectorOf = owner,
-        .zoom = view.zoom, .sort = view.sort, .descending = view.descending, .folderSort = view.folders, .columnSet = view.columns,
+        .zoom = view.zoom, .sort = view.sort, .descending = view.descending, .folderSort = view.folders, .columnSet = view.columns, .groupBy = view.groupBy,
         .showHidden = current ? state->showHidden : state->panels[from].showHidden,
     };
     return at;
@@ -4312,7 +4499,7 @@ function b32 Prog__SameColumns(Prog_ColumnSet a, Prog_ColumnSet b)
 // What the current panel shows a folder with.
 function Prog_ViewSettings Prog_CurrentView(const Prog_State *state)
 {
-    return (Prog_ViewSettings){ state->zoom, state->sort, state->descending, state->folderSort, state->columnSet };
+    return (Prog_ViewSettings){ state->zoom, state->sort, state->descending, state->folderSort, state->columnSet, state->groupBy };
 }
 
 function void Prog__SetCurrentView(Prog_State *state, Prog_ViewSettings view)
@@ -4322,6 +4509,7 @@ function void Prog__SetCurrentView(Prog_State *state, Prog_ViewSettings view)
     state->descending = view.descending;
     state->folderSort = view.folders;
     state->columnSet = view.columns;
+    state->groupBy = view.groupBy;
 }
 
 // One zoom step in or out: a view at a time up to M Icons, then the icon sizes a step apart up to XL Icons.
@@ -4340,15 +4528,17 @@ function u32 Prog_ZoomFromSaved(u64 value)
     return (u32)Min(value, (u64)Prog_ZoomMax);
 }
 
-// A FolderViews.conf line: its zoom, sort, whether that is descending, the folder sort and the columns, then the path, which may hold spaces;
-// lines from before the folder sort and the columns have only the first three. False when `line` is not one.
+// A FolderViews.conf line: its zoom, sort, whether that is descending, the folder sort, the grouping when there is one and the columns, then
+// the path, which may hold spaces; lines from before the folder sort and the columns have only the first three. False when `line` is not one.
 function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String *path)
 {
-    u64 a = 0, b = 0, c = 0, d = 0;
+    u64 a = 0, b = 0, c = 0, d = 0, e = 0;
     if (!Prog__TakeNumber(&line, &a) || !Prog__TakeNumber(&line, &b) || !Prog__TakeNumber(&line, &c)) return false;
-    *view = (Prog_ViewSettings){ Prog_ZoomFromSaved(a), (u8)Min(b, (u64)Prog_Sort_Count - 1), c != 0, Prog_FolderSort_First, {0} };
+    *view = (Prog_ViewSettings){ Prog_ZoomFromSaved(a), (u8)Min(b, (u64)Prog_Sort_Count - 1), c != 0, Prog_FolderSort_First, {0}, Prog_GroupBy_None };
     String rest = line;
     if (Prog__TakeNumber(&rest, &d)) {
+        // The columns' text starts with a letter or a dash, so a number before it is the grouping.
+        if (Prog__TakeNumber(&rest, &e)) view->groupBy = (u8)Min(e, (u64)Prog_GroupBy_Count - 1);
         Index space = StrIndexChar(rest, ' ', SSF_None);
         if (!space.exists || !Prog_ParseColumns(StrFromTo(rest, 0, (i64)space.value), &view->columns)) return false;
         view->folders = (u8)Min(d, (u64)Prog_FolderSort_Count - 1);
@@ -4384,7 +4574,9 @@ function void Prog__SetFolderView(Prog_State *state, String path, const Prog_Vie
         if (!Prog__ParseFolderView(state->folderViews.v[i], &view, &at) || !StrIsEqual(at, path)) lines[kept++] = state->folderViews.v[i];
     }
     if (view) {
-        lines[kept++] = StrFormat(scratch.arena, "%u %u %u %u %S %S", view->zoom, (u32)view->sort, view->descending ? 1u : 0u, (u32)view->folders,
+        // The grouping only when there is one, so that a line without it still reads in an older Filey.
+        String groupBy = view->groupBy ? StrFormat(scratch.arena, "%u ", (u32)view->groupBy) : (String){0};
+        lines[kept++] = StrFormat(scratch.arena, "%u %u %u %u %S%S %S", view->zoom, (u32)view->sort, view->descending ? 1u : 0u, (u32)view->folders, groupBy,
                                   Prog_ColumnsText(scratch.arena, view->columns), path);
     }
     Prog__SetList(&state->folderViewArena, &state->folderViews, lines, kept);
@@ -4416,7 +4608,7 @@ function void Prog_KeepLockedView(Prog_State *state)
     Scratch scratch = GetScratch();
     // The columns by their text, which rounds their shares as the file does.
     b32 same = shown.zoom == saved.zoom && shown.sort == saved.sort && shown.descending == saved.descending && shown.folders == saved.folders &&
-               StrIsEqual(Prog_ColumnsText(scratch.arena, shown.columns), Prog_ColumnsText(scratch.arena, saved.columns));
+               shown.groupBy == saved.groupBy && StrIsEqual(Prog_ColumnsText(scratch.arena, shown.columns), Prog_ColumnsText(scratch.arena, saved.columns));
     ReleaseScratch(scratch);
     if (!same) Prog__SetFolderView(state, state->directory.path, &shown);
 }
@@ -4426,9 +4618,10 @@ function void Prog__RestoreOwnView(Prog_State *state)
 {
     if (!state->ownView) return;
     Prog_ViewSettings own = state->ownSettings;
-    b32 resort = state->sort != own.sort || state->descending != own.descending || state->folderSort != own.folders;
+    b32 resort = state->sort != own.sort || state->descending != own.descending || state->folderSort != own.folders, regroup = state->groupBy != own.groupBy;
     Prog__ApplyFolderView(state, state->directory.path);
     if (resort) Prog_Reload(state);
+    else if (regroup) Prog_ApplyFilter(state, false);
 }
 
 // Locks the shown folder's view as the panel shows it, or unlocks it. What the panel shows stays either way; the panel's own comes back in
@@ -4524,6 +4717,10 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
                 for (u64 o = 0; o < open->header.count; ++o) StrBuildStr(arena, &text, StrFormat(arena, o ? "\t%S" : "%S", open->v[o]));
                 StrBuildChar(arena, &text, '\n');
             }
+            // What its items are grouped by, its own rather than a locked folder's.
+            b32 own = shown ? state->ownView : state->tabs[t].ownView;
+            u32 groupBy = own ? (shown ? state->ownSettings : state->tabs[t].ownSettings).groupBy : shown ? state->groupBy : state->tabs[t].groupBy;
+            if (groupBy) StrBuildStr(arena, &text, StrFormat(arena, "group %u %u\n", numbers[p], groupBy));
         }
     }
     Prog__UsePanel(state, active);
@@ -4540,7 +4737,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     u32 splitPanel[Prog_MaxSplits] = {0};
     typedef struct { b32 sticky, expanded, hideFolders, hideFiles; String text; } Filter;
     typedef struct { b32 on; String folders; } Tree;
-    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Tree trees[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels =
+    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Tree trees[Prog_MaxTabs]; u8 groupBy[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels =
         ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
     u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0, sidebarWidth = 0;
     b32 valid = false;
@@ -4582,7 +4779,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) &&
                 Prog__TakeNumber(&rest, &g)) {
                 Prog_ViewSettings *view = &panels[a].inspector;
-                *view = (Prog_ViewSettings){ Prog_ZoomFromSaved(b), (u8)Min(c, (u64)Prog_Sort_Count - 1), d != 0, (u8)Min(g, (u64)Prog_FolderSort_Count - 1), {0} };
+                *view = (Prog_ViewSettings){ Prog_ZoomFromSaved(b), (u8)Min(c, (u64)Prog_Sort_Count - 1), d != 0, (u8)Min(g, (u64)Prog_FolderSort_Count - 1), {0}, Prog_GroupBy_None };
                 Prog_ParseColumns(rest, &view->columns);
             }
         } else if (StrIsEqual(word, S("tab"))) {
@@ -4597,6 +4794,10 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
         } else if (StrIsEqual(word, S("tree"))) {
             // The last tab's, its unfolded folders a tab apart.
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && panels[a].tabCount) panels[a].trees[panels[a].tabCount - 1] = (Tree){ true, rest };
+        } else if (StrIsEqual(word, S("group"))) {
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && panels[a].tabCount && Prog__TakeNumber(&rest, &b)) {
+                panels[a].groupBy[panels[a].tabCount - 1] = (u8)Min(b, (u64)Prog_GroupBy_Count - 1);
+            }
         }
     }
     // The tree from the root must reach every panel once, each with a tab.
@@ -4668,6 +4869,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
                 *(t ? &tab->tree : &state->tree) = tree->on;
                 ArrayStr folders = tree->folders.length ? StrSplit(scratch.arena, tree->folders, '\t') : (ArrayStr){0};
                 Prog__SetList(t ? &tab->treeArena : &state->treeArena, t ? &tab->treeOpen : &state->treeOpen, folders.v, folders.header.count);
+                *(t ? &tab->groupBy : &state->groupBy) = panels[p].groupBy[t];
             }
             Prog_RequestDirectory(state, panels[p].tabs[0], false, 0);
             if (panels[p].activeTab < state->tabCount) Prog_SelectTab(state, panels[p].activeTab);
@@ -4863,6 +5065,7 @@ function void Prog__ReleaseTab(Prog_Tab *tab)
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
     ArenaRelease(&tab->treeArena);
+    ArenaRelease(&tab->groupArena);
     ArenaRelease(&tab->viewArena);
     *tab = (Prog_Tab){0};
 }

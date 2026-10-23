@@ -797,10 +797,17 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(TestWaitDirectory(&state) && state.zoom == ownZoom);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state) && state.zoom == zoomed);
+        // And the grouping, which a folder without a lock leaves out.
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupBySize, 0);
+        Check(Prog_FolderView(&state, here, &view) && view.groupBy == Prog_GroupBy_Size);
+        Prog_RequestDirectory(&state, empty, true, 0);
+        Check(TestWaitDirectory(&state) && state.groupBy == Prog_GroupBy_None && !state.groupCount);
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && state.groupBy == Prog_GroupBy_Size && state.groupCount);
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewToggle, 0);
         Prog_RequestDirectory(&state, empty, true, 0);
         Check(TestWaitDirectory(&state) && !Prog_FolderView(&state, here, &view));
-        Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0);
+        Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0 && state.groupBy == Prog_GroupBy_None);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state));
         // The columns read back as written; a line from before the columns keeps the defaults.
@@ -809,7 +816,13 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(!Prog_ParseColumns(S("size,type"), &read) && !Prog_ParseColumns(S("name,bogus"), &read));
         String old = S("2 3 1 C:/Old Folder");
         Prog__SetList(&state.folderViewArena, &state.folderViews, &old, 1);
-        Check(Prog_FolderView(&state, S("C:/Old Folder"), &view) && view.zoom == Prog_ZoomColumns && view.columns.count == 0);
+        Check(Prog_FolderView(&state, S("C:/Old Folder"), &view) && view.zoom == Prog_ZoomColumns && view.columns.count == 0 && !view.groupBy);
+        // A grouping is written before the columns only when there is one.
+        String grouped = S("2 3 1 1 3 name C:/Grouped Folder"), plainLine = S("2 3 1 1 name C:/Plain Folder");
+        Prog__SetList(&state.folderViewArena, &state.folderViews, &grouped, 1);
+        Check(Prog_FolderView(&state, S("C:/Grouped Folder"), &view) && view.groupBy == Prog_GroupBy_Size && view.folders == Prog_FolderSort_Last && view.columns.count == 1);
+        Prog__SetList(&state.folderViewArena, &state.folderViews, &plainLine, 1);
+        Check(Prog_FolderView(&state, S("C:/Plain Folder"), &view) && !view.groupBy && view.columns.count == 1);
         Prog__SetList(&state.folderViewArena, &state.folderViews, NULL, 0);
         // A column added from the menu in a folder without a lock locks it with that column, and the panel's own view goes without it; one
         // taken away again stays away in the lock.
@@ -2681,6 +2694,46 @@ function void TestTabs(TestFileFixture *fixture)
         Prog_RequestDirectory(&state, fixture->path, true, 0);
         Check(TestWaitDirectory(&state) && !state.tree && !state.directory.tree);
     }
+    // Grouped by type, the view runs group after group, each holding the items of its type; a folded group keeps its heading and count and
+    // leaves its items out until it is shown again.
+    {
+        u64 all = state.viewCount;
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupByType, 0);
+        Check(state.groupBy == Prog_GroupBy_Type && state.groupCount >= 2 && state.viewCount == all);
+        u64 next = 0;
+        b32 runs = true;
+        for (u32 g = 0; g < state.groupCount; ++g) {
+            const Prog_ListGroup *group = &state.groups[g];
+            runs &= group->start == next && group->count == group->total && group->count;
+            for (u64 p = group->start; p < group->start + group->count; ++p) runs &= StrIsEqual(state.directory.entries[state.view[p]].type, group->label);
+            next += group->count;
+        }
+        Check(runs && next == all && state.directory.entries[state.view[0]].file.kind == P_FileKind_Directory);
+        u64 folded = state.groups[0].total;
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupToggle, 0);
+        Check(!state.groups[0].count && state.groups[0].total == folded && state.viewCount == all - folded && state.groups[1].start == 0);
+        Check(Prog_GroupAt(&state, 0) == 1);
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupToggle, 0);
+        Check(state.viewCount == all && state.groups[0].count == folded);
+        // By size the folders stand apart, first as they are in the list, and the small files are tiny.
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupBySize, 0);
+        u64 plain = TestEntryIndex(&state, S("plain.txt"));
+        Check(state.groupCount >= 2 && StrIsEqual(state.groups[0].label, S("Folders")) && state.groups[0].count == state.viewFolders);
+        Check(StrIsEqual(state.groups[Prog_GroupAt(&state, Prog_ViewPosition(&state, plain))].label, S("Tiny (under 16 kB)")));
+        // By date, what was made just now is today's, which comes first.
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupByDateModified, 0);
+        Check(Prog_GroupAt(&state, Prog_ViewPosition(&state, plain)) == 0 && StrIsEqual(state.groups[0].label, S("Today")));
+        // In a grid two across, a line down from a group's last line goes to the next group's first, and up from there to the last item above
+        // when that line is short.
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupBySize, 0);
+        Check(state.groups[0].count == 3 && state.groups[1].count >= 2);
+        Check(Prog__GroupedLineStep(&state, 1, 2, true) == 2 && Prog__GroupedLineStep(&state, 2, 2, true) == 3 && Prog__GroupedLineStep(&state, 4, 2, false) == 2);
+        // The grouping and the sort shown are checked, and only they.
+        Check(Prog_CommandChecked(&state, Prog_CommandKind_GroupBySize) && !Prog_CommandChecked(&state, Prog_CommandKind_GroupByType));
+        Check(Prog_CommandChecked(&state, Prog_CommandKind_SortByName) == (state.sort == Prog_Sort_Name) && !Prog_CommandChecked(&state, Prog_CommandKind_Refresh));
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupByNone, 0);
+        Check(!state.groupCount && state.viewCount == all && Prog_CommandChecked(&state, Prog_CommandKind_GroupByNone));
+    }
     // The drive index walks everything below the drives, writing itself to the cache folder as it goes, and Go To finds folders and files by name.
     Arena driveArena = {0};
     ArrayPush(&driveArena, state.drives, ((P_Place){ .path = fixture->path }));
@@ -3195,6 +3248,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(state.sidebarWidth == Prog_SidebarMax && state.miller);
         // And a tab's tree, with its unfolded folders.
         state.tree = true;
+        state.groupBy = Prog_GroupBy_Size;
         String unfolded[] = { S("Folder2"), S("Folder2/a b") };
         Prog__SetList(&state.treeArena, &state.treeOpen, unfolded, CArrayCount(unfolded));
         String text = Prog_SessionText(&sessionArena, &state);
@@ -3208,6 +3262,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(StrIsEqual(Prog_EditText(&restored.filter), S("al pha")) && restored.hideFiles && !restored.filterSticky);
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
         Check(restored.miller && restored.tree && restored.treeOpen.header.count == 2 && StrIsEqual(restored.treeOpen.v[1], S("Folder2/a b")));
+        Check(restored.groupBy == Prog_GroupBy_Size);
         // A layout keeps the same, and puts a window that has other tabs back the way it was; a deleted one no longer applies.
         Prog_SetLayout(&restored, S("Two"), Prog_LayoutText(&sessionArena, &state), false);
         Prog_OpenTab(&restored, fixture->path, restored.tabCount, true);

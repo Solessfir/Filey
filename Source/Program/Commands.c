@@ -692,7 +692,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
-    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_FolderViewToggle,
+    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_GroupByNone,
+    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_FolderViewToggle,
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
@@ -1336,6 +1337,35 @@ function void Prog__GoToOpen(Prog_State *state, Prog_GoToItem item)
     Prog_OpenFile(state, item.path);
 }
 
+// Whether a command that picks one of a set or turns something on stands for what the panel shows now, as the view, the sort and the
+// grouping, which the view menu and the palette check; false for the rest.
+function b32 Prog_CommandChecked(const Prog_State *state, Prog_CommandKind kind)
+{
+    u32 zoom = state->zoom;
+    switch (kind) {
+        case Prog_CommandKind_ViewDetails: return zoom == 0;
+        case Prog_CommandKind_ViewList: return zoom == Prog_ZoomList;
+        case Prog_CommandKind_ViewColumns: return zoom == Prog_ZoomColumns;
+        case Prog_CommandKind_ViewMediumIcons: return zoom >= Prog_ZoomIcons && zoom < Prog_ZoomLarge;
+        case Prog_CommandKind_ViewLargeIcons: return zoom >= Prog_ZoomLarge && zoom < Prog_ZoomMax;
+        case Prog_CommandKind_ViewXLIcons: return zoom >= Prog_ZoomMax;
+        case Prog_CommandKind_ToggleMillerColumns: return state->miller;
+        case Prog_CommandKind_ToggleTreeView: return state->tree;
+        case Prog_CommandKind_GroupByNone: return state->groupBy == Prog_GroupBy_None;
+        case Prog_CommandKind_GroupByType: return state->groupBy == Prog_GroupBy_Type;
+        case Prog_CommandKind_GroupByDateModified: return state->groupBy == Prog_GroupBy_Modified;
+        case Prog_CommandKind_GroupBySize: return state->groupBy == Prog_GroupBy_Size;
+        case Prog_CommandKind_SortByName: return state->sort == Prog_Sort_Name;
+        case Prog_CommandKind_SortBySize: return state->sort == Prog_Sort_Size;
+        case Prog_CommandKind_SortByDateCreated: return state->sort == Prog_Sort_Created;
+        case Prog_CommandKind_SortByDateModified: return state->sort == Prog_Sort_Modified;
+        case Prog_CommandKind_SortByDateAccessed: return state->sort == Prog_Sort_Accessed;
+        case Prog_CommandKind_SortByItemCount: return state->sort == Prog_Sort_Items;
+        case Prog_CommandKind_SortByType: return state->sort == Prog_Sort_Type;
+        default: return false;
+    }
+}
+
 // Filey's menus beside the views and tabs: the view, the folder's history, the tabs and everything else.
 function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 {
@@ -1345,17 +1375,10 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 #define Prog__Item(...) (items[count++] = (Prog_MenuCommand){ __VA_ARGS__ })
     switch (command->kind) {
         case Prog_CommandKind_ViewMenu: {
-            u32 zoom = state->zoom;
-            Prog__Item(.kind = Prog_CommandKind_ViewDetails, .checked = zoom == 0);
-            Prog__Item(.kind = Prog_CommandKind_ViewList, .checked = zoom == Prog_ZoomList);
-            Prog__Item(.kind = Prog_CommandKind_ViewColumns, .checked = zoom == Prog_ZoomColumns);
-            Prog__Item(.kind = Prog_CommandKind_ViewMediumIcons, .checked = zoom >= Prog_ZoomIcons && zoom < Prog_ZoomLarge);
-            Prog__Item(.kind = Prog_CommandKind_ViewLargeIcons, .checked = zoom >= Prog_ZoomLarge && zoom < Prog_ZoomMax);
-            Prog__Item(.kind = Prog_CommandKind_ViewXLIcons, .checked = zoom >= Prog_ZoomMax);
-            Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_ToggleMillerColumns, .checked = state->miller);
-            Prog__Item(.kind = Prog_CommandKind_ToggleTreeView, .checked = state->tree);
-            Prog__Item(.kind = Prog_CommandKind_None);
+            u16 kinds[] = { Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns, Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons,
+                            Prog_CommandKind_ViewXLIcons, Prog_CommandKind_None, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_None,
+                            Prog_CommandKind_GroupByNone, Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_None };
+            for (u32 i = 0; i < CArrayCount(kinds); ++i) Prog__Item(.kind = kinds[i], .checked = Prog_CommandChecked(state, (Prog_CommandKind)kinds[i]));
             Prog__Item(.kind = Prog_CommandKind_ZoomIn);
             Prog__Item(.kind = Prog_CommandKind_ZoomOut);
         } break;
@@ -2520,6 +2543,24 @@ function String Prog__PasteFolder(Prog_State *state, Arena *arena)
     return name.length ? Prog_JoinPath(arena, state->directory.path, name) : state->directory.path;
 }
 
+// Where a line up or down from view position `position` goes in a grouped grid: the same column in the line above or below, which may be the
+// last line of the group before or the first of the one after, or its last item when that line is shorter.
+function u64 Prog__GroupedLineStep(const Prog_State *state, u64 position, u64 step, b32 down)
+{
+    u32 at = Prog_GroupAt(state, position);
+    const Prog_ListGroup *group = &state->groups[at];
+    u64 within = position - group->start, column = within % step;
+    if (!down && within >= step) return position - step;
+    if (down && group->count && within / step < (group->count - 1) / step) return Min(position + step, group->start + group->count - 1);
+    for (u32 next = at; down ? ++next < state->groupCount : next-- > 0;) {
+        const Prog_ListGroup *other = &state->groups[next];
+        if (!other->count) continue;
+        u64 line = down ? other->start : other->start + (other->count - 1) / step * step;
+        return Min(line + column, other->start + other->count - 1);
+    }
+    return position;
+}
+
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
 {
     if (state->loading || state->renaming) return;
@@ -3261,14 +3302,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 R_Rect box = state->marqueeBox, item = state->gridItem;
                 UI_Vec2 pitch = state->gridPitch;
                 u64 columns = Max(state->gridColumns, (u64)1), first = UINT64_MAX, last = 0;
-                if (pitch.x > 0 && pitch.y > 0 && state->viewCount) {
-                    u64 lines = (state->viewCount + columns - 1) / columns;
-                    u64 line0 = (u64)MaxF32(0, floorf((box.y0 - item.y1) / pitch.y)), line1 = Min(lines - 1, (u64)MaxF32(0, floorf((box.y1 - item.y0) / pitch.y)) + 1);
+                // A grouped list's groups each start their lines under their heading; one without groups is a single group without one.
+                Prog_ListGroup whole = { .count = state->viewCount };
+                const Prog_ListGroup *groups = state->groupCount ? state->groups : &whole;
+                for (u32 g = 0; pitch.x > 0 && pitch.y > 0 && g < Max(state->groupCount, 1u); ++g) {
+                    const Prog_ListGroup *group = &groups[g];
+                    f32 below = state->groupCount ? group->top + state->groupHeading : 0;
+                    u64 lines = (group->count + columns - 1) / columns;
+                    if (!lines) continue;
+                    u64 line0 = (u64)MaxF32(0, floorf((box.y0 - below - item.y1) / pitch.y)), line1 = Min(lines - 1, (u64)MaxF32(0, floorf((box.y1 - below - item.y0) / pitch.y)) + 1);
                     for (u64 line = line0; line <= line1 && line < lines; ++line) {
                         for (u64 column = 0; column < columns; ++column) {
-                            u64 at = line * columns + column;
-                            if (at >= state->viewCount) break;
-                            f32 x = (f32)column * pitch.x, y = (f32)line * pitch.y;
+                            u64 at = group->start + line * columns + column;
+                            if (at >= group->start + group->count) break;
+                            f32 x = (f32)column * pitch.x, y = below + (f32)line * pitch.y;
                             if (!(item.x0 + x < box.x1 && box.x0 < item.x1 + x && item.y0 + y < box.y1 && box.y0 < item.y1 + y)) continue;
                             Prog_Entry *entry = &state->directory.entries[state->view[at]];
                             entry->selected = toggles ? !entry->marqueeBase : true;
@@ -3343,6 +3390,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->loading || command->row >= state->directory.count || state->directory.entries[command->row].file.kind != P_FileKind_Directory) break;
                 Prog_TreeToggle(state, state->directory.entries[command->row].file.name);
             } break;
+            case Prog_CommandKind_GroupByNone:
+            case Prog_CommandKind_GroupByType:
+            case Prog_CommandKind_GroupByDateModified:
+            case Prog_CommandKind_GroupBySize: {
+                // Another grouping starts with every group shown.
+                state->groupBy = command->kind == Prog_CommandKind_GroupByType ? Prog_GroupBy_Type : command->kind == Prog_CommandKind_GroupByDateModified ? Prog_GroupBy_Modified
+                               : command->kind == Prog_CommandKind_GroupBySize ? Prog_GroupBy_Size : Prog_GroupBy_None;
+                Prog__SetList(&state->groupArena, &state->groupsFolded, NULL, 0);
+                Prog_ApplyFilter(state, false);
+                state->revealFocus = true;
+            } break;
+            case Prog_CommandKind_GroupToggle: if (!state->loading && command->row < state->groupCount) Prog_GroupToggle(state, (u32)command->row); break;
             case Prog_CommandKind_LayoutsSave: {
                 Prog_CloseMenu(state);
                 state->paletteOpen = false;
@@ -3645,9 +3704,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     u64 page = (state->pageRows > 1 ? state->pageRows - 1 : 1) * step;
                     u64 last = state->viewCount - 1;
                     switch (way) {
-                        case Up: if (row >= step) row -= step; break;
+                        case Up: row = state->groupCount ? Prog__GroupedLineStep(state, row, step, false) : row >= step ? row - step : row; break;
                         // Down from a line with nothing under it goes to the last item, as in Explorer.
-                        case Down: if (state->hasFocus) row = row + step <= last ? row + step : row / step < last / step ? last : row; break;
+                        case Down: {
+                            if (!state->hasFocus) break;
+                            if (state->groupCount) row = Prog__GroupedLineStep(state, row, step, true);
+                            else row = row + step <= last ? row + step : row / step < last / step ? last : row;
+                        } break;
                         case Left: if (row) --row; break;
                         case Right: if (state->hasFocus && row < last) ++row; break;
                         case First: row = 0; break;

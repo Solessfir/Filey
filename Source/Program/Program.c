@@ -4344,6 +4344,38 @@ function f32 Prog__ZoomIconSize(u32 zoom, f32 scale)
     return floorf((48.0f + t * (204.8f - 48.0f)) * scale + 0.5f);
 }
 
+// A grouped list's heading: its name and how many items it has, before a line, which a press folds the group away or shows again.
+function void Prog__GroupHeading(Prog_State *state, UI_Key seed, u32 index, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    const Prog_ListGroup *group = &state->groups[index];
+    UI_Key key = UI_KeyFromStr(seed, group->label);
+    b32 hot = UI->hotKey == key && !state->loading;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ 0, 0, m->gap, 0 });
+    UI_SetNextCornerRadius(m->radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
+    UI_Block *heading = UI_AddBlockFromKey(key, (!state->loading ? UI_Flag_LeftMouseClickable : 0) | (hot ? UI_Flag_DrawBackground : 0));
+    UI_Interaction interaction = UI_InteractionFromBlock(heading);
+    if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_GroupToggle, index, 0, interaction.clickOrder);
+    UI_Parent(heading) {
+        R_Color color = hot ? theme->text : theme->textHeading;
+        Prog__Icon(group->count || !group->total ? Icon_ChevronDown : Icon_ChevronRight, m->iconSlot, height, color, 0.5f, m);
+        Prog__Label(Prog_Tr(group->label), UI_TextContent(), height, 0, color, 0);
+        Prog__Label(StrFormat(&state->frameArena, "%" PRIu64, group->total), UI_TextContent(), height, m->gap, theme->textDim, 0);
+        UI_Block *rule = Prog__Box(UI_Flex(), UI_Pixels(height), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(rule) {
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(m->stroke));
+            UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+            UI_AddBlock(UI_Flag_DrawBackground);
+        }
+    }
+}
+
 function void Prog__List(Prog_State *state, const Prog_Columns *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -4432,7 +4464,17 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     state->gridColumns = perLine;
     state->gridPitch = pitch;
     state->gridItem = item;
-    u64 lines = (state->viewCount + perLine - 1) / perLine;
+    // A grouped list runs its groups one after another, each a heading and then the lines of its items; a list without groups is one group
+    // without a heading.
+    Prog_ListGroup whole = { .count = state->viewCount, .total = state->viewCount };
+    Prog_ListGroup *groups = state->groupCount ? state->groups : &whole;
+    u32 groupCount = Max(state->groupCount, 1u);
+    f32 heading = state->groupCount ? floorf(m->row * 1.4f + 0.5f) : 0, contentHeight = 0;
+    state->groupHeading = heading;
+    for (u32 g = 0; g < groupCount; ++g) {
+        groups[g].top = contentHeight;
+        contentHeight += heading + (f32)((groups[g].count + perLine - 1) / perLine) * pitch.y;
+    }
 
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / pitch.y);
     // Before its first layout the list has no height to reveal anything in. A reveal goes on while the list's height changes after it, as an
@@ -4441,11 +4483,15 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     b32 resized = state->revealHeight > 0 && state->revealHeight != listHeight;
     if ((state->revealFocus || resized) && state->hasFocus && listHeight > 0) {
         u64 position = Prog_ViewPosition(state, state->focusedRow);
-        f32 top = (f32)((position == UINT64_MAX ? 0 : position) / perLine) * pitch.y;
+        if (position == UINT64_MAX) position = 0;
+        // An item in its group's first line comes into sight with the heading.
+        const Prog_ListGroup *group = &groups[state->groupCount ? Prog_GroupAt(state, position) : 0];
+        u64 line = (position - Min(position, group->start)) / perLine;
+        f32 bottom = group->top + heading + (f32)(line + 1) * pitch.y, top = line ? bottom - pitch.y : group->top;
         // Center Camera puts its line in the middle.
-        if (state->centerFocus) list->scrollOffset.y = Max(0.0f, top + pitch.y * 0.5f - listHeight * 0.5f);
+        if (state->centerFocus) list->scrollOffset.y = Max(0.0f, bottom - pitch.y * 0.5f - listHeight * 0.5f);
         else if (top < list->scrollOffset.y) list->scrollOffset.y = top;
-        else if (top + pitch.y > list->scrollOffset.y + listHeight) list->scrollOffset.y = Max(0.0f, top + pitch.y - listHeight);
+        else if (bottom > list->scrollOffset.y + listHeight) list->scrollOffset.y = Max(0.0f, bottom - listHeight);
         state->revealFocus = state->centerFocus = false;
         state->revealHeight = listHeight;
         UI_KeepAnimating();
@@ -4456,50 +4502,63 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     UI_LimitScrollEase(list);
     // Only lines near the viewport get blocks; spacers stand in for the rest. While scrolling eases, both ends of the way are covered.
     f32 scrollFrom = MinF32(list->scrollOffset.y, list->scrollShown.y), scrollTo = MaxF32(list->scrollOffset.y, list->scrollShown.y);
-    u64 first = (u64)(Max(0.0f, scrollFrom) / pitch.y);
-    if (first > 2) first -= 2; else first = 0;
-    first = Min(first, lines);
     f32 visibleHeight = Max(pitch.y, UI->root->rect.y1 - UI->root->rect.y0) + (scrollTo - scrollFrom);
-    u64 end = Min(lines, first + (u64)(visibleHeight / pitch.y) + 6);
+    f32 viewFrom = MaxF32(0, scrollFrom) - 2 * pitch.y, viewTo = MaxF32(0, scrollFrom) + visibleHeight + 4 * pitch.y;
     UI_Parent(list) {
-        if (first) Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch.y));
-        UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path);
+        UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path), groupKey = UI_KeyFromStr(directoryKey, S("Group"));
         UI_Key marqueeFrom = 0;
-        for (u64 line = first; line < end; ++line) {
-            // Columns keeps its cells when only one fits across.
-            if (perLine == 1 && view != Prog_View_Columns) {
-                u64 row = state->view[line];
-                UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
-                if (Prog__Row(state, row, line, key, columns, view == Prog_View_List, m)) marqueeFrom = key;
-                continue;
+        // How far down the blocks so far reach; spacers fill what they skip.
+        f32 drawn = 0;
+        for (u32 g = 0; g < groupCount && groups[g].top < viewTo; ++g) {
+            const Prog_ListGroup *group = &groups[g];
+            f32 below = group->top + heading;
+            if (heading > 0 && below > viewFrom) {
+                if (group->top > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(group->top - drawn));
+                Prog__GroupHeading(state, groupKey, g, heading, m);
+                drawn = below;
             }
-            UI_Block *cells = Prog__Box(UI_Flex(), UI_Pixels(pitch.y), UI_Layout_Horizontal, (R_Color){0}, 0);
-            UI_Parent(cells) {
-                for (u64 at = line * perLine; at < Min(state->viewCount, (line + 1) * perLine); ++at) {
-                    u64 row = state->view[at];
-                    Prog_Entry *entry = &state->directory.entries[row];
-                    UI_Key key = UI_KeyFromStr(directoryKey, entry->file.name);
-                    // An item drawn in the last frame eases from where it was to its place in a new layout; others
-                    // start in place.
-                    f32 placeX = (f32)(at - line * perLine) * pitch.x, placeY = (f32)line * pitch.y;
-                    if (gliding && entry->shownFrame + 1 == UI->frameIndex) {
-                        entry->shownX = UI_Approach(entry->shownX, placeX, 0.5f);
-                        entry->shownY = UI_Approach(entry->shownY, placeY, 0.5f);
-                    } else {
-                        entry->shownX = placeX;
-                        entry->shownY = placeY;
-                    }
-                    entry->shownFrame = UI->frameIndex;
-                    // Each cell is a slot of the pitch, with the item inside it where the grid puts it.
-                    UI_SetNextPrefWidth(UI_Pixels(pitch.x));
-                    UI_SetNextPrefHeight(UI_Pixels(pitch.y));
-                    UI_SetNextChildrenPadding((UI_Padding){ item.x0 - m->inset + floorf(entry->shownX - placeX + 0.5f), item.y0 + floorf(entry->shownY - placeY + 0.5f), 0, 0 });
-                    UI_Block *slot = UI_AddBlock(0);
-                    UI_Parent(slot) {
-                        if (view == Prog_View_Columns) {
-                            if (Prog__ColumnCell(state, row, line, key, item.x1 - item.x0, m)) marqueeFrom = key;
+            u64 lines = (group->count + perLine - 1) / perLine;
+            u64 first = viewFrom > below ? (u64)((viewFrom - below) / pitch.y) : 0, end = viewTo > below ? Min(lines, (u64)((viewTo - below) / pitch.y) + 1) : 0;
+            for (u64 line = first; line < end; ++line) {
+                f32 y = below + (f32)line * pitch.y;
+                if (y > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(y - drawn));
+                drawn = y + pitch.y;
+                u64 from = group->start + line * perLine, to = Min(group->start + group->count, from + perLine);
+                // Columns keeps its cells when only one fits across.
+                if (perLine == 1 && view != Prog_View_Columns) {
+                    u64 row = state->view[from];
+                    UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
+                    if (Prog__Row(state, row, from, key, columns, view == Prog_View_List, m)) marqueeFrom = key;
+                    continue;
+                }
+                UI_Block *cells = Prog__Box(UI_Flex(), UI_Pixels(pitch.y), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(cells) {
+                    for (u64 at = from; at < to; ++at) {
+                        u64 row = state->view[at];
+                        Prog_Entry *entry = &state->directory.entries[row];
+                        UI_Key key = UI_KeyFromStr(directoryKey, entry->file.name);
+                        // An item drawn in the last frame eases from where it was to its place in a new layout; others
+                        // start in place.
+                        f32 placeX = (f32)(at - from) * pitch.x, placeY = y;
+                        if (gliding && entry->shownFrame + 1 == UI->frameIndex) {
+                            entry->shownX = UI_Approach(entry->shownX, placeX, 0.5f);
+                            entry->shownY = UI_Approach(entry->shownY, placeY, 0.5f);
                         } else {
-                            Prog__IconCell(state, row, key, item.x1 - item.x0, item.y1 - item.y0, iconSize, m);
+                            entry->shownX = placeX;
+                            entry->shownY = placeY;
+                        }
+                        entry->shownFrame = UI->frameIndex;
+                        // Each cell is a slot of the pitch, with the item inside it where the grid puts it.
+                        UI_SetNextPrefWidth(UI_Pixels(pitch.x));
+                        UI_SetNextPrefHeight(UI_Pixels(pitch.y));
+                        UI_SetNextChildrenPadding((UI_Padding){ item.x0 - m->inset + floorf(entry->shownX - placeX + 0.5f), item.y0 + floorf(entry->shownY - placeY + 0.5f), 0, 0 });
+                        UI_Block *slot = UI_AddBlock(0);
+                        UI_Parent(slot) {
+                            if (view == Prog_View_Columns) {
+                                if (Prog__ColumnCell(state, row, line, key, item.x1 - item.x0, m)) marqueeFrom = key;
+                            } else {
+                                Prog__IconCell(state, row, key, item.x1 - item.x0, item.y1 - item.y0, iconSize, m);
+                            }
                         }
                     }
                 }
@@ -4526,13 +4585,13 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, point.y >= anchor.y, 0);
             Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollShown.y, box.x1 - m->inset, box.y1 - list->scrollShown.y }, m);
         }
-        if (end < lines) Prog__Spacer(UI_Flex(), UI_Pixels((f32)(lines - end) * pitch.y));
+        if (contentHeight > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(contentHeight - drawn));
         // Cells that sit lower in their slot, as Columns' do, reach past the last one.
-        if (lines && item.y1 > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(item.y1 - pitch.y));
+        if (state->viewCount && item.y1 > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(item.y1 - pitch.y));
         // A list longer than its view scrolls on by half the view, so that its last line stops just above the middle.
         f32 viewHeight = list->rect.y1 - list->rect.y0;
-        if (!state->noOverscroll && (f32)lines * pitch.y > viewHeight && viewHeight > 2 * pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(floorf(viewHeight * 0.5f)));
-        if (!state->viewCount && !state->loading) {
+        if (!state->noOverscroll && contentHeight > viewHeight && viewHeight > 2 * pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(floorf(viewHeight * 0.5f)));
+        if (!state->viewCount && !state->groupCount && !state->loading) {
             // Centered a little below the top.
             String empty = state->directory.count ? Tr("All items are currently hidden by view settings.") : Tr("This folder is empty.");
             Prog__Spacer(UI_Flex(), UI_Pixels(floorf(m->row * 0.65f)));
@@ -8512,10 +8571,13 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                     } else {
                         String label = Prog_CommandLabel((Prog_CommandKind)at.kind), tooltip = Prog_CommandTooltip((Prog_CommandKind)at.kind);
                         if (searching) {
-                            // A command found by searching shows its group in front of it.
-                            Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
+                            // A command found by searching shows its group in front of it, and a check in place of its icon while it is on.
+                            Prog__Icon(Prog_CommandChecked(state, (Prog_CommandKind)at.kind) ? Icon_Check : groupIcons[at.group], slot, face, icon, 0, m);
                             Prog__Label(Prog_Tr(groupNames[at.group]), UI_Pixels(groupWidth), face, 0, named, 0);
                             Prog__Icon(Icon_ChevronRight, floorf(20.8f * s + 0.5f), face, icon, 0, m);
+                        } else if (Prog_CommandChecked(state, (Prog_CommandKind)at.kind)) {
+                            // A check, as the menus have, for the view, the sort and the grouping shown now.
+                            Prog__Icon(Icon_Check, slot + floorf(1.6f * s + 0.5f), face, icon, 0, m);
                         } else {
                             Prog__Spacer(UI_Pixels(slot + floorf(1.6f * s + 0.5f)), UI_Pixels(face));
                         }

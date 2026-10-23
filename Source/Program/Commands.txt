@@ -1680,6 +1680,30 @@ command ToggleTreeView {
 command TreeToggle {
 }
 
+command GroupByNone {
+    label   = "No Grouping^group,ungroup,headings,sections,flat"
+    tooltip = "List the items without group headings."
+}
+
+command GroupByType {
+    label   = "Group By Type^headings,sections,kind,extension"
+    tooltip = "Group the items under headings by their type."
+}
+
+command GroupByDateModified {
+    label   = "Group By Date Modified^headings,sections,day,week,month,year,today,yesterday"
+    tooltip = "Group the items under headings by when they last changed: today, yesterday, earlier this week and so on."
+}
+
+command GroupBySize {
+    label   = "Group By Size^headings,sections,tiny,small,medium,large,huge"
+    tooltip = "Group the items under headings by size, from empty to gigantic, the folders apart."
+}
+
+// A press on a group's heading, which folds its items away or shows them again; carries the group.
+command GroupToggle {
+}
+
 // A Miller column's row pressed; carries the row, the column's slot as its target and the press count.
 command MillerSelect {
 }
