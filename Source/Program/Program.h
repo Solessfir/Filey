@@ -1520,6 +1520,7 @@ typedef struct Prog_State {
     b32 sliderDragged;            // the slider pressed has been dragged, so letting go sets it rather than starting to type
     Prog_TextEdit sliderEdit;
     b32 systemScheme;           // the system's light or dark choice picks the light scheme or that one
+    b32 systemDark;             // the system's choice, as the settings last read it
     // How the lists look: the space between their items and how much inactive panels show, as offsets from the default 4 and 60 so that
     // {0} has them, square corners and every other row tinted.
     i32 spacingShift;

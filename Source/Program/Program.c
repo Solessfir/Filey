@@ -594,7 +594,7 @@ function void Prog_StartupWindow(String configDirectory, PlatformWindowDesc *des
 {
     Scratch scratch = GetScratch();
     String text = {0}, theme = {0}, light = {0};
-    b32 system = false, transparent = false, own = false, glassOwn = false;
+    b32 system = true, transparent = false, own = false, glassOwn = false;
     u8 backdrop = PlatformBackdrop_Acrylic;
     R_Color glass = {0}, window = {0}, color;
     if (configDirectory.length) P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, S("Settings.conf")), &text);
@@ -720,7 +720,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->animationsOff = false;
     state->transparent = false;
     state->scheme = 0;
-    state->systemScheme = false;
+    state->systemScheme = true;
     state->spacingShift = 0;
     state->borderSize = 0;
     state->squareCorners = false;
@@ -933,7 +933,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     }
     ReleaseScratch(scratch);
     // The system's light mode brings the light scheme, its dark mode the one chosen.
-    if (state->systemScheme && !P_PrefersDarkColors()) {
+    state->systemDark = !state->systemScheme || P_PrefersDarkColors();
+    if (!state->systemDark) {
         Prog__UseScheme(state, state->lightSchemeName.length ? StrMake(state->lightSchemeName.text, state->lightSchemeName.length) : S("light"), state->schemeGroups);
         Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
     }
@@ -964,7 +965,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
                                 "# A scheme by its name: filey-dark, catppuccin-frappe, catppuccin-latte, nord, gruvbox, tokyo-night, one-dark\n"
                                 "# or a custom one; colors set before this line are replaced.\n# theme = filey-dark\n"
-                                "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = catppuccin-latte\n\n"
+                                "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = true\n# theme.light = catppuccin-latte\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
                                 "# The thickness of the outlines, in pixels: 1, 1.5, 2, 2.5 or 3; the lines between areas take the nearest whole pixels.\n# borders = 1\n\n"
@@ -1208,7 +1209,7 @@ function b32 Prog_OptionApplies(Prog_Option option)
 // The scheme shown, by its place as `scheme` counts them, and its name: with the system's choice in its light mode, the light one.
 function u8 Prog_ShownScheme(const Prog_State *state, String *name)
 {
-    b32 light = state->systemScheme && !P_PrefersDarkColors();
+    b32 light = state->systemScheme && !state->systemDark;
     const Prog_FontName *named = light ? &state->lightSchemeName : &state->schemeName;
     if (name) *name = StrMake(named->text, named->length);
     return light ? state->lightScheme : state->scheme;
@@ -1801,7 +1802,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_PopupOpacity: return (i32)floorf(Prog_DefaultPopupOpacity * 100 + 0.5f);
         case Prog_Option_WindowOpacity: return (i32)floorf(Prog_DefaultGlassOpacity * 100 + 0.5f);
         case Prog_Option_Backdrop: return PlatformBackdrop_Acrylic;
-        case Prog_Option_LoadThumbnails: case Prog_Option_Animations: case Prog_Option_RoundCorners: case Prog_Option_ShowFileExtension:
+        case Prog_Option_LoadThumbnails: case Prog_Option_Animations: case Prog_Option_RoundCorners: case Prog_Option_ShowFileExtension: case Prog_Option_SystemScheme:
         case Prog_Option_ShortenedPaths: case Prog_Option_Breadcrumbs: case Prog_Option_ConfirmEmptyTrash: case Prog_Option_SingleWindow:
         case Prog_Option_VSync: case Prog_Option_HighlightCode: case Prog_Option_CalcFolderSizes: case Prog_Option_CalcFolderSizesSSD:
         case Prog_Option_ActOnPress: case Prog_Option_UnderlineOnHover: case Prog_Option_Overscroll: return 1;

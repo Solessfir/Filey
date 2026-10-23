@@ -3179,7 +3179,8 @@ function void TestSettings(void)
     {
         Prog_State look = {0};
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 4 && Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 60 && Prog_OptionValue(&look, Prog_Option_RoundCorners));
-        Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
+        // The schemes are checked as chosen, whatever the system's mode, which a theme.system off leaves out.
+        Prog_ApplySettings(&look, S("theme.system = off\nspacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
         // "light" is the light scheme, Catppuccin Latte.
         Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == Prog_LightScheme && (u32)(Prog_ThemeUser.background.r * 255 + 0.5f) == 0xEF &&
@@ -3188,12 +3189,12 @@ function void TestSettings(void)
         // popups and disabled icons come from its surface, background, icon and disabled colors.
         Prog_Theme made = Prog__ThemeFromScheme(Prog_SchemeColors[0]);
         Check(!MemCompare(&Prog_ThemeCustom, &made, sizeof(made)));
-        Prog_ApplySettings(&look, S("theme = FullMoon\n"));
+        Prog_ApplySettings(&look, S("theme.system = off\ntheme = FullMoon\n"));
         Check(look.scheme == 0 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA3);
         // A custom scheme by its name, its colors over the default scheme's, among the choices after the built-in ones; a fork of it is named
         // as the first free custom one and shows in its place by name, and the picker changes its colors.
         Prog_SetScheme(&look, S("Mine"), S("Background = #102030\nnonsense = #ffffff\n"), false);
-        Prog_ApplySettings(&look, S("theme = mine\n"));
+        Prog_ApplySettings(&look, S("theme.system = off\ntheme = mine\n"));
         Check(look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
         u32 schemeChoices = 0;
         Prog_OptionChoices(&look, Prog_Option_ColorScheme, &look.frameArena, &schemeChoices);

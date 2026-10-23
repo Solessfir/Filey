@@ -542,6 +542,11 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
                 SHChangeNotification_Unlock(lock);
             }
         } return 0;
+        // Windows tells of a change to its light or dark mode by this name, and goes on to the default handling.
+        case WM_SETTINGCHANGE: {
+            if (lParam && !lstrcmpW((const wchar *)lParam, L"ImmersiveColorSet")) PlatformPushEvent(PlatformEventKind_ColorsChanged);
+            break;
+        }
         case WM_DEVICECHANGE: {
             if (wParam == DBT_DEVICEARRIVAL || wParam == DBT_DEVICEREMOVECOMPLETE) PlatformPushEvent(PlatformEventKind_DrivesChanged);
             return TRUE;

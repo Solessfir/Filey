@@ -4426,6 +4426,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
         if (event->kind == PlatformEventKind_DrivesChanged) state->drivesChanged = true;
+        // The settings take the system's new mode, and with it its scheme.
+        if (event->kind == PlatformEventKind_ColorsChanged && state->systemScheme) Prog_ReloadSettingsFile(state);
         if (event->kind == PlatformEventKind_OpenPaths) Prog_OpenPaths(state, event->text);
         if (event->kind == PlatformEventKind_TabHover) {
             state->foreignDrag = event->focused;

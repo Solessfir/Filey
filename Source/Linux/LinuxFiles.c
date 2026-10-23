@@ -1281,8 +1281,36 @@ function P_DriveKind P_PathDriveKind(String path)
     return result;
 }
 
+// The desktop's choice from the settings portal, as gdbus reads it: 1 prefers dark, 2 light, and 0 or -1 for none or no portal.
+function i32 P__PortalColorScheme(void)
+{
+    Scratch scratch = GetScratch();
+    String arguments[] = { S("gdbus"), S("call"), S("--session"), S("--timeout"), S("1"), S("--dest"), S("org.freedesktop.portal.Desktop"),
+                           S("--object-path"), S("/org/freedesktop/portal/desktop"), S("--method"), S("org.freedesktop.portal.Settings.Read"),
+                           S("org.freedesktop.appearance"), S("color-scheme") };
+    String output = {0};
+    i32 result = -1;
+    // It answers as "(<<uint32 1>>,)".
+    if (P_RunCommand(scratch.arena, S("/"), arguments, CArrayCount(arguments), 1500, &output, false)) {
+        Index at = StrIndexStr(output, S("uint32 "), SSF_None);
+        if (at.exists && at.value + 7 < output.length) result = output.value[at.value + 7] - '0';
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_PrefersDarkColors(void)
 {
+    // The portal first, which the desktops set, asked at most every two seconds as that runs a program; GTK's own settings where it has no
+    // choice; dark where neither says.
+    local_persist u64 askedAt;
+    local_persist i32 portal;
+    u64 now = PlatformNowMicroseconds();
+    if (!askedAt || now - askedAt > 2000000) {
+        portal = P__PortalColorScheme();
+        askedAt = now;
+    }
+    if (portal == 1 || portal == 2) return portal == 1;
     const char *theme = getenv("GTK_THEME");
     if (theme && theme[0]) return strstr(theme, "dark") != NULL || strstr(theme, "Dark") != NULL;
     Scratch scratch = GetScratch();

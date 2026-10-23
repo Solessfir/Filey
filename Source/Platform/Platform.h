@@ -100,6 +100,7 @@ typedef enum PlatformEventKind {
     PlatformEventKind_DrivesChanged,  // a drive or its medium came or went
     PlatformEventKind_OpenPaths,      // a later run of the program handed this one its folders, in `text` a line each; none to come forward only
     PlatformEventKind_TabHover,       // another of the program's windows drags a tab over this one, at `x`, `y`; `focused` false once it has left
+    PlatformEventKind_ColorsChanged,  // the system's light or dark mode changed
 
     PlatformEventKind_Count,
 } PlatformEventKind;
