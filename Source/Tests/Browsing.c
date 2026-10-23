@@ -2139,6 +2139,10 @@ function void TestFileOperations(TestFileFixture *fixture)
     String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));
     Check(!P_TransferItems(&arena, &plain, 1, ops, false, NULL, NULL, &token).code);
     Check(!P_TransferItems(&arena, &plain, 1, ops, false, NULL, NULL, &token).code);
+    // One stopped is a cancel, which is no failure to report.
+    P_CancelToken stopped = {0};
+    P_RequestCancel(&stopped);
+    Check(P_FileErrorIsCancel(P_TransferItems(&arena, &plain, 1, ops, false, NULL, NULL, &stopped)) && !P_FileErrorIsCancel((P_FileError){0}));
     Check(TestHasFile(&arena, fixture, S("Ops"), S("plain.txt")) && TestHasFile(&arena, fixture, S(""), S("plain.txt")));
     Check(TestListing(&arena, fixture, S("Ops")).header.count == 6);
 #if defined(__linux__)

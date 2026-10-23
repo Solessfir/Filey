@@ -5530,8 +5530,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
             String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
-            // One cancelled from its card or with Escape stops without an error.
-            if (error.code && !P_IsCancelled(&job->cancelToken)) {
+            // One stopped from its card, with Escape or in the system's own progress window ends without an error.
+            if (error.code && !P_IsCancelled(&job->cancelToken) && !P_FileErrorIsCancel(error)) {
                 String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");

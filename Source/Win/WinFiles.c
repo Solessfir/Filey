@@ -34,6 +34,12 @@ function String P__FileStringWide(Arena *arena, const wchar *text, i32 length)
     return StrMake(bytes, (u64)count);
 }
 
+function b32 P_FileErrorIsCancel(P_FileError error)
+{
+    // The shell reports a stop as ERROR_CANCELLED, as its own DE_OPCANCELLED, or as the first one's HRESULT.
+    return error.code == ERROR_CANCELLED || error.code == 0x75 || error.code == (u32)HRESULT_FROM_WIN32(ERROR_CANCELLED);
+}
+
 function P_FileError P__FileError(Arena *arena, u32 code)
 {
     wchar message[512] = {0};
@@ -672,8 +678,8 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 {
     if (P_IsCancelled(cancel)) return P__FileError(arena, ERROR_CANCELLED);
     P_FileError error = P__ShellFileOperation(arena, FO_DELETE, paths, count, (String){0}, confirm ? 0 : FOF_NOCONFIRMATION, confirm ? P__shellOwner : NULL, NULL);
-    // A No is reported as a cancel, or as the shell's own DE_OPCANCELLED.
-    return confirm && (error.code == ERROR_CANCELLED || error.code == 0x75) ? (P_FileError){0} : error;
+    // A No is reported as a cancel.
+    return confirm && P_FileErrorIsCancel(error) ? (P_FileError){0} : error;
 }
 
 // Only with a window to own its dialog, so that the headless tests confirm as other platforms do.

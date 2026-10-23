@@ -43,6 +43,9 @@ typedef struct P_FileError {
     String message;
 } P_FileError;
 
+// Whether `error` is an operation the user stopped, as in the system's own progress window, which is no failure to report.
+function b32 P_FileErrorIsCancel(P_FileError error);
+
 // Results belong to arena. Cancellation and directory errors discard partial listings.
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel);
 // Up to `limit` items inside an archive (zip, 7z, rar, tar and the like), each named by its path inside it with '/' between folders, folders

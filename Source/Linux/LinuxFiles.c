@@ -35,6 +35,11 @@ function char *P__FilePathCString(Arena *arena, String path)
     return result;
 }
 
+function b32 P_FileErrorIsCancel(P_FileError error)
+{
+    return error.code == ECANCELED;
+}
+
 function P_FileError P__FileError(Arena *arena, u32 code)
 {
     char message[256] = {0};
