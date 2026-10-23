@@ -4800,13 +4800,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     }
                     continue;
                 }
-                // Escape clears the text first, and closes once there is none.
-                if (event->key == Key_Escape && state->palette.length) {
-                    state->palette.anchor = 0;
-                    state->palette.cursor = state->palette.length;
-                    Prog__EditReplace(&state->palette, (const u8 *)"", 0);
-                }
-                else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
+                // Escape closes at once, with the text typed, which Ctrl+U clears instead.
+                if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, order);
                 else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, UINT64_MAX, 0, order)->mods = event->mods;
                 // The command list wraps around; Go To stops at its ends.
                 else if (event->key == Key_Up || Prog__ListCursorKey(state, event) < 0) state->paletteHighlight = state->paletteHighlight && state->paletteHighlight != UINT32_MAX ? state->paletteHighlight - 1 : (count && !goTo ? count - 1 : 0);

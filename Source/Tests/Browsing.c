@@ -2605,7 +2605,9 @@ function void TestTabs(TestFileFixture *fixture)
     String shownPath = P_NativePath(&state.frameArena, Prog_JoinPath(&state.frameArena, state.directory.path, S("")));
     Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_GoTo && StrIsEqual(Prog_EditText(&state.palette), shownPath));
     Check(state.palette.anchor == 0 && state.palette.cursor == state.palette.length && state.paletteHighlight == UINT32_MAX);
-    TestBrowsingCommand(&state, Prog_CommandKind_PaletteClose, 0);
+    // Escape closes the palette at once, with its text, rather than clearing it first.
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!state.paletteOpen);
     // Go To lists the folder typed, offers its subfolders starting with what follows it, and opens the one picked.
     TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
     Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_GoTo);
