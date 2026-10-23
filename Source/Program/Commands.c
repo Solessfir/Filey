@@ -2147,6 +2147,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewSeconds = 0;
     state->torrent = (Prog_TorrentInfo){0};
     state->torrentSkip = NULL;
+    state->torrentDone = NULL;
+    state->torrentRead = false;
     // What played stops once another item is shown.
     if (state->playerJob && state->playerHash != MapHashBytes(want.value, want.length)) Prog__StopPlayer(state);
     state->previewAnchor = state->previewCaret = 0;

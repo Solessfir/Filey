@@ -10283,6 +10283,20 @@ function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry,
                 if (folders.length) Prog__Label(Prog__Ellipsize(frame, m->font, folders, MaxF32(0, room - leafWidth)), UI_TextContent(), row, 0, theme->textDim, 0);
                 Prog__Label(Prog__Ellipsize(frame, m->font, leaf, room), UI_TextContent(), row, 0, state->torrentSkip[index] ? theme->textDim : theme->text, 0);
                 Prog__Spacer(UI_Flex(), UI_Pixels(row));
+                // How far it is once that is known: its percent beside its size, and a line along its bottom filled that far.
+                if (state->torrentDone) {
+                    f32 share = file->size ? (f32)Min(state->torrentDone[index], file->size) / (f32)file->size : 1;
+                    UI_SetNextFont(m->detail);
+                    Prog__LabelPadded(StrFormat(frame, "%u%%", (u32)floorf(share * 100)), UI_TextContent(), row, m->gap, 0, share >= 1 ? theme->accent : theme->textDim, 1);
+                    f32 thick = MaxF32(1, floorf(1.6f * s + 0.5f)), left = m->inset + box + m->gap, across = MaxF32(0, list->rect.x1 - list->rect.x0 - gutter - left - m->inset);
+                    for (u32 layer = 0; layer < 2; ++layer) {
+                        UI_SetNextFloatingOffset((UI_Vec2){ left, row - thick });
+                        UI_SetNextPrefWidth(UI_Pixels(layer ? floorf(across * share) : across));
+                        UI_SetNextPrefHeight(UI_Pixels(thick));
+                        UI_SetNextColors((UI_Colors){ .background = layer ? theme->accent : theme->tabBorder });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                }
                 UI_SetNextFont(m->detail);
                 Prog__LabelPadded(size, UI_TextContent(), row, m->gap, 0, theme->textDim, 1);
             }
@@ -10336,9 +10350,12 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         u32 slot = UINT32_MAX;
         for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) slot = i;
         if (slot == UINT32_MAX) {
-            // Not without a file ticked, once its files are known.
+            // Not without a file ticked that is still to come, once its files are known.
             b32 any = !state->torrent.fileCount;
-            for (u32 i = 0; i < state->torrent.fileCount && state->torrentSkip; ++i) any |= !state->torrentSkip[i] && !state->torrent.files[i].pad;
+            for (u32 i = 0; i < state->torrent.fileCount && state->torrentSkip; ++i) {
+                b32 whole = state->torrentDone && state->torrentDone[i] >= state->torrent.files[i].size;
+                any |= !state->torrentSkip[i] && !state->torrent.files[i].pad && !whole;
+            }
             Prog__ToolbarButton(state, S("InspectorDownload"), Icon_Download, Prog_CommandKind_DownloadTorrent, any, m);
         } else {
             P_Progress *progress = &state->transfers[slot].progress;

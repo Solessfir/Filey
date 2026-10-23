@@ -2205,6 +2205,16 @@ function void Prog__DirectoryJob(P_Job *job)
         Prog_PlayAudio(input->path, input->offset, input->progress, &job->cancelToken);
         return;
     }
+    if (input->kind == Prog_JobKind_TorrentProgress) {
+        Prog_TorrentProgress *result = ArenaPushStruct(&job->arena, Prog_TorrentProgress);
+        result->done = ArenaPushArray(&job->arena, input->pathCount + 1, u64);
+        result->exists = ArenaPushArray(&job->arena, input->pathCount + 1, b8);
+        String control = {0};
+        result->control = P_ReadFile(&job->arena, input->path, &control) && Prog_TorrentControlDone(control, input->sizes, input->pathCount, result->done);
+        for (u64 i = 0; !result->control && i < input->pathCount; ++i) result->exists[i] = (b8)P_PathExists(input->paths[i]);
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_WarmMenu) {
         ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
@@ -5068,6 +5078,59 @@ function void Prog__DropPdf(Prog_State *state)
     state->pdf.sizes = NULL;
 }
 
+function void Prog_WakeAt(Prog_State *state, u64 at);
+
+// A torrent's path as aria2c writes it: on Windows, with the characters its names cannot hold as underscores.
+function String Prog__AriaPath(Arena *arena, String path)
+{
+#if defined(_WIN32)
+    u8 *text = ArenaPushArray(arena, path.length + 1, u8);
+    for (u64 i = 0; i < path.length; ++i) {
+        u8 c = (u8)path.value[i];
+        text[i] = c < 32 || c == '<' || c == '>' || c == ':' || c == '"' || c == '\\' || c == '|' || c == '?' || c == '*' ? '_' : c;
+    }
+    return StrMake((const char *)text, path.length);
+#else
+    (void)arena;
+    return path;
+#endif
+}
+
+// Asks how far the files of the torrent the active inspector shows are: once it shows them, every two seconds while its download runs, and
+// once more after.
+function void Prog__PollTorrentProgress(Prog_State *state)
+{
+    if (!state->previewShown || !state->torrent.fileCount || !state->torrentSkip || state->torrentProgressJob) return;
+    u64 hash = MapHashBytes(state->previewPath.value, state->previewPath.length), now = PlatformNowMicroseconds(), next = state->torrentProgressAt + 2000000;
+    b32 running = false;
+    for (u32 i = 0; i < Prog_MaxTransfers; ++i) running |= state->transfers[i].job && state->transfers[i].sourceHash == hash;
+    if (state->torrentRead && (!running || now < next)) {
+        if (running) Prog_WakeAt(state, next);
+        return;
+    }
+    const Prog_TorrentInfo *torrent = &state->torrent;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_TorrentProgress;
+    input->name = StrCopy(&job->arena, state->previewPath);
+    // What it downloads to: a folder of its name beside it, or the one file of a single file's torrent; aria2c's control file is named after it.
+    String top = Prog_JoinPath(&job->arena, Prog_ParentPath(state->previewPath), Prog__AriaPath(&job->arena, torrent->name));
+    input->path = StrFormat(&job->arena, "%S.aria2", top);
+    input->paths = ArenaPushArray(&job->arena, torrent->fileCount, String);
+    input->sizes = ArenaPushArray(&job->arena, torrent->fileCount, u64);
+    input->pathCount = torrent->fileCount;
+    for (u32 i = 0; i < torrent->fileCount; ++i) {
+        input->paths[i] = torrent->single ? top : Prog_JoinPath(&job->arena, top, Prog__AriaPath(&job->arena, torrent->files[i].path));
+        input->sizes[i] = torrent->files[i].size;
+    }
+    job->input = input;
+    state->torrentProgressJob = job;
+    state->torrentProgressAt = now;
+    state->torrentRead = true;
+    P_JobSubmit(job);
+    if (running) Prog_WakeAt(state, now + 2000000);
+}
+
 function b32 Prog_TakeCompletions(Prog_State *state)
 {
     b32 changed = false;
@@ -5199,7 +5262,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -5207,6 +5270,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job == job) state->transfers[i].job = NULL;
         // A torrent's download that is over, done, failed or stopped, is not started again by the next run, which one a quit cut short is.
         if (input->kind == Prog_JobKind_Transfer && input->transferOp == Prog_TransferOp_Torrent) Prog__NoteTorrent(state, input->paths[0], (String){0}, false);
+        if (state->torrentProgressJob == job) state->torrentProgressJob = NULL;
         if (state->gitPullJob == job) pulled = state->gitPullHash, state->gitPullJob = NULL;
         if (state->gitFetchJob == job) fetched = state->gitFetchHash, state->gitFetchJob = NULL;
         if (owner == UINT32_MAX) {
@@ -5477,6 +5541,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->selectRename = input->kind == Prog_JobKind_Create;
                 }
             }
+            // A torrent's files are read once more when its download is over, to show what it left.
+            if (input->transferOp == Prog_TransferOp_Torrent && StrIsEqual(state->previewPath, input->paths[0])) state->torrentRead = false;
             // Copies, moves and new items that went through can be undone.
             if (!error.code && input->kind == Prog_JobKind_Transfer && job->result) {
                 const Prog_Transferred *result = job->result;
@@ -5671,6 +5737,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Play) {
             if (job == state->playerJob) state->playerJob = NULL;
+        } else if (input->kind == Prog_JobKind_TorrentProgress) {
+            // For the torrent the inspector still shows: by the control file, else whole where its files are there, of those ticked, which a
+            // finished download leaves pieces of unticked ones beside; unknown while none of them is.
+            const Prog_TorrentProgress *result = job->result;
+            u32 count = state->torrent.fileCount;
+            if (result && StrIsEqual(input->name, state->previewPath) && count == input->pathCount && state->torrentSkip) {
+                b32 any = result->control;
+                for (u32 i = 0; !any && i < count; ++i) any = result->exists[i] && !state->torrent.files[i].pad;
+                if (any && !state->torrentDone) state->torrentDone = ArenaPushArray(&state->previewArena, count, u64);
+                for (u32 i = 0; any && i < count; ++i) {
+                    state->torrentDone[i] = result->control ? result->done[i] : result->exists[i] && !state->torrentSkip[i] ? state->torrent.files[i].size : 0;
+                }
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_Measure) {
             Prog_Measured *result = job->result;
             if (state->measureJob == job) state->measureJob = NULL;
@@ -5917,6 +5997,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         else if (state->git.behind >= 0) Prog__FetchGit(state, state->git.root);
     }
     Prog__UsePanel(state, state->activePanel);
+    Prog__PollTorrentProgress(state);
     return changed;
 }
 

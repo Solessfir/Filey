@@ -684,6 +684,7 @@ function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info
         info->files = ArenaPushArray(arena, 1, Prog_TorrentFile);
         info->files[0] = (Prog_TorrentFile){ .path = info->name, .size = Prog__BencodeNumber(bytes, length) };
         info->fileCount = 1;
+        info->single = true;
         info->size = info->files[0].size;
         return true;
     }
@@ -775,6 +776,39 @@ function void Prog_TorrentSkip(String selection, const Prog_TorrentInfo *info, b
         for (u64 i = 0; i < to.length && to.value[i] >= '0' && to.value[i] <= '9'; ++i) last = last * 10 + (u64)(to.value[i] - '0');
         for (u64 i = first; i && i <= last && i <= info->fileCount; ++i) skip[i - 1] = false;
     }
+}
+
+// The big-endian number of `bytes` bytes at `*at` in `text`, moving past it; false where the text ends first.
+function b32 Prog__BigEndian(String text, u64 *at, u32 bytes, u64 *value)
+{
+    if (*at + bytes > text.length) return false;
+    *value = 0;
+    for (u32 i = 0; i < bytes; ++i) *value = (*value << 8) | (u8)text.value[*at + i];
+    *at += bytes;
+    return true;
+}
+
+// Each file's bytes downloaded, by the pieces aria2c's control file `control` marks as done, the files `sizes` long one after another, as many
+// as the torrent's own; false for bytes that are not such a file, or one of another torrent's length. A piece under way counts once it is whole.
+function b32 Prog_TorrentControlDone(String control, const u64 *sizes, u64 count, u64 *done)
+{
+    // Its version, 1 for big-endian numbers, flags and the info hash; the piece length, the total and the uploaded lengths, and the bitfield.
+    u64 at = 0, version = 0, flags = 0, hashLength = 0, pieceLength = 0, total = 0, uploaded = 0, bitfieldLength = 0, sum = 0;
+    if (!Prog__BigEndian(control, &at, 2, &version) || version != 1 || !Prog__BigEndian(control, &at, 4, &flags) || !Prog__BigEndian(control, &at, 4, &hashLength)) return false;
+    at += hashLength;
+    if (!Prog__BigEndian(control, &at, 4, &pieceLength) || !Prog__BigEndian(control, &at, 8, &total) || !Prog__BigEndian(control, &at, 8, &uploaded) ||
+        !Prog__BigEndian(control, &at, 4, &bitfieldLength) || at + bitfieldLength > control.length || !pieceLength) return false;
+    for (u64 i = 0; i < count; ++i) sum += sizes[i];
+    if (sum != total) return false;
+    const u8 *bits = (const u8 *)control.value + at;
+    for (u64 i = 0, start = 0; i < count; start += sizes[i], ++i) {
+        u64 end = start + sizes[i];
+        done[i] = 0;
+        for (u64 piece = start / pieceLength; piece * pieceLength < end && piece / 8 < bitfieldLength; ++piece) {
+            if (bits[piece / 8] & (0x80 >> (piece % 8))) done[i] += Min(end, (piece + 1) * pieceLength) - Max(start, piece * pieceLength);
+        }
+    }
+    return true;
 }
 
 // A torrent's name made fit for a file's: the characters Windows forbids and line breaks as underscores, no dot or space at its end, and a

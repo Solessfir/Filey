@@ -533,6 +533,13 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(picked[0] && !picked[1] && !picked[2] && picked[3] && !picked[4]);
             picked[0] = picked[3] = 0;
             Check(!Prog_TorrentSelection(&quiet.frameArena, &ranges, picked).length);
+            // Each file's bytes done by the pieces aria2c's control file marks, 16 KiB pieces of which the first three are done; one of another
+            // torrent's length, or of a version with the host's own byte order, says nothing.
+            String control = S("\x00\x01" "\x00\x00\x00\x00" "\x00\x00\x00\x14" "AAAAAAAAAAAAAAAAAAAA" "\x00\x00\x40\x00" "\x00\x00\x00\x00\x00\x01\xBD\x50"
+                               "\x00\x00\x00\x00\x00\x00\x00\x00" "\x00\x00\x00\x01" "\xE0" "\x00\x00\x00\x00");
+            u64 sizes[3] = { 40000, 24000, 50000 }, done[3] = {0}, wrong[3] = { 1, 2, 3 };
+            Check(Prog_TorrentControlDone(control, sizes, 3, done) && done[0] == 40000 && done[1] == 49152 - 40000 && done[2] == 0);
+            Check(!Prog_TorrentControlDone(control, wrong, 3, done) && !Prog_TorrentControlDone(StrFrom(control, 1), sizes, 3, done) && !Prog_TorrentControlDone(StrFromTo(control, 0, 40), sizes, 3, done));
             // A magnet link's info hash in hex, from hex or base32, as aria2c names the .torrent it saves; and a torrent's name as a file's.
             String hex = S("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
             Check(StrIsEqual(Prog_MagnetHash(&quiet.frameArena, S("magnet:?xt=urn:btih:C12FE1C06BBA254A9DC9F519B335AA7C1367A88A&dn=x")), hex));
