@@ -3197,26 +3197,35 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     P_DirectoryWatchStart(&state->configWatch, configDirectory, state->jobs.wake, state->jobs.wakeUser);
 }
 
-// What Settings.conf and Schemes.conf hold, as a hash, which tells whether either has changed since they were applied.
+function u64 Prog__HashText(u64 hash, String text)
+{
+    for (u64 i = 0; i < text.length; ++i) hash = (hash ^ (u8)text.value[i]) * UINT64_C(1099511628211);
+    return (hash ^ 0xFF) * UINT64_C(1099511628211);
+}
+
+// What Settings.conf, the custom schemes' files and the chosen language's file hold, as a hash, which tells whether any has changed since they
+// were applied, as when Matugen renders a scheme again for a new wallpaper.
 function u64 Prog__SettingsHash(Prog_State *state, String *settings, Arena *arena)
 {
-    String schemes = {0}, language = {0};
     *settings = (String){0};
-    if (state->configDirectory.length) {
-        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Settings.conf")), settings);
-        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Schemes.conf")), &schemes);
-        // The chosen language's own file, which applies again once saved.
-        if (state->language.length) {
-            P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, StrFormat(arena, "%S.lang", StrMake(state->language.text, state->language.length))), &language);
-        }
-    }
     u64 hash = UINT64_C(14695981039346656037);
-    for (u64 i = 0; i < settings->length; ++i) hash = (hash ^ (u8)settings->value[i]) * UINT64_C(1099511628211);
-    hash = (hash ^ 0xFF) * UINT64_C(1099511628211);
-    for (u64 i = 0; i < schemes.length; ++i) hash = (hash ^ (u8)schemes.value[i]) * UINT64_C(1099511628211);
-    hash = (hash ^ 0xFF) * UINT64_C(1099511628211);
-    for (u64 i = 0; i < language.length; ++i) hash = (hash ^ (u8)language.value[i]) * UINT64_C(1099511628211);
-    return hash;
+    if (!state->configDirectory.length) return hash;
+    P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, S("Settings.conf")), settings);
+    hash = Prog__HashText(hash, *settings);
+    P_DirectoryResult listing = P_EnumerateDirectory(arena, state->configDirectory, NULL);
+    u64 extension = Prog_SchemeExtension.length;
+    for (u64 i = 0; i < listing.files.header.count; ++i) {
+        String file = listing.files.v[i].name, text = {0};
+        if (listing.files.v[i].kind != P_FileKind_File || file.length <= extension || !Prog__EqualFolded(StrFrom(file, file.length - extension), Prog_SchemeExtension)) continue;
+        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, file), &text);
+        hash = Prog__HashText(Prog__HashText(hash, file), text);
+    }
+    // The chosen language's own file, which applies again once saved.
+    String language = {0};
+    if (state->language.length) {
+        P_ReadFile(arena, Prog_JoinPath(arena, state->configDirectory, StrFormat(arena, "%S.lang", StrMake(state->language.text, state->language.length))), &language);
+    }
+    return Prog__HashText(hash, language);
 }
 
 // Settings.conf, or the defaults without it, with the custom schemes it can name read again first.

@@ -1121,7 +1121,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 Prog__GoToPool(state, frame, (Prog_GoToItem){ path, Prog_GoToSection_Found, false, false, StrCopy(arena, drive->name), NULL }, Prog__GoToRank(score));
             }
             // Filey's own settings files, as the reference offers its own.
-            String settingsFiles[] = { S("Settings.conf"), S("Session.conf"), S("Schemes.conf") };
+            String settingsFiles[] = { S("Settings.conf"), S("Session.conf") };
             u64 settingsCount = state->configDirectory.length ? CArrayCount(settingsFiles) : 0;
             for (u64 i = 0; i < nearby + settingsCount; ++i) {
                 b32 file = false;

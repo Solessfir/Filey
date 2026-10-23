@@ -54,6 +54,25 @@ curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/install.sh | ba
 
 `wget -qO-` works in place of `curl -sSL` in both.
 
+### Colors from your wallpaper
+
+Filey takes its colors from your wallpaper through [Matugen](https://github.com/InioX/matugen). Each custom color scheme is a `<name>.scheme` file in `~/.config/filey`, so Matugen can render one, a new one or one you made in Options. Get the template:
+
+```sh
+mkdir -p ~/.config/matugen/templates
+curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/Source/Resources/filey-matugen.conf -o ~/.config/matugen/templates/filey.conf
+```
+
+Add it to `~/.config/matugen/config.toml`:
+
+```toml
+[templates.filey]
+input_path = '~/.config/matugen/templates/filey.conf'
+output_path = '~/.config/filey/Wallpaper.scheme'
+```
+
+Then choose **Wallpaper** as the color scheme in Options, or set `theme = wallpaper` in `Settings.conf`. Each time Matugen runs, Filey takes the new colors at once.
+
 ## Build
 
 Filey builds with Clang 19 or later (`-std=c23`).

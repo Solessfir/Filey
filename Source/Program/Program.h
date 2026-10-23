@@ -940,6 +940,8 @@ typedef enum Prog_LayoutAsk {
 #define Prog_BuiltInSchemes 10
 // The first built-in scheme, shown where the settings name none.
 #define Prog_DefaultScheme "catppuccin-mocha"
+// A custom scheme's file in the settings folder ends so, after its name.
+#define Prog_SchemeExtension S(".scheme")
 // The colors a scheme is made of, its groups, as the Options list them from Prog_Option_ColorClear on.
 #define Prog_ColorGroupCount 33
 
@@ -1444,7 +1446,7 @@ typedef struct Prog_State {
     u8 scheme;                  // the settings' Color Scheme, by its place among the built-in schemes and then the custom ones
     u8 lightScheme;             // the one the system's light mode brings, as `scheme`
     Prog_FontName schemeName, lightSchemeName;  // their names
-    // Custom color schemes, kept in Schemes.conf: their names and their colors as "Group = #rrggbb" lines.
+    // Custom color schemes, a "<name>.scheme" file each in the settings folder: their names and their colors as "Group = #rrggbb" lines.
     Arena schemesArena;
     ArrayStr schemeNames, schemeTexts;
     u32 schemeGroups[Prog_ColorGroupCount];      // the shown scheme's colors as 0xRRGGBB, by Prog_Option_ColorClear's order
@@ -1452,7 +1454,7 @@ typedef struct Prog_State {
     // The schemes' dropdown under a scheme option while open: that option + 1, and its highlighted row.
     u8 schemesOpen;
     u32 schemesHighlight;
-    u64 settingsHash;           // Settings.conf and Schemes.conf as last applied
+    u64 settingsHash;           // Settings.conf and the scheme files as last applied
     // The color picker while open: the option of the color it changes, and that color as hue, saturation and brightness from 0 to 1.
     b32 colorPicking;
     enum8(Prog_Option) colorOption;

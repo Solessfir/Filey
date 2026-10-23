@@ -1309,67 +1309,77 @@ function const String *Prog_OptionChoices(const Prog_State *state, Prog_Option o
     return all;
 }
 
-#define Prog_SchemesFile S("Schemes.conf")
+// Whether `a` comes before `b`, letters of either case together.
+function b32 Prog__BeforeFolded(String a, String b)
+{
+    for (u64 i = 0; i < Min(a.length, b.length); ++i) {
+        u8 x = Prog__FoldAscii((u8)a.value[i]), y = Prog__FoldAscii((u8)b.value[i]);
+        if (x != y) return x < y;
+    }
+    return a.length < b.length;
+}
 
-// The custom schemes saved in Schemes.conf, each a "scheme" line with its name, its colors, and an "end" line.
+// Adds the scheme `name` with the colors `text` among `names` and `texts`, in its place by name.
+function void Prog__PlaceScheme(Arena *arena, ArrayStr *names, ArrayStr *texts, String name, String text)
+{
+    u64 at = 0;
+    while (at < names->header.count && Prog__BeforeFolded(names->v[at], name)) ++at;
+    ArrayPush(arena, *names, (String){0});
+    ArrayPush(arena, *texts, (String){0});
+    for (u64 i = names->header.count - 1; i > at; --i) names->v[i] = names->v[i - 1], texts->v[i] = texts->v[i - 1];
+    names->v[at] = StrCopy(arena, name);
+    texts->v[at] = StrCopy(arena, text);
+}
+
+// The custom schemes, a file each in the settings folder, "<name>.scheme" with its colors' lines, in the order of their names.
+// Matugen renders one from the wallpaper over its file, which then applies again.
 function void Prog_LoadSchemes(Prog_State *state)
 {
     ArenaClear(&state->schemesArena);
     state->schemeNames = state->schemeTexts = (ArrayStr){0};
     if (!state->configDirectory.length) return;
     Scratch scratch = GetScratch();
-    String text = {0}, name = {0};
-    StrBuilder body = {0};
-    b32 inside = false;
-    ArrayStr lines = P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SchemesFile), &text) ? StrSplit(scratch.arena, text, '\n') : (ArrayStr){0};
-    for (u64 l = 0; l < lines.header.count; ++l) {
-        String line = lines.v[l];
-        if (line.length && line.value[line.length - 1] == '\r') --line.length;
-        if (!inside && line.length > 7 && StrIsEqual(StrFromTo(line, 0, 7), S("scheme "))) {
-            name = StrFrom(line, 7);
-            body = (StrBuilder){0};
-            inside = true;
-        } else if (inside && StrIsEqual(line, S("end"))) {
-            if (name.length && name.length <= sizeof(state->schemeName.text)) {
-                ArrayPush(&state->schemesArena, state->schemeNames, StrCopy(&state->schemesArena, name));
-                ArrayPush(&state->schemesArena, state->schemeTexts, StrCopy(&state->schemesArena, body.buffer));
-            }
-            inside = false;
-        } else if (inside) {
-            StrBuildStr(scratch.arena, &body, line);
-            StrBuildChar(scratch.arena, &body, '\n');
+    P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, state->configDirectory, NULL);
+    u64 extension = Prog_SchemeExtension.length;
+    for (u64 i = 0; i < listing.files.header.count; ++i) {
+        String file = listing.files.v[i].name, text = {0};
+        if (listing.files.v[i].kind != P_FileKind_File || file.length <= extension || !Prog__EqualFolded(StrFrom(file, file.length - extension), Prog_SchemeExtension)) continue;
+        String name = StrFromTo(file, 0, (i64)(file.length - extension));
+        if (name.length > sizeof(state->schemeName.text) || !P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, file), &text)) continue;
+        // Without the carriage returns an editor or Matugen on Windows ends its lines with.
+        StrBuilder colors = {0};
+        ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+        for (u64 l = 0; l < lines.header.count; ++l) {
+            String line = lines.v[l];
+            if (line.length && line.value[line.length - 1] == '\r') --line.length;
+            StrBuildStr(scratch.arena, &colors, line);
+            StrBuildChar(scratch.arena, &colors, '\n');
         }
+        Prog__PlaceScheme(&state->schemesArena, &state->schemeNames, &state->schemeTexts, name, colors.buffer);
     }
     ReleaseScratch(scratch);
 }
 
-// Gives the custom scheme named `name` the colors `text`, after the others when it is new, or with `remove` takes it out; Schemes.conf is
-// written again at once, as this happens only from a command.
+// Gives the custom scheme named `name` the colors `text`, in its place by name when it is new, or with `remove` takes it out; its file is
+// written or deleted at once, as this happens only from a command.
 function void Prog_SetScheme(Prog_State *state, String name, String text, b32 remove)
 {
     Arena kept = {0};
     ArrayStr names = {0}, texts = {0};
-    b32 placed = false;
     for (u64 i = 0; i < state->schemeNames.header.count; ++i) {
-        b32 same = Prog__EqualFolded(state->schemeNames.v[i], name);
-        placed |= same;
-        if (same && remove) continue;
-        ArrayPush(&kept, names, StrCopy(&kept, same ? name : state->schemeNames.v[i]));
-        ArrayPush(&kept, texts, StrCopy(&kept, same ? text : state->schemeTexts.v[i]));
+        if (Prog__EqualFolded(state->schemeNames.v[i], name)) continue;
+        ArrayPush(&kept, names, StrCopy(&kept, state->schemeNames.v[i]));
+        ArrayPush(&kept, texts, StrCopy(&kept, state->schemeTexts.v[i]));
     }
-    if (!placed && !remove) {
-        ArrayPush(&kept, names, StrCopy(&kept, name));
-        ArrayPush(&kept, texts, StrCopy(&kept, text));
-    }
+    if (!remove) Prog__PlaceScheme(&kept, &names, &texts, name, text);
     ArenaRelease(&state->schemesArena);
     state->schemesArena = kept;
     state->schemeNames = names;
     state->schemeTexts = texts;
     if (!state->configDirectory.length) return;
     Scratch scratch = GetScratch();
-    StrBuilder file = {0};
-    for (u64 i = 0; i < names.header.count; ++i) StrBuildStr(scratch.arena, &file, StrFormat(scratch.arena, "scheme %S\n%Send\n", names.v[i], texts.v[i]));
-    P_FileError error = P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SchemesFile), file.buffer);
+    String path = Prog_JoinPath(scratch.arena, state->configDirectory, StrFormat(scratch.arena, "%S%S", name, Prog_SchemeExtension));
+    P_FileError error = remove ? P_DeleteItems(scratch.arena, &path, 1, false, NULL) : P_WriteFile(scratch.arena, path, text);
     if (error.code) {
         Prog_Notify(state, Prog_NoticeKind_Error, S("schemes.failed"), Tr("Couldn't save the color schemes"), error.message);
     }
