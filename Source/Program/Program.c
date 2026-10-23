@@ -406,7 +406,6 @@ global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = 
     { 0x1D2021, 0x1D2021, 0x282828, 0x222424, 0x3C3836, 0x282828, 0x3C3836, 0x3C3836, 0x1D2021, 0x2C2C2B, 0xA89984, 0xEBDBB2, 0x928374, 0xBDAE93, 0xEBDBB2, 0xEBDBB2, 0xFB4934, 0x83A598, 0x3F4744, 0x83A598, 0xFABD2F, 0x595959, 0x595959, 0x595959, 0xEBDBB2, 0xEBDBB2, 0xBAAE90, 0x7C6F64, 0xA89984, 0x665C54, 0xFABD2F, 0xFABD2F, 0xBB902D },
     { 0x13141C, 0x16161E, 0x1A1B26, 0x16161E, 0x292E42, 0x1A1B26, 0x292E42, 0x292E42, 0x13141C, 0x1D1F2C, 0x8F96BC, 0xC0CAF5, 0x737AA2, 0xA9B1D6, 0xC0CAF5, 0xC0CAF5, 0xF7768E, 0x7AA2F7, 0x323D5A, 0x7AA2F7, 0x7DCFFF, 0x595959, 0x595959, 0x595959, 0xC0CAF5, 0xC0CAF5, 0x979EC1, 0x545C7E, 0x8F96BC, 0x414868, 0x7DCFFF, 0x7DCFFF, 0x5F99BE },
     { 0x1E2227, 0x21252B, 0x282C34, 0x21252B, 0x31353F, 0x282C34, 0x31353F, 0x31353F, 0x1E2227, 0x2A2E36, 0x9DA5B4, 0xD7DAE0, 0x7F848E, 0xABB2BF, 0xD7DAE0, 0xD7DAE0, 0xE06C75, 0x61AFEF, 0x364D63, 0x61AFEF, 0x56B6C2, 0x595959, 0x595959, 0x595959, 0xD7DAE0, 0xD7DAE0, 0xABAFB5, 0x5C6370, 0x9DA5B4, 0x4B5263, 0x56B6C2, 0x56B6C2, 0x488D97 },
-    { 0x191A21, 0x191A21, 0x282A36, 0x21222C, 0x343746, 0x282A36, 0x343746, 0x343746, 0x191A21, 0x2B2D3A, 0xA4A9C4, 0xF8F8F2, 0x7E88B8, 0xC9CBD6, 0xF8F8F2, 0xF8F8F2, 0xFF5555, 0xBD93F9, 0x4D4467, 0xBD93F9, 0x8BE9FD, 0x595959, 0x595959, 0x595959, 0xF8F8F2, 0xF8F8F2, 0xC4C5C3, 0x6272A4, 0xA4A9C4, 0x565A73, 0x8BE9FD, 0x8BE9FD, 0x6DB0C1 },
 };
 
 // The reference's dark scheme, for side-by-side checks with the Compare tool; settings name it fullmoon, and the choices leave it out.
@@ -514,9 +513,9 @@ function b32 Prog__ParseColor(String text, R_Color *color)
 // The built-in schemes, before the custom ones, by their names in the settings and as the choices show them.
 // The first is the default, and the second the light one that "light" names.
 global const String Prog_OptionSchemes[] = { SInit(Prog_DefaultScheme), SInit("catppuccin-latte"), SInit("filey-dark"), SInit("nord"), SInit("gruvbox"), SInit("tokyo-night"),
-                                             SInit("one-dark"), SInit("dracula") };
+                                             SInit("one-dark") };
 global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Catppuccin Frappé"), NoTrF("Catppuccin Latte"), NoTrF("Filey Dark"), NoTrF("Nord"), NoTrF("Gruvbox"),
-                                                        NoTrF("Tokyo Night"), NoTrF("One Dark"), NoTrF("Dracula") };
+                                                        NoTrF("Tokyo Night"), NoTrF("One Dark") };
 static_assert(CArrayCount(Prog_OptionSchemeLabels) == Prog_BuiltInSchemes, "the built-in schemes labeled");
 static_assert(CArrayCount(Prog_OptionSchemes) == Prog_BuiltInSchemes, "the built-in schemes counted");
 static_assert(Prog_Option_ColorMatchDisabledSelection - Prog_Option_ColorClear + 1 == Prog_ColorGroupCount, "the color groups counted");
@@ -892,7 +891,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\", switches true or false; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
-                                "# A scheme by its name: catppuccin-frappe, catppuccin-latte, filey-dark, nord, gruvbox, tokyo-night, one-dark, dracula\n"
+                                "# A scheme by its name: catppuccin-frappe, catppuccin-latte, filey-dark, nord, gruvbox, tokyo-night, one-dark\n"
                                 "# or a custom one; colors set before this line are replaced.\n# theme = catppuccin-frappe\n"
                                 "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = catppuccin-latte\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
