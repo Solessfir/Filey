@@ -361,6 +361,13 @@ int main(void)
     separateWindow |= uninstall;
     // This PC, which is no folder, comes as a flag from a window that opens another for it.
     if (P_StartupFlag(S("--this-pc"))) ArrayPush(startup.arena, startPaths, Prog_ThisPC);
+    // A run an update started takes the window over once the one it replaces has quit and saved its session, and removes the copy it was.
+    String after = P_StartupOption(startup.arena, S("--after="));
+    u64 replaced = 0;
+    if (after.length && Prog__TakeNumber(&after, &replaced)) {
+        P_WaitForExit((u32)replaced, 15000);
+        P_RemoveReplaced(P_ExecutablePath(startup.arena));
+    }
     if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, startPaths)) {
         ReleaseScratch(startup);
         return 0;

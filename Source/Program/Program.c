@@ -744,6 +744,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->audioVolume = 100;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->noticesInSidebar = true;
+    state->checkUpdates = true;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
     String system = Prog_SystemLanguage();
@@ -847,6 +848,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             for (u32 i = 0; i <= Prog_NoticeKind_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNotices[i])) state->noticeLevel = (u8)i;
         } else if (StrIsEqual(name, S("notices.sidebar"))) {
             state->noticesInSidebar = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("updates.check"))) {
+            state->checkUpdates = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("recents.store"))) {
             for (u32 i = 0; i < Prog_StoreRecents_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStoreRecents[i])) state->storeRecents = (u8)i;
         } else if (StrIsEqual(name, S("recents.highlight"))) {
@@ -998,6 +1001,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n"
                                 "# Whether they and the progress of copies and downloads stack at the bottom of the sidebar while it shows, not in a panel's corner.\n"
                                 "# notices.sidebar = true\n\n"
+                                "# Whether GitHub is asked once a day for a newer Filey, which the main menu and a notice then offer to update to.\n# updates.check = true\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
                                 "# recents.store = persistent\n# recents.highlight = false\n# recents.sort = false\n\n"
                                 "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = true\n\n"
@@ -1147,6 +1151,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_NoticesInSidebar] = { TrInit("Notifications In Sidebar"),
                                        TrInit("Shows notices and the progress of copies, downloads and other work at the bottom of the sidebar, rather than in a panel's corner."),
                                        Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("notices.sidebar") },
+    [Prog_Option_CheckUpdates] = { TrInit("Update Check"), TrInit("Asks GitHub once a day whether a newer Filey is out, and offers to update to it."),
+                                   Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("updates.check") },
     [Prog_Option_StoreRecents] = { TrInit("Store Recents"), TrInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
     [Prog_Option_ShowRecents] = { TrInit("Highlight Recents"), TrInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
@@ -1288,6 +1294,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
         case Prog_Option_NoticesInSidebar: return state->noticesInSidebar;
+        case Prog_Option_CheckUpdates: return state->checkUpdates;
         case Prog_Option_Language: {
             String name = StrMake(state->language.text, state->language.length);
             for (u32 i = 1; name.length && i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(name, Prog_OptionLanguages[i])) return (i32)i;
@@ -1815,6 +1822,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_VideoQuality: return 20;
         case Prog_Option_AudioVolume: return 100;
         case Prog_Option_NoticesInSidebar: return 1;
+        case Prog_Option_CheckUpdates: return 1;
         case Prog_Option_Language: {
             for (u32 i = 1; i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(Prog_SystemLanguage(), Prog_OptionLanguages[i])) return (i32)i;
             return 0;
@@ -2210,6 +2218,16 @@ function void Prog__MenuButton(Prog_State *state, String identity, String icon, 
                 UI_SetNextPrefWidth(UI_Pixels(barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(bar));
                 UI_SetNextColors((UI_Colors){ .background = ink });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            // A dot in the accent color over its corner while a newer version waits, which the menu offers.
+            if (state->update.version.length) {
+                f32 dot = floorf(6.4f * m->scale + 0.5f), inset = floorf(5.6f * m->scale + 0.5f);
+                UI_SetNextFloatingOffset((UI_Vec2){ width - inset - dot, inset });
+                UI_SetNextPrefWidth(UI_Pixels(dot));
+                UI_SetNextPrefHeight(UI_Pixels(dot));
+                UI_SetNextCornerRadius(dot * 0.5f);
+                UI_SetNextColors((UI_Colors){ .background = theme->accent });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         }

@@ -2991,3 +2991,66 @@ Huge (1 to 4 GB)
 
 Gigantic (over 4 GB)
 = Гигантские (больше 4 ГБ)
+
+Update Check
+= Проверка обновлений
+
+Asks GitHub once a day whether a newer Filey is out, and offers to update to it.
+= Раз в день спрашивает GitHub, не вышла ли новая версия Filey, и предлагает обновиться.
+
+Update to Filey %S
+= Обновить до Filey %S
+
+There is no folder to download into.
+= Нет папки для загрузки.
+
+The download failed.
+= Загрузка не удалась.
+
+The download holds no Filey for this system.
+= В загрузке нет Filey для этой системы.
+
+Downloading Filey %S...
+= Загрузка Filey %S...
+
+Couldn't start the new Filey
+= Не удалось запустить новый Filey
+
+Filey %S is out
+= Вышел Filey %S
+
+Update downloads it and starts Filey again in it, with the panels and tabs as they are.
+= «Обновить» загрузит его и перезапустит Filey в нём, с панелями и вкладками как есть.
+
+Its page has the downloads.
+= Загрузки на его странице.
+
+Open Page
+= Открыть страницу
+
+Filey is up to date
+= Filey обновлён
+
+%S is the latest version.
+= %S — последняя версия.
+
+Couldn't check for updates
+= Не удалось проверить обновления
+
+GitHub did not answer, or curl is missing.
+= GitHub не ответил или нет curl.
+
+Couldn't update Filey
+= Не удалось обновить Filey
+
+Check For Updates
+= Проверить обновления
+
+Ask GitHub whether a newer Filey is out, and offer to update to it.
+= Спросить GitHub, не вышла ли новая версия Filey, и предложить обновиться.
+
+Update Filey
+= Обновить Filey
+
+Download the newer Filey and start again in it, with the panels and tabs as they are.
+= Загрузить новую версию Filey и перезапуститься в ней, с панелями и вкладками как есть.

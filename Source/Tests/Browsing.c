@@ -2510,6 +2510,62 @@ finish:
     ArenaRelease(&arena);
 }
 
+// A newer release is told from this build's version, found in GitHub's answer with this system's archive, kept in Update.conf between runs, and
+// put in place of an executable as the update does.
+function void TestUpdates(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Check(Prog_VersionNewer(S("1.2.0"), S("1.1.9")) && Prog_VersionNewer(S("v1.10.0"), S("1.9.5")) && Prog_VersionNewer(S("0.2.0"), S("0.1.0+abc1234")));
+    Check(!Prog_VersionNewer(S("1.2.0"), S("1.2.0")) && !Prog_VersionNewer(S("1.2.0"), S("1.2.0-3-gabc1234-dirty")) && !Prog_VersionNewer(S("1.2"), S("1.2.0")));
+    Check(!Prog_VersionNewer((String){0}, S("0.1.0")) && !Prog_VersionNewer(S("1.1.9"), S("1.2.0")));
+    String answer = S("{\"url\": \"x\", \"html_url\": \"https://github.com/Solessfir/Filey/releases/tag/v1.3.0\", \"tag_name\": \"v1.3.0\", \"assets\": ["
+                      "{\"name\": \"Filey-1.3.0-windows-x64.zip\", \"browser_download_url\": \"https:\\/\\/example.com/Filey-1.3.0-windows-x64.zip\"},"
+                      "{\"name\": \"filey-1.3.0-linux-x64.tar.gz\", \"browser_download_url\" : \"https://example.com/filey-1.3.0-linux-x64.tar.gz\"}]}");
+    Prog_LatestRelease release = Prog_ParseRelease(&arena, answer);
+    Check(release.fetched && StrIsEqual(release.version, S("1.3.0")) && StrIsEqual(release.page, S("https://github.com/Solessfir/Filey/releases/tag/v1.3.0")));
+    Check(TestEndsWith(release.asset, Prog_ReleaseArchive) && StrIsEqual(StrFromTo(release.asset, 0, 20), S("https://example.com/")));
+    Check(!Prog_ParseRelease(&arena, S("{\"message\": \"Not Found\"}")).fetched);
+    // Kept while it is newer than this build, and the version offered last either way.
+    Prog_State state = {0};
+    state.cacheDirectory = fixture->path;
+    String file = Prog_JoinPath(&arena, fixture->path, Prog_UpdateFile);
+    Prog_LatestRelease later = { S("999.0.0"), S("https://example.com/page"), S("https://example.com/a.zip"), true, false };
+    Check(!P_WriteFile(&arena, file, Prog__UpdateText(&arena, 1234, &later, S("999.0.0"))).code);
+    Prog__ReadUpdate(&state);
+    Check(state.updateChecked == 1234 && StrIsEqual(state.update.version, S("999.0.0")) && StrIsEqual(state.update.asset, S("https://example.com/a.zip")) && StrIsEqual(state.updateShown, S("999.0.0")));
+    Prog_LatestRelease old = { S("0.0.1"), S("p"), S("a"), true, false };
+    Check(!P_WriteFile(&arena, file, Prog__UpdateText(&arena, 5, &old, S("0.0.1"))).code);
+    Prog__ReadUpdate(&state);
+    Check(!state.update.version.length && StrIsEqual(state.updateShown, S("0.0.1")));
+    ArenaRelease(&state.updateArena);
+    P__TestRemovePath(fixture, Prog_UpdateFile, false);
+    // The new file takes the old one's place; on Windows the old one moves aside, as the running one has to.
+    String executable = Prog_JoinPath(&arena, fixture->path, S("app.exe")), replacement = Prog_JoinPath(&arena, fixture->path, S("new.bin")), contents = {0};
+    Check(!P_WriteFile(&arena, executable, S("old")).code && !P_WriteFile(&arena, replacement, S("new")).code);
+    Check(!P_ReplaceExecutable(&arena, executable, replacement).code && P_ReadFile(&arena, executable, &contents) && StrIsEqual(contents, S("new")) && !P_PathExists(replacement));
+#if defined(_WIN32)
+    Check(P_ReadFile(&arena, Prog_JoinPath(&arena, fixture->path, S("app.old.exe")), &contents) && StrIsEqual(contents, S("old")));
+    // While an older copy still runs from that name, held open here as a running one is, the next one moved aside takes a name of its own;
+    // both go once nothing holds them.
+    {
+        wchar *held = P__FilePathWide(&arena, P_NativePath(&arena, Prog_JoinPath(&arena, fixture->path, S("app.old.exe"))));
+        HANDLE handle = CreateFileW(held, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        Check(handle != INVALID_HANDLE_VALUE && !P_WriteFile(&arena, replacement, S("newer")).code);
+        Check(!P_ReplaceExecutable(&arena, executable, replacement).code && P_ReadFile(&arena, executable, &contents) && StrIsEqual(contents, S("newer")));
+        String second = StrFormat(&arena, "app.old-%u.exe", (u32)GetCurrentProcessId());
+        Check(P_ReadFile(&arena, Prog_JoinPath(&arena, fixture->path, second), &contents) && StrIsEqual(contents, S("new")));
+        P_RemoveReplaced(executable);
+        Check(P_PathExists(Prog_JoinPath(&arena, fixture->path, S("app.old.exe"))) && !P_PathExists(Prog_JoinPath(&arena, fixture->path, second)));
+        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        P_RemoveReplaced(executable);
+        Check(!P_PathExists(Prog_JoinPath(&arena, fixture->path, S("app.old.exe"))));
+    }
+#endif
+    P__TestRemovePath(fixture, S("app.exe"), false);
+    Check(P_ExecutablePath(&arena).length);
+    ArenaRelease(&arena);
+}
+
 // In a tree, a new item goes into the unfolded folder in focus, and a change inside one shows by itself.
 function void TestTreeFileCommands(TestFileFixture *fixture)
 {
@@ -3930,6 +3986,7 @@ function void TestBrowsing(void)
         TestFileOperations(&fixture);
         TestProgramFileCommands(&fixture);
         TestTreeFileCommands(&fixture);
+        TestUpdates(&fixture);
         TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);

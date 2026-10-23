@@ -363,6 +363,53 @@ function u32 P__Spawn(const char *executable, char **args, const char *directory
     return error;
 }
 
+function String P_ExecutablePath(Arena *arena)
+{
+    char executable[PATH_MAX];
+    i64 length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    return length > 0 ? StrCopy(arena, StrMake(executable, (u64)length)) : (String){0};
+}
+
+function P_FileError P_ReplaceExecutable(Arena *arena, String executable, String replacement)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *target = P__FilePathCString(scratch.arena, executable), *source = P__FilePathCString(scratch.arena, replacement);
+    u32 error = target && source ? 0 : EINVAL;
+    if (!error && chmod(source, 0755) != 0) error = (u32)errno;
+    if (!error && rename(source, target) != 0) {
+        error = (u32)errno;
+        // On another file system the new one is copied beside the old first, so that it is put in place whole.
+        if (error == EXDEV) {
+            String contents = {0}, beside = StrFormat(scratch.arena, "%S.new", executable);
+            char *besideName = P__FilePathCString(scratch.arena, beside);
+            error = !P_ReadFile(scratch.arena, replacement, &contents) ? EIO : P_WriteFile(scratch.arena, beside, contents).code;
+            if (!error && (chmod(besideName, 0755) != 0 || rename(besideName, target) != 0)) error = (u32)errno;
+        }
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+function void P_RemoveReplaced(String executable) {}
+
+function P_FileError P_Restart(Arena *arena, String executable)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *program = P__FilePathCString(scratch.arena, executable), *after = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "--after=%d", (i32)getpid()));
+    char *args[] = {program, after, NULL};
+    u32 error = program && after ? P__Spawn(program, args, NULL) : EINVAL;
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+function void P_WaitForExit(u32 process, u32 timeoutMilliseconds)
+{
+    for (u64 start = PlatformNowMicroseconds(); kill((pid_t)process, 0) == 0 && PlatformNowMicroseconds() - start < (u64)timeoutMilliseconds * 1000;) {
+        struct timespec pause = {0, 20 * 1000000};
+        nanosleep(&pause, NULL);
+    }
+}
+
 function P_FileError P_OpenWindow(Arena *arena, String path, String option)
 {
     Scratch scratch = GetScratchEx(arena);

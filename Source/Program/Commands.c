@@ -719,6 +719,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen, Prog_CommandKind_CopyVersion,
+    Prog_CommandKind_CheckForUpdates, Prog_CommandKind_UpdateInstall,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
     Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleHidden, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
@@ -755,6 +756,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
     u64 order[Prog_MaxPanels];
     u32 panels = Prog__PanelsInOrder(state, 0, order, 0);
     switch (kind) {
+        case Prog_CommandKind_UpdateInstall: return state->update.version.length && !state->updateJob && !state->updateReady;
         case Prog_CommandKind_OpenFocused: case Prog_CommandKind_OpenInTab: case Prog_CommandKind_OpenInRightSplit: case Prog_CommandKind_OpenInBottomSplit:
         case Prog_CommandKind_OpenInWindow:
         case Prog_CommandKind_CopySelection: case Prog_CommandKind_CutSelection: case Prog_CommandKind_Trash: case Prog_CommandKind_SelectionDelete:
@@ -1404,8 +1406,12 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             if (P_CanInstall()) Prog__Item(.kind = Prog_CommandKind_SetupOpen, .icon = Icon_HardDriveDownload);
-            // Last, the version, which a click copies.
+            // Last, a newer version to update to, and the version, which a click copies.
             Prog__Item(.kind = Prog_CommandKind_None);
+            if (state->update.version.length) {
+                Prog__Item(.kind = Prog_CommandKind_UpdateInstall, .label = StrFormat(scratch.arena, TrF("Update to Filey %S"), state->update.version), .icon = Icon_Download,
+                           .disabled = state->updateJob != NULL || state->updateReady);
+            }
             Prog__Item(.kind = Prog_CommandKind_CopyVersion, .label = StrFormat(scratch.arena, NoTrF("Filey %s"), FILEY_VERSION), .icon = Icon_Info);
         } break;
         // The panel's views, its splits, its tabs, the app, then what the listing shows.
@@ -3509,6 +3515,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (!kept) state->mutedOpen = false;
             } break;
             case Prog_CommandKind_NoticeCopy:
+            case Prog_CommandKind_CheckForUpdates: Prog_CheckForUpdates(state, true); break;
+            case Prog_CommandKind_UpdateInstall: {
+                // From the notice's button, which goes with it.
+                for (u32 i = 0; i < state->noticeCount; ++i) {
+                    if (state->notices[i].id != command->row || state->notices[i].action != Prog_CommandKind_UpdateInstall) continue;
+                    MemMove(&state->notices[i], &state->notices[i + 1], (state->noticeCount - i - 1) * sizeof(Prog_Notice));
+                    --state->noticeCount;
+                    break;
+                }
+                Prog_InstallUpdate(state);
+            } break;
             case Prog_CommandKind_CrashReport: {
                 for (u32 i = 0; i < state->noticeCount; ++i) {
                     if (state->notices[i].id != command->row) continue;

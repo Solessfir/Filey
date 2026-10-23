@@ -268,6 +268,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Link,
     Prog_JobKind_Places,
     Prog_JobKind_Shares,
+    Prog_JobKind_UpdateCheck,
+    Prog_JobKind_UpdateInstall,
     Prog_JobKind_Save,
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
@@ -718,6 +720,16 @@ typedef struct Prog_Created {
     String name;
 } Prog_Created;
 
+// The latest release GitHub gives: its version, the tag without the v, its page and the archive of this system's build. `fetched` once GitHub
+// answered, and `notify` while it is newer than this build and was not offered before.
+typedef struct Prog_LatestRelease {
+    String version;
+    String page;
+    String asset;
+    b32 fetched;
+    b32 notify;
+} Prog_LatestRelease;
+
 typedef struct Prog_Places {
     P_ArrayPlace places;
     P_ArrayPlace drives;
@@ -805,6 +817,7 @@ typedef enum Prog_Option {
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
     Prog_Option_NoticesInSidebar,
+    Prog_Option_CheckUpdates,
     Prog_Option_StoreRecents,
     Prog_Option_ShowRecents,
     Prog_Option_SortRecents,
@@ -1519,6 +1532,19 @@ typedef struct Prog_State {
     u16 hotToolbarCommand;    // the command of the toolbar button under the pointer, which a press during a rename leaves to its click
     String permissionsPath;   // the item whose permissions the inspector shows this frame, which its letters change
     String crashReport;       // the crash report the last start found, in settingsArena, which Report on GitHub offers
+    // A release newer than this build, in updateArena, as GitHub gave it at most a day ago, which Update.conf in the cache folder keeps
+    // between runs with when it was asked (updateChecked) and the version offered last (updateShown). updateJob asks again or, with
+    // updateInstalling, downloads it and puts it in place of updateExecutable, which starts again once updateReady and no copies are under way.
+    Arena updateArena;
+    Prog_LatestRelease update;
+    String updateShown;
+    String updateExecutable;
+    i64 updateChecked;
+    P_Job *updateJob;
+    b32 updateInstalling;
+    b32 updateManual;         // Check For Updates asked, which says so when there is nothing newer
+    b32 updateReady;
+    b32 checkUpdates;         // updates.check
     u64 wakeAt;               // when the frame wants another without input, for what shows only after a while; 0 for no such time
     u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed

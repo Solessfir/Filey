@@ -54,6 +54,10 @@ curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/install.sh | ba
 
 `wget -qO-` works in place of `curl -sSL` in both.
 
+### Updates
+
+Filey asks GitHub once a day whether a newer release is out (with `curl`, which Windows 10 and later and Linux desktops have). When one is, a notice and the main menu offer **Update**, which downloads it, puts it in place of the running Filey and starts it again with your panels and tabs. **Update Check** in the Options turns the daily check off; **Check For Updates** in the command palette asks at once.
+
 ### Colors from your wallpaper
 
 Filey takes its colors from your wallpaper through [Matugen](https://github.com/InioX/matugen). Each custom color scheme is a `<name>.scheme` file in `~/.config/filey`, so Matugen can render one, a new one or one you made in Options. Get the template:

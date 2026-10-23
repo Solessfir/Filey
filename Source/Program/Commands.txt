@@ -1791,6 +1791,16 @@ command ColorPickerCancel {
 command NoticeCopy {
 }
 
+command CheckForUpdates {
+    label   = "Check For Updates^update,upgrade,version,release,new,github"
+    tooltip = "Ask GitHub whether a newer Filey is out, and offer to update to it."
+}
+
+command UpdateInstall {
+    label   = "Update Filey^upgrade,install,new,version,release"
+    tooltip = "Download the newer Filey and start again in it, with the panels and tabs as they are."
+}
+
 // A notice's own button, as a crash report's Report on GitHub: the issue page with the details filled in, and the report selected in a new tab
 // to attach. `row` is the notice.
 command CrashReport {

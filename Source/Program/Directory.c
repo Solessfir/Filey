@@ -2005,6 +2005,10 @@ function void Prog__CountFound(Prog_JobInput *input, const P_File *files, u64 co
 
 function b32 Prog__SamePath(String a, String b);
 
+function b32 Prog_VersionNewer(String release, String current);
+function Prog_LatestRelease Prog_ParseRelease(Arena *arena, String json);
+function String Prog__UpdateText(Arena *arena, i64 checked, const Prog_LatestRelease *release, String shown);
+
 function void Prog__DirectoryJob(P_Job *job)
 {
     Prog_JobInput *input = job->input;
@@ -2477,6 +2481,39 @@ function void Prog__DirectoryJob(P_Job *job)
             for (u64 i = 0; i < input->pathCount; ++i) if (!P_PathExists(input->paths[i])) ArrayPush(&job->arena, result->missing, input->paths[i]);
         }
         job->result = result;
+        return;
+    }
+    if (input->kind == Prog_JobKind_UpdateCheck) {
+        // With curl, which comes with Windows 10 and later and with Linux desktops; what it found is kept for the next runs.
+        Prog_LatestRelease *result = ArenaPushStruct(&job->arena, Prog_LatestRelease);
+        String arguments[] = { S("curl"), S("-fsSL"), S("--max-time"), S("20"), S("-H"), S("Accept: application/vnd.github+json"), S("-H"), S("User-Agent: Filey"), input->name };
+        String answer = {0};
+        if (P_RunCommand(&job->arena, Prog_ParentPath(input->path), arguments, CArrayCount(arguments), 30000, &answer, false)) *result = Prog_ParseRelease(&job->arena, answer);
+        if (result->fetched) {
+            result->notify = Prog_VersionNewer(result->version, S(FILEY_VERSION)) && !StrIsEqual(result->version, input->newName);
+            P_WriteFile(&job->arena, input->path, Prog__UpdateText(&job->arena, P_NowUnix(), result, result->notify ? result->version : input->newName));
+        }
+        job->result = result;
+        return;
+    }
+    if (input->kind == Prog_JobKind_UpdateInstall) {
+        // The archive comes down into a folder in this run's own, and the executable in it takes the running one's place.
+        P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
+        String run = P_RunFolder(&job->arena), created = {0};
+        *error = run.length ? P_CreateItem(&job->arena, run, S("Update"), true, &created) : (P_FileError){ 1, TrMark("There is no folder to download into.") };
+        String folder = Prog_JoinPath(&job->arena, run, created), archive = Prog_JoinPath(&job->arena, folder, Prog__FolderName(input->name)), output = {0};
+        String arguments[] = { S("curl"), S("-fsSL"), S("--max-time"), S("600"), S("-o"), archive, input->name };
+        if (!error->code && !P_RunCommand(&job->arena, folder, arguments, CArrayCount(arguments), 660000, &output, true)) *error = (P_FileError){ 1, TrMark("The download failed.") };
+#if defined(_WIN32)
+        String inner = {0}, name = S("Filey.exe");
+#else
+        String inner = StrFormat(&job->arena, "filey-%S", input->newName), name = S("filey");
+#endif
+        if (!error->code) *error = P_ExtractArchive(&job->arena, archive, inner, &name, 1, folder, NULL, &job->cancelToken);
+        String executable = Prog_JoinPath(&job->arena, folder, name);
+        if (!error->code && !P_PathExists(executable)) *error = (P_FileError){ 1, TrMark("The download holds no Filey for this system.") };
+        if (!error->code) *error = P_ReplaceExecutable(&job->arena, input->path, executable);
+        job->result = error;
         return;
     }
     if (input->kind == Prog_JobKind_Shares) {
@@ -2987,6 +3024,159 @@ function void Prog_CheckCrashes(Prog_State *state)
         Prog_NotifyAction(state, Prog_NoticeKind_Warning, S("crash.report"), Tr("Filey closed unexpectedly"), message, Prog_CommandKind_CrashReport, Tr("Report on GitHub"));
     }
     ReleaseScratch(scratch);
+}
+
+#define Prog_UpdateFile S("Update.conf")
+#if defined(_WIN32)
+#define Prog_ReleaseArchive S("-windows-x64.zip")
+#else
+#define Prog_ReleaseArchive S("-linux-x64.tar.gz")
+#endif
+
+// The first three numbers of a version, as of "v1.2.3", "1.2.3-4-gabc" or "0.1.0+abc", the ones it lacks left at 0.
+function void Prog__VersionNumbers(String version, u64 numbers[3])
+{
+    u64 at = version.length && (version.value[0] == 'v' || version.value[0] == 'V') ? 1 : 0;
+    for (u32 n = 0; n < 3 && at < version.length && version.value[at] >= '0' && version.value[at] <= '9'; ++n) {
+        while (at < version.length && version.value[at] >= '0' && version.value[at] <= '9') numbers[n] = numbers[n] * 10 + (u64)(version.value[at++] - '0');
+        if (at >= version.length || version.value[at] != '.') break;
+        ++at;
+    }
+}
+
+// Whether version `release` comes after `current`, as FILEY_VERSION names this build; a build past a release's tag is that release's or later.
+function b32 Prog_VersionNewer(String release, String current)
+{
+    u64 a[3] = {0}, b[3] = {0};
+    Prog__VersionNumbers(release, a);
+    Prog__VersionNumbers(current, b);
+    for (u32 i = 0; i < 3; ++i) if (a[i] != b[i]) return a[i] > b[i];
+    return false;
+}
+
+// The text of the next `"key": "..."` in `json` from `*at` on, which moves past it; empty when there is none. Its escapes but \u are undone.
+function String Prog__ReleaseText(Arena *arena, String json, String key, u64 *at)
+{
+    String quoted = StrFormat(arena, "\"%S\"", key);
+    while (*at < json.length) {
+        Index found = StrIndexStr(StrFrom(json, *at), quoted, SSF_None);
+        if (!found.exists) break;
+        u64 i = *at + found.value + quoted.length;
+        *at = i;
+        while (i < json.length && (json.value[i] == ' ' || json.value[i] == '\t' || json.value[i] == '\r' || json.value[i] == '\n')) ++i;
+        if (i >= json.length || json.value[i] != ':') continue;
+        for (++i; i < json.length && (json.value[i] == ' ' || json.value[i] == '\t' || json.value[i] == '\r' || json.value[i] == '\n');) ++i;
+        if (i >= json.length || json.value[i] != '"') continue;
+        StrBuilder value = {0};
+        for (++i; i < json.length && json.value[i] != '"'; ++i) {
+            char c = json.value[i];
+            if (c == '\\' && i + 1 < json.length) {
+                c = json.value[++i];
+                c = c == 'n' ? '\n' : c == 't' ? '\t' : c;
+            }
+            StrBuildChar(arena, &value, c);
+        }
+        *at = i;
+        return value.buffer;
+    }
+    *at = json.length;
+    return (String){0};
+}
+
+// The release GitHub's answer for the latest one describes, with this system's archive among its files.
+function Prog_LatestRelease Prog_ParseRelease(Arena *arena, String json)
+{
+    Prog_LatestRelease result = {0};
+    u64 at = 0;
+    String tag = Prog__ReleaseText(arena, json, S("tag_name"), &at);
+    if (!tag.length) return result;
+    result.fetched = true;
+    result.version = tag.value[0] == 'v' || tag.value[0] == 'V' ? StrFrom(tag, 1) : tag;
+    result.page = StrFormat(arena, "https://github.com/Solessfir/Filey/releases/tag/%S", tag);
+    at = 0;
+    for (String url; (url = Prog__ReleaseText(arena, json, S("browser_download_url"), &at)).length;) {
+        if (url.length > Prog_ReleaseArchive.length && StrIsEqual(StrFrom(url, url.length - Prog_ReleaseArchive.length), Prog_ReleaseArchive)) result.asset = url;
+    }
+    return result;
+}
+
+// Update.conf: when GitHub was last asked, the latest release it gave and the version offered last, a line each.
+function String Prog__UpdateText(Arena *arena, i64 checked, const Prog_LatestRelease *release, String shown)
+{
+    return StrFormat(arena, "checked %" PRId64 "\nversion %S\npage %S\nasset %S\nshown %S\n", checked, release->version, release->page, release->asset, shown);
+}
+
+// What the last run learned of the latest release, kept only while it is newer than this build, as it is not once this build is that release.
+function void Prog__ReadUpdate(Prog_State *state)
+{
+    ArenaClear(&state->updateArena);
+    state->update = (Prog_LatestRelease){0};
+    state->updateShown = (String){0};
+    state->updateChecked = 0;
+    String text = {0};
+    if (!state->cacheDirectory.length || !P_ReadFile(&state->updateArena, Prog_JoinPath(&state->updateArena, state->cacheDirectory, Prog_UpdateFile), &text)) return;
+    ArrayStr lines = StrSplit(&state->updateArena, text, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        String line = lines.v[i];
+        while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+        Index space = StrIndexChar(line, ' ', SSF_None);
+        String word = space.exists ? StrFromTo(line, 0, (i64)space.value) : line, value = space.exists ? StrFrom(line, space.value + 1) : (String){0};
+        u64 number = 0;
+        if (StrIsEqual(word, S("checked")) && Prog__TakeNumber(&value, &number)) state->updateChecked = (i64)number;
+        else if (StrIsEqual(word, S("version"))) state->update.version = value;
+        else if (StrIsEqual(word, S("page"))) state->update.page = value;
+        else if (StrIsEqual(word, S("asset"))) state->update.asset = value;
+        else if (StrIsEqual(word, S("shown"))) state->updateShown = value;
+    }
+    if (!Prog_VersionNewer(state->update.version, S(FILEY_VERSION))) state->update = (Prog_LatestRelease){0};
+}
+
+// GitHub's answer for the latest release, or FILEY_UPDATE_URL's in its place, as a test gives a file's.
+function String Prog__ReleasesUrl(Arena *arena)
+{
+    String url = P_EnvironmentValue(arena, S("FILEY_UPDATE_URL"));
+    return url.length ? url : S("https://api.github.com/repos/Solessfir/Filey/releases/latest");
+}
+
+// Asks GitHub for the latest release in a job; `manual`, from Check For Updates, says so when there is nothing newer.
+function void Prog_CheckForUpdates(Prog_State *state, b32 manual)
+{
+    state->updateManual |= manual;
+    if (state->updateJob || !state->cacheDirectory.length) return;
+    // Not again for a day, whatever the answer.
+    state->updateChecked = P_NowUnix();
+    P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_UpdateCheck;
+    input->path = Prog_JoinPath(&job->arena, state->cacheDirectory, Prog_UpdateFile);
+    input->name = Prog__ReleasesUrl(&job->arena);
+    input->newName = StrCopy(&job->arena, state->updateShown);
+    job->input = input;
+    state->updateJob = job;
+    state->updateInstalling = false;
+    P_JobSubmit(job);
+}
+
+// Downloads the newer release in a job and puts it in place of the running executable, which then starts again; without an archive for this
+// system, the release's page opens instead.
+function void Prog_InstallUpdate(Prog_State *state)
+{
+    if (!state->update.version.length || state->updateJob || state->updateReady) return;
+    if (!state->update.asset.length) {
+        P_OpenUrl(&state->frameArena, state->update.page);
+        return;
+    }
+    P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_UpdateInstall;
+    input->path = P_ExecutablePath(&job->arena);
+    input->name = StrCopy(&job->arena, state->update.asset);
+    input->newName = StrCopy(&job->arena, state->update.version);
+    job->input = input;
+    state->updateJob = job;
+    state->updateInstalling = true;
+    P_JobSubmit(job);
+    Prog_Notify(state, Prog_NoticeKind_Info, S("update.downloading"), StrFormat(&state->frameArena, TrF("Downloading Filey %S..."), state->update.version), (String){0});
 }
 
 // `text` with every byte but letters, digits and -._~ written as %XX, for a web address.
@@ -3540,6 +3730,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     ArenaClear(&state->settingsArena);
     state->configDirectory = StrCopy(&state->settingsArena, configDirectory);
     state->cacheDirectory = StrCopy(&state->settingsArena, cacheDirectory);
+    Prog__ReadUpdate(state);
     if (!configDirectory.length) return;
     b32 found = false;
     Prog__LoadList(state, Prog_BookmarksFile, &state->bookmarkArena, &state->bookmarks, &found);
@@ -5631,6 +5822,21 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         }
     }
     Prog__UsePanel(state, active);
+    // GitHub is asked for a newer release at most once a day, by the main window.
+    if (state->checkUpdates && !state->separateWindow && !state->updateJob && state->cacheDirectory.length && P_NowUnix() - state->updateChecked >= 86400) {
+        Prog_CheckForUpdates(state, false);
+    }
+    // A new version in place starts, as this one quits, once the copies and downloads under way are done.
+    if (state->updateReady) {
+        b32 busy = false;
+        for (u32 i = 0; i < Prog_TransferSlots; ++i) busy |= state->transfers[i].job != NULL;
+        if (!busy) {
+            state->updateReady = false;
+            P_FileError error = P_Restart(&state->frameArena, state->updateExecutable);
+            if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("update.failed"), Tr("Couldn't start the new Filey"), error.message);
+            else PlatformWindowClose();
+        }
+    }
     // Drives are listed again every few seconds while the sidebar shows them, and at once when the system tells of one coming or going.
     if ((state->placesWanted || state->drivesChanged) && !state->placesJob && (state->drivesChanged || !state->placesTime || now - state->placesTime >= Millions(5))) {
         state->drivesChanged = false;
@@ -6177,6 +6383,42 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog__RequestShares(state);
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_UpdateCheck) {
+            if (state->updateJob == job) state->updateJob = NULL;
+            Prog_LatestRelease *release = job->result;
+            b32 manual = state->updateManual;
+            state->updateManual = false;
+            if (release && release->fetched) {
+                // What the job kept, now here: the release while it is newer, and the version offered last.
+                b32 newer = Prog_VersionNewer(release->version, S(FILEY_VERSION));
+                String shown = StrCopy(&state->frameArena, release->notify ? release->version : state->updateShown);
+                ArenaClear(&state->updateArena);
+                state->updateShown = StrCopy(&state->updateArena, shown);
+                state->update = !newer ? (Prog_LatestRelease){0} : (Prog_LatestRelease){ StrCopy(&state->updateArena, release->version), StrCopy(&state->updateArena, release->page),
+                                                                              StrCopy(&state->updateArena, release->asset), true, false };
+                if (newer && (release->notify || manual)) {
+                    b32 own = release->asset.length != 0;
+                    Prog_NotifyAction(state, Prog_NoticeKind_Info, S("update.available"), StrFormat(&state->frameArena, TrF("Filey %S is out"), release->version),
+                                      own ? Tr("Update downloads it and starts Filey again in it, with the panels and tabs as they are.") : Tr("Its page has the downloads."),
+                                      Prog_CommandKind_UpdateInstall, own ? Tr("Update") : Tr("Open Page"));
+                } else if (manual && !newer) {
+                    Prog_Notify(state, Prog_NoticeKind_Info, S("update.none"), Tr("Filey is up to date"), StrFormat(&state->frameArena, TrF("%S is the latest version."), S(FILEY_VERSION)));
+                }
+            } else if (manual) {
+                Prog_Notify(state, Prog_NoticeKind_Error, S("update.failed"), Tr("Couldn't check for updates"), Tr("GitHub did not answer, or curl is missing."));
+            }
+            changed = true;
+        } else if (input->kind == Prog_JobKind_UpdateInstall) {
+            if (state->updateJob == job) state->updateJob = NULL;
+            state->updateInstalling = false;
+            P_FileError *error = job->result;
+            if (error && !error->code) {
+                state->updateExecutable = StrCopy(&state->updateArena, input->path);
+                state->updateReady = true;
+            } else {
+                Prog_Notify(state, Prog_NoticeKind_Error, S("update.failed"), Tr("Couldn't update Filey"), error ? Prog_Tr(error->message) : (String){0});
+            }
+            changed = true;
         } else if (input->kind == Prog_JobKind_Shares) {
             if (state->sharesJob == job) state->sharesJob = NULL;
             if (job->result && !P_IsCancelled(&job->cancelToken)) {

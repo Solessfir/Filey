@@ -143,6 +143,18 @@ function b32 P_OpensInApp(String path);
 function P_FileError P_OpenFileExplorer(Arena *arena, String path);
 // Starts another Filey window, a process of its own, showing the folder `path`, with `option`, when not empty, as one more argument.
 function P_FileError P_OpenWindow(Arena *arena, String path, String option);
+// The running program's file.
+function String P_ExecutablePath(Arena *arena);
+// Puts the file `replacement` where the running program's file `executable` is, in one step: on Windows the running one moves aside first,
+// to "<name>.old.exe" beside it, or "<name>.old-<process>.exe" while an older one still runs from that; elsewhere the new one is renamed
+// over it, which leaves the running program its old file, and copied beside it first when it is on another file system.
+function P_FileError P_ReplaceExecutable(Arena *arena, String executable, String replacement);
+// Removes what replacing `executable` moved aside, each copy once nothing runs it; there is nothing to remove but on Windows.
+function void P_RemoveReplaced(String executable);
+// Starts `executable` with --after=<this process>, which waits for this process to end before it takes the window over.
+function P_FileError P_Restart(Arena *arena, String executable);
+// Waits until process `process` has ended, or `timeoutMilliseconds` have passed.
+function void P_WaitForExit(u32 process, u32 timeoutMilliseconds);
 // Starts the system's console in the folder `directory`: cmd.exe in the default terminal on Windows, the desktop's terminal on Linux.
 function P_FileError P_OpenConsole(Arena *arena, String directory);
 // Reports changes to the items of one folder, not of its subfolders, from a thread of its own, at most every P_WatchPause milliseconds, so

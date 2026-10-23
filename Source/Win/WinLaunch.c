@@ -419,6 +419,102 @@ function wchar *P__FileStringWideRaw(Arena *arena, String text)
     return result;
 }
 
+function String P_ExecutablePath(Arena *arena)
+{
+    wchar executable[1024];
+    u32 length = GetModuleFileNameW(NULL, executable, (u32)CArrayCount(executable));
+    if (!length || length >= CArrayCount(executable)) return (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    String result = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, executable, (i32)length));
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// An executable's path without its ".exe".
+function String P__ExecutableStem(String executable)
+{
+    const char *end = executable.value + executable.length;
+    b32 named = executable.length > 4 && end[-4] == '.' && (end[-3] | 32) == 'e' && (end[-2] | 32) == 'x' && (end[-1] | 32) == 'e';
+    return named ? StrFromTo(executable, 0, (i64)executable.length - 4) : executable;
+}
+
+function void P_RemoveReplaced(String executable)
+{
+    Scratch scratch = GetScratch();
+    String stem = P__ExecutableStem(executable);
+    Index slash = StrIndexChar(stem, '/', SSF_SearchBackwards);
+    String folder = slash.exists ? StrFromTo(stem, 0, (i64)slash.value) : (String){0};
+    wchar *pattern = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, StrFormat(scratch.arena, "%S.old*.exe", stem)));
+    WIN32_FIND_DATAW data = {0};
+    HANDLE find = pattern && folder.length ? FindFirstFileW(pattern, &data) : INVALID_HANDLE_VALUE;
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            String name = P__FileStringWide(scratch.arena, data.cFileName, lstrlenW(data.cFileName));
+            wchar *path = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, StrFormat(scratch.arena, "%S/%S", folder, name)));
+            if (path) DeleteFileW(path);
+        } while (FindNextFileW(find, &data));
+        FindClose(find);
+    }
+    ReleaseScratch(scratch);
+}
+
+function P_FileError P_ReplaceExecutable(Arena *arena, String executable, String replacement)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String stem = P__ExecutableStem(executable);
+    wchar *target = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, executable)), *source = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, replacement));
+    wchar *aside = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, StrFormat(scratch.arena, "%S.old.exe", stem)));
+    u32 error = target && source && aside ? ERROR_SUCCESS : ERROR_INVALID_NAME;
+    // The running copy cannot be written over, but it can be moved aside, where earlier replacements' copies go once nothing runs them; while
+    // an older one still runs from there, as another window of the version before, this one takes a name of its own.
+    if (!error) {
+        P_RemoveReplaced(executable);
+        if (GetFileAttributesW(aside) != INVALID_FILE_ATTRIBUTES) {
+            aside = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, StrFormat(scratch.arena, "%S.old-%u.exe", stem, (u32)GetCurrentProcessId())));
+        }
+        if (!aside) error = ERROR_INVALID_NAME;
+        else if (!MoveFileExW(target, aside, MOVEFILE_REPLACE_EXISTING)) error = GetLastError();
+    }
+    if (!error && !MoveFileExW(source, target, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
+        error = GetLastError();
+        MoveFileExW(aside, target, 0);
+    }
+    ReleaseScratch(scratch);
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
+function P_FileError P_Restart(Arena *arena, String executable)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *program = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, executable));
+    P_FileError result = {0};
+    if (!program) {
+        result = P__FileError(arena, ERROR_INVALID_NAME);
+    } else {
+        u64 room = wcslen(program) + 40;
+        wchar *line = ArenaPushArray(scratch.arena, room, wchar);
+        swprintf(line, room, L"\"%ls\" --after=%lu", program, GetCurrentProcessId());
+        STARTUPINFOW startup = { .cb = sizeof(startup) };
+        PROCESS_INFORMATION process = {0};
+        if (CreateProcessW(program, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+        } else {
+            result = P__FileError(arena, GetLastError());
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+function void P_WaitForExit(u32 process, u32 timeoutMilliseconds)
+{
+    HANDLE handle = OpenProcess(SYNCHRONIZE, FALSE, process);
+    if (!handle) return;
+    WaitForSingleObject(handle, timeoutMilliseconds);
+    CloseHandle(handle);
+}
+
 function P_FileError P_OpenWindow(Arena *arena, String path, String option)
 {
     Scratch scratch = GetScratchEx(arena);
