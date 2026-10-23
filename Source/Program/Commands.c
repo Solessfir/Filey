@@ -717,7 +717,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
-    Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen,
+    Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen, Prog_CommandKind_CopyVersion,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
     Prog_CommandKind_DecreaseSpacing, Prog_CommandKind_ToggleFileExtension, Prog_CommandKind_ToggleHidden, Prog_CommandKind_ToggleSystemFiles, Prog_CommandKind_ToggleRecents,
@@ -1380,6 +1380,9 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             if (P_CanInstall()) Prog__Item(.kind = Prog_CommandKind_SetupOpen, .icon = Icon_HardDriveDownload);
+            // Last, the version, which a click copies.
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_CopyVersion, .label = StrFormat(scratch.arena, NoTrF("Filey %s"), FILEY_VERSION), .icon = Icon_Info);
         } break;
         // The panel's views, its splits, its tabs, the app, then what the listing shows.
         case Prog_CommandKind_PanelMenu: {
@@ -2627,6 +2630,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
                 state->pathFlashTime = PlatformNowMicroseconds();
             }
         } break;
+        case Prog_CommandKind_CopyVersion: PlatformClipboardSetText(S(FILEY_VERSION)); break;
         case Prog_CommandKind_CopyAsPathSmart: {
             String *shown = paths;
             u64 shownCount = count;

@@ -1905,6 +1905,12 @@ Copy As Path (Smart)
 Copy selected file paths to the clipboard, adding quotes only when needed.
 = Скопировать пути выбранных файлов, добавляя кавычки только при необходимости.
 
+Copy Version
+= Копировать версию
+
+Copy Filey's version to the clipboard, as for a bug report.
+= Скопировать версию Filey в буфер обмена, например для отчёта об ошибке.
+
 Paste Shortcut
 = Вставить ярлык
 

@@ -913,6 +913,12 @@ command CopyAsPath {
     repeat  = "false"
 }
 
+command CopyVersion {
+    label   = "Copy Version^about,build,release"
+    tooltip = "Copy Filey's version to the clipboard, as for a bug report."
+    repeat  = "false"
+}
+
 command CopyAsPathSmart {
     label   = "Copy As Path (Smart)^quotes"
     tooltip = "Copy selected file paths to the clipboard, adding quotes only when needed."

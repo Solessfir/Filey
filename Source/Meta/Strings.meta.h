@@ -718,6 +718,8 @@ global const char *const Prog_Strings[] = {
     "Take everything out of the selected archive into a new folder named after it.",
     "Copy As Path",
     "Copy selected file paths to the clipboard, or the folder's path when nothing is selected.",
+    "Copy Version",
+    "Copy Filey's version to the clipboard, as for a bug report.",
     "Copy As Path (Smart)",
     "Copy selected file paths to the clipboard, adding quotes only when needed.",
     "Paste Shortcut",

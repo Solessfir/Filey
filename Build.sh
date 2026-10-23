@@ -40,7 +40,15 @@ fi
 
 # EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 cflags="$cflags ${EXTRA_CFLAGS:-}"
-# FILEY_VERSION, such as 1.2.3 for a release, is the version the app shows; 0.1.0 without it.
+# FILEY_VERSION, such as 1.2.3 for a release, is the version the app shows. Without it, git describes the build: the last v tag and the
+# commits since it, or 0.1.0 and the commit while there is no tag, and 0.1.0 alone outside a repository.
+if [ -z "${FILEY_VERSION:-}" ]; then
+    describe=$(git -C "$(dirname "$0")" describe --tags --always --dirty 2>/dev/null || true)
+    case "$describe" in
+        v*) FILEY_VERSION=${describe#v} ;;
+        ?*) FILEY_VERSION="0.1.0+$describe" ;;
+    esac
+fi
 if [ -n "${FILEY_VERSION:-}" ]; then
     cflags="$cflags -DFILEY_VERSION=\"$FILEY_VERSION\""
 fi
