@@ -267,6 +267,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Create,
     Prog_JobKind_Link,
     Prog_JobKind_Places,
+    Prog_JobKind_Shares,
     Prog_JobKind_Save,
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
@@ -441,7 +442,8 @@ typedef struct Prog_JobInput {
     String name;
     String newName;
     String prefix;
-    // Measure the folders `names` inside `path`: the entries `rows` of listing `listing`.
+    // Measure the folders `names` inside `path`: the entries `rows` of listing `listing`. Shares asks the servers `paths` for theirs but the
+    // shares `names`, rowCount of them, which network drives stand for.
     String *names;
     u64 *rows;
     u64 rowCount;
@@ -1831,6 +1833,13 @@ typedef struct Prog_State {
     ArrayStr missingBookmarks;  // bookmarks whose folders were gone at the last listing, which the sidebar fades
     P_Job *placesJob;
     u64 placesTime;
+    // The folders the known servers share, which Storage lists after the drives: the servers of the network drives, the bookmarks, the
+    // recents and the shown folder, by sharesKey, their names' hash, asked again when they change and every half minute.
+    Arena sharesArena;
+    P_ArrayPlace shares;
+    P_Job *sharesJob;
+    u64 sharesTime;
+    u64 sharesKey;
     // Bookmarked and recently shown folders, saved in configDirectory when the app sets one.
     Arena settingsArena;
     String configDirectory;

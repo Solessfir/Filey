@@ -36,7 +36,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 set CFLAGS=-std=c23 -Wall -Wextra -Wpedantic -Wconversion -Wno-unused-parameter -Wno-unused-function -I"%ROOT%Source" -D_CRT_SECURE_NO_WARNINGS -g
 rem The release build has no console window; debug keeps one for logs.
-set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -ldwmapi -lversion -lwinmm
+set APP_LINK=-luser32 -lgdi32 -lopengl32 -ldwrite -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -ldwmapi -lversion -lwinmm -lnetapi32 -lmpr
 rem The DirectWrite adapter is the only C++ and uses no C++ runtime features.
 set CXXFLAGS=-std=c++20 -Wall -Wextra -fno-exceptions -fno-rtti -I"%ROOT%Source" -g
 if "%MODE%"=="release" (
@@ -77,7 +77,7 @@ rem The icon and version details are a resource linked into the executable.
 
 rem The tests keep several program states on the stack at once, more than Windows' default megabyte; Linux gives 8 MB.
 if "%TEST%"=="1" (
-    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -lversion -lwinmm -Wl,/STACK:8388608 -o "%OUT%\FileyTests.exe" || exit /b 1
+    "%CLANG%" %CFLAGS% -fuse-ld=lld "%ROOT%Source\Tests\Tests.c" -luser32 -lgdi32 -lshell32 -lole32 -ladvapi32 -lshlwapi -lruntimeobject -lshcore -lversion -lwinmm -lnetapi32 -lmpr -Wl,/STACK:8388608 -o "%OUT%\FileyTests.exe" || exit /b 1
     "%OUT%\FileyTests.exe" || exit /b 1
 )
 

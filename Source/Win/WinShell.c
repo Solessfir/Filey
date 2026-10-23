@@ -8,6 +8,7 @@
 #include <shlwapi.h>
 #include <winioctl.h>
 #include <winver.h>
+#include <winnetwk.h>
 #pragma pop_macro("function")
 
 global const IID P__IID_IShellFolder  = { 0x000214E6, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
@@ -1048,6 +1049,13 @@ function P_ArrayPlace P_Drives(Arena *arena)
             place.name = kind ? StrFormat(arena, "%s (%c:)", kind, (char)answer->drive[0]) : place.path;
         }
         if (named && answer->type[0]) place.type = P__FileStringWide(arena, answer->type, lstrlenW(answer->type));
+        // A network drive's share, as "\\nas\media", which its server's other shares are found from; a cloud drive mounted through
+        // WinFsp has a remote name too, of a server that is not there.
+        if (answered && types[i] == DRIVE_REMOTE && answer->formatted && wcsncmp(answer->system, L"FUSE", 4) && !wcsstr(answer->system, L"WinFsp")) {
+            wchar letter[3] = { answer->drive[0], L':', 0 }, remote[MAX_PATH];
+            DWORD size = (DWORD)CArrayCount(remote);
+            if (WNetGetConnectionW(letter, remote, &size) == NO_ERROR) place.remote = P_AbsolutePath(arena, P__FileStringWide(scratch.arena, remote, lstrlenW(remote)));
+        }
         if (answered) {
             if (answer->sized) {
                 place.totalBytes = answer->total.QuadPart;

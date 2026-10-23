@@ -673,10 +673,21 @@ function String Prog__FolderName(String path)
     return slash.exists && slash.value + 1 < trimmed.length ? StrFrom(trimmed, slash.value + 1) : trimmed;
 }
 
-// Where Up goes from `path`: its parent, This PC from a drive's root, and nowhere from This PC.
+// The server a network path is on, as "//nas" for "//nas/media/x"; empty for any other path.
+function String Prog_PathServer(String path)
+{
+    if (path.length < 3 || path.value[0] != '/' || path.value[1] != '/' || path.value[2] == '?' || path.value[2] == '.' || path.value[2] == '/') return (String){0};
+    Index slash = StrIndexChar(StrFrom(path, 2), '/', SSF_None);
+    return slash.exists ? StrFromTo(path, 0, (i64)slash.value + 2) : path;
+}
+
+// Where Up goes from `path`: its parent, the server from a share's root, This PC from a drive's or a server's root, and nowhere from This PC.
 function String Prog_UpPath(String path)
 {
     if (StrIsEqual(path, Prog_ThisPC)) return (String){0};
+    String server = Prog_PathServer(path), trimmed = path;
+    while (trimmed.length > server.length && trimmed.value[trimmed.length - 1] == '/') --trimmed.length;
+    if (server.length && trimmed.length > server.length && !StrIndexChar(StrFrom(trimmed, server.length + 1), '/', SSF_None).exists) return server;
     String parent = Prog_ParentPath(path);
     if (!parent.length || StrIsEqual(parent, path)) return path.length ? Prog_ThisPC : (String){0};
     return parent;
@@ -2468,6 +2479,22 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    if (input->kind == Prog_JobKind_Shares) {
+        // Each server's shares but those a network drive already stands for.
+        P_ArrayPlace *result = ArenaPushStruct(&job->arena, P_ArrayPlace);
+        ProfileScope("ListShares") {
+            for (u64 s = 0; s < input->pathCount && !P_IsCancelled(&job->cancelToken); ++s) {
+                P_ArrayPlace shares = P_ServerShares(&job->arena, input->paths[s], &job->cancelToken);
+                for (u64 i = 0; i < shares.header.count; ++i) {
+                    b32 mapped = false;
+                    for (u64 m = 0; m < input->rowCount && !mapped; ++m) mapped = Prog__EqualFolded(input->names[m], shares.v[i].path);
+                    if (!mapped) ArrayPush(&job->arena, *result, shares.v[i]);
+                }
+            }
+        }
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_Save) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         *error = P_WriteFile(&job->arena, input->path, input->name);
@@ -3778,6 +3805,49 @@ function void Prog_StartUp(Prog_State *state)
     Scratch scratch = GetScratch();
     String home = state->startup == Prog_Startup_Home ? Prog_HomePath(scratch.arena) : (String){0};
     Prog_RequestDirectory(state, home.length ? home : Prog_ThisPC, true, 0);
+    ReleaseScratch(scratch);
+}
+
+// Asks the known servers for their shares once they change, and every half minute while the sidebar keeps its places current; without any,
+// Storage lists none.
+function void Prog__RequestShares(Prog_State *state)
+{
+    Scratch scratch = GetScratch();
+    ArrayStr paths = {0}, mapped = {0}, servers = {0};
+    for (u64 i = 0; i < state->drives.header.count; ++i) if (state->drives.v[i].remote.length) ArrayPush(scratch.arena, mapped, state->drives.v[i].remote);
+    for (u64 i = 0; i < mapped.header.count; ++i) ArrayPush(scratch.arena, paths, mapped.v[i]);
+    for (u64 i = 0; i < state->bookmarks.header.count; ++i) ArrayPush(scratch.arena, paths, state->bookmarks.v[i]);
+    for (u64 i = 0; i < state->recents.header.count; ++i) ArrayPush(scratch.arena, paths, state->recents.v[i]);
+    ArrayPush(scratch.arena, paths, state->directory.path);
+    for (u64 i = 0; i < paths.header.count; ++i) {
+        String server = Prog_PathServer(paths.v[i]);
+        b32 known = !server.length;
+        for (u64 k = 0; k < servers.header.count && !known; ++k) known = Prog__EqualFolded(servers.v[k], server);
+        if (!known) ArrayPush(scratch.arena, servers, server);
+    }
+    u64 key = 0;
+    for (u64 i = 0; i < servers.header.count; ++i) key = key * 31 + MapHashBytes(servers.v[i].value, servers.v[i].length);
+    u64 now = PlatformNowMicroseconds();
+    if (!servers.header.count) {
+        ArenaRelease(&state->sharesArena);
+        state->shares = (P_ArrayPlace){0};
+        state->sharesKey = 0;
+    } else if (!state->sharesJob && (key != state->sharesKey || now - state->sharesTime >= Millions(30))) {
+        state->sharesKey = key;
+        state->sharesTime = now;
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_Shares;
+        input->pathCount = servers.header.count;
+        input->paths = ArenaPushArray(&job->arena, input->pathCount, String);
+        for (u64 i = 0; i < input->pathCount; ++i) input->paths[i] = StrCopy(&job->arena, servers.v[i]);
+        input->rowCount = mapped.header.count;
+        input->names = ArenaPushArray(&job->arena, Max(input->rowCount, (u64)1), String);
+        for (u64 i = 0; i < input->rowCount; ++i) input->names[i] = StrCopy(&job->arena, mapped.v[i]);
+        job->input = input;
+        state->sharesJob = job;
+        P_JobSubmit(job);
+    }
     ReleaseScratch(scratch);
 }
 
@@ -6104,6 +6174,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->pathRoots = result->roots;
                 state->searchPlaces = result->searched;
                 state->missingBookmarks = result->missing;
+                Prog__RequestShares(state);
+                changed = true;
+            }
+        } else if (input->kind == Prog_JobKind_Shares) {
+            if (state->sharesJob == job) state->sharesJob = NULL;
+            if (job->result && !P_IsCancelled(&job->cancelToken)) {
+                ArenaRelease(&state->sharesArena);
+                state->sharesArena = job->arena;
+                job->arena = (Arena){0};
+                state->shares = *(P_ArrayPlace *)job->result;
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_Save) {
@@ -6580,6 +6660,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->closedArena);
     ArenaRelease(&state->confirmArena);
     ArenaRelease(&state->placesArena);
+    ArenaRelease(&state->sharesArena);
     ArenaRelease(&state->settingsArena);
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);

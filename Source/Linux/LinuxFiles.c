@@ -1820,6 +1820,12 @@ function String P__DiskModel(Arena *arena, String device)
 }
 
 // The root and what is mounted under the usual places for disks: /run/media and /media for removable ones, /mnt for the rest.
+// Mounted shares, as a CIFS or NFS mount under /mnt, are drives here, and there is no asking a server for its shares without Samba's tools.
+function P_ArrayPlace P_ServerShares(Arena *arena, String server, const P_CancelToken *cancel)
+{
+    return (P_ArrayPlace){0};
+}
+
 function P_ArrayPlace P_Drives(Arena *arena)
 {
     P_ArrayPlace result = {0};

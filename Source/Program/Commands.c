@@ -2712,7 +2712,12 @@ function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64
     switch (group) {
         case Prog_Group_Recents: return index < state->recents.header.count ? state->recents.v[index] : (String){0};
         case Prog_Group_Bookmarks: return index < state->bookmarks.header.count ? state->bookmarks.v[index] : (String){0};
-        case Prog_Group_Storage: return index < state->drives.header.count ? state->drives.v[index].path : (String){0};
+        case Prog_Group_Storage: {
+            // The drives, then the servers' shares.
+            if (index < state->drives.header.count) return state->drives.v[index].path;
+            index -= state->drives.header.count;
+            return index < state->shares.header.count ? state->shares.v[index].path : (String){0};
+        }
         case Prog_Group_Places: return index < state->places.header.count ? state->places.v[index].path : (String){0};
         default: return (String){0};
     }

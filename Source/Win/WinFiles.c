@@ -4,6 +4,7 @@
 #undef function
 #include <shellapi.h>
 #include <objbase.h>
+#include <lm.h>
 #pragma pop_macro("function")
 
 function wchar *P__FilePathWide(Arena *arena, String path)
@@ -282,6 +283,64 @@ function wchar *P__FileExtendedPath(Arena *arena, String path)
     return result;
 }
 
+// The server of a path that is only a server, as "//nas" or "//nas/", which lists the folders it shares; false for any other path.
+function b32 P__ServerRoot(String path, String *server)
+{
+    if (path.length < 3 || path.value[0] != '/' || path.value[1] != '/' || path.value[2] == '?' || path.value[2] == '.') return false;
+    u64 end = path.length;
+    while (end > 2 && path.value[end - 1] == '/') --end;
+    for (u64 i = 2; i < end; ++i) if (path.value[i] == '/') return false;
+    *server = StrFromTo(path, 0, (i64)end);
+    return end > 2;
+}
+
+// The names of the folders `server` shares, as NetShareEnum asks it: the disk shares, leaving out the system's own, as C$ and ADMIN$, and
+// those named with a $ at the end to keep them out of sight, as Explorer leaves them out. The error is the server's when it gives none.
+function ArrayStr P__ShareNames(Arena *arena, String server, const P_CancelToken *cancel, u32 *error)
+{
+    ArrayStr result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    wchar *name = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, server));
+    NET_API_STATUS status = name ? NERR_Success : ERROR_INVALID_NAME;
+    DWORD resume = 0;
+    while (name && !P_IsCancelled(cancel)) {
+        SHARE_INFO_1 *shares = NULL;
+        DWORD read = 0, total = 0;
+        status = NetShareEnum(name, 1, (LPBYTE *)&shares, MAX_PREFERRED_LENGTH, &read, &total, &resume);
+        if (status != NERR_Success && status != ERROR_MORE_DATA) break;
+        for (DWORD i = 0; i < read; ++i) {
+            i32 length = lstrlenW(shares[i].shi1_netname);
+            if (shares[i].shi1_type != STYPE_DISKTREE || !length || shares[i].shi1_netname[length - 1] == L'$') continue;
+            ArrayPush(arena, result, P__FileStringWide(arena, shares[i].shi1_netname, length));
+        }
+        if (shares) NetApiBufferFree(shares);
+        if (status != ERROR_MORE_DATA) break;
+    }
+    ReleaseScratch(scratch);
+    if (error) *error = status == ERROR_MORE_DATA ? NERR_Success : (u32)status;
+    return result;
+}
+
+function P_ArrayPlace P_ServerShares(Arena *arena, String server, const P_CancelToken *cancel)
+{
+    P_ArrayPlace result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    ArrayStr names = P__ShareNames(scratch.arena, server, cancel, NULL);
+    String native = P_NativePath(scratch.arena, server);
+    for (u64 i = 0; i < names.header.count && !P_IsCancelled(cancel); ++i) {
+        P_Place place = { .name = StrFormat(arena, "%S (%S)", names.v[i], native), .path = StrFormat(arena, "%S/%S", server, names.v[i]) };
+        wchar *root = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, StrFormat(scratch.arena, "%S/", place.path)));
+        ULARGE_INTEGER available = {0}, size = {0};
+        if (root && GetDiskFreeSpaceExW(root, &available, &size, NULL)) {
+            place.totalBytes = size.QuadPart;
+            place.freeBytes = available.QuadPart;
+        }
+        ArrayPush(arena, result, place);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const P_CancelToken *cancel)
 {
     P_DirectoryResult result = {0};
@@ -295,6 +354,15 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
     u32 error = directory ? 0 : GetLastError();
     HANDLE find = INVALID_HANDLE_VALUE;
     WIN32_FIND_DATAW data = {0};
+    // A server lists the folders it shares, as Explorer's \\nas does.
+    String server = {0};
+    if (P__ServerRoot(path, &server)) {
+        ArrayStr shares = P__ShareNames(scratch.arena, server, cancel, &error);
+        for (u64 i = 0; i < shares.header.count; ++i) {
+            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, shares.v[i]), .kind = P_FileKind_Directory, .metadataValid = true }));
+        }
+        directory = NULL;
+    }
     if (directory) {
         u64 length = 0;
         while (directory[length]) ++length;

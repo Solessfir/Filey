@@ -29,7 +29,7 @@ Missing, by the reference's group:
 Shipped there, missing here:
 
 - Drag and drop from ZIP archives and browsers (virtual files, `CFSTR_FILEDESCRIPTOR`/`CFSTR_FILECONTENTS`), and drops onto executables and scripts that run them with the files.
-- Network shares listed in the sidebar: mapped drives already show under Storage; shares without a drive letter (`\\server\share`, Explorer's network locations) show only when bookmarked.
+- Network shares on Linux: Windows lists the shares of the servers that the network drives, bookmarks, recents and the shown folder are on, under Storage, and a server's root (`\\nas`) lists its shares; on Linux mounted CIFS and NFS shares show as drives, but nothing asks a server for its shares yet (`smbclient -L`, or the gvfs mounts in `$XDG_RUNTIME_DIR/gvfs`).
 
 Planned there, worth doing here first:
 

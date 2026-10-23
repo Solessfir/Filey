@@ -854,6 +854,20 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         b32 root = false;
         for (u64 i = 0; i < state.directory.count; ++i) root |= StrIsEqual(Prog_UpPath(state.directory.entries[i].file.name), Prog_ThisPC);
         Check(!Prog_UpPath(Prog_ThisPC).length && root);
+        // Up from a share's root goes to its server, which lists its shares, and from the server to This PC.
+        Check(StrIsEqual(Prog_PathServer(S("//nas/media/films")), S("//nas")) && StrIsEqual(Prog_PathServer(S("//nas")), S("//nas")));
+        Check(!Prog_PathServer(S("//?/UNC/nas/media")).length && !Prog_PathServer(S("C:/nas")).length && !Prog_PathServer(S("/home")).length);
+        Check(StrIsEqual(Prog_UpPath(S("//nas/media/films")), S("//nas/media/")) && StrIsEqual(Prog_UpPath(S("//nas/media/")), S("//nas")));
+        Check(StrIsEqual(Prog_UpPath(S("//nas/media")), S("//nas")) && StrIsEqual(Prog_UpPath(S("//nas")), Prog_ThisPC));
+        // A server's shares leave out the hidden ones, as C$, whether or not this one answers.
+        {
+            P_ArrayPlace shares = P_ServerShares(&kept, S("//localhost"), NULL);
+            P_DirectoryResult listed = P_EnumerateDirectory(&kept, S("//localhost"), NULL);
+            b32 shown = true;
+            for (u64 i = 0; i < shares.header.count; ++i) shown &= !TestEndsWith(shares.v[i].path, S("$")) && StrIsEqual(Prog_PathServer(shares.v[i].path), S("//localhost"));
+            for (u64 i = 0; i < listed.files.header.count; ++i) shown &= !TestEndsWith(listed.files.v[i].name, S("$")) && listed.files.v[i].kind == P_FileKind_Directory;
+            Check(shown);
+        }
         Check(StrIsEqual(Prog_JoinPath(&kept, Prog_ThisPC, state.directory.entries[0].file.name), state.directory.entries[0].file.name));
         // The trail of visited folders stays through This PC and a parent, and goes on past the parent's crumbs.
         Check(StrIsEqual(Prog_TrailText(&state), trail));

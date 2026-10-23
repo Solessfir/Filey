@@ -5185,12 +5185,18 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         state->bookmarkDropShown = state->bookmarkGap;
         found = 0;
         for (u64 i = 0; i < state->drives.header.count; ++i) found += Prog__SidebarFinds(state, state->drives.v[i].name) ? 1 : 0;
+        for (u64 i = 0; i < state->shares.header.count; ++i) found += Prog__SidebarFinds(state, state->shares.v[i].name) ? 1 : 0;
         if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, Tr("Storage"), (String){0}, m);
         body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Storage, m) : NULL;
         if (body) UI_Parent(body) {
             for (u64 i = 0; i < state->drives.header.count; ++i) {
                 const P_Place *drive = &state->drives.v[i];
                 if (Prog__SidebarFinds(state, drive->name)) Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
+            }
+            // Then the shares of the servers the network drives, the bookmarks and the recents are on, as drives.
+            for (u64 i = 0; i < state->shares.header.count; ++i) {
+                const P_Place *share = &state->shares.v[i];
+                if (Prog__SidebarFinds(state, share->name)) Prog__SidebarItem(state, Prog_Group_Storage, state->drives.header.count + i, share->name, share->path, share, false, m);
             }
         }
         found = 0;

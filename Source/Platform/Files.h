@@ -277,6 +277,7 @@ typedef struct P_Place {
     String type;        // drives only: what kind of drive it is, as "Local Disk"
     String fileSystem;  // drives only: as "NTFS" or "ext4"; empty without a medium
     String id;          // drives only: the volume's UUID on Linux, as "FEBA1237BA11ED41", which Go To finds it by too; empty where none is known
+    String remote;      // network drives only: the share it stands for, as "//nas/media"; empty where the system does not say
     b8 busy;            // drives only: did not answer in time, such as one spinning up a disc, so its details come with a later listing
     b8 home;            // the user's home, which goes by its folder's name, the account's
 } P_Place;
@@ -291,6 +292,10 @@ function ArrayStr P_PathRoots(Arena *arena);
 // Program Files, the users' folder, the system's, the fonts', ProgramData and Windows; elsewhere the configuration, data and cache folders,
 // the applications' and fonts' folders, /etc and /opt.
 function ArrayStr P_SearchPlaces(Arena *arena);
+// The folders server `server`, as "//nas", shares, each a place named "media (\\nas)" with its size where the server says; none where it
+// shares none or does not answer, or where the system has no way to ask (Linux, where mounted shares are drives). A server that does not
+// answer takes a while to give up, so run it in a job.
+function P_ArrayPlace P_ServerShares(Arena *arena, String server, const P_CancelToken *cancel);
 // Mounted drives with their sizes; network drives may be slow to answer, so run it in a job.
 function P_ArrayPlace P_Drives(Arena *arena);
 // The folder Filey keeps its settings in, created when missing; empty when there is none.
