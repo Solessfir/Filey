@@ -2,7 +2,6 @@
 
 ## Next
 
-- Context menu lag: the warm-up runs once a session, for the first file listed, so the handlers of other file types still load on their first right-click. Build the hovered or focused item's menu ahead of time on a background STA thread, which then invokes it too.
 - Larger thumbnails that use the grid's room: thumbnails are fitted into square atlas cells and drawn square at the zoom's size, so a wide picture leaves the cell's sides empty instead of filling its width.
 - Encrypted archives fail to open; ask for the password and hand it to libarchive.
 - Git: the status is asked again only after a listing, at most every 3 s, and the shown folder's watch does not see changes in its subfolders or in `.git`. The Git column's rows show a repository's branch and changes, not its commits to push and pull.
@@ -32,6 +31,7 @@
 - Media: the waveform is ffmpeg's picture tinted with the accent rather than drawn natively, yt-dlp always gets `--no-playlist`, a cancelled torrent's part files are kept (so that it resumes), no seeding options, and no notice how much smaller a compressed video came out.
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
 - Updates: the Apps & features entry keeps the version Filey Setup wrote.
+- Context menus: the sidebar's places are built when right-clicked, not ahead as the list's hovered or keyboard item is.
 
 ## From the RAD Debugger
 

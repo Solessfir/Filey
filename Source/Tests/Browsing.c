@@ -1361,7 +1361,7 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(P__TestRemovePath(fixture, S("pixel.png"), false));
     Check(P__TestRemovePath(fixture, S("plain.bin"), false));
 
-    // Menus are only built and read here, never invoked.
+    // Menus are built and read here; only New > Folder is invoked, in the test's own folder.
     String names[] = { S("plain.txt") };
     P_ContextMenu menu = {0};
     b32 opened = P_ContextMenuOpen(&arena, fixture->path, names, 1, &menu);
@@ -1376,8 +1376,40 @@ function void TestFileIcons(TestFileFixture *fixture)
     P_ContextMenuClose(&menu);
     Check(menu.items == NULL && menu.native == NULL);
 #if defined(_WIN32)
+    // A menu prepared is built on the menu thread a moment later, and the open with the same arguments takes it, its items copied out of the menu thread's arena.
+    P_ContextMenuPrepare(fixture->path, names, 1);
+    u64 start = PlatformNowMicroseconds();
+    b32 ready = false;
+    while (!ready && PlatformNowMicroseconds() - start < Millions(10)) {
+        AcquireSRWLockExclusive(&P__menus.lock);
+        ready = P__menus.readySerial && P__menus.readySerial == P__menus.wantSerial;
+        ReleaseSRWLockExclusive(&P__menus.lock);
+        if (!ready) Sleep(10);
+    }
+    Check(ready);
+    opened = P_ContextMenuOpen(&arena, fixture->path, names, 1, &menu);
+    Check(opened && menu.rootCount && !P__menus.readySerial && !P__menus.ready.native);
+    P_ContextMenuClose(&menu);
+    // Taken, the same arguments are wanted again.
+    u64 wanted = P__menus.wantSerial;
+    P_ContextMenuPrepare(fixture->path, names, 1);
+    Check(P__menus.wantSerial == wanted + 1);
     opened = P_ContextMenuOpen(&arena, fixture->path, NULL, 0, &menu);
     Check(opened && menu.rootCount);
+    // Its New > Folder, run on the menu thread, makes a folder here, which is taken away again.
+    u32 newFolder = 0;
+    for (u32 i = 0; opened && i < menu.count; ++i) if (StrIsEqual(menu.items[i].verb, S("newfolder"))) newFolder = menu.items[i].id;
+    P_FileArray before = P_EnumerateDirectory(&arena, fixture->path, NULL).files, after = before;
+    Check(newFolder && !P_ContextMenuInvoke(&arena, &menu, newFolder).code);
+    for (u64 start = PlatformNowMicroseconds(); after.header.count == before.header.count && PlatformNowMicroseconds() - start < Millions(5); Sleep(10)) {
+        after = P_EnumerateDirectory(&arena, fixture->path, NULL).files;
+    }
+    Check(after.header.count == before.header.count + 1);
+    for (u64 i = 0; i < after.header.count; ++i) {
+        b32 seen = false;
+        for (u64 j = 0; j < before.header.count && !seen; ++j) seen = StrIsEqual(after.v[i].name, before.v[j].name);
+        if (!seen) Check(after.v[i].kind == P_FileKind_Directory && P__TestRemovePath(fixture, after.v[i].name, true));
+    }
     P_ContextMenuClose(&menu);
     // A drive named by its path gets its own menu, with Properties, instead of its root's background.
     String drive = P_TrashFolder(&arena);

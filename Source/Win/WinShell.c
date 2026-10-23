@@ -22,12 +22,65 @@ global const IID P__IID_IShellItemArray = { 0xB63EA76D, 0x1F85, 0x456F, { 0xA1, 
 #define P__MenuFirstId 1
 #define P__MenuLastId  0x7FFF
 
+// Shell menus are built, invoked and released on a thread of their own, an STA with a message loop, as a menu's objects belong to the
+// thread that built them and its verbs may need that loop (the clipboard, dialogs). Building one takes tens of milliseconds even once its
+// handlers are loaded, and the first of a file type a few hundred, so P_ContextMenuPrepare builds the next one there ahead of time for a
+// right-click to find ready. Warming a type on another thread does not help: the menu built after it on the main thread came out slower.
+// A menu's shell objects stay in a slot of the thread's, so that they are released after the arena its items were read into is gone, and
+// after an invoke that is still going, as a verb's dialog is.
+#define P__MenuSlots  8
+#define P__MenuCall   (WM_APP + 1)
+#define P__MenuWanted (WM_APP + 2)
+#define P__MenuDwell  150000    // microseconds a wanted menu waits unchanged before it is built, so that a pointer passing over rows builds none
+#define P__MenuStale  30000000  // and how long one built ahead is offered
+
 typedef struct P__ShellMenu {
     IContextMenu *menu;
     IContextMenu3 *menu3;  // NULL when the handler does not populate submenus lazily
     HMENU popup;
     wchar *directory;
+    Arena arena;           // the slot's own, for `directory`
+    b32 used, invoking, closing;
+    u32 invokeId;
+    HANDLE invoked;        // set when an invoke is done, with `result`
+    HRESULT result;
 } P__ShellMenu;
+
+typedef enum P__MenuCallKind {
+    P__MenuCallKind_Open,
+    P__MenuCallKind_Invoke,
+    P__MenuCallKind_Close,
+} P__MenuCallKind;
+
+// An open asked of the menu thread, which the asking thread waits for.
+typedef struct P__MenuOpenCall {
+    Arena *arena;
+    String directory;
+    const String *names;
+    u64 count;
+    P_ContextMenu *menu;
+    b32 ok;
+    HANDLE done;
+} P__MenuOpenCall;
+
+global struct {
+    INIT_ONCE once;
+    HWND window;
+    P__ShellMenu slots[P__MenuSlots];
+    SRWLOCK lock;
+    // Under the lock: the menu wanted ahead of time, by its arguments, and its number, the number of the last one taken up to build, and
+    // that of the one built ahead, 0 once it has been taken, with the clipboard's number and the time when it was built.
+    Arena wantArena;
+    String wantKey, wantDirectory;
+    String *wantNames;
+    u64 wantCount, wantSerial, wantAt, builtSerial, readySerial, readyAt;
+    DWORD readyClipboard;
+    // The menu thread's own: the menu built ahead, its items in its arena.
+    Arena readyArena;
+    String readyKey;
+    P_ContextMenu ready;
+    b32 readyOk;
+} P__menus;
 
 typedef struct P__ArrayMenuItem { ArrayHeader header; P_MenuItem *v; } P__ArrayMenuItem;
 
@@ -186,11 +239,27 @@ function b32 P__InRecycleBin(String path)
     return path.length > bin.length && path.value[bin.length] == '/' && P_IsTrashFolder(StrFromTo(path, 0, (i64)bin.length));
 }
 
-function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
+// Releases a slot's shell objects and frees it. Menu thread only.
+function void P__MenuRelease(P__ShellMenu *shell)
+{
+    if (shell->menu3) shell->menu3->lpVtbl->Release(shell->menu3);
+    if (shell->menu) shell->menu->lpVtbl->Release(shell->menu);
+    if (shell->popup) DestroyMenu(shell->popup);
+    Arena arena = shell->arena;
+    HANDLE invoked = shell->invoked;
+    ArenaClear(&arena);
+    *shell = (P__ShellMenu){ .arena = arena, .invoked = invoked };
+}
+
+// What P_ContextMenuOpen gives, built on the menu thread.
+function b32 P__ContextMenuBuild(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
     *menu = (P_ContextMenu){0};
     P__EnsureCom();
-    P__ShellMenu *shell = ArenaPushStruct(arena, P__ShellMenu);
+    P__ShellMenu *shell = NULL;
+    for (u32 i = 0; i < P__MenuSlots && !shell; ++i) if (!P__menus.slots[i].used) shell = &P__menus.slots[i];
+    if (!shell) return false;
+    shell->used = true;
     b32 ok = false;
     if (!directory.length && !count) {
         // This PC's background, with Explorer's own items for it, such as Add a network location and Properties.
@@ -208,7 +277,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         for (u64 i = 0; i < count; ++i) ILFree(lists[i]);
         ReleaseScratch(scratch);
     } else {
-        shell->directory = P__FilePathWide(arena, directory);
+        shell->directory = P__FilePathWide(&shell->arena, directory);
         // A bin's items have the bin's own menu, as in Explorer, rather than their files'.
         if (count && P__InRecycleBin(directory)) {
             Scratch scratch = GetScratchEx(arena);
@@ -252,10 +321,238 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         menu->count = (u32)items.header.count;
         menu->native = shell;
     } else {
-        menu->native = shell;
-        P_ContextMenuClose(menu);
+        P__MenuRelease(shell);
     }
     return ok;
+}
+
+// The arguments of a menu as one string, to tell whether the one built ahead is the one asked for.
+function String P__MenuKey(Arena *arena, String directory, const String *names, u64 count)
+{
+    StrBuilder key = {0};
+    StrBuildStr(arena, &key, directory);
+    for (u64 i = 0; i < count; ++i) {
+        StrBuildChar(arena, &key, '\n');
+        StrBuildStr(arena, &key, names[i]);
+    }
+    return key.buffer;
+}
+
+// The items of `from` copied into `arena`, so that they outlive the arena they were read into; the shell objects stay in their slot.
+function void P__MenuCopy(Arena *arena, const P_ContextMenu *from, P_ContextMenu *to)
+{
+    *to = *from;
+    to->items = ArenaPushArray(arena, Max(from->count, 1u), P_MenuItem);
+    for (u32 i = 0; i < from->count; ++i) {
+        P_MenuItem item = from->items[i];
+        item.label = StrCopy(arena, item.label);
+        item.verb = StrCopy(arena, item.verb);
+        if (item.icon.pixels) {
+            u64 size = (u64)item.icon.width * (u64)item.icon.height;
+            u32 *pixels = ArenaPushArrayNoZero(arena, Max(size, (u64)1), u32);
+            MemCopy(pixels, item.icon.pixels, size * sizeof(u32));
+            item.icon.pixels = pixels;
+        }
+        to->items[i] = item;
+    }
+}
+
+// Drops the menu built ahead. Menu thread only.
+function void P__MenuDropReady(void)
+{
+    if (P__menus.ready.native) P__MenuRelease(P__menus.ready.native);
+    P__menus.ready = (P_ContextMenu){0};
+    P__menus.readyKey = (String){0};
+    P__menus.readyOk = false;
+    ArenaClear(&P__menus.readyArena);
+    AcquireSRWLockExclusive(&P__menus.lock);
+    P__menus.readySerial = 0;
+    ReleaseSRWLockExclusive(&P__menus.lock);
+}
+
+// Builds the menu wanted ahead, unless an invoke is still going, as a verb's dialog may be, whose loop this runs in then.
+function void P__MenuBuildWanted(void)
+{
+    for (u32 i = 0; i < P__MenuSlots; ++i) {
+        if (P__menus.slots[i].invoking) {
+            SetTimer(P__menus.window, 1, P__MenuDwell / 1000, NULL);
+            return;
+        }
+    }
+    Scratch scratch = GetScratch();
+    AcquireSRWLockExclusive(&P__menus.lock);
+    u64 serial = P__menus.wantSerial, count = P__menus.wantCount;
+    b32 due = serial != P__menus.builtSerial;
+    String key = StrCopy(scratch.arena, P__menus.wantKey), directory = StrCopy(scratch.arena, P__menus.wantDirectory);
+    String *names = ArenaPushArray(scratch.arena, Max(count, (u64)1), String);
+    for (u64 i = 0; i < count; ++i) names[i] = StrCopy(scratch.arena, P__menus.wantNames[i]);
+    P__menus.builtSerial = serial;
+    ReleaseSRWLockExclusive(&P__menus.lock);
+    if (due) {
+        P__MenuDropReady();
+        P__menus.readyOk = P__ContextMenuBuild(&P__menus.readyArena, directory, names, count, &P__menus.ready);
+        P__menus.readyKey = StrCopy(&P__menus.readyArena, key);
+        AcquireSRWLockExclusive(&P__menus.lock);
+        P__menus.readySerial = serial;
+        P__menus.readyAt = PlatformNowMicroseconds();
+        P__menus.readyClipboard = GetClipboardSequenceNumber();
+        ReleaseSRWLockExclusive(&P__menus.lock);
+    }
+    ReleaseScratch(scratch);
+}
+
+// The one built ahead when it is the one asked for and still fresh, else one built now.
+function void P__MenuOpenOnThread(P__MenuOpenCall *call)
+{
+    Scratch scratch = GetScratch();
+    String key = P__MenuKey(scratch.arena, call->directory, call->names, call->count);
+    AcquireSRWLockExclusive(&P__menus.lock);
+    b32 fresh = P__menus.readySerial && GetClipboardSequenceNumber() == P__menus.readyClipboard && PlatformNowMicroseconds() < P__menus.readyAt + P__MenuStale;
+    // The menu wanted for these arguments is the one opened now.
+    if (StrIsEqual(P__menus.wantKey, key)) P__menus.builtSerial = P__menus.wantSerial;
+    ReleaseSRWLockExclusive(&P__menus.lock);
+    if (fresh && P__menus.readyOk && StrIsEqual(P__menus.readyKey, key)) {
+        P__MenuCopy(call->arena, &P__menus.ready, call->menu);
+        P__menus.ready.native = NULL;
+        P__MenuDropReady();
+        call->ok = true;
+    } else {
+        call->ok = P__ContextMenuBuild(call->arena, call->directory, call->names, call->count, call->menu);
+    }
+    ReleaseScratch(scratch);
+    SetEvent(call->done);
+}
+
+function void P__MenuInvokeOnThread(P__ShellMenu *shell)
+{
+    CMINVOKECOMMANDINFOEX info = {
+        .cbSize = sizeof(info),
+        .fMask = CMIC_MASK_UNICODE,
+        .hwnd = P__shellOwner,
+        .lpVerb = MAKEINTRESOURCEA(shell->invokeId - P__MenuFirstId),
+        .lpVerbW = MAKEINTRESOURCEW(shell->invokeId - P__MenuFirstId),
+        .lpDirectoryW = shell->directory,
+        .nShow = SW_SHOWNORMAL,
+    };
+    shell->invoking = true;
+    shell->result = shell->menu->lpVtbl->InvokeCommand(shell->menu, (CMINVOKECOMMANDINFO *)&info);
+    shell->invoking = false;
+    SetEvent(shell->invoked);
+    if (shell->closing) P__MenuRelease(shell);
+}
+
+function LRESULT CALLBACK P__MenuWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if (message == P__MenuCall) {
+        P__ShellMenu *shell = (P__ShellMenu *)lparam;
+        P__MenuCallKind kind = (P__MenuCallKind)wparam;
+        if (kind == P__MenuCallKind_Open) P__MenuOpenOnThread((P__MenuOpenCall *)lparam);
+        else if (kind == P__MenuCallKind_Invoke) P__MenuInvokeOnThread(shell);
+        else if (shell->invoking) shell->closing = true;
+        else P__MenuRelease(shell);
+        return 0;
+    }
+    // Each change of the menu wanted starts the wait before it is built anew.
+    if (message == P__MenuWanted) {
+        SetTimer(window, 1, P__MenuDwell / 1000, NULL);
+        return 0;
+    }
+    if (message == WM_TIMER && wparam == 1) {
+        KillTimer(window, 1);
+        P__MenuBuildWanted();
+        return 0;
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+function DWORD WINAPI P__MenuThread(void *started)
+{
+    OleInitialize(NULL);
+    P__EnsureCom();
+    for (u32 i = 0; i < P__MenuSlots; ++i) P__menus.slots[i].invoked = CreateEventW(NULL, TRUE, FALSE, NULL);
+    WNDCLASSEXW windowClass = { .cbSize = sizeof(windowClass), .lpfnWndProc = P__MenuWindowProc, .hInstance = GetModuleHandleW(NULL), .lpszClassName = L"FileyMenus" };
+    RegisterClassExW(&windowClass);
+    P__menus.window = CreateWindowExW(0, L"FileyMenus", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, windowClass.hInstance, NULL);
+    SetEvent((HANDLE)started);
+    MSG message;
+    while (P__menus.window && GetMessageW(&message, NULL, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    return 0;
+}
+
+function BOOL CALLBACK P__MenuStartOnce(INIT_ONCE *once, void *parameter, void **context)
+{
+    HANDLE started = CreateEventW(NULL, TRUE, FALSE, NULL);
+    HANDLE thread = started ? CreateThread(NULL, 0, P__MenuThread, started, 0, NULL) : NULL;
+    if (thread) {
+        WaitForSingleObject(started, INFINITE);
+        CloseHandle(thread);
+    }
+    if (started) CloseHandle(started);
+    return TRUE;
+}
+
+function b32 P__MenuStart(void)
+{
+    InitOnceExecuteOnce(&P__menus.once, P__MenuStartOnce, NULL, NULL);
+    return P__menus.window != NULL;
+}
+
+// Waits for `event`, up to `milliseconds` or for good with INFINITE, taking the messages other threads send this one's windows meanwhile,
+// as a menu's handlers on the menu thread may send some to the window that owns it.
+function b32 P__MenuWait(HANDLE event, DWORD milliseconds)
+{
+    u64 end = PlatformNowMicroseconds() + (u64)milliseconds * 1000;
+    for (;;) {
+        u64 now = PlatformNowMicroseconds();
+        DWORD left = milliseconds == INFINITE ? INFINITE : now >= end ? 0 : (DWORD)((end - now + 999) / 1000);
+        DWORD woke = MsgWaitForMultipleObjects(1, &event, FALSE, left, QS_SENDMESSAGE);
+        if (woke == WAIT_OBJECT_0) return true;
+        if (woke != WAIT_OBJECT_0 + 1) return false;
+        MSG message;
+        PeekMessageW(&message, NULL, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE);
+    }
+}
+
+function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
+{
+    *menu = (P_ContextMenu){0};
+    if (!P__MenuStart()) return false;
+    P__MenuOpenCall call = { arena, directory, names, count, menu, false, CreateEventW(NULL, TRUE, FALSE, NULL) };
+    if (!call.done) return false;
+    if (PostMessageW(P__menus.window, P__MenuCall, P__MenuCallKind_Open, (LPARAM)&call)) P__MenuWait(call.done, INFINITE);
+    CloseHandle(call.done);
+    return call.ok;
+}
+
+function void P_ContextMenuPrepare(String directory, const String *names, u64 count)
+{
+    if (!P__MenuStart()) return;
+    Scratch scratch = GetScratch();
+    String key = P__MenuKey(scratch.arena, directory, names, count);
+    u64 now = PlatformNowMicroseconds();
+    AcquireSRWLockExclusive(&P__menus.lock);
+    b32 same = P__menus.wantSerial && StrIsEqual(key, P__menus.wantKey);
+    // The same menu is built again once the one built for it was taken or has gone stale, as a new clipboard changes its Paste.
+    b32 again = same && P__menus.builtSerial == P__menus.wantSerial &&
+                (!P__menus.readySerial || GetClipboardSequenceNumber() != P__menus.readyClipboard || now >= P__menus.readyAt + P__MenuStale);
+    if (!same) {
+        ArenaClear(&P__menus.wantArena);
+        P__menus.wantKey = StrCopy(&P__menus.wantArena, key);
+        P__menus.wantDirectory = StrCopy(&P__menus.wantArena, directory);
+        P__menus.wantNames = ArenaPushArray(&P__menus.wantArena, Max(count, (u64)1), String);
+        for (u64 i = 0; i < count; ++i) P__menus.wantNames[i] = StrCopy(&P__menus.wantArena, names[i]);
+        P__menus.wantCount = count;
+    }
+    if (!same || again) {
+        ++P__menus.wantSerial;
+        P__menus.wantAt = now;
+    }
+    ReleaseSRWLockExclusive(&P__menus.lock);
+    if (!same || again) PostMessageW(P__menus.window, P__MenuWanted, 0, 0);
+    ReleaseScratch(scratch);
 }
 
 function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id)
@@ -264,16 +561,12 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
     if (shell == NULL || shell->menu == NULL || id < P__MenuFirstId || id > P__MenuLastId) {
         return P__FileError(arena, ERROR_INVALID_PARAMETER);
     }
-    CMINVOKECOMMANDINFOEX info = {
-        .cbSize = sizeof(info),
-        .fMask = CMIC_MASK_UNICODE,
-        .hwnd = P__shellOwner,
-        .lpVerb = MAKEINTRESOURCEA(id - P__MenuFirstId),
-        .lpVerbW = MAKEINTRESOURCEW(id - P__MenuFirstId),
-        .lpDirectoryW = shell->directory,
-        .nShow = SW_SHOWNORMAL,
-    };
-    HRESULT result = shell->menu->lpVtbl->InvokeCommand(shell->menu, (CMINVOKECOMMANDINFO *)&info);
+    shell->invokeId = id;
+    ResetEvent(shell->invoked);
+    if (!PostMessageW(P__menus.window, P__MenuCall, P__MenuCallKind_Invoke, (LPARAM)shell)) return P__FileError(arena, GetLastError());
+    // A verb that opens a dialog of its own, as Open With does, goes on with it on the menu thread while this one goes on too; its result
+    // is known only when it is done within a moment.
+    HRESULT result = P__MenuWait(shell->invoked, 500) ? shell->result : S_OK;
     // Dismissing a verb's own dialog is not an error.
     if (SUCCEEDED(result) || result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return (P_FileError){0};
     return P__FileError(arena, HRESULT_FACILITY(result) == FACILITY_WIN32 ? (u32)HRESULT_CODE(result) : (u32)result);
@@ -281,12 +574,7 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
 
 function void P_ContextMenuClose(P_ContextMenu *menu)
 {
-    P__ShellMenu *shell = menu->native;
-    if (shell) {
-        if (shell->menu3) shell->menu3->lpVtbl->Release(shell->menu3);
-        if (shell->menu) shell->menu->lpVtbl->Release(shell->menu);
-        if (shell->popup) DestroyMenu(shell->popup);
-    }
+    if (menu->native) PostMessageW(P__menus.window, P__MenuCall, P__MenuCallKind_Close, (LPARAM)menu->native);
     *menu = (P_ContextMenu){0};
 }
 
@@ -761,13 +1049,12 @@ function b32 P_ShowProperties(String directory, const String *names, u64 count)
     return result;
 }
 
+// The menu thread starts, which loads the shell; the menus prepared for the pointer and the keyboard load their handlers there.
 function void P_ContextMenuWarm(String directory, String name)
 {
-    Arena arena = {0};
-    P_ContextMenu menu = {0};
-    if (P_ContextMenuOpen(&arena, directory, NULL, 0, &menu)) P_ContextMenuClose(&menu);
-    if (name.length && P_ContextMenuOpen(&arena, directory, &name, 1, &menu)) P_ContextMenuClose(&menu);
-    ArenaRelease(&arena);
+    (void)directory;
+    (void)name;
+    P__MenuStart();
 }
 
 // Known folder ids, spelled out so that no uuid library is linked for them.

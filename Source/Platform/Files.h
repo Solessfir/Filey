@@ -490,11 +490,16 @@ typedef struct P_ContextMenu {
 // Menu for `names` inside `directory`, or for the directory background when `count` is 0.
 // With an empty `directory`, `names` are full paths that share a folder, such as drives, and none at all is the computer's own background, as
 // This PC lists the drives.
-// Main thread only: shell menus belong to the thread that built them, and their verbs may need its message loop (clipboard, dialogs).
-// Loading shell extensions can take a moment.
+// Main thread only. Windows builds, invokes and releases shell menus on a thread of their own, as they belong to the thread that built
+// them and their verbs may need its message loop (clipboard, dialogs), and waits for that thread here; loading shell extensions can take
+// a moment, which a menu prepared with the same arguments has taken already.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu);
-// Builds and drops the menus of `directory` and of `name` inside it, on any thread, so that shell extensions are loaded before the first real menu.
+// Builds the menu P_ContextMenuOpen would give for the same arguments ahead of time, off the main thread, once they have stayed the same
+// for a moment, so that a right-click finds it ready; it is built again once taken or stale. Cheap when nothing changed. Windows only.
+function void P_ContextMenuPrepare(String directory, const String *names, u64 count);
+// Gets the first menu ready ahead, on any thread: Windows starts its menu thread, Linux loads the application database.
 function void P_ContextMenuWarm(String directory, String name);
+// A verb that opens a dialog of its own goes on with it after this returns, and its failure is not reported.
 function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 id);
 function void P_ContextMenuClose(P_ContextMenu *menu);
 

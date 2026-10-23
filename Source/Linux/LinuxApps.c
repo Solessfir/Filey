@@ -536,6 +536,14 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     return true;
 }
 
+// Linux's menus are built from the application database, which P_ContextMenuWarm loads, so there is nothing to build ahead.
+function void P_ContextMenuPrepare(String directory, const String *names, u64 count)
+{
+    (void)directory;
+    (void)names;
+    (void)count;
+}
+
 // Loads the application database off the main thread, so that the first menu does not wait for it.
 function void P_ContextMenuWarm(String directory, String name)
 {

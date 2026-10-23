@@ -1677,6 +1677,29 @@ function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item)
     state->menu.rootCount += 1;
 }
 
+// The menu a right-click would open now is built ahead of time, where the platform does that, so that it opens at once: the hovered
+// row's, with the rest of the selection when it is in it, else what the keyboard's menu acts on, as Prog__OpenMenu picks them. Big
+// selections, a menu open and folders inside archives are left out.
+function void Prog_PrepareMenu(Prog_State *state)
+{
+    if (state->menuOpen || state->loading || state->setupOpen || state->directory.archive || !state->directory.path.length) return;
+    enum { most = 64 };
+    u64 rows[most], count = 0;
+    b32 hovered = state->hasHoverRow && state->hoverPanel == state->panels[state->activePanel].id && state->hoverRow < state->directory.count;
+    b32 selection = hovered ? state->directory.entries[state->hoverRow].selected && state->selectedCount > 1 : state->selectedCount != 0;
+    if (selection) {
+        if (state->selectedCount > most) return;
+        for (u64 i = 0; i < state->directory.count && count < state->selectedCount; ++i) if (state->directory.entries[i].selected) rows[count++] = i;
+    } else if (hovered) {
+        rows[count++] = state->hoverRow;
+    } else if (state->hasFocus && state->focusedRow < state->directory.count) {
+        rows[count++] = state->focusedRow;
+    }
+    String names[most];
+    String folder = Prog__RowsFolder(state, &state->frameArena, rows, &count, names);
+    P_ContextMenuPrepare(folder, names, count);
+}
+
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
 {
     Prog_CloseMenu(state);

@@ -265,6 +265,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
         }
         ProfileScope("Layout") UI_EndFrame();
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;
+        Prog_PrepareMenu(state);
         // The first frame waits for the folder, the sidebar and their icons, for a moment at most, so that the window opens whole rather
         // than filling in; until then it shows the theme's color.
         loop->shown = loop->shown || Prog_ReadyToShow(state) || PlatformNowMicroseconds() - loop->launchTime > 300000;
