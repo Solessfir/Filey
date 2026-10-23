@@ -352,8 +352,9 @@ typedef struct P_Image {
 } P_Image;
 
 // Installing Filey for this user, which only Windows has: the running executable copied into a folder of its own under the local
-// application data, a Start menu shortcut to that copy, and on request a desktop shortcut, the folder on the user's PATH, and the copy as
-// what opens folders in place of Explorer. Nothing needs elevation, and only what the install made is taken away again.
+// application data, a Start menu shortcut to that copy, an entry in the system's list of installed apps, which uninstalls it, and on request
+// a desktop shortcut, the folder on the user's PATH, the copy as what opens folders in place of Explorer, and entries in Explorer's
+// right-click menus. Nothing needs elevation, and only what the install made is taken away again.
 typedef struct P_Install {
     String folder;         // where the copy goes
     String version;        // the installed copy's, when there is one
@@ -363,14 +364,20 @@ typedef struct P_Install {
     b32 desktopShortcut;   // a desktop shortcut to the copy is there
     b32 onPath;            // the folder is on the user's PATH
     b32 setDefault;        // folders, drives and Win+E open the copy, in place of Explorer
+    b32 contextMenu;       // Explorer's right-click menus show a file in it, open a folder in it, and open it in a folder's background
 } P_Install;
+
+// The right-click entries' words, in the language shown: a file's, a folder's and a folder's background's.
+typedef struct P_MenuLabels {
+    String file, folder, background;
+} P_MenuLabels;
 
 function b32 P_CanInstall(void);
 // Reads the files and the registry.
 function P_Install P_InstallState(Arena *arena);
 // Installs, replacing a copy that is there, or changes the shortcuts, the PATH and the default of the install; the running process goes on running
 // from where it started, and the shortcuts start the copy.
-function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath, b32 setDefault);
+function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath, b32 setDefault, b32 contextMenu, P_MenuLabels labels);
 function P_FileError P_Uninstall(Arena *arena);
 // The application's own icon at `size` pixels.
 function b32 P_LoadAppIcon(Arena *arena, i32 size, P_Image *image);

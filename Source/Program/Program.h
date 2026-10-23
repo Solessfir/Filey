@@ -1673,7 +1673,7 @@ typedef struct Prog_State {
     b32 setupOpen;
     Arena setupArena;
     P_Install setup;
-    b32 setupDesktop, setupOnPath, setupDefault;
+    b32 setupDesktop, setupOnPath, setupDefault, setupMenu;
     R_TextureHandle setupLogo;
     i32 setupLogoSize;
     const R_Font *setupFonts[3];
@@ -2050,6 +2050,7 @@ function void Prog_FocusPanelToward(Prog_State *state, i32 dx, i32 dy);
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
+function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab);
 function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current);
 function const P_Place *Prog_PathDrive(const Prog_State *state, String path);
 function String Prog_PathName(const Prog_State *state, String path);

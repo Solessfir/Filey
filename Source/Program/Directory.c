@@ -4901,6 +4901,11 @@ function void Prog_OpenPaths(Prog_State *state, String text)
         String path = split.exists ? StrFromTo(lines.v[i], 0, (i64)split.value) : lines.v[i];
         if (!path.length) continue;
         u32 count = state->tabCount;
+        // A file, as Show in Filey passes one, opens its folder with it selected.
+        if (!split.exists && P_PathExists(path) && !P_IsDirectory(path)) {
+            Prog_ShowInFolder(state, path, true);
+            continue;
+        }
         Prog_OpenTab(state, path, into != UINT32_MAX ? Min(state->foreignSlot, state->tabCount) : state->activeTab + 1, true);
         into = UINT32_MAX;
         if (split.exists && state->tabCount > count) Prog_ApplyTabTraits(state, StrFrom(lines.v[i], split.value + 1));

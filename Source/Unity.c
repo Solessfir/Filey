@@ -356,6 +356,9 @@ int main(void)
     ArrayStr startPaths = P_StartupPaths(startup.arena);
     // With one window for the settings, a later run hands its folders to the one already open and quits; New Window's runs get their own.
     b32 separateWindow = P_StartupFlag(S("--new-window"));
+    // The system's list of installed apps uninstalls through the Filey Setup page, in a window of its own.
+    b32 uninstall = P_StartupFlag(S("--uninstall"));
+    separateWindow |= uninstall;
     // This PC, which is no folder, comes as a flag from a window that opens another for it.
     if (P_StartupFlag(S("--this-pc"))) ArrayPush(startup.arena, startPaths, Prog_ThisPC);
     if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, startPaths)) {
@@ -373,7 +376,10 @@ int main(void)
         fprintf(stderr, "Failed to open the window\n");
         return 1;
     }
-    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, startPaths.header.count ? startPaths.v[0] : S(""), Prog__Wake, NULL);
+    // A file given, as Explorer's Show in Filey passes one, opens its folder with it selected.
+    String first = startPaths.header.count ? startPaths.v[0] : S(""), picked = {0};
+    if (first.length && P_PathExists(first) && !P_IsDirectory(first)) picked = Prog__FolderName(first), first = Prog_ParentPath(first);
+    ProfileScope("InitProgram") ok = Prog_Init(&loop.state, first, Prog__Wake, NULL);
     if (ok) Prog_LoadSettings(&loop.state, configDirectory, P_CacheDirectory(startup.arena));
     // A crash from here on leaves a report in the cache folder, and one the last run left is offered to be reported.
     if (ok && loop.state.cacheDirectory.length) {
@@ -388,8 +394,14 @@ int main(void)
 #endif
     }
     loop.state.separateWindow = separateWindow;
+    if (ok && picked.length) Prog_SelectNext(&loop.state, picked);
     // After the settings, so that these tabs start with their choices.
-    for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
+    for (u64 i = 1; ok && i < startPaths.header.count; ++i) {
+        String path = startPaths.v[i];
+        if (P_PathExists(path) && !P_IsDirectory(path)) Prog_ShowInFolder(&loop.state, path, true);
+        else Prog_OpenTab(&loop.state, path, (u32)i, false);
+    }
+    if (ok && uninstall) Prog__OpenSetup(&loop.state);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
     if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
     // The torrent downloads the last run left unfinished go on, in the main window only.

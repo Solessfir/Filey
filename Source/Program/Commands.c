@@ -2364,6 +2364,7 @@ function void Prog__ReadSetup(Prog_State *state)
     state->setupDesktop = state->setup.installed && state->setup.desktopShortcut;
     state->setupOnPath = !state->setup.installed || state->setup.onPath;
     state->setupDefault = state->setup.installed && state->setup.setDefault;
+    state->setupMenu = state->setup.installed && state->setup.contextMenu;
 }
 
 // The Filey Setup page, in place of the panels, with the logo drawn from the executable's own icon at the page's size.
@@ -3339,11 +3340,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->row == 0) state->setupDesktop = !state->setupDesktop;
                 if (command->row == 1) state->setupOnPath = !state->setupOnPath;
                 if (command->row == 2) state->setupDefault = !state->setupDefault;
+                if (command->row == 3) state->setupMenu = !state->setupMenu;
             } break;
             case Prog_CommandKind_SetupInstall:
             case Prog_CommandKind_SetupUninstall: {
                 b32 install = command->kind == Prog_CommandKind_SetupInstall;
-                P_FileError error = install ? P_InstallApply(&state->frameArena, state->setupDesktop, state->setupOnPath, state->setupDefault) : P_Uninstall(&state->frameArena);
+                // The right-click entries are written in the language shown.
+                P_MenuLabels labels = { Tr("Show in Filey"), Tr("Open in Filey"), Tr("Open Filey here") };
+                P_FileError error = install ? P_InstallApply(&state->frameArena, state->setupDesktop, state->setupOnPath, state->setupDefault, state->setupMenu, labels)
+                                            : P_Uninstall(&state->frameArena);
                 if (error.code) {
                     Prog_Notify(state, Prog_NoticeKind_Error, install ? S("install.failed") : S("uninstall.failed"), install ? Tr("Install failed") : Tr("Uninstall failed"), error.message);
                 }

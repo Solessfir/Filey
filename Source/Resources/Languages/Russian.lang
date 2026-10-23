@@ -2740,8 +2740,8 @@ Date Deleted
 Uninstall
 = Удалить
 
-This will remove the current version from your PC, including its shortcuts, default program registration and PATH changes.
-= Текущая версия будет удалена с компьютера вместе с ярлыками, назначением программой по умолчанию и изменениями PATH.
+This will remove the current version from your PC, including its shortcuts, right-click entries, default program registration and PATH changes.
+= Будет удалена текущая версия, включая ярлыки, пункты контекстного меню, регистрацию программы по умолчанию и изменения PATH.
 
 Blank
 = Нет
@@ -2895,3 +2895,18 @@ Mute Audio
 
 Turn the inspector's sound off, or on again.
 = Выключить звук инспектора или включить его снова.
+
+Context menu:
+= Контекстное меню:
+
+Adds Filey to Explorer's right-click menus: Show in Filey on files, Open in Filey on folders and Open Filey here inside one.
+= Добавляет Filey в контекстное меню Проводника: «Показать в Filey» для файлов, «Открыть в Filey» для папок и «Открыть Filey здесь» внутри папки.
+
+Show in Filey
+= Показать в Filey
+
+Open in Filey
+= Открыть в Filey
+
+Open Filey here
+= Открыть Filey здесь

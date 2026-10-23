@@ -1315,6 +1315,94 @@ function u32 P__SetDefault(HKEY root, const wchar *classes, const wchar *command
     return error;
 }
 
+// Explorer's right-click entries, under the user's classes too: a file shown in its folder, a folder opened, and Filey opened in a folder's or
+// the desktop's background, which the shell passes as %V.
+global const wchar *P__MenuKeys[4] = { L"*\\shell\\Filey", L"Directory\\shell\\Filey", L"Directory\\Background\\shell\\Filey", L"DesktopBackground\\shell\\Filey" };
+
+function wchar *P__MenuCommand(Arena *arena, const wchar *executable, u32 entry)
+{
+    u64 length = (u64)lstrlenW(executable) + 8;
+    wchar *result = ArenaPushArray(arena, length, wchar);
+    swprintf(result, length, entry < 2 ? L"\"%ls\" \"%%1\"" : L"\"%ls\" \"%%V\"", executable);
+    return result;
+}
+
+// Whether every entry starts `executable`, which tells Filey's apart from what something else wrote.
+function b32 P__ContextMenuIs(Arena *arena, const wchar *executable)
+{
+    b32 result = true;
+    for (u32 i = 0; i < CArrayCount(P__MenuKeys) && result; ++i) {
+        wchar key[512], value[1100];
+        DWORD size = sizeof(value);
+        swprintf(key, CArrayCount(key), L"%ls\\%ls\\command", P__UserClasses, P__MenuKeys[i]);
+        result = RegGetValueW(HKEY_CURRENT_USER, key, NULL, RRF_RT_REG_SZ, NULL, value, &size) == ERROR_SUCCESS &&
+                 CompareStringOrdinal(value, -1, P__MenuCommand(arena, executable, i), -1, TRUE) == CSTR_EQUAL;
+    }
+    return result;
+}
+
+// Writes the entries, each with its words and the program's icon, or takes back those that start `executable`.
+function u32 P__SetContextMenu(Arena *arena, const wchar *executable, b32 on, P_MenuLabels labels)
+{
+    u32 error = ERROR_SUCCESS;
+    String words[4] = { labels.file, labels.folder, labels.background, labels.background };
+    for (u32 i = 0; i < CArrayCount(P__MenuKeys) && !error; ++i) {
+        wchar key[512], commandKey[540], value[1100];
+        swprintf(key, CArrayCount(key), L"%ls\\%ls", P__UserClasses, P__MenuKeys[i]);
+        swprintf(commandKey, CArrayCount(commandKey), L"%ls\\command", key);
+        wchar *command = P__MenuCommand(arena, executable, i);
+        if (on) {
+            wchar *label = P__FilePathWide(arena, words[i]);
+            if (!label) return ERROR_INVALID_NAME;
+            error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, key, NULL, REG_SZ, label, (DWORD)(((u64)lstrlenW(label) + 1) * sizeof(wchar)));
+            if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, key, L"Icon", REG_SZ, executable, (DWORD)(((u64)lstrlenW(executable) + 1) * sizeof(wchar)));
+            if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, commandKey, NULL, REG_SZ, command, (DWORD)(((u64)lstrlenW(command) + 1) * sizeof(wchar)));
+        } else {
+            DWORD size = sizeof(value);
+            if (RegGetValueW(HKEY_CURRENT_USER, commandKey, NULL, RRF_RT_REG_SZ, NULL, value, &size) == ERROR_SUCCESS && CompareStringOrdinal(value, -1, command, -1, TRUE) == CSTR_EQUAL) {
+                RegDeleteTreeW(HKEY_CURRENT_USER, key);
+                RegDeleteKeyW(HKEY_CURRENT_USER, key);
+            }
+        }
+    }
+    return error;
+}
+
+// The install's entry in the system's list of installed apps, whose Uninstall starts the copy with --uninstall, on its Filey Setup page.
+#define P__UninstallKey L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Filey"
+
+function String P__FileVersion(Arena *arena, const wchar *path);
+
+function u32 P__SetUninstallEntry(Arena *arena, const P__InstallPaths *paths, b32 on)
+{
+    if (!on) {
+        RegDeleteTreeW(HKEY_CURRENT_USER, P__UninstallKey);
+        RegDeleteKeyW(HKEY_CURRENT_USER, P__UninstallKey);
+        return ERROR_SUCCESS;
+    }
+    wchar *version = P__FilePathWide(arena, P__FileVersion(arena, paths->executable));
+    u64 length = (u64)lstrlenW(paths->executable) + 16;
+    wchar *uninstall = ArenaPushArray(arena, length, wchar), *icon = ArenaPushArray(arena, length, wchar);
+    swprintf(uninstall, length, L"\"%ls\" --uninstall", paths->executable);
+    swprintf(icon, length, L"%ls,0", paths->executable);
+    WIN32_FILE_ATTRIBUTE_DATA file = {0};
+    DWORD kilobytes = GetFileAttributesExW(paths->executable, GetFileExInfoStandard, &file) ? (DWORD)((((u64)file.nFileSizeHigh << 32) | file.nFileSizeLow) / 1024) : 0;
+    DWORD yes = 1;
+    struct { const wchar *name; const wchar *text; } texts[] = {
+        { L"DisplayName", L"Filey" }, { L"DisplayVersion", version ? version : L"" }, { L"DisplayIcon", icon }, { L"InstallLocation", paths->folder },
+        { L"UninstallString", uninstall },
+    };
+    u32 error = ERROR_SUCCESS;
+    for (u32 i = 0; i < CArrayCount(texts) && !error; ++i) {
+        error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__UninstallKey, texts[i].name, REG_SZ, texts[i].text, (DWORD)(((u64)lstrlenW(texts[i].text) + 1) * sizeof(wchar)));
+    }
+    // It changes on its Filey Setup page, which Uninstall opens too.
+    if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__UninstallKey, L"NoModify", REG_DWORD, &yes, sizeof(yes));
+    if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__UninstallKey, L"NoRepair", REG_DWORD, &yes, sizeof(yes));
+    if (!error) error = (u32)RegSetKeyValueW(HKEY_CURRENT_USER, P__UninstallKey, L"EstimatedSize", REG_DWORD, &kilobytes, sizeof(kilobytes));
+    return error;
+}
+
 // `"<executable>" "%1"`, the command the shell starts Filey with for a folder.
 function wchar *P__OpenCommand(Arena *arena, const wchar *executable)
 {
@@ -1365,13 +1453,14 @@ function P_Install P_InstallState(Arena *arena)
                 RegCloseKey(key);
             }
             result.setDefault = P__DefaultIs(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable));
+            result.contextMenu = P__ContextMenuIs(scratch.arena, paths.executable);
         }
     }
     ReleaseScratch(scratch);
     return result;
 }
 
-function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath, b32 setDefault)
+function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPath, b32 setDefault, b32 contextMenu, P_MenuLabels labels)
 {
     Scratch scratch = GetScratchEx(arena);
     P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
@@ -1388,6 +1477,8 @@ function P_FileError P_InstallApply(Arena *arena, b32 desktopShortcut, b32 onPat
     if (!error && paths.desktopLink && !desktopShortcut && P__ShortcutStarts(scratch.arena, paths.desktopLink, paths.executable)) DeleteFileW(paths.desktopLink);
     if (!error) error = P__SetUserPath(scratch.arena, paths.folder, onPath);
     if (!error) error = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), setDefault);
+    if (!error) error = P__SetContextMenu(scratch.arena, paths.executable, contextMenu, labels);
+    if (!error) error = P__SetUninstallEntry(scratch.arena, &paths, true);
     ReleaseScratch(scratch);
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
@@ -1403,6 +1494,8 @@ function P_FileError P_Uninstall(Arena *arena)
         error = P__SetUserPath(scratch.arena, paths.folder, false);
         u32 defaultError = P__SetDefault(HKEY_CURRENT_USER, P__UserClasses, P__OpenCommand(scratch.arena, paths.executable), false);
         if (!error) error = defaultError;
+        P__SetContextMenu(scratch.arena, paths.executable, false, (P_MenuLabels){0});
+        P__SetUninstallEntry(scratch.arena, &paths, false);
         DeleteFileW(paths.aside);
         // The running copy cannot be deleted, but it can move to the temporary folder, which is on the same drive under the profile, and its
         // folder then goes with it.
