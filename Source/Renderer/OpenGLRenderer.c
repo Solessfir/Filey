@@ -169,7 +169,7 @@ typedef struct GL_ArrayInstance { ArrayHeader header; GL_Instance *v; } GL_Array
 typedef struct GL_ArrayBatch    { ArrayHeader header; GL_Batch *v; } GL_ArrayBatch;
 
 #define GL_MaxClipDepth 64
-#define GL_BlurLevels 4
+#define GL_BlurLevels 6
 
 typedef struct GL_State {
 #define X(ret, name, ...) GL_##name##Fn *name;
@@ -795,9 +795,12 @@ function void GL__Blur(const GL_Batch *batch)
         textures[level][0] = level ? textures[level - 1][0] / 2 + 1 : GL.width;
         textures[level][1] = level ? textures[level - 1][1] / 2 + 1 : GL.height;
     }
-    u32 levels = batch->radius < 8 ? 2 : batch->radius < 20 ? 3 : GL_BlurLevels;
-    // The taps spread further apart for a wider blur, which smooths it without another level.
-    f32 spread = MinF32(MaxF32(batch->radius / 12.0f, 1), 3);
+    // The blur widens with its radius all the way: its taps spread from one and a half to three texels apart, at the level whose texels keep
+    // them so, as taps spread wider leave gaps between them that show.
+    f32 spread = batch->radius * (2.0f / 3.0f);
+    u32 levels = 1;
+    while (spread >= 3 && levels < GL_BlurLevels) ++levels, spread *= 0.5f;
+    spread = MaxF32(spread, 1);
     GL.Scissor(0, 0, GL.width, GL.height);
     if (batch->fromSource) {
         GL.BindFramebuffer(GL_READ_FRAMEBUFFER, GL.framebuffer);
