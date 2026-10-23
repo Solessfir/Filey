@@ -870,6 +870,10 @@ command InspectorVideoCodec {
 command InspectorVideoQuality {
 }
 
+// A click on a torrent's file in the inspector, ticking it to be downloaded or not; carries its place in the torrent, or UINT64_MAX for all of them.
+command InspectorTorrentToggle {
+}
+
 command DownloadTorrent {
     label   = "Download Torrent^aria2c,magnet,bittorrent"
     tooltip = "Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents."

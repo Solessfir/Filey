@@ -382,7 +382,8 @@ typedef enum Prog_TransferOp {
     Prog_TransferOp_ExtractToFolder,
     Prog_TransferOp_CompressVideo,  // encodes the videos `paths` again, each beside itself as "<name> (compressed).mp4"
     Prog_TransferOp_Download,       // downloads the video at the web address `paths[0]` into `path` with yt-dlp
-    Prog_TransferOp_Torrent,        // downloads the torrent `paths[0]`, a file, web address or magnet link, into `path` with aria2c
+    Prog_TransferOp_Torrent,        // downloads the torrent file `paths[0]` beside itself with aria2c, the files `name` chooses, as --select-file takes them, or all
+    Prog_TransferOp_TorrentFetch,   // fetches the torrent `paths[0]`, a magnet link or a .torrent's web address, into `path` as a .torrent file
     Prog_TransferOp_Count,
 } Prog_TransferOp;
 
@@ -583,6 +584,22 @@ typedef struct Prog_ModelShape {
     b32 zUp;  // the file's Z was up, which the positions turned to Y
 } Prog_ModelShape;
 
+// A torrent's file: its path inside the torrent's folder, its size, and whether it is padding that lines the next file up with the pieces,
+// which the inspector leaves out and nothing downloads.
+typedef struct Prog_TorrentFile {
+    String path;
+    u64 size;
+    b32 pad;
+} Prog_TorrentFile;
+
+// What a .torrent holds: its name and size, and its files in the order aria2c numbers them from 1.
+typedef struct Prog_TorrentInfo {
+    String name;
+    u64 size;
+    Prog_TorrentFile *files;
+    u32 fileCount;
+} Prog_TorrentInfo;
+
 typedef struct Prog_Preview {
     u32 *pixels;
     i32 width, height;              // of pixels
@@ -600,6 +617,7 @@ typedef struct Prog_Preview {
     Prog_ModelShape model;          // a 3D model's mesh, when it has indices
     String media;                   // an audio or video file's details from ffprobe, a "label\tvalue" line each
     f64 seconds;                    // and its length
+    Prog_TorrentInfo torrent;       // a .torrent's files; none for any other file
 } Prog_Preview;
 
 // Pages of a PDF read at most, and drawn ones kept at once, each in a texture of its own.
@@ -1131,6 +1149,7 @@ typedef struct Prog_PdfView {
 //   previewAnchor to previewCaret: the text selected, as offsets into previewText, previewClicks those of the press that made it, previewTextFocus
 //     pressed on last, so that Select All selects it; inspectorTextRect: the text view's last layout, a press outside which drops the selection
 //   inspectorResetScroll: a new file starts at its top
+//   torrent, torrentSkip: a .torrent's files, in previewArena, and those unticked, which its download leaves out
 //   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
 //     picked for its version previewKeptVersion
 #define Prog_PreviewFields(X) \
@@ -1144,7 +1163,7 @@ typedef struct Prog_PdfView {
     X(u32 *, previewLines) X(enum8(Prog_Syntax), previewSyntax) X(u8 *, previewLineStates) X(u32, previewLineCount) X(u32 *, previewRows) \
     X(u32, previewRowColumns) X(u64, previewAnchor) X(u64, previewCaret) X(u32, previewClicks) X(b32, previewTextFocus) X(R_Rect, inspectorTextRect) \
     X(b32, inspectorResetScroll) X(Prog_TextEdit, inspectorFilter) X(b32, inspectorFiltering) X(u32 *, previewKept) X(u32, previewKeptCount) \
-    X(u32, previewKeptVersion)
+    X(u32, previewKeptVersion) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip)
 
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter, scroll and view:
@@ -1790,6 +1809,9 @@ typedef struct Prog_State {
     Prog_Notice notices[Prog_MaxNotices];  // oldest first
     Arena mutedArena;
     ArrayStr mutedNotices;  // the kinds of notice not shown, from MutedNotices.conf
+    // The torrent downloads under way, and those a quit left, which the next run starts again: "<.torrent path>\t<files chosen>" a line, from Torrents.conf.
+    Arena torrentArena;
+    ArrayStr torrents;
     b32 mutedOpen;          // the dropdown of them under their option
     u32 noticeCount;
     u64 noticeIds;
@@ -1798,8 +1820,8 @@ typedef struct Prog_State {
     u64 recentsCheckTime;
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[8];            // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order
-    b32 saveAgain[8];
+    b32 saving[9];            // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order, torrents
+    b32 saveAgain[9];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.conf.
     Arena folderViewArena;
     ArrayStr folderViews;
@@ -1854,9 +1876,14 @@ function u64 Prog_MediaLength(Arena *arena, String path, const P_CancelToken *ca
 function b32 Prog_IsWebUrl(String text);
 function b32 Prog_IsMagnet(String text);
 function b32 Prog_IsTorrent(String text);
-function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
-function String Prog_TorrentListing(Arena *arena, String path, const P_CancelToken *cancel);
+function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, String selection, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
+function P_FileError Prog_FetchTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
+function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info);
+function String Prog_MagnetHash(Arena *arena, String magnet);
+function String Prog_TorrentSelection(Arena *arena, const Prog_TorrentInfo *info, const b8 *skip);
+function void Prog_TorrentSkip(String selection, const Prog_TorrentInfo *info, b8 *skip);
 function void Prog_DownloadTorrentFile(Prog_State *state, String path);
+function void Prog_ResumeTorrents(Prog_State *state);
 function void Prog_GitPull(Prog_State *state);
 function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel);
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);

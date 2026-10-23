@@ -860,7 +860,8 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         }
         return result;
     }
-    if (input->transferOp == Prog_TransferOp_Torrent) return Prog_DownloadTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
+    if (input->transferOp == Prog_TransferOp_Torrent) return Prog_DownloadTorrent(arena, input->paths[0], input->path, input->name, input->progress, cancel, placed);
+    if (input->transferOp == Prog_TransferOp_TorrentFetch) return Prog_FetchTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Pack) {
         String archive = Prog_JoinPath(arena, input->path, input->name);
@@ -2090,7 +2091,7 @@ function void Prog__DirectoryJob(P_Job *job)
         // A file inside an archive is read from its copy taken out, but for one too large to be worth it.
         String copy = !input->folder && input->size <= Prog_ArchivePreviewBytes ? Prog_ArchiveCopy(&job->arena, input->path, input->progress, &job->cancelToken) : (String){0};
         String path = copy.length ? copy : input->path;
-        String start = {0};
+        String start = {0}, torrent = {0};
         P_Image image = {0};
         P_FileArray items = {0};
         b32 model = !input->hex && !input->folder && !input->archive && Prog_ModelMesh(&job->arena, path, input->size, &job->cancelToken, &result->model);
@@ -2126,8 +2127,8 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = image.width;
             result->height = image.height;
             result->image = true;
-        } else if (!input->folder && !input->hex && Prog_IsTorrent(path) && (result->text = Prog_TorrentListing(&job->arena, path, &job->cancelToken)).length) {
-            // What the torrent holds, which its bencoded bytes would show as a jumble.
+        } else if (!input->folder && !input->hex && Prog_IsTorrent(path) && P_ReadFile(&job->arena, path, &torrent) && Prog_ReadTorrent(&job->arena, torrent, &result->torrent)) {
+            // Its files to choose from, which its bencoded bytes would show as a jumble.
         } else if (video && !P_IsCancelled(&job->cancelToken) && Prog_MediaFrame(&job->arena, path, seconds, &job->cancelToken, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
             result->width = image.width;
@@ -2929,6 +2930,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 #define Prog_MutedNoticesFile S("MutedNotices.conf")
 #define Prog_MenuHiddenFile S("MenuHidden.conf")
 #define Prog_MenuOrderFile S("MenuOrder.conf")
+#define Prog_TorrentsFile S("Torrents.conf")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
 // What a first visit scores.
@@ -2939,7 +2941,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 function u32 Prog__SaveSlot(String file)
 {
     return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4
-         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : StrIsEqual(file, Prog_MenuHiddenFile) ? 6 : StrIsEqual(file, Prog_MenuOrderFile) ? 7 : 0;
+         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : StrIsEqual(file, Prog_MenuHiddenFile) ? 6 : StrIsEqual(file, Prog_MenuOrderFile) ? 7 : StrIsEqual(file, Prog_TorrentsFile) ? 8 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -3087,6 +3089,39 @@ function void Prog__SaveList(Prog_State *state, String file, ArrayStr list)
     P_JobSubmit(job);
 }
 
+// The files chosen for the download of the .torrent at `path` when it last started, empty for all of them or for one not noted.
+function String Prog__SavedSelection(const Prog_State *state, String path)
+{
+    for (u64 i = 0; i < state->torrents.header.count; ++i) {
+        String line = state->torrents.v[i];
+        Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
+        if (StrIsEqual(StrFromTo(line, 0, (i64)tab.value), path)) return StrFrom(line, Min(tab.value + 1, line.length));
+    }
+    return (String){0};
+}
+
+// Notes the download of the .torrent at `path`, with the files `selection` chooses, in place of its line when it has one; without `keep`, drops
+// its line.
+function void Prog__NoteTorrent(Prog_State *state, String path, String selection, b32 keep)
+{
+    Scratch scratch = GetScratch();
+    String *lines = ArenaPushArray(scratch.arena, state->torrents.header.count + 1, String);
+    u64 count = 0;
+    b32 had = false;
+    for (u64 i = 0; i < state->torrents.header.count; ++i) {
+        String line = state->torrents.v[i];
+        Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
+        if (StrIsEqual(StrFromTo(line, 0, (i64)tab.value), path)) had = true;
+        else lines[count++] = line;
+    }
+    if (keep) lines[count++] = StrFormat(scratch.arena, "%S\t%S", path, selection);
+    if (keep || had) {
+        Prog__SetList(&state->torrentArena, &state->torrents, lines, count);
+        Prog__SaveList(state, Prog_TorrentsFile, state->torrents);
+    }
+    ReleaseScratch(scratch);
+}
+
 function void Prog__LoadList(Prog_State *state, String file, Arena *arena, ArrayStr *list, b32 *found)
 {
     Scratch scratch = GetScratch();
@@ -3188,6 +3223,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Prog__LoadList(state, Prog_MenuHiddenFile, &state->menuHiddenArena, &state->menuHidden, &found);
     Prog__LoadList(state, Prog_MenuOrderFile, &state->menuOrderArena, &state->menuOrder, &found);
     Prog__LoadList(state, Prog_MutedNoticesFile, &state->mutedArena, &state->mutedNotices, &found);
+    Prog__LoadList(state, Prog_TorrentsFile, &state->torrentArena, &state->torrents, &found);
     Prog__LoadList(state, Prog_QuickCommandsFile, &state->quickArena, &state->quickCommands, &found);
     if (!found) Prog__DefaultQuick(state);
     Prog_ReloadSettingsFile(state);
@@ -5169,6 +5205,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
         // One whose panel is closed then leaves none of them behind.
         for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job == job) state->transfers[i].job = NULL;
+        // A torrent's download that is over, done, failed or stopped, is not started again by the next run, which one a quit cut short is.
+        if (input->kind == Prog_JobKind_Transfer && input->transferOp == Prog_TransferOp_Torrent) Prog__NoteTorrent(state, input->paths[0], (String){0}, false);
         if (state->gitPullJob == job) pulled = state->gitPullHash, state->gitPullJob = NULL;
         if (state->gitFetchJob == job) fetched = state->gitFetchHash, state->gitFetchJob = NULL;
         if (owner == UINT32_MAX) {
@@ -5230,6 +5268,18 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
                 state->previewArchiveTotals = preview->archiveTotals;
                 state->previewArchiveCounted = preview->archiveCounted;
+                // A torrent's files, ticked as its download last chose them, or all of them.
+                const Prog_TorrentInfo *torrent = &preview->torrent;
+                if (torrent->fileCount) {
+                    state->torrent = (Prog_TorrentInfo){ .name = StrCopy(&state->previewArena, torrent->name), .size = torrent->size, .fileCount = torrent->fileCount };
+                    state->torrent.files = ArenaPushArray(&state->previewArena, torrent->fileCount, Prog_TorrentFile);
+                    for (u32 i = 0; i < torrent->fileCount; ++i) {
+                        state->torrent.files[i] = torrent->files[i];
+                        state->torrent.files[i].path = StrCopy(&state->previewArena, torrent->files[i].path);
+                    }
+                    state->torrentSkip = ArenaPushArray(&state->previewArena, torrent->fileCount, b8);
+                    Prog_TorrentSkip(Prog__SavedSelection(state, state->previewPath), &state->torrent, state->torrentSkip);
+                }
                 // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
                 String text = state->previewText;
                 u32 lines = 0;
@@ -5410,11 +5460,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
+            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
                           input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
             // One cancelled from its card or with Escape stops without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken)) {
-                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
+                String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
                 Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
@@ -5437,7 +5487,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->selectLength = (u32)packed.length;
                     state->selectRename = true;
                 } else if (result->placed.header.count && StrIsEqual(state->directory.path, input->path)) {
-                    // What was pasted into the folder shown is selected once its listing shows it, all of it.
+                    // What was pasted into the folder shown is selected once its listing shows it, all of it; a torrent fetched for its
+                    // files to be chosen shows them in the inspector.
+                    if (input->transferOp == Prog_TransferOp_TorrentFetch) state->previewShown = true;
                     ArenaClear(&state->pickArena);
                     state->pickNames = (ArrayStr){0};
                     for (u64 i = 0; i < result->placed.header.count; ++i) {
@@ -5608,13 +5660,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile, Prog_MenuHiddenFile,
-                                     Prog_MenuOrderFile };
+                                     Prog_MenuOrderFile, Prog_TorrentsFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
                 state->saveAgain[slot] = false;
                 Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices
-                                                 : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : state->bookmarks);
+                                                 : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : slot == 8 ? state->torrents : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
         } else if (input->kind == Prog_JobKind_Play) {
@@ -5896,13 +5948,48 @@ function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods)
 
 // Opens the file at `path` in its program, from a job. One inside an archive is taken out first, with a card of how far that is when there is
 // a free slot for it.
-// Downloads the .torrent file at `path` beside itself with aria2c, unless its download is under way.
-function void Prog_DownloadTorrentFile(Prog_State *state, String path)
+// Downloads the .torrent file at `path` beside itself with aria2c, the files `selection` chooses, unless its download is under way, and notes it
+// to be started again by the next run until it is over.
+function void Prog__StartTorrent(Prog_State *state, String path, String selection)
 {
     u64 hash = MapHashBytes(path.value, path.length);
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) return;
-    Prog_Transfer *transfer = Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, (String){0}, Prog_TransferOp_Torrent);
-    if (transfer) transfer->sourceHash = hash;
+    // Copied first, as noting it replaces the list it may come from.
+    path = StrCopy(&state->frameArena, path);
+    selection = StrCopy(&state->frameArena, selection);
+    Prog_Transfer *transfer = Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, selection, Prog_TransferOp_Torrent);
+    if (!transfer) return;
+    transfer->sourceHash = hash;
+    Prog__NoteTorrent(state, path, selection, true);
+}
+
+// Downloads the .torrent file at `path`: the files ticked in the inspector while it shows this torrent, else those its download last chose,
+// else all of them; with none ticked, nothing.
+function void Prog_DownloadTorrentFile(Prog_State *state, String path)
+{
+    String selection = Prog__SavedSelection(state, path);
+    if (state->torrent.fileCount && state->torrentSkip && StrIsEqual(path, state->previewPath)) {
+        b32 any = false;
+        for (u32 i = 0; i < state->torrent.fileCount; ++i) any |= !state->torrentSkip[i] && !state->torrent.files[i].pad;
+        if (!any) return;
+        selection = Prog_TorrentSelection(&state->frameArena, &state->torrent, state->torrentSkip);
+    }
+    Prog__StartTorrent(state, path, selection);
+}
+
+function void Prog_ResumeTorrents(Prog_State *state)
+{
+    Scratch scratch = GetScratch();
+    u64 count = state->torrents.header.count;
+    String *lines = ArenaPushArray(scratch.arena, count + 1, String);
+    for (u64 i = 0; i < count; ++i) lines[i] = StrCopy(scratch.arena, state->torrents.v[i]);
+    for (u64 i = 0; i < count; ++i) {
+        Index tab = StrIndexChar(lines[i], '\t', SSF_CountOnFail);
+        String path = StrFromTo(lines[i], 0, (i64)tab.value), selection = StrFrom(lines[i], Min(tab.value + 1, lines[i].length));
+        if (P_PathExists(path)) Prog__StartTorrent(state, path, selection);
+        else Prog__NoteTorrent(state, path, (String){0}, false);
+    }
+    ReleaseScratch(scratch);
 }
 
 function void Prog_OpenFile(Prog_State *state, String path)
@@ -5971,9 +6058,11 @@ function void Prog_Release(Prog_State *state)
     // Shutting down drops saves still waiting in the queue, and the workers are done, so the lists are written once more here.
     if (state->configDirectory.length) {
         Scratch scratch = GetScratch();
-        ArrayStr lists[2] = { state->bookmarks, state->recents };
-        String files[2] = { Prog_BookmarksFile, Prog_RecentsFile };
-        for (u32 i = 0; i < 2; ++i) {
+        ArrayStr lists[3] = { state->bookmarks, state->recents, state->torrents };
+        String files[3] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_TorrentsFile };
+        for (u32 i = 0; i < 3; ++i) {
+            // The torrents only when there are some or their save was still on its way, so that a run without any leaves no file.
+            if (i == 2 && !state->torrents.header.count && !state->saving[8]) continue;
             String text = i == 1 ? Prog__RecentsText(scratch.arena, state) : Prog__ListText(scratch.arena, lists[i]);
             P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, files[i]), text);
         }

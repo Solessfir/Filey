@@ -2794,14 +2794,11 @@ Magnet link
 aria2c is not installed, or could not download the torrent
 = aria2c не установлен или не смог скачать торрент
 
-Downloaded
-= Скачано
+aria2c is not installed, or could not fetch the torrent
+= aria2c не установлен или не смог получить торрент
 
 Starting...
 = Запуск...
-
-Status
-= Состояние
 
 Download Torrent
 = Скачать торрент

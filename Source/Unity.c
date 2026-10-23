@@ -390,6 +390,8 @@ int main(void)
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) Prog_OpenTab(&loop.state, startPaths.v[i], (u32)i, false);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
     if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
+    // The torrent downloads the last run left unfinished go on, in the main window only.
+    if (ok && !separateWindow) Prog_ResumeTorrents(&loop.state);
     // A tab moved out of another window brings its zoom and focused item.
     String traits = ok ? P_StartupOption(startup.arena, S("--tab=")) : (String){0};
     if (traits.length) Prog_ApplyTabTraits(&loop.state, traits);

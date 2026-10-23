@@ -9605,23 +9605,6 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     }
     labels[count] = Tr("Created"), values[count++] = created;
     labels[count] = Tr("Modified"), values[count++] = Prog_EntryModified(frame, entry);
-    // A torrent under way: how far it is, its speed, peers and time left.
-    u64 hash = 0;
-    if (Prog_IsTorrent(entry->file.name)) {
-        String full = Prog_JoinPath(frame, state->directory.path, entry->file.name);
-        hash = MapHashBytes(full.value, full.length);
-    }
-    for (u32 i = 0; hash && i < Prog_MaxTransfers && count < CArrayCount(labels); ++i) {
-        Prog_Transfer *transfer = &state->transfers[i];
-        if (!transfer->job || transfer->sourceHash != hash) continue;
-        u64 bytes = atomic_load(&transfer->progress.totalBytes), done = atomic_load(&transfer->progress.doneBytes);
-        String status = Prog__TransferName(frame, &transfer->progress);
-        Index dot = StrIndexStr(status, S(" \u00B7 "), SSF_None);
-        String rest = dot.exists ? StrFrom(status, dot.value + 4) : (String){0};
-        labels[count] = Tr("Downloaded"), values[count++] = bytes ? StrFormat(frame, "%S / %S (%u%%)", Prog_FormatSize(frame, done), Prog_FormatSize(frame, bytes), (u32)(done * 100 / bytes))
-                                                                  : Tr("Starting...");
-        if (rest.length) labels[count] = Tr("Status"), values[count++] = rest;
-    }
     // An audio or video file's details, once its preview has read them.
     for (u64 at = 0; state->previewMedia.length && at < state->previewMedia.length && count < CArrayCount(labels);) {
         Index end = StrIndexChar(StrFrom(state->previewMedia, at), '\n', SSF_CountOnFail);
@@ -10195,6 +10178,120 @@ function void Prog__ToolbarRowButton(Prog_State *state, String identity, String 
     if (interaction.clicked) Prog_QueueCommand(state, kind, row, 0, interaction.clickOrder);
 }
 
+// A box that ticks a torrent's file `row` to be downloaded, or with UINT64_MAX all of them: filled with a tick when it is, with a dash when some
+// of them are. It stays as it is, dimmed, while the download runs.
+function void Prog__TorrentCheck(Prog_State *state, UI_Key key, u32 mark, u64 row, b32 fixed, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 box = floorf(16.0f * m->scale + 0.5f);
+    UI_SetNextPrefWidth(UI_Pixels(box));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+    UI_Parent(UI_AddBlock(0)) {
+        UI_SetNextPrefWidth(UI_Pixels(box));
+        UI_SetNextPrefHeight(UI_Pixels(box));
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextCornerRadius(floorf(3.2f * m->scale + 0.5f));
+        UI_SetNextBorderThickness(m->stroke);
+        UI_SetNextFont(m->iconsSmall);
+        UI_SetNextOpacity(fixed ? 0.5f : 1);
+        UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = UI->hotKey == key && !fixed ? theme->text : theme->tabBorder, .text = theme->text });
+        UI_SetNextText(mark == 2 ? Icon_Check : Icon_Minus);
+        UI_Block *check = UI_AddBlockFromKey(key, (fixed ? 0 : UI_Flag_LeftMouseClickable) | UI_Flag_DrawBorder | (mark ? UI_Flag_DrawBackground | UI_Flag_DrawText : 0));
+        UI_Interaction tick = UI_InteractionFromBlock(check);
+        if (tick.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorTorrentToggle, row, 0, tick.clickOrder);
+    }
+}
+
+// A torrent's files in the inspector, ticked to be downloaded: a box over them that ticks all of them, with the torrent's name and how many of
+// them and of their bytes are ticked, then each file with its folders dimmed and its size. Only the rows in sight are built, and while the
+// download runs, what it chose stays as it is.
+function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    const Prog_TorrentInfo *torrent = &state->torrent;
+    f32 s = m->scale, row = m->row, gutter = Prog__ScrollGutter(m), box = floorf(16.0f * s + 0.5f);
+    String path = Prog_JoinPath(frame, state->directory.path, entry->file.name);
+    u64 hash = MapHashBytes(path.value, path.length);
+    b32 fixed = false;
+    for (u32 i = 0; i < Prog_MaxTransfers; ++i) fixed |= state->transfers[i].job && state->transfers[i].sourceHash == hash;
+    // The files shown, which leave out the padding.
+    u32 *shown = ArenaPushArray(frame, torrent->fileCount, u32), count = 0, ticked = 0;
+    u64 bytes = 0;
+    for (u32 i = 0; i < torrent->fileCount; ++i) {
+        if (torrent->files[i].pad) continue;
+        shown[count++] = i;
+        if (!state->torrentSkip[i]) ++ticked, bytes += torrent->files[i].size;
+    }
+    // Keyed, for its width from the last frame, which the name is cut to; level with the rows' sizes, left of their scroll bar's room.
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(row));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset + gutter, 0 });
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Block *header = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TorrentHeader")), 0);
+    UI_Parent(header) {
+        Prog__TorrentCheck(state, UI_KeyFromStr(0, S("TorrentAll")), ticked == count ? 2 : ticked ? 1 : 0, UINT64_MAX, fixed, row, m);
+        Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+        String summary = StrFormat(frame, "%S \u00B7 %S", StrFormat(frame, TrF("%u of %u"), ticked, count), Prog_FormatSize(frame, bytes));
+        f32 room = MaxF32(0, header->rect.x1 - header->rect.x0 - 2 * m->inset - gutter - box - 2 * m->gap - R_TextWidth(m->detail, summary));
+        Prog__Label(Prog__Ellipsize(frame, m->font, torrent->name, room), UI_Flex(), row, 0, theme->textHeading, 0);
+        UI_SetNextFont(m->detail);
+        Prog__LabelPadded(summary, UI_TextContent(), row, m->gap, 0, theme->textDim, 1);
+    }
+    Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ 0, 0, gutter, 0 });
+    UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TorrentFiles")), UI_Flag_Clip | UI_Flag_Scrollable);
+    // A new torrent starts at its top.
+    if (state->inspectorResetScroll) list->scrollOffset = list->scrollShown = (UI_Vec2){0}, state->inspectorResetScroll = false;
+    UI_Parent(list) {
+        // The rows in sight, and enough for a first frame that has no height yet.
+        f32 view = MaxF32(list->rect.y1 - list->rect.y0, 40 * row);
+        u32 first = (u32)Min((u64)MaxF32(0, floorf(list->scrollShown.y / row)), (u64)count);
+        u32 last = (u32)Min((u64)first + (u64)ceilf(view / row) + 2, (u64)count);
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * row));
+        f32 width = list->rect.x1 - list->rect.x0 - gutter - 2 * m->inset - box - 2 * m->gap;
+        R_Color washed = theme->selection;
+        washed.a *= theme->hoverAmount.r;
+        for (u32 k = first; k < last; ++k) {
+            u32 index = shown[k];
+            const Prog_TorrentFile *file = &torrent->files[index];
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "TorrentFile/%u", index));
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(row));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+            UI_SetNextCornerRadius(m->radius);
+            UI_SetNextColors((UI_Colors){ .background = washed });
+            UI_Block *line = UI_AddBlockFromKey(key, (fixed ? 0 : UI_Flag_LeftMouseClickable) | (UI->hotKey == key && !fixed ? UI_Flag_DrawBackground : 0));
+            UI_Interaction pick = UI_InteractionFromBlock(line);
+            if (pick.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorTorrentToggle, index, 0, pick.clickOrder);
+            UI_Parent(line) {
+                Prog__TorrentCheck(state, UI_KeyFromStr(key, S("Check")), state->torrentSkip[index] ? 0 : 2, index, fixed, row, m);
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
+                // Its name whole where it fits, its folders cut first.
+                String size = Prog_FormatSize(frame, file->size);
+                f32 room = MaxF32(0, width - R_TextWidth(m->detail, size));
+                Index slash = StrIndexChar(file->path, '/', SSF_SearchBackwards);
+                String folders = slash.exists ? StrFromTo(file->path, 0, (i64)slash.value + 1) : (String){0}, leaf = slash.exists ? StrFrom(file->path, slash.value + 1) : file->path;
+                f32 leafWidth = R_TextWidth(m->font, leaf);
+                if (folders.length) Prog__Label(Prog__Ellipsize(frame, m->font, folders, MaxF32(0, room - leafWidth)), UI_TextContent(), row, 0, theme->textDim, 0);
+                Prog__Label(Prog__Ellipsize(frame, m->font, leaf, room), UI_TextContent(), row, 0, state->torrentSkip[index] ? theme->textDim : theme->text, 0);
+                Prog__Spacer(UI_Flex(), UI_Pixels(row));
+                UI_SetNextFont(m->detail);
+                Prog__LabelPadded(size, UI_TextContent(), row, m->gap, 0, theme->textDim, 1);
+            }
+        }
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)(count - last) * row));
+    }
+    Prog__ScrollBar(list, row, S("TorrentFiles"), 1, m);
+}
+
 // The inspector toolbar's tools for an audio file, a video or a torrent: playing it with how far it is; the codec and quality of Compress
 // Video, which Options sets too, and the button that starts it; downloading the torrent, or pausing and stopping its download.
 function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f32 tight, const Prog_Metrics *m)
@@ -10239,13 +10336,25 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         u32 slot = UINT32_MAX;
         for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) slot = i;
         if (slot == UINT32_MAX) {
-            Prog__ToolbarButton(state, S("InspectorDownload"), Icon_Download, Prog_CommandKind_DownloadTorrent, true, m);
+            // Not without a file ticked, once its files are known.
+            b32 any = !state->torrent.fileCount;
+            for (u32 i = 0; i < state->torrent.fileCount && state->torrentSkip; ++i) any |= !state->torrentSkip[i] && !state->torrent.files[i].pad;
+            Prog__ToolbarButton(state, S("InspectorDownload"), Icon_Download, Prog_CommandKind_DownloadTorrent, any, m);
         } else {
-            b32 paused = atomic_load(&state->transfers[slot].progress.paused);
+            P_Progress *progress = &state->transfers[slot].progress;
+            b32 paused = atomic_load(&progress->paused);
             Prog__ToolbarRowButton(state, S("InspectorTorrentPause"), paused ? Icon_Play : Icon_Pause, Prog_CommandKind_TransferPause, slot,
                                    paused ? Tr("Go on with the download.") : Tr("Pause the download."), m);
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
             Prog__ToolbarRowButton(state, S("InspectorTorrentCancel"), Icon_X, Prog_CommandKind_TransferCancel, slot, Tr("Stop the download; downloading it again goes on from here."), m);
+            // How far it is, with its speed, peers and time left.
+            u64 bytes = atomic_load(&progress->totalBytes), done = atomic_load(&progress->doneBytes);
+            String status = Prog__TransferName(frame, progress);
+            Index dot = StrIndexStr(status, S(" \u00B7 "), SSF_None);
+            String text = bytes ? StrFormat(frame, "%u%%", (u32)(Min(done, bytes) * 100 / bytes)) : Tr("Starting...");
+            if (dot.exists) text = StrFormat(frame, "%S%S", text, StrFrom(status, dot.value));
+            UI_SetNextFont(m->detail);
+            Prog__LabelPadded(text, UI_TextContent(), bar, apart, apart, theme->textDim, 0);
         }
     }
 }
@@ -10351,7 +10460,9 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             }
             Prog__Spacer(UI_Pixels(after), UI_Pixels(bar));
         }
-        if (text && state->previewHex) {
+        if (entry && state->torrent.fileCount && state->torrentSkip) {
+            Prog__InspectorTorrent(state, entry, m);
+        } else if (text && state->previewHex) {
             Prog__InspectorHex(state, m);
         } else if (text) {
             Prog__InspectorText(state, m);

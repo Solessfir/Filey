@@ -509,6 +509,45 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(StrIsEqual(StrMake(torrent.done, torrent.doneLength), S("C:/t/Big Buck Bunny")) && StrIsEqual(StrMake(torrent.message, torrent.messageLength), S("Bad")));
             Check(Prog_IsTorrent(S("magnet:?xt=urn:btih:dd82")) && Prog_IsTorrent(S("C:/a/b.TORRENT")) && !Prog_IsTorrent(S("b.torrent.txt")));
             Check(Prog_IsMagnet(S("Magnet:?xt=urn:btih:dd82")) && !Prog_IsMagnet(S("movie.torrent")) && !Prog_IsMagnet(S("magnet")));
+            // A .torrent's files in aria2c's order, a padding one among them, by their UTF-8 names; one of a single file is its name, and bytes
+            // cut short are none.
+            Prog_TorrentInfo info = {0};
+            Check(Prog_ReadTorrent(&quiet.frameArena, S("d4:infod5:filesld6:lengthi40e4:pathl6:Season5:a.mkveed4:attr1:p6:lengthi24e4:pathl4:.pad2:24eed6:lengthi50e4:pathl5:b.txteee"
+                                                        "4:name3:old10:name.utf-83:Newee"), &info));
+            Check(StrIsEqual(info.name, S("New")) && info.fileCount == 3 && info.size == 114 && StrIsEqual(info.files[0].path, S("Season/a.mkv")) && info.files[0].size == 40);
+            Check(info.files[1].pad && !info.files[0].pad && StrIsEqual(info.files[2].path, S("b.txt")) && info.files[2].size == 50);
+            // The files chosen, as --select-file takes them, never the padding; empty chooses all of them.
+            b8 skip[5] = {0};
+            Prog_TorrentSkip((String){0}, &info, skip);
+            Check(!skip[0] && skip[1] && !skip[2] && StrIsEqual(Prog_TorrentSelection(&quiet.frameArena, &info, skip), S("1,3")));
+            Prog_TorrentSkip(S("3"), &info, skip);
+            Check(skip[0] && skip[1] && !skip[2] && StrIsEqual(Prog_TorrentSelection(&quiet.frameArena, &info, skip), S("3")));
+            Prog_TorrentInfo single = {0};
+            Check(Prog_ReadTorrent(&quiet.frameArena, S("d4:infod6:lengthi7e4:name5:a.isoee"), &single) && single.fileCount == 1 && StrIsEqual(single.files[0].path, S("a.iso")));
+            Check(!Prog_ReadTorrent(&quiet.frameArena, S("d4:infod6:lengthi7e4:name5:a.is"), &single) && !Prog_ReadTorrent(&quiet.frameArena, S("i3e"), &single));
+            Prog_TorrentFile five[5] = {0};
+            Prog_TorrentInfo ranges = { .files = five, .fileCount = 5 };
+            b8 picked[5] = { 0, 0, 1, 0, 0 };
+            Check(StrIsEqual(Prog_TorrentSelection(&quiet.frameArena, &ranges, picked), S("1-2,4-5")));
+            Prog_TorrentSkip(S("2-3,5"), &ranges, picked);
+            Check(picked[0] && !picked[1] && !picked[2] && picked[3] && !picked[4]);
+            picked[0] = picked[3] = 0;
+            Check(!Prog_TorrentSelection(&quiet.frameArena, &ranges, picked).length);
+            // A magnet link's info hash in hex, from hex or base32, as aria2c names the .torrent it saves; and a torrent's name as a file's.
+            String hex = S("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+            Check(StrIsEqual(Prog_MagnetHash(&quiet.frameArena, S("magnet:?xt=urn:btih:C12FE1C06BBA254A9DC9F519B335AA7C1367A88A&dn=x")), hex));
+            Check(StrIsEqual(Prog_MagnetHash(&quiet.frameArena, S("magnet:?xt=urn:btih:YEX6DQDLXISUVHOJ6UM3GNNKPQJWPKEK")), hex));
+            Check(!Prog_MagnetHash(&quiet.frameArena, S("magnet:?xt=urn:btih:xyz")).length && !Prog_MagnetHash(&quiet.frameArena, S("magnet:?dn=x")).length);
+            Check(StrIsEqual(Prog__TorrentFileName(&quiet.frameArena, S("a:b?. ")), S("a_b_")) && StrIsEqual(Prog__TorrentFileName(&quiet.frameArena, S(" .")), S("Torrent")));
+            // The downloads noted to be started again, a line each with the files they chose, replaced when noted again and dropped once over.
+            Prog_State notes = {0};
+            Prog__NoteTorrent(&notes, S("C:/t/a.torrent"), S("1,3"), true);
+            Prog__NoteTorrent(&notes, S("C:/t/b.torrent"), (String){0}, true);
+            Prog__NoteTorrent(&notes, S("C:/t/a.torrent"), S("2"), true);
+            Check(notes.torrents.header.count == 2 && StrIsEqual(Prog__SavedSelection(&notes, S("C:/t/a.torrent")), S("2")));
+            Prog__NoteTorrent(&notes, S("C:/t/b.torrent"), (String){0}, false);
+            Check(notes.torrents.header.count == 1 && !Prog__SavedSelection(&notes, S("C:/t/b.torrent")).length);
+            ArenaRelease(&notes.torrentArena);
             // ffplay's -stats line, rewritten in place, counts the milliseconds played; its "nan" before the clock starts counts nothing.
             P_Progress played = {0};
             Prog__Player player = { .progress = &played };
@@ -1049,6 +1088,18 @@ function void TestFileIcons(TestFileFixture *fixture)
     String computer = P_ComputerIconPath();
     Check(!P_ContextMenuOpen(&arena, (String){0}, &computer, 1, &(P_ContextMenu){0}));
 #endif
+    // A magnet link's .torrent, saved by its info hash, takes the torrent's name, or gives way to the same one already there.
+    {
+        String fetched = Prog_JoinPath(&arena, fixture->path, S("Fetched")), created = {0};
+        String bytes = S("d4:infod6:lengthi7e4:name7:a?b.isoee");
+        Check(!P_CreateItem(&arena, fixture->path, S("Fetched"), true, &created).code);
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fetched, S("00ff.torrent")), bytes).code);
+        Check(StrIsEqual(Prog__NameFetchedTorrent(&arena, fetched, S("00ff")), Prog_JoinPath(&arena, fetched, S("a_b.iso.torrent"))));
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fetched, S("00ee.torrent")), bytes).code);
+        Check(StrIsEqual(Prog__NameFetchedTorrent(&arena, fetched, S("00ee")), Prog_JoinPath(&arena, fetched, S("a_b.iso.torrent"))));
+        Check(!P_PathExists(Prog_JoinPath(&arena, fetched, S("00ee.torrent"))) && !Prog__NameFetchedTorrent(&arena, fetched, S("00dd")).length);
+        Check(P__TestRemovePath(fixture, S("Fetched/a_b.iso.torrent"), false) && P__TestRemovePath(fixture, S("Fetched"), true));
+    }
     // Without a thumbnail of its own, a file gets none rather than its icon when only a thumbnail will do.
     String plain = Prog_JoinPath(&arena, fixture->path, S("plain.bin"));
     Check(!P_WriteFile(&arena, plain, S("\x01\x02")).code);

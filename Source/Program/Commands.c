@@ -2145,6 +2145,8 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPath = StrCopy(&state->previewArena, want);
     state->previewText = state->previewMedia = (String){0};
     state->previewSeconds = 0;
+    state->torrent = (Prog_TorrentInfo){0};
+    state->torrentSkip = NULL;
     // What played stops once another item is shown.
     if (state->playerJob && state->playerHash != MapHashBytes(want.value, want.length)) Prog__StopPlayer(state);
     state->previewAnchor = state->previewCaret = 0;
@@ -2193,7 +2195,7 @@ function void Prog__ScaleImage(Prog_State *state, b32 up)
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op)
 {
     if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return NULL;
-    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent;
+    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent || op == Prog_TransferOp_TorrentFetch;
     Prog_Transfer *transfer = NULL;
     for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers && !transfer; ++i) if (!state->transfers[i].job) transfer = &state->transfers[i];
     if (tool && !transfer) {
@@ -2515,8 +2517,8 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
             else if (Prog_IsTorrent(url) && (Prog_IsWebUrl(url) || Prog_IsMagnet(url)) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) &&
                      !StrIsEqual(state->directory.path, Prog_ThisPC)) {
-                // A magnet link or a .torrent's web address, which aria2c downloads.
-                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Torrent);
+                // A magnet link or a .torrent's web address, whose .torrent aria2c fetches for its files to be chosen in the inspector.
+                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_TorrentFetch);
             } else if (Prog_IsWebUrl(url) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) && !StrIsEqual(state->directory.path, Prog_ThisPC)) {
                 Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Download);
             }
@@ -4138,6 +4140,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 P_Progress *progress = &state->playerProgress[state->playerSlot];
                 if (state->playerJob && state->playerHash == MapHashBytes(path.value, path.length)) atomic_store(&progress->paused, !atomic_load(&progress->paused));
                 else Prog__StartPlayer(state, path, 0);
+            } break;
+            case Prog_CommandKind_InspectorTorrentToggle: {
+                // All of them untick once they all are ticked, and tick otherwise.
+                const Prog_TorrentInfo *torrent = &state->torrent;
+                if (!state->torrentSkip) break;
+                if (command->row < torrent->fileCount) {
+                    state->torrentSkip[command->row] = !state->torrentSkip[command->row];
+                } else if (command->row == UINT64_MAX) {
+                    b32 all = true;
+                    for (u32 i = 0; i < torrent->fileCount; ++i) all &= torrent->files[i].pad || !state->torrentSkip[i];
+                    for (u32 i = 0; i < torrent->fileCount; ++i) if (!torrent->files[i].pad) state->torrentSkip[i] = (b8)all;
+                }
             } break;
             case Prog_CommandKind_InspectorSeek: {
                 if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;

@@ -568,21 +568,34 @@ function void Prog__TorrentOutput(void *user, String text)
     }
 }
 
-// Downloads the torrent `source`, a .torrent file, its web address or a magnet link, into `folder` with aria2c, without seeding after. What
-// came down goes into `placed`. A cancel keeps what is down already, which downloading it again goes on from.
-function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
+// Downloads the torrent file `source` into `folder` with aria2c, only the files `selection` names when it names any, without seeding after. What
+// came down goes into `placed`. aria2c notes how far it is every few seconds, so that a cancel or a quit keeps what is down already, which
+// downloading it again goes on from.
+function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, String selection, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
 {
     Scratch scratch = GetScratchEx(arena);
-    String arguments[] = { S("aria2c"), StrFormat(scratch.arena, "--dir=%S", folder), S("--seed-time=0"), S("--summary-interval=0"), S("--console-log-level=notice"),
-                           S("--enable-color=false"), S("--file-allocation=none"), S("--show-console-readout=true"), S("--follow-torrent=mem"), S("--"), source };
+    String arguments[12];
+    u32 count = 0;
+    arguments[count++] = S("aria2c");
+    arguments[count++] = StrFormat(scratch.arena, "--dir=%S", folder);
+    arguments[count++] = S("--seed-time=0");
+    arguments[count++] = S("--auto-save-interval=5");
+    arguments[count++] = S("--summary-interval=0");
+    arguments[count++] = S("--console-log-level=notice");
+    arguments[count++] = S("--enable-color=false");
+    arguments[count++] = S("--file-allocation=none");
+    arguments[count++] = S("--show-console-readout=true");
+    if (selection.length) arguments[count++] = StrFormat(scratch.arena, "--select-file=%S", selection);
+    arguments[count++] = S("--");
+    arguments[count++] = source;
     Prog__Torrent *torrent = ArenaPushStruct(scratch.arena, Prog__Torrent);
     torrent->progress = progress;
-    torrent->name = Prog_IsMagnet(source) ? TrMark("Magnet link") : Prog__NameStem(Prog_EntryLeaf(source));
+    torrent->name = Prog__NameStem(Prog_EntryLeaf(source));
     if (progress) {
         atomic_store(&progress->totalItems, 1);
         P_ProgressName(progress, torrent->name);
     }
-    b32 done = P_RunCommandStream(folder, arguments, CArrayCount(arguments), true, Prog__TorrentOutput, torrent, cancel, progress);
+    b32 done = P_RunCommandStream(folder, arguments, count, true, Prog__TorrentOutput, torrent, cancel, progress);
     P_FileError result = {0};
     if (done) {
         if (torrent->doneLength) ArrayPush(arena, *placed, StrCopy(arena, StrMake(torrent->done, torrent->doneLength)));
@@ -595,23 +608,234 @@ function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String fo
     return result;
 }
 
-// What aria2c tells of the .torrent file at `path`: its name, size and files, for the inspector; empty without aria2c.
-function String Prog_TorrentListing(Arena *arena, String path, const P_CancelToken *cancel)
+// The bytes of the bencoded string at `at` in `b`, its length, a colon and them; {0} where there is none.
+function String Prog__BencodeString(String b, u64 at)
 {
-    String arguments[] = { S("aria2c"), S("--show-files=true"), S("--"), path };
-    String output = {0};
-    if (!P_RunCommandWith(arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) return (String){0};
-    // From the name on, which leaves out the trackers, without the magnet link or aria2c's own lines.
-    Index name = StrIndexStr(output, S("Name: "), SSF_None);
-    String rest = name.exists ? StrFrom(output, name.value) : output;
-    StrBuilder text = {0};
-    for (u64 at = 0; at < rest.length;) {
-        Index end = StrIndexChar(StrFrom(rest, at), '\n', SSF_CountOnFail);
-        String line = StrFromTo(rest, at, (i64)Min(at + end.value + 1, rest.length));
-        at += end.value + 1;
-        if (!(line.length >= 11 && StrIsEqual(StrFromTo(line, 0, 11), NoTr("Magnet URI:"))) && !(line.length >= 3 && StrIsEqual(StrFromTo(line, 0, 3), S(">>>")))) StrBuildStr(arena, &text, line);
+    u64 length = 0, digits = 0;
+    for (; at < b.length && b.value[at] >= '0' && b.value[at] <= '9' && digits < 18; ++at, ++digits) length = length * 10 + (u64)(b.value[at] - '0');
+    if (!digits || at >= b.length || b.value[at] != ':' || length > b.length - at - 1) return (String){0};
+    return StrMake(b.value + at + 1, length);
+}
+
+// Where the bencoded value at `at` in `b` ends, or 0 for one that is not whole; lists and dictionaries nest at most 64 deep.
+function u64 Prog__BencodeEnd(String b, u64 at, u32 depth)
+{
+    if (at >= b.length || depth > 64) return 0;
+    char c = b.value[at];
+    if (c == 'i') {
+        Index end = StrIndexChar(StrFrom(b, at), 'e', SSF_None);
+        return end.exists ? at + end.value + 1 : 0;
     }
+    if (c == 'l' || c == 'd') {
+        for (++at; at < b.length && b.value[at] != 'e';) {
+            at = Prog__BencodeEnd(b, at, depth + 1);
+            if (!at) return 0;
+        }
+        return at < b.length ? at + 1 : 0;
+    }
+    String text = Prog__BencodeString(b, at);
+    return text.value ? (u64)(text.value - b.value) + text.length : 0;
+}
+
+// The bencoded number at `at`, a size, which is never below zero.
+function u64 Prog__BencodeNumber(String b, u64 at)
+{
+    u64 result = 0;
+    if (at >= b.length || b.value[at] != 'i') return 0;
+    for (++at; at < b.length && b.value[at] >= '0' && b.value[at] <= '9'; ++at) result = result * 10 + (u64)(b.value[at] - '0');
+    return result;
+}
+
+// Where the value under `key` in the bencoded dictionary at `at` starts, or 0 without one.
+function u64 Prog__BencodeFind(String b, u64 at, String key)
+{
+    if (at >= b.length || b.value[at] != 'd') return 0;
+    for (u64 p = at + 1; p < b.length && b.value[p] != 'e';) {
+        String name = Prog__BencodeString(b, p);
+        if (!name.value) return 0;
+        u64 value = (u64)(name.value - b.value) + name.length;
+        if (StrIsEqual(name, key)) return value;
+        p = Prog__BencodeEnd(b, value, 1);
+        if (!p) return 0;
+    }
+    return 0;
+}
+
+// The text under `key` in the dictionary at `at`, or its UTF-8 copy under `utf8` where an old client wrote its own code page in the plain one.
+function u64 Prog__BencodeFindText(String b, u64 at, String key, String utf8)
+{
+    u64 found = Prog__BencodeFind(b, at, utf8);
+    return found ? found : Prog__BencodeFind(b, at, key);
+}
+
+function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info)
+{
+    *info = (Prog_TorrentInfo){0};
+    // Checked whole first, so that what follows reads only values that end.
+    if (!Prog__BencodeEnd(bytes, 0, 0)) return false;
+    u64 at = Prog__BencodeFind(bytes, 0, S("info"));
+    if (!at) return false;
+    info->name = StrCopy(arena, Prog__BencodeString(bytes, Prog__BencodeFindText(bytes, at, S("name"), S("name.utf-8"))));
+    u64 files = Prog__BencodeFind(bytes, at, S("files"));
+    if (!files) {
+        // One file, which the name names.
+        u64 length = Prog__BencodeFind(bytes, at, S("length"));
+        if (!length || !info->name.length) return false;
+        info->files = ArenaPushArray(arena, 1, Prog_TorrentFile);
+        info->files[0] = (Prog_TorrentFile){ .path = info->name, .size = Prog__BencodeNumber(bytes, length) };
+        info->fileCount = 1;
+        info->size = info->files[0].size;
+        return true;
+    }
+    if (bytes.value[files] != 'l') return false;
+    u32 count = 0;
+    for (u64 p = files + 1; bytes.value[p] != 'e'; p = Prog__BencodeEnd(bytes, p, 1)) ++count;
+    info->files = ArenaPushArray(arena, Max(count, 1u), Prog_TorrentFile);
+    for (u64 p = files + 1; bytes.value[p] != 'e'; p = Prog__BencodeEnd(bytes, p, 1)) {
+        Prog_TorrentFile *file = &info->files[info->fileCount++];
+        file->size = Prog__BencodeNumber(bytes, Prog__BencodeFind(bytes, p, S("length")));
+        String attributes = Prog__BencodeString(bytes, Prog__BencodeFind(bytes, p, S("attr")));
+        file->pad = StrIndexChar(attributes, 'p', SSF_None).exists;
+        u64 path = Prog__BencodeFindText(bytes, p, S("path"), S("path.utf-8"));
+        StrBuilder joined = {0};
+        for (u64 q = path + 1; path && bytes.value[path] == 'l' && bytes.value[q] != 'e'; q = Prog__BencodeEnd(bytes, q, 2)) {
+            if (joined.buffer.length) StrBuildStr(arena, &joined, S("/"));
+            StrBuildStr(arena, &joined, Prog__BencodeString(bytes, q));
+        }
+        file->path = joined.buffer;
+        info->size += file->size;
+    }
+    return info->fileCount > 0;
+}
+
+function String Prog_MagnetHash(Arena *arena, String magnet)
+{
+    Index at = StrIndexStr(magnet, S("btih:"), SSF_None);
+    if (!at.exists) return (String){0};
+    String hash = StrFrom(magnet, at.value + 5);
+    hash.length = StrIndexChar(hash, '&', SSF_CountOnFail).value;
+    u8 bytes[20] = {0};
+    if (hash.length == 40) {
+        for (u32 i = 0; i < 40; ++i) {
+            u8 c = Prog__FoldAscii((u8)hash.value[i]);
+            u32 digit = c >= '0' && c <= '9' ? (u32)(c - '0') : c >= 'a' && c <= 'f' ? (u32)(c - 'a' + 10) : 16;
+            if (digit > 15) return (String){0};
+            bytes[i / 2] |= (u8)(digit << (i % 2 ? 0 : 4));
+        }
+    } else if (hash.length == 32) {
+        // Base32: five bits a letter.
+        u64 bits = 0;
+        u32 held = 0, filled = 0;
+        for (u32 i = 0; i < 32; ++i) {
+            u8 c = Prog__FoldAscii((u8)hash.value[i]);
+            u32 value = c >= 'a' && c <= 'z' ? (u32)(c - 'a') : c >= '2' && c <= '7' ? (u32)(c - '2' + 26) : 32;
+            if (value > 31) return (String){0};
+            bits = (bits << 5) | value;
+            held += 5;
+            if (held >= 8) held -= 8, bytes[filled++] = (u8)(bits >> held);
+        }
+    } else {
+        return (String){0};
+    }
+    StrBuilder text = {0};
+    for (u32 i = 0; i < 20; ++i) StrBuildStr(arena, &text, StrFormat(arena, "%02x", (u32)bytes[i]));
     return text.buffer;
+}
+
+function String Prog_TorrentSelection(Arena *arena, const Prog_TorrentInfo *info, const b8 *skip)
+{
+    StrBuilder text = {0};
+    b32 all = true;
+    for (u32 i = 0; i < info->fileCount;) {
+        if (skip[i] || info->files[i].pad) {
+            all = false;
+            ++i;
+            continue;
+        }
+        u32 last = i;
+        while (last + 1 < info->fileCount && !skip[last + 1] && !info->files[last + 1].pad) ++last;
+        if (text.buffer.length) StrBuildStr(arena, &text, S(","));
+        StrBuildStr(arena, &text, last > i ? StrFormat(arena, "%u-%u", i + 1, last + 1) : StrFormat(arena, "%u", i + 1));
+        i = last + 1;
+    }
+    return all ? (String){0} : text.buffer;
+}
+
+function void Prog_TorrentSkip(String selection, const Prog_TorrentInfo *info, b8 *skip)
+{
+    for (u32 i = 0; i < info->fileCount; ++i) skip[i] = selection.length > 0 || info->files[i].pad;
+    for (String rest = selection; rest.length;) {
+        Index comma = StrIndexChar(rest, ',', SSF_CountOnFail);
+        String range = StrFromTo(rest, 0, (i64)comma.value);
+        rest = StrFrom(rest, Min(comma.value + 1, rest.length));
+        Index dash = StrIndexChar(range, '-', SSF_None);
+        u64 first = 0, last = 0;
+        String from = dash.exists ? StrFromTo(range, 0, (i64)dash.value) : range, to = dash.exists ? StrFrom(range, dash.value + 1) : range;
+        for (u64 i = 0; i < from.length && from.value[i] >= '0' && from.value[i] <= '9'; ++i) first = first * 10 + (u64)(from.value[i] - '0');
+        for (u64 i = 0; i < to.length && to.value[i] >= '0' && to.value[i] <= '9'; ++i) last = last * 10 + (u64)(to.value[i] - '0');
+        for (u64 i = first; i && i <= last && i <= info->fileCount; ++i) skip[i - 1] = false;
+    }
+}
+
+// A torrent's name made fit for a file's: the characters Windows forbids and line breaks as underscores, no dot or space at its end, and a
+// little over 200 bytes at most, cut between characters.
+function String Prog__TorrentFileName(Arena *arena, String name)
+{
+    u64 length = Min(name.length, (u64)200);
+    while (length < name.length && ((u8)name.value[length] & 0xC0) == 0x80) --length;
+    u8 *text = ArenaPushArray(arena, length + 1, u8);
+    for (u64 i = 0; i < length; ++i) {
+        u8 c = (u8)name.value[i];
+        text[i] = c < 32 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' || c == '\\' || c == '|' || c == '?' || c == '*' ? '_' : c;
+    }
+    while (length && (text[length - 1] == '.' || text[length - 1] == ' ')) --length;
+    return length ? StrMake((const char *)text, length) : S("Torrent");
+}
+
+// The .torrent aria2c saved in `folder` for a magnet link, named by its info hash `hash`, renamed after the torrent, or the file of that name
+// already there with the same bytes in its place; its path, empty without it.
+function String Prog__NameFetchedTorrent(Arena *arena, String folder, String hash)
+{
+    String saved = StrFormat(arena, "%S.torrent", hash), savedPath = Prog_JoinPath(arena, folder, saved), bytes = {0}, there = {0};
+    Prog_TorrentInfo info = {0};
+    if (!hash.length || !P_ReadFile(arena, savedPath, &bytes)) return (String){0};
+    if (!Prog_ReadTorrent(arena, bytes, &info)) return savedPath;
+    String stem = Prog__TorrentFileName(arena, info.name), named = Prog_JoinPath(arena, folder, StrFormat(arena, "%S.torrent", stem));
+    if (P_ReadFile(arena, named, &there) && StrIsEqual(there, bytes)) return !P_DeleteItems(arena, &savedPath, 1, false, NULL).code ? named : savedPath;
+    String name = Prog__FreeName(arena, folder, stem, S(".torrent"));
+    return !P_RenamePath(arena, folder, saved, name).code ? Prog_JoinPath(arena, folder, name) : savedPath;
+}
+
+function P_FileError Prog_FetchTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
+{
+    Scratch scratch = GetScratchEx(arena);
+    b32 magnet = Prog_IsMagnet(source);
+    String arguments[] = { S("aria2c"), StrFormat(scratch.arena, "--dir=%S", folder), magnet ? S("--bt-metadata-only=true") : S("--follow-torrent=false"), S("--bt-save-metadata=true"),
+                           S("--summary-interval=0"), S("--console-log-level=notice"), S("--enable-color=false"), S("--show-console-readout=true"), S("--"), source };
+    Prog__Torrent *torrent = ArenaPushStruct(scratch.arena, Prog__Torrent);
+    torrent->progress = progress;
+    torrent->name = magnet ? TrMark("Magnet link") : Prog__NameStem(Prog_EntryLeaf(source));
+    if (progress) {
+        atomic_store(&progress->totalItems, 1);
+        P_ProgressName(progress, torrent->name);
+    }
+    b32 done = P_RunCommandStream(folder, arguments, CArrayCount(arguments), true, Prog__TorrentOutput, torrent, cancel, progress);
+    String file = {0};
+    if (done && magnet) {
+        file = Prog__NameFetchedTorrent(scratch.arena, folder, Prog_MagnetHash(scratch.arena, source));
+    } else if (done && torrent->doneLength) {
+        file = StrMake(torrent->done, torrent->doneLength);
+    }
+    P_FileError result = {0};
+    if (file.length) {
+        ArrayPush(arena, *placed, StrCopy(arena, file));
+        if (progress) atomic_store(&progress->doneItems, 1);
+    } else {
+        String message = torrent->messageLength ? StrCopy(arena, StrMake(torrent->message, torrent->messageLength)) : TrMark("aria2c is not installed, or could not fetch the torrent");
+        result = (P_FileError){ .code = 1, .message = message };
+    }
+    ReleaseScratch(scratch);
+    return result;
 }
 
 // What ffplay's -stats line says as it plays, rewritten in place with carriage returns: the seconds of the file played, first.
