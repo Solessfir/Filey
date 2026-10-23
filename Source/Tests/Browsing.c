@@ -2623,6 +2623,26 @@ function void TestTabs(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state) && TestEndsWith(state.directory.path, S("/Folder2")));
     Prog_RequestDirectory(&state, fixture->path, true, 0);
     Check(TestWaitDirectory(&state));
+    // A tree unfolds a folder in place, its items right after it, named by their path from the folder shown; folded, they go again, and
+    // another folder starts folded.
+    {
+        TestBrowsingCommand(&state, Prog_CommandKind_ToggleTreeView, 0);
+        Check(TestWaitDirectory(&state) && state.tree && state.directory.tree);
+        u64 before = state.directory.count;
+        Prog_TreeToggle(&state, S("Folder2"));
+        Check(TestWaitDirectory(&state) && Prog_TreeIsOpen(&state, S("Folder2")) && state.directory.count > before);
+        u64 at = TestEntryIndex(&state, S("Folder2"));
+        Check(at + 1 < state.directory.count && StrIsEqual(Prog_EntryParent(state.directory.entries[at + 1].file.name), S("Folder2")));
+        Prog_TreeToggle(&state, S("Folder2"));
+        Check(TestWaitDirectory(&state) && !Prog_TreeIsOpen(&state, S("Folder2")) && state.directory.count == before);
+        Prog_TreeToggle(&state, S("Folder2"));
+        Check(TestWaitDirectory(&state) && state.treeOpen.header.count == 1);
+        Prog_RequestDirectory(&state, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2")), true, 0);
+        Check(TestWaitDirectory(&state) && !state.treeOpen.header.count);
+        TestBrowsingCommand(&state, Prog_CommandKind_ToggleTreeView, 0);
+        Prog_RequestDirectory(&state, fixture->path, true, 0);
+        Check(TestWaitDirectory(&state) && !state.tree && !state.directory.tree);
+    }
     // The drive index walks everything below the drives, writing itself to the cache folder as it goes, and Go To finds folders and files by name.
     Arena driveArena = {0};
     ArrayPush(&driveArena, state.drives, ((P_Place){ .path = fixture->path }));
@@ -3135,6 +3155,10 @@ function void TestPanels(TestFileFixture *fixture)
         Prog_QueueCommand(&state, Prog_CommandKind_ToggleMillerColumns, 0, 0, 0);
         Prog_ProcessCommands(&state);
         Check(state.sidebarWidth == Prog_SidebarMax && state.miller);
+        // And a tab's tree, with its unfolded folders.
+        state.tree = true;
+        String unfolded[] = { S("Folder2"), S("Folder2/a b") };
+        Prog__SetList(&state.treeArena, &state.treeOpen, unfolded, CArrayCount(unfolded));
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
@@ -3145,7 +3169,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(StrIsEqual(Prog_SessionText(&sessionArena, &restored), text));
         Check(StrIsEqual(Prog_EditText(&restored.filter), S("al pha")) && restored.hideFiles && !restored.filterSticky);
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
-        Check(restored.miller);
+        Check(restored.miller && restored.tree && restored.treeOpen.header.count == 2 && StrIsEqual(restored.treeOpen.v[1], S("Folder2/a b")));
         // A layout keeps the same, and puts a window that has other tabs back the way it was; a deleted one no longer applies.
         Prog_SetLayout(&restored, S("Two"), Prog_LayoutText(&sessionArena, &state), false);
         Prog_OpenTab(&restored, fixture->path, restored.tabCount, true);

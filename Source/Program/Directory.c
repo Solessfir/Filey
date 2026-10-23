@@ -425,10 +425,13 @@ function void Prog_ApplyFilter(Prog_State *state, b32 edited)
         if (lanes > 1) P_RunLanes(lanes, Prog__FilterLane, &look);
         else Prog__FilterLane(&look, 0);
         u16 *ranks = filter.length ? look.ranks : NULL;
+        // A tree's nested items show only in rows.
+        state->treeNested = Prog_TreeShowsNested(state);
+        b32 flat = state->directory.tree && !state->treeNested;
         for (u64 i = 0; i < state->directory.count; ++i) {
             Prog_Entry *entry = &state->directory.entries[i];
             b32 folder = entry->file.kind == P_FileKind_Directory;
-            if (look.ranks[i] != Prog_FilterHidden) {
+            if (look.ranks[i] != Prog_FilterHidden && !(flat && StrIndexChar(entry->file.name, '/', SSF_None).exists)) {
                 if (ranks) ranks[state->viewCount] = look.ranks[i];
                 state->view[state->viewCount++] = i;
                 state->viewFolders += folder != 0;
@@ -722,6 +725,72 @@ function Prog_Entry *Prog__SortEntries(Prog_Entry *entries, Prog_Entry *buffer, 
     return done ? buffer : NULL;
 }
 
+// A tree's rows in its order: each folder's items as they are sorted, right after the folder, and deeper ones after theirs; the items of a
+// folder no longer in it are left out. Gives how many stay.
+function u64 Prog__TreeOrder(Prog_Entry *entries, u64 count)
+{
+    if (!count) return 0;
+    Scratch scratch = GetScratch();
+    // Each item's next one in its folder, in the sorted order, and each folder's first and last, by its path, plus one.
+    u64 *next = ArenaPushArrayNoZero(scratch.arena, count, u64);
+    struct { MapHeader header; struct { String key; u64 value; } *v; } first = {0}, last = {0};
+    for (u64 i = 0; i < count; ++i) {
+        next[i] = UINT64_MAX;
+        String parent = Prog_EntryParent(entries[i].file.name);
+        u64 at = MapsGet(last, u64, parent);
+        if (at) next[at - 1] = i;
+        else MapsPut(scratch.arena, first, parent, i + 1);
+        MapsPut(scratch.arena, last, parent, i + 1);
+    }
+    // Depth first: an item, then what is in it, then the next one in its folder.
+    Prog_Entry *ordered = ArenaPushArrayNoZero(scratch.arena, count, Prog_Entry);
+    u64 *stack = ArenaPushArrayNoZero(scratch.arena, count + 1, u64), depth = 0, placed = 0;
+    u64 top = MapsGet(first, u64, (String){0});
+    if (top) stack[depth++] = top - 1;
+    while (depth && placed < count) {
+        u64 i = stack[--depth];
+        ordered[placed++] = entries[i];
+        if (next[i] != UINT64_MAX) stack[depth++] = next[i];
+        u64 inside = entries[i].file.kind == P_FileKind_Directory ? MapsGet(first, u64, entries[i].file.name) : 0;
+        if (inside) stack[depth++] = inside - 1;
+    }
+    MemCopy(entries, ordered, placed * sizeof(Prog_Entry));
+    ReleaseScratch(scratch);
+    return placed;
+}
+
+// Whether the view shows a tree's nested items, as its rows do; the icon views and columns show only the folder's own.
+function b32 Prog_TreeShowsNested(const Prog_State *state)
+{
+    Prog_View view = state->miller ? Prog_View_List : Prog_ZoomView(state->zoom);
+    return view == Prog_View_Details || view == Prog_View_List;
+}
+
+// Whether the tree has the folder `name`, a path from the listed one, unfolded.
+function b32 Prog_TreeIsOpen(const Prog_State *state, String name)
+{
+    for (u64 i = 0; i < state->treeOpen.header.count; ++i) if (StrIsEqual(state->treeOpen.v[i], name)) return true;
+    return false;
+}
+
+// Unfolds the folder `name` or folds it, with everything unfolded inside it, and lists the folder again to show it.
+function void Prog_TreeToggle(Prog_State *state, String name)
+{
+    Scratch scratch = GetScratch();
+    b32 open = Prog_TreeIsOpen(state, name);
+    String *kept = ArenaPushArray(scratch.arena, state->treeOpen.header.count + 1, String);
+    u64 count = 0;
+    for (u64 i = 0; i < state->treeOpen.header.count; ++i) {
+        String folder = state->treeOpen.v[i];
+        b32 within = folder.length > name.length && StrIsEqual(StrFromTo(folder, 0, (i64)name.length), name) && folder.value[name.length] == '/';
+        if (!(open && (StrIsEqual(folder, name) || within))) kept[count++] = StrCopy(scratch.arena, folder);
+    }
+    if (!open) kept[count++] = StrCopy(scratch.arena, name);
+    Prog__SetList(&state->treeArena, &state->treeOpen, kept, count);
+    ReleaseScratch(scratch);
+    Prog_Reload(state);
+}
+
 // Sorts on folder totals are redone as the totals arrive.
 // Focus, anchor and selection stay on the same items.
 function void Prog__SortByTotals(Prog_State *state)
@@ -735,7 +804,8 @@ function void Prog__SortByTotals(Prog_State *state)
         return;
     }
     state->sortPending = false;
-    b32 sorted = true;
+    // A tree's order goes by its folders, which the check of neighbors does not see, so it is sorted again.
+    b32 sorted = !directory->tree;
     for (u64 i = 1; i < directory->count && sorted; ++i) {
         sorted = Prog__CompareEntries(&directory->entries[i - 1], &directory->entries[i], sort, directory->descending, directory->folderSort) <= 0;
     }
@@ -746,6 +816,7 @@ function void Prog__SortByTotals(Prog_State *state)
     Prog_Entry *buffer = ArenaPushArrayNoZero(scratch.arena, directory->count, Prog_Entry);
     Prog_Entry *result = Prog__SortEntries(directory->entries, buffer, directory->count, sort, directory->descending, directory->folderSort, NULL);
     if (result != directory->entries) MemCopy(directory->entries, result, directory->count * sizeof(Prog_Entry));
+    if (directory->tree) directory->count = Prog__TreeOrder(directory->entries, directory->count);
     ReleaseScratch(scratch);
     for (u64 i = 0; i < directory->count; ++i) {
         String name = directory->entries[i].file.name;
@@ -2300,6 +2371,23 @@ function void Prog__DirectoryJob(P_Job *job)
     if (result->error.code || result->cancelled) return;
     P_FileArray files = listing.files;
     Prog__CountFound(input, files.v, files.header.count);
+    if (input->tree && input->treeOpenCount) ProfileScope("TreeFolders") {
+        // A tree lists its unfolded folders too, their items named by their path from the listed folder; one gone since is left out.
+        P_FileArray all = {0};
+        for (u64 i = 0; i < files.header.count; ++i) ArrayPush(&job->arena, all, files.v[i]);
+        for (u64 o = 0; o < input->treeOpenCount && !P_IsCancelled(&job->cancelToken); ++o) {
+            String folder = input->treeOpen[o];
+            P_DirectoryResult inside = result->archive ? P_EnumerateArchive(&job->arena, archive, inner.length ? Prog_JoinPath(&job->arena, inner, folder) : folder, &job->cancelToken)
+                                                       : P_EnumerateDirectory(&job->arena, Prog_JoinPath(&job->arena, input->path, folder), &job->cancelToken);
+            if (inside.errorCode || inside.cancelled) continue;
+            for (u64 i = 0; i < inside.files.header.count; ++i) {
+                P_File file = inside.files.v[i];
+                file.name = StrFormat(&job->arena, "%S/%S", folder, file.name);
+                ArrayPush(&job->arena, all, file);
+            }
+        }
+        files = all;
+    }
     if (input->expanded) ProfileScope("ExpandDirectory") {
         // Lanes on threads of their own list folders from one shared stack, keeping what they find apart; links are not followed and
         // unreadable folders are skipped.
@@ -2418,6 +2506,8 @@ function void Prog__FillListing(Arena *arena, const Prog_JobInput *input, P_File
     ProfileScope("SortEntries") sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, input->folderSort, cancel);
     if (sorted) result->entries = sorted;
     else result->cancelled = true;
+    result->tree = input->tree;
+    if (sorted && input->tree) result->count = Prog__TreeOrder(result->entries, result->count);
 }
 
 // Whether the window has what its first frame should show: the folder listed, the sidebar's places, and every file icon the last build drew.
@@ -2897,8 +2987,16 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     input->showSystem = state->showSystem;
     // Another folder starts flat unless the filter is pinned.
     if (state->directory.path.length && !StrIsEqual(path, state->directory.path) && !state->filterSticky) state->expanded = false;
+    // A tree starts folded in another folder.
+    if (state->directory.path.length && !StrIsEqual(path, state->directory.path)) Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0);
     input->showHidden = state->showHidden;
     input->expanded = state->expanded;
+    input->tree = state->tree && !state->expanded;
+    if (input->tree && state->treeOpen.header.count) {
+        input->treeOpenCount = state->treeOpen.header.count;
+        input->treeOpen = ArenaPushArray(&job->arena, input->treeOpenCount, String);
+        for (u64 i = 0; i < input->treeOpenCount; ++i) input->treeOpen[i] = StrCopy(&job->arena, state->treeOpen.v[i]);
+    }
     if (input->expanded) {
         input->partial = ArenaPushStruct(&job->arena, Prog_Partial);
         if (!P_MutexInit(&input->partial->mutex)) input->partial = NULL;
@@ -3627,6 +3725,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->watch.arena);
     ArenaRelease(&state->directoryArena);
     ArenaRelease(&state->historyArena);
+    ArenaRelease(&state->treeArena);
     ArenaRelease(&state->viewArena);
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->pickArena);
@@ -4387,6 +4486,13 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
                 StrBuildStr(arena, &text, StrFormat(arena, "filter %u %u %u %u %u %S\n", numbers[p], sticky ? 1u : 0u, expanded ? 1u : 0u, hideFolders ? 1u : 0u,
                                                     hideFiles ? 1u : 0u, Prog_EditText(filter)));
             }
+            // A tree, with the folders unfolded in it, a tab between each.
+            if (shown ? state->tree : state->tabs[t].tree) {
+                const ArrayStr *open = shown ? &state->treeOpen : &state->tabs[t].treeOpen;
+                StrBuildStr(arena, &text, StrFormat(arena, "tree %u ", numbers[p]));
+                for (u64 o = 0; o < open->header.count; ++o) StrBuildStr(arena, &text, StrFormat(arena, o ? "\t%S" : "%S", open->v[o]));
+                StrBuildChar(arena, &text, '\n');
+            }
         }
     }
     Prog__UsePanel(state, active);
@@ -4402,7 +4508,9 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     Prog_Split splits[Prog_MaxSplits] = {0};
     u32 splitPanel[Prog_MaxSplits] = {0};
     typedef struct { b32 sticky, expanded, hideFolders, hideFiles; String text; } Filter;
-    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels = ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
+    typedef struct { b32 on; String folders; } Tree;
+    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Tree trees[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels =
+        ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
     u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0, sidebarWidth = 0;
     b32 valid = false;
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
@@ -4455,6 +4563,9 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
                 Prog__TakeNumber(&rest, &d) && Prog__TakeNumber(&rest, &e)) {
                 panels[a].filters[panels[a].tabCount - 1] = (Filter){ b != 0, c != 0, d != 0, e != 0, rest };
             }
+        } else if (StrIsEqual(word, S("tree"))) {
+            // The last tab's, its unfolded folders a tab apart.
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && panels[a].tabCount) panels[a].trees[panels[a].tabCount - 1] = (Tree){ true, rest };
         }
     }
     // The tree from the root must reach every panel once, each with a tab.
@@ -4522,6 +4633,10 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
                 *(t ? &tab->expanded : &state->expanded) = saved->expanded;
                 *(t ? &tab->hideFolders : &state->hideFolders) = saved->hideFolders;
                 *(t ? &tab->hideFiles : &state->hideFiles) = saved->hideFiles;
+                const Tree *tree = &panels[p].trees[t];
+                *(t ? &tab->tree : &state->tree) = tree->on;
+                ArrayStr folders = tree->folders.length ? StrSplit(scratch.arena, tree->folders, '\t') : (ArrayStr){0};
+                Prog__SetList(t ? &tab->treeArena : &state->treeArena, t ? &tab->treeOpen : &state->treeOpen, folders.v, folders.header.count);
             }
             Prog_RequestDirectory(state, panels[p].tabs[0], false, 0);
             if (panels[p].activeTab < state->tabCount) Prog_SelectTab(state, panels[p].activeTab);
@@ -4716,6 +4831,7 @@ function void Prog__ReleaseTab(Prog_Tab *tab)
     Prog__ReleasePreview(&tab->previewArena, tab->previewTexture, &tab->model, &tab->pdf, tab->previewJob, tab->hexPageJob);
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
+    ArenaRelease(&tab->treeArena);
     ArenaRelease(&tab->viewArena);
     *tab = (Prog_Tab){0};
 }

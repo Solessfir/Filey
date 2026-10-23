@@ -1670,6 +1670,16 @@ command ToggleMillerColumns {
     hotkey  = "Ctrl+Shift+7"
 }
 
+command ToggleTreeView {
+    label   = "Toggle Tree View^view,layout,hierarchy,nested,unfold,expand,outline"
+    tooltip = "Toggle unfolding folders in place in the list, their items indented under them."
+    hotkey  = "Ctrl+Shift+8"
+}
+
+// A press on a tree's arrow, which unfolds row's folder or folds it.
+command TreeToggle {
+}
+
 // A Miller column's row pressed; carries the row, the column's slot as its target and the press count.
 command MillerSelect {
 }

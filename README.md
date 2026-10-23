@@ -12,7 +12,7 @@
 ## Features
 
 - **Panels and tabs**: split panels side by side or stacked, tabs that move between panels and windows, and layouts you can save and restore.
-- **Fast lists**: details, list, columns and icon views with thumbnails, folder sizes, filters as you type, an expanded search through subfolders, and Miller columns.
+- **Fast lists**: details, list, columns and icon views with thumbnails, folder sizes, filters as you type, an expanded search through subfolders, Miller columns, and a tree view that unfolds folders in place.
 - **Go To and the command palette**: jump to recent, bookmarked or typed paths, and run any command by name. Every hotkey can be changed.
 - **Inspector**: previews text with syntax highlighting and line numbers, images, PDFs, 3D models (OBJ, STL, PLY, glTF, FBX, .blend, USD), Word and Excel text, archives, and any file as hex.
 - **Archives as folders**: browse zip, 7z, rar, tar and cab files, and drag, copy and paste in and out of them.

@@ -406,6 +406,9 @@ typedef struct Prog_JobInput {
     b32 miller;            // FilesList: for a Miller column of `panel`, rather than the folder dropdown
     b32 explorer;          // Open: the folder `path` in the system's file manager
     b32 expanded;
+    b32 tree;               // a tree: the folders `treeOpen` names, by their paths from `path`, are listed too
+    String *treeOpen;
+    u64 treeOpenCount;
     Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
     u64 historyAt;
@@ -1107,6 +1110,8 @@ typedef struct Prog_Directory {
     b32 hidden;       // the folder itself, as P_DirectoryResult says
     // Every subfolder's items are listed too, named by their path below `path` with '/' separators.
     b32 expanded;
+    // A tree: the unfolded folders' items too, named so, each right after its folder.
+    b32 tree;
     b32 archive;      // a folder inside an archive, listed from it
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
     String *parents;
@@ -1196,7 +1201,7 @@ typedef struct Prog_PdfView {
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) X(u32, zoom) X(Prog_ColumnSet, columnSet) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) \
-    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
+    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(b32, treeNested) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
     X(Arena, viewArena) X(u64 *, view) X(u64 *, viewAt) X(u64, viewCount) X(u64, viewFolders) X(UI_Vec2, scroll) X(Prog_Trail, trail) \
     Prog_PreviewFields(X)
 
@@ -2053,6 +2058,9 @@ function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group);
 function String Prog_TabPath(const Prog_State *state, u32 index);
 function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate);
 function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab);
+function b32 Prog_TreeIsOpen(const Prog_State *state, String name);
+function void Prog__SetList(Arena *arena, ArrayStr *list, const String *items, u64 count);
+function void Prog_TreeToggle(Prog_State *state, String name);
 function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current);
 function const P_Place *Prog_PathDrive(const Prog_State *state, String path);
 function String Prog_PathName(const Prog_State *state, String path);
@@ -2063,6 +2071,7 @@ function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image);
 function const Prog_Icon *Prog_SpinnerIcon(Prog_State *state, u64 nowMicroseconds);
 function Prog_View Prog_ZoomView(u32 zoom);
+function b32 Prog_TreeShowsNested(const Prog_State *state);
 function u32 Prog_ZoomStepped(u32 zoom, b32 up);
 function u32 Prog_ZoomFromSaved(u64 value);
 function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *items, u32 count, UI_Vec2 at);

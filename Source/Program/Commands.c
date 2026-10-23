@@ -692,7 +692,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
-    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_FolderViewToggle,
+    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_FolderViewToggle,
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
@@ -1354,6 +1354,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ViewXLIcons, .checked = zoom >= Prog_ZoomMax);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleMillerColumns, .checked = state->miller);
+            Prog__Item(.kind = Prog_CommandKind_ToggleTreeView, .checked = state->tree);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ZoomIn);
             Prog__Item(.kind = Prog_CommandKind_ZoomOut);
@@ -3321,6 +3322,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ViewLargeIcons: state->zoom = Prog_ZoomLarge; state->revealFocus = true; break;
             case Prog_CommandKind_ViewXLIcons: state->zoom = Prog_ZoomMax; state->revealFocus = true; break;
             case Prog_CommandKind_ToggleMillerColumns: state->miller = !state->miller; state->revealFocus = true; break;
+            case Prog_CommandKind_ToggleTreeView: {
+                // Turned off, it folds everything, which turning it on again starts from.
+                state->tree = !state->tree;
+                if (!state->tree) Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0);
+                state->revealFocus = true;
+                Prog_Reload(state);
+            } break;
+            case Prog_CommandKind_TreeToggle: {
+                if (state->loading || command->row >= state->directory.count || state->directory.entries[command->row].file.kind != P_FileKind_Directory) break;
+                Prog_TreeToggle(state, state->directory.entries[command->row].file.name);
+            } break;
             case Prog_CommandKind_LayoutsSave: {
                 Prog_CloseMenu(state);
                 state->paletteOpen = false;
@@ -3589,6 +3601,27 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     } else if (state->hasFocus && state->focusedRow < state->directory.count) {
                         const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
                         if (entry->file.kind == P_FileKind_Directory || Prog_PreviewsArchive(state, entry)) Prog_OpenRow(state, state->focusedRow);
+                    }
+                    break;
+                }
+                // A tree's rows: Right unfolds the focused folder, or goes into its first item once it is open; Left folds it, or goes up to the
+                // folder the item is in.
+                if (state->directory.tree && !how && (way == Left || way == Right) && !state->loading && Max(state->gridColumns, (u64)1) == 1) {
+                    if (!state->hasFocus || state->focusedRow >= state->directory.count) break;
+                    String name = state->directory.entries[state->focusedRow].file.name;
+                    b32 folder = state->directory.entries[state->focusedRow].file.kind == P_FileKind_Directory, open = folder && Prog_TreeIsOpen(state, name);
+                    u64 to = UINT64_MAX;
+                    if (way == Right && folder && !open) Prog_TreeToggle(state, name);
+                    else if (way == Left && open) Prog_TreeToggle(state, name);
+                    else if (way == Right && open && state->focusedRow + 1 < state->directory.count &&
+                             StrIsEqual(Prog_EntryParent(state->directory.entries[state->focusedRow + 1].file.name), name)) to = state->focusedRow + 1;
+                    else if (way == Left) {
+                        String parent = Prog_EntryParent(name);
+                        for (u64 i = state->focusedRow; parent.length && i-- > 0;) if (StrIsEqual(state->directory.entries[i].file.name, parent)) { to = i; break; }
+                    }
+                    if (to != UINT64_MAX && Prog_ViewPosition(state, to) != UINT64_MAX) {
+                        Prog_SelectRow(state, to, 0);
+                        state->revealFocus = true;
                     }
                     break;
                 }
@@ -4278,6 +4311,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->commandFirst = NULL;
     state->commandLast = NULL;
     if (state->sortPending) Prog__SortByTotals(state);
+    // A view of another kind, as a zoom to the icons, shows a tree's nested items or leaves them out.
+    if (state->directory.tree && state->treeNested != Prog_TreeShowsNested(state)) Prog_ApplyFilter(state, false);
     // Files dragged onto the window go into the folder under the pointer, else into the folder of the panel under it.
     u32 dropPanel = Prog_PanelIndex(state, state->hasHoverRow ? state->hoverPanel : state->pointerPanel);
     if (dropPanel != UINT32_MAX) Prog__UsePanel(state, dropPanel);

@@ -906,6 +906,8 @@ global const char *const Prog_Strings[] = {
     "Show files with extra large icons for high visibility.",
     "Toggle Miller Columns",
     "Toggle columns of the parent folders on the left and of the focused folder's contents on the right.",
+    "Toggle Tree View",
+    "Toggle unfolding folders in place in the list, their items indented under them.",
     "Save Layout",
     "Save the current window layout: window dimensions, panels, sidebar, etc.",
     "Load Layout",

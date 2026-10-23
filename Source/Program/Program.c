@@ -4066,23 +4066,46 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
     UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
     UI_Block *row = UI_AddBlockFromKey(key, (tinted ? UI_Flag_DrawBackground : 0) | (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     b32 renaming = Prog__ItemRenaming(state, entry);
+    // A tree's item stands in by its depth, after an arrow that unfolds a folder; the name shows without the folders it is in.
+    b32 tree = state->directory.tree;
+    u64 depth = 0;
+    for (u64 c = 0; tree && c < entry->file.name.length; ++c) depth += entry->file.name.value[c] == '/';
+    f32 arrow = tree ? floorf(16.0f * m->scale + 0.5f) : 0, treeIndent = tree ? (f32)depth * floorf(16.0f * m->scale + 0.5f) + arrow : 0;
     // Presses on the icon and the name drag the files; elsewhere on the row they draw a selection box, as in Explorer.
-    b32 onName = UI->pressOrigin.x < row->rect.x0 + (Prog__MarksRecents(state) ? Prog__RecentGutter(m->scale) : 0) + m->iconSlot + R_TextWidth(m->font, entry->file.name) + m->gap;
+    b32 onName = UI->pressOrigin.x < row->rect.x0 + (Prog__MarksRecents(state) ? Prog__RecentGutter(m->scale) : 0) + treeIndent + m->iconSlot +
+                                     R_TextWidth(m->font, tree ? Prog_EntryLeaf(entry->file.name) : entry->file.name) + m->gap;
     b32 result = Prog__ItemInput(state, index, row, key, onName, renaming);
     String values[Prog_ColumnId_Count];
     Prog__EntryValues(state, entry, values);
+    if (tree) values[Prog_ColumnId_Name] = Prog_EntryLeaf(values[Prog_ColumnId_Name]);
     P_DirectoryTotals live;
     b32 counting = entry->file.kind == P_FileKind_Directory && !entry->measured && Prog__LiveTotals(state, entry, &live) && !live.complete;
     UI_Parent(row) {
         Prog__ItemBox(Prog__ItemLook(entry->selected, hot, focused), UI_Percent(1), m);
         if (Prog__MarksRecents(state) && entry->recent) Prog__Icon(Icon_Clock, Prog__RecentGutter(m->scale), height, theme->text, 0.5f, m);
         else if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(height));
+        if (tree) {
+            Prog__Spacer(UI_Pixels(treeIndent - arrow), UI_Pixels(height));
+            if (entry->file.kind == P_FileKind_Directory) {
+                UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "TreeArrow/%S", entry->file.name));
+                UI_SetNextPrefWidth(UI_Pixels(arrow));
+                UI_SetNextPrefHeight(UI_Pixels(height));
+                UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+                UI_SetNextFont(m->iconsSmall);
+                UI_SetNextColors((UI_Colors){ .text = UI->hotKey == key ? theme->text : theme->icon });
+                UI_SetNextText(Prog_TreeIsOpen(state, entry->file.name) ? Icon_ChevronDown : Icon_ChevronRight);
+                UI_Interaction unfold = UI_InteractionFromBlock(UI_AddBlockFromKey(key, UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
+                if (unfold.clicked) Prog_QueueCommand(state, Prog_CommandKind_TreeToggle, index, 0, unfold.clickOrder);
+            } else {
+                Prog__Spacer(UI_Pixels(arrow), UI_Pixels(height));
+            }
+        }
         if (!Prog__ItemCheckbox(state, index, m->iconSlot - m->gap, height, m)) Prog__ItemIcon(state, entry, (f32)state->iconSize, m->iconSlot - m->gap, height, 1, Prog__ListIconInset(m), highlighted, m);
         for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
             const Prog_Column *column = &columns->v[c];
             u32 i = nameOnly ? (u32)Prog_ColumnId_Name : column->id;
-            // The icon before the name is inside Name's width, as the header counts it.
-            f32 columnWidth = i == Prog_ColumnId_Name ? MaxF32(0, column->width - (m->iconSlot - m->gap)) : column->width;
+            // The icon before the name is inside Name's width, as the header counts it, and so is a tree's depth.
+            f32 columnWidth = i == Prog_ColumnId_Name ? MaxF32(0, column->width - (m->iconSlot - m->gap) - treeIndent) : column->width;
             UI_Size width = column->width > 0 && !nameOnly ? UI_Pixels(columnWidth) : UI_Flex();
             if (i == Prog_ColumnId_Name && renaming) {
                 Prog__RenameBox(state, width, false, m);
@@ -4094,7 +4117,9 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
                 u64 prefix = entry->file.name.length - leaf.length;
                 u8 *marks = state->filter.length ? ArenaPushArrayNoZero(&state->frameArena, Max(entry->file.name.length, (u64)1), u8) : NULL;
                 if (marks) Prog_EntryScore(entry->file.name, Prog_EditText(&state->filter), marks);
-                Prog__NameLabel(entry->file.name, prefix, marks, width, height, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
+                // A tree shows where an item is by its depth instead.
+                if (tree) Prog__NameLabel(leaf, 0, marks ? marks + prefix : NULL, width, height, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
+                else Prog__NameLabel(entry->file.name, prefix, marks, width, height, color, theme->textDim, Prog__ItemMatch(entry, hot), m);
                 continue;
             }
             // Values too wide for a fixed column end in an ellipsis.

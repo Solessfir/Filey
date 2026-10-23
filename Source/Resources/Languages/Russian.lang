@@ -2916,3 +2916,9 @@ Delete Finished Torrents
 
 Sends a .torrent file to the Recycle Bin once every file in it has downloaded.
 = Отправляет файл .torrent в корзину, когда скачаны все его файлы.
+
+Toggle Tree View
+= Вид дерева
+
+Toggle unfolding folders in place in the list, their items indented under them.
+= Разворачивать папки прямо в списке, с их содержимым под ними с отступом.
