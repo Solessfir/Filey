@@ -1185,11 +1185,11 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                             Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("vsync") },
     [Prog_Option_Transparency] = { TrInit("Transparency"), TrInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
                                    Prog_OptionSwitch, 2, SInit("transparent") },
-    [Prog_Option_WindowOpacity] = { TrInit("Window Opacity"), TrInit("How much the window's color covers what is behind it while the window is transparent."),
+    [Prog_Option_WindowOpacity] = { TrInit("Window Opacity"), TrInit("How much the window's color covers what is behind it."),
                                     Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.opacity") },
-    [Prog_Option_PopupBlur] = { TrInit("Popup Blur"), TrInit("How far menus and popups blur what is under them while the window is transparent."), Prog_OptionControl_Slider, 0, 100,
+    [Prog_Option_PopupBlur] = { TrInit("Popup Blur"), TrInit("How far menus and popups blur what is under them."), Prog_OptionControl_Slider, 0, 100,
                                 NULL, 0, SInit("glass.blur") },
-    [Prog_Option_PopupOpacity] = { TrInit("Popup Opacity"), TrInit("How much the color of menus and popups covers the blur under them while the window is transparent."),
+    [Prog_Option_PopupOpacity] = { TrInit("Popup Opacity"), TrInit("How much the color of menus and popups covers the blur under them."),
                                    Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("glass.popupOpacity") },
     [Prog_Option_Backdrop] = { TrInit("Backdrop"), TrInit("What Windows draws behind the transparent window."), Prog_OptionControl_Choice, 0, 0,
                                Prog_OptionBackdrops, CArrayCount(Prog_OptionBackdrops), SInit("glass.backdrop") },
@@ -1225,6 +1225,8 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         // With the system's choice, a scheme for each of its modes.
         if (i == Prog_Option_ColorScheme && state->systemScheme) continue;
         if ((i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) && !state->systemScheme) continue;
+        // The see-through window's own choices only while it is see-through.
+        if (i >= Prog_Option_WindowOpacity && i <= Prog_Option_Backdrop && !state->transparent) continue;
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
         if (!typed.length || Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) > 0) found[count++] = (u8)i;
@@ -2475,6 +2477,8 @@ function void Prog__CloseCross(f32 width, f32 height, R_Color color, const Prog_
     }
 }
 
+function void Prog__IconRect(f32 x, f32 y, f32 width, f32 height, R_Color color, f32 border, f32 radius);
+
 function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead, b32 controls, f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -2709,15 +2713,32 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             Prog__StripLine(leadWidth + shownX + tabWidth + (rightFlare ? flare - overlap : 0), width, lineY, m);
         }
         Prog__Spacer(UI_Pixels(floorf(4.0f * scale + 0.5f)), UI_Pixels(height));
+        // Level with the tabs' middle, which the rounding of its half height would leave a pixel above.
         UI_SetNextPrefWidth(UI_Pixels(plus));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(1.6f * scale + 0.5f), 0, 0 });
         UI_Block *plusBox = UI_AddBlock(0);
         UI_Parent(plusBox) {
-            UI_Interaction add = Prog__TextButton(S("TabNew"), Icon_Plus, m->icons, UI_Pixels(floorf(plus * 0.8f)), floorf(plus * 0.75f), 0, Prog__CaptionInk(theme), theme->text, theme->iconDisabled,
+            // An even margin around it in the box keeps it, and the bars in it, on whole pixels.
+            f32 lift = floorf(1.6f * scale + 0.5f), addWidth = floorf(plus * 0.8f), addHeight = floorf(plus * 0.75f);
+            addWidth -= fmodf(plus - addWidth, 2);
+            addHeight -= fmodf(height - lift - addHeight, 2);
+            UI_Interaction add = Prog__TextButton(S("TabNew"), S(""), m->icons, UI_Pixels(addWidth), addHeight, 0, Prog__CaptionInk(theme), theme->text, theme->iconDisabled,
                                                   state->tabCount < Prog_MaxTabs, m);
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
+            // The plus as two bars in the middle of its box, as the icon font's glyph sits a pixel above it, the size and weight of Lucide's.
+            UI_Block *button = UI->parent->last;
+            f32 length = floorf(9.6f * scale + 0.5f), weight = MaxF32(1, floorf(1.6f * scale + 0.5f));
+            length -= fmodf(length - weight, 2);
+            f32 x = floorf((addWidth - length) * 0.5f), y = floorf((addHeight - length) * 0.5f), across = (length - weight) * 0.5f;
+            UI_Parent(button) {
+                // The upright bar in two, above and below the other, which a see-through color would show doubled where they cross.
+                Prog__IconRect(x, y + across, length, weight, button->props.colors.text, 0, 0);
+                Prog__IconRect(x + across, y, weight, across, button->props.colors.text, 0, 0);
+                Prog__IconRect(x + across, y + across + weight, weight, across, button->props.colors.text, 0, 0);
+            }
         }
         // The tab list, left of the window buttons; in the title bar it fills the strip under its border as they do.
         b32 maximized = PlatformWindowIsMaximized();
@@ -6834,7 +6855,7 @@ function void Prog__OptionRow(Prog_State *state, Prog_Option option, u32 index, 
     UI_Parent(entry) {
         // The colors and the options that narrow the one above them sit in under it.
         b32 nested = desc->control == Prog_OptionControl_Color || option == Prog_Option_SingleClickFoldersOnly ||
-                     (option >= Prog_Option_CalcFolderSizesSSD && option <= Prog_Option_CalcFolderSizesNetwork);
+                     (option >= Prog_Option_CalcFolderSizesSSD && option <= Prog_Option_CalcFolderSizesNetwork) || (option >= Prog_Option_WindowOpacity && option <= Prog_Option_Backdrop);
         if (nested) Prog__Spacer(UI_Pixels(floorf(24.0f * s + 0.5f)), UI_Pixels(face));
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(face));

@@ -511,20 +511,20 @@ Shows what is behind the window through it, blurred.
 Window Opacity
 = Непрозрачность окна
 
-How much the window's color covers what is behind it while the window is transparent.
-= Насколько цвет окна закрывает то, что за ним, когда окно прозрачно.
+How much the window's color covers what is behind it.
+= Насколько цвет окна закрывает то, что за ним.
 
 Popup Blur
 = Размытие всплывающих окон
 
-How far menus and popups blur what is under them while the window is transparent.
-= Насколько меню и всплывающие окна размывают то, что под ними, когда окно прозрачно.
+How far menus and popups blur what is under them.
+= Насколько меню и всплывающие окна размывают то, что под ними.
 
 Popup Opacity
 = Непрозрачность всплывающих окон
 
-How much the color of menus and popups covers the blur under them while the window is transparent.
-= Насколько цвет меню и всплывающих окон закрывает размытие под ними, когда окно прозрачно.
+How much the color of menus and popups covers the blur under them.
+= Насколько цвет меню и всплывающих окон закрывает размытие под ними.
 
 Backdrop
 = Подложка
