@@ -685,6 +685,19 @@ function void TestProgramCommands(void)
 // Go To scores, worked out by hand from its rules.
 // The inspector wraps: a space that does not fit starts the next row, a word that does not moves down whole,
 // and a word longer than the row is cut; tabs count to their stops.
+// An icon's name breaks after a space, dash, dot or underscore that fits, or where the room runs out, and its last line is ellipsized.
+function void TestIconNameWrap(void)
+{
+    Arena arena = {0};
+    String lines[2];
+    // The test font is 8 pixels a character, so 80 pixels hold ten.
+    Check(Prog__WrapName(&arena, &TestUIFont, S("short.txt"), 80, lines, 2) == 1 && StrIsEqual(lines[0], S("short.txt")));
+    Check(Prog__WrapName(&arena, &TestUIFont, S("A rather long name"), 80, lines, 2) == 2 && StrIsEqual(lines[0], S("A rather")) && StrIsEqual(lines[1], S("long name")));
+    Check(Prog__WrapName(&arena, &TestUIFont, S("report-2026-final.pdf"), 80, lines, 2) == 2 && StrIsEqual(lines[0], S("report-")) && StrIsEqual(lines[1], S("2026-fi...")));
+    Check(Prog__WrapName(&arena, &TestUIFont, S("Supercalifragilistic"), 80, lines, 2) == 2 && StrIsEqual(lines[0], S("Supercalif")) && StrIsEqual(lines[1], S("ragilistic")));
+    ArenaRelease(&arena);
+}
+
 function void TestInspectorWrap(void)
 {
     u32 starts[8];

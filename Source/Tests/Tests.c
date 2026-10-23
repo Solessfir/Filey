@@ -770,6 +770,7 @@ int main(void)
     TestProgramCommands();
     TestGoToScore();
     TestInspectorWrap();
+    TestIconNameWrap();
     TestCodegenParse();
     TestHotkeyDispatch();
     TestProgramVirtualRows();

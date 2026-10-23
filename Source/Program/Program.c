@@ -3712,6 +3712,43 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
 }
 
 // `text` cut at a codepoint boundary to fit `width`, with an ellipsis when anything was cut.
+// `text` in at most `most` lines no wider than `width`, into `lines`: each broken after the last space, dash, dot or underscore that fits, or
+// where the room runs out without one, and the last ellipsized while text is left over. Measured once through, as every visible icon's name
+// is each frame.
+function u32 Prog__WrapName(Arena *arena, const R_Font *font, String text, f32 width, String *lines, u32 most)
+{
+    u32 count = 0;
+    for (u64 start = 0; start < text.length && count < most;) {
+        String rest = StrFrom(text, start);
+        if (count + 1 == most) {
+            lines[count++] = Prog__Ellipsize(arena, font, rest, width);
+            break;
+        }
+        u64 fit = 0, broken = 0;
+        f32 taken = 0;
+        for (u64 at = 0; at < rest.length;) {
+            u64 next = at;
+            StrDecodeUtf8(rest, &next);
+            taken += R_TextWidth(font, StrFromTo(rest, at, (i64)next));
+            if (taken > width) break;
+            char c = rest.value[at];
+            if (c == ' ' || c == '-' || c == '.' || c == '_') broken = next;
+            fit = at = next;
+        }
+        if (fit == rest.length) {
+            lines[count++] = rest;
+            break;
+        }
+        u64 take = broken ? broken : Max(fit, (u64)1);
+        String line = StrFromTo(rest, 0, (i64)take);
+        while (line.length && line.value[line.length - 1] == ' ') --line.length;
+        lines[count++] = line;
+        start += take;
+        while (start < text.length && text.value[start] == ' ') ++start;
+    }
+    return count;
+}
+
 function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f32 width)
 {
     if (R_TextWidth(font, text) <= width) return text;
@@ -4258,6 +4295,9 @@ function f32 Prog__DriveCellExtra(f32 iconSize, const Prog_Metrics *m)
 
 // An icon view cell: the icon over the name and the size, centered, on a rounded box that shows only when selected, hovered or focused.
 // A drive's shows how full it is instead of its size, as a bar over its free space.
+// How many lines a name takes in the icon views at most.
+#define Prog_IconNameLines 2
+
 function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width, f32 height, f32 iconSize, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -4314,8 +4354,10 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
                 Prog__Label(Prog__Ellipsize(&state->frameArena, m->detail, free, text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
             }
         } else {
-            String name = Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text);
-            Prog__Label(name, UI_Pixels(width), m->line, 0, Prog__ItemInk(state, entry, hot, true), 0.5f);
+            // A long name takes a second line, as in Explorer.
+            String lines[Prog_IconNameLines];
+            u32 count = Prog__WrapName(&state->frameArena, m->font, Prog_EntryName(state, entry), text, lines, Prog_IconNameLines);
+            for (u32 i = 0; i < count; ++i) Prog__Label(lines[i], UI_Pixels(width), m->line, 0, Prog__ItemInk(state, entry, hot, true), 0.5f);
             Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
         }
     }
@@ -4486,8 +4528,9 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     } else if (view == Prog_View_Icons) {
         iconSize = Prog__ZoomIconSize(state->zoom, m->scale);
         perLine = Max((u64)1, (u64)(inner / (iconSize + floorf(30.0f * m->scale))));
-        // This PC's drives are taller, for their fullness bars.
-        f32 extra = StrIsEqual(state->directory.path, Prog_ThisPC) ? Prog__DriveCellExtra(iconSize, m) : 0;
+        // This PC's drives are taller, for their fullness bars, and the other items for the lines of a long name past the first.
+        b32 drives = StrIsEqual(state->directory.path, Prog_ThisPC);
+        f32 extra = drives ? Prog__DriveCellExtra(iconSize, m) : (Prog_IconNameLines - 1) * m->line;
         pitch = (UI_Vec2){ floorf(inner / (f32)perLine), iconSize + floorf(77.0f * m->scale) + extra };
         // Each cell starts at its slot's left edge.
         f32 gap = floorf(7.0f * m->scale), top = floorf(4.8f * m->scale + 0.5f);

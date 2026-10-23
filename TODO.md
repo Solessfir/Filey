@@ -30,7 +30,7 @@ Shipped there, missing here:
 
 Planned there, worth doing here first:
 
-- Multiline names in the icon views, and larger thumbnails that use the grid's room.
+- Larger thumbnails that use the grid's room: they are drawn in a square at the zoom's size, from square atlas cells; a wide picture could fill the cell's width with a thumbnail made that size. Names in the icon views already take two lines.
 - Command-line arguments beyond folders (open in a new tab of the running window).
 - Virtual folders (Recycle Bin, Control Panel and other shell namespaces) listed like real ones, and MTP devices (phones, cameras) on both platforms.
 - Rebindable mouse buttons and actions, with the hotkeys.
