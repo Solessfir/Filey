@@ -436,10 +436,10 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
     {
         Arena arena = {0};
         Prog_State offline = {0};
-        Check(Prog_PathOnline(&offline, S("D:/Video")));
+        Check(Prog_PathOnline(&offline, S("D:/Media")));
         ArrayPush(&arena, offline.drives, ((P_Place){ .path = S("C:/") }));
         ArrayPush(&arena, offline.drives, ((P_Place){ .path = S("/run/media/me/Stick") }));
-        Check(Prog_PathOnline(&offline, S("c:/Git")) && Prog_PathOnline(&offline, S("C:")) && !Prog_PathOnline(&offline, S("D:/Video")) && !Prog_PathOnline(&offline, S("D:/")));
+        Check(Prog_PathOnline(&offline, S("c:/Work")) && Prog_PathOnline(&offline, S("C:")) && !Prog_PathOnline(&offline, S("D:/Media")) && !Prog_PathOnline(&offline, S("D:/")));
         Check(Prog_PathOnline(&offline, S("//server/share")) && Prog_PathOnline(&offline, S("/home/me")) && Prog_PathOnline(&offline, S("/run/media/me/Stick/a")));
         Check(!Prog_PathOnline(&offline, S("/run/media/me/Other")) && !Prog_PathOnline(&offline, S("/run/media/me/StickTwo")));
         ArenaRelease(&arena);

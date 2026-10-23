@@ -607,7 +607,7 @@ function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const St
                 String old = P__FileStringWide(scratch.arena, mapping->pszOldPath, mapping->cchOldPath);
                 for (u64 i = 0; i < count; ++i) {
                     if (!P__PathWithin(old, paths[i]) || !P__PathWithin(paths[i], old)) {
-                        // The shell may give the folder its long name where the path had its short one, as in "SOLESS~1", which leaves the
+                        // The shell may give the folder its long name where the path had its short one, as in "USER~1", which leaves the
                         // item's own name to tell which it is.
                         String oldName = P__PlacedPath(scratch.arena, S(""), old), name = P__PlacedPath(scratch.arena, S(""), paths[i]);
                         b32 named = P__PathWithin(oldName, name) && P__PathWithin(name, oldName);
