@@ -4538,7 +4538,8 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         }
         // The palette takes the keyboard: typing finds commands, Up and Down pick one, Enter runs it and Escape closes.
         if (state->paletteOpen) {
-            b32 modifier = event->key == Key_Shift || event->key == Key_Control || event->key == Key_Alt || event->key == Key_Super;
+            // A key that alone neither types nor moves, a modifier or one without a code such as Caps Lock, leaves the list as it is.
+            b32 modifier = event->key == Key_None || event->key == Key_Shift || event->key == Key_Control || event->key == Key_Alt || event->key == Key_Super;
             b32 unkeyed = !state->paletteKeyed;
             if (event->kind == PlatformEventKind_Text || (event->kind == PlatformEventKind_KeyDown && !modifier)) state->paletteKeyed = true;
             // In Options no row is the keyboard's until a key moves the highlight: the first Up or Down, or Ctrl+J or Ctrl+K, puts it on the
@@ -4563,7 +4564,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 state->paletteWheeled = true;
                 continue;
             }
-            if (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown) state->paletteWheeled = false;
+            if (event->kind == PlatformEventKind_Text || (event->kind == PlatformEventKind_KeyDown && !modifier)) state->paletteWheeled = false;
             if (event->kind == PlatformEventKind_Text) {
                 u32 kept = Prog__HighlightedOption(state);
                 Prog__EditInsert(&state->palette, event->codepoint);

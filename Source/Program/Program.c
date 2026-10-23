@@ -1230,6 +1230,8 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         if (i >= Prog_Option_WindowOpacity && i <= Prog_Option_Backdrop && !state->transparent) continue;
         if (i >= Prog_Option_CalcFolderSizesSSD && i <= Prog_Option_CalcFolderSizesNetwork && state->noFolderSizes) continue;
         if (i == Prog_Option_SingleClickFoldersOnly && !state->singleClick) continue;
+        // The muted kinds of notice once there are any.
+        if (i == Prog_Option_MutedNotices && !state->mutedNotices.header.count) continue;
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
         if (!typed.length || Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) > 0) found[count++] = (u8)i;
@@ -6635,6 +6637,29 @@ function UI_Interaction Prog__Switch(UI_Key key, b32 on, f32 wide, f32 tall, f32
 
 // The control at the right of `option`'s row: a switch, a stepper with its value between - and +,
 // a slider dragged along its track, or a choice that moves on to its next value.
+// An option's button that opens a list of what it can be: its value in the middle and a chevron, which points down while the list is open.
+function UI_Interaction Prog__OptionButton(Arena *frame, UI_Key key, String label, b32 open, f32 width, f32 height, f32 line, f32 radius, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    b32 hot = UI->hotKey == key;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(line);
+    UI_SetNextColors((UI_Colors){ .background = open ? theme->selection : theme->track, .border = open ? theme->selection : hot ? theme->textDim : theme->outline });
+    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
+    UI_Parent(button) {
+        f32 chevron = floorf(20.8f * m->scale + 0.5f);
+        R_Color ink = open ? theme->contentSelection : theme->text;
+        Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
+        Prog__Label(Prog__Ellipsize(frame, m->font, label, width - 2 * chevron), UI_Flex(), height, 0, ink, 0.5f);
+        Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
+    }
+    return UI_InteractionFromBlock(button);
+}
+
 function void Prog__OptionControl(Prog_State *state, Prog_Option option, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -6765,66 +6790,25 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ColorPickerOpen, (u64)option, 0, interaction.clickOrder);
         } break;
         case Prog_OptionControl_Muted: {
-            // How many kinds are muted, on a button like a choice's that opens the dropdown of them.
-            u64 count = state->mutedNotices.header.count;
-            UI_Key key = UI_KeyFromStr(0, S("OptionMuted"));
-            b32 hot = UI->hotKey == key && count, open = state->mutedOpen;
-            UI_SetNextPrefWidth(UI_Pixels(width));
-            UI_SetNextPrefHeight(UI_Pixels(height));
-            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = open ? theme->selection : theme->track, .border = open ? theme->selection : hot ? theme->textDim : theme->outline });
-            UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | (count ? UI_Flag_LeftMouseClickable : 0));
-            UI_Interaction interaction = UI_InteractionFromBlock(button);
+            // How many kinds are muted, which a click lists.
+            String label = StrFormat(frame, TrF("%u muted"), (u32)state->mutedNotices.header.count);
+            UI_Interaction interaction = Prog__OptionButton(frame, UI_KeyFromStr(0, S("OptionMuted")), label, state->mutedOpen, width, height, line, radius, m);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_MutedNoticesOpen, 0, 0, interaction.clickOrder);
-            UI_Parent(button) {
-                f32 chevron = floorf(20.8f * s + 0.5f);
-                R_Color ink = open ? theme->contentSelection : count ? theme->text : theme->textDim;
-                Prog__Spacer(UI_Pixels(count ? chevron : 0), UI_Pixels(height));
-                Prog__Label(count ? StrFormat(frame, TrF("%u muted"), (u32)count) : Tr("None"), UI_Flex(), height, 0, ink, 0.5f);
-                if (count) Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
-            }
         } break;
         case Prog_OptionControl_Font: {
             // The family's name, which a click lets be chosen from the installed ones.
-            String name = Prog__FontChosen(state, option);
+            b32 open = state->fontsOver && state->fontOption == option;
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)option));
-            b32 hot = UI->hotKey == key;
-            UI_SetNextPrefWidth(UI_Pixels(width));
-            UI_SetNextPrefHeight(UI_Pixels(height));
-            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-            UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = hot ? theme->textDim : theme->inner, .text = theme->text });
-            UI_SetNextText(Prog__Ellipsize(frame, m->font, name, width - 2 * radius));
-            UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
-            UI_Interaction interaction = UI_InteractionFromBlock(box);
+            UI_Interaction interaction = Prog__OptionButton(frame, key, Prog__FontChosen(state, option), open, width, height, line, radius, m);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_FontPickerOpen, (u64)option, 0, interaction.clickOrder);
         } break;
         case Prog_OptionControl_Choice: {
-            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
-            b32 hot = UI->hotKey == key;
-            b32 open = state->schemesOpen == option + 1;
-            UI_SetNextPrefWidth(UI_Pixels(width));
-            UI_SetNextPrefHeight(UI_Pixels(height));
-            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_SetNextCornerRadius(radius);
-            UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = open ? theme->selection : theme->track, .border = open ? theme->selection : hot ? theme->textDim : theme->outline });
-            UI_Block *choice = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
-            UI_Interaction interaction = UI_InteractionFromBlock(choice);
             u32 choiceCount = 0;
             const String *choices = Prog_OptionChoices(state, option, frame, &choiceCount);
+            String label = Prog__OptionName(frame, option, choices[Min((u32)value, choiceCount - 1)]);
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionChoice/%u", (u32)option));
+            UI_Interaction interaction = Prog__OptionButton(frame, key, label, state->schemesOpen == option + 1, width, height, line, radius, m);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, interaction.clickOrder);
-            UI_Parent(choice) {
-                f32 chevron = floorf(20.8f * s + 0.5f);
-                Prog__Spacer(UI_Pixels(chevron), UI_Pixels(height));
-                Prog__Label(Prog__OptionName(frame, option, choices[Min((u32)value, choiceCount - 1)]), UI_Flex(), height, 0, open ? theme->contentSelection : theme->text, 0.5f);
-                Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, chevron, height, open ? theme->contentSelection : theme->icon, 0.5f, m);
-            }
         } break;
         default: break;
     }
@@ -8314,7 +8298,9 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         state->paletteHighlight = state->optionsHighlight;
         state->paletteScroll = state->optionsScroll;
         state->paletteWheeled = state->optionsWheeled;
+        state->fontsOver = true;
         Prog__PaletteBody(state, m);
+        state->fontsOver = false;
         state->optionsHighlight = state->paletteHighlight;
         state->optionsScroll = state->paletteScroll;
         state->paletteMode = Prog_PaletteMode_Fonts;

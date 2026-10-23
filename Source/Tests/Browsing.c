@@ -2665,6 +2665,14 @@ function void TestTabs(TestFileFixture *fixture)
         Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_Options && Prog_OptionMatches(&state, options) == 1 && options[0] == Prog_Option_Animations);
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
         Check(state.animationsOff && state.paletteOpen);
+        // A key alone that types nothing, such as the Windows key, leaves the list where the wheel scrolled it, and typing brings it back.
+        state.paletteWheeled = true;
+        PlatformEvent alone[] = { { .kind = PlatformEventKind_KeyDown, .key = Key_Super }, { .kind = PlatformEventKind_KeyDown, .key = Key_None } };
+        TestRenameInput(&state, alone, CArrayCount(alone));
+        Check(state.paletteWheeled);
+        PlatformEvent typed[] = { { .kind = PlatformEventKind_Text, .codepoint = 'x' } };
+        TestRenameInput(&state, typed, CArrayCount(typed));
+        Check(!state.paletteWheeled);
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteClose, 0);
         Prog_ApplySettings(&state, S(""));
     }
@@ -3052,6 +3060,10 @@ function void TestSettings(void)
         Check(Prog_OptionMatches(&options, found) == shown - 3);
         options.singleClick = true;
         Check(Prog_OptionMatches(&options, found) == shown - 2);
+        String muted[] = { S("undo.nothing") };
+        Prog__SetList(&options.mutedArena, &options.mutedNotices, muted, 1);
+        Check(Prog_OptionMatches(&options, found) == shown - 1);
+        ArenaRelease(&options.mutedArena);
     }
     // How the lists look, read back as the options show them; the defaults are {0}'s.
     {

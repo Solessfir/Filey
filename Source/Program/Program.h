@@ -1654,6 +1654,7 @@ typedef struct Prog_State {
     // The families the defaults are drawn in, as the system matches them, which Options name.
     Prog_FontName fontUsed, inspectorFontUsed;
     R_Rect fontAnchor;        // where the font dropdown's button was last seen, which it stays under while the button is out of sight
+    b32 fontsOver;            // Options are being drawn under the font dropdown, whose button shows it open
     // The layout Load On Startup names, which takes the place of `startup` while there is one.
     u8 startupLayout[256];
     u32 startupLayoutLength;
