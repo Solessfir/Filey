@@ -1448,6 +1448,14 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .icon = Icon_PanelLeft, .toggle = true, .checked = !state->sidebarHidden);
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .icon = Icon_Bookmark, .toggle = true, .checked = Prog_IsBookmarked(state, state->directory.path));
         } break;
+        // The sidebar's empty space's: a new group, and putting the places and the groups back as they were.
+        case Prog_CommandKind_SidebarBackgroundMenu: {
+            Prog__Item(.kind = Prog_CommandKind_GroupNew, .label = Tr("New Group"), .icon = Icon_Plus, .disabled = (b8)(state->userGroupCount >= Prog_MaxUserGroups));
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_PlacesShowHidden, .label = Tr("Show Hidden Places"), .icon = Icon_Eye, .toggle = true, .checked = state->placesShowHidden,
+                       .disabled = (b8)(!state->placesHidden.header.count && !state->placesShowHidden));
+            Prog__Item(.kind = Prog_CommandKind_GroupsRestore, .icon = Icon_RotateCcw, .disabled = (b8)!state->groupsOrdered);
+        } break;
         // A sidebar group's: its own commands, then moving it among the groups.
         case Prog_CommandKind_GroupMenu: {
             u32 groups = Prog_SidebarGroupCount(state), group = (u32)Min(command->row, (u64)groups - 1), at = 0;
@@ -4276,6 +4284,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_PanelMenu:
             case Prog_CommandKind_PathMenu:
             case Prog_CommandKind_GroupMenu:
+            case Prog_CommandKind_SidebarBackgroundMenu:
             case Prog_CommandKind_TabMenu: {
                 // From a hotkey they open where their button or tab would open them, the path's for the shown folder.
                 if (command->at.x == 0 && command->at.y == 0 && command->kind != Prog_CommandKind_PanelMenu) {

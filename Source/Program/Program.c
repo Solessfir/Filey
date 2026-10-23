@@ -5209,7 +5209,10 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ floorf(m->gap * 0.75f), 0, floorf(m->gap * 0.75f), m->gap });
     UI_SetNextColors((UI_Colors){ .background = theme->panel });
-    UI_Block *sidebar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable);
+    UI_Block *sidebar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_RightMouseClickable);
+    // A right click on its empty space, where no group or place takes it, opens the sidebar's own menu.
+    UI_Interaction background = UI_InteractionFromBlock(sidebar);
+    if (background.pressed && background.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_SidebarBackgroundMenu, 0, 0, background.pressOrder)->at = UI->mouse;
     UI_Parent(sidebar) {
         Prog__SidebarFilterBox(state, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));

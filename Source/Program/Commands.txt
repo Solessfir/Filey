@@ -1843,6 +1843,10 @@ command PlacesRestore {
 command GroupMenu {
 }
 
+// The sidebar's empty space right-clicked: a new group, the hidden places and the groups' order.
+command SidebarBackgroundMenu {
+}
+
 command GroupNew {
     label   = "New Sidebar Group^quick access,group,section,create,add,folders"
     tooltip = "Make a group of your own in the sidebar, to drag folders into."
