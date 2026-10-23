@@ -1642,6 +1642,8 @@ typedef struct Prog_State {
     // Options as the font dropdown found it, its search, highlight and scroll, which come back as the dropdown closes.
     Prog_TextEdit optionsPalette;
     u32 optionsHighlight, optionsScroll;
+    b32 optionsWheeled;       // Options were scrolled by the wheel, away from their highlight, where they stay under the font dropdown
+    R_Rect fontAnchor;        // where the font dropdown's button was last seen, which it stays under while the button is out of sight
     // The layout Load On Startup names, which takes the place of `startup` while there is one.
     u8 startupLayout[256];
     u32 startupLayoutLength;

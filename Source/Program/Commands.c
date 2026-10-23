@@ -2280,6 +2280,8 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
         state->optionsPalette = state->palette;
         state->optionsHighlight = state->paletteHighlight;
         state->optionsScroll = state->paletteScroll;
+        state->optionsWheeled = state->paletteWheeled;
+        state->fontAnchor = (R_Rect){0};
     }
     state->paletteOpen = true;
     state->paletteMode = Prog_PaletteMode_Fonts;
@@ -2307,7 +2309,7 @@ function void Prog__CloseFontPicker(Prog_State *state)
     state->palette = state->optionsPalette;
     state->paletteHighlight = state->optionsHighlight;
     state->paletteScroll = state->optionsScroll;
-    state->paletteWheeled = false;
+    state->paletteWheeled = state->optionsWheeled;
 }
 
 // The color picker for the color of `option`, which only a custom scheme has.

@@ -7507,8 +7507,10 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
     f32 field = floorf(28.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line, radius = floorf(6.4f * s + 0.5f), gap = floorf(0.8f * s + 0.5f);
+    // Under its button, or where it was last seen while it is out of sight, as for a frame where its row is not built.
     UI_Block *button = UI__Find(UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)state->fontOption)));
-    R_Rect anchor = button && button->rect.x1 > button->rect.x0 ? button->rect : (R_Rect){ view.x0 + (view.x1 - view.x0) * 0.5f, view.y0, view.x0 + (view.x1 - view.x0) * 0.5f, view.y0 };
+    if (button && button->rect.x1 > button->rect.x0) state->fontAnchor = button->rect;
+    R_Rect anchor = state->fontAnchor.x1 > state->fontAnchor.x0 ? state->fontAnchor : (R_Rect){ view.x0 + (view.x1 - view.x0) * 0.5f, view.y0, view.x0 + (view.x1 - view.x0) * 0.5f, view.y0 };
     f32 width = MaxF32(anchor.x1 - anchor.x0, floorf(280.0f * s + 0.5f));
     f32 x = UI__Clamp(anchor.x0 - view.x0, 0, MaxF32(0, view.x1 - view.x0 - width));
     // Up to twelve families at once, below the button or above it, whichever has room for more.
@@ -8313,7 +8315,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         state->palette = state->optionsPalette;
         state->paletteHighlight = state->optionsHighlight;
         state->paletteScroll = state->optionsScroll;
-        state->paletteWheeled = false;
+        state->paletteWheeled = state->optionsWheeled;
         Prog__PaletteBody(state, m);
         state->optionsHighlight = state->paletteHighlight;
         state->optionsScroll = state->paletteScroll;
