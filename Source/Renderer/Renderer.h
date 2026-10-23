@@ -38,6 +38,7 @@ typedef struct R_Font {
     f32 ascent;
     f32 descent;
     f32 lineHeight;
+    f32 capShift;  // whole pixels text is drawn above where its line box puts it, so that its capitals center where icons do
     R_FontCache *cache;
 } R_Font;
 

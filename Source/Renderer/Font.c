@@ -120,14 +120,26 @@ function b32 R__FontCreate(Arena *arena, PlatformFontSource source, f32 pixelSiz
     return true;
 }
 
+// A text font's capitals center in the line box rather than the box itself, whose descent below them would leave them low beside an icon.
+// An icon font, made from memory, keeps its box, as its glyphs center in it.
+function b32 R__FontCreateText(Arena *arena, String family, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font)
+{
+    if (!R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, firstCodepoint, lastCodepoint, font)) return false;
+    const R_Glyph *capital = R__FontGlyph(font->cache, 'H');
+    if (capital && capital->box.y1 > capital->box.y0) {
+        font->capShift = MaxF32(0, floorf(font->ascent + (capital->box.y0 + capital->box.y1) * 0.5f - font->lineHeight * 0.5f + 0.5f));
+    }
+    return true;
+}
+
 function b32 R_FontCreate(Arena *arena, String family, f32 pixelSize, R_Font *font)
 {
-    return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, 0x20, 0x7E, font);
+    return R__FontCreateText(arena, family, pixelSize, 0x20, 0x7E, font);
 }
 
 function b32 R_FontCreateLazy(Arena *arena, String family, f32 pixelSize, R_Font *font)
 {
-    return R__FontCreate(arena, (PlatformFontSource){ .family = family }, pixelSize, 1, 0, font);
+    return R__FontCreateText(arena, family, pixelSize, 1, 0, font);
 }
 
 function b32 R_FontCreateFromMemory(Arena *arena, const u8 *data, u64 size, f32 pixelSize, u32 firstCodepoint, u32 lastCodepoint, R_Font *font)
@@ -165,7 +177,7 @@ function void R_DrawText(const R_Font *font, f32 x, f32 y, R_Color color, String
 {
     // Glyph bitmaps are rasterized at whole pixels, so the pen stays on the grid.
     f32 penX = floorf(x + 0.5f);
-    f32 baseline = floorf(y + font->ascent + 0.5f);
+    f32 baseline = floorf(y + font->ascent + 0.5f) - font->capShift;
     for (u64 pos = 0; pos < text.length;) {
         const R_Glyph *glyph = R_FontGlyph(font, StrDecodeUtf8(text, &pos));
         if (glyph == NULL) {
