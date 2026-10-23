@@ -2477,6 +2477,7 @@ function void Prog_RequestRepos(Prog_State *state)
     state->reposJob = NULL;
     ArenaClear(&state->repoArena);
     state->repos = (Prog_Repos){0};
+    state->reposPath = StrCopy(&state->repoArena, state->directory.path);
     state->reposNext = 0;
     state->reposTime = PlatformNowMicroseconds();
     if (!Prog_ShowsGit(state) || StrIsEqual(state->directory.path, Prog_ThisPC) || P_IsTrashFolder(state->directory.path) || state->directory.archive || state->directory.expanded) return;
@@ -5690,8 +5691,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         if (!sameGit) state->git = (Prog_GitStatus){ .ahead = -1, .behind = -1 };
                         Prog_RequestGitStatus(state, result->path);
                     }
-                    // Its repositories at once for another folder; for the same one listed again, every half minute at most.
-                    b32 lookForRepos = !samePath || PlatformNowMicroseconds() - state->reposTime > Millions(30);
+                    // Its repositories at once for another folder, as after switching to a tab of another folder, since the panel's tabs share
+                    // them; for the same one listed again, every half minute at most.
+                    b32 lookForRepos = !StrIsEqual(state->reposPath, result->path) || PlatformNowMicroseconds() - state->reposTime > Millions(30);
                     // The folder a panel starts on is not one opened, nor one gone back or forward to, or up to on the way somewhere.
                     if (!samePath) {
                         state->resetScroll = true;
