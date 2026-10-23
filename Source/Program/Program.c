@@ -8770,8 +8770,17 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             if (!asking) {
                 UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
                 UI_Parent(now) {
-                    Prog__Label(Prog__TransferName(&state->frameArena, progress), UI_Flex(), m->row, 0, theme->textDim, 0);
-                    Prog__Label(StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100)), UI_TextContent(), m->row, m->gap, theme->text, 1);
+                    // An encoding's or a download's speed and time left stay whole after its name, which is cut short first.
+                    String name = Prog__TransferName(&state->frameArena, progress);
+                    String percent = StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100));
+                    Index dot = transfer->op >= Prog_TransferOp_CompressVideo ? StrIndexStr(name, S(" \u00B7 "), SSF_None) : (Index){0};
+                    String details = dot.exists ? StrFrom(name, dot.value) : (String){0};
+                    if (dot.exists) name = StrFromTo(name, 0, (i64)dot.value);
+                    f32 room = width - 2 * pad - 2 * m->gap - R_TextWidth(m->font, details) - R_TextWidth(m->font, percent);
+                    Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, name, MaxF32(0, room)), UI_TextContent(), m->row, 0, theme->textDim, 0);
+                    if (dot.exists) Prog__Label(details, UI_TextContent(), m->row, 0, theme->textDim, 0);
+                    Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
+                    Prog__Label(percent, UI_TextContent(), m->row, m->gap, theme->text, 1);
                 }
             }
             // A video's progress is in milliseconds of it, shown as times.
