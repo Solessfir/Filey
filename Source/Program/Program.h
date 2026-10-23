@@ -469,6 +469,9 @@ typedef struct Prog_Transfer {
 } Prog_Transfer;
 
 #define Prog_MaxTransfers 4
+// Torrents download in slots of their own after those, this many at once, and the rest wait in Torrents.conf's order.
+#define Prog_TorrentsAtOnce 5
+#define Prog_TransferSlots (Prog_MaxTransfers + Prog_TorrentsAtOnce)
 
 // What the preview pane shows of a file: a picture of Prog_PreviewSize squared, or the start of its text.
 #define Prog_PreviewSize 512
@@ -1630,7 +1633,7 @@ typedef struct Prog_State {
     Prog_PathSet gotoSeen;
     u8 gotoFoundText[1024];
     u32 gotoFoundTextLength;
-    Prog_Transfer transfers[Prog_MaxTransfers];
+    Prog_Transfer transfers[Prog_TransferSlots];
     // The audio file the inspector plays, by the hash of its path: its job, and the progress that counts the milliseconds played and pauses
     // it, two in turn, so that a job stopped for a seek does not write over the next one's.
     P_Job *playerJob;
@@ -1822,7 +1825,8 @@ typedef struct Prog_State {
     Prog_Notice notices[Prog_MaxNotices];  // oldest first
     Arena mutedArena;
     ArrayStr mutedNotices;  // the kinds of notice not shown, from MutedNotices.conf
-    // The torrent downloads under way, and those a quit left, which the next run starts again: "<.torrent path>\t<files chosen>" a line, from Torrents.conf.
+    // The torrent downloads under way, running or waiting for a slot, and those a quit left, which the next run starts again, in the order they
+    // start: "<.torrent path>\t<files chosen>" a line, from Torrents.conf.
     Arena torrentArena;
     ArrayStr torrents;
     P_Job *torrentProgressJob;  // the read of how far the files of the torrent an inspector shows are, and when the last one started
@@ -1900,6 +1904,8 @@ function void Prog_TorrentSkip(String selection, const Prog_TorrentInfo *info, b
 function b32 Prog_TorrentControlDone(String control, const u64 *sizes, u64 count, u64 *done);
 function void Prog_DownloadTorrentFile(Prog_State *state, String path);
 function void Prog_ResumeTorrents(Prog_State *state);
+function u32 Prog_TorrentSlot(const Prog_State *state, String path);
+function u64 Prog_TorrentWaiting(const Prog_State *state, String path);
 function void Prog_GitPull(Prog_State *state);
 function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel);
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);

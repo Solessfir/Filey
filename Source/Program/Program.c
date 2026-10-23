@@ -8698,7 +8698,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
     u64 now = PlatformNowMicroseconds();
     f32 width = floorf(MinF32(m->line * 26, view.x1 - view.x0 - 2 * m->inset)), pad = m->inset * 0.75f;
     f32 bottom = view.y1 - view.y0 - m->pill - m->inset;
-    for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
+    for (u32 i = 0; i < Prog_TransferSlots; ++i) {
         Prog_Transfer *transfer = &state->transfers[i];
         P_Progress *progress = &transfer->progress;
         b32 asking = transfer->job && atomic_load(&progress->asking), paused = atomic_load(&progress->paused);
@@ -8723,7 +8723,8 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(card) {
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(head) {
-                String title = transfer->op == Prog_TransferOp_Download || transfer->op == Prog_TransferOp_Torrent ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
+                b32 downloading = transfer->op == Prog_TransferOp_Download || transfer->op == Prog_TransferOp_Torrent || transfer->op == Prog_TransferOp_TorrentFetch;
+                String title = downloading ? StrFormat(&state->frameArena, TrF("Downloading into %S"), target)
                              : transfer->op == Prog_TransferOp_CompressVideo ? StrFormat(&state->frameArena, TrN(items, "Compressing %u video", "Compressing %u videos"), (u32)items)
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
                              : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
@@ -8803,6 +8804,46 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                 }
                 Prog__Label(amount, UI_Flex(), m->row, m->gap, theme->textDim, 1);
             }
+        }
+    }
+    // The torrents waiting for a slot, over them: the first few by name, each with a button that drops it.
+    u32 waiting = 0, listed = 0;
+    u64 rows[4];
+    for (u64 i = 0; i < state->torrents.header.count; ++i) {
+        String line = state->torrents.v[i];
+        Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
+        if (Prog_TorrentSlot(state, StrFromTo(line, 0, (i64)tab.value)) != UINT32_MAX) continue;
+        if (listed < CArrayCount(rows)) rows[listed++] = i;
+        ++waiting;
+    }
+    if (waiting) {
+        f32 height = 2 * pad + m->row * (f32)(1 + listed + (waiting > listed));
+        bottom -= height + m->gap;
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - width - m->inset, floorf(bottom) });
+        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+        UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+        UI_SetNextCornerRadius(m->radius * 2);
+        UI_SetNextBorderThickness(m->separator);
+        UI_SetNextBlur(Prog__FloatingBlur(m));
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->separator });
+        UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TorrentsWaiting")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+        UI_Parent(card) {
+            Prog__Label(StrFormat(&state->frameArena, TrN(waiting, "%u torrent waiting to start", "%u torrents waiting to start"), waiting), UI_Flex(), m->row, 0, theme->text, 0);
+            for (u32 k = 0; k < listed; ++k) {
+                String line = state->torrents.v[rows[k]];
+                Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
+                UI_Block *entry = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Parent(entry) {
+                    Prog__Label(Prog__NameStem(Prog_EntryLeaf(StrFromTo(line, 0, (i64)tab.value))), UI_Flex(), m->row, 0, theme->textDim, 0);
+                    UI_Interaction drop = Prog__WashedButton(StrFormat(&state->frameArena, "TorrentDrop/%u", (u32)rows[k]), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                                             theme->icon, theme->text, theme->iconDisabled, theme->danger, true, m);
+                    if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_TorrentDrop, rows[k], 0, drop.clickOrder);
+                    Prog__PopupTooltip(state, Tr("Don't download it after all."));
+                }
+            }
+            if (waiting > listed) Prog__Label(StrFormat(&state->frameArena, TrF("and %u more"), waiting - listed), UI_Flex(), m->row, 0, theme->textDim, 0);
         }
     }
     return bottom;
@@ -10213,9 +10254,7 @@ function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry,
     const Prog_TorrentInfo *torrent = &state->torrent;
     f32 s = m->scale, row = m->row, gutter = Prog__ScrollGutter(m), box = floorf(16.0f * s + 0.5f);
     String path = Prog_JoinPath(frame, state->directory.path, entry->file.name);
-    u64 hash = MapHashBytes(path.value, path.length);
-    b32 fixed = false;
-    for (u32 i = 0; i < Prog_MaxTransfers; ++i) fixed |= state->transfers[i].job && state->transfers[i].sourceHash == hash;
+    b32 fixed = Prog_TorrentSlot(state, path) != UINT32_MAX || Prog_TorrentWaiting(state, path) != UINT64_MAX;
     // The files shown, which leave out the padding.
     u32 *shown = ArenaPushArray(frame, torrent->fileCount, u32), count = 0, ticked = 0;
     u64 bytes = 0;
@@ -10347,9 +10386,14 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
         Prog__ToolbarButton(state, S("InspectorCompress"), Icon_Shrink, Prog_CommandKind_CompressVideo, true, m);
     } else {
-        u32 slot = UINT32_MAX;
-        for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) slot = i;
-        if (slot == UINT32_MAX) {
+        u32 slot = Prog_TorrentSlot(state, path);
+        u64 waiting = Prog_TorrentWaiting(state, path);
+        if (waiting != UINT64_MAX) {
+            // Waiting for a slot, which its button gives up.
+            Prog__ToolbarRowButton(state, S("InspectorTorrentDrop"), Icon_X, Prog_CommandKind_TorrentDrop, waiting, Tr("Don't download it after all."), m);
+            UI_SetNextFont(m->detail);
+            Prog__LabelPadded(Tr("Waiting for a free slot"), UI_TextContent(), bar, apart, apart, theme->textDim, 0);
+        } else if (slot == UINT32_MAX) {
             // Not without a file ticked that is still to come, once its files are known.
             b32 any = !state->torrent.fileCount;
             for (u32 i = 0; i < state->torrent.fileCount && state->torrentSkip; ++i) {

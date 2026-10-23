@@ -554,6 +554,13 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(notes.torrents.header.count == 2 && StrIsEqual(Prog__SavedSelection(&notes, S("C:/t/a.torrent")), S("2")));
             Prog__NoteTorrent(&notes, S("C:/t/b.torrent"), (String){0}, false);
             Check(notes.torrents.header.count == 1 && !Prog__SavedSelection(&notes, S("C:/t/b.torrent")).length);
+            // A torrent downloads in one of the torrents' own slots, after the others', and one noted without a slot waits at its place in the list.
+            String a = S("C:/t/a.torrent"), c = S("C:/t/c.torrent");
+            Prog__NoteTorrent(&notes, c, S("2"), true);
+            notes.transfers[Prog_MaxTransfers + 1] = (Prog_Transfer){ .job = (P_Job *)&notes, .sourceHash = MapHashBytes(a.value, a.length) };
+            notes.transfers[0] = (Prog_Transfer){ .job = (P_Job *)&notes, .sourceHash = MapHashBytes(c.value, c.length) };
+            Check(Prog_TorrentSlot(&notes, a) == Prog_MaxTransfers + 1 && Prog_TorrentWaiting(&notes, a) == UINT64_MAX);
+            Check(Prog_TorrentSlot(&notes, c) == UINT32_MAX && Prog_TorrentWaiting(&notes, c) == 1 && Prog_TorrentWaiting(&notes, S("C:/t/d.torrent")) == UINT64_MAX);
             ArenaRelease(&notes.torrentArena);
             // ffplay's -stats line, rewritten in place, counts the milliseconds played; its "nan" before the clock starts counts nothing.
             P_Progress played = {0};

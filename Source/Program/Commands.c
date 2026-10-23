@@ -2199,7 +2199,9 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
     if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return NULL;
     b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent || op == Prog_TransferOp_TorrentFetch;
     Prog_Transfer *transfer = NULL;
-    for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers && !transfer; ++i) if (!state->transfers[i].job) transfer = &state->transfers[i];
+    // A torrent's download takes one of the torrents' own slots, and the rest the others.
+    u32 first = op == Prog_TransferOp_Torrent ? Prog_MaxTransfers : 0, end = op == Prog_TransferOp_Torrent ? Prog_TransferSlots : Prog_MaxTransfers;
+    for (u32 i = first; kind == Prog_JobKind_Transfer && i < end && !transfer; ++i) if (!state->transfers[i].job) transfer = &state->transfers[i];
     if (tool && !transfer) {
         Prog_Notify(state, Prog_NoticeKind_Warning, S("transfer.busy"), Tr("Too many transfers at once"), Tr("Wait for one of them to finish, or stop one."));
         return NULL;
@@ -3760,11 +3762,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->row < Prog_MaxTransfers) state->transfers[command->row].answerAll = !state->transfers[command->row].answerAll;
             } break;
             case Prog_CommandKind_TransferCancel: {
-                Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
+                Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;
                 if (transfer && transfer->job) P_RequestCancel(&transfer->job->cancelToken);
             } break;
             case Prog_CommandKind_TransferPause: {
-                Prog_Transfer *transfer = command->row < Prog_MaxTransfers ? &state->transfers[command->row] : NULL;
+                Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;
                 if (transfer && transfer->job) atomic_store(&transfer->progress.paused, !atomic_load(&transfer->progress.paused));
             } break;
             case Prog_CommandKind_CommandPalette:
@@ -4143,6 +4145,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->playerJob && state->playerHash == MapHashBytes(path.value, path.length)) atomic_store(&progress->paused, !atomic_load(&progress->paused));
                 else Prog__StartPlayer(state, path, 0);
             } break;
+            case Prog_CommandKind_TorrentDrop: {
+                if (command->row >= state->torrents.header.count) break;
+                String line = state->torrents.v[command->row];
+                Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
+                String path = StrCopy(&state->frameArena, StrFromTo(line, 0, (i64)tab.value));
+                if (Prog_TorrentSlot(state, path) == UINT32_MAX) Prog__NoteTorrent(state, path, (String){0}, false);
+            } break;
             case Prog_CommandKind_InspectorTorrentToggle: {
                 // All of them untick once they all are ticked, and tick otherwise.
                 const Prog_TorrentInfo *torrent = &state->torrent;
@@ -4296,7 +4305,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     if (!state->recentsCheckTime || PlatformNowMicroseconds() - state->recentsCheckTime > Millions(60)) Prog_CheckRecents(state);
     // Transfers redraw while they run, for their progress and questions.
     b32 transferring = false;
-    for (u32 i = 0; i < Prog_MaxTransfers; ++i) transferring |= state->transfers[i].job != NULL;
+    for (u32 i = 0; i < Prog_TransferSlots; ++i) transferring |= state->transfers[i].job != NULL;
     return changed || transferring || Prog__AnyMeasuring(state);
 }
 
@@ -4886,7 +4895,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         // Escape cancels a copy or move that waits on a question about a taken name, unless a menu or the filter box has the keyboard.
         if (event->key == Key_Escape && !state->menuOpen && !state->filtering) {
             u32 asking = UINT32_MAX;
-            for (u32 i = 0; i < Prog_MaxTransfers && asking == UINT32_MAX; ++i) if (state->transfers[i].job && atomic_load(&state->transfers[i].progress.asking)) asking = i;
+            for (u32 i = 0; i < Prog_TransferSlots && asking == UINT32_MAX; ++i) if (state->transfers[i].job && atomic_load(&state->transfers[i].progress.asking)) asking = i;
             if (asking != UINT32_MAX) {
                 Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, asking, 0, order);
                 continue;

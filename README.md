@@ -28,7 +28,7 @@ Filey uses these when they are on your `PATH`. Without them, their features just
 | --- | --- |
 | [FFmpeg](https://ffmpeg.org/) (`ffmpeg`, `ffprobe`, `ffplay`) | Audio waveforms you can play and scrub in the inspector, video frames, media details, and **Compress Video**, which encodes on the graphics card (NVENC, AMF or Quick Sync) when it can. |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Paste a video's web address into a folder to download it there, as MP4 or audio only. |
-| [aria2](https://aria2.github.io/) (`aria2c`) | Download torrents: paste a magnet link, tick the files you want in the inspector and press Download. Downloads left unfinished go on the next time Filey starts. |
+| [aria2](https://aria2.github.io/) (`aria2c`) | Download torrents: paste a magnet link, tick the files you want in the inspector and press Download. Five download at once and the rest wait their turn; downloads left unfinished go on the next time Filey starts. |
 | [Git](https://git-scm.com/) | The Git features above. It never asks for a login: a repository that needs one is left alone. |
 
 ## Install

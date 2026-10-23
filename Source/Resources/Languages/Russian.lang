@@ -2860,3 +2860,15 @@ Too many transfers at once
 Wait for one of them to finish, or stop one.
 = Дождитесь окончания одной из них или остановите её.
 
+Don't download it after all.
+= Всё-таки не скачивать.
+
+and %u more
+= и ещё %u
+
+Waiting for a free slot
+= Ждёт свободного места
+
+%u torrents waiting to start
+= %u торрент ждёт запуска | %u торрента ждут запуска | %u торрентов ждут запуска
+

@@ -3479,7 +3479,7 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
         ArenaRelease(&state->thumbnailJobsArena);
         return false;
     }
-    if (!P_JobsInit(&state->toolJobs, &state->toolJobsArena, Prog_MaxTransfers + 4, wake, user)) {
+    if (!P_JobsInit(&state->toolJobs, &state->toolJobsArena, Prog_TransferSlots + 4, wake, user)) {
         P_JobsShutdown(&state->thumbnailJobs);
         P_JobsShutdown(&state->jobs);
         ArenaRelease(&state->jobsArena);
@@ -5079,6 +5079,7 @@ function void Prog__DropPdf(Prog_State *state)
 }
 
 function void Prog_WakeAt(Prog_State *state, u64 at);
+function void Prog__StartWaitingTorrents(Prog_State *state);
 
 // A torrent's path as aria2c writes it: on Windows, with the characters its names cannot hold as underscores.
 function String Prog__AriaPath(Arena *arena, String path)
@@ -5101,9 +5102,8 @@ function String Prog__AriaPath(Arena *arena, String path)
 function void Prog__PollTorrentProgress(Prog_State *state)
 {
     if (!state->previewShown || !state->torrent.fileCount || !state->torrentSkip || state->torrentProgressJob) return;
-    u64 hash = MapHashBytes(state->previewPath.value, state->previewPath.length), now = PlatformNowMicroseconds(), next = state->torrentProgressAt + 2000000;
-    b32 running = false;
-    for (u32 i = 0; i < Prog_MaxTransfers; ++i) running |= state->transfers[i].job && state->transfers[i].sourceHash == hash;
+    u64 now = PlatformNowMicroseconds(), next = state->torrentProgressAt + 2000000;
+    b32 running = Prog_TorrentSlot(state, state->previewPath) != UINT32_MAX;
     if (state->torrentRead && (!running || now < next)) {
         if (running) Prog_WakeAt(state, next);
         return;
@@ -5267,9 +5267,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
         // One whose panel is closed then leaves none of them behind.
-        for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job == job) state->transfers[i].job = NULL;
-        // A torrent's download that is over, done, failed or stopped, is not started again by the next run, which one a quit cut short is.
-        if (input->kind == Prog_JobKind_Transfer && input->transferOp == Prog_TransferOp_Torrent) Prog__NoteTorrent(state, input->paths[0], (String){0}, false);
+        for (u32 i = 0; i < Prog_TransferSlots; ++i) if (state->transfers[i].job == job) state->transfers[i].job = NULL;
+        // A torrent's download that is over, done, failed or stopped, is not started again by the next run, which one a quit cut short is, and
+        // the next one waiting takes its slot.
+        if (input->kind == Prog_JobKind_Transfer && input->transferOp == Prog_TransferOp_Torrent) {
+            Prog__NoteTorrent(state, input->paths[0], (String){0}, false);
+            Prog__StartWaitingTorrents(state);
+        }
         if (state->torrentProgressJob == job) state->torrentProgressJob = NULL;
         if (state->gitPullJob == job) pulled = state->gitPullHash, state->gitPullJob = NULL;
         if (state->gitFetchJob == job) fetched = state->gitFetchHash, state->gitFetchJob = NULL;
@@ -6029,19 +6033,59 @@ function void Prog_SelectRow(Prog_State *state, u64 row, KeyMods mods)
 
 // Opens the file at `path` in its program, from a job. One inside an archive is taken out first, with a card of how far that is when there is
 // a free slot for it.
-// Downloads the .torrent file at `path` beside itself with aria2c, the files `selection` chooses, unless its download is under way, and notes it
-// to be started again by the next run until it is over.
-function void Prog__StartTorrent(Prog_State *state, String path, String selection)
+// The transfer slot downloading the .torrent at `path`, UINT32_MAX for none.
+function u32 Prog_TorrentSlot(const Prog_State *state, String path)
 {
     u64 hash = MapHashBytes(path.value, path.length);
-    for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) return;
+    for (u32 i = Prog_MaxTransfers; i < Prog_TransferSlots; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) return i;
+    return UINT32_MAX;
+}
+
+// Where the .torrent at `path` is among Torrents.conf's lines while it waits for a slot, UINT64_MAX while it downloads or is not there.
+function u64 Prog_TorrentWaiting(const Prog_State *state, String path)
+{
+    for (u64 i = 0; i < state->torrents.header.count; ++i) {
+        String line = state->torrents.v[i];
+        Index tab = StrIndexChar(line, '\t', SSF_CountOnFail);
+        if (StrIsEqual(StrFromTo(line, 0, (i64)tab.value), path)) return Prog_TorrentSlot(state, path) == UINT32_MAX ? i : UINT64_MAX;
+    }
+    return UINT64_MAX;
+}
+
+// Starts the torrents waiting in Torrents.conf, in its order, while there are free slots; one whose .torrent is gone is dropped.
+function void Prog__StartWaitingTorrents(Prog_State *state)
+{
+    Scratch scratch = GetScratch();
+    u64 count = state->torrents.header.count;
+    String *lines = ArenaPushArray(scratch.arena, count + 1, String);
+    for (u64 i = 0; i < count; ++i) lines[i] = StrCopy(scratch.arena, state->torrents.v[i]);
+    for (u64 i = 0; i < count; ++i) {
+        Index tab = StrIndexChar(lines[i], '\t', SSF_CountOnFail);
+        String path = StrFromTo(lines[i], 0, (i64)tab.value), selection = StrFrom(lines[i], Min(tab.value + 1, lines[i].length));
+        if (Prog_TorrentSlot(state, path) != UINT32_MAX) continue;
+        b32 free = false;
+        for (u32 s = Prog_MaxTransfers; s < Prog_TransferSlots; ++s) free |= !state->transfers[s].job;
+        if (!free) break;
+        if (!P_PathExists(path)) {
+            Prog__NoteTorrent(state, path, (String){0}, false);
+            continue;
+        }
+        Prog_Transfer *transfer = Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, selection, Prog_TransferOp_Torrent);
+        if (transfer) transfer->sourceHash = MapHashBytes(path.value, path.length);
+    }
+    ReleaseScratch(scratch);
+}
+
+// Downloads the .torrent file at `path` beside itself with aria2c, the files `selection` chooses, unless its download is under way: noted
+// last in Torrents.conf, which the next run starts again until it is over, it starts once a slot is free.
+function void Prog__StartTorrent(Prog_State *state, String path, String selection)
+{
+    if (Prog_TorrentSlot(state, path) != UINT32_MAX) return;
     // Copied first, as noting it replaces the list it may come from.
     path = StrCopy(&state->frameArena, path);
     selection = StrCopy(&state->frameArena, selection);
-    Prog_Transfer *transfer = Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, selection, Prog_TransferOp_Torrent);
-    if (!transfer) return;
-    transfer->sourceHash = hash;
     Prog__NoteTorrent(state, path, selection, true);
+    Prog__StartWaitingTorrents(state);
 }
 
 // Downloads the .torrent file at `path`: the files ticked in the inspector while it shows this torrent, else those its download last chose,
@@ -6060,17 +6104,7 @@ function void Prog_DownloadTorrentFile(Prog_State *state, String path)
 
 function void Prog_ResumeTorrents(Prog_State *state)
 {
-    Scratch scratch = GetScratch();
-    u64 count = state->torrents.header.count;
-    String *lines = ArenaPushArray(scratch.arena, count + 1, String);
-    for (u64 i = 0; i < count; ++i) lines[i] = StrCopy(scratch.arena, state->torrents.v[i]);
-    for (u64 i = 0; i < count; ++i) {
-        Index tab = StrIndexChar(lines[i], '\t', SSF_CountOnFail);
-        String path = StrFromTo(lines[i], 0, (i64)tab.value), selection = StrFrom(lines[i], Min(tab.value + 1, lines[i].length));
-        if (P_PathExists(path)) Prog__StartTorrent(state, path, selection);
-        else Prog__NoteTorrent(state, path, (String){0}, false);
-    }
-    ReleaseScratch(scratch);
+    Prog__StartWaitingTorrents(state);
 }
 
 function void Prog_OpenFile(Prog_State *state, String path)
