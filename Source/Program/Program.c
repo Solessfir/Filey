@@ -10340,14 +10340,16 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             UI_SetNextPrefHeight(UI_Pixels(bar));
             UI_Block *rest = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorToolbarRest")), 0);
             room = rest->rect.x0 - pane->rect.x0;
-            // The item's name, and beside it the button for the card of its details.
+            // The item's name, cut to the room the controls leave beside the button for the card of its details.
             String name = entry ? entry->file.name : Prog_PathName(state, state->directory.path);
-            Prog__Label(name, UI_TextContent(), bar, 0, theme->text, 0);
+            f32 after = floorf(m->inset * 0.4f), button = entry ? m->gap + Prog__ToolbarButtonWidth(m) : 0;
+            f32 fits = MaxF32(0, pane->rect.x1 - rest->rect.x0 - button - after);
+            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, name, fits), UI_TextContent(), bar, 0, theme->text, 0);
             if (entry) {
                 Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorDetailsButton"), Icon_ChevronRight, Prog_CommandKind_InspectorToggleDetails, true, m);
             }
-            Prog__Spacer(UI_Pixels(floorf(m->inset * 0.4f)), UI_Pixels(bar));
+            Prog__Spacer(UI_Pixels(after), UI_Pixels(bar));
         }
         if (text && state->previewHex) {
             Prog__InspectorHex(state, m);
