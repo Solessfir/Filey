@@ -3478,6 +3478,8 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 #define Prog_MutedNoticesFile S("MutedNotices.conf")
 #define Prog_MenuHiddenFile S("MenuHidden.conf")
 #define Prog_MenuOrderFile S("MenuOrder.conf")
+#define Prog_PlacesHiddenFile S("PlacesHidden.conf")
+#define Prog_PlacesOrderFile S("PlacesOrder.conf")
 #define Prog_TorrentsFile S("Torrents.conf")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
@@ -3489,7 +3491,8 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 function u32 Prog__SaveSlot(String file)
 {
     return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4
-         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : StrIsEqual(file, Prog_MenuHiddenFile) ? 6 : StrIsEqual(file, Prog_MenuOrderFile) ? 7 : StrIsEqual(file, Prog_TorrentsFile) ? 8 : 0;
+         : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : StrIsEqual(file, Prog_MenuHiddenFile) ? 6 : StrIsEqual(file, Prog_MenuOrderFile) ? 7 : StrIsEqual(file, Prog_TorrentsFile) ? 8
+         : StrIsEqual(file, Prog_PlacesHiddenFile) ? 9 : StrIsEqual(file, Prog_PlacesOrderFile) ? 10 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -3744,6 +3747,21 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
         ArrayStr lines = StrSplit(session.arena, text, '\n');
         for (u64 l = 0; l < lines.header.count; ++l) {
             String line = lines.v[l];
+            // The groups' order, every group once.
+            if (line.length > 11 && StrIsEqual(StrFromTo(line, 0, 11), S("grouporder "))) {
+                line = StrFrom(line, 11);
+                u8 order[Prog_Group_Count] = {0};
+                u32 seen = 0, read = 0;
+                for (u64 group = 0; read < Prog_Group_Count && Prog__TakeNumber(&line, &group) && group < Prog_Group_Count && !(seen & (1u << group)); ++read) {
+                    seen |= 1u << group;
+                    order[read] = (u8)group;
+                }
+                if (read == Prog_Group_Count) {
+                    MemCopy(state->groupOrder, order, sizeof(order));
+                    state->groupsOrdered = true;
+                }
+                continue;
+            }
             if (line.length < 7 || !StrIsEqual(StrFromTo(line, 0, 7), S("groups "))) continue;
             line = StrFrom(line, 7);
             for (u32 g = 0; g < Prog_Group_Count; ++g) {
@@ -3771,6 +3789,8 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Prog_ListLanguages(state);
     Prog__LoadList(state, Prog_MenuHiddenFile, &state->menuHiddenArena, &state->menuHidden, &found);
     Prog__LoadList(state, Prog_MenuOrderFile, &state->menuOrderArena, &state->menuOrder, &found);
+    Prog__LoadList(state, Prog_PlacesHiddenFile, &state->placesHiddenArena, &state->placesHidden, &found);
+    Prog__LoadList(state, Prog_PlacesOrderFile, &state->placesOrderArena, &state->placesOrder, &found);
     Prog__LoadList(state, Prog_MutedNoticesFile, &state->mutedArena, &state->mutedNotices, &found);
     Prog__LoadList(state, Prog_TorrentsFile, &state->torrentArena, &state->torrents, &found);
     Prog__LoadList(state, Prog_QuickCommandsFile, &state->quickArena, &state->quickCommands, &found);
@@ -4040,6 +4060,109 @@ function void Prog__RequestShares(Prog_State *state)
         P_JobSubmit(job);
     }
     ReleaseScratch(scratch);
+}
+
+// The sidebar's group at place `n`, in the order they were moved to, else the default one.
+function Prog_Group Prog_SidebarGroupAt(const Prog_State *state, u32 n)
+{
+    return state->groupsOrdered && n < Prog_Group_Count && state->groupOrder[n] < Prog_Group_Count ? (Prog_Group)state->groupOrder[n] : (Prog_Group)n;
+}
+
+// Moves the sidebar's `group` a place up or down; back in the default order, it is no longer kept.
+function void Prog_ShiftGroup(Prog_State *state, Prog_Group group, b32 down)
+{
+    u8 order[Prog_Group_Count];
+    u32 at = Prog_Group_Count;
+    for (u32 n = 0; n < Prog_Group_Count; ++n) {
+        order[n] = (u8)Prog_SidebarGroupAt(state, n);
+        if (order[n] == group) at = n;
+    }
+    if (at == Prog_Group_Count || (down ? at + 1 >= Prog_Group_Count : at == 0)) return;
+    u32 other = down ? at + 1 : at - 1;
+    u8 swapped = order[at];
+    order[at] = order[other];
+    order[other] = swapped;
+    b32 ordered = false;
+    for (u32 n = 0; n < Prog_Group_Count; ++n) ordered |= order[n] != n;
+    MemCopy(state->groupOrder, order, sizeof(order));
+    state->groupsOrdered = ordered;
+}
+
+// Whether the place at `path` is hidden from the sidebar.
+function b32 Prog_PlaceHidden(const Prog_State *state, String path)
+{
+    for (u64 i = 0; i < state->placesHidden.header.count; ++i) if (StrIsEqual(state->placesHidden.v[i], path)) return true;
+    return false;
+}
+
+// Puts the places in the order they were moved to; those it does not name, as a folder new to them, follow in the order they came.
+function void Prog__OrderPlaces(Prog_State *state)
+{
+    u64 count = state->places.header.count, at = 0;
+    if (!state->placesOrder.header.count || !count) return;
+    Scratch scratch = GetScratch();
+    P_Place *ordered = ArenaPushArray(scratch.arena, count, P_Place);
+    b8 *taken = ArenaPushArray(scratch.arena, count, b8);
+    for (u64 o = 0; o < state->placesOrder.header.count; ++o) {
+        for (u64 i = 0; i < count; ++i) {
+            if (taken[i] || !StrIsEqual(state->places.v[i].path, state->placesOrder.v[o])) continue;
+            ordered[at++] = state->places.v[i];
+            taken[i] = true;
+            break;
+        }
+    }
+    for (u64 i = 0; i < count; ++i) if (!taken[i]) ordered[at++] = state->places.v[i];
+    MemCopy(state->places.v, ordered, count * sizeof(P_Place));
+    ReleaseScratch(scratch);
+}
+
+// Hides the place `index` from the sidebar, or shows it again.
+function void Prog_TogglePlaceHidden(Prog_State *state, u64 index)
+{
+    if (index >= state->places.header.count) return;
+    Scratch scratch = GetScratch();
+    String path = state->places.v[index].path;
+    b32 hidden = Prog_PlaceHidden(state, path);
+    String *kept = ArenaPushArray(scratch.arena, state->placesHidden.header.count + 1, String);
+    u64 count = 0;
+    for (u64 i = 0; i < state->placesHidden.header.count; ++i) if (!StrIsEqual(state->placesHidden.v[i], path)) kept[count++] = state->placesHidden.v[i];
+    if (!hidden) kept[count++] = path;
+    Prog__SetList(&state->placesHiddenArena, &state->placesHidden, kept, count);
+    Prog__SaveList(state, Prog_PlacesHiddenFile, state->placesHidden);
+    ReleaseScratch(scratch);
+}
+
+// Moves the place `from` to go before the place `before`, one past the last for the end, and keeps the whole order, so that the others stay
+// where they are when folders come and go.
+function void Prog_MovePlace(Prog_State *state, u64 from, u64 before)
+{
+    u64 count = state->places.header.count;
+    if (from >= count || before > count || before == from || before == from + 1) return;
+    P_Place *places = state->places.v, moving = places[from];
+    if (before > from) {
+        MemMove(&places[from], &places[from + 1], (before - from - 1) * sizeof(P_Place));
+        places[before - 1] = moving;
+    } else {
+        MemMove(&places[before + 1], &places[before], (from - before) * sizeof(P_Place));
+        places[before] = moving;
+    }
+    Scratch scratch = GetScratch();
+    String *paths = ArenaPushArray(scratch.arena, count, String);
+    for (u64 i = 0; i < count; ++i) paths[i] = places[i].path;
+    Prog__SetList(&state->placesOrderArena, &state->placesOrder, paths, count);
+    Prog__SaveList(state, Prog_PlacesOrderFile, state->placesOrder);
+    ReleaseScratch(scratch);
+}
+
+// Every place shown again in the order they come in, which the next listing of them brings.
+function void Prog_RestorePlaces(Prog_State *state)
+{
+    Prog__SetList(&state->placesHiddenArena, &state->placesHidden, NULL, 0);
+    Prog__SetList(&state->placesOrderArena, &state->placesOrder, NULL, 0);
+    Prog__SaveList(state, Prog_PlacesHiddenFile, state->placesHidden);
+    Prog__SaveList(state, Prog_PlacesOrderFile, state->placesOrder);
+    state->placesShowHidden = false;
+    state->drivesChanged = true;
 }
 
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group)
@@ -4934,6 +5057,11 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     StrBuildStr(arena, &text, S("groups"));
     for (u32 g = 0; g < Prog_Group_Count; ++g) StrBuildStr(arena, &text, state->groupToggled[g] ? S(" 1") : S(" 0"));
     StrBuildChar(arena, &text, '\n');
+    if (state->groupsOrdered) {
+        StrBuildStr(arena, &text, S("grouporder"));
+        for (u32 g = 0; g < Prog_Group_Count; ++g) StrBuildStr(arena, &text, StrFormat(arena, " %u", (u32)state->groupOrder[g]));
+        StrBuildChar(arena, &text, '\n');
+    }
     for (u32 i = 0; i < Prog_MaxSplits; ++i) {
         const Prog_Split *split = &state->splits[i];
         if (split->kind == Prog_SplitKind_None) continue;
@@ -6376,6 +6504,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->places = (P_ArrayPlace){0};
                 ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = Prog_ThisPC, .path = Prog_ThisPC }));
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
+                Prog__OrderPlaces(state);
                 state->drives = result->drives;
                 state->pathRoots = result->roots;
                 state->searchPlaces = result->searched;
@@ -6435,7 +6564,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile, Prog_MenuHiddenFile,
-                                     Prog_MenuOrderFile, Prog_TorrentsFile };
+                                     Prog_MenuOrderFile, Prog_TorrentsFile, Prog_PlacesHiddenFile, Prog_PlacesOrderFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
@@ -6903,6 +7032,8 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->confirmArena);
     ArenaRelease(&state->placesArena);
     ArenaRelease(&state->sharesArena);
+    ArenaRelease(&state->placesHiddenArena);
+    ArenaRelease(&state->placesOrderArena);
     ArenaRelease(&state->settingsArena);
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);

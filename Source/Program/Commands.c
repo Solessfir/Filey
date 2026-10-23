@@ -718,7 +718,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
-    Prog_CommandKind_RecentsClear, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_PlacesShowHidden, Prog_CommandKind_PlacesRestore, Prog_CommandKind_GroupsRestore, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen, Prog_CommandKind_CopyVersion,
     Prog_CommandKind_CheckForUpdates, Prog_CommandKind_UpdateInstall,
     Prog__PaletteGroup(Options),
@@ -1447,6 +1447,23 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleHidden, .icon = Icon_Eye, .toggle = true, .checked = state->showHidden);
             Prog__Item(.kind = Prog_CommandKind_ToggleQuickAccess, .icon = Icon_PanelLeft, .toggle = true, .checked = !state->sidebarHidden);
             Prog__Item(.kind = Prog_CommandKind_BookmarksToggle, .icon = Icon_Bookmark, .toggle = true, .checked = Prog_IsBookmarked(state, state->directory.path));
+        } break;
+        // A sidebar group's: its own commands, then moving it among the groups.
+        case Prog_CommandKind_GroupMenu: {
+            Prog_Group group = (Prog_Group)Min(command->row, (u64)Prog_Group_Count - 1);
+            u32 at = 0;
+            for (u32 n = 0; n < Prog_Group_Count; ++n) if (Prog_SidebarGroupAt(state, n) == group) at = n;
+            if (group == Prog_Group_Places) {
+                Prog__Item(.kind = Prog_CommandKind_PlacesShowHidden, .label = Tr("Show Hidden Places"), .icon = Icon_Eye, .toggle = true, .checked = state->placesShowHidden,
+                           .disabled = (b8)(!state->placesHidden.header.count && !state->placesShowHidden));
+                Prog__Item(.kind = Prog_CommandKind_PlacesRestore, .icon = Icon_RotateCcw, .disabled = (b8)(!state->placesHidden.header.count && !state->placesOrder.header.count));
+            }
+            if (group == Prog_Group_Bookmarks) Prog__Item(.kind = Prog_CommandKind_BookmarksClear, .icon = Icon_X, .disabled = (b8)!state->bookmarks.header.count);
+            if (group == Prog_Group_Recents) Prog__Item(.kind = Prog_CommandKind_RecentsClear, .icon = Icon_X, .disabled = (b8)!state->recents.header.count);
+            if (group != Prog_Group_Storage) Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_GroupShiftUp, .row = (u64)group, .label = Tr("Move Group Up"), .icon = Icon_ChevronUp, .disabled = (b8)(at == 0));
+            Prog__Item(.kind = Prog_CommandKind_GroupShiftDown, .row = (u64)group, .label = Tr("Move Group Down"), .icon = Icon_ChevronDown, .disabled = (b8)(at + 1 >= Prog_Group_Count));
+            Prog__Item(.kind = Prog_CommandKind_GroupsRestore, .icon = Icon_RotateCcw, .disabled = (b8)!state->groupsOrdered);
         } break;
         // The path bar's, for the crumb right-clicked or the shown folder: opening it elsewhere, its path, and how paths show.
         case Prog_CommandKind_PathMenu: {
@@ -3559,6 +3576,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_NoticeCopy:
             case Prog_CommandKind_CheckForUpdates: Prog_CheckForUpdates(state, true); break;
+            case Prog_CommandKind_PlaceHiddenToggle: Prog_TogglePlaceHidden(state, command->row); break;
+            case Prog_CommandKind_PlaceMove: Prog_MovePlace(state, command->row, command->target); break;
+            case Prog_CommandKind_PlacesShowHidden: state->placesShowHidden = !state->placesShowHidden; break;
+            case Prog_CommandKind_PlacesRestore: Prog_RestorePlaces(state); break;
+            case Prog_CommandKind_GroupShiftUp:
+            case Prog_CommandKind_GroupShiftDown: {
+                if (command->row < Prog_Group_Count) Prog_ShiftGroup(state, (Prog_Group)command->row, command->kind == Prog_CommandKind_GroupShiftDown);
+            } break;
+            case Prog_CommandKind_GroupsRestore: state->groupsOrdered = false; break;
             case Prog_CommandKind_UpdateInstall: {
                 // From the notice's button, which goes with it.
                 for (u32 i = 0; i < state->noticeCount; ++i) {
@@ -4163,6 +4189,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_MainMenu:
             case Prog_CommandKind_PanelMenu:
             case Prog_CommandKind_PathMenu:
+            case Prog_CommandKind_GroupMenu:
             case Prog_CommandKind_TabMenu: {
                 // From a hotkey they open where their button or tab would open them, the path's for the shown folder.
                 if (command->at.x == 0 && command->at.y == 0 && command->kind != Prog_CommandKind_PanelMenu) {

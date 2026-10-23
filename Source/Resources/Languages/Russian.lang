@@ -3099,3 +3099,30 @@ Toggle Palette Details
 
 Show or hide the descriptions under the commands in the palette.
 = Показывать или скрывать описания под командами в палитре.
+
+Show Hidden Places
+= Показать скрытые места
+
+Move Group Up
+= Переместить группу вверх
+
+Move Group Down
+= Переместить группу вниз
+
+Toggle Hidden Places
+= Скрытые места
+
+Show the places hidden from the sidebar too, faded, to show them again.
+= Показывать и скрытые места, приглушёнными, чтобы вернуть их.
+
+Restore Places
+= Восстановить места
+
+Show every place again, in the order they come in.
+= Снова показать все места в исходном порядке.
+
+Restore Groups Order
+= Восстановить порядок групп
+
+Put the sidebar's groups back in their default order.
+= Вернуть группам боковой панели исходный порядок.

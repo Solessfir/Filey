@@ -4929,9 +4929,11 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * m->scale + 0.5f), 0, floorf(10.4f * m->scale + 0.5f), 0 });
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
-    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
+    UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
-    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
+    if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
+    // A right click opens the group's menu.
+    if (interaction.pressed && interaction.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_GroupMenu, (u64)group, 0, interaction.pressOrder)->at = UI->mouse;
     UI_Parent(row) {
         R_Color color = hot ? theme->text : theme->textHeading;
         f32 slot = floorf(m->line * 1.5f) - floorf(2.4f * m->scale + 0.5f);
@@ -4950,8 +4952,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
     UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
-    // Not lit under a drag, which would hide the line where it goes.
-    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending();
+    // Not lit under a drag, which would hide the line where it goes; a place dragged stays lit.
+    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending() && (!state->placeDrag || (group == Prog_Group_Places && state->placeDrag == index + 1));
     // Lit while it is shown, or while its menu is open; not under a drag, where only the folder a drop would go into is lit.
     b32 current = !P_DropPending() && (StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget)));
     UI_SetNextPrefWidth(UI_Flex());
@@ -4988,9 +4990,17 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarMenu, (u64)group, 0, interaction.pressOrder);
         command->target = index;
     }
+    // A place dragged moves among the places, before the one the line the list draws is at; the click its release makes opens nothing.
+    b32 moved = false;
+    if (group == Prog_Group_Places && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) state->placeDrag = index + 1;
+    if (group == Prog_Group_Places && interaction.released && state->placeDrag == index + 1) {
+        if (state->placeGap) Prog_QueueCommand(state, Prog_CommandKind_PlaceMove, index, 0, interaction.clickOrder)->target = state->placeGap - 1;
+        state->placeDrag = state->placeGap = 0;
+        moved = true;
+    }
     // Ctrl opens it in a new tab, as the middle button does.
     b32 inTab = interaction.button == MouseButton_Middle || (interaction.button == MouseButton_Left && (UI->mods & KeyMod_Control));
-    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab) {
+    if (interaction.clicked && interaction.button == MouseButton_Left && !inTab && !moved) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
     }
@@ -5049,7 +5059,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         } else {
             Prog__Label(name, UI_Flex(), m->row, 0, color, 0);
         }
-        if (group == Prog_Group_Bookmarks && hot) {
+        // A bookmark's x removes it; a place's eye hides it, or shows it again while hidden ones show.
+        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places) && hot && !state->placeDrag) {
             b32 removeHot = UI->hotKey == removeKey;
             f32 size = floorf(m->line * 1.3f);
             UI_SetNextPrefWidth(UI_Pixels(size));
@@ -5059,10 +5070,10 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextFont(m->icons);
             UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = removeHot ? theme->text : theme->icon });
             // An x, as everything that removes or deletes something from a list has.
-            UI_SetNextText(Icon_X);
+            UI_SetNextText(group == Prog_Group_Bookmarks ? Icon_X : faded ? Icon_Eye : Icon_EyeOff);
             UI_Block *remove = UI_AddBlockFromKey(removeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (removeHot ? UI_Flag_DrawBackground : 0));
             UI_Interaction removing = UI_InteractionFromBlock(remove);
-            if (removing.clicked) Prog_QueueCommand(state, Prog_CommandKind_RemoveBookmark, index, 0, removing.clickOrder);
+            if (removing.clicked) Prog_QueueCommand(state, group == Prog_Group_Bookmarks ? Prog_CommandKind_RemoveBookmark : Prog_CommandKind_PlaceHiddenToggle, index, 0, removing.clickOrder);
         }
     }
 }
@@ -5151,97 +5162,139 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_Parent(sidebar) {
         Prog__SidebarFilterBox(state, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
-        u64 indices[Prog_ShownRecentCount];
-        u32 shown = 0, listed = Prog_ShownRecents(state, indices);
-        for (u32 n = 0; n < listed; ++n) if (Prog__SidebarFinds(state, Prog_PathName(state, state->recents.v[indices[n]]))) indices[shown++] = indices[n];
-        if (shown || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Recents, Tr("Recents"), Icon_Clock, m);
-        UI_Block *body = shown || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Recents, m) : NULL;
-        if (body) UI_Parent(body) {
-            // Each row eases to its place by its folder, so that one opened again travels up over the others while they move down to make
-            // room for it; a folder new to the list starts in its place.
-            f32 slid[Prog_ShownRecentCount], placed[Prog_ShownRecentCount];
-            for (u32 n = 0; n < shown; ++n) {
-                placed[n] = (f32)n * m->row;
-                slid[n] = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "RecentY/%S", state->recents.v[indices[n]])), placed[n], placed[n]);
-            }
-            Prog__Spacer(UI_Flex(), UI_Pixels((f32)shown * m->row));
-            for (u32 pass = 0; pass < 2; ++pass) {
-                for (u32 n = 0; n < shown; ++n) {
-                    // Those rising are drawn last, over the rows they pass.
-                    if ((slid[n] > placed[n] + 0.5f) != (pass == 1)) continue;
-                    u64 i = indices[n];
-                    String path = state->recents.v[i];
-                    Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, Prog_RecentFaded(state, i), m);
-                    UI_Block *row = body->last;
-                    row->flags |= UI_Flag_Floating;
-                    // Rounded rather than floored, or a row easing sits a pixel short through the tail of the ease and then jumps.
-                    row->props.floatingOffset = (UI_Vec2){ 0, floorf(slid[n] + 0.5f) };
-                }
-            }
-        }
-        u64 count = state->bookmarks.header.count, found = 0;
-        for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, state->bookmarks.v[i])) ? 1 : 0;
-        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, Tr("Bookmarks"), Icon_Bookmark, m);
-        // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
-        R_Rect title = sidebar->last ? sidebar->last->rect : (R_Rect){0}, zone = title;
-        u64 before = count;
-        f32 lineY = title.y1;
-        body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Bookmarks, m) : NULL;
-        if (body) UI_Parent(body) {
-            for (u64 i = 0; i < count; ++i) {
-                String path = state->bookmarks.v[i];
-                if (!Prog__SidebarFinds(state, Prog_PathName(state, path))) continue;
-                // One whose folder is gone, renamed or deleted elsewhere or on a drive taken away, is faded rather than dropped.
-                b32 missing = false;
-                for (u64 j = 0; j < state->missingBookmarks.header.count && !missing; ++j) missing = StrIsEqual(state->missingBookmarks.v[j], path);
-                Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, missing, m);
-                R_Rect row = body->last->rect;
-                zone.y1 = row.y1;
-                if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
-                    before = i;
-                    lineY = row.y0;
-                } else if (before == count) {
-                    lineY = row.y1;
-                }
-            }
-        }
-        // Not while filtering, which leaves bookmarks out from between the others.
-        b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1 && !state->sidebarFilter.length;
-        state->bookmarkGap = P_DropPending() && inZone && !state->dropPlace.length ? before + 1 : 0;
-        if (state->bookmarkGap) {
-            f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
-            // Floating offsets start inside the sidebar's padding.
-            UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
-            UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
-            UI_SetNextPrefHeight(UI_Pixels(thickness));
-            UI_SetNextColors((UI_Colors){ .background = theme->accent });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-        }
-        state->bookmarkDropShown = state->bookmarkGap;
-        found = 0;
-        for (u64 i = 0; i < state->drives.header.count; ++i) found += Prog__SidebarFinds(state, state->drives.v[i].name) ? 1 : 0;
-        for (u64 i = 0; i < state->shares.header.count; ++i) found += Prog__SidebarFinds(state, state->shares.v[i].name) ? 1 : 0;
-        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, Tr("Storage"), (String){0}, m);
-        body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Storage, m) : NULL;
-        if (body) UI_Parent(body) {
-            for (u64 i = 0; i < state->drives.header.count; ++i) {
-                const P_Place *drive = &state->drives.v[i];
-                if (Prog__SidebarFinds(state, drive->name)) Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
-            }
-            // Then the shares of the servers the network drives, the bookmarks and the recents are on, as drives.
-            for (u64 i = 0; i < state->shares.header.count; ++i) {
-                const P_Place *share = &state->shares.v[i];
-                if (Prog__SidebarFinds(state, share->name)) Prog__SidebarItem(state, Prog_Group_Storage, state->drives.header.count + i, share->name, share->path, share, false, m);
-            }
-        }
-        found = 0;
-        for (u64 i = 0; i < state->places.header.count; ++i) found += Prog__SidebarFinds(state, state->places.v[i].name) ? 1 : 0;
-        if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_Folder, m);
-        body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Places, m) : NULL;
-        if (body) UI_Parent(body) {
-            for (u64 i = 0; i < state->places.header.count; ++i) {
-                const P_Place *place = &state->places.v[i];
-                if (Prog__SidebarFinds(state, place->name)) Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, false, m);
+        // The groups, in the order they were put in.
+        for (u32 n = 0; n < Prog_Group_Count; ++n) {
+            switch (Prog_SidebarGroupAt(state, n)) {
+                case Prog_Group_Recents: {
+                    u64 indices[Prog_ShownRecentCount];
+                    u32 shown = 0, listed = Prog_ShownRecents(state, indices);
+                    for (u32 n = 0; n < listed; ++n) if (Prog__SidebarFinds(state, Prog_PathName(state, state->recents.v[indices[n]]))) indices[shown++] = indices[n];
+                    if (shown || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Recents, Tr("Recents"), Icon_Clock, m);
+                    UI_Block *body = shown || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Recents, m) : NULL;
+                    if (body) UI_Parent(body) {
+                        // Each row eases to its place by its folder, so that one opened again travels up over the others while they move down to make
+                        // room for it; a folder new to the list starts in its place.
+                        f32 slid[Prog_ShownRecentCount], placed[Prog_ShownRecentCount];
+                        for (u32 n = 0; n < shown; ++n) {
+                            placed[n] = (f32)n * m->row;
+                            slid[n] = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "RecentY/%S", state->recents.v[indices[n]])), placed[n], placed[n]);
+                        }
+                        Prog__Spacer(UI_Flex(), UI_Pixels((f32)shown * m->row));
+                        for (u32 pass = 0; pass < 2; ++pass) {
+                            for (u32 n = 0; n < shown; ++n) {
+                                // Those rising are drawn last, over the rows they pass.
+                                if ((slid[n] > placed[n] + 0.5f) != (pass == 1)) continue;
+                                u64 i = indices[n];
+                                String path = state->recents.v[i];
+                                Prog__SidebarItem(state, Prog_Group_Recents, i, Prog_PathName(state, path), path, NULL, Prog_RecentFaded(state, i), m);
+                                UI_Block *row = body->last;
+                                row->flags |= UI_Flag_Floating;
+                                // Rounded rather than floored, or a row easing sits a pixel short through the tail of the ease and then jumps.
+                                row->props.floatingOffset = (UI_Vec2){ 0, floorf(slid[n] + 0.5f) };
+                            }
+                        }
+                    }
+                } break;
+                case Prog_Group_Bookmarks: {
+                    u64 count = state->bookmarks.header.count, found = 0;
+                    for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, state->bookmarks.v[i])) ? 1 : 0;
+                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Bookmarks, Tr("Bookmarks"), Icon_Bookmark, m);
+                    // A drag over the section pins its folders between the bookmarks the pointer is between, marked by a line there; the rects are the last layout's.
+                    R_Rect title = sidebar->last ? sidebar->last->rect : (R_Rect){0}, zone = title;
+                    u64 before = count;
+                    f32 lineY = title.y1;
+                    UI_Block *body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Bookmarks, m) : NULL;
+                    if (body) UI_Parent(body) {
+                        for (u64 i = 0; i < count; ++i) {
+                            String path = state->bookmarks.v[i];
+                            if (!Prog__SidebarFinds(state, Prog_PathName(state, path))) continue;
+                            // One whose folder is gone, renamed or deleted elsewhere or on a drive taken away, is faded rather than dropped.
+                            b32 missing = false;
+                            for (u64 j = 0; j < state->missingBookmarks.header.count && !missing; ++j) missing = StrIsEqual(state->missingBookmarks.v[j], path);
+                            Prog__SidebarItem(state, Prog_Group_Bookmarks, i, Prog_PathName(state, path), path, NULL, missing, m);
+                            R_Rect row = body->last->rect;
+                            zone.y1 = row.y1;
+                            if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
+                                before = i;
+                                lineY = row.y0;
+                            } else if (before == count) {
+                                lineY = row.y1;
+                            }
+                        }
+                    }
+                    // Not while filtering, which leaves bookmarks out from between the others.
+                    b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1 && !state->sidebarFilter.length;
+                    state->bookmarkGap = P_DropPending() && inZone && !state->dropPlace.length ? before + 1 : 0;
+                    if (state->bookmarkGap) {
+                        f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
+                        // Floating offsets start inside the sidebar's padding.
+                        UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
+                        UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
+                        UI_SetNextPrefHeight(UI_Pixels(thickness));
+                        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                    state->bookmarkDropShown = state->bookmarkGap;
+                } break;
+                case Prog_Group_Storage: {
+                    u64 found = 0;
+                    for (u64 i = 0; i < state->drives.header.count; ++i) found += Prog__SidebarFinds(state, state->drives.v[i].name) ? 1 : 0;
+                    for (u64 i = 0; i < state->shares.header.count; ++i) found += Prog__SidebarFinds(state, state->shares.v[i].name) ? 1 : 0;
+                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, Tr("Storage"), (String){0}, m);
+                    UI_Block *body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Storage, m) : NULL;
+                    if (body) UI_Parent(body) {
+                        for (u64 i = 0; i < state->drives.header.count; ++i) {
+                            const P_Place *drive = &state->drives.v[i];
+                            if (Prog__SidebarFinds(state, drive->name)) Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
+                        }
+                        // Then the shares of the servers the network drives, the bookmarks and the recents are on, as drives.
+                        for (u64 i = 0; i < state->shares.header.count; ++i) {
+                            const P_Place *share = &state->shares.v[i];
+                            if (Prog__SidebarFinds(state, share->name)) Prog__SidebarItem(state, Prog_Group_Storage, state->drives.header.count + i, share->name, share->path, share, false, m);
+                        }
+                    }
+                } break;
+                case Prog_Group_Places: {
+                    // Hidden places show only while asked for, faded, to show them again; a place dragged among the others is marked by a line where it goes.
+                    u64 count = state->places.header.count, found = 0;
+                    for (u64 i = 0; i < count; ++i) {
+                        const P_Place *place = &state->places.v[i];
+                        found += Prog__SidebarFinds(state, place->name) && (state->placesShowHidden || !Prog_PlaceHidden(state, place->path)) ? 1 : 0;
+                    }
+                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Places, Tr("Places"), Icon_Folder, m);
+                    UI_Block *body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Places, m) : NULL;
+                    u64 before = count;
+                    f32 lineY = 0;
+                    R_Rect zone = {0};
+                    if (body) UI_Parent(body) {
+                        for (u64 i = 0; i < count; ++i) {
+                            const P_Place *place = &state->places.v[i];
+                            b32 hidden = Prog_PlaceHidden(state, place->path);
+                            if ((hidden && !state->placesShowHidden) || !Prog__SidebarFinds(state, place->name)) continue;
+                            Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, hidden, m);
+                            R_Rect row = body->last->rect;
+                            zone = zone.y1 > zone.y0 ? (R_Rect){ zone.x0, zone.y0, zone.x1, row.y1 } : row;
+                            if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
+                                before = i;
+                                lineY = row.y0;
+                            } else if (before == count) {
+                                lineY = row.y1;
+                            }
+                        }
+                    }
+                    // Only over the places, and not while filtering, which leaves some out from between the others.
+                    b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 - m->row * 0.5f && UI->mouse.y < zone.y1 + m->row * 0.5f;
+                    state->placeGap = state->placeDrag && body && inZone && !state->sidebarFilter.length ? before + 1 : 0;
+                    if (state->placeGap && lineY > 0) {
+                        f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
+                        UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
+                        UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
+                        UI_SetNextPrefHeight(UI_Pixels(thickness));
+                        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                } break;
+                default: break;
             }
         }
     }

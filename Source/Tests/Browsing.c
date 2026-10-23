@@ -2577,6 +2577,59 @@ function void TestUpdates(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// Places hidden and moved keep to it, by path, and on Linux the folders GTK's bookmarks name are places too.
+function void TestPlaces(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Prog_State state = {0};
+    String paths[] = { S("This PC"), S("/a"), S("/b"), S("/c") };
+    for (u32 i = 0; i < CArrayCount(paths); ++i) ArrayPush(&state.placesArena, state.places, ((P_Place){ .name = paths[i], .path = paths[i] }));
+    Prog_MovePlace(&state, 3, 1);
+    Check(StrIsEqual(state.places.v[1].path, S("/c")) && StrIsEqual(state.places.v[3].path, S("/b")) && state.placesOrder.header.count == 4);
+    Prog_MovePlace(&state, 1, 4);
+    Check(StrIsEqual(state.places.v[3].path, S("/c")) && StrIsEqual(state.places.v[1].path, S("/a")));
+    // A new listing comes in the default order, which the kept one sorts, a folder it does not name after the others.
+    state.places = (P_ArrayPlace){0};
+    String listed[] = { S("This PC"), S("/new"), S("/a"), S("/b"), S("/c") };
+    for (u32 i = 0; i < CArrayCount(listed); ++i) ArrayPush(&state.placesArena, state.places, ((P_Place){ .name = listed[i], .path = listed[i] }));
+    Prog__OrderPlaces(&state);
+    Check(StrIsEqual(state.places.v[3].path, S("/c")) && StrIsEqual(state.places.v[4].path, S("/new")));
+    Prog_TogglePlaceHidden(&state, 1);
+    Check(Prog_PlaceHidden(&state, state.places.v[1].path) && state.placesHidden.header.count == 1);
+    Prog_TogglePlaceHidden(&state, 1);
+    Check(!state.placesHidden.header.count);
+    // The groups move a place at a time, and back in their own order are not kept.
+    Prog_ShiftGroup(&state, Prog_Group_Places, false);
+    Check(state.groupsOrdered && Prog_SidebarGroupAt(&state, 2) == Prog_Group_Places && Prog_SidebarGroupAt(&state, 3) == Prog_Group_Storage);
+    Prog_ShiftGroup(&state, Prog_Group_Places, true);
+    Check(!state.groupsOrdered && Prog_SidebarGroupAt(&state, 3) == Prog_Group_Places);
+    Prog_ShiftGroup(&state, Prog_Group_Recents, false);
+    Check(!state.groupsOrdered);
+    ArenaRelease(&state.placesArena);
+    ArenaRelease(&state.placesOrderArena);
+    ArenaRelease(&state.placesHiddenArena);
+#if defined(__linux__)
+    {
+        String config = Prog_JoinPath(&arena, fixture->path, S("gtk-config")), created = {0};
+        Check(!P_CreateItem(&arena, fixture->path, S("gtk-config"), true, &created).code && !P_CreateItem(&arena, config, S("gtk-3.0"), true, &created).code);
+        String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, config, S("gtk-3.0/bookmarks")), StrFormat(&arena, "file://%S Second\nfile:///nowhere/gone\nsftp://host/x\n", folder)).code);
+        const char *previous = getenv("XDG_CONFIG_HOME");
+        String saved = previous ? StrCopy(&arena, StrFromCStr(previous)) : (String){0};
+        setenv("XDG_CONFIG_HOME", P__FilePathCString(&arena, config), 1);
+        P_ArrayPlace places = P_UserPlaces(&arena);
+        b32 found = false;
+        for (u64 i = 0; i < places.header.count; ++i) found |= StrIsEqual(places.v[i].path, folder) && StrIsEqual(places.v[i].name, S("Second"));
+        Check(found);
+        if (saved.length) setenv("XDG_CONFIG_HOME", P__FilePathCString(&arena, saved), 1);
+        else unsetenv("XDG_CONFIG_HOME");
+        TestRemoveTree(&arena, fixture, S("gtk-config"));
+    }
+#endif
+    (void)fixture;
+    ArenaRelease(&arena);
+}
+
 // In a tree, a new item goes into the unfolded folder in focus, and a change inside one shows by itself.
 function void TestTreeFileCommands(TestFileFixture *fixture)
 {
@@ -3998,6 +4051,7 @@ function void TestBrowsing(void)
         TestProgramFileCommands(&fixture);
         TestTreeFileCommands(&fixture);
         TestUpdates(&fixture);
+        TestPlaces(&fixture);
         TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);

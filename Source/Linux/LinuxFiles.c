@@ -1731,6 +1731,22 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
             ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));
         }
     }
+    // The folders bookmarked in GTK's file chooser and in Nautilus, a file:// address and an optional name a line.
+    String bookmarks = {0};
+    P_ReadFile(scratch.arena, config && config[0] == '/' ? StrFormat(scratch.arena, "%s/gtk-3.0/bookmarks", config) : StrFormat(scratch.arena, "%S/.config/gtk-3.0/bookmarks", home), &bookmarks);
+    ArrayStr marks = StrSplit(scratch.arena, bookmarks, '\n');
+    for (u64 i = 0; i < marks.header.count; ++i) {
+        Index space = StrIndexChar(marks.v[i], ' ', SSF_None);
+        String uri = space.exists ? StrFromTo(marks.v[i], 0, (i64)space.value) : marks.v[i], label = space.exists ? StrFrom(marks.v[i], space.value + 1) : (String){0};
+        String path = P__FilePathFromUri(scratch.arena, uri);
+        if (!path.length || !P__IsDirectory(scratch.arena, path)) continue;
+        path = P_AbsolutePath(arena, path);
+        b32 known = false;
+        for (u64 k = 0; k < result.header.count && !known; ++k) known = StrIsEqual(result.v[k].path, path);
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+        String name = label.length ? StrCopy(arena, label) : slash.exists && slash.value + 1 < path.length ? StrFrom(path, slash.value + 1) : path;
+        if (!known) ArrayPush(arena, result, ((P_Place){ .name = name, .path = path }));
+    }
     String trash = P_TrashFolder(arena);
     if (trash.length) ArrayPush(arena, result, ((P_Place){ .name = S("Trash"), .path = trash }));
     ReleaseScratch(scratch);

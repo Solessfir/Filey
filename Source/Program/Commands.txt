@@ -1821,6 +1821,39 @@ command ColorPickerCancel {
 command NoticeCopy {
 }
 
+// A place's eye, which hides it from the sidebar or shows it again; carries the place.
+command PlaceHiddenToggle {
+}
+
+// A place dropped among the others; carries the place, and as its target the place it goes before.
+command PlaceMove {
+}
+
+command PlacesShowHidden {
+    label   = "Toggle Hidden Places^places,sidebar,quick access,unhide,show"
+    tooltip = "Show the places hidden from the sidebar too, faded, to show them again."
+}
+
+command PlacesRestore {
+    label   = "Restore Places^places,sidebar,unhide,order,default,reset"
+    tooltip = "Show every place again, in the order they come in."
+}
+
+// A sidebar group's title right-clicked: its own commands, and moving it among the groups; carries the group.
+command GroupMenu {
+}
+
+command GroupShiftUp {
+}
+
+command GroupShiftDown {
+}
+
+command GroupsRestore {
+    label   = "Restore Groups Order^sidebar,quick access,groups,default,reset"
+    tooltip = "Put the sidebar's groups back in their default order."
+}
+
 command CheckForUpdates {
     label   = "Check For Updates^update,upgrade,version,release,new,github"
     tooltip = "Ask GitHub whether a newer Filey is out, and offer to update to it."

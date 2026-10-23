@@ -1849,6 +1849,19 @@ typedef struct Prog_State {
     f32 sidebarGrab;          // how far right of its edge line the pointer took it
     PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
+    // The sidebar's groups in the order they were moved to, while groupsOrdered, which Session.conf keeps.
+    u8 groupOrder[Prog_Group_Count];
+    b32 groupsOrdered;
+    // The places hidden from the sidebar and the order they were put in, by path, saved as PlacesHidden.conf and PlacesOrder.conf;
+    // placesShowHidden shows the hidden ones too, faded, to show them again. placeDrag is one more than the place a drag moves, and placeGap
+    // one more than the place it would go before, one past the last for after it.
+    Arena placesHiddenArena;
+    ArrayStr placesHidden;
+    Arena placesOrderArena;
+    ArrayStr placesOrder;
+    b32 placesShowHidden;
+    u64 placeDrag;
+    u64 placeGap;
     b32 placesWanted;         // the sidebar was built, so its places are kept current
     b32 windowInactive;       // another window has the focus, which dims the title strip
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for
@@ -1925,8 +1938,8 @@ typedef struct Prog_State {
     u64 recentsCheckTime;
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[9];            // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order, torrents
-    b32 saveAgain[9];
+    b32 saving[11];           // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order, torrents, hidden places, places' order
+    b32 saveAgain[11];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.conf.
     Arena folderViewArena;
     ArrayStr folderViews;

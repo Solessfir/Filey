@@ -94,3 +94,4 @@ volume
 volume-1
 volume-2
 volume-x
+eye-off
