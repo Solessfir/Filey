@@ -8629,9 +8629,10 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
             }
             if (count > visible) {
-                // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
+                // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them. It sits in the list's padding,
+                // which moves up with the rows while they slide part of a row, so it is moved back down by as much.
                 f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)count), row);
-                f32 offset = floorf((track - thumb) * scrolled / (f32)(count - visible));
+                f32 offset = floorf((track - thumb) * scrolled / (f32)(count - visible)) + floorf(lag);
                 UI_SetNextFloatingOffset((UI_Vec2){ width - side - gutter + floorf((gutter - bar) * 0.5f), offset });
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));
