@@ -461,8 +461,9 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_Notify(&quiet, Prog_NoticeKind_Warning, S("test.warned"), S("Warned"), (String){0});
         Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed"), (String){0});
         Check(quiet.noticeCount == 1 && quiet.notices[0].kind == Prog_NoticeKind_Error && Prog_OptionValue(&quiet, Prog_Option_Notices) == Prog_NoticeKind_Error);
-        Prog_ApplySettings(&quiet, S("notices = off\nnotices.sidebar = true\n"));
-        Check(quiet.noticesInSidebar && Prog_OptionValue(&quiet, Prog_Option_NoticesInSidebar) == 1);
+        Check(quiet.noticesInSidebar);
+        Prog_ApplySettings(&quiet, S("notices = off\nnotices.sidebar = false\n"));
+        Check(!quiet.noticesInSidebar && Prog_OptionValue(&quiet, Prog_Option_NoticesInSidebar) == 0);
         Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed again"), (String){0});
         Check(quiet.noticeCount == 1);
         // Without a settings file, every option is at its default; one set away from it goes back with a restore.

@@ -743,7 +743,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->downloadAudio = false;
     state->audioVolume = 100;
     state->noticeLevel = Prog_NoticeKind_Info;
-    state->noticesInSidebar = false;
+    state->noticesInSidebar = true;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
     String system = Prog_SystemLanguage();
@@ -995,7 +995,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# than opening another window.\n# instances.single = true\n\n"
                                 "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n"
                                 "# Whether they and the progress of copies and downloads stack at the bottom of the sidebar while it shows, not in a panel's corner.\n"
-                                "# notices.sidebar = false\n\n"
+                                "# notices.sidebar = true\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
                                 "# recents.store = persistent\n# recents.highlight = false\n# recents.sort = false\n\n"
                                 "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = true\n\n"
@@ -1802,6 +1802,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_CompressionLevel: return 9;
         case Prog_Option_VideoQuality: return 20;
         case Prog_Option_AudioVolume: return 100;
+        case Prog_Option_NoticesInSidebar: return 1;
         case Prog_Option_Language: {
             for (u32 i = 1; i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(Prog_SystemLanguage(), Prog_OptionLanguages[i])) return (i32)i;
             return 0;
