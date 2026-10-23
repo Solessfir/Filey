@@ -446,6 +446,8 @@ global const char *const Prog_Strings[] = {
     "Restore all items",
     "%S failed",
     "This file is only in the cloud. Open it to download it, and preview it after.",
+    "Too many transfers at once",
+    "Wait for one of them to finish, or stop one.",
     "New folder",
     "New file",
     "Couldn't open a new window",

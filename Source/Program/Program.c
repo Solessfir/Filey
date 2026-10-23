@@ -2890,9 +2890,9 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
     // Commits to pull are pulled by the button beside it, as git can without merging.
     if (state->git.behind > 0) {
         UI_Interaction pull = Prog__TextButton(StrFormat(frame, "GitPull/%" PRIu64, Prog__PanelId(state)), Icon_Download, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)),
-                                               Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, !state->gitPullJob, m);
+                                               Prog__ToolbarButtonHeight(m), 0, theme->icon, theme->text, theme->iconDisabled, Prog_CanPull(state), m);
         Prog__NoteTooltip(state, Prog_CommandKind_GitPull, (String){0});
-        if (pull.clicked && !state->gitPullJob) Prog_QueueCommand(state, Prog_CommandKind_GitPull, 0, 0, pull.clickOrder);
+        if (pull.clicked && Prog_CanPull(state)) Prog_QueueCommand(state, Prog_CommandKind_GitPull, 0, 0, pull.clickOrder);
     }
     Prog__Spacer(UI_Pixels(m->gap - pad), UI_Pixels(bar));
 }

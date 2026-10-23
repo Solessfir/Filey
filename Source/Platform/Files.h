@@ -299,11 +299,15 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents);
 function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *contents);
 // Runs `arguments[0]`, found on the PATH, with the rest of `arguments` in `directory`, without a window, and gives what it wrote to its standard
 // output, with `errors` what it wrote to its standard error too, such as git's messages; false when it could not start, ran past
-// `timeoutMilliseconds` (it is then stopped) or exited with an error.
+// `timeoutMilliseconds` (it is then stopped, with what it started) or exited with an error.
+// Helpers it starts may outlive it once it ended, as git's file system monitor does.
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors);
 // P_RunCommand with `environment`, "NAME=value" each, set for the command alone over the program's own.
+// `cancel`, which may be NULL, stops it with what it started.
 function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
-                              u32 timeoutMilliseconds, String *output, b32 errors);
+                              u32 timeoutMilliseconds, String *output, b32 errors, const P_CancelToken *cancel);
+// The program's environment variable `name`; empty when it is not set.
+function String P_EnvironmentValue(Arena *arena, String name);
 // What a command writes, handed over as it comes.
 typedef void P_CommandOutput(void *user, String text);
 // Runs a command as P_RunCommand does but without a time limit, handing what it writes to `output` as it comes. `cancel` stops it and the

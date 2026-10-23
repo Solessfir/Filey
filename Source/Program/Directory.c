@@ -846,15 +846,14 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
     if (input->transferOp == Prog_TransferOp_CompressVideo) {
         // Counted in milliseconds of video, all of them first.
         u64 *lengths = ArenaPushArray(arena, Max(input->pathCount, (u64)1), u64), total = 0, done = 0;
-        for (u64 i = 0; i < input->pathCount && !P_IsCancelled(cancel); ++i) total += lengths[i] = Prog_MediaLength(arena, input->paths[i]);
+        for (u64 i = 0; i < input->pathCount && !P_IsCancelled(cancel); ++i) total += lengths[i] = Prog_MediaLength(arena, input->paths[i], cancel);
         if (input->progress) {
             atomic_store(&input->progress->totalBytes, Max(total, (u64)1));
             atomic_store(&input->progress->totalItems, input->pathCount);
         }
         for (u64 i = 0; i < input->pathCount && !result.code && !P_IsCancelled(cancel); ++i) {
-            String folder = Prog_ParentPath(input->paths[i]);
-            String output = Prog_JoinPath(arena, folder, Prog__FreeName(arena, folder, StrFormat(arena, "%S (compressed)", Prog__NameStem(Prog_EntryLeaf(input->paths[i]))), S(".mp4")));
-            result = Prog_CompressVideo(arena, input->paths[i], output, input->videoCodec, input->videoQuality, done, input->progress, cancel);
+            String output = {0};
+            result = Prog_CompressVideo(arena, input->paths[i], input->videoCodec, input->videoQuality, done, input->progress, cancel, &output);
             if (!result.code) ArrayPush(arena, *placed, output);
             done += lengths[i];
             if (input->progress) atomic_store(&input->progress->doneItems, i + 1);
@@ -1345,11 +1344,49 @@ function b32 Prog__ReadGitHead(Arena *arena, String at, String *head)
     return found;
 }
 
-// What git is run with, so that a command that needs a sign-in fails at once rather than asking for one where no one can answer.
-#define Prog__GitQuiet { S("GIT_TERMINAL_PROMPT=0"), S("GCM_INTERACTIVE=never") }
+// What git is run with in `folder`, into `environment`, so that a command that needs a sign-in fails at once rather than asking where no one can answer.
+// Git, its credential manager and an askpass program, which an empty GIT_ASKPASS stands in for, are told not to ask.
+// For a `remote` command ssh gets BatchMode too, added to the ssh command git would run.
+// That is GIT_SSH_COMMAND, else core.sshCommand, else GIT_SSH's program, else ssh.
+// Only ssh itself takes its options; another program, as PuTTY's plink or a wrapper, is left as it is.
+#define Prog_GitQuietCount 4
+function u32 Prog__GitQuiet(Arena *arena, String folder, b32 remote, String *environment)
+{
+    u32 count = 0;
+    environment[count++] = S("GIT_TERMINAL_PROMPT=0");
+    environment[count++] = S("GCM_INTERACTIVE=never");
+    environment[count++] = S("GIT_ASKPASS=");
+    if (!remote) return count;
+    String ssh = P_EnvironmentValue(arena, S("GIT_SSH_COMMAND")), asked[] = { S("git"), S("config"), S("--get"), S("core.sshCommand") };
+    if (!ssh.length && !P_RunCommand(arena, folder, asked, CArrayCount(asked), 3000, &ssh, false)) ssh = (String){0};
+    while (ssh.length && (ssh.value[ssh.length - 1] == '\n' || ssh.value[ssh.length - 1] == '\r')) --ssh.length;
+    // The program is a command's first word, quoted or not.
+    // GIT_SSH names a program alone, which the command quotes for the shell git runs it with, a Windows path's backslashes kept.
+    String program = {0};
+    if (!ssh.length) {
+        program = P_EnvironmentValue(arena, S("GIT_SSH"));
+        StrBuilder quoted = {0};
+        StrBuildChar(arena, &quoted, '\'');
+        for (u64 i = 0; i < program.length; ++i) {
+            if (program.value[i] == '\'') StrBuildStr(arena, &quoted, S("'\\''"));
+            else StrBuildChar(arena, &quoted, program.value[i]);
+        }
+        StrBuildChar(arena, &quoted, '\'');
+        ssh = program.length ? quoted.buffer : S("ssh");
+    } else if (ssh.value[0] == '"' || ssh.value[0] == '\'') {
+        program = StrFromTo(ssh, 1, (i64)(1 + StrIndexChar(StrFrom(ssh, 1), ssh.value[0], SSF_CountOnFail).value));
+    } else {
+        program = StrFromTo(ssh, 0, (i64)StrIndexChar(ssh, ' ', SSF_CountOnFail).value);
+    }
+    Index slash = StrIndexChar(program, '/', SSF_SearchBackwards), backslash = StrIndexChar(program, '\\', SSF_SearchBackwards);
+    String leaf = StrFrom(program, Max(slash.exists ? slash.value + 1 : 0, backslash.exists ? backslash.value + 1 : 0));
+    if (program.length && !Prog__EqualFolded(leaf, S("ssh")) && !Prog__EqualFolded(leaf, S("ssh.exe"))) return count;
+    environment[count++] = StrFormat(arena, "GIT_SSH_COMMAND=%S -o BatchMode=yes", ssh);
+    return count;
+}
 
-// The git status of the repository `folder` is in; with `fetch` its remote's commits are fetched first, as far as that needs no sign-in.
-function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder, b32 fetch)
+// The git status of the repository `folder` is in.
+function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder)
 {
     Prog_GitStatus result = { .ahead = -1, .behind = -1 };
     if (!folder.length || StrIsEqual(folder, Prog_ThisPC)) return result;
@@ -1358,10 +1395,6 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder, b32 fetc
         if (!Prog__ReadGitHead(arena, at, &head)) continue;
         result.branch = Prog_GitBranch(head);
         result.root = at;
-        if (fetch) {
-            String quiet[] = Prog__GitQuiet, fetching[] = { S("git"), S("fetch"), S("--quiet") }, said = {0};
-            P_RunCommandWith(arena, folder, fetching, CArrayCount(fetching), quiet, CArrayCount(quiet), 30000, &said, true);
-        }
         String arguments[] = { S("git"), S("rev-list"), S("--left-right"), S("--count"), S("HEAD...@{upstream}") };
         String counts = {0};
         if (P_RunCommand(arena, folder, arguments, CArrayCount(arguments), 3000, &counts, false)) {
@@ -1372,7 +1405,8 @@ function Prog_GitStatus Prog_FindGitStatus(Arena *arena, String folder, b32 fetc
                 result.behind = (i32)Min(behind, (u64)INT32_MAX);
             }
         }
-        String status[] = { S("git"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=normal") };
+        // Without the index's optional lock, which would get in the way of the user's own git commands.
+        String status[] = { S("git"), S("--no-optional-locks"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=normal") };
         String changes = {0};
         if (P_RunCommand(arena, folder, status, CArrayCount(status), 5000, &changes, false)) Prog_ReadGitChanges(arena, at, folder, changes, &result);
         break;
@@ -1943,8 +1977,18 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     if (input->kind == Prog_JobKind_Git) {
         Prog_GitStatus *result = ArenaPushStruct(&job->arena, Prog_GitStatus);
-        *result = Prog_FindGitStatus(&job->arena, input->path, input->fetch);
+        *result = Prog_FindGitStatus(&job->arena, input->path);
         job->result = result;
+        return;
+    }
+    // Fetched or not, as one that failed would only fail again soon; nothing comes of it but the status asked again.
+    // Quitting stops it, unlike a pull or a switch, as the closed program would otherwise go on while the network stalls and save its lists over a later run's.
+    // A fetch holds the repository's locks only in the moment it writes the refs it got.
+    // The upkeep git may run after a fetch, which takes locks of its own, is left to the user's own git commands.
+    if (input->kind == Prog_JobKind_GitFetch) {
+        String quiet[Prog_GitQuietCount], fetching[] = { S("git"), S("fetch"), S("--quiet"), S("--no-auto-gc") }, said = {0};
+        u32 quietCount = Prog__GitQuiet(&job->arena, input->path, true, quiet);
+        P_RunCommandWith(&job->arena, input->path, fetching, CArrayCount(fetching), quiet, quietCount, 120000, &said, true, &job->cancelToken);
         return;
     }
     // The repositories among `names`, with their branches, or with `offset` set how many tracked files each has changed: untracked ones
@@ -1955,7 +1999,7 @@ function void Prog__DirectoryJob(P_Job *job)
             String folder = Prog_JoinPath(&job->arena, input->path, input->names[i]), head = {0};
             if (!Prog__ReadGitHead(&job->arena, folder, &head)) continue;
             Prog_Repo repo = { Prog_GitBranch(head), -1 };
-            String status[] = { S("git"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=no") };
+            String status[] = { S("git"), S("--no-optional-locks"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=no") };
             String changes = {0};
             if (input->offset && P_RunCommand(&job->arena, folder, status, CArrayCount(status), 4000, &changes, false)) {
                 Prog_GitStatus counted = {0};
@@ -1995,13 +2039,15 @@ function void Prog__DirectoryJob(P_Job *job)
     // Switching branch never forces it: git carries changes not committed along, and refuses, changing nothing, where they would be
     // overwritten, which its message then says.
     // A pull only ever moves the branch forward, never merging or rebasing; git refuses, changing nothing, where it cannot.
+    // Quitting waits for either rather than stopping it halfway, which could leave the repository locked or its files half changed.
     if (input->kind == Prog_JobKind_GitSwitch || input->kind == Prog_JobKind_GitPull) {
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         b32 pull = input->kind == Prog_JobKind_GitPull;
         String switching[] = { S("git"), S("switch"), input->name }, pulling[] = { S("git"), S("pull"), S("--ff-only"), S("--quiet") }, said = {0};
-        String quiet[] = Prog__GitQuiet;
-        if (!P_RunCommandWith(&job->arena, input->path, pull ? pulling : switching, pull ? CArrayCount(pulling) : CArrayCount(switching), quiet, CArrayCount(quiet),
-                              pull ? 120000 : 15000, &said, true)) {
+        String quiet[Prog_GitQuietCount];
+        u32 quietCount = Prog__GitQuiet(&job->arena, input->path, pull, quiet);
+        if (!P_RunCommandWith(&job->arena, input->path, pull ? pulling : switching, pull ? CArrayCount(pulling) : CArrayCount(switching), quiet, quietCount,
+                              pull ? 120000 : 15000, &said, true, NULL)) {
             // Its lines and their tabs as one line for the status bar, without git's hints on what to do instead.
             StrBuilder kept = {0};
             for (u64 at = 0; at < said.length;) {
@@ -2050,7 +2096,7 @@ function void Prog__DirectoryJob(P_Job *job)
         b32 model = !input->hex && !input->folder && !input->archive && Prog_ModelMesh(&job->arena, path, input->size, &job->cancelToken, &result->model);
         b32 media = !input->hex && !input->folder && !input->archive, audio = media && Prog_IsAudio(path), video = media && Prog_IsVideo(path);
         f64 seconds = 0;
-        if (audio || video) result->media = Prog_MediaDetails(&job->arena, path, &seconds);
+        if (audio || video) result->media = Prog_MediaDetails(&job->arena, path, &job->cancelToken, &seconds);
         result->seconds = seconds;
         if (input->archive) {
             // Counted up to the same limit as a listing; short of it, that is all there is.
@@ -2075,14 +2121,14 @@ function void Prog__DirectoryJob(P_Job *job)
             result->width = image.width;
             result->height = image.height;
             result->image = true;
-        } else if (audio && !P_IsCancelled(&job->cancelToken) && Prog_MediaWaveform(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+        } else if (audio && !P_IsCancelled(&job->cancelToken) && Prog_MediaWaveform(&job->arena, path, &job->cancelToken, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
             result->width = image.width;
             result->height = image.height;
             result->image = true;
-        } else if (!input->folder && !input->hex && Prog_IsTorrent(path) && (result->text = Prog_TorrentListing(&job->arena, path)).length) {
+        } else if (!input->folder && !input->hex && Prog_IsTorrent(path) && (result->text = Prog_TorrentListing(&job->arena, path, &job->cancelToken)).length) {
             // What the torrent holds, which its bencoded bytes would show as a jumble.
-        } else if (video && !P_IsCancelled(&job->cancelToken) && Prog_MediaFrame(&job->arena, path, seconds, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
+        } else if (video && !P_IsCancelled(&job->cancelToken) && Prog_MediaFrame(&job->arena, path, seconds, &job->cancelToken, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
             result->width = image.width;
             result->height = image.height;
@@ -2435,12 +2481,44 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_Git;
     input->path = StrCopy(&job->arena, folder);
-    // A repository is fetched at most every five minutes, the one last fetched by its folder.
-    String fetched = StrMake(state->gitFetchedRoot, state->gitFetchedLength);
-    b32 inside = fetched.length && folder.length >= fetched.length && StrIsEqual(StrFromTo(folder, 0, (i64)fetched.length), fetched);
-    input->fetch = state->gitFetch && (!inside || state->gitTime - state->gitFetchedTime > UINT64_C(300000000));
     job->input = input;
     state->gitJob = job;
+    P_JobSubmit(job);
+}
+
+// Notes the repository `hash` as fetched now, in its place among those fetched last or in that of the one fetched longest ago.
+// False when it was fetched in the last five minutes, which leaves it as it was.
+function b32 Prog__MarkFetched(Prog_State *state, u64 hash)
+{
+    u32 slot = 0;
+    for (u32 i = 0; i < CArrayCount(state->gitFetched); ++i) {
+        if (state->gitFetched[i].hash == hash) {
+            slot = i;
+            break;
+        }
+        if (state->gitFetched[i].time < state->gitFetched[slot].time) slot = i;
+    }
+    u64 now = PlatformNowMicroseconds();
+    if (state->gitFetched[slot].hash == hash && now - state->gitFetched[slot].time < UINT64_C(300000000)) return false;
+    state->gitFetched[slot].hash = hash, state->gitFetched[slot].time = now;
+    return true;
+}
+
+// Fetches the repository at `root` from its remote in a job, at most every five minutes, after its status shows; one fetch at a time, and none
+// while the same repository is pulled, which would lock the same refs.
+function void Prog__FetchGit(Prog_State *state, String root)
+{
+    if (!state->gitFetch || state->gitFetchJob || !root.length) return;
+    u64 hash = MapHashBytes(root.value, root.length);
+    if ((state->gitPullJob && state->gitPullHash == hash) || !Prog__MarkFetched(state, hash)) return;
+    state->gitFetchHash = hash;
+    P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_GitFetch;
+    input->path = StrCopy(&job->arena, root);
+    job->input = input;
+    state->gitFetchJob = job;
     P_JobSubmit(job);
 }
 
@@ -2523,6 +2601,7 @@ function String Prog_NoticeKindName(Arena *arena, String key)
     if (StrIsEqual(key, S("pull.failed"))) return Tr("Couldn't pull");
     if (StrIsEqual(key, S("undo.nothing"))) return Tr("Nothing to undo or redo");
     if (StrIsEqual(key, S("pasteshortcut.failed"))) return Tr("Paste shortcut failed");
+    if (StrIsEqual(key, S("transfer.busy"))) return Tr("Too many transfers at once");
     Index dot = StrIndexChar(key, '.', SSF_None);
     if (!dot.exists || !StrIsEqual(StrFrom(key, dot.value), S(".failed")) || !dot.value) return key;
     String name = StrFormat(arena, "%S failed", StrFromTo(key, 0, (i64)dot.value));
@@ -2680,11 +2759,20 @@ function void Prog_ToggleBranches(Prog_State *state)
     P_JobSubmit(job);
 }
 
-// Pulls the shown folder's repository's new commits in a job, one at a time.
+// Whether the shown folder's repository can be pulled: no pull is under way, nor a fetch of the same repository.
+function b32 Prog_CanPull(const Prog_State *state)
+{
+    u64 root = MapHashBytes(state->git.root.value, state->git.root.length);
+    return state->git.branch.length && !state->gitPullJob && !(state->gitFetchJob && state->gitFetchHash == root);
+}
+
+// Pulls the shown folder's repository's new commits in a job, one at a time; a pull fetches too, which counts as the repository's fetch.
 function void Prog_GitPull(Prog_State *state)
 {
-    if (state->gitPullJob || !state->git.branch.length) return;
-    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    if (!Prog_CanPull(state)) return;
+    state->gitPullHash = MapHashBytes(state->git.root.value, state->git.root.length);
+    Prog__MarkFetched(state, state->gitPullHash);
+    P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->panel = Prog__PanelId(state);
     input->kind = Prog_JobKind_GitPull;
@@ -3334,6 +3422,14 @@ function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, 
         P_JobsShutdown(&state->jobs);
         ArenaRelease(&state->jobsArena);
         ArenaRelease(&state->thumbnailJobsArena);
+        return false;
+    }
+    if (!P_JobsInit(&state->toolJobs, &state->toolJobsArena, Prog_MaxTransfers + 4, wake, user)) {
+        P_JobsShutdown(&state->thumbnailJobs);
+        P_JobsShutdown(&state->jobs);
+        ArenaRelease(&state->jobsArena);
+        ArenaRelease(&state->thumbnailJobsArena);
+        ArenaRelease(&state->toolJobsArena);
         return false;
     }
     // Settings loaded after replace it with the starred commands.
@@ -5053,13 +5149,21 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             P_JobSubmit(job);
         }
     }
-    for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL;) {
+    u64 fetched = 0, pulled = 0;
+    for (P_Job *job; (job = P_JobTakeCompleted(&state->jobs)) != NULL || (job = P_JobTakeCompleted(&state->thumbnailJobs)) != NULL ||
+                     (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
         b32 windowWide = input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
+        // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
+        // One whose panel is closed then leaves none of them behind.
+        for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job == job) state->transfers[i].job = NULL;
+        if (state->gitPullJob == job) pulled = state->gitPullHash, state->gitPullJob = NULL;
+        if (state->gitFetchJob == job) fetched = state->gitFetchHash, state->gitFetchJob = NULL;
         if (owner == UINT32_MAX) {
+            if (state->branchesJob == job) state->branchesJob = NULL;
             Prog__ReleaseJob(job);
             continue;
         }
@@ -5165,22 +5269,21 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Git) {
             if (state->gitJob == job) state->gitJob = NULL;
             const Prog_GitStatus *status = job->result;
-            // Fetched or not, as one that failed would only fail again soon.
-            if (input->fetch && status && status->root.length && status->root.length <= sizeof(state->gitFetchedRoot)) {
-                MemCopy(state->gitFetchedRoot, status->root.value, status->root.length);
-                state->gitFetchedLength = (u32)status->root.length;
-                state->gitFetchedTime = PlatformNowMicroseconds();
-            }
             if (status && StrIsEqual(input->path, state->directory.path)) {
                 ArenaClear(&state->gitArena);
-                state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .folder = StrCopy(&state->gitArena, input->path), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
+                state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .root = StrCopy(&state->gitArena, status->root),
+                                               .folder = StrCopy(&state->gitArena, input->path), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
                 MemCopy(state->git.counts, status->counts, sizeof(state->git.counts));
                 for (u64 i = 0; i < status->marks.header.count; ++i) {
                     MapsPut(&state->gitArena, state->git.marks, StrCopy(&state->gitArena, status->marks.v[i].key), status->marks.v[i].value);
                 }
+                // A branch without an upstream has no commits to pull to count.
+                if (status->behind >= 0) Prog__FetchGit(state, status->root);
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
+        } else if (input->kind == Prog_JobKind_GitFetch) {
+            // Seen to after the loop, as a pull is; named here so that it is not taken for a listing below.
         } else if (input->kind == Prog_JobKind_GitBranches) {
             if (state->branchesJob == job) {
                 state->branchesJob = NULL;
@@ -5193,10 +5296,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_GitPull) {
-            if (state->gitPullJob == job) state->gitPullJob = NULL;
             const P_FileError *error = job->result;
             if (error && error->code) Prog_Notify(state, Prog_NoticeKind_Error, S("pull.failed"), Tr("Couldn't pull"), error->message);
-            Prog_RequestGitStatus(state, state->directory.path);
             if (!error || !error->code) Prog_Reload(state);
             changed = true;
         } else if (input->kind == Prog_JobKind_GitSwitch) {
@@ -5262,9 +5363,6 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             changed = true;
         } else if (input->kind == Prog_JobKind_Open) {
-            for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
-                if (state->transfers[i].job == job) state->transfers[i].job = NULL;
-            }
             P_FileError *error = job->result;
             if (error && error->code) {
                 Prog_Notify(state, Prog_NoticeKind_Error, S("open.failed"), StrFormat(&state->frameArena, TrF("Couldn't open \"%S\""), Prog__FolderName(input->path)), error->message);
@@ -5299,9 +5397,6 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (binChanged && P_IsTrashFolder(state->directory.path)) Prog_Reload(state);
             if (binChanged || input->kind == Prog_JobKind_Trash || (input->kind == Prog_JobKind_Delete && P_IsTrashFolder(input->path))) {
                 Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
-            }
-            for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
-                if (state->transfers[i].job == job) state->transfers[i].job = NULL;
             }
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
@@ -5751,6 +5846,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         }
         Prog__ReleaseJob(job);
     }
+    // Once a fetch or a pull is done, whether the panel it was for is still open or not, the panels in its repository ask their status again,
+    // to show what came, and another panel's repository is fetched in turn, as none was while it went on.
+    for (u32 panel = 0; (fetched || pulled) && panel < state->panelCount; ++panel) {
+        Prog__UsePanel(state, panel);
+        if (!state->git.branch.length) continue;
+        u64 root = MapHashBytes(state->git.root.value, state->git.root.length);
+        if (root == fetched || root == pulled) Prog_RequestGitStatus(state, state->directory.path);
+        else if (state->git.behind >= 0) Prog__FetchGit(state, state->git.root);
+    }
     Prog__UsePanel(state, state->activePanel);
     return changed;
 }
@@ -5788,10 +5892,8 @@ function void Prog_DownloadTorrentFile(Prog_State *state, String path)
 {
     u64 hash = MapHashBytes(path.value, path.length);
     for (u32 i = 0; i < Prog_MaxTransfers; ++i) if (state->transfers[i].job && state->transfers[i].sourceHash == hash) return;
-    Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, (String){0}, Prog_TransferOp_Torrent);
-    for (u32 i = 0; i < Prog_MaxTransfers; ++i) {
-        if (state->transfers[i].job && state->transfers[i].op == Prog_TransferOp_Torrent && !state->transfers[i].sourceHash) state->transfers[i].sourceHash = hash;
-    }
+    Prog_Transfer *transfer = Prog__FileJobOp(state, Prog_JobKind_Transfer, &path, 1, Prog_ParentPath(path), false, (String){0}, Prog_TransferOp_Torrent);
+    if (transfer) transfer->sourceHash = hash;
 }
 
 function void Prog_OpenFile(Prog_State *state, String path)
@@ -5854,6 +5956,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->menuArena);
     P_DirectoryWatchStop(&state->configWatch);
     ArenaRelease(&state->configWatch.arena);
+    P_JobsShutdown(&state->toolJobs);
     P_JobsShutdown(&state->thumbnailJobs);
     P_JobsShutdown(&state->jobs);
     // Shutting down drops saves still waiting in the queue, and the workers are done, so the lists are written once more here.
@@ -5874,6 +5977,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->folderPictureArena);
     ArenaRelease(&state->jobsArena);
     ArenaRelease(&state->thumbnailJobsArena);
+    ArenaRelease(&state->toolJobsArena);
     ArenaRelease(&state->thumbnailWaitArena);
     ArenaRelease(&state->warmArena);
     ArenaRelease(&state->closedArena);

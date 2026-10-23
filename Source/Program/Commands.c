@@ -763,7 +763,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_Duplicate: return item && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_CompressZip: case Prog_CommandKind_Compress7z: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_CompressVideo: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
-        case Prog_CommandKind_GitPull: return state->git.branch.length && !state->gitPullJob;
+        case Prog_CommandKind_GitPull: return Prog_CanPull(state);
         case Prog_CommandKind_DownloadTorrent: return item && !P_IsTrashFolder(state->directory.path) && !state->directory.archive;
         case Prog_CommandKind_ExtractHere: case Prog_CommandKind_ExtractToFolder:
             return focused && !state->directory.archive && Prog_IsArchiveName(state->directory.entries[state->focusedRow].file.name);
@@ -1484,7 +1484,7 @@ function void Prog__StartPlayer(Prog_State *state, String path, u64 start)
     P_Progress *progress = &state->playerProgress[state->playerSlot];
     *progress = (P_Progress){0};
     atomic_store(&progress->doneBytes, start);
-    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Play;
     input->path = StrCopy(&job->arena, path);
@@ -2176,10 +2176,19 @@ function void Prog__ScaleImage(Prog_State *state, b32 up)
     state->imageScaleMode = Prog_ImageScale_Custom;
 }
 
-function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op)
+// The transfer slot the job took, NULL without one.
+// One that runs a program for minutes or hours, a download or a compression, needs a slot, whose card can pause and stop it, and is not started without one.
+function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op)
 {
-    if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return;
-    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    if (!directory.length || (kind != Prog_JobKind_Create && kind != Prog_JobKind_Restore && !count)) return NULL;
+    b32 tool = op == Prog_TransferOp_CompressVideo || op == Prog_TransferOp_Download || op == Prog_TransferOp_Torrent;
+    Prog_Transfer *transfer = NULL;
+    for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers && !transfer; ++i) if (!state->transfers[i].job) transfer = &state->transfers[i];
+    if (tool && !transfer) {
+        Prog_Notify(state, Prog_NoticeKind_Warning, S("transfer.busy"), Tr("Too many transfers at once"), Tr("Wait for one of them to finish, or stop one."));
+        return NULL;
+    }
+    P_Job *job = P_JobCreate(tool ? &state->toolJobs : &state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->panel = Prog__PanelId(state);
     input->kind = (u8)kind;
@@ -2197,18 +2206,16 @@ function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String
     input->confirm = (kind == Prog_JobKind_EmptyTrash || kind == Prog_JobKind_Delete) && flag;
     input->name = StrCopy(&job->arena, name);
     // A copy or move takes a free slot for its progress and questions; without one, taken names get numbers.
-    for (u32 i = 0; kind == Prog_JobKind_Transfer && i < Prog_MaxTransfers; ++i) {
-        Prog_Transfer *transfer = &state->transfers[i];
-        if (transfer->job) continue;
+    if (transfer) {
         String target = Prog_EntryLeaf(directory);
         *transfer = (Prog_Transfer){ .job = job, .move = input->move, .op = (u8)op, .started = PlatformNowMicroseconds(), .targetLength = (u32)Min(target.length, sizeof(transfer->target)) };
         MemCopy(transfer->target, target.value, transfer->targetLength);
         atomic_store(&transfer->progress.policy, P_Conflict_Ask);
         input->progress = &transfer->progress;
-        break;
     }
     job->input = input;
     P_JobSubmit(job);
+    return transfer;
 }
 
 function void Prog__FileJob(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name)
@@ -2492,7 +2499,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             // A web address pasted without files is downloaded into the folder.
             String url = Prog__TrimSpaces(PlatformClipboardGetText(frame));
             if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
-            else if (Prog_IsTorrent(url) && (Prog_IsWebUrl(url) || url.value[0] == 'm' || url.value[0] == 'M') && !state->directory.archive && !P_IsTrashFolder(state->directory.path) &&
+            else if (Prog_IsTorrent(url) && (Prog_IsWebUrl(url) || Prog_IsMagnet(url)) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) &&
                      !StrIsEqual(state->directory.path, Prog_ThisPC)) {
                 // A magnet link or a .torrent's web address, which aria2c downloads.
                 Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Torrent);

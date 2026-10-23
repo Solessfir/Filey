@@ -258,6 +258,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_GitBranches,  // the local branches of the repository at `path`
     Prog_JobKind_GitSwitch,    // `git switch name` in `path`
     Prog_JobKind_GitPull,      // `git pull --ff-only` in `path`
+    Prog_JobKind_GitFetch,     // `git fetch` in the repository `path`
     Prog_JobKind_FilesList,
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
@@ -434,7 +435,6 @@ typedef struct Prog_JobInput {
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
     b32 redo;              // Undo: the step came from the redo stack
-    b32 fetch;             // Git: fetches from the remote first
     // Index lists `paths`, the index entries `entries`, keeps at most `room` of what it finds and adds that to the file `name` when there is one,
     // emptied first with `paths` as its roots when `restart` is set. IndexLoad reads the index file `name`; IndexFinish moves `path` over `name`.
     u32 *entries;
@@ -1262,6 +1262,10 @@ typedef struct Prog_State {
     // never wait behind them.
     Arena thumbnailJobsArena;
     P_JobQueue thumbnailJobs;
+    // The programs run for minutes or hours, the audio player, downloads, video compression and git's fetches and pulls, have workers of their own too:
+    // one for each transfer slot, two players, as one stopped may still be ending, and a fetch and a pull of two repositories.
+    Arena toolJobsArena;
+    P_JobQueue toolJobs;
     Prog_Command *commandFirst;
     Prog_Command *commandLast;
     // The current panel's fields; see Prog_TabFields and Prog_PanelFields.
@@ -1493,13 +1497,15 @@ typedef struct Prog_State {
     // While several items are selected, the rows show boxes that check them in place of their icons.
     b32 showCheckboxes;
     b32 noTrashConfirm;       // emptying the Recycle Bin or the Trash does not ask first
-    // git.fetch: the shown folder's repository is fetched from its remote now and then, which keeps the commits to pull counted; the last one
-    // fetched and when, so that each is fetched at most every few minutes.
+    // git.fetch: the shown folder's repository is fetched from its remote now and then, which keeps the commits to pull counted.
+    // The last ones fetched, by the hash of their folder, and when, so that each is fetched at most every few minutes.
     b32 gitFetch;
-    char gitFetchedRoot[1024];
-    u32 gitFetchedLength;
-    u64 gitFetchedTime;
+    // ponytail: the last few repositories only; one pushed out of them is fetched again on its next visit.
+    struct { u64 hash, time; } gitFetched[8];
+    P_Job *gitFetchJob;
+    u64 gitFetchHash;         // the hash of the folder of the repository being fetched
     P_Job *gitPullJob;
+    u64 gitPullHash;          // and of the one being pulled
     b32 separateInstances;    // each run of the program opens a window of its own, rather than a tab in the one already open
     b32 separateWindow;       // started as a window of its own beside that one, which keeps the session
     b32 tabDropOther;         // a dragged tab is over another of the program's windows, which letting go hands it to
@@ -1820,23 +1826,24 @@ function b32 Prog_LoadBlp(Arena *arena, String path, i32 maxSide, P_Image *out, 
 function b32 Prog_IsOffice(String path);
 function String Prog_OfficeText(Arena *arena, String path, u64 size);
 // An audio or video file by its extension, the details ffprobe reads of it with its length in seconds, an audio file's waveform and a video's frame
-// from ffmpeg; nothing without the tools.
+// from ffmpeg; nothing without the tools, or once `cancel` is set.
 function b32 Prog_IsAudio(String path);
 function b32 Prog_IsVideo(String path);
-function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds);
-function b32 Prog_MediaWaveform(Arena *arena, String path, i32 side, P_Image *image, i32 *width, i32 *height);
-function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, i32 side, P_Image *image, i32 *width, i32 *height);
-function u64 Prog_MediaLength(Arena *arena, String path);
+function String Prog_MediaDetails(Arena *arena, String path, const P_CancelToken *cancel, f64 *seconds);
+function b32 Prog_MediaWaveform(Arena *arena, String path, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height);
+function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height);
+function u64 Prog_MediaLength(Arena *arena, String path, const P_CancelToken *cancel);
 function b32 Prog_IsWebUrl(String text);
+function b32 Prog_IsMagnet(String text);
 function b32 Prog_IsTorrent(String text);
 function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
-function String Prog_TorrentListing(Arena *arena, String path);
+function String Prog_TorrentListing(Arena *arena, String path, const P_CancelToken *cancel);
 function void Prog_DownloadTorrentFile(Prog_State *state, String path);
 function void Prog_GitPull(Prog_State *state);
 function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel);
-function void Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
+function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
-function P_FileError Prog_CompressVideo(Arena *arena, String path, String output, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel);
+function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);
 function String Prog_FormatSize(Arena *arena, u64 bytes);

@@ -482,6 +482,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             f64 fps = Prog__MediaNumber(Prog__MediaField(line, S("avg_frame_rate")));
             Check(fps > 29.96 && fps < 29.98 && Prog__MediaNumber(S("5.250000")) == 5.25 && Prog__MediaNumber(S("0/0")) == 0);
             Check(Prog_IsAudio(S("a/Song.FLAC")) && Prog_IsVideo(S("clip.mkv")) && !Prog_IsAudio(S("clip.mkv")) && !Prog_IsVideo(S("notes")));
+            Check(!Prog_IsVideo(S("src/index.ts")) && Prog_IsVideo(S("00001.MTS")) && !Prog_IsAudio(S("board.dts")));
             // ffmpeg's -progress lines, however they are cut, move a compression's milliseconds on after those of the videos before, and
             // a line of its own is its message.
             P_Progress progress = {0};
@@ -507,6 +508,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(StrIsEqual(Prog__TransferName(&quiet.frameArena, &seeded), S("bbb \u00B7 31 peers \u00B7 22 MB/s \u00B7 1:10")));
             Check(StrIsEqual(StrMake(torrent.done, torrent.doneLength), S("C:/t/Big Buck Bunny")) && StrIsEqual(StrMake(torrent.message, torrent.messageLength), S("Bad")));
             Check(Prog_IsTorrent(S("magnet:?xt=urn:btih:dd82")) && Prog_IsTorrent(S("C:/a/b.TORRENT")) && !Prog_IsTorrent(S("b.torrent.txt")));
+            Check(Prog_IsMagnet(S("Magnet:?xt=urn:btih:dd82")) && !Prog_IsMagnet(S("movie.torrent")) && !Prog_IsMagnet(S("magnet")));
             // ffplay's -stats line, rewritten in place, counts the milliseconds played; its "nan" before the clock starts counts nothing.
             P_Progress played = {0};
             Prog__Player player = { .progress = &played };
@@ -1085,13 +1087,20 @@ function void TestFileIcons(TestFileFixture *fixture)
     String made = {0};
     Check(!P_CreateItem(&arena, fixture->path, S(".git"), true, &made).code);
     Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, Prog_JoinPath(&arena, fixture->path, S(".git")), S("HEAD")), S("ref: refs/heads/topic\n")).code);
-    Prog_GitStatus git = Prog_FindGitStatus(&arena, Prog_JoinPath(&arena, fixture->path, S("Folder2")), false);
+    Prog_GitStatus git = Prog_FindGitStatus(&arena, Prog_JoinPath(&arena, fixture->path, S("Folder2")));
     Check(StrIsEqual(git.branch, S("topic")) && git.ahead == -1 && git.behind == -1 && StrIsEqual(git.root, fixture->path));
     // A command's own environment reaches it, over the program's, as git's quieting does; git var prints the editor it was given.
     {
         String editor[] = { S("GIT_EDITOR=filey-test-editor") }, asked[] = { S("git"), S("var"), S("GIT_EDITOR") }, said = {0};
-        Check(P_RunCommandWith(&arena, fixture->path, asked, CArrayCount(asked), editor, CArrayCount(editor), 10000, &said, false));
+        Check(P_RunCommandWith(&arena, fixture->path, asked, CArrayCount(asked), editor, CArrayCount(editor), 10000, &said, false, NULL));
         Check(StrIndexStr(said, S("filey-test-editor"), SSF_None).exists);
+        // Git runs without asking: ssh in BatchMode, unless a program of the user's own takes no ssh options.
+        String quiet[Prog_GitQuietCount], batch = S(" -o BatchMode=yes");
+        Check(Prog__GitQuiet(&arena, fixture->path, false, quiet) == 3 && StrIsEqual(quiet[2], S("GIT_ASKPASS=")));
+        u32 quietCount = Prog__GitQuiet(&arena, fixture->path, true, quiet);
+        Check(quietCount >= 3 && StrIsEqual(quiet[0], S("GIT_TERMINAL_PROMPT=0")));
+        Check(quietCount == 3 || (quiet[3].length > batch.length && StrIsEqual(StrFrom(quiet[3], quiet[3].length - batch.length), batch)));
+        Check(P_EnvironmentValue(&arena, S("PATH")).length && !P_EnvironmentValue(&arena, S("FILEY_TEST_UNSET_VARIABLE")).length);
     }
     Check(P__TestRemovePath(fixture, S(".git/HEAD"), false) && P__TestRemovePath(fixture, S(".git"), true));
     String part = {0};
@@ -1591,6 +1600,32 @@ function void TestFilesPopup(TestFileFixture *fixture)
     ArenaRelease(&arena);
     Check(P__TestRemovePath(fixture, S("Drop/Inner/deep.txt"), false) && P__TestRemovePath(fixture, S("Drop/Inner"), true) && P__TestRemovePath(fixture, S("Drop/Other"), true));
     Check(P__TestRemovePath(fixture, S("Drop/zeta.txt"), false) && P__TestRemovePath(fixture, S("Drop"), true));
+}
+
+// git.fetch fetches a repository at most every few minutes and one at a time, in folders that are not there, where git cannot even start.
+// The panel shows This PC, in no repository, so that no real one around the fixture is fetched after.
+function void TestGitFetchLimit(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, Prog_ThisPC, NULL, NULL) && state.jobs.initialized);
+    Arena arena = {0};
+    String first = Prog_JoinPath(&arena, fixture->path, S("No repository")), second = Prog_JoinPath(&arena, fixture->path, S("No other repository"));
+    Prog__FetchGit(&state, first);
+    Check(!state.gitFetchJob);
+    state.gitFetch = true;
+    Prog__FetchGit(&state, first);
+    P_Job *fetching = state.gitFetchJob;
+    Prog__FetchGit(&state, second);
+    Check(fetching && state.gitFetchJob == fetching);
+    for (u64 start = PlatformNowMicroseconds(); state.gitFetchJob && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    Check(!state.gitFetchJob);
+    Prog__FetchGit(&state, first);
+    Check(!state.gitFetchJob);
+    Prog__FetchGit(&state, second);
+    Check(state.gitFetchJob != NULL);
+    for (u64 start = PlatformNowMicroseconds(); state.gitFetchJob && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) Prog_TakeCompletions(&state);
+    ArenaRelease(&arena);
+    Prog_Release(&state);
 }
 
 // The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
@@ -3543,6 +3578,7 @@ function void TestBrowsing(void)
         TestRename(&fixture);
         TestFilter(&fixture);
         TestQuickAccessFilter(&fixture);
+        TestGitFetchLimit(&fixture);
     TestPasteLinkAndQuick(&fixture);
         TestEvenPanels(&fixture);
         TestContainingPath(&fixture);

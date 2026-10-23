@@ -783,19 +783,38 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
     return result;
 }
 
-// The programs a command runs are kept in a job object that closes with them, so that stopping one stops what it started too, as yt-dlp's
-// ffmpeg. ntdll's NtSuspendProcess pauses them, which no documented call does for a whole process.
+typedef LONG (WINAPI *P__SuspendCall)(HANDLE);
+
+// Pauses or resumes every process in `group`, or `process` alone without one; yt-dlp, for one, downloads in a process it starts.
+// ntdll's NtSuspendProcess does it, which no documented call does for a whole process.
+function void P__PauseCommand(HANDLE group, HANDLE process, b32 pause)
+{
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    P__SuspendCall call = ntdll ? (P__SuspendCall)(void *)GetProcAddress(ntdll, pause ? "NtSuspendProcess" : "NtResumeProcess") : NULL;
+    if (!call) return;
+    u64 storage[2 + 64];
+    JOBOBJECT_BASIC_PROCESS_ID_LIST *list = (JOBOBJECT_BASIC_PROCESS_ID_LIST *)storage;
+    // Past the 64 that fit, the list is cut short but filled.
+    if (!group || (!QueryInformationJobObject(group, JobObjectBasicProcessIdList, list, sizeof(storage), NULL) && GetLastError() != ERROR_MORE_DATA)) {
+        call(process);
+        return;
+    }
+    for (u32 i = 0; i < list->NumberOfProcessIdsInList; ++i) {
+        HANDLE each = OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)list->ProcessIdList[i]);
+        // One gone since the list was taken may have left its number to another program.
+        BOOL inside = FALSE;
+        if (each && IsProcessInJob(each, group, &inside) && inside) call(each);
+        if (each) CloseHandle(each);
+    }
+}
+
+// The programs a command runs are kept in a job object, so that pausing or stopping it does the same to what it started, as yt-dlp's ffmpeg.
+// With `together` they also end when it does, or when Filey does.
+// Without, as for git's status, helpers such as its file system monitor outlive a command that finished.
 function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount, b32 errors,
-                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress)
+                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress, b32 together)
 {
     if (!count) return false;
-    typedef LONG (WINAPI *SuspendCall)(HANDLE);
-    local_persist SuspendCall suspend, resume;
-    if (!suspend) {
-        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-        suspend = ntdll ? (SuspendCall)(void *)GetProcAddress(ntdll, "NtSuspendProcess") : NULL;
-        resume = ntdll ? (SuspendCall)(void *)GetProcAddress(ntdll, "NtResumeProcess") : NULL;
-    }
     Scratch scratch = GetScratchEx(conflict);
     // The command line quotes the arguments that hold spaces, as the C runtime splits it again; these never hold quotes.
     StrBuilder line = {0};
@@ -837,7 +856,7 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
     SECURITY_ATTRIBUTES inherit = { .nLength = sizeof(inherit), .bInheritHandle = TRUE };
     HANDLE readEnd = NULL, writeEnd = NULL;
     HANDLE group = CreateJobObjectW(NULL, NULL);
-    if (group) {
+    if (group && together) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = { .BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE };
         SetInformationJobObject(group, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
     }
@@ -849,7 +868,8 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
         b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, block, folder, &startup, &process) != 0;
         CloseHandle(writeEnd);
         if (started) {
-            if (group) AssignProcessToJobObject(group, process.hProcess);
+            // Where it cannot join one, as inside a job that takes no others, the command alone is paused and stopped.
+            if (group && !AssignProcessToJobObject(group, process.hProcess)) CloseHandle(group), group = NULL;
             ResumeThread(process.hThread);
             CloseHandle(process.hThread);
             u64 began = GetTickCount64();
@@ -860,8 +880,8 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
                     break;
                 }
                 b32 pause = progress && atomic_load(&progress->paused);
-                if (pause != suspended && suspend && resume) {
-                    (pause ? suspend : resume)(process.hProcess);
+                if (pause != suspended) {
+                    P__PauseCommand(group, process.hProcess, pause);
                     suspended = pause;
                 }
                 DWORD waiting = 0;
@@ -879,7 +899,7 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
                 }
             }
             DWORD code = 1;
-            if (suspended && resume) resume(process.hProcess);
+            if (suspended) P__PauseCommand(group, process.hProcess, false);
             if (stopped) {
                 if (group) TerminateJobObject(group, 1);
                 else TerminateProcess(process.hProcess, 1);
@@ -907,24 +927,43 @@ function void P__CollectOutput(void *user, String text)
     StrBuildStr(collected->arena, &collected->text, text);
 }
 
-function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
-                              u32 timeoutMilliseconds, String *output, b32 errors)
+function b32 P__RunCollected(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
+                             u32 timeoutMilliseconds, String *output, b32 errors, const P_CancelToken *cancel, b32 together)
 {
     P__CommandText collected = { .arena = arena };
-    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
+    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL,
+                               together);
     *output = collected.text.buffer;
     return result;
 }
 
+function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
+                              u32 timeoutMilliseconds, String *output, b32 errors, const P_CancelToken *cancel)
+{
+    return P__RunCollected(arena, directory, arguments, count, environment, environmentCount, timeoutMilliseconds, output, errors, cancel, true);
+}
+
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
 {
-    return P_RunCommandWith(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors);
+    return P__RunCollected(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors, NULL, false);
 }
 
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
                                 P_Progress *progress)
 {
-    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress);
+    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress, true);
+}
+
+function String P_EnvironmentValue(Arena *arena, String name)
+{
+    Scratch scratch = GetScratchEx(arena);
+    wchar *wide = P__FilePathWide(scratch.arena, name);
+    u32 room = wide ? GetEnvironmentVariableW(wide, NULL, 0) : 0;
+    wchar *value = ArenaPushArray(scratch.arena, (u64)room + 1, wchar);
+    u32 length = room ? GetEnvironmentVariableW(wide, value, room) : 0;
+    String result = length && length < room ? P__FileStringWide(arena, value, (i32)length) : (String){0};
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function b32 P_IsDirectory(String path)

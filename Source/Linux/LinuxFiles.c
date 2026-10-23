@@ -1975,17 +1975,27 @@ function void P__CollectOutput(void *user, String text)
 }
 
 function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
-                              u32 timeoutMilliseconds, String *output, b32 errors)
+                              u32 timeoutMilliseconds, String *output, b32 errors, const P_CancelToken *cancel)
 {
     P__CommandText collected = { .arena = arena };
-    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, NULL, NULL);
+    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL);
     *output = collected.text.buffer;
     return result;
 }
 
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
 {
-    return P_RunCommandWith(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors);
+    return P_RunCommandWith(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors, NULL);
+}
+
+function String P_EnvironmentValue(Arena *arena, String name)
+{
+    Scratch scratch = GetScratchEx(arena);
+    char *native = P__FilePathCString(scratch.arena, name);
+    const char *value = native ? getenv(native) : NULL;
+    String result = value ? StrCopy(arena, StrFromCStr(value)) : (String){0};
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,

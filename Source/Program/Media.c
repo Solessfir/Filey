@@ -11,16 +11,17 @@ function b32 Prog__HasExtension(String path, const String *extensions, u32 count
     return false;
 }
 
+// TypeScript's .ts and device trees' .dts are left out, which are more often those than media; camcorders' .mts stays, rarer as TypeScript.
 function b32 Prog_IsAudio(String path)
 {
     const String extensions[] = { S("mp3"), S("flac"), S("wav"), S("ogg"), S("oga"), S("opus"), S("m4a"), S("aac"), S("wma"), S("aif"), S("aiff"), S("ape"),
-                                  S("wv"), S("mka"), S("ac3"), S("dts") };
+                                  S("wv"), S("mka"), S("ac3") };
     return Prog__HasExtension(path, extensions, CArrayCount(extensions));
 }
 
 function b32 Prog_IsVideo(String path)
 {
-    const String extensions[] = { S("mp4"), S("mkv"), S("mov"), S("avi"), S("webm"), S("wmv"), S("flv"), S("m4v"), S("mpg"), S("mpeg"), S("ts"), S("m2ts"),
+    const String extensions[] = { S("mp4"), S("mkv"), S("mov"), S("avi"), S("webm"), S("wmv"), S("flv"), S("m4v"), S("mpg"), S("mpeg"), S("m2ts"),
                                   S("mts"), S("3gp"), S("ogv") };
     return Prog__HasExtension(path, extensions, CArrayCount(extensions));
 }
@@ -56,7 +57,7 @@ function String Prog__MediaField(String line, String key)
 
 // The details ffprobe reads of the media file at `path`, a "label\tvalue" line each, with the labels in English, translated where shown;
 // empty when ffprobe is not there or reads nothing.
-function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds)
+function String Prog_MediaDetails(Arena *arena, String path, const P_CancelToken *cancel, f64 *seconds)
 {
     *seconds = 0;
     Scratch scratch = GetScratchEx(arena);
@@ -64,7 +65,7 @@ function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds)
                            S("format=duration,bit_rate:stream=codec_type,codec_name,width,height,avg_frame_rate,sample_rate,channels"), S("-of"), S("compact=p=0"), path };
     String output = {0};
     StrBuilder text = {0};
-    if (P_RunCommand(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), 10000, &output, false)) {
+    if (P_RunCommandWith(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) {
         ArrayStr lines = StrSplit(scratch.arena, output, '\n');
         f64 duration = 0, bitrate = 0;
         b32 video = false, audio = false;
@@ -103,7 +104,9 @@ function String Prog_MediaDetails(Arena *arena, String path, f64 *seconds)
 
 // A picture ffmpeg draws of the media file at `path` with `filter`, before the input with `before` (such as a time to seek to), into `image`;
 // false without ffmpeg. Drawn once a run for each file and kind, into the run's folder.
-function b32 Prog__MediaPicture(Arena *arena, String path, String kind, String before, String filter, i32 side, P_Image *image, i32 *width, i32 *height)
+// It is drawn under a name of its own first, so that one stopped halfway leaves no part of a picture to be taken for the whole.
+function b32 Prog__MediaPicture(Arena *arena, String path, String kind, String before, String filter, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width,
+                                i32 *height)
 {
     Scratch scratch = GetScratchEx(arena);
     String folder = P_RunFolder(scratch.arena);
@@ -115,9 +118,17 @@ function b32 Prog__MediaPicture(Arena *arena, String path, String kind, String b
         arguments[count++] = S("ffmpeg"), arguments[count++] = S("-v"), arguments[count++] = S("error"), arguments[count++] = S("-y");
         if (before.length) arguments[count++] = S("-ss"), arguments[count++] = before;
         arguments[count++] = S("-i"), arguments[count++] = path, arguments[count++] = S("-lavfi"), arguments[count++] = filter;
-        arguments[count++] = S("-frames:v"), arguments[count++] = S("1"), arguments[count++] = picture;
+        local_persist atomic_uint drawings;
+        String drawing = StrFormat(scratch.arena, "%S-%u.png", StrFromTo(picture, 0, (i64)picture.length - 4), atomic_fetch_add(&drawings, 1));
+        arguments[count++] = S("-frames:v"), arguments[count++] = S("1"), arguments[count++] = drawing;
         String output = {0};
-        b32 drawn = P_PathExists(picture) || P_RunCommand(scratch.arena, folder, arguments, count, 60000, &output, true);
+        b32 drawn = P_PathExists(picture);
+        if (!drawn) {
+            if (P_RunCommandWith(scratch.arena, folder, arguments, count, NULL, 0, 60000, &output, true, cancel)) P_ReplaceFile(scratch.arena, drawing, picture);
+            if (P_PathExists(drawing)) P_DeleteItems(scratch.arena, &drawing, 1, false, NULL);
+            // Another job's drawing of the same file may have been moved there meanwhile.
+            drawn = P_PathExists(picture);
+        }
         result = drawn && P_LoadImageFile(arena, picture, side, image, width, height);
     }
     ReleaseScratch(scratch);
@@ -125,17 +136,18 @@ function b32 Prog__MediaPicture(Arena *arena, String path, String kind, String b
 }
 
 // An audio file's waveform, both channels in one, its louder parts drawn taller on a clear ground.
-function b32 Prog_MediaWaveform(Arena *arena, String path, i32 side, P_Image *image, i32 *width, i32 *height)
+function b32 Prog_MediaWaveform(Arena *arena, String path, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height)
 {
-    return Prog__MediaPicture(arena, path, S("wave"), (String){0}, S("showwavespic=s=1600x400:colors=0x4FA3E0:split_channels=0:scale=sqrt"), side, image, width, height);
+    return Prog__MediaPicture(arena, path, S("wave"), (String){0}, S("showwavespic=s=1600x400:colors=0x4FA3E0:split_channels=0:scale=sqrt"), cancel, side, image, width,
+                              height);
 }
 
 // A video's frame a tenth of the way in, or its first in one too short to tell, for one the system has no picture of.
-function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, i32 side, P_Image *image, i32 *width, i32 *height)
+function b32 Prog_MediaFrame(Arena *arena, String path, f64 duration, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height)
 {
     Scratch scratch = GetScratchEx(arena);
     String at = StrFormat(scratch.arena, "%.2f", duration * 0.1);
-    b32 result = Prog__MediaPicture(arena, path, S("frame"), at, S("scale='min(1600,iw)':-2"), side, image, width, height);
+    b32 result = Prog__MediaPicture(arena, path, S("frame"), at, S("scale='min(1600,iw)':-2"), cancel, side, image, width, height);
     ReleaseScratch(scratch);
     return result;
 }
@@ -157,8 +169,8 @@ global const char *const Prog_EncoderNames[3][Prog_Encoder_Count] = {
 };
 
 // The first encoder for `codec` that encodes here, found by encoding a moment of a plain picture with each, since FFmpeg lists the cards'
-// encoders whether or not such a card is in the machine. Found once a run, on whichever thread asks first.
-function Prog_Encoder Prog_VideoEncoder(u32 codec)
+// encoders whether or not such a card is in the machine. Found once a run, on whichever thread asks first; one stopped by `cancel` is not kept.
+function Prog_Encoder Prog_VideoEncoder(u32 codec, const P_CancelToken *cancel)
 {
     local_persist atomic_uint found[3];
     codec = Min(codec, 2u);
@@ -166,28 +178,40 @@ function Prog_Encoder Prog_VideoEncoder(u32 codec)
     if (known) return (Prog_Encoder)(known - 1);
     Prog_Encoder result = Prog_Encoder_Software;
     Scratch scratch = GetScratch();
-    for (u32 e = 0; e < Prog_Encoder_Software; ++e) {
+    for (u32 e = 0; e < Prog_Encoder_Software && !P_IsCancelled(cancel); ++e) {
         String arguments[] = { S("ffmpeg"), S("-v"), S("error"), S("-f"), S("lavfi"), S("-i"), S("color=s=256x256:d=0.1"), S("-frames:v"), S("1"), S("-c:v"),
                                StrFromCStr(Prog_EncoderNames[codec][e]), S("-f"), S("null"), S("-") };
         String output = {0};
-        if (P_RunCommand(scratch.arena, P_RunFolder(scratch.arena), arguments, CArrayCount(arguments), 20000, &output, true)) {
+        if (P_RunCommandWith(scratch.arena, P_RunFolder(scratch.arena), arguments, CArrayCount(arguments), NULL, 0, 20000, &output, true, cancel)) {
             result = (Prog_Encoder)e;
             break;
         }
     }
     ReleaseScratch(scratch);
-    atomic_store(&found[codec], (u32)result + 1);
+    if (!P_IsCancelled(cancel)) atomic_store(&found[codec], (u32)result + 1);
     return result;
 }
 
-// The first audio track's codec of the media file at `path`, empty for none.
-function String Prog__MediaAudioCodec(Arena *arena, String path)
+// Whether MP4 holds every audio track of the media file at `path` as it is, which a file without any does too.
+function b32 Prog__AudioFitsMp4(Arena *arena, String path, const P_CancelToken *cancel)
 {
-    String arguments[] = { S("ffprobe"), S("-v"), S("error"), S("-select_streams"), S("a:0"), S("-show_entries"), S("stream=codec_name"), S("-of"), S("csv=p=0"), path };
+    String arguments[] = { S("ffprobe"), S("-v"), S("error"), S("-select_streams"), S("a"), S("-show_entries"), S("stream=index,codec_name"), S("-of"), S("csv=p=0"), path };
     String output = {0};
-    if (!P_RunCommand(arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), 10000, &output, false)) return (String){0};
-    while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == '\r')) --output.length;
-    return output;
+    if (!P_RunCommandWith(arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) return false;
+    const String copied[] = { S("aac"), S("mp3"), S("opus"), S("ac3"), S("eac3"), S("flac"), S("alac") };
+    ArrayStr lines = StrSplit(arena, output, '\n');
+    for (u64 i = 0; i < lines.header.count; ++i) {
+        // "1,aac", a track's index and codec; one ffprobe does not know has no codec, and does not fit.
+        String line = lines.v[i];
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (!line.length) continue;
+        Index comma = StrIndexChar(line, ',', SSF_None);
+        String codec = comma.exists ? StrFrom(line, comma.value + 1) : (String){0};
+        b32 fits = false;
+        for (u32 c = 0; c < CArrayCount(copied); ++c) fits |= StrIsEqual(codec, copied[c]);
+        if (!fits) return false;
+    }
+    return true;
 }
 
 // What ffmpeg's -progress lines and messages say as they come: how far it is, at what speed, and the last message, for an error.
@@ -235,19 +259,28 @@ function void Prog__EncodingOutput(void *user, String text)
     }
 }
 
-// Encodes the video at `path` again into the MP4 file `output` with `codec` (HEVC, H.264 or AV1) at the constant quality `quality`, 0 best
-// to 51, on the graphics card when one has an encoder for it. Every audio track goes along, copied when MP4 holds it as it is and AAC
-// otherwise; subtitles stay behind, as MP4 holds few kinds. `progress` counts the video's milliseconds after `base`; a cancel or a failure
-// leaves no output.
-function P_FileError Prog_CompressVideo(Arena *arena, String path, String output, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel)
+// Encodes the video at `path` again into an MP4 file beside it, "<name> (compressed).mp4" or numbered past one taken, whose path goes into `placed`.
+// It encodes with `codec` (HEVC, H.264 or AV1) at the constant quality `quality`, 0 best to 51, on the graphics card when one has an encoder for it.
+// Every audio track goes along, copied when MP4 holds it as it is and AAC otherwise; subtitles stay behind, as MP4 holds few kinds.
+// `progress` counts the video's milliseconds after `base`; a cancel or a failure leaves no output.
+function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *placed)
 {
     Scratch scratch = GetScratchEx(arena);
     codec = Min(codec, 2u);
-    Prog_Encoder encoder = Prog_VideoEncoder(codec);
-    String audio = Prog__MediaAudioCodec(scratch.arena, path);
-    const String copied[] = { S("aac"), S("mp3"), S("opus"), S("ac3"), S("eac3"), S("flac"), S("alac") };
-    b32 copy = false;
-    for (u32 i = 0; i < CArrayCount(copied); ++i) copy |= StrIsEqual(audio, copied[i]);
+    Prog_Encoder encoder = Prog_VideoEncoder(codec, cancel);
+    b32 copy = Prog__AudioFitsMp4(scratch.arena, path, cancel);
+    if (P_IsCancelled(cancel)) {
+        ReleaseScratch(scratch);
+        return (P_FileError){ .code = 1 };
+    }
+    // The name is taken by an empty file just before ffmpeg starts, which another compression of the same video then numbers past.
+    String folder = Prog_ParentPath(path), made = {0};
+    P_FileError taken = P_CreateItem(arena, folder, StrFormat(scratch.arena, "%S (compressed).mp4", Prog__NameStem(Prog_EntryLeaf(path))), false, &made);
+    if (taken.code) {
+        ReleaseScratch(scratch);
+        return taken;
+    }
+    String output = Prog_JoinPath(arena, folder, made);
     String q = StrFormat(scratch.arena, "%u", quality);
     String arguments[48];
     u32 count = 0;
@@ -284,17 +317,19 @@ function P_FileError Prog_CompressVideo(Arena *arena, String path, String output
         String message = encoding.messageLength ? StrCopy(arena, StrMake(encoding.message, encoding.messageLength)) : TrMark("FFmpeg is not installed, or could not read the video");
         result = (P_FileError){ .code = 1, .message = message };
     }
+    *placed = output;
     ReleaseScratch(scratch);
     return result;
 }
 
 // The length of the media file at `path` in milliseconds, 0 when ffprobe does not tell.
-function u64 Prog_MediaLength(Arena *arena, String path)
+function u64 Prog_MediaLength(Arena *arena, String path, const P_CancelToken *cancel)
 {
     String arguments[] = { S("ffprobe"), S("-v"), S("error"), S("-show_entries"), S("format=duration"), S("-of"), S("csv=p=0"), path };
     String output = {0};
     Scratch scratch = GetScratchEx(arena);
-    u64 result = P_RunCommand(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), 10000, &output, false) ? (u64)(Prog__MediaNumber(output) * 1000) : 0;
+    b32 read = P_RunCommandWith(scratch.arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel);
+    u64 result = read ? (u64)(Prog__MediaNumber(output) * 1000) : 0;
     ReleaseScratch(scratch);
     return result;
 }
@@ -430,10 +465,15 @@ function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b
     return result;
 }
 
+function b32 Prog_IsMagnet(String text)
+{
+    return text.length > 8 && Prog__EqualFolded(StrFromTo(text, 0, 8), S("magnet:?"));
+}
+
 // Whether `text` is a torrent aria2c downloads: a magnet link, or a .torrent file or web address.
 function b32 Prog_IsTorrent(String text)
 {
-    if (text.length > 8 && Prog__EqualFolded(StrFromTo(text, 0, 8), S("magnet:?"))) return true;
+    if (Prog_IsMagnet(text)) return true;
     return text.length > 8 && Prog__EqualFolded(StrFrom(text, text.length - 8), S(".torrent")) && !StrIndexChar(text, '\n', SSF_None).exists;
 }
 
@@ -537,8 +577,7 @@ function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String fo
                            S("--enable-color=false"), S("--file-allocation=none"), S("--show-console-readout=true"), S("--follow-torrent=mem"), S("--"), source };
     Prog__Torrent *torrent = ArenaPushStruct(scratch.arena, Prog__Torrent);
     torrent->progress = progress;
-    b32 magnet = source.length > 8 && Prog__EqualFolded(StrFromTo(source, 0, 8), S("magnet:?"));
-    torrent->name = magnet ? TrMark("Magnet link") : Prog__NameStem(Prog_EntryLeaf(source));
+    torrent->name = Prog_IsMagnet(source) ? TrMark("Magnet link") : Prog__NameStem(Prog_EntryLeaf(source));
     if (progress) {
         atomic_store(&progress->totalItems, 1);
         P_ProgressName(progress, torrent->name);
@@ -557,11 +596,11 @@ function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String fo
 }
 
 // What aria2c tells of the .torrent file at `path`: its name, size and files, for the inspector; empty without aria2c.
-function String Prog_TorrentListing(Arena *arena, String path)
+function String Prog_TorrentListing(Arena *arena, String path, const P_CancelToken *cancel)
 {
     String arguments[] = { S("aria2c"), S("--show-files=true"), S("--"), path };
     String output = {0};
-    if (!P_RunCommand(arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), 10000, &output, false)) return (String){0};
+    if (!P_RunCommandWith(arena, Prog_ParentPath(path), arguments, CArrayCount(arguments), NULL, 0, 10000, &output, false, cancel)) return (String){0};
     // From the name on, which leaves out the trackers, without the magnet link or aria2c's own lines.
     Index name = StrIndexStr(output, S("Name: "), SSF_None);
     String rest = name.exists ? StrFrom(output, name.value) : output;
