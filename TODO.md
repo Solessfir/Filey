@@ -25,7 +25,7 @@ Missing, by the reference's group:
 
 Shipped there, missing here:
 
-- Drag and drop on Linux from archive managers and browsers, and drops onto executables there. On Windows a drop goes to the shell's own drop target of the folder, which takes 7-Zip's and a browser's described files and a link as Explorer does, and a program's or script's (.exe, .bat, .cmd, .com) own, which starts it with the files; still to do there: described files dropped into a folder inside an archive.
+- Drag and drop on Linux from archive managers and browsers, and drops onto executables there. On Windows a drop goes to the shell's own drop target of the folder, which takes 7-Zip's and a browser's described files and a link as Explorer does, and a program's or script's (.exe, .bat, .cmd, .com) own, which starts it with the files; into a folder inside an archive, described files are written to the run folder first and added from there.
 - Network shares on Linux: Windows lists the shares of the servers that the network drives, bookmarks, recents and the shown folder are on, under Storage, and a server's root (`\\nas`) lists its shares; on Linux mounted CIFS and NFS shares show as drives, but nothing asks a server for its shares yet (`smbclient -L`, or the gvfs mounts in `$XDG_RUNTIME_DIR/gvfs`).
 
 Planned there, worth doing here first:

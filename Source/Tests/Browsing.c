@@ -2621,6 +2621,93 @@ function void TestUserGroups(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+#if defined(_WIN32)
+// A drag out of another program that only describes its files, as a browser's picture or an archiver's files are: a picture, a folder with a
+// file in it, given as a stream, and a name that would climb out of where they are written.
+global const wchar *const TestDescribedNames[] = { L"picture.png", L"folder", L"folder\\inner.txt", L"..\\escape.txt" };
+global const char *const TestDescribedContents[] = { "PNGDATA", "", "inner", "out" };
+
+function HRESULT STDMETHODCALLTYPE TestDescribed__QueryInterface(IDataObject *self, REFIID iid, void **object) { *object = self; return S_OK; }
+function ULONG STDMETHODCALLTYPE TestDescribed__AddRef(IDataObject *self) { return 1; }
+function ULONG STDMETHODCALLTYPE TestDescribed__Release(IDataObject *self) { return 1; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__GetData(IDataObject *self, FORMATETC *format, STGMEDIUM *medium)
+{
+    *medium = (STGMEDIUM){0};
+    u32 count = CArrayCount(TestDescribedNames);
+    if (format->cfFormat == RegisterClipboardFormatW(L"FileGroupDescriptorW")) {
+        HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(FILEGROUPDESCRIPTORW) + (count - 1) * sizeof(FILEDESCRIPTORW));
+        FILEGROUPDESCRIPTORW *group = GlobalLock(memory);
+        group->cItems = count;
+        for (u32 i = 0; i < count; ++i) {
+            lstrcpynW(group->fgd[i].cFileName, TestDescribedNames[i], MAX_PATH);
+            group->fgd[i].dwFlags = FD_ATTRIBUTES;
+            group->fgd[i].dwFileAttributes = i == 1 ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+        }
+        GlobalUnlock(memory);
+        *medium = (STGMEDIUM){ .tymed = TYMED_HGLOBAL, .hGlobal = memory };
+        return S_OK;
+    }
+    if (format->cfFormat == RegisterClipboardFormatW(L"FileContents") && format->lindex >= 0 && (u32)format->lindex < count) {
+        const char *text = TestDescribedContents[format->lindex];
+        u64 length = StrFromCStr(text).length;
+        HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, Max(length, (u64)1));
+        MemCopy(GlobalLock(memory), text, length);
+        GlobalUnlock(memory);
+        if (format->lindex != 2) {
+            *medium = (STGMEDIUM){ .tymed = TYMED_HGLOBAL, .hGlobal = memory };
+            return S_OK;
+        }
+        IStream *stream = NULL;
+        if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream))) return E_FAIL;
+        ULARGE_INTEGER size = { .QuadPart = length };
+        stream->lpVtbl->SetSize(stream, size);
+        *medium = (STGMEDIUM){ .tymed = TYMED_ISTREAM, .pstm = stream };
+        return S_OK;
+    }
+    return DV_E_FORMATETC;
+}
+function HRESULT STDMETHODCALLTYPE TestDescribed__GetDataHere(IDataObject *self, FORMATETC *format, STGMEDIUM *medium) { return E_NOTIMPL; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__QueryGetData(IDataObject *self, FORMATETC *format)
+{
+    return format->cfFormat == RegisterClipboardFormatW(L"FileGroupDescriptorW") || format->cfFormat == RegisterClipboardFormatW(L"FileContents") ? S_OK : DV_E_FORMATETC;
+}
+function HRESULT STDMETHODCALLTYPE TestDescribed__GetCanonicalFormatEtc(IDataObject *self, FORMATETC *in, FORMATETC *out) { return E_NOTIMPL; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__SetData(IDataObject *self, FORMATETC *format, STGMEDIUM *medium, BOOL release) { return E_NOTIMPL; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__EnumFormatEtc(IDataObject *self, DWORD direction, IEnumFORMATETC **formats) { return E_NOTIMPL; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__DAdvise(IDataObject *self, FORMATETC *format, DWORD flags, IAdviseSink *sink, DWORD *connection) { return E_NOTIMPL; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__DUnadvise(IDataObject *self, DWORD connection) { return E_NOTIMPL; }
+function HRESULT STDMETHODCALLTYPE TestDescribed__EnumDAdvise(IDataObject *self, IEnumSTATDATA **advises) { return E_NOTIMPL; }
+
+// Described files dropped into a folder inside an archive are written out, and their top level kept to go into it.
+function void TestDescribedDrop(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    IDataObjectVtbl table = {
+        TestDescribed__QueryInterface, TestDescribed__AddRef, TestDescribed__Release, TestDescribed__GetData, TestDescribed__GetDataHere, TestDescribed__QueryGetData,
+        TestDescribed__GetCanonicalFormatEtc, TestDescribed__SetData, TestDescribed__EnumFormatEtc, TestDescribed__DAdvise, TestDescribed__DUnadvise, TestDescribed__EnumDAdvise,
+    };
+    IDataObject data = { .lpVtbl = &table };
+    String inside = Prog_JoinPath(&arena, fixture->path, S("archive.zip/inner"));
+    ArenaClear(&P__drop.boundArena);
+    P__drop.bound = StrCopy(&P__drop.boundArena, inside);
+    Check(P__DropHasDescribed(&data) && !P__DropHasFiles(&data));
+    P__DropKeepFiles(&data);
+    String directory = {0}, contents = {0};
+    b32 move = true;
+    ArrayStr files = P_TakeDroppedFiles(&arena, &directory, &move);
+    Check(StrIsEqual(directory, inside) && !move && files.header.count == 2 && TestEndsWith(files.v[0], S("/picture.png")) && TestEndsWith(files.v[1], S("/folder")));
+    if (files.header.count == 2) {
+        Check(P_ReadFile(&arena, files.v[0], &contents) && StrIsEqual(contents, S("PNGDATA")));
+        Check(P_ReadFile(&arena, Prog_JoinPath(&arena, files.v[1], S("inner.txt")), &contents) && StrIsEqual(contents, S("inner")));
+        String written = Prog_ParentPath(files.v[0]);
+        Check(!P_PathExists(Prog_JoinPath(&arena, Prog_ParentPath(written), S("escape.txt"))));
+    }
+    ArenaClear(&P__drop.boundArena);
+    P__drop.bound = (String){0};
+    ArenaRelease(&arena);
+}
+#endif
+
 // Places hidden and moved keep to it, by path, and on Linux the folders GTK's bookmarks name are places too.
 function void TestPlaces(TestFileFixture *fixture)
 {
@@ -4124,6 +4211,9 @@ function void TestBrowsing(void)
         TestPlaces(&fixture);
         TestUserGroups(&fixture);
         TestOpenFlags(&fixture);
+#if defined(_WIN32)
+        TestDescribedDrop(&fixture);
+#endif
         TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);

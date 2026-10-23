@@ -456,12 +456,89 @@ function void P__DropKeepFolders(IDataObject *data)
     ReleaseStgMedium(&medium);
 }
 
-// Keeps the files of a drop into a folder inside an archive for P_TakeDroppedFiles.
+// Writes the files a drag out of another program only describes, as a browser's picture or an archiver's files, into a new folder in this
+// run's own, and keeps the top level of them for P_TakeDroppedFiles, as the files of a drop into a folder inside an archive. A name that
+// would climb out of that folder is left out.
+// ponytail: written while the drop holds the window, so a big file holds it as long; a job would need the data object marshalled to it.
+function void P__DropKeepDescribed(IDataObject *data)
+{
+    FORMATETC format = { (CLIPFORMAT)RegisterClipboardFormatW(L"FileGroupDescriptorW"), NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM medium = {0};
+    if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) return;
+    const FILEGROUPDESCRIPTORW *group = GlobalLock(medium.hGlobal);
+    Scratch scratch = GetScratch();
+    String run = P_RunFolder(scratch.arena), created = {0};
+    String folder = run.length && !P_CreateItem(scratch.arena, run, S("Dropped"), true, &created).code ? StrFormat(scratch.arena, "%S/%S", run, created) : (String){0};
+    CLIPFORMAT contents = (CLIPFORMAT)RegisterClipboardFormatW(L"FileContents");
+    u8 *buffer = ArenaPushArrayNoZero(scratch.arena, 1 << 16, u8);
+    for (u32 i = 0; group && folder.length && i < group->cItems; ++i) {
+        const FILEDESCRIPTORW *described = &group->fgd[i];
+        String name = P__FileStringWide(scratch.arena, described->cFileName, lstrlenW(described->cFileName));
+        for (u64 at = 0; at < name.length; ++at) if (name.value[at] == '\\') ((char *)name.value)[at] = '/';
+        b32 safe = name.length && name.value[0] != '/' && !StrIndexChar(name, ':', SSF_None).exists;
+        for (u64 at = 0; safe && at + 1 < name.length; ++at) {
+            b32 starts = at == 0 || name.value[at - 1] == '/';
+            safe = !(starts && name.value[at] == '.' && name.value[at + 1] == '.' && (at + 2 == name.length || name.value[at + 2] == '/'));
+        }
+        if (!safe) continue;
+        String path = StrFormat(scratch.arena, "%S/%S", folder, name);
+        b32 isFolder = (described->dwFlags & FD_ATTRIBUTES) && (described->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+        wchar *parent = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, isFolder ? path : StrFromTo(path, 0, (i64)slash.value)));
+        if (parent) SHCreateDirectoryExW(NULL, parent, NULL);
+        if (!isFolder) {
+            FORMATETC item = { contents, NULL, DVASPECT_CONTENT, (LONG)i, TYMED_ISTREAM | TYMED_HGLOBAL };
+            STGMEDIUM content = {0};
+            wchar *wide = P__FilePathWide(scratch.arena, P_NativePath(scratch.arena, path));
+            HANDLE file = wide && SUCCEEDED(data->lpVtbl->GetData(data, &item, &content)) ? CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
+                                                                                        : INVALID_HANDLE_VALUE;
+            if (file != INVALID_HANDLE_VALUE) {
+                DWORD written = 0;
+                if (content.tymed == TYMED_ISTREAM && content.pstm) {
+                    ULONG read = 0;
+                    while (SUCCEEDED(content.pstm->lpVtbl->Read(content.pstm, buffer, 1 << 16, &read)) && read) WriteFile(file, buffer, read, &written, NULL);
+                } else if (content.tymed == TYMED_HGLOBAL && content.hGlobal) {
+                    // A memory block may be longer than the file it holds, which the description says.
+                    u64 size = GlobalSize(content.hGlobal);
+                    if (described->dwFlags & FD_FILESIZE) size = Min(size, ((u64)described->nFileSizeHigh << 32) | described->nFileSizeLow);
+                    const u8 *bytes = GlobalLock(content.hGlobal);
+                    if (bytes) WriteFile(file, bytes, (DWORD)Min(size, (u64)UINT32_MAX), &written, NULL);
+                    GlobalUnlock(content.hGlobal);
+                }
+                CloseHandle(file);
+            }
+            if (content.tymed != TYMED_NULL) ReleaseStgMedium(&content);
+        }
+        // The top level of what was described goes into the archive, its folders with all they hold.
+        Index first = StrIndexChar(name, '/', SSF_None);
+        String top = StrFormat(&P__drop.filesArena, "%S/%S", folder, first.exists ? StrFromTo(name, 0, (i64)first.value) : name);
+        b32 seen = false;
+        for (u64 j = 0; j < P__drop.files.header.count && !seen; ++j) seen = StrIsEqual(P__drop.files.v[j], top);
+        if (!seen) ArrayPush(&P__drop.filesArena, P__drop.files, top);
+    }
+    if (group) GlobalUnlock(medium.hGlobal);
+    ReleaseStgMedium(&medium);
+    ReleaseScratch(scratch);
+}
+
+function b32 P__DropHasDescribed(IDataObject *data)
+{
+    FORMATETC format = { (CLIPFORMAT)RegisterClipboardFormatW(L"FileGroupDescriptorW"), NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    return SUCCEEDED(data->lpVtbl->QueryGetData(data, &format));
+}
+
+// Keeps the files of a drop into a folder inside an archive for P_TakeDroppedFiles; files a drag only describes are written out first.
 function void P__DropKeepFiles(IDataObject *data)
 {
     FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
     STGMEDIUM medium = {0};
-    if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) return;
+    if (FAILED(data->lpVtbl->GetData(data, &format, &medium))) {
+        ArenaClear(&P__drop.filesArena);
+        P__drop.files = (ArrayStr){0};
+        P__drop.filesDirectory = StrCopy(&P__drop.filesArena, P__drop.bound);
+        P__DropKeepDescribed(data);
+        return;
+    }
     HDROP drop = (HDROP)medium.hGlobal;
     ArenaClear(&P__drop.filesArena);
     P__drop.files = (ArrayStr){0};
@@ -610,7 +687,7 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
         ReleaseScratch(scratch);
     }
     if (P__drop.keepsFiles) {
-        *effect = P__DropHasFiles(P__drop.data) ? allowed & DROPEFFECT_COPY : DROPEFFECT_NONE;
+        *effect = P__DropHasFiles(P__drop.data) || P__DropHasDescribed(P__drop.data) ? allowed & DROPEFFECT_COPY : DROPEFFECT_NONE;
     } else if (P__drop.shell) {
         *effect = allowed;
         if (FAILED(P__drop.shell->lpVtbl->DragOver(P__drop.shell, keys, point, effect))) *effect = DROPEFFECT_NONE;
