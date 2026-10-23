@@ -28,10 +28,8 @@ Missing, by the reference's group:
 
 Shipped there, missing here:
 
-- Hierarchical folder views: a locked view that applies to a whole folder tree, not one folder.
 - Drag and drop from ZIP archives and browsers (virtual files, `CFSTR_FILEDESCRIPTOR`/`CFSTR_FILECONTENTS`), and drops onto executables and scripts that run them with the files.
-- Bookmarks on offline drives kept and shown, marked, until the drive is back. Recents on a drive that is not there now are left out of the sidebar and Go To until it is.
-- Network shares listed in the sidebar.
+- Network shares listed in the sidebar: mapped drives already show under Storage; shares without a drive letter (`\\server\share`, Explorer's network locations) show only when bookmarked.
 
 Planned there, worth doing here first:
 
