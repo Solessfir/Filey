@@ -263,7 +263,6 @@ function String Prog_LanguageTemplate(Arena *arena, String name)
     return text.buffer;
 }
 
-#define Prog_Gray(v)     { (v) / 255.0f, (v) / 255.0f, (v) / 255.0f, 1 }
 #define Prog_Rgb(r, g, b) { (r) / 255.0f, (g) / 255.0f, (b) / 255.0f, 1 }
 
 typedef struct Prog_Theme {
@@ -349,51 +348,6 @@ global const Prog_Theme Prog_ThemeCustom = {
     .hoverAmount              = Prog_Hex(0x595959),
     .hiddenAmount             = Prog_Hex(0x595959),
     .disabledAmount           = Prog_Hex(0x595959),
-};
-
-#define Prog_White(a) { 1, 1, 1, (a) }
-
-// The custom scheme over a see-through window: the window is one translucent layer and the surfaces on it are faint white tints, so they do not stack into an opaque color.
-global const Prog_Theme Prog_ThemeGlass = {
-    .window       = { 25 / 255.0f, 25 / 255.0f, 25 / 255.0f, 0.55f },
-    .background   = { 0, 0, 0, 0 },
-    .inner        = Prog_White(0.02f),
-    // Clear like the panels, as the shown tab cannot hide a tint under it the way an opaque tab does, and would show lighter than its panel.
-    .caption      = { 0, 0, 0, 0 },
-    // Menus, the palette and the other floating boxes blur what is under them, so their tint lets it show through softened.
-    .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.75f },
-    .panel        = Prog_White(0.025f),
-    .alternateRow = Prog_White(0.012f),
-    .separator    = Prog_White(0.03f),
-    .hover        = Prog_White(0.2f),
-    .selection    = Prog_White(0.2f),
-    .focus        = Prog_White(0.22f),
-    .tabBorder    = Prog_White(0.04f),
-    .text         = Prog_Rgb(221, 222, 224),
-    .textDim      = Prog_Rgb(150, 155, 162),
-    .textHeading  = Prog_Gray(170),
-    .textMatch    = Prog_Rgb(0, 170, 255),
-    .marquee      = Prog_Rgb(0, 173, 238),
-    .accent       = Prog_Rgb(0, 121, 166),
-    .track        = Prog_Rgb(56, 60, 61),
-    .outline      = Prog_White(0.08f),
-    .danger       = Prog_Rgb(255, 99, 88),
-    .icon         = Prog_Gray(160),
-    .iconDisabled = Prog_Gray(90),
-    .file         = Prog_Rgb(221, 222, 224),
-    .folder       = Prog_Rgb(221, 222, 224),
-    .contentHover = Prog_Rgb(221, 222, 224),
-    .contentSelection = Prog_Rgb(221, 222, 224),
-    .contentDisabledSelection = Prog_Gray(164),
-    .outlineHover = Prog_White(0.3f),
-    .outlineSelection = Prog_White(0.5f),
-    .outlineDisabledSelection = Prog_White(0.15f),
-    .matchHover   = Prog_Rgb(0, 185, 255),
-    .matchSelection = Prog_Rgb(0, 170, 255),
-    .matchDisabledSelection = Prog_Rgb(68, 184, 227),
-    .hoverAmount  = Prog_Gray(89),
-    .hiddenAmount = Prog_Gray(89),
-    .disabledAmount = Prog_Gray(89),
 };
 
 // The built-in schemes' colors, popular themes' palettes and Filey's own dark one, in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's
@@ -485,12 +439,49 @@ global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
 };
 static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_Color) == sizeof(Prog_Theme));
 
-// The transparent theme with the settings' glass colors, and how far its floating boxes blur what is under them, in logical pixels.
-global Prog_Theme Prog_ThemeGlassUser = Prog_ThemeGlass;
+// The transparent theme's tints as the settings give them, each at its opacity: the window's over what is behind it, and the floating
+// boxes' over the blur under them. Their colors are the scheme's unless the settings give their own.
+#define Prog_DefaultGlassOpacity 0.55f
+#define Prog_DefaultPopupOpacity 0.75f
+global R_Color Prog_GlassWindow = { 0, 0, 0, Prog_DefaultGlassOpacity }, Prog_GlassPopup = { 0, 0, 0, Prog_DefaultPopupOpacity };
+global b32 Prog_GlassWindowOwn, Prog_GlassPopupOwn;
+
+// The transparent theme, and how far its floating boxes blur what is under them, in logical pixels.
+global Prog_Theme Prog_ThemeGlassUser;
 global f32 Prog_GlassBlur = 24;
+
+// The scheme over a see-through window: the window is one translucent layer of its color and the surfaces on it faint tints of its text,
+// so that they do not stack into an opaque color, on a dark scheme or a light one. The floating boxes blur what is under them, so their
+// tint lets it show through softened.
+function Prog_Theme Prog__GlassTheme(const Prog_Theme *scheme)
+{
+    Prog_Theme result = *scheme;
+    R_Color ink = scheme->text;
+#define Prog__Tint(alpha) ((R_Color){ ink.r, ink.g, ink.b, (alpha) })
+    result.window = Prog_GlassWindowOwn ? Prog_GlassWindow : (R_Color){ scheme->window.r, scheme->window.g, scheme->window.b, Prog_GlassWindow.a };
+    result.menu = Prog_GlassPopupOwn ? Prog_GlassPopup : (R_Color){ scheme->menu.r, scheme->menu.g, scheme->menu.b, Prog_GlassPopup.a };
+    // The strip is clear like the panels, as the shown tab cannot hide a tint under it the way an opaque tab does, and would show lighter
+    // than its panel.
+    result.background = result.caption = (R_Color){0};
+    result.inner = Prog__Tint(0.02f);
+    result.panel = Prog__Tint(0.025f);
+    result.alternateRow = Prog__Tint(0.012f);
+    result.separator = Prog__Tint(0.03f);
+    result.tabBorder = Prog__Tint(0.04f);
+    result.hover = Prog__Tint(0.2f);
+    result.outline = Prog__Tint(0.08f);
+    result.outlineHover = Prog__Tint(0.3f);
+    result.outlineSelection = Prog__Tint(0.5f);
+    result.outlineDisabledSelection = Prog__Tint(0.15f);
+    // The selection keeps the scheme's color, a little see-through.
+    result.selection.a = result.focus.a = 0.8f;
+#undef Prog__Tint
+    return result;
+}
 
 function void Prog__ApplyTheme(Prog_State *state)
 {
+    Prog_ThemeGlassUser = Prog__GlassTheme(&Prog_ThemeUser);
     Prog_Theme_ = state->transparent ? &Prog_ThemeGlassUser : &Prog_ThemeUser;
     state->ui.defaultColors = (UI_Colors){ .background = Prog_Theme_->background, .border = Prog_Theme_->separator, .text = Prog_Theme_->text };
 }
@@ -597,14 +588,15 @@ function b32 Prog__SettingOff(String value) { return Prog__EqualFolded(value, S(
 
 // The window's look as the settings in `configDirectory` choose it, read before anything else is, so that the window opens so rather than
 // turning so with the first frame: see-through over its backdrop, or in its color.
-// That color is the scheme's, the system's light one where the settings follow the system, a color.window of their own, or the transparent theme's.
+// That color is the scheme's, the system's light one where the settings follow the system, a color.window of their own, or glass.window's
+// while the window is see-through.
 function void Prog_StartupWindow(String configDirectory, PlatformWindowDesc *desc)
 {
     Scratch scratch = GetScratch();
     String text = {0}, theme = {0}, light = {0};
-    b32 system = false, transparent = false, own = false;
+    b32 system = false, transparent = false, own = false, glassOwn = false;
     u8 backdrop = PlatformBackdrop_Acrylic;
-    R_Color glass = Prog_ThemeGlass.window, window = {0}, color;
+    R_Color glass = {0}, window = {0}, color;
     if (configDirectory.length) P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, S("Settings.conf")), &text);
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
     for (u64 l = 0; l < lines.header.count; ++l) {
@@ -621,7 +613,7 @@ function void Prog_StartupWindow(String configDirectory, PlatformWindowDesc *des
         else if (StrIsEqual(name, S("theme.light"))) light = value;
         else if (StrIsEqual(name, S("theme.system"))) system = Prog__SettingOn(value);
         else if (StrIsEqual(name, S("transparent"))) transparent = Prog__SettingOn(value);
-        else if (StrIsEqual(name, S("glass.window")) && Prog__ParseColor(value, &color)) glass = color;
+        else if (StrIsEqual(name, S("glass.window")) && Prog__ParseColor(value, &color)) glass = color, glassOwn = true;
         else if (StrIsEqual(name, S("glass.backdrop"))) {
             for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionBackdrops[i])) backdrop = (u8)i;
         }
@@ -641,8 +633,9 @@ function void Prog_StartupWindow(String configDirectory, PlatformWindowDesc *des
         }
     }
     u32 result = groups[Prog_Option_ColorClear - Prog_Option_ColorClear];
-    R_Color chosen = transparent ? glass : own && !lightMode ? window : (R_Color){0};
-    if (transparent || (own && !lightMode)) result = (u32)(chosen.r * 255 + 0.5f) << 16 | (u32)(chosen.g * 255 + 0.5f) << 8 | (u32)(chosen.b * 255 + 0.5f);
+    b32 tinted = transparent && glassOwn;
+    R_Color chosen = tinted ? glass : own && !lightMode ? window : (R_Color){0};
+    if (tinted || (own && !lightMode)) result = (u32)(chosen.r * 255 + 0.5f) << 16 | (u32)(chosen.g * 255 + 0.5f) << 8 | (u32)(chosen.b * 255 + 0.5f);
     desc->background = result;
     desc->transparent = transparent;
     desc->backdrop = backdrop;
@@ -677,8 +670,8 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   theme = nord                  a built-in scheme, under the colors below; fullmoon is the reference's, for side-by-side checks
 //   animations = false            menus, scrolling and the caret change at once
 //   color.<theme field> = #rrggbb[aa]
-//   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
-//   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
+//   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window, the scheme's window color without it
+//   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes, the scheme's surface color without it
 //   glass.opacity = 55            how much of glass.window's tint covers what is behind, in percent, where there is no backdrop to choose
 //   glass.popupOpacity = 75       how much of glass.popup's tint covers that blur, in percent, over its own opacity
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
@@ -718,7 +711,9 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->scheme = 0;
     state->lightScheme = 1;
     state->schemeName.length = state->lightSchemeName.length = 0;
-    Prog_ThemeGlassUser = Prog_ThemeGlass;
+    Prog_GlassWindow = (R_Color){ 0, 0, 0, Prog_DefaultGlassOpacity };
+    Prog_GlassPopup = (R_Color){ 0, 0, 0, Prog_DefaultPopupOpacity };
+    Prog_GlassWindowOwn = Prog_GlassPopupOwn = false;
     Prog_GlassBlur = 24;
     state->glassBackdrop = PlatformBackdrop_Acrylic;
     state->uiScale = 1;
@@ -774,13 +769,15 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         if (StrIsEqual(name, S("scale"))) {
             if (number >= 0.5f && number <= 3) state->uiScale = number;
         } else if (StrIsEqual(name, S("glass.window")) && Prog__ParseColor(value, &color)) {
-            Prog_ThemeGlassUser.window = color;
+            Prog_GlassWindow = color;
+            Prog_GlassWindowOwn = true;
         } else if (StrIsEqual(name, S("glass.popup")) && Prog__ParseColor(value, &color)) {
-            Prog_ThemeGlassUser.menu = color;
+            Prog_GlassPopup = color;
+            Prog_GlassPopupOwn = true;
         } else if (StrIsEqual(name, S("glass.opacity"))) {
-            if (number >= 0 && number <= 100) Prog_ThemeGlassUser.window.a = number / 100.0f;
+            if (number >= 0 && number <= 100) Prog_GlassWindow.a = number / 100.0f;
         } else if (StrIsEqual(name, S("glass.popupOpacity"))) {
-            if (number >= 0 && number <= 100) Prog_ThemeGlassUser.menu.a = number / 100.0f;
+            if (number >= 0 && number <= 100) Prog_GlassPopup.a = number / 100.0f;
         } else if (StrIsEqual(name, S("glass.blur"))) {
             if (number >= 0 && number <= 100) Prog_GlassBlur = number;
         } else if (StrIsEqual(name, S("glass.backdrop"))) {
@@ -1015,19 +1012,12 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"));
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n"
                                                "# Unset, the system's language when Filey has it built in, and English otherwise.\n# language = %S\n", Prog_SystemLanguage()));
-    // The glass settings, at their defaults.
-    R_Color colors[2] = { Prog_ThemeGlass.window, Prog_ThemeGlass.menu };
-    String hex[2];
-    for (u32 i = 0; i < 2; ++i) {
-        R_Color c = colors[i];
-        hex[i] = StrFormat(arena, "#%02x%02x%02x%02x", (u32)(c.r * 255 + 0.5f), (u32)(c.g * 255 + 0.5f), (u32)(c.b * 255 + 0.5f), (u32)(c.a * 255 + 0.5f));
-    }
-    StrBuildStr(arena, &text, StrFormat(arena, "\n# The transparent theme (the \"Transparency\" command), with colors as #rrggbbaa whose last pair is the opacity:\n"
-                                               "# glass.window tints what is behind the window, glass.popup the blur under menus, the palette and the other floating boxes,\n"
-                                               "# glass.opacity is the tint's opacity alone in percent, where there is no backdrop to choose, glass.popupOpacity glass.popup's,\n"
-                                               "# and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
-                                               "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
-                                               "# transparent = false\n# glass.window = %S\n# glass.popup = %S\n# glass.blur = 24\n# glass.backdrop = acrylic\n", hex[0], hex[1]));
+    StrBuildStr(arena, &text, S("\n# The transparent theme (the \"Transparency\" command), in the scheme's colors. glass.window and glass.popup give tints of\n"
+                                "# their own, as #rrggbbaa whose last pair is the opacity: glass.window for what is behind the window, glass.popup for the blur\n"
+                                "# under menus, the palette and the other floating boxes. glass.opacity is the window tint's opacity alone in percent, where there\n"
+                                "# is no backdrop to choose, glass.popupOpacity the popups', and glass.blur is how far that blur reaches in pixels, 0 for none.\n"
+                                "# glass.backdrop is what Windows draws behind the window: acrylic (its blur), mica, tabbed or none.\n"
+                                "# transparent = false\n# glass.opacity = 55\n# glass.popupOpacity = 75\n# glass.blur = 24\n# glass.backdrop = acrylic\n"));
     StrBuildStr(arena, &text, S("\n# Hotkeys, several separated by commas, and \"G G\" for G pressed twice; \"none\" removes a command's.\n"));
     Prog_State defaults = {0};
     (void)state;
@@ -1305,8 +1295,8 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_CharacterKeyAction: return state->characterKeys;
         case Prog_Option_Transparency: return state->transparent != 0;
         case Prog_Option_PopupBlur: return (i32)floorf(Prog_GlassBlur + 0.5f);
-        case Prog_Option_PopupOpacity: return (i32)floorf(Prog_ThemeGlassUser.menu.a * 100 + 0.5f);
-        case Prog_Option_WindowOpacity: return (i32)floorf(Prog_ThemeGlassUser.window.a * 100 + 0.5f);
+        case Prog_Option_PopupOpacity: return (i32)floorf(Prog_GlassPopup.a * 100 + 0.5f);
+        case Prog_Option_WindowOpacity: return (i32)floorf(Prog_GlassWindow.a * 100 + 0.5f);
         case Prog_Option_Backdrop: return state->glassBackdrop;
         default: return 0;
     }
@@ -1362,8 +1352,9 @@ function void Prog_PreviewOption(Prog_State *state, Prog_Option option, i32 valu
     if (option == Prog_Option_FontSize) state->uiScale = (f32)value / 9.0f;
     if (option == Prog_Option_InspectorFontSize) state->inspectorFontSize = (u32)value;
     if (option == Prog_Option_PopupBlur) Prog_GlassBlur = (f32)value;
-    if (option == Prog_Option_PopupOpacity) Prog_ThemeGlassUser.menu.a = (f32)value / 100.0f;
-    if (option == Prog_Option_WindowOpacity) Prog_ThemeGlassUser.window.a = (f32)value / 100.0f;
+    if (option == Prog_Option_PopupOpacity) Prog_GlassPopup.a = (f32)value / 100.0f;
+    if (option == Prog_Option_WindowOpacity) Prog_GlassWindow.a = (f32)value / 100.0f;
+    if (option == Prog_Option_PopupOpacity || option == Prog_Option_WindowOpacity) Prog__ApplyTheme(state);
     if (option == Prog_Option_Spacing) state->spacingShift = value - 4;
     if (option == Prog_Option_InactiveOpacity) state->inactiveShift = value - 60;
 }
@@ -1798,8 +1789,8 @@ function i32 Prog__OptionDefault(Prog_Option option)
             for (u32 i = 1; i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(Prog_SystemLanguage(), Prog_OptionLanguages[i])) return (i32)i;
             return 0;
         }
-        case Prog_Option_PopupOpacity: return (i32)floorf(Prog_ThemeGlass.menu.a * 100 + 0.5f);
-        case Prog_Option_WindowOpacity: return (i32)floorf(Prog_ThemeGlass.window.a * 100 + 0.5f);
+        case Prog_Option_PopupOpacity: return (i32)floorf(Prog_DefaultPopupOpacity * 100 + 0.5f);
+        case Prog_Option_WindowOpacity: return (i32)floorf(Prog_DefaultGlassOpacity * 100 + 0.5f);
         case Prog_Option_Backdrop: return PlatformBackdrop_Acrylic;
         case Prog_Option_LoadThumbnails: case Prog_Option_Animations: case Prog_Option_RoundCorners: case Prog_Option_ShowFileExtension:
         case Prog_Option_ShortenedPaths: case Prog_Option_Breadcrumbs: case Prog_Option_ConfirmEmptyTrash: case Prog_Option_SingleWindow:

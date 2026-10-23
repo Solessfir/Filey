@@ -3049,7 +3049,7 @@ function void TestSettings(void)
                                  "glass.popup = #10203080\nglass.blur = 12.5\nglass.window = nope\nglass.backdrop = Mica\n"));
     Check(state.uiScale > 1.24f && state.uiScale < 1.26f);
     Check(Prog_ThemeGlassUser.menu.b > 0.18f && Prog_ThemeGlassUser.menu.a > 0.5f && Prog_ThemeGlassUser.menu.a < 0.51f && Prog_GlassBlur == 12.5f);
-    Check(Prog_ThemeGlassUser.window.a == Prog_ThemeGlass.window.a && state.glassBackdrop == PlatformBackdrop_Mica);
+    Check(Prog_ThemeGlassUser.window.a == Prog_DefaultGlassOpacity && state.glassBackdrop == PlatformBackdrop_Mica);
     Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
     // An option that narrows the one above it shows only while that one is on.
     {
@@ -3195,7 +3195,14 @@ function void TestSettings(void)
     Check(hotkey && hotkey->command == Prog_CommandKind_Back);
     hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_MouseX2, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_Forward);
-    Check(Prog_ThemeGlassUser.menu.a == Prog_ThemeGlass.menu.a && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
+    Check(Prog_ThemeGlassUser.menu.a == Prog_DefaultPopupOpacity && Prog_GlassBlur == 24 && state.glassBackdrop == PlatformBackdrop_Acrylic);
+    // The transparent theme is the scheme's, its window and surfaces see-through, unless the settings give tints of their own.
+    Prog_ApplySettings(&state, S("theme = nord\n"));
+    Check(Prog_ThemeGlassUser.text.r == Prog_ThemeUser.text.r && Prog_ThemeGlassUser.menu.b == Prog_ThemeUser.menu.b && Prog_ThemeGlassUser.menu.a == Prog_DefaultPopupOpacity);
+    Check(Prog_ThemeGlassUser.window.r == Prog_ThemeUser.window.r && Prog_ThemeGlassUser.window.a == Prog_DefaultGlassOpacity && Prog_ThemeGlassUser.background.a == 0);
+    Check(Prog_ThemeGlassUser.selection.g == Prog_ThemeUser.selection.g && Prog_ThemeGlassUser.selection.a < 1);
+    Prog_ApplySettings(&state, S("theme = nord\nglass.popup = #102030\nglass.popupOpacity = 40\n"));
+    Check(Prog_ThemeGlassUser.menu.b > 0.18f && Prog_ThemeGlassUser.menu.b < 0.19f && Prog_ThemeGlassUser.menu.a == 0.4f);
     Prog_ApplySettings(&state, S("glass.popupOpacity = 80\n"));
     Check(Prog_OptionValue(&state, Prog_Option_PopupOpacity) == 80 && !Prog_OptionIsDefault(&state, Prog_Option_PopupOpacity));
     Prog_ApplySettings(&state, (String){0});
