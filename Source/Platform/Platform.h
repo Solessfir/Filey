@@ -152,6 +152,8 @@ typedef struct PlatformWindowDesc {
     i32 contentWidth, contentHeight;  // physical pixels the content opens at in place of width and height, when not 0, as a last run left it
     b32 maximized;                    // opens maximized, at the content size when it is restored
     u32 background;  // 0xRRGGBB shown from the moment the window opens until the first frame
+    b32 transparent; // opens see-through over `backdrop`, a PlatformBackdrop, as PlatformWindowSetTransparent makes it, rather than turning so with the first frame
+    u8 backdrop;
 } PlatformWindowDesc;
 
 typedef struct PlatformWindowInfo {

@@ -1626,6 +1626,33 @@ function void TestSchemeFiles(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// The window opens as its settings make it look: in the default scheme's color without any, their scheme's, a custom one's by its file, or
+// their own color.window, which a theme line after it replaces; or see-through over the backdrop they choose.
+function u32 TestStartupColor(String folder)
+{
+    PlatformWindowDesc desc = {0};
+    Prog_StartupWindow(folder, &desc);
+    return desc.background;
+}
+
+function void TestStartupWindowColor(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String settings = Prog_JoinPath(&arena, fixture->path, S("Settings.conf"));
+    Check(TestStartupColor(fixture->path) == Prog_SchemeColors[0][0]);
+    Check(!P_WriteFile(&arena, settings, S("theme = filey-dark\n")).code && TestStartupColor(fixture->path) == 0x191919);
+    Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fixture->path, S("Night.scheme")), S("Clear = #0a0b0c\r\n")).code);
+    Check(!P_WriteFile(&arena, settings, S("theme = night\n")).code && TestStartupColor(fixture->path) == 0x0A0B0C);
+    Check(!P_WriteFile(&arena, settings, S("color.window = #123456\ntheme = night\n")).code && TestStartupColor(fixture->path) == 0x0A0B0C);
+    Check(!P_WriteFile(&arena, settings, S("theme = night\ncolor.window = #123456\n")).code && TestStartupColor(fixture->path) == 0x123456);
+    PlatformWindowDesc glass = {0};
+    Check(!P_WriteFile(&arena, settings, S("theme = night\ntransparent = true\nglass.backdrop = Mica\n")).code);
+    Prog_StartupWindow(fixture->path, &glass);
+    Check(glass.transparent && glass.backdrop == PlatformBackdrop_Mica);
+    Check(P__TestRemovePath(fixture, S("Night.scheme"), false) && P__TestRemovePath(fixture, S("Settings.conf"), false));
+    ArenaRelease(&arena);
+}
+
 // git.fetch fetches a repository at most every few minutes and one at a time, in folders that are not there, where git cannot even start.
 // The panel shows This PC, in no repository, so that no real one around the fixture is fetched after.
 function void TestGitFetchLimit(TestFileFixture *fixture)
@@ -3609,6 +3636,7 @@ function void TestBrowsing(void)
         TestQuickAccessFilter(&fixture);
         TestGitFetchLimit(&fixture);
         TestSchemeFiles(&fixture);
+        TestStartupWindowColor(&fixture);
     TestPasteLinkAndQuick(&fixture);
         TestEvenPanels(&fixture);
         TestContainingPath(&fixture);

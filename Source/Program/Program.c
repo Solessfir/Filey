@@ -527,9 +527,9 @@ global const char *const Prog_ColorGroupNames[Prog_ColorGroupCount] = {
     "ContentDisabledSelection", "OutlineHover", "OutlineSelection", "OutlineDisabledSelection", "MatchHover", "MatchSelection", "MatchDisabledSelection",
 };
 
-// Gives `groups` the colors of the scheme named `name`: a built-in one, or a custom one's over the default scheme's; "light" is the light
-// one after the default. Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name, as for fullmoon.
-function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
+// Gives `groups` the colors of the built-in scheme named `name`, or the default scheme's for an unknown one; "light" is the light one after
+// the default. Returns its place among the built-in schemes, UINT32_MAX for an unknown name and 0 for fullmoon, which the choices leave out.
+function u32 Prog__BuiltInScheme(String name, u32 *groups)
 {
     MemCopy(groups, Prog_SchemeColors[0], sizeof(Prog_SchemeColors[0]));
     if (Prog__EqualFolded(name, S("light"))) name = Prog_OptionSchemes[1];
@@ -540,26 +540,41 @@ function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
     for (u32 i = 0; i < CArrayCount(Prog_OptionSchemes); ++i) {
         if (!Prog__EqualFolded(name, Prog_OptionSchemes[i])) continue;
         MemCopy(groups, Prog_SchemeColors[i], sizeof(Prog_SchemeColors[i]));
-        return (u8)i;
+        return i;
     }
+    return UINT32_MAX;
+}
+
+// Gives `groups` the colors a custom scheme's lines `text` set, "Group = #rrggbb" each, leaving the others as they are.
+function void Prog__ReadSchemeText(String text, u32 *groups)
+{
+    for (u64 at = 0; at < text.length;) {
+        u64 end = at + StrIndexChar(StrFrom(text, at), '\n', SSF_CountOnFail).value;
+        String line = StrFromTo(text, at, (i64)end);
+        at = end + 1;
+        if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        Index equals = StrIndexChar(line, '=', SSF_None);
+        if (!equals.exists) continue;
+        String field = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+        while (field.length && field.value[field.length - 1] == ' ') --field.length;
+        while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+        R_Color color;
+        for (u32 g = 0; g < Prog_ColorGroupCount; ++g) {
+            if (!StrIsEqual(field, StrFromCStr(Prog_ColorGroupNames[g])) || !Prog__ParseColor(value, &color)) continue;
+            groups[g] = (u32)(color.r * 255 + 0.5f) << 16 | (u32)(color.g * 255 + 0.5f) << 8 | (u32)(color.b * 255 + 0.5f);
+        }
+    }
+}
+
+// Gives `groups` the colors of the scheme named `name`: a built-in one, or a custom one's over the default scheme's.
+// Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name, as for fullmoon.
+function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
+{
+    u32 builtIn = Prog__BuiltInScheme(name, groups);
+    if (builtIn != UINT32_MAX) return (u8)builtIn;
     for (u64 i = 0; i < state->schemeNames.header.count; ++i) {
         if (!Prog__EqualFolded(state->schemeNames.v[i], name)) continue;
-        String text = state->schemeTexts.v[i];
-        for (u64 at = 0; at < text.length;) {
-            u64 end = at + StrIndexChar(StrFrom(text, at), '\n', SSF_CountOnFail).value;
-            String line = StrFromTo(text, at, (i64)end);
-            at = end + 1;
-            Index equals = StrIndexChar(line, '=', SSF_None);
-            if (!equals.exists) continue;
-            String field = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
-            while (field.length && field.value[field.length - 1] == ' ') --field.length;
-            while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
-            R_Color color;
-            for (u32 g = 0; g < Prog_ColorGroupCount; ++g) {
-                if (!StrIsEqual(field, StrFromCStr(Prog_ColorGroupNames[g])) || !Prog__ParseColor(value, &color)) continue;
-                groups[g] = (u32)(color.r * 255 + 0.5f) << 16 | (u32)(color.g * 255 + 0.5f) << 8 | (u32)(color.b * 255 + 0.5f);
-            }
-        }
+        Prog__ReadSchemeText(state->schemeTexts.v[i], groups);
         return (u8)(CArrayCount(Prog_OptionSchemes) + i);
     }
     return 0;
@@ -573,9 +588,66 @@ function String Prog_SchemeText(Arena *arena, const u32 *groups)
     return text.buffer;
 }
 
+// What Windows draws behind a see-through window, by its names in the settings, in PlatformBackdrop's order.
+global const String Prog_OptionBackdrops[PlatformBackdrop_Count] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
+
 // A switch setting's words: on, true or 1, and off, false or 0.
 function b32 Prog__SettingOn(String value) { return Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1")); }
 function b32 Prog__SettingOff(String value) { return Prog__EqualFolded(value, S("off")) || Prog__EqualFolded(value, S("false")) || StrIsEqual(value, S("0")); }
+
+// The window's look as the settings in `configDirectory` choose it, read before anything else is, so that the window opens so rather than
+// turning so with the first frame: see-through over its backdrop, or in its color.
+// That color is the scheme's, the system's light one where the settings follow the system, a color.window of their own, or the transparent theme's.
+function void Prog_StartupWindow(String configDirectory, PlatformWindowDesc *desc)
+{
+    Scratch scratch = GetScratch();
+    String text = {0}, theme = {0}, light = {0};
+    b32 system = false, transparent = false, own = false;
+    u8 backdrop = PlatformBackdrop_Acrylic;
+    R_Color glass = Prog_ThemeGlass.window, window = {0}, color;
+    if (configDirectory.length) P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, S("Settings.conf")), &text);
+    ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+    for (u64 l = 0; l < lines.header.count; ++l) {
+        String line = lines.v[l];
+        while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+        while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
+        Index equals = StrIndexChar(line, '=', SSF_None);
+        if (!line.length || line.value[0] == '#' || !equals.exists) continue;
+        String name = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+        while (name.length && name.value[name.length - 1] == ' ') --name.length;
+        while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+        // A theme line replaces the colors set before it.
+        if (StrIsEqual(name, S("theme"))) theme = value, own = false;
+        else if (StrIsEqual(name, S("theme.light"))) light = value;
+        else if (StrIsEqual(name, S("theme.system"))) system = Prog__SettingOn(value);
+        else if (StrIsEqual(name, S("transparent"))) transparent = Prog__SettingOn(value);
+        else if (StrIsEqual(name, S("glass.window")) && Prog__ParseColor(value, &color)) glass = color;
+        else if (StrIsEqual(name, S("glass.backdrop"))) {
+            for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionBackdrops[i])) backdrop = (u8)i;
+        }
+        else if (StrIsEqual(name, S("color.window")) && Prog__ParseColor(value, &color)) window = color, own = true;
+    }
+    b32 lightMode = system && !P_PrefersDarkColors();
+    String scheme = lightMode ? (light.length ? light : S("light")) : theme;
+    u32 groups[Prog_ColorGroupCount];
+    if (Prog__BuiltInScheme(scheme, groups) == UINT32_MAX && scheme.length) {
+        // A custom one's file, by its name in either case.
+        P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, configDirectory, NULL);
+        for (u64 i = 0; i < listing.files.header.count; ++i) {
+            String file = listing.files.v[i].name, colors = {0};
+            if (file.length != scheme.length + Prog_SchemeExtension.length || !Prog__EqualFolded(file, StrFormat(scratch.arena, "%S%S", scheme, Prog_SchemeExtension))) continue;
+            if (P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, file), &colors)) Prog__ReadSchemeText(colors, groups);
+            break;
+        }
+    }
+    u32 result = groups[Prog_Option_ColorClear - Prog_Option_ColorClear];
+    R_Color chosen = transparent ? glass : own && !lightMode ? window : (R_Color){0};
+    if (transparent || (own && !lightMode)) result = (u32)(chosen.r * 255 + 0.5f) << 16 | (u32)(chosen.g * 255 + 0.5f) << 8 | (u32)(chosen.b * 255 + 0.5f);
+    desc->background = result;
+    desc->transparent = transparent;
+    desc->backdrop = backdrop;
+    ReleaseScratch(scratch);
+}
 
 // A setting's number, such as "1.25"; -1 when it is not one.
 function f32 Prog__ParseNumber(String value)
@@ -712,8 +784,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (StrIsEqual(name, S("glass.blur"))) {
             if (number >= 0 && number <= 100) Prog_GlassBlur = number;
         } else if (StrIsEqual(name, S("glass.backdrop"))) {
-            local_persist const String backdrops[PlatformBackdrop_Count] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
-            for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, backdrops[i])) state->glassBackdrop = (u8)i;
+            for (u32 i = 0; i < PlatformBackdrop_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionBackdrops[i])) state->glassBackdrop = (u8)i;
         } else if (StrIsEqual(name, S("theme"))) {
             // Colors given before the theme line are replaced with the rest.
             state->scheme = Prog__UseScheme(state, value, state->schemeGroups);
@@ -975,7 +1046,6 @@ global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
 global const String Prog_OptionBorders[] = { SInit("1"), SInit("1.5"), SInit("2"), SInit("2.5"), SInit("3") };
-global const String Prog_OptionBackdrops[] = { SInit("acrylic"), SInit("mica"), SInit("tabbed"), SInit("none") };
 global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_Language] = { TrInit("Language"), TrInit("The language of Filey's text. Create Custom Language starts a translation of your own, as a file to fill in."),
                                Prog_OptionControl_Choice, 0, 0, Prog_OptionLanguages, CArrayCount(Prog_OptionLanguages), SInit("language") },

@@ -732,7 +732,9 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     // DWM composes it while this thread waits on the driver; the program's first frame then replaces it.
     b32 dark = true;
     DwmSetWindowAttribute(Win.window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
-    Win.background = CreateSolidBrush(RGB((desc.background >> 16) & 0xFF, (desc.background >> 8) & 0xFF, desc.background & 0xFF));
+    // A see-through window is glass already, where black shows the backdrop.
+    if (desc.transparent) PlatformWindowSetTransparent(true, (PlatformBackdrop)desc.backdrop);
+    Win.background = desc.transparent ? CreateSolidBrush(RGB(0, 0, 0)) : CreateSolidBrush(RGB((desc.background >> 16) & 0xFF, (desc.background >> 8) & 0xFF, desc.background & 0xFF));
     ShowWindow(Win.window, desc.maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT);
     UpdateWindow(Win.window);
 

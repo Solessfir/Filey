@@ -341,9 +341,7 @@ int main(void)
     }
 #endif
     b32 ok = false;
-    R_Color background = Prog_ThemeCustom.window;
-    u32 backgroundRgb = (u32)(background.r * 255.0f + 0.5f) << 16 | (u32)(background.g * 255.0f + 0.5f) << 8 | (u32)(background.b * 255.0f + 0.5f);
-    // The window opens at the size the last run left it at, rather than growing to it once the settings are read.
+    // The window opens at the size the last run left it at, rather than growing to it once the settings are read, and as they make it look.
     Scratch startup = GetScratch();
     String configDirectory = P_ConfigDirectory(startup.arena);
     // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
@@ -356,8 +354,12 @@ int main(void)
         ReleaseScratch(startup);
         return 0;
     }
-    PlatformWindowDesc window = { .title = S("Filey"), .width = 1280, .height = 800, .background = backgroundRgb };
+    PlatformWindowDesc window = { .title = S("Filey"), .width = 1280, .height = 800 };
+    Prog_StartupWindow(configDirectory, &window);
     Prog_SessionWindow(configDirectory, &window);
+    // Its first frame finds it as it opened, with nothing to set again.
+    loop.transparent = window.transparent;
+    loop.backdrop = window.backdrop;
     ProfileScope("OpenWindow") ok = PlatformWindowOpen(window);
     if (!ok) {
         fprintf(stderr, "Failed to open the window\n");
