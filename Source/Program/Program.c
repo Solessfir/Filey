@@ -10025,7 +10025,8 @@ function void Prog__ChoiceGroup(Prog_State *state, const String *keys, const Str
             UI_Interaction interaction = UI_InteractionFromBlock(button);
             if (interaction.clicked) Prog_QueueCommand(state, kind, i, 0, interaction.clickOrder);
         }
-        Prog__RoundDashedOutline(0, floorf((bar - height) * 0.5f), width, height, floorf(8.0f * s + 0.5f), MaxF32(1, floorf(1.2f * s + 0.5f)),
+        // From the group's edge, which floating blocks count from inside its padding.
+        Prog__RoundDashedOutline(-pad, floorf((bar - height) * 0.5f), width, height, floorf(8.0f * s + 0.5f), MaxF32(1, floorf(1.2f * s + 0.5f)),
                                  floorf(4.8f * s + 0.5f), floorf(2.4f * s + 0.5f), theme->outline);
     }
 }
