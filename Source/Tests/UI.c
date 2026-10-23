@@ -750,6 +750,19 @@ function void TestThumbnailSlots(void)
     Prog__ThumbnailSlot(&state, 384);
     Check(Prog__ThumbnailSlot(&state, 768)->atlas.size == 768 && !Prog__ThumbnailElsewhere(&state, NULL, S("kept")));
     for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) ArenaRelease(&state.thumbnailSlots[i].arena);
+    // A picture fitted to its cell's width is measured by the rows it covers; an icon short of the sides, or a picture filling the
+    // cell, is drawn square.
+    u32 pixels[8 * 8] = {0};
+    for (u32 y = 2; y < 6; ++y) for (u32 x = 0; x < 8; ++x) pixels[y * 8 + x] = 0xFF000000u;
+    Prog_Icon icon = { .uv = { 0, 0, 0.5f, 0.5f } };
+    Prog__MeasurePicture(&icon, pixels, 8);
+    Check(icon.aspect == 2 && icon.pictureUv.y0 == 0.125f && icon.pictureUv.y1 == 0.375f && icon.pictureUv.x1 == 0.5f);
+    pixels[3 * 8] = pixels[3 * 8 + 7] = pixels[4 * 8] = pixels[4 * 8 + 7] = 0;
+    Prog__MeasurePicture(&icon, pixels, 8);
+    Check(icon.aspect == 0 && icon.pictureUv.y1 == 0.5f);
+    for (u32 i = 0; i < 8 * 8; ++i) pixels[i] = 0xFF000000u;
+    Prog__MeasurePicture(&icon, pixels, 8);
+    Check(icon.aspect == 0);
 }
 
 function void TestProgramVirtualRows(void)

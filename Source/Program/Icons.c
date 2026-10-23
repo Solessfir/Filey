@@ -432,6 +432,30 @@ function void Prog_SubmitIconRequests(Prog_State *state)
 }
 
 // Copies `pixels` (the atlas's size square) into its next cell; false when it is full.
+// Where a picture fitted to its cell's width sits in it, for the icon views to draw it as wide as their cells: the rows it covers, when it
+// reaches both sides and leaves rows empty above or below it. An icon, which stops short of the sides, gets an aspect of 0 and is drawn
+// square as it is.
+function void Prog__MeasurePicture(Prog_Icon *icon, const u32 *pixels, i32 size)
+{
+    icon->aspect = 0;
+    icon->pictureUv = icon->uv;
+    i32 top = 0, bottom = size;
+    for (b32 inked = false; top < size && !inked; ) {
+        for (i32 x = 0; x < size && !inked; ++x) inked = (pixels[(i64)top * size + x] >> 24) != 0;
+        if (!inked) ++top;
+    }
+    for (b32 inked = false; bottom > top && !inked; ) {
+        for (i32 x = 0; x < size && !inked; ++x) inked = (pixels[(i64)(bottom - 1) * size + x] >> 24) != 0;
+        if (!inked) --bottom;
+    }
+    i64 middle = (i64)(top + bottom) / 2 * size;
+    if (bottom - top < 2 || (top == 0 && bottom == size) || !(pixels[middle] >> 24) || !(pixels[middle + size - 1] >> 24)) return;
+    f32 rows = icon->uv.y1 - icon->uv.y0;
+    icon->pictureUv.y0 = icon->uv.y0 + rows * (f32)top / (f32)size;
+    icon->pictureUv.y1 = icon->uv.y0 + rows * (f32)bottom / (f32)size;
+    icon->aspect = (f32)size / (f32)(bottom - top);
+}
+
 function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *pixels)
 {
     i32 size = atlas->size;
@@ -451,14 +475,16 @@ function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *
     icon->texture = atlas->pages[page];
     icon->uv = (R_Rect){ (f32)x * scale, (f32)y * scale, (f32)(x + size) * scale, (f32)(y + size) * scale };
     icon->state = Prog_IconState_Loaded;
+    Prog__MeasurePicture(icon, pixels, size);
     return true;
 }
 
 // Draws new pixels into a loaded icon's own cell.
-function void Prog__ReplaceIcon(const Prog_IconAtlas *atlas, const Prog_Icon *icon, const u32 *pixels)
+function void Prog__ReplaceIcon(const Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *pixels)
 {
     i32 x = (i32)(icon->uv.x0 * (f32)atlas->pageSize + 0.5f), y = (i32)(icon->uv.y0 * (f32)atlas->pageSize + 0.5f);
     R_TextureUpdateRGBA(icon->texture, x, y, atlas->size, atlas->size, pixels);
+    Prog__MeasurePicture(icon, pixels, atlas->size);
 }
 
 // An icon for pixels already in hand, such as a menu item's picture, cached by content so that reopening a menu reuses its cells.

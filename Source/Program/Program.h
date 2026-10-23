@@ -373,6 +373,8 @@ typedef struct Prog_Icon {
     String path;   // what it was loaded from, kept in the icon arena, for loading it again
     R_TextureHandle texture;
     R_Rect uv;
+    R_Rect pictureUv;  // a picture fitted to its cell's width: the rows it covers, and its width over its height; else `aspect` is 0
+    f32 aspect;
     u64 wanted;    // the last frame that drew or waited for it, which orders the thumbnails still to be made
 } Prog_Icon;
 

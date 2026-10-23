@@ -2,7 +2,6 @@
 
 ## Next
 
-- Larger thumbnails that use the grid's room: thumbnails are fitted into square atlas cells and drawn square at the zoom's size, so a wide picture leaves the cell's sides empty instead of filling its width.
 - Encrypted archives fail to open; ask for the password and hand it to libarchive.
 - Git: the status is asked again only after a listing, at most every 3 s, and the shown folder's watch does not see changes in its subfolders or in `.git`. The Git column's rows show a repository's branch and changes, not its commits to push and pull.
 - Miller columns: the side columns take only a left press (no context menu, drags or rename), list again only when they come back into view rather than following a watch, and the middle column is a names-only list.

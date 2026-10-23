@@ -3902,11 +3902,20 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
     if (thumbnail && !icon) {
         Prog__Spacer(UI_Pixels(width), UI_Pixels(height));
     } else if (icon) {
+        // A wide picture takes the room its cell has across, as long as it stays no taller than the icon size and its pixels go.
+        R_Rect uv = icon->uv;
+        UI_Vec2 drawn = { size, size };
+        if (thumbnail && !spinner && icon->aspect > 1) {
+            f32 room = width - 2 * floorf(8.0f * m->scale + 0.5f);
+            drawn.x = floorf(MaxF32(size, MinF32(MinF32(room, size * icon->aspect), (f32)Prog__ThumbnailTier((i32)size))));
+            drawn.y = floorf(drawn.x / icon->aspect + 0.5f);
+            uv = icon->pictureUv;
+        }
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextTextAlignment((UI_Vec2){ inset > 0 ? 0 : alignX, 0.5f });
         if (inset > 0) UI_SetNextChildrenPadding((UI_Padding){ inset, 0, 0, 0 });
-        UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ size, size }, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
+        UI_SetNextImage(icon->texture, uv, drawn, spinner ? theme->icon : (R_Color){ 1, 1, 1, faded ? theme->hiddenAmount.r : 1 });
         UI_AddBlock(UI_Flag_DrawImage);
     } else {
         Prog__Icon(entry->file.kind == P_FileKind_Directory ? Icon_Folder : Icon_File, width, height,
