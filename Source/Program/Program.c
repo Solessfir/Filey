@@ -312,40 +312,40 @@ typedef struct Prog_Theme {
 
 // The default scheme, the first built-in one, as Prog__ThemeFromScheme makes it from its colors.
 global const Prog_Theme Prog_ThemeCustom = {
-    .window                   = Prog_Hex(0x11111B),
-    .background               = Prog_Hex(0x1E1E2E),
-    .inner                    = Prog_Hex(0x1E1E2E),
-    .caption                  = Prog_Hex(0x11111B),
-    .menu                     = Prog_Hex(0x181825),
-    .panel                    = Prog_Hex(0x181825),
-    .alternateRow             = Prog_Hex(0x222233),
-    .separator                = Prog_Hex(0x11111B),
+    .window                   = Prog_Hex(0x232634),
+    .background               = Prog_Hex(0x303446),
+    .inner                    = Prog_Hex(0x303446),
+    .caption                  = Prog_Hex(0x232634),
+    .menu                     = Prog_Hex(0x292C3C),
+    .panel                    = Prog_Hex(0x292C3C),
+    .alternateRow             = Prog_Hex(0x34384A),
+    .separator                = Prog_Hex(0x232634),
     .hover                    = Prog_Hex(0x595959),
-    .selection                = Prog_Hex(0x394461),
-    .focus                    = Prog_Hex(0x394461),
-    .tabBorder                = Prog_Hex(0x313244),
-    .text                     = Prog_Hex(0xCDD6F4),
-    .textDim                  = Prog_Hex(0x7F849C),
-    .textHeading              = Prog_Hex(0xB0B7D4),
-    .textMatch                = Prog_Hex(0x89DCEB),
-    .marquee                  = Prog_Hex(0x89B4FA),
-    .accent                   = Prog_Hex(0x89B4FA),
-    .track                    = Prog_Hex(0x313244),
-    .outline                  = Prog_Hex(0x313244),
-    .danger                   = Prog_Hex(0xF38BA8),
-    .icon                     = Prog_Hex(0x9399B2),
-    .iconDisabled             = Prog_Hex(0x47495C),
-    .file                     = Prog_Hex(0xCDD6F4),
-    .folder                   = Prog_Hex(0xCDD6F4),
-    .contentHover             = Prog_Hex(0xCDD6F4),
-    .contentSelection         = Prog_Hex(0xCDD6F4),
-    .contentDisabledSelection = Prog_Hex(0xA1A8C3),
-    .outlineHover             = Prog_Hex(0x6C7086),
-    .outlineSelection         = Prog_Hex(0x9399B2),
-    .outlineDisabledSelection = Prog_Hex(0x585B70),
-    .matchHover               = Prog_Hex(0x89DCEB),
-    .matchSelection           = Prog_Hex(0x89DCEB),
-    .matchDisabledSelection   = Prog_Hex(0x69A3B2),
+    .selection                = Prog_Hex(0x475270),
+    .focus                    = Prog_Hex(0x475270),
+    .tabBorder                = Prog_Hex(0x414559),
+    .text                     = Prog_Hex(0xC6D0F5),
+    .textDim                  = Prog_Hex(0x838BA7),
+    .textHeading              = Prog_Hex(0xAFB7DA),
+    .textMatch                = Prog_Hex(0x99D1DB),
+    .marquee                  = Prog_Hex(0x8CAAEE),
+    .accent                   = Prog_Hex(0x8CAAEE),
+    .track                    = Prog_Hex(0x414559),
+    .outline                  = Prog_Hex(0x414559),
+    .danger                   = Prog_Hex(0xE78284),
+    .icon                     = Prog_Hex(0x949CBB),
+    .iconDisabled             = Prog_Hex(0x53586F),
+    .file                     = Prog_Hex(0xC6D0F5),
+    .folder                   = Prog_Hex(0xC6D0F5),
+    .contentHover             = Prog_Hex(0xC6D0F5),
+    .contentSelection         = Prog_Hex(0xC6D0F5),
+    .contentDisabledSelection = Prog_Hex(0xA1A9C9),
+    .outlineHover             = Prog_Hex(0x737994),
+    .outlineSelection         = Prog_Hex(0x949CBB),
+    .outlineDisabledSelection = Prog_Hex(0x626880),
+    .matchHover               = Prog_Hex(0x99D1DB),
+    .matchSelection           = Prog_Hex(0x99D1DB),
+    .matchDisabledSelection   = Prog_Hex(0x7AA2AE),
     .hoverAmount              = Prog_Hex(0x595959),
     .hiddenAmount             = Prog_Hex(0x595959),
     .disabledAmount           = Prog_Hex(0x595959),
@@ -398,7 +398,7 @@ global const Prog_Theme Prog_ThemeGlass = {
 
 // The built-in schemes' colors, popular themes' palettes in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's order of the groups.
 global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = {
-    { 0x11111B, 0x11111B, 0x1E1E2E, 0x181825, 0x313244, 0x1E1E2E, 0x313244, 0x313244, 0x11111B, 0x222233, 0x9399B2, 0xCDD6F4, 0x7F849C, 0xA6ADC8, 0xCDD6F4, 0xCDD6F4, 0xF38BA8, 0x89B4FA, 0x394461, 0x89B4FA, 0x89DCEB, 0x595959, 0x595959, 0x595959, 0xCDD6F4, 0xCDD6F4, 0xA1A8C3, 0x6C7086, 0x9399B2, 0x585B70, 0x89DCEB, 0x89DCEB, 0x69A3B2 },
+    { 0x232634, 0x232634, 0x303446, 0x292C3C, 0x414559, 0x303446, 0x414559, 0x414559, 0x232634, 0x34384A, 0x949CBB, 0xC6D0F5, 0x838BA7, 0xA5ADCE, 0xC6D0F5, 0xC6D0F5, 0xE78284, 0x8CAAEE, 0x475270, 0x8CAAEE, 0x99D1DB, 0x595959, 0x595959, 0x595959, 0xC6D0F5, 0xC6D0F5, 0xA1A9C9, 0x737994, 0x949CBB, 0x626880, 0x99D1DB, 0x99D1DB, 0x7AA2AE },
     { 0xDCE0E8, 0xDCE0E8, 0xEFF1F5, 0xE6E9EF, 0xCCD0DA, 0xEFF1F5, 0xCCD0DA, 0xCCD0DA, 0xDCE0E8, 0xE7EAEF, 0x7C7F93, 0x4C4F69, 0x8C8FA1, 0x6C6F85, 0x4C4F69, 0x4C4F69, 0xD20F39, 0x1E66F5, 0xC1D2F5, 0x1E66F5, 0x04A5E5, 0x808080, 0x666666, 0x666666, 0x4C4F69, 0x4C4F69, 0x75788C, 0x9CA0B0, 0x7C7F93, 0xACB0BE, 0x04A5E5, 0x04A5E5, 0x4BBCEA },
     { 0x242933, 0x242933, 0x2E3440, 0x292E39, 0x3B4252, 0x2E3440, 0x3B4252, 0x3B4252, 0x242933, 0x313744, 0x8A93A5, 0xD8DEE9, 0x616E88, 0xB8C0CE, 0xD8DEE9, 0xD8DEE9, 0xBF616A, 0x81A1C1, 0x434F60, 0x81A1C1, 0x88C0D0, 0x595959, 0x595959, 0x595959, 0xD8DEE9, 0xD8DEE9, 0xAEB4BF, 0x4C566A, 0x8A93A5, 0x4C566A, 0x88C0D0, 0x88C0D0, 0x6D96A5 },
     { 0x1D2021, 0x1D2021, 0x282828, 0x222424, 0x3C3836, 0x282828, 0x3C3836, 0x3C3836, 0x1D2021, 0x2C2C2B, 0xA89984, 0xEBDBB2, 0x928374, 0xBDAE93, 0xEBDBB2, 0xEBDBB2, 0xFB4934, 0x83A598, 0x3F4744, 0x83A598, 0xFABD2F, 0x595959, 0x595959, 0x595959, 0xEBDBB2, 0xEBDBB2, 0xBAAE90, 0x7C6F64, 0xA89984, 0x665C54, 0xFABD2F, 0xFABD2F, 0xBB902D },
@@ -516,7 +516,7 @@ function b32 Prog__ParseColor(String text, R_Color *color)
 // The first is the default, and the second the light one that "light" names.
 global const String Prog_OptionSchemes[] = { SInit(Prog_DefaultScheme), SInit("catppuccin-latte"), SInit("nord"), SInit("gruvbox"), SInit("tokyo-night"), SInit("one-dark"),
                                              SInit("dracula"), SInit("solarized-dark"), SInit("solarized-light"), SInit("rose-pine") };
-global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Catppuccin Mocha"), NoTrF("Catppuccin Latte"), NoTrF("Nord"), NoTrF("Gruvbox"), NoTrF("Tokyo Night"),
+global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Catppuccin Frappé"), NoTrF("Catppuccin Latte"), NoTrF("Nord"), NoTrF("Gruvbox"), NoTrF("Tokyo Night"),
                                                         NoTrF("One Dark"), NoTrF("Dracula"), NoTrF("Solarized Dark"), NoTrF("Solarized Light"), NoTrF("Rosé Pine") };
 static_assert(CArrayCount(Prog_OptionSchemeLabels) == Prog_BuiltInSchemes, "the built-in schemes labeled");
 static_assert(CArrayCount(Prog_OptionSchemes) == Prog_BuiltInSchemes, "the built-in schemes counted");
@@ -893,8 +893,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\", switches true or false; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
-                                "# A scheme by its name: catppuccin-mocha, catppuccin-latte, nord, gruvbox, tokyo-night, one-dark, dracula, solarized-dark,\n"
-                                "# solarized-light, rose-pine or a custom one; colors set before this line are replaced.\n# theme = catppuccin-mocha\n"
+                                "# A scheme by its name: catppuccin-frappe, catppuccin-latte, nord, gruvbox, tokyo-night, one-dark, dracula, solarized-dark,\n"
+                                "# solarized-light, rose-pine or a custom one; colors set before this line are replaced.\n# theme = catppuccin-frappe\n"
                                 "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = catppuccin-latte\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"

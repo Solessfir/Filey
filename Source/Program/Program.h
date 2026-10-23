@@ -939,7 +939,7 @@ typedef enum Prog_LayoutAsk {
 // Default and the reference's six, which the custom schemes follow.
 #define Prog_BuiltInSchemes 10
 // The first built-in scheme, shown where the settings name none.
-#define Prog_DefaultScheme "catppuccin-mocha"
+#define Prog_DefaultScheme "catppuccin-frappe"
 // A custom scheme's file in the settings folder ends so, after its name.
 #define Prog_SchemeExtension S(".scheme")
 // The colors a scheme is made of, its groups, as the Options list them from Prog_Option_ColorClear on.
