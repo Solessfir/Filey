@@ -775,6 +775,7 @@ typedef enum Prog_Option {
     Prog_Option_VideoCodec,
     Prog_Option_VideoQuality,
     Prog_Option_DownloadAudio,
+    Prog_Option_DeleteFinishedTorrents,
     Prog_Option_AudioVolume,
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
@@ -1580,6 +1581,7 @@ typedef struct Prog_State {
     u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
     u8 videoQuality;  // its constant quality, 0 (best) to 51
     b32 downloadAudio;  // downloads by URL take the sound alone, as MP3
+    b32 deleteFinishedTorrents;  // a torrent downloaded whole sends its .torrent to the bin
     u8 audioVolume;     // how loud the inspector plays audio, 0 to 100
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
     b32 noticesInSidebar;  // the notices and the progress cards stack at the bottom of the sidebar while it shows

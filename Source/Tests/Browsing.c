@@ -1068,6 +1068,11 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(!P_WriteFile(&arena, picture, StrMake(pixel, sizeof(pixel) - 1)).code);
     image = (P_Image){0};
     Check(P_LoadFileThumbnail(&arena, picture, P_FileKind_File, 64, false, NULL, &image) && image.pixels != NULL);
+    // A torrent's download takes it whole when its selection chooses every file but the padding.
+    String torrent = Prog_JoinPath(&arena, fixture->path, S("set.torrent"));
+    Check(!P_WriteFile(&arena, torrent, S("d4:infod5:filesld6:lengthi40e4:pathl6:Season5:a.mkveed4:attr1:p6:lengthi24e4:pathl4:.pad2:24eed6:lengthi50e4:pathl5:b.txteee4:name3:Setee")).code);
+    Check(Prog__TorrentWhole(torrent, (String){0}) && Prog__TorrentWhole(torrent, S("1,3")) && !Prog__TorrentWhole(torrent, S("3")) && !Prog__TorrentWhole(S("nowhere.torrent"), (String){0}));
+    Check(!P_DeleteItems(&arena, &torrent, 1, false, NULL).code);
 #if defined(__linux__)
     Check(image.width == 1 && image.height == 1 && StrIsEqual(P_FileThumbnailKey(&arena, picture, P_FileKind_File), picture));
     // A 16 at 125% is looked up as a 16 at scale 2: the theme's 16@2 directory, then by pixels, where a scalable 32 and up beats a 22.

@@ -305,6 +305,8 @@ function b32 P_ReadFileStart(Arena *arena, String path, u64 limit, String *conte
 // `timeoutMilliseconds` (it is then stopped, with what it started) or exited with an error.
 // Helpers it starts may outlive it once it ended, as git's file system monitor does.
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors);
+// Whether the program `name` is on the PATH, as P_RunCommand would find it.
+function b32 P_ProgramFound(String name);
 // P_RunCommand with `environment`, "NAME=value" each, set for the command alone over the program's own.
 // `cancel`, which may be NULL, stops it with what it started.
 function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,

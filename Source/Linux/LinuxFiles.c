@@ -2021,6 +2021,23 @@ function b32 P_RunCommandWith(Arena *arena, String directory, const String *argu
     return result;
 }
 
+function b32 P_ProgramFound(String name)
+{
+    const char *path = getenv("PATH");
+    if (!path || !name.length) return false;
+    Scratch scratch = GetScratch();
+    b32 result = false;
+    for (String rest = StrFromCStr(path); rest.length && !result;) {
+        Index colon = StrIndexChar(rest, ':', SSF_CountOnFail);
+        String folder = StrFromTo(rest, 0, (i64)colon.value);
+        rest = StrFrom(rest, Min(colon.value + 1, rest.length));
+        char *file = folder.length ? P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%S/%S", folder, name)) : NULL;
+        result = file && access(file, X_OK) == 0;
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
 {
     return P_RunCommandWith(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors, NULL);

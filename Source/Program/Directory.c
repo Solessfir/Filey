@@ -5094,6 +5094,22 @@ function void Prog__DropPdf(Prog_State *state)
 function void Prog_WakeAt(Prog_State *state, u64 at);
 function void Prog__StartWaitingTorrents(Prog_State *state);
 
+// Whether the download of the .torrent `path` with the files `selection` chooses took every file in it.
+function b32 Prog__TorrentWhole(String path, String selection)
+{
+    Scratch scratch = GetScratch();
+    String bytes = {0};
+    Prog_TorrentInfo info = {0};
+    b32 result = P_ReadFile(scratch.arena, path, &bytes) && Prog_ReadTorrent(scratch.arena, bytes, &info);
+    if (result) {
+        b8 *skip = ArenaPushArray(scratch.arena, Max(info.fileCount, 1u), b8);
+        Prog_TorrentSkip(selection, &info, skip);
+        for (u32 i = 0; i < info.fileCount; ++i) result &= info.files[i].pad || !skip[i];
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // A torrent's path as aria2c writes it: on Windows, with the characters its names cannot hold as underscores.
 function String Prog__AriaPath(Arena *arena, String path)
 {
@@ -5554,6 +5570,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             // A torrent's files are read once more when its download is over, to show what it left.
             if (input->transferOp == Prog_TransferOp_Torrent && StrIsEqual(state->previewPath, input->paths[0])) state->torrentRead = false;
+            // One downloaded whole goes to the bin when the settings say so, as nothing more comes from it; the bin gives it back.
+            if (input->transferOp == Prog_TransferOp_Torrent && !error.code && !P_IsCancelled(&job->cancelToken) && state->deleteFinishedTorrents &&
+                Prog__TorrentWhole(input->paths[0], input->name)) {
+                Prog__FileJobOp(state, Prog_JobKind_Trash, input->paths, 1, Prog_ParentPath(input->paths[0]), false, (String){0}, Prog_TransferOp_None);
+            }
             // Copies, moves and new items that went through can be undone.
             if (!error.code && input->kind == Prog_JobKind_Transfer && job->result) {
                 const Prog_Transferred *result = job->result;

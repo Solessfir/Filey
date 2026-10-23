@@ -125,6 +125,8 @@ global const char *const Prog_Strings[] = {
     "The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does.",
     "Download Audio Only",
     "A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3.",
+    "Delete Finished Torrents",
+    "Sends a .torrent file to the Recycle Bin once every file in it has downloaded.",
     "Audio Volume",
     "How loud the inspector plays audio files.",
     "Notifications",

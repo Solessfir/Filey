@@ -2910,3 +2910,9 @@ Open in Filey
 
 Open Filey here
 = Открыть Filey здесь
+
+Delete Finished Torrents
+= Удалять завершённые торренты
+
+Sends a .torrent file to the Recycle Bin once every file in it has downloaded.
+= Отправляет файл .torrent в корзину, когда скачаны все его файлы.

@@ -956,6 +956,15 @@ function b32 P_RunCommandWith(Arena *arena, String directory, const String *argu
     return P__RunCollected(arena, directory, arguments, count, environment, environmentCount, timeoutMilliseconds, output, errors, cancel, true);
 }
 
+function b32 P_ProgramFound(String name)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, name);
+    b32 result = wide && SearchPathW(NULL, wide, L".exe", 0, NULL, NULL) > 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors)
 {
     return P__RunCollected(arena, directory, arguments, count, NULL, 0, timeoutMilliseconds, output, errors, NULL, false);
