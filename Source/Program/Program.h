@@ -1017,6 +1017,14 @@ typedef struct Prog_FontName {
     char text[64];
 } Prog_FontName;
 
+// The families the UI and the inspector are drawn in without a font of the settings' own.
+#define Prog_DefaultFont S("Segoe UI")
+#if defined(_WIN32)
+#define Prog_DefaultInspectorFont S("Consolas")
+#else
+#define Prog_DefaultInspectorFont S("monospace")
+#endif
+
 // The file types a listing shows, by the names its Type column gives them, each ended by '\n'; empty shows every type.
 // ponytail: names up to a kilobyte in all, far more than a folder's types; grow it if one runs out.
 typedef struct Prog_TypeFilter {
@@ -1643,6 +1651,8 @@ typedef struct Prog_State {
     Prog_TextEdit optionsPalette;
     u32 optionsHighlight, optionsScroll;
     b32 optionsWheeled;       // Options were scrolled by the wheel, away from their highlight, where they stay under the font dropdown
+    // The families the defaults are drawn in, as the system matches them, which Options name.
+    Prog_FontName fontUsed, inspectorFontUsed;
     R_Rect fontAnchor;        // where the font dropdown's button was last seen, which it stays under while the button is out of sight
     // The layout Load On Startup names, which takes the place of `startup` while there is one.
     u8 startupLayout[256];

@@ -905,13 +905,25 @@ function u32 Prog_LayoutMatches(const Prog_State *state, u32 *out)
     return count;
 }
 
-// The font picker's rows: the default first while nothing is typed, as UINT32_MAX, then the families whose names hold the text, then those
-// with its letters in order. `out` takes one more than there are families.
+// The family an option's font is drawn in without one of the settings' own, as the system matches the default.
+function String Prog__FontDefault(const Prog_State *state, Prog_Option option)
+{
+    const Prog_FontName *used = option == Prog_Option_InspectorFont ? &state->inspectorFontUsed : &state->fontUsed;
+    return StrMake(used->text, used->length);
+}
+
+// The family an option's font is drawn in: the settings' own, or the default's.
+function String Prog__FontChosen(const Prog_State *state, Prog_Option option)
+{
+    const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
+    return font->length ? StrMake(font->text, font->length) : Prog__FontDefault(state, option);
+}
+
+// The font picker's rows: the families whose names hold the text, then those with its letters in order.
 function u32 Prog_FontMatches(const Prog_State *state, u32 *out)
 {
     String text = Prog_EditText(&state->palette);
     u32 count = 0;
-    if (!text.length) out[count++] = UINT32_MAX;
     for (u32 tier = 0; tier < 2; ++tier) {
         for (u64 i = 0; i < state->fontCount; ++i) {
             String name = state->fontNames[i];
@@ -2289,9 +2301,9 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option)
     state->fontOption = (u8)option;
     state->paletteHighlight = 0;
     state->paletteWheeled = false;
-    const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
+    String current = Prog__FontChosen(state, option);
     for (u64 i = 0; i < state->fontCount; ++i) {
-        if (Prog__EqualFolded(state->fontNames[i], StrMake(font->text, font->length))) state->paletteHighlight = (u32)i + 1;
+        if (Prog__EqualFolded(state->fontNames[i], current)) state->paletteHighlight = (u32)i;
     }
     if (state->fontNames || state->fontsJob) return;
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
@@ -3874,8 +3886,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     u32 count = Prog_FontMatches(state, found);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     if (chosen >= count) break;
-                    // The default clears the setting.
-                    Prog_SetOptionText(state, (Prog_Option)state->fontOption, found[chosen] == UINT32_MAX ? (String){0} : state->fontNames[found[chosen]]);
+                    // The default's own family clears the setting, which keeps it the default.
+                    Prog_Option option = (Prog_Option)state->fontOption;
+                    String name = state->fontNames[found[chosen]];
+                    Prog_SetOptionText(state, option, Prog__EqualFolded(name, Prog__FontDefault(state, option)) ? (String){0} : name);
                     Prog__CloseFontPicker(state);
                     break;
                 }

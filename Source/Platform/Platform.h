@@ -304,3 +304,6 @@ function b32 PlatformFontGlyph(PlatformFontFace *face, Arena *arena, u32 codepoi
 function void PlatformFontClose(PlatformFontFace *face);
 // The font families installed on the system, by the names a PlatformFontSource takes, in no order and possibly more than once.
 function ArrayStr PlatformFontFamilies(Arena *arena);
+// The family text is drawn in when `family` is asked for: itself where it is installed, else the one the system's font matching puts in its
+// place, as fontconfig does for "monospace" or a family it lacks.
+function String PlatformFontFamilyUsed(Arena *arena, String family);

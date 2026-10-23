@@ -44,6 +44,12 @@ function void WinFamilyFound(void *user, const wchar *name, u32 length)
     ArrayPush(list->arena, *list->names, P__FileStringWide(list->arena, name, (i32)length));
 }
 
+// The families Filey asks for by default, Segoe UI and Consolas, come with every Windows.
+function String PlatformFontFamilyUsed(Arena *arena, String family)
+{
+    return StrCopy(arena, family);
+}
+
 function ArrayStr PlatformFontFamilies(Arena *arena)
 {
     ArrayStr result = {0};

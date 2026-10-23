@@ -176,6 +176,24 @@ function b32 PlatformFontGlyph(PlatformFontFace *font, Arena *arena, u32 codepoi
     return LinuxDrawGlyph(font, face, arena, codepoint, glyph);
 }
 
+function String PlatformFontFamilyUsed(Arena *arena, String family)
+{
+    char name[128] = {0};
+    MemCopy(name, family.value, Min(family.length, (u64)sizeof(name) - 1));
+    String result = StrCopy(arena, family);
+    FcPattern *pattern = FcNameParse((const FcChar8 *)name);
+    if (!pattern) return result;
+    FcConfigSubstitute(NULL, pattern, FcMatchPattern);
+    FcDefaultSubstitute(pattern);
+    FcResult matched = FcResultNoMatch;
+    FcPattern *match = FcFontMatch(NULL, pattern, &matched);
+    FcChar8 *used = NULL;
+    if (match && FcPatternGetString(match, FC_FAMILY, 0, &used) == FcResultMatch && used) result = StrCopy(arena, StrFromCStr((const char *)used));
+    if (match) FcPatternDestroy(match);
+    FcPatternDestroy(pattern);
+    return result;
+}
+
 function ArrayStr PlatformFontFamilies(Arena *arena)
 {
     ArrayStr result = {0};

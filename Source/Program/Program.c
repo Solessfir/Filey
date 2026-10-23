@@ -6789,8 +6789,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
         } break;
         case Prog_OptionControl_Font: {
             // The family's name, which a click lets be chosen from the installed ones.
-            const Prog_FontName *font = option == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
-            String name = font->length ? StrMake(font->text, font->length) : Tr("Default");
+            String name = Prog__FontChosen(state, option);
             UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)option));
             b32 hot = UI->hotKey == key;
             UI_SetNextPrefWidth(UI_Pixels(width));
@@ -6798,7 +6797,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
             UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
             UI_SetNextCornerRadius(radius);
             UI_SetNextBorderThickness(line);
-            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = hot ? theme->textDim : theme->inner, .text = font->length ? theme->text : theme->textDim });
+            UI_SetNextColors((UI_Colors){ .background = theme->inner, .border = hot ? theme->textDim : theme->inner, .text = theme->text });
             UI_SetNextText(Prog__Ellipsize(frame, m->font, name, width - 2 * radius));
             UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText | UI_Flag_LeftMouseClickable | UI_Flag_Clip);
             UI_Interaction interaction = UI_InteractionFromBlock(box);
@@ -7537,7 +7536,7 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextBlur(Prog__FloatingBlur(m));
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Fonts")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
-    const Prog_FontName *current = state->fontOption == Prog_Option_InspectorFont ? &state->inspectorFont : &state->font;
+    String current = Prog__FontChosen(state, (Prog_Option)state->fontOption);
     UI_Parent(panel) {
         UI_SetNextChildrenPadding((UI_Padding){ floorf(10.4f * s + 0.5f), 0, inset, 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -7567,9 +7566,8 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
         UI_Parent(list) {
             if (!count) Prog__Label(state->fontsJob ? Tr("Listing the installed fonts...") : Tr("No font has that name"), UI_Flex(), row - line, floorf(8.0f * s + 0.5f), theme->textDim, 0);
             for (u32 i = first; i < first + shown; ++i) {
-                b32 standard = matches[i] == UINT32_MAX;
-                String name = standard ? Tr("Default") : state->fontNames[matches[i]];
-                b32 chosen = standard ? !current->length : Prog__EqualFolded(name, StrMake(current->text, current->length));
+                String name = state->fontNames[matches[i]];
+                b32 chosen = Prog__EqualFolded(name, current);
                 UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Font/%S", name));
                 b32 highlighted = i == state->paletteHighlight, hot = UI->hotKey == key && !highlighted;
                 f32 face = row - line;
@@ -7589,11 +7587,11 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
                     u8 *marks = state->palette.length ? ArenaPushArray(frame, name.length + 1, u8) : NULL;
                     if (marks) Prog_FilterMatch(name, Prog_EditText(&state->palette), marks);
                     // Each family's name in that family once it is made, and in the interface's until then.
-                    const R_Font *preview = standard ? NULL : Prog__FontPreview(state, matches[i], previewPixels, &budget);
+                    const R_Font *preview = Prog__FontPreview(state, matches[i], previewPixels, &budget);
                     const R_Font *font = preview && preview->lineHeight > 0 ? preview : m->font;
                     // Centered by its letters, as some families have a far taller line than they need.
                     f32 lineHeight = font == m->font ? m->line : MinF32(ceilf(font->ascent + font->descent), face);
-                    R_Color ink = highlighted ? theme->contentSelection : standard ? theme->textDim : theme->text;
+                    R_Color ink = highlighted ? theme->contentSelection : theme->text;
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(face));
                     UI_SetNextChildrenLayout(UI_Layout_Vertical);

@@ -108,7 +108,17 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     Arena arena = {0};
     R_Font font = {0}, detailFont = {0}, icons = {0}, smallIcons = {0}, mediumIcons = {0};
     const Prog_FontName *name = &loop->state.font;
-    String family = name->length ? StrMake(name->text, name->length) : S("Segoe UI");
+    String family = name->length ? StrMake(name->text, name->length) : Prog_DefaultFont;
+    // The families the defaults are drawn in, as the system matches them, for Options to name.
+    Scratch scratch = GetScratch();
+    Prog_FontName *used[2] = { &loop->state.fontUsed, &loop->state.inspectorFontUsed };
+    String asked[2] = { Prog_DefaultFont, Prog_DefaultInspectorFont };
+    for (u32 i = 0; i < 2; ++i) {
+        String found = PlatformFontFamilyUsed(scratch.arena, asked[i]);
+        used[i]->length = (u32)Min(found.length, sizeof(used[i]->text));
+        MemCopy(used[i]->text, found.value, used[i]->length);
+    }
+    ReleaseScratch(scratch);
     // Icons are a little smaller than the text's line height, which gives their strokes the right weight.
     b32 ok = R_FontCreate(&arena, family, fontPixelSize * scale, &font) &&
              R_FontCreate(&arena, family, (fontPixelSize - 96.0f / 72.0f) * scale, &detailFont) &&
@@ -212,11 +222,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
             if (pixels != loop->monoPixels || monoChanged) {
                 loop->monoPixels = pixels;
                 loop->monoName = *name;
-#if defined(_WIN32)
-                String family = name->length ? StrMake(name->text, name->length) : S("Consolas");
-#else
-                String family = name->length ? StrMake(name->text, name->length) : S("monospace");
-#endif
+                String family = name->length ? StrMake(name->text, name->length) : Prog_DefaultInspectorFont;
                 Arena arena = {0};
                 R_Font mono = {0};
                 if (R_FontCreate(&arena, family, pixels, &mono)) {
@@ -238,7 +244,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
             loop->setupScale = 0;
             if (state->setupOpen) {
                 local_persist const f32 points[3] = { 20, 14, 11 };
-                String family = state->font.length ? StrMake(state->font.text, state->font.length) : S("Segoe UI");
+                String family = state->font.length ? StrMake(state->font.text, state->font.length) : Prog_DefaultFont;
                 b32 made = true;
                 for (u32 i = 0; i < CArrayCount(points); ++i) made = made && R_FontCreate(&loop->setupArena, family, points[i] * (96.0f / 72.0f) * scale, &loop->setupFonts[i]);
                 if (made) loop->setupScale = scale;
