@@ -167,7 +167,8 @@ function UI_Block *UI_PushParent(UI_Block *block);
 function void UI_PopParent(UI_Block *previous);
 // Blocks added inside take no presses, for something still drawn as it fades out after it closed.
 #define UI_NoInput() for (u32 UI__once = (++UI->noInput, 1u); UI__once; --UI->noInput, UI__once = 0)
-#define UI_Parent(block) for (UI_Block *UI__previous = UI_PushParent(block), *UI__once = (block); UI__once; UI_PopParent(UI__previous), UI__once = NULL)
+// The block is named once, as a call that makes it would otherwise make a second one inside the first.
+#define UI_Parent(block) for (UI_Block *UI__once = (block), *UI__previous = UI_PushParent(UI__once); UI__once; UI_PopParent(UI__previous), UI__once = NULL)
 
 function void UI_SetNextPrefWidth(UI_Size size);
 function void UI_SetNextPrefHeight(UI_Size size);
