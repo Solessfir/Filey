@@ -1282,6 +1282,14 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     return result;
 }
 
+// The row Go To highlights once its text changes: the first, but none while the text ends in a separator, as a folder's path pasted or gone
+// into does, so that Enter goes to that folder rather than into the first one in it; Down still reaches its rows.
+function u32 Prog__GoToFirstRow(const Prog_State *state)
+{
+    String text = Prog_EditText(&state->palette);
+    return text.length && (text.value[text.length - 1] == '/' || text.value[text.length - 1] == '\\') ? UINT32_MAX : 0;
+}
+
 // Puts `text` in Go To's box, remembered for its back button when `remember` is set.
 // Go To's text with the environment variables it names put in, once one is typed whole, as "%TEMP%", so that its folder lists at once.
 function void Prog__GoToExpandVariables(Prog_State *state)
@@ -1292,7 +1300,7 @@ function void Prog__GoToExpandVariables(Prog_State *state)
     state->palette.anchor = 0;
     state->palette.cursor = state->palette.length;
     Prog__EditReplace(&state->palette, (const u8 *)expanded.value, (u32)expanded.length);
-    state->paletteHighlight = 0;
+    state->paletteHighlight = Prog__GoToFirstRow(state);
     state->gotoScroll = 0;
 }
 
@@ -1308,7 +1316,7 @@ function void Prog__GoToSetText(Prog_State *state, String text, b32 remember)
     state->palette.cursor = 0;
     state->palette.anchor = state->palette.length;
     Prog__EditReplace(&state->palette, (const u8 *)text.value, (u32)Min(text.length, (u64)sizeof(state->palette.text) - 1));
-    state->paletteHighlight = 0;
+    state->paletteHighlight = Prog__GoToFirstRow(state);
     state->gotoScroll = 0;
 }
 
@@ -2385,10 +2393,11 @@ function u32 Prog__HighlightedOption(Prog_State *state)
     return state->paletteHighlight < count ? found[state->paletteHighlight] : Prog_Option_Count;
 }
 
-// After the typed text changes, the first row is highlighted, but Options keeps the option `kept` it had where that still shows.
+// After the typed text changes, the first row is highlighted, but Options keeps the option `kept` it had where that still shows, and Go To
+// may have none.
 function void Prog__KeepHighlight(Prog_State *state, u32 kept)
 {
-    state->paletteHighlight = 0;
+    state->paletteHighlight = state->paletteMode == Prog_PaletteMode_GoTo ? Prog__GoToFirstRow(state) : 0;
     if (kept >= Prog_Option_Count) return;
     u8 found[Prog_Option_Count];
     u32 count = Prog_OptionMatches(state, found);

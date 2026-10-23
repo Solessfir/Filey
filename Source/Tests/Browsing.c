@@ -2600,6 +2600,16 @@ function void TestTabs(TestFileFixture *fixture)
     Check(TestWaitDirectory(&state));
     u64 shownEmpty = TestEntryIndex(&state, S("Empty"));
     Check(StrIsEqual(state.directory.path, fixture->path) && shownEmpty != UINT64_MAX && state.directory.entries[shownEmpty].selected);
+    // A folder's path pasted whole, ending in a separator, highlights nothing, so that Enter goes to that folder rather than into the first in it.
+    TestBrowsingCommand(&state, Prog_CommandKind_GoTo, 0);
+    typed = P_NativePath(&state.frameArena, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2/")));
+    Prog__EditReplace(&state.palette, (const u8 *)typed.value, (u32)typed.length);
+    Prog__KeepHighlight(&state, Prog_Option_Count);
+    Check(state.paletteHighlight == UINT32_MAX);
+    TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
+    Check(TestWaitDirectory(&state) && TestEndsWith(state.directory.path, S("/Folder2")));
+    Prog_RequestDirectory(&state, fixture->path, true, 0);
+    Check(TestWaitDirectory(&state));
     // The drive index walks everything below the drives, writing itself to the cache folder as it goes, and Go To finds folders and files by name.
     Arena driveArena = {0};
     ArrayPush(&driveArena, state.drives, ((P_Place){ .path = fixture->path }));
