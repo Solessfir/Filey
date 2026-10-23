@@ -3460,12 +3460,11 @@ function f32 Prog__CaretOpacity(const Prog_TextEdit *edit)
 }
 
 // The text of `edit` with its selection and, when `caret` is set, its caret, floating at `x`, `y` in the current parent.
-// `caretGrow` lengthens the caret past the text line at both ends, as the palettes' tall fields draw it.
 // How far the text of `edit` is scrolled left in its box, which keeps the caret in sight once the text is wider than the box.
 function UI_Key Prog__EditScrollKey(const Prog_TextEdit *edit) { return UI_KeyFromStr(1, StrFormat(UI->frameArena, "EditScroll/%p", (const void *)edit)); }
 function f32 Prog__EditScroll(const Prog_TextEdit *edit) { return UI_Kept(Prog__EditScrollKey(edit)); }
 
-function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, f32 caretGrow, const Prog_Metrics *m)
+function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 caret, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String text = Prog_EditText(edit);
@@ -3512,9 +3511,9 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     UI_SetNextText(text);
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
     if (caret && !collapsing) {
-        UI_SetNextFloatingOffset((UI_Vec2){ caretX, y - caretGrow });
+        UI_SetNextFloatingOffset((UI_Vec2){ caretX, y });
         UI_SetNextPrefWidth(UI_Pixels(Prog__CaretWidth(m)));
-        UI_SetNextPrefHeight(UI_Pixels(m->line + 2 * caretGrow));
+        UI_SetNextPrefHeight(UI_Pixels(m->line));
         UI_SetNextColors((UI_Colors){ .background = theme->text });
         UI_SetNextOpacity(Prog__CaretOpacity(edit));
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
@@ -3588,7 +3587,7 @@ function void Prog__RenameBox(Prog_State *state, UI_Size width, b32 icons, const
         UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("RenameBox")), UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         state->renameRect = box->rect;
         Prog__EditMouse(state, box, &state->rename, pad, Prog_CommandKind_RenameCaret, m);
-        UI_Parent(box) Prog__EditContents(&state->rename, pad, above, true, 0, m);
+        UI_Parent(box) Prog__EditContents(&state->rename, pad, above, true, m);
     }
 }
 
@@ -4780,7 +4779,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextPrefHeight(UI_Pixels(tall));
                     UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
                     Prog__EditMouse(state, field, &state->filter, floorf(m->gap * 0.5f), Prog_CommandKind_FilterCaret, m);
-                    UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->filtering, 0, m);
+                    UI_Parent(field) Prog__EditContents(&state->filter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->filtering, m);
                 }
                 UI_Block *buttons = Prog__Box(UI_Fill(), UI_Pixels(tall), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(buttons) {
@@ -5181,7 +5180,7 @@ function void Prog__SidebarFilterBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextText(Tr("Filter..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
-            if (state->sidebarFilter.length || state->sidebarFiltering) Prog__EditContents(&state->sidebarFilter, pad, top, state->sidebarFiltering, 0, m);
+            if (state->sidebarFilter.length || state->sidebarFiltering) Prog__EditContents(&state->sidebarFilter, pad, top, state->sidebarFiltering, m);
         }
         if (state->sidebarFilter.length) {
             UI_Interaction clear = Prog__TextButton(S("SidebarFilterClear"), Icon_X, m->icons, UI_Pixels(floorf(24.0f * m->scale + 0.5f)), strip, 0, theme->textDim, theme->text,
@@ -6020,7 +6019,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                         UI_SetNextText(Tr("Select a system command..."));
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                     }
-                    Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, 0, m);
+                    Prog__EditContents(&state->menuSearch, 0, floorf((fieldHeight - m->line) * 0.5f), true, m);
                 }
                 // A pencil opens the menu editor in its place, a little apart from the text; a little smaller than the icons, as it fills more of
                 // its square than the cross beside it.
@@ -6454,13 +6453,13 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(text) {
                 if (!state->palette.length) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(hint);
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.5f), true, m);
             }
             UI_Interaction close = Prog__CloseButton(S("TabSearchClose"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
@@ -6714,13 +6713,13 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(text) {
                 if (!state->palette.length) {
                     // A little past the caret.
-                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(3.2f * s + 0.5f), floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ floorf(3.2f * s + 0.5f), floorf((field - m->line) * 0.5f + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(Tr("Open or expand a folder..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.5f), true, m);
             }
             struct { String identity; String icon; Prog_CommandKind kind; b32 enabled; } buttons[] = {
                 { S("GoToBack"), Icon_ArrowLeft, Prog_CommandKind_GoToBack, state->gotoHistoryAt > 0 },
@@ -7042,7 +7041,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                     // In the middle, where the value was, until it no longer fits.
                     f32 typedWidth = R_TextWidth(m->font, Prog_EditText(&state->sliderEdit)) + Prog__CaretWidth(m);
                     f32 inset = MaxF32(floorf(6.4f * s + 0.5f), floorf((width - typedWidth) * 0.5f));
-                    Prog__EditContents(&state->sliderEdit, inset, floorf((height - m->line) * 0.5f), true, 0, m);
+                    Prog__EditContents(&state->sliderEdit, inset, floorf((height - m->line) * 0.5f), true, m);
                 } else {
                     // The fill keeps clear of the border, a little inside it.
                     f32 gap = line + floorf(1.6f * s + 0.5f);
@@ -7084,7 +7083,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                                                UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_LeftMouseClickable | UI_Flag_Clip | (typing ? 0 : UI_Flag_DrawText));
             UI_Interaction press = UI_InteractionFromBlock(hex);
             if (press.pressed && !typing) Prog_QueueCommand(state, Prog_CommandKind_ColorHexEdit, (u64)option, 0, press.pressOrder);
-            if (typing) UI_Parent(hex) Prog__EditContents(&state->hexEdit, floorf(4.0f * s + 0.5f), floorf((height - m->line) * 0.5f), true, 0, m);
+            if (typing) UI_Parent(hex) Prog__EditContents(&state->hexEdit, floorf(4.0f * s + 0.5f), floorf((height - m->line) * 0.5f), true, m);
             Prog__Spacer(UI_Pixels(gap), UI_Pixels(height));
             UI_SetNextPrefWidth(UI_Pixels(width - field - gap));
             UI_SetNextPrefHeight(UI_Pixels(height));
@@ -7269,7 +7268,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextText(StrFormat(frame, TrF("Filter %u types..."), state->typeCount));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->typesSearch, 0, top, true, 0, m);
+                Prog__EditContents(&state->typesSearch, 0, top, true, m);
             }
             // Checking every type shows them all as a filter would, and clearing them shows them all without one.
             UI_Interaction all = Prog__TextButton(S("TypesToggleAll"), Icon_SquareCheck, m->icons, UI_Pixels(button), fieldHeight, 0, theme->icon, theme->text, theme->iconDisabled,
@@ -7403,7 +7402,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextText(StrFormat(frame, TrF("Filter %S files..."), many));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->filesSearch, 0, top, true, 0, m);
+                Prog__EditContents(&state->filesSearch, 0, top, true, m);
             }
             UI_Interaction close = Prog__CloseButton(S("FilesClose"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupClose, 0, 0, close.clickOrder);
@@ -7667,13 +7666,13 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(text) {
                 if (!state->palette.length) {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(Tr("Select a layout..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.5f), true, m);
             }
             UI_Interaction close = Prog__CloseButton(S("PaletteCloseButton"), m);
             if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteClose, 0, 0, close.clickOrder);
@@ -7843,7 +7842,7 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextText(Tr("Search fonts..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, textTop, true, 0, m);
+                Prog__EditContents(&state->palette, 0, textTop, true, m);
             }
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -7974,7 +7973,7 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextText(Tr("Switch branch..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->branchesSearch, 0, textTop, true, 0, m);
+                Prog__EditContents(&state->branchesSearch, 0, textTop, true, m);
             }
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
@@ -8385,7 +8384,7 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
                         if (typing) {
                             f32 wide = R_TextWidth(m->font, Prog_EditText(&state->pickerEdit));
                             f32 boxWidth = MaxF32(1, number->rect.x1 - number->rect.x0);
-                            UI_Parent(number) Prog__EditContents(&state->pickerEdit, floorf((boxWidth - wide) * 0.5f), floorf((box - m->line) * 0.5f), true, floorf(2.0f * s + 0.5f), m);
+                            UI_Parent(number) Prog__EditContents(&state->pickerEdit, floorf((boxWidth - wide) * 0.5f), floorf((box - m->line) * 0.5f), true, m);
                         }
                         if (f < 7) {
                             Prog__Label(S("/"), UI_Pixels(slash), box, 0, theme->text, 0.5f);
@@ -8473,7 +8472,7 @@ function void Prog__GroupNameBox(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
         UI_SetNextCornerRadius(m->radius);
         UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
-        f32 top = floorf((m->row - m->line) * 0.5f + 0.8f * m->scale + 0.5f);
+        f32 top = floorf((m->row - m->line) * 0.5f + 0.5f);
         UI_Parent(field) {
             if (!state->layoutName.length) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
@@ -8482,7 +8481,7 @@ function void Prog__GroupNameBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextText(Tr("Type the group's name..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
-            Prog__EditContents(&state->layoutName, 0, top, true, floorf(4.0f * m->scale + 0.5f), m);
+            Prog__EditContents(&state->layoutName, 0, top, true, m);
         }
     }
 }
@@ -8529,13 +8528,13 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
         UI_Parent(box) {
             if (!state->layoutName.length) {
-                UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.5f) });
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
                 UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                 UI_SetNextText(group ? Tr("Type the group's name...") : Tr("Type a new or existing layout name to update..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
-            Prog__EditContents(&state->layoutName, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+            Prog__EditContents(&state->layoutName, 0, floorf((field - m->line) * 0.5f + 0.5f), true, m);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         // The buttons end as far from the outline as from the inside of the box.
@@ -8730,13 +8729,13 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
             UI_Parent(text) {
                 if (!state->palette.length) {
                     // Placed as the edit's own text is.
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.5f) });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
                     UI_SetNextText(options ? Tr("Select an option...") : Tr("Select a command..."));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
-                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
+                Prog__EditContents(&state->palette, 0, floorf((field - m->line) * 0.5f + 0.5f), true, m);
             }
             // The descriptions' switch, lit while they are hidden, then a line before the close button.
             UI_Key detailsKey = UI_KeyFromStr(0, S("PaletteDetailsButton"));
@@ -10326,7 +10325,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(tall));
                 UI_Block *field = UI_AddBlock(UI_Flag_Clip);
-                UI_Parent(field) Prog__EditContents(&state->inspectorFilter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->inspectorFiltering, 0, m);
+                UI_Parent(field) Prog__EditContents(&state->inspectorFilter, floorf(m->gap * 0.5f), floorf((tall - m->line) * 0.5f), state->inspectorFiltering, m);
             }
             UI_Block *buttons = Prog__Box(UI_Fill(), UI_Pixels(tall), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(buttons) {
