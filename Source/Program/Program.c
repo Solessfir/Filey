@@ -10540,6 +10540,9 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
             UI_SetNextColors((UI_Colors){ .background = theme->text });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
+        // Its percent, in room for 100% so that nothing after it moves.
+        UI_SetNextFont(m->detail);
+        Prog__LabelPadded(StrFormat(frame, "%u%%", volume), UI_Pixels(R_TextWidth(m->detail, S("100%")) + 2 * apart), bar, apart, apart, theme->textDim, 0);
     } else if (Prog_IsVideo(entry->file.name)) {
         local_persist const String codecKeys[3] = { SInit("InspectorCodecHevc"), SInit("InspectorCodecH264"), SInit("InspectorCodecAv1") };
         const String codecLabels[3] = { NoTr("HEVC"), NoTr("H.264"), NoTr("AV1") };
