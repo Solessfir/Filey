@@ -8443,10 +8443,58 @@ function b32 Prog__LayoutButton(Prog_State *state, String key, String label, b32
     return able && UI_InteractionFromBlock(button).clicked;
 }
 
+// A group's name box opened from a menu: a small one where the menu was, Enter keeping the name and Escape or a click elsewhere dropping it.
+function void Prog__GroupNameBox(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("GroupNameCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, outside.pressOrder);
+    f32 pad = floorf(8.0f * m->scale + 0.5f);
+    f32 width = floorf(220.0f * m->scale + 0.5f), height = m->line + m->row + 3 * pad;
+    f32 x = MinF32(state->nameAt.x, view.x1 - width - m->inset), y = MinF32(state->nameAt.y, view.y1 - height - m->inset);
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(floorf(height)));
+    UI_SetNextFloatingOffset((UI_Vec2){ floorf(MaxF32(x, view.x0) - view.x0), floorf(MaxF32(y, view.y0) - view.y0) });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
+    UI_SetNextCornerRadius(m->radius * 2);
+    UI_SetNextBorderThickness(m->stroke);
+    UI_SetNextBlur(Prog__FloatingBlur(m));
+    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("GroupName")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(box) {
+        // The title starts where the name does in the field under it.
+        Prog__Label(state->nameFor == 2 ? Tr("Rename group") : Tr("New group"), UI_Flex(), m->line, pad, theme->text, 0);
+        Prog__Spacer(UI_Flex(), UI_Pixels(pad));
+        UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+        UI_SetNextCornerRadius(m->radius);
+        UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
+        f32 top = floorf((m->row - m->line) * 0.5f + 0.8f * m->scale + 0.5f);
+        UI_Parent(field) {
+            if (!state->layoutName.length) {
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
+                UI_SetNextPrefHeight(UI_Pixels(m->line));
+                UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                UI_SetNextText(Tr("Type the group's name..."));
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+            }
+            Prog__EditContents(&state->layoutName, 0, top, true, floorf(4.0f * m->scale + 0.5f), m);
+        }
+    }
+}
+
 // The Save Layout box: its title, the name being typed, and Save, Update, which only a taken name allows, and Cancel.
 function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->layoutSaving) return;
+    if (state->nameFor && (state->nameAt.x != 0 || state->nameAt.y != 0)) {
+        Prog__GroupNameBox(state, m);
+        return;
+    }
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));

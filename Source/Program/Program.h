@@ -1871,6 +1871,7 @@ typedef struct Prog_State {
     u32 userGroupDropIn, userGroupDropShownIn;
     u8 nameFor;               // what the name box names: a layout, a new group of the user's, or nameGroup's new name
     u32 nameGroup;
+    UI_Vec2 nameAt;           // where a group's name box opens, from a menu; from the palette it is the Save Layout box
     // The places hidden from the sidebar and the order they were put in, by path, saved as PlacesHidden.conf and PlacesOrder.conf;
     // placesShowHidden shows the hidden ones too, faded, to show them again. sidebarDrag is one more than the row a drag moves among the places
     // or a group of the user's, sidebarDragGroup one more than that group, and sidebarGap one more than the row it would go before, one past

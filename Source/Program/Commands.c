@@ -2101,7 +2101,8 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     if (state->menuCommands) {
         Prog_MenuCommand chosen = state->menuCommands[index];
         Prog_CloseMenu(state);
-        Prog_QueueCommand(state, chosen.kind, chosen.row, 0, UINT64_MAX);
+        // Where the menu was, for what opens a box of its own there.
+        Prog_QueueCommand(state, chosen.kind, chosen.row, 0, UINT64_MAX)->at = state->menuAt;
         return;
     }
     // A sidebar folder's menu: Open shows it here, and of Filey's own items, which act on the list's selection, only Copy As Path applies.
@@ -3665,6 +3666,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->layoutSaving = true;
                 state->nameFor = rename ? 2 : 1;
                 state->nameGroup = rename ? (u32)(command->row - Prog_Group_Count) : 0;
+                state->nameAt = command->at;
                 state->layoutName = (Prog_TextEdit){0};
                 if (rename) {
                     String name = state->userGroups[state->nameGroup].name;
