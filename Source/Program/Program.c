@@ -361,7 +361,7 @@ global const Prog_Theme Prog_ThemeGlass = {
     // Clear like the panels, as the shown tab cannot hide a tint under it the way an opaque tab does, and would show lighter than its panel.
     .caption      = { 0, 0, 0, 0 },
     // Menus, the palette and the other floating boxes blur what is under them, so their tint lets it show through softened.
-    .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.62f },
+    .menu         = { 31 / 255.0f, 31 / 255.0f, 31 / 255.0f, 0.75f },
     .panel        = Prog_White(0.025f),
     .alternateRow = Prog_White(0.012f),
     .separator    = Prog_White(0.03f),
@@ -680,7 +680,7 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
 //   glass.popup = #rrggbbaa       its tint over the blur under menus, the palette and the other floating boxes
 //   glass.opacity = 55            how much of glass.window's tint covers what is behind, in percent, where there is no backdrop to choose
-//   glass.popupOpacity = 50       how much of glass.popup's tint covers that blur, in percent, over its own opacity
+//   glass.popupOpacity = 75       how much of glass.popup's tint covers that blur, in percent, over its own opacity
 //   glass.blur = 24               how far that blur reaches, in logical pixels; 0 leaves them unblurred
 //   glass.backdrop = acrylic      what Windows draws behind the window: acrylic, mica, tabbed or none
 //   transparent = true            the transparent theme
