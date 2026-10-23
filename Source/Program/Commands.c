@@ -2510,6 +2510,16 @@ function ArrayStr Prog__OpenFolders(Prog_State *state, Arena *arena)
     return result;
 }
 
+// The folder a paste or a new item goes into: in a tree's rows the focused folder when it is unfolded, or else the one the focused item is in;
+// the shown folder otherwise.
+function String Prog__PasteFolder(Prog_State *state, Arena *arena)
+{
+    if (!state->directory.tree || !state->treeNested || !state->hasFocus || state->focusedRow >= state->directory.count) return state->directory.path;
+    const Prog_Entry *entry = &state->directory.entries[state->focusedRow];
+    String name = entry->file.kind == P_FileKind_Directory && Prog_TreeIsOpen(state, entry->file.name) ? entry->file.name : Prog_EntryParent(entry->file.name);
+    return name.length ? Prog_JoinPath(arena, state->directory.path, name) : state->directory.path;
+}
+
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
 {
     if (state->loading || state->renaming) return;
@@ -2532,14 +2542,14 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             ArrayStr files = {0};
             b32 cut = false;
             // A web address pasted without files is downloaded into the folder.
-            String url = Prog__TrimSpaces(PlatformClipboardGetText(frame));
-            if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, state->directory.path, cut, (String){0});
+            String url = Prog__TrimSpaces(PlatformClipboardGetText(frame)), into = Prog__PasteFolder(state, frame);
+            if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Transfer, files.v, files.header.count, into, cut, (String){0});
             else if (Prog_IsTorrent(url) && (Prog_IsWebUrl(url) || Prog_IsMagnet(url)) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) &&
                      !StrIsEqual(state->directory.path, Prog_ThisPC)) {
                 // A magnet link or a .torrent's web address, whose .torrent aria2c fetches for its files to be chosen in the inspector.
-                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_TorrentFetch);
+                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, into, false, (String){0}, Prog_TransferOp_TorrentFetch);
             } else if (Prog_IsWebUrl(url) && !state->directory.archive && !P_IsTrashFolder(state->directory.path) && !StrIsEqual(state->directory.path, Prog_ThisPC)) {
-                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, state->directory.path, false, (String){0}, Prog_TransferOp_Download);
+                Prog__FileJobOp(state, Prog_JobKind_Transfer, &url, 1, into, false, (String){0}, Prog_TransferOp_Download);
             }
             // Cut files pasted are no longer dimmed where they were.
             if (cut) {
@@ -2550,7 +2560,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_PasteLink: {
             ArrayStr files = {0};
             b32 cut = false;
-            if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Link, files.v, files.header.count, state->directory.path, false, (String){0});
+            if (PlatformClipboardGetFiles(frame, &files, &cut)) Prog__FileJob(state, Prog_JobKind_Link, files.v, files.header.count, Prog__PasteFolder(state, frame), false, (String){0});
         } break;
         case Prog_CommandKind_Trash:
             // In the bin, as in Explorer's, the key that trashes deletes for good, after asking.
@@ -2649,7 +2659,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_CreateFolder:
         case Prog_CommandKind_CreateFile: {
             b32 folder = kind == Prog_CommandKind_CreateFolder;
-            Prog__FileJob(state, Prog_JobKind_Create, NULL, 0, state->directory.path, folder, folder ? Tr("New folder") : Tr("New file"));
+            Prog__FileJob(state, Prog_JobKind_Create, NULL, 0, Prog__PasteFolder(state, frame), folder, folder ? Tr("New folder") : Tr("New file"));
         } break;
         default: InvalidPath;
     }

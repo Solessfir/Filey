@@ -2483,6 +2483,42 @@ finish:
     ArenaRelease(&arena);
 }
 
+// In a tree, a new item goes into the unfolded folder in focus, and a change inside one shows by itself.
+function void TestTreeFileCommands(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String created = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("TreeOps"), true, &created).code);
+    String root = Prog_JoinPath(&arena, fixture->path, S("TreeOps"));
+    Check(!P_CreateItem(&arena, root, S("Sub"), true, &created).code);
+    Prog_State state = {0};
+    Check(Prog_Init(&state, root, NULL, NULL));
+    if (!state.jobs.initialized) goto finish;
+    Check(TestWaitDirectory(&state));
+    TestBrowsingCommand(&state, Prog_CommandKind_ToggleTreeView, 0);
+    Check(TestWaitDirectory(&state));
+    Prog_TreeToggle(&state, S("Sub"));
+    Check(TestWaitDirectory(&state) && state.treeWatches.count == 1);
+    Prog_SelectRow(&state, TestEntryIndex(&state, S("Sub")), 0);
+    TestFileCommand(&state, Prog_CommandKind_CreateFolder);
+    for (u64 start = PlatformNowMicroseconds(); TestEntryIndex(&state, S("Sub/New folder")) == UINT64_MAX && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        Prog_TakeCompletions(&state);
+    }
+    Check(TestHasFile(&arena, fixture, S("TreeOps/Sub"), S("New folder")) && !TestHasFile(&arena, fixture, S("TreeOps"), S("New folder")));
+    Check(state.renaming && state.focusedRow == TestEntryIndex(&state, S("Sub/New folder")));
+    TestRenameKey(&state, Key_Escape, 0);
+    Check(!P_CreateItem(&arena, Prog_JoinPath(&arena, root, S("Sub")), S("outside.txt"), false, &created).code);
+    for (u64 start = PlatformNowMicroseconds(); TestEntryIndex(&state, S("Sub/outside.txt")) == UINT64_MAX && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        Prog_TakeCompletions(&state);
+    }
+    Check(TestEntryIndex(&state, S("Sub/outside.txt")) != UINT64_MAX);
+finish:
+    Prog_Release(&state);
+    Check(!state.treeWatches.count);
+    TestRemoveTree(&arena, fixture, S("TreeOps"));
+    ArenaRelease(&arena);
+}
+
 // Tabs keep their own listing and selection, and closing, reopening and moving them keeps the shown one in place.
 function void TestTabs(TestFileFixture *fixture)
 {
@@ -3822,6 +3858,7 @@ function void TestBrowsing(void)
         TestMeasure(&fixture);
         TestFileOperations(&fixture);
         TestProgramFileCommands(&fixture);
+        TestTreeFileCommands(&fixture);
         TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);

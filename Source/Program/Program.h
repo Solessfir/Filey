@@ -1215,6 +1215,13 @@ typedef struct Prog_Tab {
 // ponytail: fixed tab count; grow the array if 32 tabs per panel falls short.
 #define Prog_MaxTabs 32
 
+// The watches of a tree's unfolded folders, each a thread of its own, so only the first few are watched.
+#define Prog_TreeWatchMax 16
+typedef struct Prog_TreeWatches {
+    P_DirectoryWatch v[Prog_TreeWatchMax];
+    u32 count;
+} Prog_TreeWatches;
+
 // The Prog_State fields each panel has its own of, besides its tabs' (Prog_TabFields).
 // The current panel's live in Prog_State; Prog__UsePanel swaps them with the panel's slot, so every panel keeps its own listing, jobs, watch and layout.
 //   error: the last failure, in errorArena; directoryJob, generation, loading: the listing on its way
@@ -1226,7 +1233,7 @@ typedef struct Prog_Tab {
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
 //   filtering: the filter box has the keyboard; filterRect: its last layout
 //   listing, measureJob, sortPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort later
-//   watch, watchDirty: the shown folder's watch, and a change it saw that waits for the listing under way
+//   watch, watchDirty: the shown folder's watch, and a change it saw that waits for the listing under way; treeWatches: its tree's unfolded folders'
 //   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
 //   renameCreatedUntil: until then, select the one item a listing of this folder adds, and rename it with createdRenames
 //   panelRect: the panel's last layout, for moving between panels with the keyboard
@@ -1243,7 +1250,7 @@ typedef struct Prog_Tab {
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
     X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
-    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
+    X(P_DirectoryWatch, watch) X(b32, watchDirty) X(Prog_TreeWatches, treeWatches) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \

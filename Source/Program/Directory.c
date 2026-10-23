@@ -759,6 +759,25 @@ function u64 Prog__TreeOrder(Prog_Entry *entries, u64 count)
     return placed;
 }
 
+function void Prog__StopTreeWatches(Prog_State *state)
+{
+    for (u32 i = 0; i < state->treeWatches.count; ++i) P_DirectoryWatchStop(&state->treeWatches.v[i]);
+    state->treeWatches.count = 0;
+}
+
+// Watches the folders a tree unfolds as the shown one is, after each listing, as what is unfolded changes with it.
+function void Prog__StartTreeWatches(Prog_State *state)
+{
+    Prog__StopTreeWatches(state);
+    if (!state->directory.tree || state->directory.archive) return;
+    Scratch scratch = GetScratch();
+    for (u64 i = 0; i < state->treeOpen.header.count && state->treeWatches.count < Prog_TreeWatchMax; ++i) {
+        String path = Prog_JoinPath(scratch.arena, state->directory.path, state->treeOpen.v[i]);
+        if (P_DirectoryWatchStart(&state->treeWatches.v[state->treeWatches.count], path, state->jobs.wake, state->jobs.wakeUser)) ++state->treeWatches.count;
+    }
+    ReleaseScratch(scratch);
+}
+
 // Whether the view shows a tree's nested items, as its rows do; the icon views and columns show only the folder's own.
 function b32 Prog_TreeShowsNested(const Prog_State *state)
 {
@@ -2960,6 +2979,17 @@ function b32 Prog_SelectNext(Prog_State *state, String name)
     return true;
 }
 
+// The name an item `leaf` placed into `folder` is listed by: itself in the shown folder, its path from there in a folder its tree unfolds;
+// empty where it is not listed.
+function String Prog__ListedName(Arena *arena, const Prog_State *state, String folder, String leaf)
+{
+    String shown = state->directory.path;
+    if (StrIsEqual(folder, shown)) return leaf;
+    if (!state->directory.tree || !shown.length || !Prog__IsUnder(folder, shown) || folder.length == shown.length) return (String){0};
+    String inner = StrFrom(folder, shown.length + (shown.value[shown.length - 1] == '/' ? 0 : 1));
+    return Prog_TreeIsOpen(state, inner) ? Prog_JoinPath(arena, inner, leaf) : (String){0};
+}
+
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
     Prog__FollowTrail(state, path);
@@ -3723,6 +3753,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     if (state->measureJob) P_RequestCancel(&state->measureJob->cancelToken);
     P_DirectoryWatchStop(&state->watch);
     ArenaRelease(&state->watch.arena);
+    Prog__StopTreeWatches(state);
     ArenaRelease(&state->directoryArena);
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->treeArena);
@@ -5063,6 +5094,7 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
         state->measureJob = NULL;
     }
     P_DirectoryWatchStop(&state->watch);
+    Prog__StopTreeWatches(state);
     state->watchDirty = false;
     ArenaClear(&state->errorArena);
     state->error = (String){0};
@@ -5092,6 +5124,7 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
     if (state->directory.path.length) {
         // The tab's folder may have changed while it was hidden.
         P_DirectoryWatchStart(&state->watch, Prog__WatchedFolder(state), state->jobs.wake, state->jobs.wakeUser);
+        Prog__StartTreeWatches(state);
         Prog_Reload(state);
     } else if (state->historyAt < state->history.header.count) {
         Prog_RequestDirectory(state, state->history.v[state->historyAt], false, state->historyAt);
@@ -5299,6 +5332,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (u32 panel = 0; panel < state->panelCount; ++panel) {
         Prog__UsePanel(state, panel);
         if (P_DirectoryWatchTakeChanged(&state->watch)) state->watchDirty = true;
+        for (u32 i = 0; i < state->treeWatches.count; ++i) {
+            if (P_DirectoryWatchTakeChanged(&state->treeWatches.v[i])) state->watchDirty = true;
+        }
         // A change while the folder is being listed reloads it once that is done, which wakes the window.
         if (state->watchDirty && !state->directoryJob) {
             state->watchDirty = false;
@@ -5679,10 +5715,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                               : input->kind == Prog_JobKind_Create ? Tr("Create failed") : input->kind == Prog_JobKind_Link ? Tr("Paste shortcut failed")
                               : input->kind == Prog_JobKind_Restore ? Tr("Restore failed") : input->move ? Tr("Move failed") : Tr("Copy failed");
                 Prog_Notify(state, Prog_NoticeKind_Error, Prog__NoticeKey(&state->frameArena, verb), failed, error.message);
-            } else if (created && StrIsEqual(state->directory.path, input->path)) {
+            } else if (created) {
                 // The new item is selected once the listing shows it, and a new file or folder renamed.
-                String name = ((Prog_Created *)job->result)->name;
-                if (Prog_SelectNext(state, name)) state->selectRename = input->kind == Prog_JobKind_Create;
+                String name = Prog__ListedName(&state->frameArena, state, input->path, ((Prog_Created *)job->result)->name);
+                if (name.length && Prog_SelectNext(state, name)) state->selectRename = input->kind == Prog_JobKind_Create;
             }
             // A torrent's files are read once more when its download is over, to show what it left.
             if (input->transferOp == Prog_TransferOp_Torrent && StrIsEqual(state->previewPath, input->paths[0])) state->torrentRead = false;
@@ -5696,16 +5732,18 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 const Prog_Transferred *result = job->result;
                 // A new archive is selected and renamed once the listing shows it, as a new folder is, its name before .zip ready to be typed over.
                 String packed = input->transferOp == Prog_TransferOp_Pack && result->placed.header.count == 1 ? Prog_EntryLeaf(result->placed.v[0]) : (String){0};
-                if (packed.length && StrIsEqual(state->directory.path, input->path) && Prog_SelectNext(state, packed)) {
+                if (packed.length) packed = Prog__ListedName(&state->frameArena, state, input->path, packed);
+                if (packed.length && Prog_SelectNext(state, packed)) {
                     state->selectRename = true;
-                } else if (result->placed.header.count && StrIsEqual(state->directory.path, input->path)) {
+                } else if (result->placed.header.count && Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[0])).length) {
                     // What was pasted into the folder shown is selected once its listing shows it, all of it; a torrent fetched for its
                     // files to be chosen shows them in the inspector.
                     if (input->transferOp == Prog_TransferOp_TorrentFetch) state->previewShown = true;
                     ArenaClear(&state->pickArena);
                     state->pickNames = (ArrayStr){0};
                     for (u64 i = 0; i < result->placed.header.count; ++i) {
-                        ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, Prog__FolderName(result->placed.v[i])));
+                        String name = Prog__ListedName(&state->frameArena, state, input->path, Prog__FolderName(result->placed.v[i]));
+                        ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, name));
                     }
                 }
                 if (result->placed.header.count == input->pathCount) {
@@ -6115,6 +6153,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                         P_DirectoryWatchStart(&state->watch, Prog__WatchedFolder(state), state->jobs.wake, state->jobs.wakeUser);
                         state->watchDirty = false;
                     }
+                    if (state->directory.tree || state->treeWatches.count) Prog__StartTreeWatches(state);
                     if (renamePicked) Prog_BeginRename(state, pickRow);
                     if (state->warmMenus && state->directory.count) {
                         state->warmMenus = false;
