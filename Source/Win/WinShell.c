@@ -301,6 +301,7 @@ typedef struct P__Drop {
     b32 entered;          // `bound` was chosen during this drag
     b32 dragging;         // a drag started by P_DragFiles is running
     b32 takesFolders;     // drops are kept for the program instead of going to `wanted`
+    b32 onFile;           // `wanted` is a file, as a program, whose own drop target takes the drop
     Arena droppedArena;
     ArrayStr dropped;     // folders dropped while `takesFolders` was on, until the program takes them
     // A folder inside an archive takes no drop from another program, so its files are kept for the program, which adds them itself.
@@ -323,6 +324,8 @@ function void P_SetDropDirectory(String path)
 }
 
 function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
+
+function void P_SetDropOnFile(b32 onFile) { P__drop.onFile = onFile; }
 
 function b32 P_DropPending(void) { return P__drop.data != NULL; }
 
@@ -582,10 +585,22 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
         ArenaClear(&P__drop.boundArena);
         P__drop.bound = StrCopy(&P__drop.boundArena, P__drop.wanted);
         P__drop.entered = true;
-        P__drop.keepsFiles = P__InsideFile(P__drop.bound);
+        P__drop.keepsFiles = !P__drop.onFile && P__InsideFile(P__drop.bound);
         Scratch scratch = GetScratch();
-        IShellFolder *folder = P__drop.bound.length && !P__drop.keepsFiles ? P__ShellFolder(P__FilePathWide(scratch.arena, P__drop.bound)) : NULL;
         IDropTarget *shell = NULL;
+        // A program's or a script's own drop target, from its folder, starts it with the files, as Explorer's does.
+        Index slash = P__drop.onFile ? StrIndexChar(P__drop.bound, '/', SSF_SearchBackwards) : (Index){0};
+        String leaf = slash.exists ? StrFrom(P__drop.bound, slash.value + 1) : (String){0};
+        IShellFolder *parent = leaf.length ? P__ShellFolder(P__FilePathWide(scratch.arena, StrFromTo(P__drop.bound, 0, (i64)slash.value + 1))) : NULL;
+        if (parent && !P__ShellChildren(parent, &leaf, 1, &P__IID_IDropTarget, (void **)&shell)) shell = NULL;
+        if (parent) parent->lpVtbl->Release(parent);
+        if (shell) {
+            DWORD entered = allowed;
+            if (SUCCEEDED(shell->lpVtbl->DragEnter(shell, P__drop.data, keys, point, &entered))) P__drop.shell = shell;
+            else shell->lpVtbl->Release(shell);
+            shell = NULL;
+        }
+        IShellFolder *folder = P__drop.bound.length && !P__drop.keepsFiles && !P__drop.onFile ? P__ShellFolder(P__FilePathWide(scratch.arena, P__drop.bound)) : NULL;
         if (folder && SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IDropTarget, (void **)&shell))) {
             DWORD entered = allowed;
             if (SUCCEEDED(shell->lpVtbl->DragEnter(shell, P__drop.data, keys, point, &entered))) P__drop.shell = shell;

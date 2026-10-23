@@ -510,6 +510,9 @@ function b32 P_ShowProperties(String directory, const String *names, u64 count);
 function void P_SetDropDirectory(String path);
 // While on, drops are not transferred: the folders among the dropped items are kept for P_TakeDroppedFolders, as a place to pin them is under the pointer.
 function void P_SetDropTakesFolders(b32 takes);
+// The path P_SetDropDirectory gives is a file whose own handler takes the drop, as Explorer starts a program or a script with the files dropped
+// on it; only Windows has such handlers.
+function void P_SetDropOnFile(b32 onFile);
 // The folders dropped since the last call while P_SetDropTakesFolders was on, copied into `arena`.
 function ArrayStr P_TakeDroppedFolders(Arena *arena);
 // A drag, Filey's own or another program's, is over the window.

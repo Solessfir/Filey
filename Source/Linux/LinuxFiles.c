@@ -469,6 +469,9 @@ global struct {
 
 function void P_SetDropTakesFolders(b32 takes) { P__drop.takesFolders = takes; }
 
+// Wayland drags have no handlers of a file's own, so a drop on a file goes to its folder.
+function void P_SetDropOnFile(b32 onFile) { (void)onFile; }
+
 function b32 P_DropPending(void) { return P__drop.pending; }
 
 function ArrayStr P_TakeDroppedFolders(Arena *arena)

@@ -2652,6 +2652,14 @@ function void TestPlaces(TestFileFixture *fixture)
     ArenaRelease(&state.placesArena);
     ArenaRelease(&state.placesOrderArena);
     ArenaRelease(&state.placesHiddenArena);
+    // A program or a script takes the files dropped on it on Windows, whatever its name's case; a folder named so, or a document, does not.
+    Prog_Entry program = { .file = { .name = S("Setup.EXE"), .kind = P_FileKind_File } }, notes = { .file = { .name = S("notes.txt"), .kind = P_FileKind_File } };
+    Prog_Entry named = { .file = { .name = S("tools.cmd"), .kind = P_FileKind_Directory } };
+#if defined(_WIN32)
+    Check(Prog__RunsDropped(&program) && !Prog__RunsDropped(&notes) && !Prog__RunsDropped(&named));
+#else
+    Check(!Prog__RunsDropped(&program) && !Prog__RunsDropped(&notes) && !Prog__RunsDropped(&named));
+#endif
 #if defined(__linux__)
     {
         String config = Prog_JoinPath(&arena, fixture->path, S("gtk-config")), created = {0};

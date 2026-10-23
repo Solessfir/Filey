@@ -2802,6 +2802,21 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
     }
 }
 
+// Whether files dropped on `entry` start it with them, as a program or a script does in Explorer, whose own drop targets do it; elsewhere a drop
+// on a file goes to its folder.
+function b32 Prog__RunsDropped(const Prog_Entry *entry)
+{
+#if defined(_WIN32)
+    local_persist const String kinds[] = { SInit(".exe"), SInit(".bat"), SInit(".cmd"), SInit(".com") };
+    String name = entry->file.name;
+    for (u32 i = 0; entry->file.kind == P_FileKind_File && i < CArrayCount(kinds); ++i) {
+        if (name.length > kinds[i].length && Prog__EqualFolded(StrFrom(name, name.length - kinds[i].length), kinds[i])) return true;
+    }
+#endif
+    (void)entry;
+    return false;
+}
+
 // The folder of sidebar item `index` in `group`; empty when there is no such item.
 function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64 index)
 {
@@ -4555,19 +4570,22 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     u32 dropPanel = Prog_PanelIndex(state, state->hasHoverRow ? state->hoverPanel : state->pointerPanel);
     if (dropPanel != UINT32_MAX) Prog__UsePanel(state, dropPanel);
     String drop = state->loading ? (String){0} : state->directory.path;
-    b32 intoPanel = drop.length && !StrIsEqual(drop, Prog_ThisPC);
+    b32 intoPanel = drop.length && !StrIsEqual(drop, Prog_ThisPC), onFile = false;
     if (!state->loading && state->hasHoverRow && state->hoverRow < state->directory.count) {
         const Prog_Entry *entry = &state->directory.entries[state->hoverRow];
-        // A dragged folder cannot take itself.
-        if (entry->file.kind == P_FileKind_Directory && !(state->dragging && entry->selected)) {
+        // A dragged folder cannot take itself; a program or a script takes the files to start with, as in Explorer.
+        b32 runs = Prog__RunsDropped(entry) && !state->directory.archive;
+        if ((entry->file.kind == P_FileKind_Directory || runs) && !(state->dragging && entry->selected)) {
             drop = Prog_JoinPath(&state->frameArena, state->directory.path, entry->file.name);
             intoPanel = false;
+            onFile = runs;
         }
     }
     Prog__UsePanel(state, state->activePanel);
-    if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false;
+    if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false, onFile = false;
     String archive = {0}, inner = {0};
     if (Prog_ArchiveSplit(drop, &archive, &inner) && !P_ArchiveWritable(archive)) drop = (String){0}, intoPanel = false;
+    P_SetDropOnFile(onFile);
     P_SetDropDirectory(drop);
     state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;
     // The Types popup lists the active panel's types, the new ones once the listing changes under it.
