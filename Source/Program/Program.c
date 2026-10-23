@@ -8603,6 +8603,92 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
 }
 
+// The box asking for an encrypted archive's password: its title, the password typed shown as dots, a line when the last one tried was
+// wrong, and Open and Cancel.
+function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
+{
+    if (!state->passwordArchive.length) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    R_Rect view = UI->root->rect;
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("PasswordCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
+    UI_Interaction outside = UI_InteractionFromBlock(catcher);
+    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_ArchivePasswordButton, 1, 0, outside.pressOrder);
+    f32 s = m->scale, line = m->separator;
+    f32 head = floorf(32.0f * s + 0.5f), field = floorf(36.8f * s + 0.5f), band = floorf(43.2f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
+    f32 note = state->passwordWrong ? m->row : 0;
+    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * m->inset, 400.0f * s)), height = head + line + field + note + line + band;
+    f32 x = floorf((view.x1 - view.x0 - width) * 0.5f), top = 2 * m->bar + floorf(11.2f * s + 0.5f);
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PasswordReveal")));
+    Prog__DropShadow(x, top, width, height, radius, opacity, m);
+    // The password is shown as a dot a character, with its caret and selection where they are in it.
+    const Prog_TextEdit *typed = &state->password;
+    Prog_TextEdit *shown = &state->passwordShown;
+    u32 dots = 0, cursor = 0, anchor = 0;
+    for (u32 i = 0; i < typed->length && (dots + 1) * 3 <= sizeof(shown->text); ++i) {
+        if ((typed->text[i] & 0xC0) == 0x80) continue;
+        cursor += i < typed->cursor ? 1 : 0;
+        anchor += i < typed->anchor ? 1 : 0;
+        MemCopy(shown->text + dots * 3, "\xE2\x80\xA2", 3);
+        ++dots;
+    }
+    shown->length = dots * 3;
+    shown->cursor = Min(cursor, dots) * 3;
+    shown->anchor = Min(anchor, dots) * 3;
+    shown->version = typed->version;
+    shown->typing = typed->typing;
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Password")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    UI_Parent(panel) {
+        UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
+        UI_Parent(title) Prog__Label(StrFormat(&state->frameArena, TrF("Password for %S"), Prog__FolderName(state->passwordArchive)), UI_Flex(), head, 0, theme->text, 0.5f);
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
+        UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
+        f32 textTop = floorf((field - m->line) * 0.5f + 0.5f);
+        UI_Parent(box) {
+            if (!shown->length) {
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
+                UI_SetNextPrefHeight(UI_Pixels(m->line));
+                UI_SetNextColors((UI_Colors){ .text = theme->textDim });
+                UI_SetNextText(Tr("Type the archive's password..."));
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+            }
+            Prog__EditContents(shown, 0, textTop, !state->passwordTrying, m);
+        }
+        if (note > 0) {
+            UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, 0, 0 });
+            UI_Block *wrong = Prog__Box(UI_Flex(), UI_Pixels(note), UI_Layout_Horizontal, theme->inner, 0);
+            UI_Parent(wrong) Prog__Label(Tr("That password does not open it."), UI_Flex(), note, 0, theme->danger, 0);
+        }
+        Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+        UI_SetNextChildrenPadding((UI_Padding){ 0, 0, floorf(11.2f * s + 0.5f), 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_Block *buttons = Prog__Box(UI_Flex(), UI_Pixels(band), UI_Layout_Horizontal, theme->background, 0);
+        UI_Parent(buttons) {
+            Prog__Spacer(UI_Flex(), UI_Pixels(band));
+            if (Prog__LayoutButton(state, S("PasswordOpen"), Tr("Open"), typed->length && !state->passwordTrying, m)) Prog_QueueCommand(state, Prog_CommandKind_ArchivePasswordButton, 0, 0, 0);
+            Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(band));
+            if (Prog__LayoutButton(state, S("PasswordCancel"), Tr("Cancel"), true, m)) Prog_QueueCommand(state, Prog_CommandKind_ArchivePasswordButton, 1, 0, 0);
+        }
+    }
+    UI_SetNextPrefWidth(UI_Pixels(width));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextFloatingOffset((UI_Vec2){ x, top });
+    UI_SetNextCornerRadius(radius);
+    UI_SetNextBorderThickness(m->stroke);
+    UI_SetNextOpacity(opacity);
+    UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
+    UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+}
+
 // What the layouts ask before overwriting or deleting one, over everything, with a button to go ahead and one not to.
 function void Prog__LayoutQuestion(Prog_State *state, const Prog_Metrics *m)
 {
@@ -11928,6 +12014,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__DeleteConfirmation(state, m);
     Prog__ColorPicker(state, m);
     Prog__LayoutSaveBox(state, m);
+    Prog__PasswordBox(state, m);
     Prog__LayoutQuestion(state, m);
     Prog__WindowBorder(m);
     // A chip being rebound that went out of sight, with its menu or its palette row, stops.

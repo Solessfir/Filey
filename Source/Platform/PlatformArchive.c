@@ -48,6 +48,9 @@ typedef struct P__Archive {
     void (*entrySetPerm)(void *, u32);
     void (*entrySetSize)(void *, i64);
     void (*entrySetMtime)(void *, i64, i64);
+    // Encrypted entries, which a zip's may be; libarchive cannot take the 7z's and RAR's apart.
+    i32 (*addPassphrase)(void *, const char *);
+    i32 (*entryEncrypted)(void *);
 } P__Archive;
 global P__Archive P__archive;
 global atomic_uint P__archiveLoad;  // 0 before the first try, 1 while one job loads it, 2 once it is loaded or missing
@@ -88,6 +91,8 @@ function void P__LoadArchiveSymbols(void)
     *(void **)&a->entrySetPerm = P__ArchiveSymbol("archive_entry_set_perm");
     *(void **)&a->entrySetSize = P__ArchiveSymbol("archive_entry_set_size");
     *(void **)&a->entrySetMtime = P__ArchiveSymbol("archive_entry_set_mtime");
+    *(void **)&a->addPassphrase = P__ArchiveSymbol("archive_read_add_passphrase");
+    *(void **)&a->entryEncrypted = P__ArchiveSymbol("archive_entry_is_encrypted");
     a->loaded = a->readNew && a->supportFilterAll && a->supportFormatAll && a->openFilename && a->nextHeader && a->pathname && a->size && a->filetype && a->free &&
                 a->mtime && a->readBlock && a->error && a->format && a->filterCode && a->filterBytes;
     a->writable = a->loaded && a->writeNew && a->writeFormat && a->writeFilter && a->writeOptions && a->writeOpen && a->writeHeader && a->writeData && a->writeClose && a->writeFree &&
@@ -133,8 +138,68 @@ function void P__ArchiveAdvance(P_Progress *progress, void *reader, u64 *read)
     *read = (u64)at;
 }
 
-// A reader of the archive at `path`, open, or NULL.
-function void *P__ArchiveRead(String path)
+// The passwords given for encrypted archives this run, by archive, which every read of that archive is opened with. They are kept only
+// in memory.
+global struct {
+    atomic_uint lock;
+    Arena arena;
+    String archives[32], passwords[32];
+    u32 count;
+} P__archivePasswords;
+
+function void P__PasswordsLock(void)
+{
+    while (atomic_exchange(&P__archivePasswords.lock, 1u)) P_Sleep(1);
+}
+
+function void P__PasswordsUnlock(void)
+{
+    atomic_store(&P__archivePasswords.lock, 0u);
+}
+
+function void P_ArchiveSetPassword(String archive, String password)
+{
+    P__PasswordsLock();
+    u32 at = 0;
+    while (at < P__archivePasswords.count && !StrIsEqual(P__archivePasswords.archives[at], archive)) ++at;
+    if (at < CArrayCount(P__archivePasswords.archives)) {
+        if (at == P__archivePasswords.count) P__archivePasswords.archives[P__archivePasswords.count++] = StrCopy(&P__archivePasswords.arena, archive);
+        P__archivePasswords.passwords[at] = StrCopy(&P__archivePasswords.arena, password);
+    }
+    P__PasswordsUnlock();
+}
+
+// `text` as a C string in `arena`, as libarchive takes passwords.
+function const char *P__ArchiveCString(Arena *arena, String text)
+{
+    char *result = ArenaPushArrayNoZero(arena, text.length + 1, char);
+    MemCopy(result, text.value, text.length);
+    result[text.length] = 0;
+    return result;
+}
+
+// `archive`'s password in `arena`, or NULL when none was given.
+function const char *P__ArchivePassword(Arena *arena, String archive)
+{
+    const char *result = NULL;
+    P__PasswordsLock();
+    for (u32 i = 0; i < P__archivePasswords.count && !result; ++i) {
+        if (StrIsEqual(P__archivePasswords.archives[i], archive)) result = P__ArchiveCString(arena, P__archivePasswords.passwords[i]);
+    }
+    P__PasswordsUnlock();
+    return result;
+}
+
+function b32 P_ArchiveHasPassword(String archive)
+{
+    Scratch scratch = GetScratch();
+    b32 result = P__ArchivePassword(scratch.arena, archive) != NULL;
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// A reader of the archive at `path`, open, or NULL. Its encrypted entries are read with `password`, else with the one given for it.
+function void *P__ArchiveRead(String path, const char *password)
 {
     P__Archive *a = &P__archive;
     Scratch scratch = GetScratch();
@@ -143,6 +208,8 @@ function void *P__ArchiveRead(String path)
     if (reader) {
         a->supportFilterAll(reader);
         a->supportFormatAll(reader);
+        if (!password) password = P__ArchivePassword(scratch.arena, path);
+        if (password && a->addPassphrase) a->addPassphrase(reader, password);
         if (a->openFilename(reader, native, 65536) != 0) {
             a->free(reader);
             reader = NULL;
@@ -191,7 +258,7 @@ function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelT
     *files = (P_FileArray){0};
     if (!P__LoadArchive()) return false;
     P__Archive *a = &P__archive;
-    void *reader = P__ArchiveRead(path), *entry = NULL;
+    void *reader = P__ArchiveRead(path, NULL), *entry = NULL;
     String inner = {0};
     b32 folder = false;
     while (reader && files->header.count < limit && P__ArchiveNext(reader, &entry, &inner, &folder, cancel)) {
@@ -206,7 +273,7 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
 {
     P_DirectoryResult result = {0};
     P__Archive *a = &P__archive;
-    void *reader = P__LoadArchive() ? P__ArchiveRead(archive) : NULL, *entry = NULL;
+    void *reader = P__LoadArchive() ? P__ArchiveRead(archive, NULL) : NULL, *entry = NULL;
     if (!reader) {
         P_FileError error = P__FileError(arena, P__archive.loaded ? P__ArchiveFailed : P__ArchiveUnsupported);
         result.errorCode = error.code;
@@ -218,6 +285,7 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
     String name = {0};
     b32 folder = false;
     while (P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
+        if (a->entryEncrypted && a->entryEncrypted(entry) > 0) result.locked = true;
         String rest = name;
         if (inner.length) {
             if (name.length <= inner.length + 1 || name.value[inner.length] != '/' || !StrIsEqual(StrFromTo(name, 0, (i64)inner.length), inner)) continue;
@@ -243,6 +311,36 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
     result.cancelled = P_IsCancelled(cancel);
     a->free(reader);
     return result;
+}
+
+function b32 P_ArchiveCheckPassword(String archive, String password, const P_CancelToken *cancel)
+{
+    if (!P__LoadArchive() || !P__archive.addPassphrase || !P__archive.entryEncrypted) return false;
+    P__Archive *a = &P__archive;
+    Scratch scratch = GetScratch();
+    void *reader = P__ArchiveRead(archive, P__ArchiveCString(scratch.arena, password)), *entry = NULL;
+    String name = {0};
+    b32 folder = false, result = reader != NULL, tried = false;
+    while (result && !tried && P__ArchiveNext(reader, &entry, &name, &folder, cancel)) {
+        if (folder || a->size(entry) <= 0 || a->entryEncrypted(entry) <= 0) continue;
+        const void *block = NULL;
+        u64 size = 0;
+        i64 offset = 0;
+        // ARCHIVE_OK or ARCHIVE_EOF.
+        i32 status = a->readBlock(reader, &block, &size, &offset);
+        result = status == 0 || status == 1;
+        tried = true;
+    }
+    if (reader) a->free(reader);
+    ReleaseScratch(scratch);
+    return result && !P_IsCancelled(cancel);
+}
+
+// Whether `reader` stopped for an entry's password, missing or wrong.
+function b32 P__ArchiveWantsPassword(void *reader)
+{
+    const char *error = P__archive.error(reader);
+    return error && StrIndexStr(StrFromCStr(error), S("assphrase"), 0).exists;
 }
 
 // `name` numbered for attempt `n`: the name itself, then "stem (2).ext" for files and "name (2)" for folders.
@@ -287,7 +385,7 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
     }
     atomic_fetch_add(&progress->totalItems, count);
     atomic_fetch_add(&progress->totalBytes, P__ArchiveFileSize(archive));
-    void *reader = P__ArchiveRead(archive), *entry = NULL;
+    void *reader = P__ArchiveRead(archive, NULL), *entry = NULL;
     u32 error = reader ? 0 : P__ArchiveFailed;
     u64 read = UINT64_MAX;
     String name = {0};
@@ -316,8 +414,10 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
     }
     if (!error && P_IsCancelled(cancel)) error = P__ArchiveCancelled;
     if (!error) atomic_fetch_add(&progress->doneItems, count);
+    b32 locked = error && reader && P__ArchiveWantsPassword(reader);
     if (reader) a->free(reader);
     ReleaseScratch(scratch);
+    if (locked) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("The archive's password is missing or wrong.")) };
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 
@@ -410,7 +510,7 @@ function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, 
     String part = slash.exists ? StrFormat(scratch.arena, "%S/.%S.part", StrFromTo(archive, 0, (i64)slash.value), StrFrom(archive, slash.value + 1)) : (String){0};
     // An archive not there yet is made, with nothing to copy over.
     b32 existing = P_PathExists(archive);
-    void *reader = error || !existing ? NULL : P__ArchiveRead(archive), *writer = NULL, *entry = NULL;
+    void *reader = error || !existing ? NULL : P__ArchiveRead(archive, NULL), *writer = NULL, *entry = NULL;
     if (!error && ((existing && !reader) || !part.length)) error = P__ArchiveFailed;
     u64 read = UINT64_MAX;
     String name = {0};

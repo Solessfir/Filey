@@ -1700,6 +1700,24 @@ function void Prog_PrepareMenu(Prog_State *state)
     P_ContextMenuPrepare(folder, names, count);
 }
 
+// Asks for the password of the encrypted archive `archive`, unless it has one, the box was dismissed for it last, or it asks already.
+function void Prog_AskArchivePassword(Prog_State *state, String archive)
+{
+    if (!archive.length || state->passwordArchive.length || P_ArchiveHasPassword(archive) || MapHashBytes(archive.value, archive.length) == state->passwordDismissed) return;
+    ArenaClear(&state->passwordArena);
+    state->passwordArchive = StrCopy(&state->passwordArena, archive);
+    state->password = (Prog_TextEdit){0};
+    state->passwordWrong = state->passwordTrying = false;
+}
+
+function void Prog_ClosePassword(Prog_State *state)
+{
+    ArenaClear(&state->passwordArena);
+    state->passwordArchive = (String){0};
+    state->password = state->passwordShown = (Prog_TextEdit){0};
+    state->passwordWrong = state->passwordTrying = false;
+}
+
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
 {
     Prog_CloseMenu(state);
@@ -3644,6 +3662,24 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 P_JobSubmit(job);
             } break;
             case Prog_CommandKind_LayoutSaveButton: Prog__LayoutSaveButton(state, (u32)command->row); break;
+            case Prog_CommandKind_ArchivePasswordButton: {
+                if (!state->passwordArchive.length) break;
+                if (command->row == 1) {
+                    state->passwordDismissed = MapHashBytes(state->passwordArchive.value, state->passwordArchive.length);
+                    Prog_ClosePassword(state);
+                    break;
+                }
+                if (state->passwordTrying || !state->password.length) break;
+                P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                input->kind = Prog_JobKind_ArchivePassword;
+                input->path = StrCopy(&job->arena, state->passwordArchive);
+                input->name = StrCopy(&job->arena, Prog_EditText(&state->password));
+                job->input = input;
+                P_JobSubmit(job);
+                state->passwordTrying = true;
+                state->passwordWrong = false;
+            } break;
             case Prog_CommandKind_LayoutDelete: {
                 u32 matches[Prog_MaxLayouts];
                 u32 count = Prog_LayoutMatches(state, matches);
@@ -4975,6 +5011,15 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         if (state->layoutAsk && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
             if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 1, 0, order);
             else if (event->kind == PlatformEventKind_KeyDown && event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_LayoutAnswer, 0, 0, order);
+            continue;
+        }
+        // The archive password box takes typing, Enter trying the password and Escape dismissing the box; what is typed is not copied out.
+        if (state->passwordArchive.length && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {
+            b32 copies = event->kind == PlatformEventKind_KeyDown && (event->mods & KeyMod_Control) && (event->key == Key_C || event->key == Key_X);
+            if (event->kind == PlatformEventKind_Text) Prog__EditInsert(&state->password, event->codepoint);
+            else if (event->key == Key_Enter && !event->isRepeat) Prog_QueueCommand(state, Prog_CommandKind_ArchivePasswordButton, 0, 0, order);
+            else if (event->key == Key_Escape) Prog_QueueCommand(state, Prog_CommandKind_ArchivePasswordButton, 1, 0, order);
+            else if (!copies) Prog__EditKey(state, &state->password, event);
             continue;
         }
         if (state->layoutSaving && (event->kind == PlatformEventKind_Text || event->kind == PlatformEventKind_KeyDown)) {

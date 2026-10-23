@@ -252,6 +252,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Icons,
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
+    Prog_JobKind_ArchivePassword,  // whether the password `name` opens the archive `path`
     Prog_JobKind_Measure,
     Prog_JobKind_Inspect,
     Prog_JobKind_GoTo,
@@ -1160,6 +1161,7 @@ typedef struct Prog_Directory {
     // A tree: the unfolded folders' items too, named so, each right after its folder.
     b32 tree;
     b32 archive;      // a folder inside an archive, listed from it
+    b32 locked;       // and the archive has encrypted entries
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
     String *parents;
     u32 parentCount;
@@ -1875,6 +1877,13 @@ typedef struct Prog_State {
     u32 userGroupDropIn, userGroupDropShownIn;
     u8 nameFor;               // what the name box names: a layout, a new group of the user's, or nameGroup's new name
     u32 nameGroup;
+    // The box asking for an encrypted archive's password: the archive, the password typed and the dots shown for it, whether the last one
+    // tried was wrong and one is being tried, and a hash of the archive the box was dismissed for last, which it does not ask for again.
+    Arena passwordArena;
+    String passwordArchive;
+    Prog_TextEdit password, passwordShown;
+    b8 passwordWrong, passwordTrying;
+    u64 passwordDismissed;
     UI_Vec2 nameAt;           // where a group's name box opens, from a menu; from the palette it is the Save Layout box
     // The places hidden from the sidebar and the order they were put in, by path, saved as PlacesHidden.conf and PlacesOrder.conf;
     // placesShowHidden shows the hidden ones too, faded, to show them again. sidebarDrag is one more than the row a drag moves among the places

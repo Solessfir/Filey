@@ -36,6 +36,7 @@ typedef struct P_DirectoryResult {
     String errorString;
     b32 cancelled;
     b32 hidden;  // the folder itself, as its parent's listing marks it: hidden, or named with a dot first; never a drive's root
+    b32 locked;  // an archive's: some of its entries are encrypted
 } P_DirectoryResult;
 
 typedef struct P_FileError {
@@ -66,6 +67,12 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
 function P_FileError P_AddToArchive(Arena *arena, String archive, String inner, const String *paths, u64 count, u32 level, P_Progress *progress, const P_CancelToken *cancel);
 // Whether P_AddToArchive writes the archive `archive`, by its name alone: zip, 7z and tar, not RAR or cabinets, which no free library writes.
 function b32 P_ArchiveWritable(String archive);
+// Encrypted archives: the password every read of `archive` takes from now on in this run, kept only in memory; whether one was given; and
+// whether `password` opens its encrypted entries, which reads the first one's data, slowly, so in a job. Only a zip's entries can be
+// decrypted; an extraction that stops for want of the password fails with a message that says so.
+function void P_ArchiveSetPassword(String archive, String password);
+function b32 P_ArchiveHasPassword(String archive);
+function b32 P_ArchiveCheckPassword(String archive, String password, const P_CancelToken *cancel);
 // Starts dragging the items `names` of the folder `inner` in `archive`, which a drop copies out. Linux takes them out into P_RunFolder first;
 // Windows drags them from the shell's archive folders.
 function b32 P_DragArchiveItems(String archive, String inner, const String *names, u64 count);

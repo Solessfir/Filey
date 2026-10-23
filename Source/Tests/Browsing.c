@@ -1358,6 +1358,48 @@ function void TestFileIcons(TestFileFixture *fixture)
         Check(P__TestRemovePath(fixture, S("box.tar.gz"), false) && P__TestRemovePath(fixture, S("inside-tar.txt"), false));
     }
     Check(P__TestRemovePath(fixture, S("pack.zip"), false));
+    // A zip whose entry is encrypted lists as locked, and only its password opens it; once given, the entry comes out with it. Written
+    // with AES, whose check a wrong password passes once in 65536 tries, where the old zip encryption's passes once in 256.
+    {
+        P__LoadArchive();
+        P__Archive *a = &P__archive;
+        i32 (*setPassphrase)(void *, const char *) = NULL;
+        *(void **)&setPassphrase = P__ArchiveSymbol("archive_write_set_passphrase");
+        String locked = Prog_JoinPath(&arena, fixture->path, S("locked.zip")), content = S("behind a password");
+        const void *native = P__ArchiveNativePath(&arena, locked);
+        void *writer = setPassphrase && a->writable ? a->writeNew() : NULL, *entry = NULL;
+        b32 written = writer && a->writeFormat(writer, P__ArchiveZip) == 0 && a->writeOptions(writer, "zip:encryption=aes256") == 0 &&
+                      setPassphrase(writer, "secret") == 0 && a->writeOpen(writer, native) == 0 && (entry = a->entryNew()) != NULL;
+        if (written) {
+            a->entrySetPath(entry, "inside.txt");
+            a->entrySetFiletype(entry, 0100000);
+            a->entrySetPerm(entry, 0644);
+            a->entrySetSize(entry, (i64)content.length);
+            written = a->writeHeader(writer, entry) == 0 && a->writeData(writer, content.value, content.length) == (i64)content.length;
+            a->entryFree(entry);
+        }
+        if (writer) {
+            written = a->writeClose(writer) == 0 && written;
+            a->writeFree(writer);
+        }
+        // Only where libarchive was built with the means to encrypt, as Windows' is.
+#if defined(_WIN32)
+        Check(written);
+#endif
+        if (written) {
+            P_DirectoryResult listed = P_EnumerateArchive(&arena, locked, (String){0}, NULL);
+            Check(listed.locked && listed.files.header.count == 1 && !P_ArchiveHasPassword(locked));
+            Check(!P_ArchiveCheckPassword(locked, S("wrong"), NULL) && P_ArchiveCheckPassword(locked, S("secret"), NULL));
+            String name = S("inside.txt"), out = Prog_JoinPath(&arena, fixture->path, name), read = {0};
+            P_FileError failed = P_ExtractArchive(&arena, locked, (String){0}, &name, 1, fixture->path, NULL, NULL);
+            Check(failed.code && StrIndexStr(failed.message, S("password"), 0).exists && !P_PathExists(out));
+            P_ArchiveSetPassword(locked, S("secret"));
+            Check(P_ArchiveHasPassword(locked) && !P_ExtractArchive(&arena, locked, (String){0}, &name, 1, fixture->path, NULL, NULL).code);
+            Check(P_ReadFile(&arena, out, &read) && StrIsEqual(read, content));
+            Check(P__TestRemovePath(fixture, name, false));
+        }
+        if (P_PathExists(locked)) Check(P__TestRemovePath(fixture, S("locked.zip"), false));
+    }
     Check(P__TestRemovePath(fixture, S("pixel.png"), false));
     Check(P__TestRemovePath(fixture, S("plain.bin"), false));
 

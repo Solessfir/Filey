@@ -1776,6 +1776,10 @@ command SetupBack {
 command LayoutSaveButton {
 }
 
+// The archive password box's buttons; carries 0 for Open and 1 for Cancel.
+command ArchivePasswordButton {
+}
+
 // A layout's delete button in Load Layout; carries its row.
 command LayoutDelete {
 }

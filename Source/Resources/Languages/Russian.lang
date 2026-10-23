@@ -3156,3 +3156,12 @@ New Sidebar Group
 
 Make a group of your own in the sidebar, to drag folders into.
 = Создать свою группу в боковой панели, чтобы перетаскивать в неё папки.
+
+Password for %S
+= Пароль для %S
+
+Type the archive's password...
+= Введите пароль архива...
+
+That password does not open it.
+= Этот пароль не подходит.

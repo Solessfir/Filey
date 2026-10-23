@@ -2556,6 +2556,12 @@ function void Prog__DirectoryJob(P_Job *job)
         ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
     }
+    if (input->kind == Prog_JobKind_ArchivePassword) {
+        b32 *opens = ArenaPushStruct(&job->arena, b32);
+        *opens = P_ArchiveCheckPassword(input->path, input->name, &job->cancelToken);
+        job->result = opens;
+        return;
+    }
     Prog_Directory *result = ArenaPushStruct(&job->arena, Prog_Directory);
     job->result = result;
     result->path = input->path;
@@ -2618,6 +2624,7 @@ function void Prog__DirectoryJob(P_Job *job)
     result->error = (P_FileError){ listing.errorCode, listing.errorString };
     result->cancelled = listing.cancelled;
     result->hidden = listing.hidden;
+    result->locked = listing.locked;
     // A folder that is gone, deleted or moved away, lists the nearest folder above it that is still there instead: a tab's, one listed again
     // or one gone back or forward to. One newly gone to shows that it is not there, and the panel stays where it was.
     if (result->error.code && !result->cancelled && !result->archive && !input->expanded && !input->addHistory && !P_PathExists(input->path)) {
@@ -3730,6 +3737,8 @@ function void Prog__DefaultQuick(Prog_State *state)
 // Loads the bookmarks and recents saved in `configDirectory`, which keeps them from then on; the drive index is kept in `cacheDirectory`.
 // Without a bookmarks file, the user's desktop, documents, downloads and pictures start as bookmarks.
 function u32 Prog_SidebarGroupCount(const Prog_State *state);
+function void Prog_AskArchivePassword(Prog_State *state, String archive);
+function void Prog_ClosePassword(Prog_State *state);
 function void Prog__LoadUserGroups(Prog_State *state);
 
 function void Prog_LoadSettings(Prog_State *state, String configDirectory, String cacheDirectory)
@@ -6253,7 +6262,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -6776,6 +6785,23 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                                                  : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : slot == 8 ? state->torrents : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu) {
+        } else if (input->kind == Prog_JobKind_ArchivePassword) {
+            // A password that opens it is kept for the archive, and what failed for the want of it is tried again; a wrong one is selected
+            // to type over.
+            const b32 *opens = job->result;
+            if (state->passwordArchive.length && StrIsEqual(input->path, state->passwordArchive)) {
+                state->passwordTrying = false;
+                if (opens && *opens) {
+                    P_ArchiveSetPassword(input->path, input->name);
+                    Prog_ClosePassword(state);
+                    Prog_Reload(state);
+                } else {
+                    state->passwordWrong = true;
+                    state->password.anchor = 0;
+                    state->password.cursor = state->password.length;
+                }
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_Play) {
             if (job == state->playerJob) state->playerJob = NULL;
         } else if (input->kind == Prog_JobKind_TorrentProgress) {
@@ -6994,6 +7020,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     ArenaRelease(&state->directoryArena);
                     state->directoryArena = job->arena;
                     state->directory = *result;
+                    if (result->archive && result->locked) {
+                        String archive = {0}, inner = {0};
+                        if (Prog_InArchive(result->path, &archive, &inner)) Prog_AskArchivePassword(state, archive);
+                    }
                     if (lookForRepos) Prog_RequestRepos(state);
                     job->arena = (Arena){0};
                     ++state->listing;

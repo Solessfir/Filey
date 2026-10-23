@@ -15,7 +15,7 @@
 - **Fast lists**: details, list, columns and icon views with thumbnails, folder sizes, filters as you type, an expanded search through subfolders, Miller columns, a tree view that unfolds folders in place, and items grouped under headings by type, date or size.
 - **Go To and the command palette**: jump to recent, bookmarked or typed paths, and run any command by name. Every hotkey can be changed.
 - **Inspector**: previews text with syntax highlighting and line numbers, images, PDFs, 3D models (OBJ, STL, PLY, glTF, FBX, .blend, USD), Word and Excel text, archives, and any file as hex.
-- **Archives as folders**: browse zip, 7z, rar, tar and cab files, and drag, copy and paste in and out of them.
+- **Archives as folders**: browse zip, 7z, rar, tar and cab files, and drag, copy and paste in and out of them. An encrypted zip asks for its password.
 - **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
 - **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, light and dark following the system, and a transparent glass look in any of them.
 - **Languages**: English and Russian, plus your own through a translation file.
