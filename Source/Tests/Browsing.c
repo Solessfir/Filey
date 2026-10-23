@@ -2955,6 +2955,31 @@ function void TestPanels(TestFileFixture *fixture)
         Prog_ProcessCommands(&state);
         Check(Prog_InspectorPanel(&state, owner, false) == UINT32_MAX && state.panels[state.activePanel].id == owner && !state.previewShown);
     }
+    // A name to select waits for its own panel's next listing, which an inspector's folder list listed first leaves alone.
+    {
+        state.previewShown = true;
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("plain.txt")), 0);
+        Prog_ProcessCommands(&state);
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Folder2")), 0);
+        Prog_ProcessCommands(&state);
+        u32 inner = Prog_InspectorPanel(&state, state.panels[state.activePanel].id, false);
+        Check(Prog_SelectNext(&state, S("plain.txt")) && inner != UINT32_MAX);
+        u64 start = PlatformNowMicroseconds();
+        while (inner != UINT32_MAX && state.panels[inner].directoryJob && PlatformNowMicroseconds() - start < Millions(5)) {
+            P__TestPause();
+            Prog_TakeCompletions(&state);
+        }
+        Check(state.selectLength == 9);
+        Prog_Reload(&state);
+        start = PlatformNowMicroseconds();
+        while (state.directoryJob && PlatformNowMicroseconds() - start < Millions(5)) {
+            P__TestPause();
+            Prog_TakeCompletions(&state);
+        }
+        Check(!state.selectLength && state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("plain.txt")));
+        TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+        Prog_ProcessCommands(&state);
+    }
     // The palette lists its groups, opens one from its title, finds commands across them by their label and description, and runs the highlighted one.
     {
         Prog_PaletteRow matches[Prog_MaxPaletteRows];

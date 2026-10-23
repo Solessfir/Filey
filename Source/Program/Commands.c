@@ -2276,9 +2276,7 @@ function void Prog__MillerSelect(Prog_State *state, u32 slot, u64 row, b32 open)
     } else if (open) {
         Prog__AddRecent(state, path, true, entry->file.hidden);
         Prog_OpenFile(state, path);
-    } else if (name.length <= sizeof(state->selectText)) {
-        MemCopy(state->selectText, name.value, name.length);
-        state->selectLength = (u32)name.length;
+    } else if (Prog_SelectNext(state, name)) {
         Prog_RequestDirectory(state, folder, true, 0);
     }
 }
@@ -2794,7 +2792,7 @@ function void Prog__Reveal(Prog_State *state, String folder, String item, b32 in
     Prog__ActivatePanel(state, panel != UINT32_MAX ? panel : state->activePanel);
     if (panel != UINT32_MAX) Prog_SelectTab(state, tab);
     if (item.length) Prog_ShowInFolder(state, Prog_JoinPath(&state->frameArena, folder, item), false);
-    else if (!Prog__SamePath(state->directory.path, folder)) Prog_RequestDirectory(state, folder, true, 0);
+    else if (!Prog__SamePath(Prog_TabPath(state, state->activeTab), folder)) Prog_RequestDirectory(state, folder, true, 0);
     if (inspect) state->previewShown = true;
 }
 
@@ -3887,9 +3885,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->paletteOpen = false;
                     // Ctrl shows it in the panel instead: its folder, with it selected.
                     String name = Prog__FolderName(item.path), parent = Prog_ParentPath(item.path);
-                    if ((command->mods & KeyMod_Control) && parent.length && !StrIsEqual(parent, item.path) && name.length <= sizeof(state->selectText)) {
-                        MemCopy(state->selectText, name.value, name.length);
-                        state->selectLength = (u32)name.length;
+                    if ((command->mods & KeyMod_Control) && parent.length && !StrIsEqual(parent, item.path) && Prog_SelectNext(state, name)) {
                         Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
                     } else {
                         Prog__GoToOpen(state, item);

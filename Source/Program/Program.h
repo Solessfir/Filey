@@ -1464,8 +1464,9 @@ typedef struct Prog_State {
     u32 renameFromLength;
     Prog_TextEdit rename;
     R_Rect renameRect;        // last layout of the edit box
-    u8 selectText[1024];      // select this name in the next listing
+    u8 selectText[1024];      // select this name in the next listing of panel `selectPanel`, which Prog_SelectNext sets
     u32 selectLength;
+    u64 selectPanel;
     b32 selectRename;         // and rename it, for items Filey just created
     // The command palette, which takes the keyboard while open; the highlight indexes Prog_PaletteMatches.
     b32 paletteOpen;

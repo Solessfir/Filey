@@ -2860,6 +2860,16 @@ function b32 Prog__IsUnder(String path, String root)
     return path.length == root.length || root.value[root.length - 1] == '/' || path.value[root.length] == '/';
 }
 
+// Selects `name` in the current panel's next listing; another panel's, as an inspector's folder list, leaves it waiting.
+function b32 Prog_SelectNext(Prog_State *state, String name)
+{
+    if (name.length > sizeof(state->selectText)) return false;
+    MemCopy(state->selectText, name.value, name.length);
+    state->selectLength = (u32)name.length;
+    state->selectPanel = Prog__PanelId(state);
+    return true;
+}
+
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
     Prog__FollowTrail(state, path);
@@ -2872,10 +2882,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
         Index slash = StrIndexChar(child, '/', SSF_None);
         if (slash.exists) child = StrFromTo(child, 0, (i64)slash.value);
     }
-    if (child.length && !state->selectLength && child.length <= sizeof(state->selectText)) {
-        MemCopy(state->selectText, child.value, child.length);
-        state->selectLength = (u32)child.length;
-    }
+    if (child.length && !state->selectLength) Prog_SelectNext(state, child);
     // Another folder brings its kept view, or the panel's own back; a reload keeps what is shown.
     if (!StrIsEqual(path, state->directory.path)) Prog__ApplyFolderView(state, path);
     if (state->directoryJob) P_RequestCancel(&state->directoryJob->cancelToken);
@@ -4873,9 +4880,8 @@ function void Prog_ApplyTabTraits(Prog_State *state, String traits)
             if (Prog__TakeNumber(&digits, &scroll)) state->pickScroll = (f32)scroll, state->pickScrollSet = true;
         } else if (StrIsEqual(StrFromTo(part, 0, 7), S("select="))) {
             ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, StrFrom(part, 7)));
-        } else if (StrIsEqual(StrFromTo(part, 0, 6), S("focus=")) && part.length - 6 <= sizeof(state->selectText)) {
-            MemCopy(state->selectText, part.value + 6, part.length - 6);
-            state->selectLength = (u32)(part.length - 6);
+        } else if (StrIsEqual(StrFromTo(part, 0, 6), S("focus="))) {
+            Prog_SelectNext(state, StrFrom(part, 6));
         }
     }
 }
@@ -4907,11 +4913,11 @@ function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
     String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
     if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) return;
     if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
-    MemCopy(state->selectText, name.value, name.length);
-    state->selectLength = (u32)name.length;
+    Prog_SelectNext(state, name);
     if (!inTab) {
+        // A tab not listed yet goes to its folder, rather than taking it again into its history.
         state->expanded = false;
-        Prog_RequestDirectory(state, parent, !StrIsEqual(parent, state->directory.path), 0);
+        Prog_RequestDirectory(state, parent, !Prog__SamePath(parent, Prog_TabPath(state, state->activeTab)), 0);
     }
 }
 
@@ -5510,9 +5516,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 String folder = input->prefix.length ? Prog_JoinPath(&state->frameArena, state->directory.path, input->prefix) : state->directory.path;
                 // While the next item is being renamed, the selection stays with it.
                 if (StrIsEqual(folder, input->path) && state->renaming) Prog_Reload(state);
-                else if (StrIsEqual(folder, input->path) && listed.length <= sizeof(state->selectText)) {
-                    MemCopy(state->selectText, listed.value, listed.length);
-                    state->selectLength = (u32)listed.length;
+                else if (StrIsEqual(folder, input->path) && Prog_SelectNext(state, listed)) {
                     Prog_Reload(state);
                 }
             }
@@ -5539,11 +5543,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             } else if (created && StrIsEqual(state->directory.path, input->path)) {
                 // The new item is selected once the listing shows it, and a new file or folder renamed.
                 String name = ((Prog_Created *)job->result)->name;
-                if (name.length <= sizeof(state->selectText)) {
-                    MemCopy(state->selectText, name.value, name.length);
-                    state->selectLength = (u32)name.length;
-                    state->selectRename = input->kind == Prog_JobKind_Create;
-                }
+                if (Prog_SelectNext(state, name)) state->selectRename = input->kind == Prog_JobKind_Create;
             }
             // A torrent's files are read once more when its download is over, to show what it left.
             if (input->transferOp == Prog_TransferOp_Torrent && StrIsEqual(state->previewPath, input->paths[0])) state->torrentRead = false;
@@ -5552,9 +5552,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 const Prog_Transferred *result = job->result;
                 // A new archive is selected and renamed once the listing shows it, as a new folder is, its name before .zip ready to be typed over.
                 String packed = input->transferOp == Prog_TransferOp_Pack && result->placed.header.count == 1 ? Prog_EntryLeaf(result->placed.v[0]) : (String){0};
-                if (packed.length && packed.length <= sizeof(state->selectText) && StrIsEqual(state->directory.path, input->path)) {
-                    MemCopy(state->selectText, packed.value, packed.length);
-                    state->selectLength = (u32)packed.length;
+                if (packed.length && StrIsEqual(state->directory.path, input->path) && Prog_SelectNext(state, packed)) {
                     state->selectRename = true;
                 } else if (result->placed.header.count && StrIsEqual(state->directory.path, input->path)) {
                     // What was pasted into the folder shown is selected once its listing shows it, all of it; a torrent fetched for its
@@ -5840,8 +5838,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             if (old->measured) MapsPut(&state->frameArena, totals, old->file.name, old);
                         }
                     }
-                    // A name to select applies in another folder too, as Go To's Ctrl+Enter shows an item in its own.
-                    String pick = StrMake((const char *)state->selectText, state->selectLength);
+                    // A name to select applies in another folder too, as Go To's Ctrl+Enter shows an item in its own, though only in its panel.
+                    b32 picking = state->selectPanel == Prog__PanelId(state);
+                    String pick = picking ? StrMake((const char *)state->selectText, state->selectLength) : (String){0};
                     u64 created = 0, pickRow = UINT64_MAX;
                     b32 renameStillThere = false;
                     String renameFrom = StrMake((const char *)state->renameFrom, state->renameFromLength);
@@ -5888,9 +5887,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     // So do the types shown, which the Types popup set for this folder's.
                     if (!samePath && state->directory.path.length && !state->filterSticky) state->types.length = 0;
                     b32 renamePicked = (renameCreated && created == 1 && !pick.length && state->createdRenames) || (state->selectRename && pick.length && pickRow < result->count);
-                    state->selectRename = false;
+                    if (picking) state->selectRename = false, state->selectLength = 0;
                     if (created) state->renameCreatedUntil = 0;
-                    state->selectLength = 0;
                     if (!renameStillThere) state->renaming = false;
                     if (pickRow < result->count) {
                         for (u64 i = 0; i < result->count; ++i) result->entries[i].selected = i == pickRow;
