@@ -90,3 +90,7 @@ circle-minus
 circle-plus
 download
 shrink
+volume
+volume-1
+volume-2
+volume-x

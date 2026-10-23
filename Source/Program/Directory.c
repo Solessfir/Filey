@@ -2202,7 +2202,7 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_Play) {
-        Prog_PlayAudio(input->path, input->offset, input->progress, &job->cancelToken);
+        Prog_PlayAudio(input->path, input->offset, input->volume, input->progress, &job->cancelToken);
         return;
     }
     if (input->kind == Prog_JobKind_TorrentProgress) {

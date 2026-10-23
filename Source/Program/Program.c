@@ -741,6 +741,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->videoCodec = 0;
     state->videoQuality = 20;
     state->downloadAudio = false;
+    state->audioVolume = 100;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->noticesInSidebar = false;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
@@ -836,6 +837,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             for (u32 i = 0; i < CArrayCount(Prog_OptionVideoCodecs); ++i) if (Prog__EqualFolded(value, Prog_OptionVideoCodecs[i])) state->videoCodec = (u8)i;
         } else if (StrIsEqual(name, S("download.audio"))) {
             state->downloadAudio = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("audio.volume"))) {
+            if (number >= 0 && number <= 100) state->audioVolume = (u8)number;
         } else if (StrIsEqual(name, S("video.quality"))) {
             if (number >= 0 && number <= 51) state->videoQuality = (u8)number;
         } else if (StrIsEqual(name, S("notices"))) {
@@ -1015,7 +1018,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# git.fetch = false\n"));
     StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
                                 "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"
-                                "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"));
+                                "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"
+                                "\n# How loud the inspector plays audio files, from 0 to 100.\n# audio.volume = 100\n"));
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n"
                                                "# Unset, the system's language when Filey has it built in, and English otherwise.\n# language = %S\n", Prog_SystemLanguage()));
     StrBuildStr(arena, &text, S("\n# The transparent theme (the \"Transparency\" command), in the scheme's colors. glass.window and glass.popup give tints of\n"
@@ -1130,6 +1134,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                    Prog_OptionControl_Slider, 0, 51, NULL, 0, SInit("video.quality") },
     [Prog_Option_DownloadAudio] = { TrInit("Download Audio Only"), TrInit("A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3."),
                                     Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("download.audio") },
+    [Prog_Option_AudioVolume] = { TrInit("Audio Volume"), TrInit("How loud the inspector plays audio files."), Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("audio.volume") },
     [Prog_Option_Notices] = { TrInit("Notifications"), TrInit("Which notices show in the window's corner: all, warnings and errors, errors only, or none."),
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
     [Prog_Option_MutedNotices] = { TrInit("Muted Notifications"), TrInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
@@ -1267,6 +1272,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_VideoCodec: return state->videoCodec;
         case Prog_Option_VideoQuality: return state->videoQuality;
         case Prog_Option_DownloadAudio: return state->downloadAudio;
+        case Prog_Option_AudioVolume: return state->audioVolume;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
         case Prog_Option_NoticesInSidebar: return state->noticesInSidebar;
@@ -1795,6 +1801,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_PopupBlur: return 24;
         case Prog_Option_CompressionLevel: return 9;
         case Prog_Option_VideoQuality: return 20;
+        case Prog_Option_AudioVolume: return 100;
         case Prog_Option_Language: {
             for (u32 i = 1; i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(Prog_SystemLanguage(), Prog_OptionLanguages[i])) return (i32)i;
             return 0;
@@ -10494,6 +10501,42 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
             UI_SetNextFont(m->detail);
             Prog__LabelPadded(clock, UI_TextContent(), bar, apart, apart, theme->textDim, 0);
             if (playing) UI_KeepAnimating();
+        }
+        // How loud: the speaker turns the sound off and on again, and the bar beside it sets it by a press, a drag or the wheel, which what
+        // plays takes once let go, as ffplay starts again for it.
+        Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
+        u32 volume = state->volumeDragging ? state->volumeDragged : state->audioMuted ? 0 : state->audioVolume;
+        String speaker = !volume ? Icon_VolumeX : volume < 34 ? Icon_Volume : volume < 67 ? Icon_Volume1 : Icon_Volume2;
+        Prog__ToolbarRowButton(state, S("InspectorMute"), speaker, Prog_CommandKind_InspectorMute, 0, (String){0}, m);
+        f32 track = floorf(64.0f * s + 0.5f), thick = MaxF32(2, floorf(3.2f * s + 0.5f)), knob = floorf(11.2f * s + 0.5f);
+        UI_SetNextPrefWidth(UI_Pixels(track + knob));
+        UI_SetNextPrefHeight(UI_Pixels(bar));
+        UI_Block *slider = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorVolume")), UI_Flag_LeftMouseClickable | UI_Flag_TakesWheel);
+        UI_Interaction drag = UI_InteractionFromBlock(slider);
+        if (drag.pressed) state->volumeDragging = true;
+        if (state->volumeDragging) state->volumeDragged = (u8)(UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / track, 0, 1) * 100 + 0.5f);
+        if (state->volumeDragging && !drag.active) {
+            state->volumeDragging = false;
+            Prog_QueueCommand(state, Prog_CommandKind_InspectorVolume, 0, 0, UINT64_MAX)->target = state->volumeDragged;
+        }
+        i32 notches = Prog__WheelNotches(slider);
+        if (notches) Prog_QueueCommand(state, Prog_CommandKind_InspectorVolume, 0, 0, 0)->target = (u64)Max(0, Min((i32)volume + notches * 5, 100));
+        UI_Parent(slider) {
+            f32 y = floorf((bar - thick) * 0.5f), filled = floorf(track * (f32)volume / 100.0f + 0.5f);
+            for (u32 layer = 0; layer < 2; ++layer) {
+                UI_SetNextFloatingOffset((UI_Vec2){ floorf(knob * 0.5f), y });
+                UI_SetNextPrefWidth(UI_Pixels(layer ? filled : track));
+                UI_SetNextPrefHeight(UI_Pixels(thick));
+                UI_SetNextCornerRadius(thick * 0.5f);
+                UI_SetNextColors((UI_Colors){ .background = layer ? theme->accent : theme->track });
+                if (!layer || filled > 0) UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            UI_SetNextFloatingOffset((UI_Vec2){ filled, floorf((bar - knob) * 0.5f) });
+            UI_SetNextPrefWidth(UI_Pixels(knob));
+            UI_SetNextPrefHeight(UI_Pixels(knob));
+            UI_SetNextCornerRadius(knob * 0.5f);
+            UI_SetNextColors((UI_Colors){ .background = theme->text });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
         }
     } else if (Prog_IsVideo(entry->file.name)) {
         local_persist const String codecKeys[3] = { SInit("InspectorCodecHevc"), SInit("InspectorCodecH264"), SInit("InspectorCodecAv1") };

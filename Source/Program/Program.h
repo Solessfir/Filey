@@ -394,6 +394,7 @@ typedef struct Prog_JobInput {
     u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
     u8 videoCodec, videoQuality;  // what a video is compressed to
     b32 downloadAudio;            // a download is the sound alone
+    u8 volume;                    // what audio plays at, 0 to 100
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;
@@ -774,6 +775,7 @@ typedef enum Prog_Option {
     Prog_Option_VideoCodec,
     Prog_Option_VideoQuality,
     Prog_Option_DownloadAudio,
+    Prog_Option_AudioVolume,
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
     Prog_Option_NoticesInSidebar,
@@ -1578,6 +1580,7 @@ typedef struct Prog_State {
     u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
     u8 videoQuality;  // its constant quality, 0 (best) to 51
     b32 downloadAudio;  // downloads by URL take the sound alone, as MP3
+    u8 audioVolume;     // how loud the inspector plays audio, 0 to 100
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
     b32 noticesInSidebar;  // the notices and the progress cards stack at the bottom of the sidebar while it shows
     f32 sidebarCards;      // how high the progress cards there were in the last build, which the sidebar's list stops over
@@ -1647,6 +1650,10 @@ typedef struct Prog_State {
     P_Progress playerProgress[2];
     u32 playerSlot;
     u64 playerHash;
+    u8 playerVolume;     // what it started at, which a pause going on takes again where that changed
+    b32 audioMuted;      // the speaker button's, for the session
+    b32 volumeDragging;  // the volume follows the pointer along its bar until the press ends
+    u8 volumeDragged;
     b32 scrubbing;  // the playhead follows the pointer over the waveform until the press ends
     Arena sizeArena;
     Prog_SizeMap sizes;
@@ -1914,7 +1921,7 @@ function void Prog_ResumeTorrents(Prog_State *state);
 function u32 Prog_TorrentSlot(const Prog_State *state, String path);
 function u64 Prog_TorrentWaiting(const Prog_State *state, String path);
 function void Prog_GitPull(Prog_State *state);
-function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel);
+function b32 Prog_PlayAudio(String path, u64 start, u32 volume, P_Progress *progress, const P_CancelToken *cancel);
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);

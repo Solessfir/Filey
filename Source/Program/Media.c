@@ -898,13 +898,13 @@ function void Prog__PlayerOutput(void *user, String text)
     }
 }
 
-// Plays the audio file at `path` from `start` milliseconds in with ffplay, without a window, keeping `progress`'s done count at the
-// milliseconds played; pausing `progress` pauses it, and a cancel stops it. False when ffplay is not there or cannot play it.
-function b32 Prog_PlayAudio(String path, u64 start, P_Progress *progress, const P_CancelToken *cancel)
+// Plays the audio file at `path` from `start` milliseconds in with ffplay, without a window, at `volume` from 0 to 100, keeping `progress`'s
+// done count at the milliseconds played; pausing `progress` pauses it, and a cancel stops it. False when ffplay is not there or cannot play it.
+function b32 Prog_PlayAudio(String path, u64 start, u32 volume, P_Progress *progress, const P_CancelToken *cancel)
 {
     Scratch scratch = GetScratch();
-    String arguments[] = { S("ffplay"), S("-nodisp"), S("-autoexit"), S("-hide_banner"), S("-loglevel"), S("error"), S("-stats"), S("-ss"),
-                           StrFormat(scratch.arena, "%.3f", (f64)start / 1000), path };
+    String arguments[] = { S("ffplay"), S("-nodisp"), S("-autoexit"), S("-hide_banner"), S("-loglevel"), S("error"), S("-stats"), S("-volume"),
+                           StrFormat(scratch.arena, "%u", Min(volume, 100u)), S("-ss"), StrFormat(scratch.arena, "%.3f", (f64)start / 1000), path };
     Prog__Player player = { .progress = progress };
     b32 result = P_RunCommandStream(Prog_ParentPath(path), arguments, CArrayCount(arguments), true, Prog__PlayerOutput, &player, cancel, progress);
     ReleaseScratch(scratch);

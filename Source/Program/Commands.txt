@@ -858,6 +858,16 @@ command InspectorPlay {
     repeat  = "false"
 }
 
+command InspectorMute {
+    label   = "Mute Audio^volume,sound,silence,speaker"
+    tooltip = "Turn the inspector's sound off, or on again."
+    repeat  = "false"
+}
+
+// The inspector's volume bar, pressed, dragged or turned; carries the volume, 0 to 100.
+command InspectorVolume {
+}
+
 // A press on the inspector's waveform; carries the milliseconds in to play from.
 command InspectorSeek {
 }

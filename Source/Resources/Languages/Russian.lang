@@ -2884,3 +2884,14 @@ Waiting for a free slot
 %u torrents waiting to start
 = %u торрент ждёт запуска | %u торрента ждут запуска | %u торрентов ждут запуска
 
+Audio Volume
+= Громкость звука
+
+How loud the inspector plays audio files.
+= Насколько громко инспектор проигрывает звуковые файлы.
+
+Mute Audio
+= Выключить звук
+
+Turn the inspector's sound off, or on again.
+= Выключить звук инспектора или включить его снова.
