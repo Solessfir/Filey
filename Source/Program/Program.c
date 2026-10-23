@@ -8758,9 +8758,8 @@ function void Prog__TransferButtons(Prog_State *state, u32 slot, b32 paused, con
     UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", slot), paused ? Icon_Play : Icon_Pause, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
                                             theme->icon, theme->text, theme->iconDisabled, true, m);
     if (pause.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferPause, slot, 0, pause.clickOrder);
-    // Washed red, as the window's close button.
-    UI_Interaction cancel = Prog__WashedButton(StrFormat(&state->frameArena, "TransferCancel/%u", slot), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
-                                               theme->icon, theme->text, theme->iconDisabled, theme->danger, true, m);
+    UI_Interaction cancel = Prog__TextButton(StrFormat(&state->frameArena, "TransferCancel/%u", slot), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                             theme->icon, theme->text, theme->iconDisabled, true, m);
     if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, slot, 0, cancel.clickOrder);
 }
 
@@ -8958,8 +8957,8 @@ function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const P
                 if (picked.clicked) Prog_QueueCommand(state, Prog_CommandKind_TorrentReveal, rows[k], 0, picked.clickOrder)->panel = 0;
                 UI_Parent(entry) {
                     Prog__Label(Prog__NameStem(Prog_EntryLeaf(StrFromTo(line, 0, (i64)tab.value))), UI_Flex(), m->row, 0, theme->textDim, 0);
-                    UI_Interaction drop = Prog__WashedButton(StrFormat(&state->frameArena, "TorrentDrop/%u", (u32)rows[k]), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
-                                                             theme->icon, theme->text, theme->iconDisabled, theme->danger, true, m);
+                    UI_Interaction drop = Prog__TextButton(StrFormat(&state->frameArena, "TorrentDrop/%u", (u32)rows[k]), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                                           theme->icon, theme->text, theme->iconDisabled, true, m);
                     if (drop.clicked) Prog_QueueCommand(state, Prog_CommandKind_TorrentDrop, rows[k], 0, drop.clickOrder);
                     Prog__PopupTooltip(state, Tr("Don't download it after all."));
                 }
