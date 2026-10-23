@@ -3043,6 +3043,16 @@ function void TestSettings(void)
     Check(Prog_ThemeGlassUser.menu.b > 0.18f && Prog_ThemeGlassUser.menu.a > 0.5f && Prog_ThemeGlassUser.menu.a < 0.51f && Prog_GlassBlur == 12.5f);
     Check(Prog_ThemeGlassUser.window.a == Prog_ThemeGlass.window.a && state.glassBackdrop == PlatformBackdrop_Mica);
     Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
+    // An option that narrows the one above it shows only while that one is on.
+    {
+        Prog_State options = {0};
+        u8 found[Prog_Option_Count];
+        u32 shown = Prog_OptionMatches(&options, found);
+        options.noFolderSizes = true;
+        Check(Prog_OptionMatches(&options, found) == shown - 3);
+        options.singleClick = true;
+        Check(Prog_OptionMatches(&options, found) == shown - 2);
+    }
     // How the lists look, read back as the options show them; the defaults are {0}'s.
     {
         Prog_State look = {0};

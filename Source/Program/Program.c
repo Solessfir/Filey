@@ -1225,8 +1225,11 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         // With the system's choice, a scheme for each of its modes.
         if (i == Prog_Option_ColorScheme && state->systemScheme) continue;
         if ((i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) && !state->systemScheme) continue;
-        // The see-through window's own choices only while it is see-through.
+        // The options that narrow the one above them only while it is on.
+        // That is the see-through window's own, the drives whose folders are measured, and what a single click opens.
         if (i >= Prog_Option_WindowOpacity && i <= Prog_Option_Backdrop && !state->transparent) continue;
+        if (i >= Prog_Option_CalcFolderSizesSSD && i <= Prog_Option_CalcFolderSizesNetwork && state->noFolderSizes) continue;
+        if (i == Prog_Option_SingleClickFoldersOnly && !state->singleClick) continue;
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
         if (!typed.length || Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) > 0) found[count++] = (u8)i;
