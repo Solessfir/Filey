@@ -3039,14 +3039,14 @@ function void TestSettings(void)
         u32 schemeChoices = 0;
         Prog_OptionChoices(&look, Prog_Option_ColorScheme, &look.frameArena, &schemeChoices);
         // The built-in ones show their themes' own names, and a custom one its.
-        Check(StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_ColorScheme, S("rose-pine")), S("Rosé Pine")) &&
+        Check(StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_ColorScheme, S("filey-dark")), S("Filey Dark")) &&
               StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_LightScheme, S("catppuccin-latte")), S("Catppuccin Latte")) &&
               StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_ColorScheme, S("Mine")), S("Mine")));
         Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look, Prog_BuiltInSchemes, Prog_Option_ColorScheme) && look.schemeNames.header.count == 2);
         Check(StrIsEqual(look.schemeNames.v[0], S("Custom 1")) && look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f);
         // A fork of a built-in scheme takes the next number.
         Check(Prog_ForkScheme(&look, 2, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[1], S("Custom 2")) && StrIsEqual(look.schemeNames.v[2], S("Mine")));
-        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x2E3440);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x191919);
         look.colorPicking = true;
         look.colorOption = Prog_Option_ColorBackground;
         Prog_PickColor(&look, 3, 1);

@@ -937,7 +937,7 @@ typedef enum Prog_LayoutAsk {
 
 #define Prog_MaxLayouts 64
 // Default and the reference's six, which the custom schemes follow.
-#define Prog_BuiltInSchemes 10
+#define Prog_BuiltInSchemes 8
 // The first built-in scheme, shown where the settings name none.
 #define Prog_DefaultScheme "catppuccin-frappe"
 // A custom scheme's file in the settings folder ends so, after its name.

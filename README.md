@@ -17,7 +17,7 @@
 - **Inspector**: previews text with syntax highlighting and line numbers, images, PDFs, 3D models (OBJ, STL, PLY, glTF, FBX, .blend, USD), Word and Excel text, archives, and any file as hex.
 - **Archives as folders**: browse zip, 7z, rar, tar and cab files, and drag, copy and paste in and out of them.
 - **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
-- **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark, Dracula, Solarized and Rosé Pine built in, schemes of your own, light and dark following the system, and a transparent glass look.
+- **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark, Dracula and Filey Dark built in, schemes of your own, light and dark following the system, and a transparent glass look.
 - **Languages**: English and Russian, plus your own through a translation file.
 
 ## Optional tools

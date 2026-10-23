@@ -396,18 +396,17 @@ global const Prog_Theme Prog_ThemeGlass = {
     .disabledAmount = Prog_Gray(89),
 };
 
-// The built-in schemes' colors, popular themes' palettes in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's order of the groups.
+// The built-in schemes' colors, popular themes' palettes and Filey's own dark one, in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's
+// order of the groups.
 global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = {
     { 0x232634, 0x232634, 0x303446, 0x292C3C, 0x414559, 0x303446, 0x414559, 0x414559, 0x232634, 0x34384A, 0x949CBB, 0xC6D0F5, 0x838BA7, 0xA5ADCE, 0xC6D0F5, 0xC6D0F5, 0xE78284, 0x8CAAEE, 0x475270, 0x8CAAEE, 0x99D1DB, 0x595959, 0x595959, 0x595959, 0xC6D0F5, 0xC6D0F5, 0xA1A9C9, 0x737994, 0x949CBB, 0x626880, 0x99D1DB, 0x99D1DB, 0x7AA2AE },
     { 0xDCE0E8, 0xDCE0E8, 0xEFF1F5, 0xE6E9EF, 0xCCD0DA, 0xEFF1F5, 0xCCD0DA, 0xCCD0DA, 0xDCE0E8, 0xE7EAEF, 0x7C7F93, 0x4C4F69, 0x8C8FA1, 0x6C6F85, 0x4C4F69, 0x4C4F69, 0xD20F39, 0x1E66F5, 0xC1D2F5, 0x1E66F5, 0x04A5E5, 0x808080, 0x666666, 0x666666, 0x4C4F69, 0x4C4F69, 0x75788C, 0x9CA0B0, 0x7C7F93, 0xACB0BE, 0x04A5E5, 0x04A5E5, 0x4BBCEA },
+    { 0x191919, 0x1F1F1F, 0x191919, 0x1F1F1F, 0x383C3D, 0x191919, 0x383838, 0x1F1F1F, 0x1C1C1C, 0x1C1C1C, 0x9A9A9A, 0xDDDEE0, 0x6B7078, 0x999999, 0xDDDEE0, 0xDDDEE0, 0xFF6358, 0x0079A6, 0x505050, 0x00ADEE, 0x00AAFF, 0x595959, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
     { 0x242933, 0x242933, 0x2E3440, 0x292E39, 0x3B4252, 0x2E3440, 0x3B4252, 0x3B4252, 0x242933, 0x313744, 0x8A93A5, 0xD8DEE9, 0x616E88, 0xB8C0CE, 0xD8DEE9, 0xD8DEE9, 0xBF616A, 0x81A1C1, 0x434F60, 0x81A1C1, 0x88C0D0, 0x595959, 0x595959, 0x595959, 0xD8DEE9, 0xD8DEE9, 0xAEB4BF, 0x4C566A, 0x8A93A5, 0x4C566A, 0x88C0D0, 0x88C0D0, 0x6D96A5 },
     { 0x1D2021, 0x1D2021, 0x282828, 0x222424, 0x3C3836, 0x282828, 0x3C3836, 0x3C3836, 0x1D2021, 0x2C2C2B, 0xA89984, 0xEBDBB2, 0x928374, 0xBDAE93, 0xEBDBB2, 0xEBDBB2, 0xFB4934, 0x83A598, 0x3F4744, 0x83A598, 0xFABD2F, 0x595959, 0x595959, 0x595959, 0xEBDBB2, 0xEBDBB2, 0xBAAE90, 0x7C6F64, 0xA89984, 0x665C54, 0xFABD2F, 0xFABD2F, 0xBB902D },
     { 0x13141C, 0x16161E, 0x1A1B26, 0x16161E, 0x292E42, 0x1A1B26, 0x292E42, 0x292E42, 0x13141C, 0x1D1F2C, 0x8F96BC, 0xC0CAF5, 0x737AA2, 0xA9B1D6, 0xC0CAF5, 0xC0CAF5, 0xF7768E, 0x7AA2F7, 0x323D5A, 0x7AA2F7, 0x7DCFFF, 0x595959, 0x595959, 0x595959, 0xC0CAF5, 0xC0CAF5, 0x979EC1, 0x545C7E, 0x8F96BC, 0x414868, 0x7DCFFF, 0x7DCFFF, 0x5F99BE },
     { 0x1E2227, 0x21252B, 0x282C34, 0x21252B, 0x31353F, 0x282C34, 0x31353F, 0x31353F, 0x1E2227, 0x2A2E36, 0x9DA5B4, 0xD7DAE0, 0x7F848E, 0xABB2BF, 0xD7DAE0, 0xD7DAE0, 0xE06C75, 0x61AFEF, 0x364D63, 0x61AFEF, 0x56B6C2, 0x595959, 0x595959, 0x595959, 0xD7DAE0, 0xD7DAE0, 0xABAFB5, 0x5C6370, 0x9DA5B4, 0x4B5263, 0x56B6C2, 0x56B6C2, 0x488D97 },
     { 0x191A21, 0x191A21, 0x282A36, 0x21222C, 0x343746, 0x282A36, 0x343746, 0x343746, 0x191A21, 0x2B2D3A, 0xA4A9C4, 0xF8F8F2, 0x7E88B8, 0xC9CBD6, 0xF8F8F2, 0xF8F8F2, 0xFF5555, 0xBD93F9, 0x4D4467, 0xBD93F9, 0x8BE9FD, 0x595959, 0x595959, 0x595959, 0xF8F8F2, 0xF8F8F2, 0xC4C5C3, 0x6272A4, 0xA4A9C4, 0x565A73, 0x8BE9FD, 0x8BE9FD, 0x6DB0C1 },
-    { 0x001E26, 0x00222B, 0x002B36, 0x00252F, 0x073642, 0x002B36, 0x073642, 0x073642, 0x001E26, 0x022D39, 0x839496, 0xA9B7B7, 0x657B83, 0x93A1A1, 0xA9B7B7, 0xA9B7B7, 0xDC322F, 0x268BD2, 0x0A435D, 0x268BD2, 0x2AA198, 0x595959, 0x595959, 0x595959, 0xA9B7B7, 0xA9B7B7, 0x7F9497, 0x586E75, 0x839496, 0x274F5A, 0x2AA198, 0x2AA198, 0x1D7E7B },
-    { 0xE4DDC8, 0xE4DDC8, 0xFDF6E3, 0xEEE8D5, 0xDDD6C1, 0xFDF6E3, 0xDDD6C1, 0xDDD6C1, 0xE4DDC8, 0xF6EFDC, 0x839496, 0x4F6269, 0x93A1A1, 0x657B83, 0x4F6269, 0x4F6269, 0xDC322F, 0x268BD2, 0xCEDEDF, 0x268BD2, 0x2AA198, 0x808080, 0x666666, 0x666666, 0x4F6269, 0x4F6269, 0x7B8788, 0xA3ACA7, 0x839496, 0xC5BDAA, 0x2AA198, 0x2AA198, 0x69BBAF },
-    { 0x13111C, 0x13111C, 0x191724, 0x1F1D2E, 0x26233A, 0x191724, 0x26233A, 0x26233A, 0x13111C, 0x1C1A29, 0x908CAA, 0xE0DEF4, 0x6E6A86, 0x908CAA, 0xE0DEF4, 0xE0DEF4, 0xEB6F92, 0xC4A7E7, 0x443B55, 0xC4A7E7, 0x9CCFD8, 0x595959, 0x595959, 0x595959, 0xE0DEF4, 0xE0DEF4, 0xAEACC0, 0x6E6A86, 0x908CAA, 0x524F67, 0x9CCFD8, 0x9CCFD8, 0x7598A2 },
 };
 
 // The reference's dark scheme, for side-by-side checks with the Compare tool; settings name it fullmoon, and the choices leave it out.
@@ -514,10 +513,10 @@ function b32 Prog__ParseColor(String text, R_Color *color)
 
 // The built-in schemes, before the custom ones, by their names in the settings and as the choices show them.
 // The first is the default, and the second the light one that "light" names.
-global const String Prog_OptionSchemes[] = { SInit(Prog_DefaultScheme), SInit("catppuccin-latte"), SInit("nord"), SInit("gruvbox"), SInit("tokyo-night"), SInit("one-dark"),
-                                             SInit("dracula"), SInit("solarized-dark"), SInit("solarized-light"), SInit("rose-pine") };
-global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Catppuccin Frappé"), NoTrF("Catppuccin Latte"), NoTrF("Nord"), NoTrF("Gruvbox"), NoTrF("Tokyo Night"),
-                                                        NoTrF("One Dark"), NoTrF("Dracula"), NoTrF("Solarized Dark"), NoTrF("Solarized Light"), NoTrF("Rosé Pine") };
+global const String Prog_OptionSchemes[] = { SInit(Prog_DefaultScheme), SInit("catppuccin-latte"), SInit("filey-dark"), SInit("nord"), SInit("gruvbox"), SInit("tokyo-night"),
+                                             SInit("one-dark"), SInit("dracula") };
+global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Catppuccin Frappé"), NoTrF("Catppuccin Latte"), NoTrF("Filey Dark"), NoTrF("Nord"), NoTrF("Gruvbox"),
+                                                        NoTrF("Tokyo Night"), NoTrF("One Dark"), NoTrF("Dracula") };
 static_assert(CArrayCount(Prog_OptionSchemeLabels) == Prog_BuiltInSchemes, "the built-in schemes labeled");
 static_assert(CArrayCount(Prog_OptionSchemes) == Prog_BuiltInSchemes, "the built-in schemes counted");
 static_assert(Prog_Option_ColorMatchDisabledSelection - Prog_Option_ColorClear + 1 == Prog_ColorGroupCount, "the color groups counted");
@@ -893,8 +892,8 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\", switches true or false; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
-                                "# A scheme by its name: catppuccin-frappe, catppuccin-latte, nord, gruvbox, tokyo-night, one-dark, dracula, solarized-dark,\n"
-                                "# solarized-light, rose-pine or a custom one; colors set before this line are replaced.\n# theme = catppuccin-frappe\n"
+                                "# A scheme by its name: catppuccin-frappe, catppuccin-latte, filey-dark, nord, gruvbox, tokyo-night, one-dark, dracula\n"
+                                "# or a custom one; colors set before this line are replaced.\n# theme = catppuccin-frappe\n"
                                 "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = catppuccin-latte\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
