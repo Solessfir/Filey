@@ -6657,13 +6657,15 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     // Typing without a separator searches, and the rows found are one list too.
     b32 searching = !folder.length && state->palette.length;
     b32 sections = !folder.length && !searching;
-    Row *rows = ArenaPushArray(&state->frameArena, count + Prog_GoToSection_Folder + 1, Row);
+    Row *rows = ArenaPushArray(&state->frameArena, count + Prog_SidebarGroupMax + 1, Row);
     u32 rowCount = 0, highlightRow = 0;
     // A section with nothing in it, folded or not, has no title either.
     u64 shownRecents[Prog_ShownRecentCount];
     u64 sizes[Prog_GoToSection_Folder] = { Prog_ShownRecents(state, shownRecents), state->bookmarks.header.count, state->drives.header.count, state->places.header.count };
-    for (u32 section = 0; section < (sections ? (u32)Prog_GoToSection_Folder : 1u); ++section) {
-        if (sections && !sizes[section]) continue;
+    for (u32 n = 0; n < (sections ? Prog_SidebarGroupCount(state) : 1u); ++n) {
+        u32 section = sections ? Prog_GoToSectionAt(state, n) : 0;
+        u64 size = section < Prog_GoToSection_Folder ? sizes[section] : state->userGroups[section - Prog_GoToSection_Count].folders.header.count;
+        if (sections && !size) continue;
         if (sections) rows[rowCount++] = (Row){ -1, (i32)section };
         for (u32 i = 0; i < count; ++i) {
             if (sections && found[i].section != section) continue;
@@ -6777,7 +6779,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 if (at.item < 0) {
                     // A section's title, which folds it.
                     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GoToSection/%d", at.section));
-                    b32 folded = state->gotoFolded[at.section];
+                    b32 folded = Prog_GoToFolded(state, (u32)at.section);
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(face));
                     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -6790,8 +6792,9 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                         local_persist const String titles[] = { TrInit("Recents"), TrInit("Bookmarks"), TrInit("Storage"), TrInit("Places") };
                         const String icons[] = { Icon_Clock, Icon_Bookmark, Icon_HardDrive, Icon_Folder };
                         static_assert(CArrayCount(titles) == Prog_GoToSection_Folder, "a title for every section");
-                        Prog__Icon(icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
-                        Prog__Label(Prog_Tr(titles[at.section]), UI_Flex(), face, 0, theme->text, 0);
+                        b32 own = at.section >= Prog_GoToSection_Count;
+                        Prog__Icon(own ? Icon_Folder : icons[at.section], (f32)state->iconSize + floorf(7.2f * s + 0.5f), face, theme->icon, 0, m);
+                        Prog__Label(own ? state->userGroups[at.section - Prog_GoToSection_Count].name : Prog_Tr(titles[at.section]), UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(folded ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, theme->icon, 0.5f, m);
                     }
                     Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);

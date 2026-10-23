@@ -1093,6 +1093,21 @@ function void Prog__GoToPool(Prog_State *state, Arena *scratch, Prog_GoToItem it
 // The rows Go To offers for the text typed, best first, in the frame arena: without a separator typed, the recent folders and the bookmarks
 // holding it, those of folded sections left out; with one, what is inside the folder typed so far, `folder`, that starts with or holds what
 // follows it. A folder not listed yet starts its listing and offers nothing until it arrives.
+// Go To's section for the sidebar's group at place `n`, as its sections follow the sidebar's order: the built-in groups are its first
+// sections, and a group of the user's own, g, is Prog_GoToSection_Count + g.
+static_assert((u32)Prog_Group_Recents == (u32)Prog_GoToSection_Recents && (u32)Prog_Group_Places == (u32)Prog_GoToSection_Places && (u32)Prog_Group_Count == (u32)Prog_GoToSection_Folder, "the built-in groups are Go To's first sections");
+function u32 Prog_GoToSectionAt(const Prog_State *state, u32 n)
+{
+    u32 group = Prog_SidebarGroupAt(state, n);
+    return group < Prog_Group_Count ? group : Prog_GoToSection_Count + group - Prog_Group_Count;
+}
+
+function b32 Prog_GoToFolded(const Prog_State *state, u32 section)
+{
+    if (section < Prog_GoToSection_Folder) return state->gotoFolded[section];
+    return section >= Prog_GoToSection_Count && ((state->gotoGroupsFolded >> (section - Prog_GoToSection_Count)) & 1);
+}
+
 function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *folder)
 {
     Arena *frame = &state->frameArena;
@@ -1103,11 +1118,14 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
     *count = 0;
     *folder = (String){0};
     // Something typed searches a short list, as one list ranked by score, as the reference's Go To does: the drives, the places, the
-    // folders the system names (Prog_SearchPlaces), the recents, files among them, the bookmarks, and Filey's own settings files. Each
-    // matches by its name and its shown path, and shows whatever its score, as long as it is above 0; the drive is not searched.
+    // folders the system names (Prog_SearchPlaces), the recents, files among them, the bookmarks, the folders of the user's own groups, and
+    // Filey's own settings files. Each matches by its name and its shown path, and shows whatever its score, as long as it is above 0; the
+    // drive is not searched.
+    u64 grouped = 0;
+    for (u32 g = 0; g < state->userGroupCount; ++g) grouped += state->userGroups[g].folders.header.count;
     if (cut < 0 && text.length) {
         u64 recents = state->recents.header.count, bookmarks = state->bookmarks.header.count, places = state->places.header.count;
-        u64 searched = state->searchPlaces.header.count, nearby = recents + bookmarks + places + searched, drives = state->drives.header.count;
+        u64 searched = state->searchPlaces.header.count, nearby = recents + bookmarks + places + searched + grouped, drives = state->drives.header.count;
         Arena *arena = &state->gotoFoundArena;
         // With Alt+E the walk's index once it is done, and before then the last run's, unless there is none.
         const Prog_Index *index = !state->gotoDrives ? NULL : state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;
@@ -1153,8 +1171,15 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                     if (Prog_RecentLeftOut(state, r)) continue;
                     path = state->recents.v[r];
                     file = state->recentRanks[r].file;
-                } else if (i < nearby) {
+                } else if (i < places + searched + recents + bookmarks) {
                     path = state->bookmarks.v[i - places - searched - recents];
+                } else if (i < nearby) {
+                    u64 at = i - places - searched - recents - bookmarks;
+                    for (u32 g = 0; g < state->userGroupCount && !path.length; ++g) {
+                        const ArrayStr *folders = &state->userGroups[g].folders;
+                        if (at < folders->header.count) path = folders->v[at];
+                        else at -= folders->header.count;
+                    }
                 } else {
                     path = Prog_JoinPath(frame, state->configDirectory, settingsFiles[i - nearby]);
                     file = true;
@@ -1223,9 +1248,10 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         // The recents the sidebar shows.
         u64 shownRecents[Prog_ShownRecentCount];
         u64 recents = Prog_ShownRecents(state, shownRecents);
-        Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + state->drives.header.count + state->places.header.count + 1, Prog_GoToItem);
-        for (u32 section = 0; section < Prog_GoToSection_Folder; ++section) {
-            if (state->gotoFolded[section]) continue;
+        Prog_GoToItem *result = ArenaPushArray(frame, recents + state->bookmarks.header.count + state->drives.header.count + state->places.header.count + grouped + 1, Prog_GoToItem);
+        for (u32 n = 0; n < Prog_SidebarGroupCount(state); ++n) {
+            u32 section = Prog_GoToSectionAt(state, n);
+            if (Prog_GoToFolded(state, section)) continue;
             if (section == Prog_GoToSection_Storage || section == Prog_GoToSection_Places) {
                 const P_ArrayPlace *places = section == Prog_GoToSection_Storage ? &state->drives : &state->places;
                 for (u64 i = 0; i < places->header.count; ++i) {
@@ -1234,7 +1260,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                 }
                 continue;
             }
-            const ArrayStr *list = section == Prog_GoToSection_Recents ? &state->recents : &state->bookmarks;
+            const ArrayStr *list = section == Prog_GoToSection_Recents ? &state->recents : section == Prog_GoToSection_Bookmarks ? &state->bookmarks
+                                                                                                                             : &state->userGroups[section - Prog_GoToSection_Count].folders;
             u64 limit = section == Prog_GoToSection_Recents ? recents : list->header.count;
             for (u32 tier = 0; tier < 2; ++tier) {
                 for (u64 n = 0; n < limit; ++n) {
@@ -4171,6 +4198,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_GoToFold: {
                 if (command->row < Prog_GoToSection_Folder) state->gotoFolded[command->row] = !state->gotoFolded[command->row];
+                else if (command->row >= Prog_GoToSection_Count && command->row < Prog_GoToSection_Count + Prog_MaxUserGroups) state->gotoGroupsFolded ^= 1u << (command->row - Prog_GoToSection_Count);
                 state->paletteHighlight = 0;
             } break;
             case Prog_CommandKind_TabList: {

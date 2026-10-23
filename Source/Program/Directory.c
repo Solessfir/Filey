@@ -4099,6 +4099,21 @@ function void Prog_ShiftGroup(Prog_State *state, u32 group, b32 down)
     state->groupsOrdered = ordered;
 }
 
+// Keeps the groups' own order one of every group there is, once one more or fewer is there: the numbers no group has any more, and
+// any seen before, are left out, and the groups it lacks go last.
+function void Prog__MendGroupOrder(Prog_State *state)
+{
+    if (!state->groupsOrdered) return;
+    u32 count = Prog_SidebarGroupCount(state), kept = 0, seen = 0;
+    u8 order[Prog_SidebarGroupMax] = {0};
+    for (u32 n = 0; n < Prog_SidebarGroupMax; ++n) {
+        u8 id = state->groupOrder[n];
+        if (id < count && !(seen & (1u << id))) seen |= 1u << id, order[kept++] = id;
+    }
+    for (u32 id = 0; id < count; ++id) if (!(seen & (1u << id))) order[kept++] = (u8)id;
+    MemCopy(state->groupOrder, order, sizeof(order));
+}
+
 // Puts `groups` in place of the user's own groups, copied into a fresh arena, and saves them, a line each: whether it is folded, its name
 // and its folders, a tab apart.
 function void Prog__SetUserGroups(Prog_State *state, const Prog_UserGroup *groups, u32 count)
@@ -4122,6 +4137,7 @@ function void Prog__SetUserGroups(Prog_State *state, const Prog_UserGroup *group
     state->userGroupsArena = fresh;
     MemCopy(state->userGroups, copies, sizeof(copies));
     state->userGroupCount = count;
+    Prog__MendGroupOrder(state);
     Prog__SaveList(state, Prog_UserGroupsFile, lines);
     ReleaseScratch(scratch);
 }
@@ -4150,6 +4166,7 @@ function void Prog__LoadUserGroups(Prog_State *state)
     ArenaRelease(&state->userGroupsArena);
     state->userGroupsArena = fresh;
     state->userGroupCount = count;
+    Prog__MendGroupOrder(state);
     ArenaRelease(&arena);
 }
 
@@ -4181,6 +4198,9 @@ function void Prog_UserGroupDelete(Prog_State *state, u32 group)
     Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
     u32 count = 0, removed = Prog_Group_Count + group, places = Prog_SidebarGroupCount(state), kept = 0;
     for (u32 g = 0; g < state->userGroupCount; ++g) if (g != group) groups[count++] = state->userGroups[g];
+    // Go To's folded groups after it move down a number too.
+    u32 below = state->gotoGroupsFolded & ((1u << group) - 1);
+    state->gotoGroupsFolded = below | ((state->gotoGroupsFolded >> (group + 1)) << group);
     for (u32 n = 0; n < places; ++n) {
         u8 id = state->groupOrder[n];
         if (id != removed) state->groupOrder[kept++] = (u8)(id > removed ? id - 1 : id);

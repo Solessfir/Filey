@@ -946,7 +946,8 @@ typedef struct Prog_PaletteRow {
 
 enum { Prog_MaxPaletteRows = (u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_Count };
 
-// Go To's rows come from the recent folders and the bookmarks, each section under a title that folds it, or from the folder typed.
+// Go To's rows come from the sidebar's groups, each section under a title that folds it, or from the folder typed. A group of the user's
+// own, g, is listed as the section Prog_GoToSection_Count + g.
 typedef enum Prog_GoToSection {
     Prog_GoToSection_Recents,
     Prog_GoToSection_Bookmarks,
@@ -1680,6 +1681,7 @@ typedef struct Prog_State {
     Prog_GoToListed gotoListing;
     b32 gotoListed;
     b32 gotoFolded[Prog_GoToSection_Folder];  // sections shown by their title alone
+    u32 gotoGroupsFolded;                     // and the user's own groups folded there, a bit each
     u32 gotoScroll;           // the first row shown
     // The texts the back and forward buttons go through, which every expansion adds to.
     Arena gotoHistoryArena;

@@ -2607,15 +2607,32 @@ function void TestUserGroups(TestFileFixture *fixture)
     // A group moved up keeps its place when another is deleted, and the numbers after the deleted one move down.
     Prog_ShiftGroup(&state, Prog_Group_Count + 1, false);
     Check(state.groupsOrdered && Prog_SidebarGroupAt(&state, Prog_Group_Count) == Prog_Group_Count + 1);
+    // Go To's fold of the group after it moves down with it.
+    state.gotoGroupsFolded = 2;
     Prog_UserGroupDelete(&state, 0);
     Check(state.userGroupCount == 1 && StrIsEqual(state.userGroups[0].name, S("Play")) && Prog_SidebarGroupAt(&state, Prog_Group_Count) == Prog_Group_Count);
+    Check(state.gotoGroupsFolded == 1);
+    state.gotoGroupsFolded = 0;
     // Read back as written, a line each: folded, its name and its folders, a tab apart; a line without a name is left out.
     String file = Prog_JoinPath(&arena, fixture->path, S("Groups.conf"));
     Check(!P_WriteFile(&arena, file, S("0\tWork\t/a\t/b\n1\tEmpty\nLonely\n")).code);
     state.configDirectory = fixture->path;
     Prog__LoadUserGroups(&state);
     Check(state.userGroupCount == 2 && StrIsEqual(state.userGroups[0].name, S("Work")) && state.userGroups[0].folders.header.count == 2 && state.userGroups[1].closed);
+    // The order kept from before has each group once, the one more read in last.
+    Check(Prog_SidebarGroupAt(&state, Prog_Group_Count) == Prog_Group_Count && Prog_SidebarGroupAt(&state, Prog_Group_Count + 1) == Prog_Group_Count + 1);
     Check(!state.userGroups[1].folders.header.count && StrIsEqual(state.userGroups[1].name, S("Empty")));
+    // Go To lists a group's folders as a section of its own, which folds as the others do, and searches them.
+    u32 offered = 0;
+    String folder = {0};
+    Prog_GoToItem *found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered == 2 && found[0].section == Prog_GoToSection_Count && StrIsEqual(found[1].path, S("/b")));
+    state.gotoGroupsFolded = 1;
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered == 0 && Prog_GoToFolded(&state, Prog_GoToSection_Count));
+    Prog__EditReplace(&state.palette, (const u8 *)"b", 1);
+    found = Prog_GoToMatches(&state, &offered, &folder);
+    Check(offered >= 1 && StrIsEqual(found[0].path, S("/b")));
     P__TestRemovePath(fixture, S("Groups.conf"), false);
     ArenaRelease(&state.userGroupsArena);
     ArenaRelease(&arena);
