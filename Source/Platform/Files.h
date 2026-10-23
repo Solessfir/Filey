@@ -463,6 +463,7 @@ typedef enum P_MenuAction {
     P_MenuAction_ExtractToFolder,
     P_MenuAction_CompressVideo,
     P_MenuAction_DownloadTorrent,
+    P_MenuAction_AddToGroup,  // the item's id is the group
     P_MenuAction_Count,
 } P_MenuAction;
 

@@ -3480,6 +3480,7 @@ function void Prog__OpenFontPicker(Prog_State *state, Prog_Option option);
 #define Prog_MenuOrderFile S("MenuOrder.conf")
 #define Prog_PlacesHiddenFile S("PlacesHidden.conf")
 #define Prog_PlacesOrderFile S("PlacesOrder.conf")
+#define Prog_UserGroupsFile S("Groups.conf")
 #define Prog_TorrentsFile S("Torrents.conf")
 #define Prog_MaxRecents    300
 #define Prog_RecentScoreMax 10
@@ -3492,7 +3493,7 @@ function u32 Prog__SaveSlot(String file)
 {
     return StrIsEqual(file, Prog_RecentsFile) ? 1 : StrIsEqual(file, Prog_FolderViewsFile) ? 2 : StrIsEqual(file, Prog_MenuPinsFile) ? 3 : StrIsEqual(file, Prog_QuickCommandsFile) ? 4
          : StrIsEqual(file, Prog_MutedNoticesFile) ? 5 : StrIsEqual(file, Prog_MenuHiddenFile) ? 6 : StrIsEqual(file, Prog_MenuOrderFile) ? 7 : StrIsEqual(file, Prog_TorrentsFile) ? 8
-         : StrIsEqual(file, Prog_PlacesHiddenFile) ? 9 : StrIsEqual(file, Prog_PlacesOrderFile) ? 10 : 0;
+         : StrIsEqual(file, Prog_PlacesHiddenFile) ? 9 : StrIsEqual(file, Prog_PlacesOrderFile) ? 10 : StrIsEqual(file, Prog_UserGroupsFile) ? 11 : 0;
 }
 
 // Replaces `list` with copies of the `count` strings at `items`, in a fresh arena.
@@ -3728,6 +3729,9 @@ function void Prog__DefaultQuick(Prog_State *state)
 
 // Loads the bookmarks and recents saved in `configDirectory`, which keeps them from then on; the drive index is kept in `cacheDirectory`.
 // Without a bookmarks file, the user's desktop, documents, downloads and pictures start as bookmarks.
+function u32 Prog_SidebarGroupCount(const Prog_State *state);
+function void Prog__LoadUserGroups(Prog_State *state);
+
 function void Prog_LoadSettings(Prog_State *state, String configDirectory, String cacheDirectory)
 {
     ArenaClear(&state->settingsArena);
@@ -3747,16 +3751,16 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
         ArrayStr lines = StrSplit(session.arena, text, '\n');
         for (u64 l = 0; l < lines.header.count; ++l) {
             String line = lines.v[l];
-            // The groups' order, every group once.
+            // The groups' order, every group once, the user's own as Groups.conf has them.
             if (line.length > 11 && StrIsEqual(StrFromTo(line, 0, 11), S("grouporder "))) {
                 line = StrFrom(line, 11);
-                u8 order[Prog_Group_Count] = {0};
-                u32 seen = 0, read = 0;
-                for (u64 group = 0; read < Prog_Group_Count && Prog__TakeNumber(&line, &group) && group < Prog_Group_Count && !(seen & (1u << group)); ++read) {
+                u32 count = Prog_SidebarGroupCount(state), seen = 0, read = 0;
+                u8 order[Prog_SidebarGroupMax] = {0};
+                for (u64 group = 0; read < count && Prog__TakeNumber(&line, &group) && group < count && !(seen & (1u << group)); ++read) {
                     seen |= 1u << group;
                     order[read] = (u8)group;
                 }
-                if (read == Prog_Group_Count) {
+                if (read == count) {
                     MemCopy(state->groupOrder, order, sizeof(order));
                     state->groupsOrdered = true;
                 }
@@ -3791,6 +3795,7 @@ function void Prog_LoadSettings(Prog_State *state, String configDirectory, Strin
     Prog__LoadList(state, Prog_MenuOrderFile, &state->menuOrderArena, &state->menuOrder, &found);
     Prog__LoadList(state, Prog_PlacesHiddenFile, &state->placesHiddenArena, &state->placesHidden, &found);
     Prog__LoadList(state, Prog_PlacesOrderFile, &state->placesOrderArena, &state->placesOrder, &found);
+    Prog__LoadUserGroups(state);
     Prog__LoadList(state, Prog_MutedNoticesFile, &state->mutedArena, &state->mutedNotices, &found);
     Prog__LoadList(state, Prog_TorrentsFile, &state->torrentArena, &state->torrents, &found);
     Prog__LoadList(state, Prog_QuickCommandsFile, &state->quickArena, &state->quickCommands, &found);
@@ -4062,30 +4067,182 @@ function void Prog__RequestShares(Prog_State *state)
     ReleaseScratch(scratch);
 }
 
-// The sidebar's group at place `n`, in the order they were moved to, else the default one.
-function Prog_Group Prog_SidebarGroupAt(const Prog_State *state, u32 n)
+// How many groups the sidebar has: the built-in ones and the user's own.
+function u32 Prog_SidebarGroupCount(const Prog_State *state)
 {
-    return state->groupsOrdered && n < Prog_Group_Count && state->groupOrder[n] < Prog_Group_Count ? (Prog_Group)state->groupOrder[n] : (Prog_Group)n;
+    return Prog_Group_Count + Min(state->userGroupCount, (u32)Prog_MaxUserGroups);
 }
 
-// Moves the sidebar's `group` a place up or down; back in the default order, it is no longer kept.
-function void Prog_ShiftGroup(Prog_State *state, Prog_Group group, b32 down)
+// The sidebar's group at place `n`, in the order they were moved to, else the default one, the user's own after the built-in ones.
+function u32 Prog_SidebarGroupAt(const Prog_State *state, u32 n)
 {
-    u8 order[Prog_Group_Count];
-    u32 at = Prog_Group_Count;
-    for (u32 n = 0; n < Prog_Group_Count; ++n) {
+    return state->groupsOrdered && n < Prog_SidebarGroupCount(state) && state->groupOrder[n] < Prog_SidebarGroupCount(state) ? state->groupOrder[n] : n;
+}
+
+// Moves the sidebar's group `group` a place up or down; back in the default order, it is no longer kept.
+function void Prog_ShiftGroup(Prog_State *state, u32 group, b32 down)
+{
+    u32 count = Prog_SidebarGroupCount(state), at = count;
+    u8 order[Prog_SidebarGroupMax] = {0};
+    for (u32 n = 0; n < count; ++n) {
         order[n] = (u8)Prog_SidebarGroupAt(state, n);
         if (order[n] == group) at = n;
     }
-    if (at == Prog_Group_Count || (down ? at + 1 >= Prog_Group_Count : at == 0)) return;
+    if (at == count || (down ? at + 1 >= count : at == 0)) return;
     u32 other = down ? at + 1 : at - 1;
     u8 swapped = order[at];
     order[at] = order[other];
     order[other] = swapped;
     b32 ordered = false;
-    for (u32 n = 0; n < Prog_Group_Count; ++n) ordered |= order[n] != n;
+    for (u32 n = 0; n < count; ++n) ordered |= order[n] != n;
     MemCopy(state->groupOrder, order, sizeof(order));
     state->groupsOrdered = ordered;
+}
+
+// Puts `groups` in place of the user's own groups, copied into a fresh arena, and saves them, a line each: whether it is folded, its name
+// and its folders, a tab apart.
+function void Prog__SetUserGroups(Prog_State *state, const Prog_UserGroup *groups, u32 count)
+{
+    Arena fresh = {0};
+    Prog_UserGroup copies[Prog_MaxUserGroups] = {0};
+    count = Min(count, (u32)Prog_MaxUserGroups);
+    Scratch scratch = GetScratch();
+    ArrayStr lines = {0};
+    for (u32 g = 0; g < count; ++g) {
+        copies[g] = (Prog_UserGroup){ .name = StrCopy(&fresh, groups[g].name), .closed = groups[g].closed };
+        StrBuilder line = {0};
+        StrBuildStr(scratch.arena, &line, StrFormat(scratch.arena, "%u\t%S", groups[g].closed ? 1u : 0u, groups[g].name));
+        for (u64 i = 0; i < groups[g].folders.header.count; ++i) {
+            ArrayPush(&fresh, copies[g].folders, StrCopy(&fresh, groups[g].folders.v[i]));
+            StrBuildStr(scratch.arena, &line, StrFormat(scratch.arena, "\t%S", groups[g].folders.v[i]));
+        }
+        ArrayPush(scratch.arena, lines, line.buffer);
+    }
+    ArenaRelease(&state->userGroupsArena);
+    state->userGroupsArena = fresh;
+    MemCopy(state->userGroups, copies, sizeof(copies));
+    state->userGroupCount = count;
+    Prog__SaveList(state, Prog_UserGroupsFile, lines);
+    ReleaseScratch(scratch);
+}
+
+function void Prog__LoadUserGroups(Prog_State *state)
+{
+    Arena arena = {0};
+    ArrayStr lines = {0};
+    b32 found = false;
+    Prog__LoadList(state, Prog_UserGroupsFile, &arena, &lines, &found);
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    u32 count = 0;
+    for (u64 l = 0; l < lines.header.count && count < Prog_MaxUserGroups; ++l) {
+        ArrayStr fields = StrSplit(&arena, lines.v[l], '\t');
+        if (fields.header.count < 2 || !fields.v[1].length) continue;
+        groups[count] = (Prog_UserGroup){ .name = fields.v[1], .closed = StrIsEqual(fields.v[0], S("1")) };
+        for (u64 i = 2; i < fields.header.count; ++i) if (fields.v[i].length) ArrayPush(&arena, groups[count].folders, fields.v[i]);
+        ++count;
+    }
+    // Copied as they are, without saving them back.
+    Arena fresh = {0};
+    for (u32 g = 0; g < count; ++g) {
+        state->userGroups[g] = (Prog_UserGroup){ .name = StrCopy(&fresh, groups[g].name), .closed = groups[g].closed };
+        for (u64 i = 0; i < groups[g].folders.header.count; ++i) ArrayPush(&fresh, state->userGroups[g].folders, StrCopy(&fresh, groups[g].folders.v[i]));
+    }
+    ArenaRelease(&state->userGroupsArena);
+    state->userGroupsArena = fresh;
+    state->userGroupCount = count;
+    ArenaRelease(&arena);
+}
+
+// A new group of the user's named `name`, last; while the groups have an order of their own, it goes at its end.
+function void Prog_UserGroupNew(Prog_State *state, String name)
+{
+    if (!name.length || state->userGroupCount >= Prog_MaxUserGroups) return;
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    MemCopy(groups, state->userGroups, sizeof(groups));
+    groups[state->userGroupCount] = (Prog_UserGroup){ .name = name };
+    u32 count = Prog_SidebarGroupCount(state);
+    if (state->groupsOrdered) state->groupOrder[count] = (u8)count;
+    Prog__SetUserGroups(state, groups, state->userGroupCount + 1);
+}
+
+function void Prog_UserGroupRename(Prog_State *state, u32 group, String name)
+{
+    if (!name.length || group >= state->userGroupCount) return;
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    MemCopy(groups, state->userGroups, sizeof(groups));
+    groups[group].name = name;
+    Prog__SetUserGroups(state, groups, state->userGroupCount);
+}
+
+// Deletes the user's group `group`; the groups after it move down a number, in the order too.
+function void Prog_UserGroupDelete(Prog_State *state, u32 group)
+{
+    if (group >= state->userGroupCount) return;
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    u32 count = 0, removed = Prog_Group_Count + group, places = Prog_SidebarGroupCount(state), kept = 0;
+    for (u32 g = 0; g < state->userGroupCount; ++g) if (g != group) groups[count++] = state->userGroups[g];
+    for (u32 n = 0; n < places; ++n) {
+        u8 id = state->groupOrder[n];
+        if (id != removed) state->groupOrder[kept++] = (u8)(id > removed ? id - 1 : id);
+    }
+    Prog__SetUserGroups(state, groups, count);
+}
+
+function void Prog_UserGroupFold(Prog_State *state, u32 group)
+{
+    if (group >= state->userGroupCount) return;
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    MemCopy(groups, state->userGroups, sizeof(groups));
+    groups[group].closed = !groups[group].closed;
+    Prog__SetUserGroups(state, groups, state->userGroupCount);
+}
+
+// Adds the folders `paths` to the user's group `group` before its folder `at`, moving those it has already.
+function void Prog_UserGroupAdd(Prog_State *state, u32 group, const ArrayStr *paths, u64 at)
+{
+    if (group >= state->userGroupCount || !paths->header.count) return;
+    Scratch scratch = GetScratch();
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    MemCopy(groups, state->userGroups, sizeof(groups));
+    const ArrayStr *folders = &state->userGroups[group].folders;
+    ArrayStr result = {0};
+    at = Min(at, folders->header.count);
+    for (u64 i = 0; i <= folders->header.count; ++i) {
+        if (i == at) for (u64 j = 0; j < paths->header.count; ++j) ArrayPush(scratch.arena, result, paths->v[j]);
+        if (i == folders->header.count) break;
+        b32 moving = false;
+        for (u64 j = 0; j < paths->header.count && !moving; ++j) moving = StrIsEqual(folders->v[i], paths->v[j]);
+        if (!moving) ArrayPush(scratch.arena, result, folders->v[i]);
+    }
+    groups[group].folders = result;
+    Prog__SetUserGroups(state, groups, state->userGroupCount);
+    ReleaseScratch(scratch);
+}
+
+function void Prog_UserGroupRemove(Prog_State *state, u32 group, u64 index)
+{
+    if (group >= state->userGroupCount || index >= state->userGroups[group].folders.header.count) return;
+    Scratch scratch = GetScratch();
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    MemCopy(groups, state->userGroups, sizeof(groups));
+    ArrayStr result = {0};
+    for (u64 i = 0; i < state->userGroups[group].folders.header.count; ++i) if (i != index) ArrayPush(scratch.arena, result, state->userGroups[group].folders.v[i]);
+    groups[group].folders = result;
+    Prog__SetUserGroups(state, groups, state->userGroupCount);
+    ReleaseScratch(scratch);
+}
+
+// Moves the folder `from` of the user's group `group` to go before its folder `before`, one past the last for the end.
+function void Prog_UserGroupMove(Prog_State *state, u32 group, u64 from, u64 before)
+{
+    if (group >= state->userGroupCount) return;
+    u64 count = state->userGroups[group].folders.header.count;
+    if (from >= count || before > count || before == from || before == from + 1) return;
+    ArrayStr one = {0};
+    Scratch scratch = GetScratch();
+    ArrayPush(scratch.arena, one, StrCopy(scratch.arena, state->userGroups[group].folders.v[from]));
+    Prog_UserGroupAdd(state, group, &one, before);
+    ReleaseScratch(scratch);
 }
 
 // Whether the place at `path` is hidden from the sidebar.
@@ -4167,6 +4324,7 @@ function void Prog_RestorePlaces(Prog_State *state)
 
 function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group)
 {
+    if ((u32)group >= Prog_Group_Count) return (u32)group - Prog_Group_Count < state->userGroupCount && !state->userGroups[(u32)group - Prog_Group_Count].closed;
     b32 open = group == Prog_Group_Bookmarks || group == Prog_Group_Storage;
     return open != (state->groupToggled[group] != 0);
 }
@@ -5059,7 +5217,7 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     StrBuildChar(arena, &text, '\n');
     if (state->groupsOrdered) {
         StrBuildStr(arena, &text, S("grouporder"));
-        for (u32 g = 0; g < Prog_Group_Count; ++g) StrBuildStr(arena, &text, StrFormat(arena, " %u", (u32)state->groupOrder[g]));
+        for (u32 g = 0; g < Prog_SidebarGroupCount(state); ++g) StrBuildStr(arena, &text, StrFormat(arena, " %u", (u32)state->groupOrder[g]));
         StrBuildChar(arena, &text, '\n');
     }
     for (u32 i = 0; i < Prog_MaxSplits; ++i) {
@@ -6564,7 +6722,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             }
             const String files[] = { Prog_BookmarksFile, Prog_RecentsFile, Prog_FolderViewsFile, Prog_MenuPinsFile, Prog_QuickCommandsFile, Prog_MutedNoticesFile, Prog_MenuHiddenFile,
-                                     Prog_MenuOrderFile, Prog_TorrentsFile, Prog_PlacesHiddenFile, Prog_PlacesOrderFile };
+                                     Prog_MenuOrderFile, Prog_TorrentsFile, Prog_PlacesHiddenFile, Prog_PlacesOrderFile, Prog_UserGroupsFile };
             u32 slot = Prog__SaveSlot(Prog_EntryLeaf(input->path));
             state->saving[slot] = false;
             if (state->saveAgain[slot]) {
@@ -7034,6 +7192,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->sharesArena);
     ArenaRelease(&state->placesHiddenArena);
     ArenaRelease(&state->placesOrderArena);
+    ArenaRelease(&state->userGroupsArena);
     ArenaRelease(&state->settingsArena);
     ArenaRelease(&state->bookmarkArena);
     ArenaRelease(&state->recentArena);

@@ -4953,7 +4953,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
     UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
     // Not lit under a drag, which would hide the line where it goes; a place dragged stays lit.
-    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending() && (!state->placeDrag || (group == Prog_Group_Places && state->placeDrag == index + 1));
+    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending() && (!state->sidebarDrag || (state->sidebarDragGroup == (u32)group + 1 && state->sidebarDrag == index + 1));
     // Lit while it is shown, or while its menu is open; not under a drag, where only the folder a drop would go into is lit.
     b32 current = !P_DropPending() && (StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget)));
     UI_SetNextPrefWidth(UI_Flex());
@@ -4975,7 +4975,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_Interaction interaction = UI_InteractionFromBlock(row);
     // Under a drag the middle of a row takes it into its folder, lit; a bookmark's edges put it between the bookmarks instead.
     if (P_DropPending() && path.length && !StrIsEqual(path, Prog_ThisPC) && UI__Contains(row->rect, UI->mouse)) {
-        f32 edge = group == Prog_Group_Bookmarks ? (row->rect.y1 - row->rect.y0) * 0.25f : 0;
+        f32 edge = group == Prog_Group_Bookmarks || (u32)group >= Prog_Group_Count ? (row->rect.y1 - row->rect.y0) * 0.25f : 0;
         if (UI->mouse.y >= row->rect.y0 + edge && UI->mouse.y < row->rect.y1 - edge) {
             state->dropPlace = StrCopy(&state->dropPlaceArena, path);
             row->flags |= UI_Flag_DrawBackground;
@@ -4990,12 +4990,18 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarMenu, (u64)group, 0, interaction.pressOrder);
         command->target = index;
     }
-    // A place dragged moves among the places, before the one the line the list draws is at; the click its release makes opens nothing.
-    b32 moved = false;
-    if (group == Prog_Group_Places && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) state->placeDrag = index + 1;
-    if (group == Prog_Group_Places && interaction.released && state->placeDrag == index + 1) {
-        if (state->placeGap) Prog_QueueCommand(state, Prog_CommandKind_PlaceMove, index, 0, interaction.clickOrder)->target = state->placeGap - 1;
-        state->placeDrag = state->placeGap = 0;
+    // A place, or a folder in a group of the user's, dragged moves among its group's, before the one the line the list draws is at; the click
+    // its release makes opens nothing.
+    b32 moved = false, draggable = group == Prog_Group_Places || (u32)group >= Prog_Group_Count;
+    if (draggable && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
+        state->sidebarDrag = index + 1;
+        state->sidebarDragGroup = (u32)group + 1;
+    }
+    if (draggable && interaction.released && state->sidebarDrag == index + 1 && state->sidebarDragGroup == (u32)group + 1) {
+        if (state->sidebarGap && group == Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_PlaceMove, index, 0, interaction.clickOrder)->target = state->sidebarGap - 1;
+        if (state->sidebarGap && group != Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_GroupItemMove, (u64)group, 0, interaction.clickOrder)->target = index | ((state->sidebarGap - 1) << 32);
+        state->sidebarDrag = state->sidebarGap = 0;
+        state->sidebarDragGroup = 0;
         moved = true;
     }
     // Ctrl opens it in a new tab, as the middle button does.
@@ -5059,8 +5065,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         } else {
             Prog__Label(name, UI_Flex(), m->row, 0, color, 0);
         }
-        // A bookmark's x removes it; a place's eye hides it, or shows it again while hidden ones show.
-        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places) && hot && !state->placeDrag) {
+        // A bookmark's x removes it, as a folder's in a group of the user's does; a place's eye hides it, or shows it again while hidden ones show.
+        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places || (u32)group >= Prog_Group_Count) && hot && !state->sidebarDrag) {
             b32 removeHot = UI->hotKey == removeKey;
             f32 size = floorf(m->line * 1.3f);
             UI_SetNextPrefWidth(UI_Pixels(size));
@@ -5070,10 +5076,12 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_SetNextFont(m->icons);
             UI_SetNextColors((UI_Colors){ .background = theme->hover, .text = removeHot ? theme->text : theme->icon });
             // An x, as everything that removes or deletes something from a list has.
-            UI_SetNextText(group == Prog_Group_Bookmarks ? Icon_X : faded ? Icon_Eye : Icon_EyeOff);
+            UI_SetNextText(group != Prog_Group_Places ? Icon_X : faded ? Icon_Eye : Icon_EyeOff);
             UI_Block *remove = UI_AddBlockFromKey(removeKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable | (removeHot ? UI_Flag_DrawBackground : 0));
             UI_Interaction removing = UI_InteractionFromBlock(remove);
-            if (removing.clicked) Prog_QueueCommand(state, group == Prog_Group_Bookmarks ? Prog_CommandKind_RemoveBookmark : Prog_CommandKind_PlaceHiddenToggle, index, 0, removing.clickOrder);
+            if (removing.clicked && group == Prog_Group_Bookmarks) Prog_QueueCommand(state, Prog_CommandKind_RemoveBookmark, index, 0, removing.clickOrder);
+            if (removing.clicked && group == Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_PlaceHiddenToggle, index, 0, removing.clickOrder);
+            if (removing.clicked && (u32)group >= Prog_Group_Count) Prog_QueueCommand(state, Prog_CommandKind_GroupItemRemove, (u64)group, 0, removing.clickOrder)->target = index;
         }
     }
 }
@@ -5163,8 +5171,9 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         Prog__SidebarFilterBox(state, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
         // The groups, in the order they were put in.
-        for (u32 n = 0; n < Prog_Group_Count; ++n) {
-            switch (Prog_SidebarGroupAt(state, n)) {
+        for (u32 n = 0; n < Prog_SidebarGroupCount(state); ++n) {
+            u32 id = Prog_SidebarGroupAt(state, n);
+            switch (id) {
                 case Prog_Group_Recents: {
                     u64 indices[Prog_ShownRecentCount];
                     u32 shown = 0, listed = Prog_ShownRecents(state, indices);
@@ -5284,8 +5293,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     }
                     // Only over the places, and not while filtering, which leaves some out from between the others.
                     b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 - m->row * 0.5f && UI->mouse.y < zone.y1 + m->row * 0.5f;
-                    state->placeGap = state->placeDrag && body && inZone && !state->sidebarFilter.length ? before + 1 : 0;
-                    if (state->placeGap && lineY > 0) {
+                    if (state->sidebarDragGroup == Prog_Group_Places + 1) state->sidebarGap = state->sidebarDrag && body && inZone && !state->sidebarFilter.length ? before + 1 : 0;
+                    if (state->sidebarDragGroup == Prog_Group_Places + 1 && state->sidebarGap && lineY > 0) {
                         f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
                         UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
                         UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
@@ -5294,7 +5303,52 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                     }
                 } break;
-                default: break;
+                default: {
+                    // A group of the user's: its folders, which folders dragged onto it from anywhere join and which move by dragging, with a line
+                    // where one would go; empty, it says so.
+                    u32 own = id - Prog_Group_Count;
+                    if (own >= state->userGroupCount) break;
+                    const Prog_UserGroup *userGroup = &state->userGroups[own];
+                    u64 count = userGroup->folders.header.count, found = 0;
+                    for (u64 i = 0; i < count; ++i) found += Prog__SidebarFinds(state, Prog_PathName(state, userGroup->folders.v[i])) ? 1 : 0;
+                    if (!found && state->sidebarFilter.length) break;
+                    Prog__GroupTitle(state, (Prog_Group)id, userGroup->name, Icon_Folder, m);
+                    R_Rect zone = sidebar->last ? sidebar->last->rect : (R_Rect){0};
+                    UI_Block *body = Prog__GroupBody(state, (Prog_Group)id, m);
+                    u64 before = count;
+                    f32 lineY = zone.y1;
+                    if (body) UI_Parent(body) {
+                        if (!count) Prog__Label(Tr("Drag folders here"), UI_Flex(), m->row, floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f), theme->textDim, 0);
+                        for (u64 i = 0; i < count; ++i) {
+                            String path = userGroup->folders.v[i];
+                            if (!Prog__SidebarFinds(state, Prog_PathName(state, path))) continue;
+                            Prog__SidebarItem(state, (Prog_Group)id, i, Prog_PathName(state, path), path, NULL, false, m);
+                            R_Rect row = body->last->rect;
+                            if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {
+                                before = i;
+                                lineY = row.y0;
+                            } else if (before == count) {
+                                lineY = row.y1;
+                            }
+                        }
+                        zone.y1 = MaxF32(zone.y1, body->rect.y1);
+                    }
+                    b32 inZone = UI->mouse.x >= sidebar->rect.x0 && UI->mouse.x < sidebar->rect.x1 && UI->mouse.y >= zone.y0 && UI->mouse.y < zone.y1 && !state->sidebarFilter.length;
+                    b32 dragging = state->sidebarDrag && state->sidebarDragGroup == id + 1, dropping = P_DropPending() && !state->dropPlace.length && inZone;
+                    if (dragging) state->sidebarGap = inZone ? before + 1 : 0;
+                    if (dropping) {
+                        state->userGroupDropShown = before + 1;
+                        state->userGroupDropShownIn = own + 1;
+                    }
+                    if ((dragging && inZone) || dropping) {
+                        f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
+                        UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
+                        UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
+                        UI_SetNextPrefHeight(UI_Pixels(thickness));
+                        UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                } break;
             }
         }
     }
@@ -8368,12 +8422,14 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextCornerRadius(radius);
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSave")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+    // It names a group of the user's too, new or renamed, with Save and Cancel.
+    b32 group = state->nameFor != 0;
     String name = Prog__TrimSpaces(Prog_EditText(&state->layoutName));
     b32 taken = false;
     for (u64 i = 0; i < state->layoutNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->layoutNames.v[i], name);
     UI_Parent(panel) {
         UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
-        UI_Parent(title) Prog__Label(Tr("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
+        UI_Parent(title) Prog__Label(state->nameFor == 2 ? Tr("Rename group") : group ? Tr("New group") : Tr("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
@@ -8382,7 +8438,7 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f) });
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
                 UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                UI_SetNextText(Tr("Type a new or existing layout name to update..."));
+                UI_SetNextText(group ? Tr("Type the group's name...") : Tr("Type a new or existing layout name to update..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
             Prog__EditContents(&state->layoutName, 0, floorf((field - m->line) * 0.5f + 0.8f * s + 0.5f), true, floorf(4.0f * s + 0.5f), m);
@@ -8397,8 +8453,10 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
             f32 apart = floorf(6.4f * s + 0.5f);
             if (Prog__LayoutButton(state, S("LayoutSaveSave"), Tr("Save"), name.length != 0, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, 0);
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
-            if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), Tr("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
-            Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
+            if (!group) {
+                if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), Tr("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
+                Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
+            }
             if (Prog__LayoutButton(state, S("LayoutSaveCancel"), Tr("Cancel"), true, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
         }
     }
@@ -11620,6 +11678,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     for (u32 i = 0; i < state->panelCount; ++i) state->panels[i].inspectorRect = (R_Rect){0};
     state->inspectorTextRect = (R_Rect){0};
     state->bookmarkDropShown = 0;
+    state->userGroupDropShown = state->userGroupDropShownIn = 0;
     ArenaClear(&state->dropPlaceArena);
     state->dropPlace = (String){0};
     state->pointerPanel = 0;

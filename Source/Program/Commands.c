@@ -718,7 +718,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Misc),
     Prog_CommandKind_MainMenu, Prog_CommandKind_ToggleQuickAccess, Prog_CommandKind_StartQuickAccessFilter, Prog_CommandKind_GoTo, Prog_CommandKind_CommandPalette, Prog_CommandKind_QuickCommandsOpen, Prog_CommandKind_ContextMenu,
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
-    Prog_CommandKind_RecentsClear, Prog_CommandKind_PlacesShowHidden, Prog_CommandKind_PlacesRestore, Prog_CommandKind_GroupsRestore, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
+    Prog_CommandKind_RecentsClear, Prog_CommandKind_PlacesShowHidden, Prog_CommandKind_PlacesRestore, Prog_CommandKind_GroupNew, Prog_CommandKind_GroupsRestore, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen, Prog_CommandKind_CopyVersion,
     Prog_CommandKind_CheckForUpdates, Prog_CommandKind_UpdateInstall,
     Prog__PaletteGroup(Options),
@@ -1450,9 +1450,12 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         } break;
         // A sidebar group's: its own commands, then moving it among the groups.
         case Prog_CommandKind_GroupMenu: {
-            Prog_Group group = (Prog_Group)Min(command->row, (u64)Prog_Group_Count - 1);
-            u32 at = 0;
-            for (u32 n = 0; n < Prog_Group_Count; ++n) if (Prog_SidebarGroupAt(state, n) == group) at = n;
+            u32 groups = Prog_SidebarGroupCount(state), group = (u32)Min(command->row, (u64)groups - 1), at = 0;
+            for (u32 n = 0; n < groups; ++n) if (Prog_SidebarGroupAt(state, n) == group) at = n;
+            if (group >= Prog_Group_Count) {
+                Prog__Item(.kind = Prog_CommandKind_GroupRename, .row = group, .label = Tr("Rename Group"), .icon = Icon_Pencil);
+                Prog__Item(.kind = Prog_CommandKind_GroupDelete, .row = group, .label = Tr("Delete Group"), .icon = Icon_X);
+            }
             if (group == Prog_Group_Places) {
                 Prog__Item(.kind = Prog_CommandKind_PlacesShowHidden, .label = Tr("Show Hidden Places"), .icon = Icon_Eye, .toggle = true, .checked = state->placesShowHidden,
                            .disabled = (b8)(!state->placesHidden.header.count && !state->placesShowHidden));
@@ -1461,8 +1464,9 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             if (group == Prog_Group_Bookmarks) Prog__Item(.kind = Prog_CommandKind_BookmarksClear, .icon = Icon_X, .disabled = (b8)!state->bookmarks.header.count);
             if (group == Prog_Group_Recents) Prog__Item(.kind = Prog_CommandKind_RecentsClear, .icon = Icon_X, .disabled = (b8)!state->recents.header.count);
             if (group != Prog_Group_Storage) Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_GroupNew, .label = Tr("New Group"), .icon = Icon_Plus, .disabled = (b8)(state->userGroupCount >= Prog_MaxUserGroups));
             Prog__Item(.kind = Prog_CommandKind_GroupShiftUp, .row = (u64)group, .label = Tr("Move Group Up"), .icon = Icon_ChevronUp, .disabled = (b8)(at == 0));
-            Prog__Item(.kind = Prog_CommandKind_GroupShiftDown, .row = (u64)group, .label = Tr("Move Group Down"), .icon = Icon_ChevronDown, .disabled = (b8)(at + 1 >= Prog_Group_Count));
+            Prog__Item(.kind = Prog_CommandKind_GroupShiftDown, .row = (u64)group, .label = Tr("Move Group Down"), .icon = Icon_ChevronDown, .disabled = (b8)(at + 1 >= groups));
             Prog__Item(.kind = Prog_CommandKind_GroupsRestore, .icon = Icon_RotateCcw, .disabled = (b8)!state->groupsOrdered);
         } break;
         // The path bar's, for the crumb right-clicked or the shown folder: opening it elsewhere, its path, and how paths show.
@@ -1611,6 +1615,16 @@ function void Prog__MenuAddVideo(Prog_State *state)
     if (torrent) Prog__MenuAddLast(state, (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_DownloadTorrent), .action = P_MenuAction_DownloadTorrent });
 }
 
+function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item);
+
+// Adding the folders the menu is for to each of the user's groups, when they are all folders.
+function void Prog__MenuAddGroups(Prog_State *state, b32 folders)
+{
+    for (u32 g = 0; folders && g < state->userGroupCount; ++g) {
+        Prog__MenuAddLast(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, TrF("Add to %S"), state->userGroups[g].name), .action = P_MenuAction_AddToGroup, .id = g });
+    }
+}
+
 // `item` at the end of the menu's top level, but before the system's Properties.
 function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item)
 {
@@ -1667,6 +1681,9 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     }
     Prog__MenuAddArchive(state);
     Prog__MenuAddVideo(state);
+    b32 folders = state->menuRowCount != 0 && !state->directory.archive && !P_IsTrashFolder(state->directory.path);
+    for (u32 i = 0; i < state->menuRowCount; ++i) folders &= state->directory.entries[state->menuRows[i]].file.kind == P_FileKind_Directory;
+    Prog__MenuAddGroups(state, folders);
     // A menu left with nothing in it, as an empty bin's background is, does not open.
     if (!state->menu.count) {
         Prog_CloseMenu(state);
@@ -2085,6 +2102,11 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         Prog_CloseMenu(state);
         if (item.action == P_MenuAction_EmptyTrash) Prog_QueueCommand(state, Prog_CommandKind_EmptyTrash, 0, 0, UINT64_MAX);
         else if (item.action == P_MenuAction_CopyAsPath) PlatformClipboardSetText(P_NativePath(&state->frameArena, target));
+        else if (item.action == P_MenuAction_AddToGroup) {
+            ArrayStr folders = {0};
+            ArrayPush(&state->frameArena, folders, target);
+            Prog_UserGroupAdd(state, item.id, &folders, UINT64_MAX);
+        }
         else if (!item.action) Prog_RequestDirectory(state, target, true, 0);
         return;
     }
@@ -2101,9 +2123,16 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         Prog_QueueCommand(state, item.action == P_MenuAction_Restore ? Prog_CommandKind_SelectionRestore : Prog_CommandKind_TrashRestoreAll, 0, 0, UINT64_MAX);
         return;
     }
+    if (item.action == P_MenuAction_AddToGroup) {
+        ArrayStr folders = {0};
+        for (u32 i = 0; i < state->menuRowCount; ++i) ArrayPush(&state->frameArena, folders, Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->menuRows[i]].file.name));
+        Prog_CloseMenu(state);
+        Prog_UserGroupAdd(state, item.id, &folders, UINT64_MAX);
+        return;
+    }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 19);
+        static_assert(P_MenuAction_Count == 20);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_CompressZip] = Prog_CommandKind_CompressZip,
             [P_MenuAction_Compress7z] = Prog_CommandKind_Compress7z,
@@ -2521,6 +2550,18 @@ function void Prog__LayoutSaveButton(Prog_State *state, u32 button)
     String name = Prog__TrimSpaces(Prog_EditText(&state->layoutName));
     if (button == 2) {
         state->layoutSaving = false;
+        state->nameFor = 0;
+        return;
+    }
+    // The name of a group of the user's, new or renamed; a tab would split its line in Groups.conf.
+    if (state->nameFor) {
+        if (!name.length) return;
+        name = StrCopy(&state->frameArena, name);
+        for (u64 i = 0; i < name.length; ++i) if (name.value[i] == '\t') ((char *)name.value)[i] = ' ';
+        if (state->nameFor == 2) Prog_UserGroupRename(state, state->nameGroup, name);
+        else Prog_UserGroupNew(state, name);
+        state->layoutSaving = false;
+        state->nameFor = 0;
         return;
     }
     b32 taken = Prog__LayoutNamed(state, name);
@@ -2774,7 +2815,10 @@ function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64
             return index < state->shares.header.count ? state->shares.v[index].path : (String){0};
         }
         case Prog_Group_Places: return index < state->places.header.count ? state->places.v[index].path : (String){0};
-        default: return (String){0};
+        default: {
+            u32 own = (u32)group - Prog_Group_Count;
+            return own < state->userGroupCount && index < state->userGroups[own].folders.header.count ? state->userGroups[own].folders.v[index] : (String){0};
+        }
     }
 }
 
@@ -3260,6 +3304,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (P_IsTrashFolder(path) && P_TrashHasItems()) {
                     Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, TrF("Empty %S"), Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
+                Prog__MenuAddGroups(state, !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path));
                 Prog__ApplyMenuPins(state);
                 // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled,
                 // and its rename, which edits a list row, is left out.
@@ -3275,7 +3320,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->menuHighlight = UINT32_MAX;
                 Prog__MenuMove(state, 1);
             } break;
-            case Prog_CommandKind_ToggleGroup: if (command->row < Prog_Group_Count) state->groupToggled[command->row] = !state->groupToggled[command->row]; break;
+            case Prog_CommandKind_ToggleGroup: {
+                if (command->row < Prog_Group_Count) state->groupToggled[command->row] = !state->groupToggled[command->row];
+                else Prog_UserGroupFold(state, (u32)(command->row - Prog_Group_Count));
+            } break;
             case Prog_CommandKind_RemoveBookmark: {
                 if (command->row < state->bookmarks.header.count) Prog_ToggleBookmark(state, state->bookmarks.v[command->row]);
             } break;
@@ -3582,7 +3630,30 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_PlacesRestore: Prog_RestorePlaces(state); break;
             case Prog_CommandKind_GroupShiftUp:
             case Prog_CommandKind_GroupShiftDown: {
-                if (command->row < Prog_Group_Count) Prog_ShiftGroup(state, (Prog_Group)command->row, command->kind == Prog_CommandKind_GroupShiftDown);
+                if (command->row < Prog_SidebarGroupCount(state)) Prog_ShiftGroup(state, (u32)command->row, command->kind == Prog_CommandKind_GroupShiftDown);
+            } break;
+            case Prog_CommandKind_GroupNew:
+            case Prog_CommandKind_GroupRename: {
+                // The name box, with the group's name to change for a rename.
+                b32 rename = command->kind == Prog_CommandKind_GroupRename;
+                if ((rename && (command->row < Prog_Group_Count || command->row - Prog_Group_Count >= state->userGroupCount)) || (!rename && state->userGroupCount >= Prog_MaxUserGroups)) break;
+                Prog_CloseMenu(state);
+                state->paletteOpen = false;
+                state->layoutSaving = true;
+                state->nameFor = rename ? 2 : 1;
+                state->nameGroup = rename ? (u32)(command->row - Prog_Group_Count) : 0;
+                state->layoutName = (Prog_TextEdit){0};
+                if (rename) {
+                    String name = state->userGroups[state->nameGroup].name;
+                    u32 length = (u32)Min(name.length, (u64)sizeof(state->layoutName.text) - 1);
+                    MemCopy(state->layoutName.text, name.value, length);
+                    state->layoutName.length = state->layoutName.cursor = length;
+                }
+            } break;
+            case Prog_CommandKind_GroupDelete: if (command->row >= Prog_Group_Count) Prog_UserGroupDelete(state, (u32)(command->row - Prog_Group_Count)); break;
+            case Prog_CommandKind_GroupItemRemove: if (command->row >= Prog_Group_Count) Prog_UserGroupRemove(state, (u32)(command->row - Prog_Group_Count), command->target); break;
+            case Prog_CommandKind_GroupItemMove: {
+                if (command->row >= Prog_Group_Count) Prog_UserGroupMove(state, (u32)(command->row - Prog_Group_Count), command->target & UINT32_MAX, command->target >> 32);
             } break;
             case Prog_CommandKind_GroupsRestore: state->groupsOrdered = false; break;
             case Prog_CommandKind_UpdateInstall: {
@@ -4533,14 +4604,17 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         Prog__UsePanel(state, current);
         changed = true;
     }
-    // Folders dropped on the bookmarks are pinned where the last build showed the drop would go.
+    // Folders dropped on the bookmarks, or on a group of the user's, go where the last build showed the drop would go.
     ArrayStr pinned = P_TakeDroppedFolders(&state->frameArena);
     if (pinned.header.count) {
-        Prog_PinBookmarks(state, &pinned, state->bookmarkDrop ? state->bookmarkDrop - 1 : state->bookmarks.header.count);
+        if (state->userGroupDropIn) Prog_UserGroupAdd(state, state->userGroupDropIn - 1, &pinned, state->userGroupDrop - 1);
+        else Prog_PinBookmarks(state, &pinned, state->bookmarkDrop ? state->bookmarkDrop - 1 : state->bookmarks.header.count);
         changed = true;
     }
     state->bookmarkDrop = state->bookmarkDropShown;
-    P_SetDropTakesFolders(state->bookmarkDrop != 0);
+    state->userGroupDrop = state->userGroupDropShown;
+    state->userGroupDropIn = state->userGroupDropShownIn;
+    P_SetDropTakesFolders(state->bookmarkDrop != 0 || state->userGroupDropIn != 0);
     // The schemes' dropdown goes with the Options it opened from.
     if (!state->paletteOpen || state->paletteMode != Prog_PaletteMode_Options) state->schemesOpen = 0, state->mutedOpen = false;
     Prog_SubmitIconRequests(state);

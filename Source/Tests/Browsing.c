@@ -2577,6 +2577,50 @@ function void TestUpdates(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// The user's own groups: made, named, their folders added, moved and taken out, folded and deleted, the groups' order keeping up, and read
+// back from Groups.conf.
+function void TestUserGroups(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Prog_State state = {0};
+    Prog_UserGroupNew(&state, S("Work"));
+    Prog_UserGroupNew(&state, S("Games"));
+    Check(state.userGroupCount == 2 && Prog_SidebarGroupCount(&state) == Prog_Group_Count + 2 && StrIsEqual(state.userGroups[1].name, S("Games")));
+    ArrayStr folders = {0};
+    ArrayPush(&arena, folders, S("/a"));
+    ArrayPush(&arena, folders, S("/b"));
+    Prog_UserGroupAdd(&state, 0, &folders, UINT64_MAX);
+    ArrayStr more = {0};
+    ArrayPush(&arena, more, S("/c"));
+    ArrayPush(&arena, more, S("/a"));
+    Prog_UserGroupAdd(&state, 0, &more, 0);
+    const ArrayStr *work = &state.userGroups[0].folders;
+    Check(work->header.count == 3 && StrIsEqual(work->v[0], S("/c")) && StrIsEqual(work->v[1], S("/a")) && StrIsEqual(work->v[2], S("/b")));
+    Prog_UserGroupMove(&state, 0, 0, 3);
+    Check(StrIsEqual(state.userGroups[0].folders.v[2], S("/c")) && StrIsEqual(state.userGroups[0].folders.v[0], S("/a")));
+    Prog_UserGroupRemove(&state, 0, 1);
+    Check(state.userGroups[0].folders.header.count == 2 && StrIsEqual(state.userGroups[0].folders.v[1], S("/c")));
+    Prog_UserGroupRename(&state, 1, S("Play"));
+    Prog_UserGroupFold(&state, 1);
+    Check(StrIsEqual(state.userGroups[1].name, S("Play")) && state.userGroups[1].closed && !Prog_GroupOpen(&state, (Prog_Group)(Prog_Group_Count + 1)) && Prog_GroupOpen(&state, (Prog_Group)Prog_Group_Count));
+    Check(StrIsEqual(Prog__SidebarPath(&state, (Prog_Group)Prog_Group_Count, 1), S("/c")));
+    // A group moved up keeps its place when another is deleted, and the numbers after the deleted one move down.
+    Prog_ShiftGroup(&state, Prog_Group_Count + 1, false);
+    Check(state.groupsOrdered && Prog_SidebarGroupAt(&state, Prog_Group_Count) == Prog_Group_Count + 1);
+    Prog_UserGroupDelete(&state, 0);
+    Check(state.userGroupCount == 1 && StrIsEqual(state.userGroups[0].name, S("Play")) && Prog_SidebarGroupAt(&state, Prog_Group_Count) == Prog_Group_Count);
+    // Read back as written, a line each: folded, its name and its folders, a tab apart; a line without a name is left out.
+    String file = Prog_JoinPath(&arena, fixture->path, S("Groups.conf"));
+    Check(!P_WriteFile(&arena, file, S("0\tWork\t/a\t/b\n1\tEmpty\nLonely\n")).code);
+    state.configDirectory = fixture->path;
+    Prog__LoadUserGroups(&state);
+    Check(state.userGroupCount == 2 && StrIsEqual(state.userGroups[0].name, S("Work")) && state.userGroups[0].folders.header.count == 2 && state.userGroups[1].closed);
+    Check(!state.userGroups[1].folders.header.count && StrIsEqual(state.userGroups[1].name, S("Empty")));
+    P__TestRemovePath(fixture, S("Groups.conf"), false);
+    ArenaRelease(&state.userGroupsArena);
+    ArenaRelease(&arena);
+}
+
 // Places hidden and moved keep to it, by path, and on Linux the folders GTK's bookmarks name are places too.
 function void TestPlaces(TestFileFixture *fixture)
 {
@@ -4052,6 +4096,7 @@ function void TestBrowsing(void)
         TestTreeFileCommands(&fixture);
         TestUpdates(&fixture);
         TestPlaces(&fixture);
+        TestUserGroups(&fixture);
         TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);

@@ -1062,6 +1062,15 @@ typedef enum Prog_Group {
     Prog_Group_Count,
 } Prog_Group;
 
+// The user's own sidebar groups, numbered after the built-in ones: a name, folders by path, and whether it is folded.
+#define Prog_MaxUserGroups 16
+#define Prog_SidebarGroupMax (Prog_Group_Count + Prog_MaxUserGroups)
+typedef struct Prog_UserGroup {
+    String name;
+    ArrayStr folders;
+    b32 closed;
+} Prog_UserGroup;
+
 // Folder totals measured before, by path, so that a folder shown again has its sizes at once.
 typedef struct Prog_PathSet { MapHeader header; struct { String key; b32 value; } *v; } Prog_PathSet;
 typedef struct Prog_SizeMap { MapHeader header; struct { String key; P_DirectoryTotals value; } *v; } Prog_SizeMap;
@@ -1849,19 +1858,31 @@ typedef struct Prog_State {
     f32 sidebarGrab;          // how far right of its edge line the pointer took it
     PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
-    // The sidebar's groups in the order they were moved to, while groupsOrdered, which Session.conf keeps.
-    u8 groupOrder[Prog_Group_Count];
+    // The sidebar's groups in the order they were moved to, while groupsOrdered, which Session.conf keeps; the user's own come after the
+    // built-in ones by number.
+    u8 groupOrder[Prog_SidebarGroupMax];
     b32 groupsOrdered;
+    // The user's own groups, in userGroupsArena, saved as Groups.conf. userGroupDrop is one more than where folders dragged over the group
+    // userGroupDropIn (one more than its number among them) would go; the Shown ones are what this frame's build found, as for the bookmarks.
+    Arena userGroupsArena;
+    Prog_UserGroup userGroups[Prog_MaxUserGroups];
+    u32 userGroupCount;
+    u64 userGroupDrop, userGroupDropShown;
+    u32 userGroupDropIn, userGroupDropShownIn;
+    u8 nameFor;               // what the name box names: a layout, a new group of the user's, or nameGroup's new name
+    u32 nameGroup;
     // The places hidden from the sidebar and the order they were put in, by path, saved as PlacesHidden.conf and PlacesOrder.conf;
-    // placesShowHidden shows the hidden ones too, faded, to show them again. placeDrag is one more than the place a drag moves, and placeGap
-    // one more than the place it would go before, one past the last for after it.
+    // placesShowHidden shows the hidden ones too, faded, to show them again. sidebarDrag is one more than the row a drag moves among the places
+    // or a group of the user's, sidebarDragGroup one more than that group, and sidebarGap one more than the row it would go before, one past
+    // the last for after it.
     Arena placesHiddenArena;
     ArrayStr placesHidden;
     Arena placesOrderArena;
     ArrayStr placesOrder;
     b32 placesShowHidden;
-    u64 placeDrag;
-    u64 placeGap;
+    u64 sidebarDrag;
+    u64 sidebarGap;
+    u32 sidebarDragGroup;
     b32 placesWanted;         // the sidebar was built, so its places are kept current
     b32 windowInactive;       // another window has the focus, which dims the title strip
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for
@@ -1938,8 +1959,8 @@ typedef struct Prog_State {
     u64 recentsCheckTime;
     b32 requestPassing;            // the next Prog_RequestDirectory passes through its folder, as Up does
     // One save of each list at a time, since two writing one file at once collide; a change during a save saves again after it.
-    b32 saving[11];           // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order, torrents, hidden places, places' order
-    b32 saveAgain[11];
+    b32 saving[12];           // bookmarks, recents, folder views, menu pins, quick commands, muted notices, hidden menu items, menu order, torrents, hidden places, places' order, groups
+    b32 saveAgain[12];
     // The folders whose view is kept, a line each of their zoom, sort, whether it is descending and their path, saved as FolderViews.conf.
     Arena folderViewArena;
     ArrayStr folderViews;

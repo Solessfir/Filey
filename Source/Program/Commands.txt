@@ -1843,6 +1843,25 @@ command PlacesRestore {
 command GroupMenu {
 }
 
+command GroupNew {
+    label   = "New Sidebar Group^quick access,group,section,create,add,folders"
+    tooltip = "Make a group of your own in the sidebar, to drag folders into."
+}
+
+// A group of the user's renamed, deleted, or its folder taken out or moved; each carries the group, and a folder's command the folder as its
+// target, with the place it goes before above the low 32 bits for a move.
+command GroupRename {
+}
+
+command GroupDelete {
+}
+
+command GroupItemRemove {
+}
+
+command GroupItemMove {
+}
+
 command GroupShiftUp {
 }
 
