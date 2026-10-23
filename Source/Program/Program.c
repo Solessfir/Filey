@@ -8781,7 +8781,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
             UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(line) {
-                f32 barWidth = floorf(width * 0.55f), barHeight = MaxF32(3, floorf(4 * m->scale));
+                f32 barWidth = floorf(width * 0.62f), barHeight = MaxF32(3, floorf(4 * m->scale));
                 UI_SetNextPrefWidth(UI_Pixels(barWidth));
                 UI_SetNextPrefHeight(UI_Pixels(m->row));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
