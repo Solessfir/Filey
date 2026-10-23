@@ -2989,6 +2989,11 @@ function void TestPanels(TestFileFixture *fixture)
         Check(!state.selectLength && state.hasFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("plain.txt")));
         TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
         Prog_ProcessCommands(&state);
+        // An item shown in its folder scrolls into sight, though the tab would start scrolled where a session left it.
+        state.pickScrollSet = true;
+        state.revealFocus = false;
+        Prog_ShowInFolder(&state, Prog_JoinPath(&state.frameArena, fixture->path, S("Folder2")), false);
+        Check(TestWaitDirectory(&state) && state.revealFocus && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("Folder2")));
     }
     // The palette lists its groups, opens one from its title, finds commands across them by their label and description, and runs the highlighted one.
     {

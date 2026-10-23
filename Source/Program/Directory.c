@@ -4914,6 +4914,8 @@ function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab)
     if (!parent.length || StrIsEqual(parent, path) || name.length > sizeof(state->selectText)) return;
     if (inTab) Prog_OpenTab(state, parent, state->activeTab + 1, true);
     Prog_SelectNext(state, name);
+    // It scrolls into sight, though a tab from the session would start scrolled where it was.
+    state->pickScrollSet = false;
     if (!inTab) {
         // A tab not listed yet goes to its folder, rather than taking it again into its history.
         state->expanded = false;

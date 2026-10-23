@@ -4389,16 +4389,22 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     u64 lines = (state->viewCount + perLine - 1) / perLine;
 
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / pitch.y);
-    // Before its first layout the list has no height to reveal anything in.
-    if (state->revealFocus && state->hasFocus && list->rect.y1 > list->rect.y0) {
+    // Before its first layout the list has no height to reveal anything in. A reveal goes on while the list's height changes after it, as an
+    // inspector opening below it shrinks it, which the last layout's height does not know of yet.
+    f32 listHeight = Max(0.0f, list->rect.y1 - list->rect.y0);
+    b32 resized = state->revealHeight > 0 && state->revealHeight != listHeight;
+    if ((state->revealFocus || resized) && state->hasFocus && listHeight > 0) {
         u64 position = Prog_ViewPosition(state, state->focusedRow);
         f32 top = (f32)((position == UINT64_MAX ? 0 : position) / perLine) * pitch.y;
-        f32 height = Max(0.0f, list->rect.y1 - list->rect.y0);
         // Center Camera puts its line in the middle.
-        if (state->centerFocus) list->scrollOffset.y = Max(0.0f, top + pitch.y * 0.5f - height * 0.5f);
+        if (state->centerFocus) list->scrollOffset.y = Max(0.0f, top + pitch.y * 0.5f - listHeight * 0.5f);
         else if (top < list->scrollOffset.y) list->scrollOffset.y = top;
-        else if (top + pitch.y > list->scrollOffset.y + height) list->scrollOffset.y = Max(0.0f, top + pitch.y - height);
+        else if (top + pitch.y > list->scrollOffset.y + listHeight) list->scrollOffset.y = Max(0.0f, top + pitch.y - listHeight);
         state->revealFocus = state->centerFocus = false;
+        state->revealHeight = listHeight;
+        UI_KeepAnimating();
+    } else {
+        state->revealHeight = 0;
     }
     if (snapScroll || !UI->animate) list->scrollShown = list->scrollOffset;
     UI_LimitScrollEase(list);

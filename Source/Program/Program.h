@@ -1210,7 +1210,8 @@ typedef struct Prog_Tab {
 // The Prog_State fields each panel has its own of, besides its tabs' (Prog_TabFields).
 // The current panel's live in Prog_State; Prog__UsePanel swaps them with the panel's slot, so every panel keeps its own listing, jobs, watch and layout.
 //   error: the last failure, in errorArena; directoryJob, generation, loading: the listing on its way
-//   revealFocus, centerFocus, resetScroll, restoreScroll: scroll changes the next build makes; pageRows: lines visible in the last layout, for Page Up/Down
+//   revealFocus, centerFocus, resetScroll, restoreScroll: scroll changes the next build makes; revealHeight: the list's height a reveal was made in, which
+//   reveals again while it changes; pageRows: lines visible in the last layout, for Page Up/Down
 //   tabs, tabCount, activeTab: the panel's Prog_MaxTabs tab slots, in tabArena from the first use; the shown one's slot holds nothing while it is shown
 //   gridColumns, gridPitch, gridItem: the list's last layout, in its coordinates (x from its left edge, y from the top of its content):
 //     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box
@@ -1229,7 +1230,7 @@ typedef struct Prog_Tab {
 //   pickNames, pickScroll: a moved tab's selection, in pickArena, and its scroll, which its first listing here takes
 #define Prog_PanelFields(X) \
     X(Arena, errorArena) X(String, error) X(b32, errorListing) X(P_Job *, directoryJob) X(u64, generation) X(b32, loading) \
-    X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(u64, pageRows) \
+    X(b32, revealFocus) X(b32, centerFocus) X(b32, resetScroll) X(b32, restoreScroll) X(f32, revealHeight) X(u64, pageRows) \
     X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) \
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
