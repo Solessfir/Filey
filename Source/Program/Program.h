@@ -519,6 +519,7 @@ typedef struct Prog_Repos {
 typedef struct Prog_GitStatus {
     String branch;
     String root;     // the repository's folder
+    String folder;   // the folder it was found for, which a panel's tabs share it between
     i32 ahead, behind;
     u32 changes;
     u32 counts[Prog_GitMark_Count];  // the changes by kind, a deletion counted as a change

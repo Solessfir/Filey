@@ -5172,7 +5172,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             if (status && StrIsEqual(input->path, state->directory.path)) {
                 ArenaClear(&state->gitArena);
-                state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
+                state->git = (Prog_GitStatus){ .branch = StrCopy(&state->gitArena, status->branch), .folder = StrCopy(&state->gitArena, input->path), .ahead = status->ahead, .behind = status->behind, .changes = status->changes };
                 MemCopy(state->git.counts, status->counts, sizeof(state->git.counts));
                 for (u64 i = 0; i < status->marks.header.count; ++i) {
                     MapsPut(&state->gitArena, state->git.marks, StrCopy(&state->gitArena, status->marks.v[i].key), status->marks.v[i].value);
@@ -5683,9 +5683,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                             state->pickNames = (ArrayStr){0};
                         }
                     }
-                    // Another folder's repository is looked for at once; the same folder's, listed again, now and then, for commits made meanwhile.
-                    if (!samePath || PlatformNowMicroseconds() - state->gitTime > Millions(3)) {
-                        if (!samePath) state->git = (Prog_GitStatus){ .ahead = -1, .behind = -1 };
+                    // Another folder's repository is looked for at once, as after switching to a tab of another folder, since the panel's tabs
+                    // share one status; the same folder's, listed again, now and then, for commits made meanwhile.
+                    b32 sameGit = StrIsEqual(state->git.folder, result->path);
+                    if (!sameGit || PlatformNowMicroseconds() - state->gitTime > Millions(3)) {
+                        if (!sameGit) state->git = (Prog_GitStatus){ .ahead = -1, .behind = -1 };
                         Prog_RequestGitStatus(state, result->path);
                     }
                     // Its repositories at once for another folder; for the same one listed again, every half minute at most.
