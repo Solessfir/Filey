@@ -82,4 +82,5 @@ Its source (https://github.com/EpicGamesExt/raddebugger) has these ideas worth t
 
 ## Checks
 
+- Try network shares against a real SMB server: its shares under Storage with their sizes, `\\server` listing them, Up from a share to the server, and a mapped drive's server.
 - Compare rename, drag and drop, the preview pane and the settings page side by side.
