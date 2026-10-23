@@ -129,6 +129,8 @@ global const char *const Prog_Strings[] = {
     "Which notices show in the window's corner: all, warnings and errors, errors only, or none.",
     "Muted Notifications",
     "Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again.",
+    "Notifications In Sidebar",
+    "Shows notices and the progress of copies, downloads and other work at the bottom of the sidebar, rather than in a panel's corner.",
     "Store Recents",
     "Determines how recently accessed files are stored.",
     "Highlight Recents",

@@ -529,6 +529,8 @@ function void Prog__TorrentLine(Prog__Torrent *torrent, String line)
         Scratch scratch = GetScratch();
         StrBuilder name = {0};
         StrBuildStr(scratch.arena, &name, torrent->name);
+        // The peers go last, as the least of what a card cut short leaves out.
+        String peers = {0};
         u64 at = StrIndexChar(line, ' ', SSF_CountOnFail).value + 1;
         for (String rest = StrFrom(line, Min(at, line.length)); rest.length;) {
             Index space = StrIndexChar(rest, ' ', SSF_CountOnFail);
@@ -543,11 +545,12 @@ function void Prog__TorrentLine(Prog__Torrent *torrent, String line)
             } else if (field.length > 3 && StrIsEqual(StrFromTo(field, 0, 3), S("DL:"))) {
                 StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S/s", Prog_FormatSize(scratch.arena, Prog__TorrentBytes(StrFrom(field, 3)))));
             } else if (field.length > 3 && StrIsEqual(StrFromTo(field, 0, 3), S("CN:"))) {
-                StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S %S", StrFrom(field, 3), S("peers")));
+                peers = StrFormat(scratch.arena, " \u00B7 %S %S", StrFrom(field, 3), S("peers"));
             } else if (field.length > 4 && StrIsEqual(StrFromTo(field, 0, 4), S("ETA:"))) {
                 StrBuildStr(scratch.arena, &name, StrFormat(scratch.arena, " \u00B7 %S", Prog__MediaClock(scratch.arena, Prog__TorrentSeconds(StrFrom(field, 4)))));
             }
         }
+        if (peers.length) StrBuildStr(scratch.arena, &name, peers);
         P_ProgressName(torrent->progress, name.buffer);
         ReleaseScratch(scratch);
     }

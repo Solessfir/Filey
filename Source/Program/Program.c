@@ -742,6 +742,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->videoQuality = 20;
     state->downloadAudio = false;
     state->noticeLevel = Prog_NoticeKind_Info;
+    state->noticesInSidebar = false;
     state->showRecents = state->sortRecents = state->noVSync = state->noHighlight = false;
     state->font.length = state->inspectorFont.length = 0;
     String system = Prog_SystemLanguage();
@@ -839,6 +840,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             if (number >= 0 && number <= 51) state->videoQuality = (u8)number;
         } else if (StrIsEqual(name, S("notices"))) {
             for (u32 i = 0; i <= Prog_NoticeKind_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNotices[i])) state->noticeLevel = (u8)i;
+        } else if (StrIsEqual(name, S("notices.sidebar"))) {
+            state->noticesInSidebar = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("recents.store"))) {
             for (u32 i = 0; i < Prog_StoreRecents_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionStoreRecents[i])) state->storeRecents = (u8)i;
         } else if (StrIsEqual(name, S("recents.highlight"))) {
@@ -981,12 +984,14 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
-                                "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"
-                                "# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
+                                "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"));
+    StrBuildStr(arena, &text, S("# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n\n"
                                 "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
                                 "# than opening another window.\n# instances.single = true\n\n"
-                                "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n\n"
+                                "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n"
+                                "# Whether they and the progress of copies and downloads stack at the bottom of the sidebar while it shows, not in a panel's corner.\n"
+                                "# notices.sidebar = false\n\n"
                                 "# How long recently visited folders are kept: persistent, session or never; whether lists mark them and sort them first.\n"
                                 "# recents.store = persistent\n# recents.highlight = false\n# recents.sort = false\n\n"
                                 "# Frames wait for the display's refresh, which saves power at the cost of slight input lag.\n# vsync = true\n\n"
@@ -1128,6 +1133,9 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                               Prog_OptionControl_Choice, 0, 0, Prog_OptionNotices, CArrayCount(Prog_OptionNotices), SInit("notices") },
     [Prog_Option_MutedNotices] = { TrInit("Muted Notifications"), TrInit("Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again."),
                                    Prog_OptionControl_Muted, 0, 0, NULL, 0, {0} },
+    [Prog_Option_NoticesInSidebar] = { TrInit("Notifications In Sidebar"),
+                                       TrInit("Shows notices and the progress of copies, downloads and other work at the bottom of the sidebar, rather than in a panel's corner."),
+                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("notices.sidebar") },
     [Prog_Option_StoreRecents] = { TrInit("Store Recents"), TrInit("Determines how recently accessed files are stored."), Prog_OptionControl_Choice, 0, 0,
                                    Prog_OptionStoreRecents, CArrayCount(Prog_OptionStoreRecents), SInit("recents.store") },
     [Prog_Option_ShowRecents] = { TrInit("Highlight Recents"), TrInit("Mark recently accessed files and directories."), Prog_OptionControl_Switch, 0, 1,
@@ -1260,6 +1268,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_DownloadAudio: return state->downloadAudio;
         case Prog_Option_StoreRecents: return state->storeRecents;
         case Prog_Option_Notices: return state->noticeLevel;
+        case Prog_Option_NoticesInSidebar: return state->noticesInSidebar;
         case Prog_Option_Language: {
             String name = StrMake(state->language.text, state->language.length);
             for (u32 i = 1; name.length && i < CArrayCount(Prog_OptionLanguages); ++i) if (StrIsEqual(name, Prog_OptionLanguages[i])) return (i32)i;
@@ -8590,17 +8599,50 @@ function u32 Prog__WrapLines(Arena *arena, const R_Font *font, String text, f32 
     return count;
 }
 
-// The notices over the copy and move cards, the newest lowest, from `bottom` up: the kind's icon in its color, the title, how many times
-// it came, and buttons to copy it and close it, over its message, a few lines at most. A notice under the pointer does not fade.
-function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m)
+// Where a stack of cards goes: the box from whose bottom right corner it rises, `margin` in from it, and the top of the stack so far.
+typedef struct Prog__CardStack {
+    R_Rect corner;
+    f32 margin;
+    f32 bottom;
+} Prog__CardStack;
+
+// A card narrower than this puts on lines of their own what a wide one has side by side.
+function b32 Prog__NarrowCard(f32 width, const Prog_Metrics *m)
+{
+    return width < m->line * 22;
+}
+
+// The buttons that mute a notice's kind and copy its message.
+function void Prog__NoticeButtons(Prog_State *state, const Prog_Notice *notice, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    // A warning or an info can be muted; an error only by hand, in MutedNotices.conf.
+    if (notice->kind != Prog_NoticeKind_Error && notice->keyLength) {
+        UI_Interaction mute = Prog__TextButton(StrFormat(frame, "NoticeMute/%" PRIu64, notice->id), Icon_BellOff, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
+                                               theme->icon, theme->text, theme->iconDisabled, true, m);
+        if (mute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeMute, notice->id, 0, mute.clickOrder);
+        Prog__PopupTooltip(state, Tr("Don't show this again."));
+    }
+    UI_Interaction copy = Prog__TextButton(StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id), Icon_Copy, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
+                                           theme->icon, theme->text, theme->iconDisabled, true, m);
+    if (copy.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeCopy, notice->id, 0, copy.clickOrder);
+    Prog__PopupTooltip(state, Tr("Copy the message."));
+}
+
+// The notices over the copy and move cards of `stack`, the newest lowest: the kind's icon in its color, the title, how many times it came,
+// and buttons to mute it, copy it and close it, over its message, a few lines at most; a narrow card has the first two under its message.
+// A notice under the pointer does not fade.
+function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog_Metrics *m)
 {
     if (!state->noticeCount) return;
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
     Arena *frame = &state->frameArena;
     u64 now = PlatformNowMicroseconds();
-    f32 width = floorf(MinF32(m->line * 26, view.x1 - view.x0 - 2 * m->inset)), pad = m->inset * 0.75f, lineHeight = m->detail->lineHeight + floorf(1.6f * m->scale + 0.5f);
-    f32 slot = floorf(m->line * 1.6f + 0.5f);
+    f32 width = floorf(MinF32(m->line * 26, stack.corner.x1 - stack.corner.x0 - 2 * stack.margin)), pad = m->inset * 0.75f, lineHeight = m->detail->lineHeight + floorf(1.6f * m->scale + 0.5f);
+    f32 slot = floorf(m->line * 1.6f + 0.5f), bottom = stack.bottom;
+    b32 narrow = Prog__NarrowCard(width, m);
     for (u32 n = state->noticeCount; n-- > 0;) {
         Prog_Notice *notice = &state->notices[n];
         u64 left = Prog_NoticeLeft(notice, now);
@@ -8610,13 +8652,13 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
         String title = StrMake((const char *)notice->title, notice->titleLength), message = StrMake((const char *)notice->message, notice->messageLength);
         String lines[4];
         u32 lineCount = Prog__WrapLines(frame, m->detail, message, width - 2 * pad - slot, lines, CArrayCount(lines));
-        f32 actionHeight = notice->action ? m->bar : 0;
+        f32 actionHeight = notice->action ? m->bar : narrow ? m->row : 0;
         f32 height = 2 * pad + m->row + (f32)lineCount * lineHeight + actionHeight;
         bottom -= height + m->gap;
         UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Notice/%" PRIu64, notice->id));
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
-        UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - width - m->inset, floorf(bottom) });
+        UI_SetNextFloatingOffset((UI_Vec2){ stack.corner.x1 - view.x0 - width - stack.margin, floorf(bottom) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
@@ -8637,22 +8679,13 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(head) {
                 Prog__Icon(icon, slot, m->row, tint, 0, m);
-                Prog__Label(Prog__Ellipsize(frame, m->font, title, width - 2 * pad - slot - 3 * m->row - (notice->count > 1 ? m->line * 2 : 0)), UI_Flex(), m->row, 0, theme->text, 0);
+                f32 room = width - 2 * pad - slot - (narrow ? 1 : 3) * m->row - (notice->count > 1 ? m->line * 2 : 0);
+                Prog__Label(Prog__Ellipsize(frame, m->font, title, MaxF32(0, room)), UI_Flex(), m->row, 0, theme->text, 0);
                 if (notice->count > 1) {
                     UI_SetNextFont(m->detail);
                     Prog__Label(StrFormat(frame, "\u00D7%u", notice->count), UI_TextContent(), m->row, floorf(4.0f * m->scale + 0.5f), theme->textDim, 0);
                 }
-                // A warning or an info can be muted; an error only by hand, in MutedNotices.conf.
-                if (notice->kind != Prog_NoticeKind_Error && notice->keyLength) {
-                    UI_Interaction mute = Prog__TextButton(StrFormat(frame, "NoticeMute/%" PRIu64, notice->id), Icon_BellOff, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
-                                                           theme->icon, theme->text, theme->iconDisabled, true, m);
-                    if (mute.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeMute, notice->id, 0, mute.clickOrder);
-                    Prog__PopupTooltip(state, Tr("Don't show this again."));
-                }
-                UI_Interaction copy = Prog__TextButton(StrFormat(frame, "NoticeCopy/%" PRIu64, notice->id), Icon_Copy, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
-                                                       theme->icon, theme->text, theme->iconDisabled, true, m);
-                if (copy.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeCopy, notice->id, 0, copy.clickOrder);
-                Prog__PopupTooltip(state, Tr("Copy the message."));
+                if (!narrow) Prog__NoticeButtons(state, notice, m);
                 UI_Interaction close = Prog__CloseButton(StrFormat(frame, "NoticeClose/%" PRIu64, notice->id), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeClose, notice->id, 0, close.clickOrder);
             }
@@ -8664,18 +8697,21 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
                     Prog__Label(lines[l], UI_Flex(), lineHeight, 0, theme->textDim, 0);
                 }
             }
-            // Its own button, at the right under the message.
-            if (notice->action) {
+            // Its own button, at the right under the message, and a narrow card's others after it.
+            if (notice->action || narrow) {
                 UI_SetNextChildrenAlignment((UI_Vec2){ 1, 1 });
                 UI_Block *actions = Prog__Box(UI_Flex(), UI_Pixels(actionHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(actions) {
                     Prog__Spacer(UI_Flex(), UI_Pixels(actionHeight));
-                    String label = StrMake((const char *)notice->actionLabel, notice->actionLength);
-                    UI_Interaction act = Prog__TextButton(StrFormat(frame, "NoticeAction/%" PRIu64, notice->id), label, NULL, UI_TextContent(), Prog__ToolbarButtonHeight(m), m->inset,
-                                                          theme->contentSelection, theme->contentSelection, theme->iconDisabled, true, m);
-                    UI->parent->last->props.colors.background = theme->selection;
-                    UI->parent->last->flags |= UI_Flag_DrawBackground;
-                    if (act.clicked) Prog_QueueCommand(state, (Prog_CommandKind)notice->action, notice->id, 0, act.clickOrder);
+                    if (notice->action) {
+                        String label = StrMake((const char *)notice->actionLabel, notice->actionLength);
+                        UI_Interaction act = Prog__TextButton(StrFormat(frame, "NoticeAction/%" PRIu64, notice->id), label, NULL, UI_TextContent(), Prog__ToolbarButtonHeight(m), m->inset,
+                                                              theme->contentSelection, theme->contentSelection, theme->iconDisabled, true, m);
+                        UI->parent->last->props.colors.background = theme->selection;
+                        UI->parent->last->flags |= UI_Flag_DrawBackground;
+                        if (act.clicked) Prog_QueueCommand(state, (Prog_CommandKind)notice->action, notice->id, 0, act.clickOrder);
+                    }
+                    if (narrow) Prog__NoticeButtons(state, notice, m);
                 }
             }
         }
@@ -8708,21 +8744,39 @@ function u32 Prog__CardPanel(const Prog_State *state, u64 targetHash, R_Rect vie
     return result;
 }
 
-// The copy and move cards in the corners of the panels they go into, the newest lowest; it gives where the highest in the window's corner
-// starts, for the notices over them.
-function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
+// A transfer card's buttons that pause it and stop it.
+function void Prog__TransferButtons(Prog_State *state, u32 slot, b32 paused, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    // Lucide draws these larger than its cross, which the smaller icons bring to its size.
+    UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", slot), paused ? Icon_Play : Icon_Pause, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
+                                            theme->icon, theme->text, theme->iconDisabled, true, m);
+    if (pause.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferPause, slot, 0, pause.clickOrder);
+    // Washed red, as the window's close button.
+    UI_Interaction cancel = Prog__WashedButton(StrFormat(&state->frameArena, "TransferCancel/%u", slot), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
+                                               theme->icon, theme->text, theme->iconDisabled, theme->danger, true, m);
+    if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, slot, 0, cancel.clickOrder);
+}
+
+// The copy and move cards in the corners of the panels they go into, or at the bottom of the sidebar `sidebar` wide as it slides, the newest
+// lowest; it gives the stack the notices go over.
+function Prog__CardStack Prog__Transfers(Prog_State *state, f32 sidebar, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
     u64 now = PlatformNowMicroseconds();
     f32 pad = m->inset * 0.75f;
-    // Each panel's stack, and last the window's, from their bottom.
-    R_Rect corners[Prog_MaxPanels + 1];
-    f32 bottoms[Prog_MaxPanels + 1];
-    for (u32 k = 0; k <= Prog_MaxPanels; ++k) {
-        corners[k] = k == state->currentPanel ? state->panelRect : k < state->panelCount ? state->panels[k].panelRect : view;
-        bottoms[k] = corners[k].y1 - view.y0 - m->pill - m->inset;
+    // Each panel's stack, then the window's and the sidebar's.
+    u32 windowStack = Prog_MaxPanels, sidebarStack = Prog_MaxPanels + 1;
+    Prog__CardStack stacks[Prog_MaxPanels + 2];
+    for (u32 k = 0; k <= windowStack; ++k) {
+        R_Rect corner = k == state->currentPanel ? state->panelRect : k < state->panelCount ? state->panels[k].panelRect : view;
+        stacks[k] = (Prog__CardStack){ corner, m->inset, corner.y1 - view.y0 - m->pill - m->inset };
     }
+    f32 edge = view.x0 + sidebar - m->separator;
+    f32 snug = floorf(m->gap * 0.75f + 0.5f);
+    stacks[sidebarStack] = (Prog__CardStack){ { edge - m->sidebar, view.y0, edge, view.y1 }, snug, view.y1 - view.y0 - snug };
+    b32 inSidebar = state->noticesInSidebar && sidebar > m->separator;
     u64 torrentTarget = 0;
     for (u32 i = 0; i < Prog_TransferSlots; ++i) {
         Prog_Transfer *transfer = &state->transfers[i];
@@ -8734,19 +8788,27 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         if (!transfer->job || !items || (!asking && now - transfer->started < UINT64_C(400000))) continue;
         String target = StrMake((const char *)transfer->target, transfer->targetLength);
         if (transfer->op == Prog_TransferOp_Torrent) torrentTarget = transfer->targetHash;
-        u32 stack = Min(Prog__CardPanel(state, transfer->targetHash, view), (u32)Prog_MaxPanels);
-        f32 width = floorf(MinF32(m->line * 26, corners[stack].x1 - corners[stack].x0 - 2 * m->inset));
-        f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0);
-        bottoms[stack] -= height + m->gap;
+        // A question about a taken name needs a panel's room for its buttons.
+        Prog__CardStack *at = &stacks[inSidebar && !asking ? sidebarStack : Min(Prog__CardPanel(state, transfer->targetHash, view), windowStack)];
+        f32 width = floorf(MinF32(m->line * 26, at->corner.x1 - at->corner.x0 - 2 * at->margin));
+        b32 narrow = Prog__NarrowCard(width, m);
+        // An encoding's or a download's speed and time left stay whole after its name, which is cut short first; a narrow card has them under it.
+        String name = Prog__TransferName(&state->frameArena, progress);
+        Index dot = transfer->op >= Prog_TransferOp_CompressVideo ? StrIndexStr(name, S(" \u00B7 "), SSF_None) : (Index){0};
+        String details = dot.exists ? StrFrom(name, dot.value) : (String){0};
+        if (dot.exists) name = StrFromTo(name, 0, (i64)dot.value);
+        f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0) + (narrow ? m->gap + (details.length && !asking ? m->row : 0) : 0);
+        at->bottom -= height + m->gap;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
-        UI_SetNextFloatingOffset((UI_Vec2){ corners[stack].x1 - view.x0 - width - m->inset, floorf(bottoms[stack]) });
+        UI_SetNextFloatingOffset((UI_Vec2){ at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
         UI_SetNextBorderThickness(m->separator);
         UI_SetNextBlur(Prog__FloatingBlur(m));
-        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = asking ? theme->accent : theme->separator });
+        // Outlined as the panels are in the sidebar, whose color it shares.
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = asking ? theme->accent : at == &stacks[sidebarStack] ? theme->tabBorder : theme->separator });
         UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Transfer/%u", i)),
                                             UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         UI_Parent(card) {
@@ -8758,15 +8820,10 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                              : transfer->opening ? StrFormat(&state->frameArena, TrF("Extracting %S to open it"), target)
                              : transfer->move ? StrFormat(&state->frameArena, TrN(items, "Moving %u item to %S", "Moving %u items to %S"), (u32)items, target)
                                               : StrFormat(&state->frameArena, TrN(items, "Copying %u item to %S", "Copying %u items to %S"), (u32)items, target);
-                Prog__Label(title, UI_Flex(), m->row, 0, theme->text, 0);
-                // Lucide draws these larger than its cross, which the smaller icons bring to its size.
-                UI_Interaction pause = Prog__TextButton(StrFormat(&state->frameArena, "TransferPause/%u", i), paused ? Icon_Play : Icon_Pause, m->iconsSmall, UI_Pixels(m->row), m->row, 0,
-                                                        theme->icon, theme->text, theme->iconDisabled, true, m);
-                if (pause.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferPause, i, 0, pause.clickOrder);
-                // Washed red, as the window's close button.
-                UI_Interaction cancel = Prog__WashedButton(StrFormat(&state->frameArena, "TransferCancel/%u", i), Icon_X, m->icons, UI_Pixels(m->row), m->row, 0,
-                                                           theme->icon, theme->text, theme->iconDisabled, theme->danger, true, m);
-                if (cancel.clicked) Prog_QueueCommand(state, Prog_CommandKind_TransferCancel, i, 0, cancel.clickOrder);
+                // A narrow card's title has the line to itself, its buttons going beside the name, and its percent beside the amount.
+                b32 buttons = !narrow || asking;
+                Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, title, MaxF32(0, width - 2 * pad - (buttons ? 2 * m->row : 0))), UI_Flex(), m->row, 0, theme->text, 0);
+                if (buttons) Prog__TransferButtons(state, i, paused, m);
             }
             if (asking) {
                 String name = StrFromCStr(progress->conflictName);
@@ -8796,20 +8853,20 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             }
             // Bytes where there are any to copy; a move within one file system only counts its items.
             f32 done = bytes ? (f32)((f64)doneBytes / (f64)bytes) : (f32)((f64)doneItems / (f64)items);
+            String percent = StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100));
             if (!asking) {
                 UI_Block *now = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
                 UI_Parent(now) {
-                    // An encoding's or a download's speed and time left stay whole after its name, which is cut short first.
-                    String name = Prog__TransferName(&state->frameArena, progress);
-                    String percent = StrFormat(&state->frameArena, paused ? TrF("Paused at %u%%") : "%u%%", (u32)(UI__Clamp(done, 0, 1) * 100));
-                    Index dot = transfer->op >= Prog_TransferOp_CompressVideo ? StrIndexStr(name, S(" \u00B7 "), SSF_None) : (Index){0};
-                    String details = dot.exists ? StrFrom(name, dot.value) : (String){0};
-                    if (dot.exists) name = StrFromTo(name, 0, (i64)dot.value);
-                    f32 room = width - 2 * pad - 2 * m->gap - R_TextWidth(m->font, details) - R_TextWidth(m->font, percent);
+                    f32 room = width - 2 * pad - (narrow ? 2 * m->row : 2 * m->gap + R_TextWidth(m->font, details) + R_TextWidth(m->font, percent));
                     Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, name, MaxF32(0, room)), UI_TextContent(), m->row, 0, theme->textDim, 0);
-                    if (dot.exists) Prog__Label(details, UI_TextContent(), m->row, 0, theme->textDim, 0);
+                    if (dot.exists && !narrow) Prog__Label(details, UI_TextContent(), m->row, 0, theme->textDim, 0);
                     Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
-                    Prog__Label(percent, UI_TextContent(), m->row, m->gap, theme->text, 1);
+                    if (narrow) Prog__TransferButtons(state, i, paused, m);
+                    else Prog__Label(percent, UI_TextContent(), m->row, m->gap, theme->text, 1);
+                }
+                if (dot.exists && narrow) {
+                    String rest = StrFrom(details, S(" \u00B7 ").length);
+                    Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, rest, MaxF32(0, width - 2 * pad)), UI_Flex(), m->row, 0, theme->textDim, 0);
                 }
             }
             // A video's progress is in milliseconds of it, shown as times.
@@ -8817,11 +8874,13 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                                                                                                Prog__Clock(&state->frameArena, bytes))
                           : bytes ? StrFormat(&state->frameArena, TrF("%S of %S"), Prog_FormatSize(&state->frameArena, Min(doneBytes, bytes)), Prog_FormatSize(&state->frameArena, bytes))
                                   : StrFormat(&state->frameArena, TrF("%u of %u"), (u32)Min(doneItems, items), (u32)items);
-            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+            // A narrow card's bar is as wide as it is, over the amount.
+            f32 lineHeight = narrow ? m->gap : m->row;
+            UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, theme->menu, 0);
             UI_Parent(line) {
-                f32 barWidth = floorf(width * 0.62f), barHeight = MaxF32(3, floorf(4 * m->scale));
+                f32 barWidth = narrow ? width - 2 * pad : floorf(width * 0.62f), barHeight = MaxF32(3, floorf(4 * m->scale));
                 UI_SetNextPrefWidth(UI_Pixels(barWidth));
-                UI_SetNextPrefHeight(UI_Pixels(m->row));
+                UI_SetNextPrefHeight(UI_Pixels(lineHeight));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_Block *slot = UI_AddBlock(0);
@@ -8840,7 +8899,14 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                     }
                 }
-                Prog__Label(amount, UI_Flex(), m->row, m->gap, theme->textDim, 1);
+                if (!narrow) Prog__Label(amount, UI_Flex(), m->row, m->gap, theme->textDim, 1);
+            }
+            if (narrow) {
+                UI_Block *under = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->menu, 0);
+                UI_Parent(under) {
+                    Prog__Label(amount, UI_Flex(), m->row, 0, theme->textDim, 0);
+                    Prog__Label(percent, UI_TextContent(), m->row, 0, theme->text, 1);
+                }
             }
         }
     }
@@ -8855,19 +8921,19 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         ++waiting;
     }
     if (waiting) {
-        u32 stack = Min(Prog__CardPanel(state, torrentTarget, view), (u32)Prog_MaxPanels);
-        f32 width = floorf(MinF32(m->line * 26, corners[stack].x1 - corners[stack].x0 - 2 * m->inset));
+        Prog__CardStack *at = &stacks[inSidebar ? sidebarStack : Min(Prog__CardPanel(state, torrentTarget, view), windowStack)];
+        f32 width = floorf(MinF32(m->line * 26, at->corner.x1 - at->corner.x0 - 2 * at->margin));
         f32 height = 2 * pad + m->row * (f32)(1 + listed + (waiting > listed));
-        bottoms[stack] -= height + m->gap;
+        at->bottom -= height + m->gap;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
-        UI_SetNextFloatingOffset((UI_Vec2){ corners[stack].x1 - view.x0 - width - m->inset, floorf(bottoms[stack]) });
+        UI_SetNextFloatingOffset((UI_Vec2){ at->corner.x1 - view.x0 - width - at->margin, floorf(at->bottom) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
         UI_SetNextBorderThickness(m->separator);
         UI_SetNextBlur(Prog__FloatingBlur(m));
-        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->separator });
+        UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = at == &stacks[sidebarStack] ? theme->tabBorder : theme->separator });
         UI_Block *card = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TorrentsWaiting")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
         UI_Parent(card) {
             Prog__Label(StrFormat(&state->frameArena, TrN(waiting, "%u torrent waiting to start", "%u torrents waiting to start"), waiting), UI_Flex(), m->row, 0, theme->text, 0);
@@ -8886,7 +8952,13 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             if (waiting > listed) Prog__Label(StrFormat(&state->frameArena, TrF("and %u more"), waiting - listed), UI_Flex(), m->row, 0, theme->textDim, 0);
         }
     }
-    return bottoms[Min(Prog__CardPanel(state, 0, view), (u32)Prog_MaxPanels)];
+    // The sidebar's list stops over its cards, which last, while the notices float over it.
+    f32 cards = inSidebar && stacks[sidebarStack].bottom < view.y1 - view.y0 - snug ? view.y1 - view.y0 - stacks[sidebarStack].bottom + snug : 0;
+    if (cards != state->sidebarCards) {
+        state->sidebarCards = cards;
+        UI_KeepAnimating();
+    }
+    return stacks[inSidebar ? sidebarStack : Min(Prog__CardPanel(state, 0, view), windowStack)];
 }
 
 // Asks before a permanent delete, over a dimmed window that takes every click.
@@ -10993,7 +11065,15 @@ function void Prog__SidebarColumn(Prog_State *state, f32 width, f32 height, f32 
         }
         UI_Block *body = Prog__Box(UI_Pixels(width), UI_Flex(), UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(body) {
-            Prog__Sidebar(state, m);
+            // The list, over the room of the progress cards at its bottom.
+            UI_SetNextPrefWidth(UI_Pixels(m->sidebar));
+            UI_SetNextPrefHeight(UI_Flex());
+            UI_SetNextChildrenLayout(UI_Layout_Vertical);
+            UI_Block *list = UI_AddBlock(0);
+            UI_Parent(list) {
+                Prog__Sidebar(state, m);
+                if (state->sidebarCards > 0) Prog__Box(UI_Pixels(m->sidebar), UI_Pixels(state->sidebarCards), UI_Layout_Horizontal, theme->panel, 0);
+            }
             Prog__Box(UI_Pixels(m->separator), UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
         }
     }
@@ -11339,7 +11419,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         state->tabDropOther = state->tabDrop.kind == Prog_TabDrop_Window && PlatformOtherWindowAtPointer(S(""));
         Prog__TabGhost(state, scale, m);
     }
-    Prog__Notices(state, Prog__Transfers(state, m), m);
+    Prog__Notices(state, Prog__Transfers(state, sidebar, m), m);
     Prog__ContextMenu(state, m);
     Prog__MenuEditor(state, m);
     Prog__TypesPopup(state, m);

@@ -461,7 +461,8 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Prog_Notify(&quiet, Prog_NoticeKind_Warning, S("test.warned"), S("Warned"), (String){0});
         Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed"), (String){0});
         Check(quiet.noticeCount == 1 && quiet.notices[0].kind == Prog_NoticeKind_Error && Prog_OptionValue(&quiet, Prog_Option_Notices) == Prog_NoticeKind_Error);
-        Prog_ApplySettings(&quiet, S("notices = off\n"));
+        Prog_ApplySettings(&quiet, S("notices = off\nnotices.sidebar = true\n"));
+        Check(quiet.noticesInSidebar && Prog_OptionValue(&quiet, Prog_Option_NoticesInSidebar) == 1);
         Prog_Notify(&quiet, Prog_NoticeKind_Error, S("test.failed"), S("Failed again"), (String){0});
         Check(quiet.noticeCount == 1);
         // Without a settings file, every option is at its default; one set away from it goes back with a restore.
@@ -505,7 +506,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Prog__TorrentOutput(&torrent, S("[#9cb939 30MiB/263MiB(11%) CN:31 SD:3 DL:22MiB ETA:1m10s]\r   \r\n10/23 [NOTICE] Download complete: [MEMORY][METADATA]x\n"
                                             "10/23 [NOTICE] Download complete: C:/t/Big Buck Bunny\n10/23 [ERROR] Bad\n"));
             Check(atomic_load(&seeded.totalBytes) == (UINT64_C(263) << 20) && atomic_load(&seeded.doneBytes) == (UINT64_C(30) << 20));
-            Check(StrIsEqual(Prog__TransferName(&quiet.frameArena, &seeded), S("bbb \u00B7 31 peers \u00B7 22 MB/s \u00B7 1:10")));
+            Check(StrIsEqual(Prog__TransferName(&quiet.frameArena, &seeded), S("bbb \u00B7 22 MB/s \u00B7 1:10 \u00B7 31 peers")));
             Check(StrIsEqual(StrMake(torrent.done, torrent.doneLength), S("C:/t/Big Buck Bunny")) && StrIsEqual(StrMake(torrent.message, torrent.messageLength), S("Bad")));
             Check(Prog_IsTorrent(S("magnet:?xt=urn:btih:dd82")) && Prog_IsTorrent(S("C:/a/b.TORRENT")) && !Prog_IsTorrent(S("b.torrent.txt")));
             Check(Prog_IsMagnet(S("Magnet:?xt=urn:btih:dd82")) && !Prog_IsMagnet(S("movie.torrent")) && !Prog_IsMagnet(S("magnet")));

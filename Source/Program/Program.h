@@ -776,6 +776,7 @@ typedef enum Prog_Option {
     Prog_Option_DownloadAudio,
     Prog_Option_Notices,
     Prog_Option_MutedNotices,
+    Prog_Option_NoticesInSidebar,
     Prog_Option_StoreRecents,
     Prog_Option_ShowRecents,
     Prog_Option_SortRecents,
@@ -1575,6 +1576,8 @@ typedef struct Prog_State {
     u8 videoQuality;  // its constant quality, 0 (best) to 51
     b32 downloadAudio;  // downloads by URL take the sound alone, as MP3
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
+    b32 noticesInSidebar;  // the notices and the progress cards stack at the bottom of the sidebar while it shows
+    f32 sidebarCards;      // how high the progress cards there were in the last build, which the sidebar's list stops over
     b32 showRecents, sortRecents;
     b32 noVSync;
     b32 noHighlight;          // inspector.highlight = false: the inspector shows code in one color

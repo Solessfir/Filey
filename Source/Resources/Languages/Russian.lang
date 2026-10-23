@@ -358,6 +358,12 @@ Muted Notifications
 Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again.
 = Виды уведомлений, отключённые кнопкой с колокольчиком; хранятся в MutedNotices.conf, а из списка их можно вернуть.
 
+Notifications In Sidebar
+= Уведомления на боковой панели
+
+Shows notices and the progress of copies, downloads and other work at the bottom of the sidebar, rather than in a panel's corner.
+= Показывает уведомления и ход копирования, загрузок и другой работы внизу боковой панели, а не в углу панели.
+
 Store Recents
 = Хранить недавние
 
