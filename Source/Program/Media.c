@@ -138,7 +138,7 @@ function b32 Prog__MediaPicture(Arena *arena, String path, String kind, String b
 // An audio file's waveform, both channels in one, its louder parts drawn taller on a clear ground.
 function b32 Prog_MediaWaveform(Arena *arena, String path, const P_CancelToken *cancel, i32 side, P_Image *image, i32 *width, i32 *height)
 {
-    return Prog__MediaPicture(arena, path, S("wave"), (String){0}, S("showwavespic=s=1600x400:colors=0x4FA3E0:split_channels=0:scale=sqrt"), cancel, side, image, width,
+    return Prog__MediaPicture(arena, path, S("wave"), (String){0}, S("showwavespic=s=1600x400:colors=white:split_channels=0:scale=sqrt"), cancel, side, image, width,
                               height);
 }
 

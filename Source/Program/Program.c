@@ -10212,7 +10212,7 @@ function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
 }
 
 // The inspector's image: fitted, at its own size or zoomed, centered in the view and dragged to move it while it does not fit,
-// over a checkered grid, with a minimap of the part in sight.
+// over a checkered grid, with a minimap of the part in sight. An audio file's waveform fills the view instead, in the accent.
 function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -10230,8 +10230,8 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
     // The wheel zooms by a steady ratio, a fine-grained one smoothly, and a double click goes between fitting the view and 1:1, both about
     // the point under the pointer, which stays where it is.
     f32 wanted = scale;
-    if (UI->hotKey == view->key && UI->wheel.y != 0 && !(UI->mods & KeyMod_Control)) wanted = MinF32(MaxF32(scale * powf(1.2f, UI->wheel.y), least), 32.0f);
     b32 audio = state->previewSeconds > 0 && Prog_IsAudio(state->previewPath);
+    if (!audio && UI->hotKey == view->key && UI->wheel.y != 0 && !(UI->mods & KeyMod_Control)) wanted = MinF32(MaxF32(scale * powf(1.2f, UI->wheel.y), least), 32.0f);
     b32 toFit = !audio && drag.pressed && drag.pressCount == 2 && state->imageScaleMode != Prog_ImageScale_Fit;
     if (!audio && drag.pressed && drag.pressCount == 2) wanted = toFit ? least : 1;
     if (wanted != scale || toFit) {
@@ -10243,7 +10243,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
         state->imageScale = wanted;
         scale = wanted;
     }
-    f32 shownWidth = floorf(width * scale + 0.5f), shownHeight = floorf(height * scale + 0.5f);
+    f32 shownWidth = audio ? roomWidth : floorf(width * scale + 0.5f), shownHeight = audio ? roomHeight : floorf(height * scale + 0.5f);
     if (drag.pressed) state->imageDragFrom = UI->mouse;
     if (drag.active && drag.isDragging && !audio) {
         state->imagePan.x += UI->mouse.x - state->imageDragFrom.x;
@@ -10262,7 +10262,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
         UI_Block *room = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
         UI_Parent(room) {
             // The grid: squares a little lighter than the background between plain ones.
-            if (!state->imageHideGrid) {
+            if (!state->imageHideGrid && !audio) {
                 f32 cell = floorf(36.0f * s + 0.5f);
                 R_Color light = theme->background;
                 light.r += 4.0f / 255.0f, light.g += 4.0f / 255.0f, light.b += 5.0f / 255.0f;
@@ -10279,7 +10279,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextFloatingOffset((UI_Vec2){ x, y });
             UI_SetNextPrefWidth(UI_Pixels(shownWidth));
             UI_SetNextPrefHeight(UI_Pixels(shownHeight));
-            UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, (R_Color){ 1, 1, 1, 1 });
+            UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, audio ? theme->accent : (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
             // An audio file's waveform shows how far it has played. A press on it, and a drag after, moves the playhead under the pointer,
             // and letting go plays from there, so that ffmpeg starts again once rather than at every step.
@@ -10310,7 +10310,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefHeight(UI_Pixels(shownHeight + 2 * line));
             UI_SetNextBorderThickness(line);
             UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+            UI_AddBlock(UI_Flag_Floating | (audio ? 0 : UI_Flag_DrawBorder));
         }
         // The minimap: the whole picture dimmed in the bottom right corner, with the part in sight bright and outlined.
         if (!state->imageHideMinimap && (shownWidth > roomWidth + 0.5f || shownHeight > roomHeight + 0.5f)) {
@@ -10789,8 +10789,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 String pages = StrFormat(&state->frameArena, TrN(state->pdf.pageCount, "%u page", "%u pages"), state->pdf.pageCount);
                 Prog__LabelPadded(pages, UI_TextContent(), m->pill, 0, radius, theme->textDim, 0);
             }
-            if (image) {
-                // An image's scale, filled up to its own size.
+            if (image && !Prog_IsAudio(entry->file.name)) {
+                // An image's scale, filled up to its own size; a waveform, which fills the view, has none.
                 f32 scale = state->imageScaleMode == Prog_ImageScale_Fit ? MinF32(state->imageFit, 1) : state->imageScaleMode == Prog_ImageScale_Original ? 1 : state->imageScale;
                 UI_SetNextChildrenPadding((UI_Padding){ m->gap, 0, radius + floorf(4.8f * s + 0.5f), 0 });
                 UI_SetNextCornerRadius(radius);
