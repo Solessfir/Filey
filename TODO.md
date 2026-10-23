@@ -6,7 +6,6 @@
 
 ## Look
 
-- The shown tab's bottom right curve has a faint pixel where it meets the strip's line, which the reference's does not.
 - Low priority: in the title bar the new tab plus sits level with the tabs, which hang below the strip's middle, while the tab list's chevron next to it and the window buttons are centered on the whole strip, about 5 pixels higher. Likely fix: the chevron level with the tabs too, in a tab-sized box, as Windows Terminal and Chrome pair them, with the window buttons left full height.
 
 ## Command palette parity
