@@ -2026,6 +2026,34 @@ function void Prog__Icon(String icon, f32 width, f32 height, R_Color color, f32 
     Prog__Label(icon, width > 0 ? UI_Pixels(width) : UI_TextContent(), height, 0, color, alignX);
 }
 
+// The search glass where Prog__Icon would put its glyph, `down` lower, drawn as a ring and a handle: the glyph's ring is off the center of
+// its square, so that it lands unevenly on the pixels at most sizes, while this one's is a whole number of them across, at whole pixels.
+function void Prog__SearchIcon(f32 width, f32 height, R_Color color, f32 alignX, f32 down, const Prog_Metrics *m)
+{
+    // The glyph's square is 24 units: its ring is 9 across from the center at 11, 11, its handle reaches 21, 21, and both are 2 thick.
+    f32 em = R_TextWidth(m->icons, Icon_Search), unit = em / 24.0f, stroke = MaxF32(1, floorf(2 * unit + 0.5f));
+    f32 slot = width > 0 ? width : em, ring = floorf(18 * unit + 0.5f);
+    f32 x0 = floorf(alignX * (slot - em) + 11 * unit - ring * 0.5f + 0.5f), y0 = floorf((height - em) * 0.5f + down + 11 * unit - ring * 0.5f + 0.5f);
+    f32 cx = x0 + ring * 0.5f, cy = y0 + ring * 0.5f, from = (ring - stroke) * 0.5f * 0.7071f, to = 10 * unit;
+    UI_SetNextPrefWidth(UI_Pixels(slot));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_Parent(UI_AddBlock(0)) {
+        UI_SetNextFloatingOffset((UI_Vec2){ x0, y0 });
+        UI_SetNextPrefWidth(UI_Pixels(ring));
+        UI_SetNextPrefHeight(UI_Pixels(ring));
+        UI_SetNextCornerRadius(ring * 0.5f);
+        UI_SetNextBorderThickness(stroke);
+        UI_SetNextColors((UI_Colors){ .border = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
+        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+        UI_SetNextPrefWidth(UI_Pixels(slot));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextLine((UI_Vec2){ cx + from, cy + from }, (UI_Vec2){ cx + to, cy + to }, stroke);
+        UI_SetNextColors((UI_Colors){ .background = color });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawLine);
+    }
+}
+
 // A button's wash of `wash`, the selection color for most: faint under the pointer and fading out after it, and solid while pressed,
 // easing both ways. Its animations are kept only while there is something to show.
 function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed, R_Color wash)
@@ -4774,7 +4802,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextColors((UI_Colors){ .background = theme->inner });
                 UI_Block *well = UI_AddBlock(UI_Flag_DrawBackground);
                 UI_Parent(well) {
-                    Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, tall, state->filter.length ? theme->text : theme->textDim, m);
+                    Prog__SearchIcon(m->iconSlot - m->gap, tall, state->filter.length ? theme->text : theme->textDim, 0.5f, floorf(0.8f * m->scale + 0.5f), m);
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(tall));
                     UI_Block *field = UI_AddBlockFromKey(UI_KeyFromStr(0, S("FilterField")), UI_Flag_Clip | UI_Flag_LeftMouseClickable);
@@ -4790,7 +4818,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                     Prog__PillButton(state, S("FilterRemove"), Icon_X, Prog_CommandKind_RemoveFilter, false, m);
                 }
             } else {
-                Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, m);
+                Prog__SearchIcon(m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, floorf(0.8f * m->scale + 0.5f), m);
                 String placeholder = StrFormat(&state->frameArena, TrN(state->directory.count, "Filter %u file...", "Filter %u files..."), (u32)state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
                 // In the pill's middle, as the buttons of the filter field are in theirs.
@@ -5166,7 +5194,7 @@ function void Prog__SidebarFilterBox(Prog_State *state, const Prog_Metrics *m)
     state->sidebarFilterRect = filter->rect;
     UI_Parent(filter) {
         Prog__Spacer(UI_Pixels(floorf(9.6f * m->scale + 0.5f)), UI_Pixels(strip));
-        Prog__Icon(Icon_Search, 0, strip, theme->textDim, 0, m);
+        Prog__SearchIcon(0, strip, theme->textDim, 0, 0, m);
         f32 pad = floorf(8.8f * m->scale + 0.5f);
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(strip));
@@ -6007,7 +6035,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             UI_Block *field = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             UI_Parent(field) {
                 Prog__Spacer(UI_Pixels(iconLeft), UI_Pixels(fieldHeight));
-                Prog__Icon(Icon_Search, iconColumn, fieldHeight, theme->textDim, 0, m);
+                Prog__SearchIcon(iconColumn, fieldHeight, theme->textDim, 0, 0, m);
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
                 UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -6447,7 +6475,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ floorf(12.0f * s + 0.5f), 0, floorf(5.6f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(23.2f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(23.2f * s + 0.5f), field, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -6705,7 +6733,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 // The glass sits a pixel further in than the folder's picture.
                 f32 inset = floorf(0.8f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(inset), UI_Pixels(field));
-                Prog__Icon(Icon_Search, lead - inset, field, theme->textDim, 0, m);
+                Prog__SearchIcon(lead - inset, field, theme->textDim, 0, 0, m);
             }
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
@@ -7255,7 +7283,7 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
         UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(fieldHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(field) {
             Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(fieldHeight));
-            Prog__Icon(Icon_Search, floorf(24.0f * s + 0.5f), fieldHeight, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(24.0f * s + 0.5f), fieldHeight, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -7387,7 +7415,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
         UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(fieldHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(field) {
             Prog__Spacer(UI_Pixels(floorf(8.0f * s + 0.5f)), UI_Pixels(fieldHeight));
-            Prog__Icon(Icon_Search, floorf(24.0f * s + 0.5f), fieldHeight, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(24.0f * s + 0.5f), fieldHeight, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(fieldHeight));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -7660,7 +7688,7 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
         box->props.cornerRadius = radius;
         box->props.shape = R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight;
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(22.4f * s + 0.5f), field, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -7829,7 +7857,7 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ floorf(10.4f * s + 0.5f), 0, inset, 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(20.8f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(20.8f * s + 0.5f), field, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -7960,7 +7988,7 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ floorf(10.4f * s + 0.5f), 0, inset, 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, (R_Color){0}, 0);
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(20.8f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(20.8f * s + 0.5f), field, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -8722,7 +8750,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         box->props.cornerRadius = radius;
         box->props.shape = R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight;
         UI_Parent(box) {
-            Prog__Icon(Icon_Search, floorf(22.4f * s + 0.5f), field, theme->textDim, 0, m);
+            Prog__SearchIcon(floorf(22.4f * s + 0.5f), field, theme->textDim, 0, 0, m);
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(field));
             UI_Block *text = UI_AddBlock(UI_Flag_Clip);
@@ -10321,7 +10349,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
             UI_SetNextColors((UI_Colors){ .background = theme->inner });
             UI_Block *well = UI_AddBlock(UI_Flag_DrawBackground);
             UI_Parent(well) {
-                Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, tall, state->inspectorFilter.length ? theme->text : theme->textDim, m);
+                Prog__SearchIcon(m->iconSlot - m->gap, tall, state->inspectorFilter.length ? theme->text : theme->textDim, 0.5f, floorf(0.8f * m->scale + 0.5f), m);
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(tall));
                 UI_Block *field = UI_AddBlock(UI_Flag_Clip);
@@ -10334,7 +10362,7 @@ function void Prog__InspectorFilterBox(Prog_State *state, String prompt, const P
                 Prog__PillButton(state, S("InspectorFilterRemove"), Icon_X, Prog_CommandKind_InspectorRemoveFilter, false, m);
             }
         } else {
-            Prog__StatusIcon(Icon_Search, m->iconSlot - m->gap, m->pill, theme->textDim, m);
+            Prog__SearchIcon(m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, floorf(0.8f * m->scale + 0.5f), m);
             Prog__Label(prompt, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
         }
     }
