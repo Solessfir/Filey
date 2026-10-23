@@ -2226,7 +2226,8 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
     // A copy or move takes a free slot for its progress and questions; without one, taken names get numbers.
     if (transfer) {
         String target = Prog_EntryLeaf(directory);
-        *transfer = (Prog_Transfer){ .job = job, .move = input->move, .op = (u8)op, .started = PlatformNowMicroseconds(), .targetLength = (u32)Min(target.length, sizeof(transfer->target)) };
+        *transfer = (Prog_Transfer){ .job = job, .move = input->move, .op = (u8)op, .started = PlatformNowMicroseconds(),
+                                     .targetLength = (u32)Min(target.length, sizeof(transfer->target)), .targetHash = MapHashBytes(directory.value, directory.length) };
         MemCopy(transfer->target, target.value, transfer->targetLength);
         atomic_store(&transfer->progress.policy, P_Conflict_Ask);
         input->progress = &transfer->progress;

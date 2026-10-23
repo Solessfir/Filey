@@ -8683,7 +8683,6 @@ function void Prog__Notices(Prog_State *state, f32 bottom, const Prog_Metrics *m
     }
 }
 
-// The copy and move cards in the window's corner, the newest lowest; it gives where the highest starts, for the notices over them.
 // `milliseconds` as "1:23" or "1:02:03".
 function String Prog__Clock(Arena *arena, u64 milliseconds)
 {
@@ -8691,13 +8690,40 @@ function String Prog__Clock(Arena *arena, u64 milliseconds)
     return hours ? StrFormat(arena, "%u:%02u:%02u", (u32)hours, (u32)(seconds / 60 % 60), (u32)(seconds % 60)) : StrFormat(arena, "%u:%02u", (u32)(seconds / 60), (u32)(seconds % 60));
 }
 
+// The panel in whose bottom right corner the card of a transfer into the folder of `targetHash` goes: the active one or another showing that
+// folder, or else the one in the window's corner; while a panel is zoomed over the others, that one. UINT32_MAX for the window's corner.
+function u32 Prog__CardPanel(const Prog_State *state, u64 targetHash, R_Rect view)
+{
+    if (state->zoomShownPanel) return Prog_PanelIndex(state, state->zoomShownPanel);
+    u32 result = UINT32_MAX;
+    for (u32 n = 0; n < state->panelCount; ++n) {
+        u32 i = (state->currentPanel + n) % state->panelCount;
+        const Prog_Panel *panel = &state->panels[i];
+        String path = i == state->currentPanel ? state->directory.path : panel->directory.path;
+        R_Rect rect = i == state->currentPanel ? state->panelRect : panel->panelRect;
+        if (panel->inspectorOf || rect.x1 <= rect.x0) continue;
+        if (targetHash && MapHashBytes(path.value, path.length) == targetHash) return i;
+        if (rect.x1 >= view.x1 - 1 && rect.y1 >= view.y1 - 1) result = i;
+    }
+    return result;
+}
+
+// The copy and move cards in the corners of the panels they go into, the newest lowest; it gives where the highest in the window's corner
+// starts, for the notices over them.
 function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
     u64 now = PlatformNowMicroseconds();
-    f32 width = floorf(MinF32(m->line * 26, view.x1 - view.x0 - 2 * m->inset)), pad = m->inset * 0.75f;
-    f32 bottom = view.y1 - view.y0 - m->pill - m->inset;
+    f32 pad = m->inset * 0.75f;
+    // Each panel's stack, and last the window's, from their bottom.
+    R_Rect corners[Prog_MaxPanels + 1];
+    f32 bottoms[Prog_MaxPanels + 1];
+    for (u32 k = 0; k <= Prog_MaxPanels; ++k) {
+        corners[k] = k == state->currentPanel ? state->panelRect : k < state->panelCount ? state->panels[k].panelRect : view;
+        bottoms[k] = corners[k].y1 - view.y0 - m->pill - m->inset;
+    }
+    u64 torrentTarget = 0;
     for (u32 i = 0; i < Prog_TransferSlots; ++i) {
         Prog_Transfer *transfer = &state->transfers[i];
         P_Progress *progress = &transfer->progress;
@@ -8707,11 +8733,14 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         // Windows shows its own progress for copies outside archives, which leave the counts at zero and never show here.
         if (!transfer->job || !items || (!asking && now - transfer->started < UINT64_C(400000))) continue;
         String target = StrMake((const char *)transfer->target, transfer->targetLength);
+        if (transfer->op == Prog_TransferOp_Torrent) torrentTarget = transfer->targetHash;
+        u32 stack = Min(Prog__CardPanel(state, transfer->targetHash, view), (u32)Prog_MaxPanels);
+        f32 width = floorf(MinF32(m->line * 26, corners[stack].x1 - corners[stack].x0 - 2 * m->inset));
         f32 height = 2 * pad + m->row * 3 + (asking ? m->bar : 0);
-        bottom -= height + m->gap;
+        bottoms[stack] -= height + m->gap;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
-        UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - width - m->inset, floorf(bottom) });
+        UI_SetNextFloatingOffset((UI_Vec2){ corners[stack].x1 - view.x0 - width - m->inset, floorf(bottoms[stack]) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
@@ -8815,7 +8844,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             }
         }
     }
-    // The torrents waiting for a slot, over them: the first few by name, each with a button that drops it.
+    // The torrents waiting for a slot, over the running ones' cards: the first few by name, each with a button that drops it.
     u32 waiting = 0, listed = 0;
     u64 rows[4];
     for (u64 i = 0; i < state->torrents.header.count; ++i) {
@@ -8826,11 +8855,13 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
         ++waiting;
     }
     if (waiting) {
+        u32 stack = Min(Prog__CardPanel(state, torrentTarget, view), (u32)Prog_MaxPanels);
+        f32 width = floorf(MinF32(m->line * 26, corners[stack].x1 - corners[stack].x0 - 2 * m->inset));
         f32 height = 2 * pad + m->row * (f32)(1 + listed + (waiting > listed));
-        bottom -= height + m->gap;
+        bottoms[stack] -= height + m->gap;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
-        UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - width - m->inset, floorf(bottom) });
+        UI_SetNextFloatingOffset((UI_Vec2){ corners[stack].x1 - view.x0 - width - m->inset, floorf(bottoms[stack]) });
         UI_SetNextChildrenLayout(UI_Layout_Vertical);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
         UI_SetNextCornerRadius(m->radius * 2);
@@ -8855,7 +8886,7 @@ function f32 Prog__Transfers(Prog_State *state, const Prog_Metrics *m)
             if (waiting > listed) Prog__Label(StrFormat(&state->frameArena, TrF("and %u more"), waiting - listed), UI_Flex(), m->row, 0, theme->textDim, 0);
         }
     }
-    return bottom;
+    return bottoms[Min(Prog__CardPanel(state, 0, view), (u32)Prog_MaxPanels)];
 }
 
 // Asks before a permanent delete, over a dimmed window that takes every click.

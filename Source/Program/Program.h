@@ -466,6 +466,7 @@ typedef struct Prog_Transfer {
     u32 targetLength;
     enum8(Prog_TransferOp) op;
     u64 sourceHash;      // a torrent's: the hash of its .torrent file's path, by which the inspector finds its download
+    u64 targetHash;      // the hash of the target folder's path, whose panel shows the transfer's card
 } Prog_Transfer;
 
 #define Prog_MaxTransfers 4
