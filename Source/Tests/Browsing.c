@@ -2998,14 +2998,15 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 4 && Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 60 && Prog_OptionValue(&look, Prog_Option_RoundCorners));
         Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
-        // "light" is the first light scheme, whose background is white.
-        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 1 && Prog_ThemeUser.background.r == 1 && look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x3E3F40);
-        // The default theme is the one its colors make, and the full moon scheme's popups and disabled icons come from its surface, background,
-        // icon and disabled colors.
+        // "light" is the light scheme after the default, Catppuccin Latte.
+        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 1 && (u32)(Prog_ThemeUser.background.r * 255 + 0.5f) == 0xEF &&
+              look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x4C4F69);
+        // The default theme is the one its colors make. The full moon scheme, which the choices leave out, shows the default among them, and its
+        // popups and disabled icons come from its surface, background, icon and disabled colors.
         Prog_Theme made = Prog__ThemeFromScheme(Prog_SchemeColors[0]);
         Check(!MemCompare(&Prog_ThemeCustom, &made, sizeof(made)));
         Prog_ApplySettings(&look, S("theme = FullMoon\n"));
-        Check(look.scheme == 4 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA3);
+        Check(look.scheme == 0 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA3);
         // A custom scheme by its name, its colors over the default scheme's, among the choices after the built-in ones; a fork of it shows
         // in its place named as the first free custom one, and the picker changes its colors.
         Prog_SetScheme(&look, S("Mine"), S("Background = #102030\nnonsense = #ffffff\n"), false);
@@ -3013,11 +3014,15 @@ function void TestSettings(void)
         Check(look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
         u32 schemeChoices = 0;
         Prog_OptionChoices(&look, Prog_Option_ColorScheme, &look.frameArena, &schemeChoices);
+        // The built-in ones show their themes' own names, and a custom one its.
+        Check(StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_ColorScheme, S("rose-pine")), S("Rosé Pine")) &&
+              StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_LightScheme, S("catppuccin-latte")), S("Catppuccin Latte")) &&
+              StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_ColorScheme, S("Mine")), S("Mine")));
         Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look, Prog_BuiltInSchemes, Prog_Option_ColorScheme) && look.schemeNames.header.count == 2);
         Check(StrIsEqual(look.schemeNames.v[1], S("Custom 1")) && look.scheme == Prog_BuiltInSchemes + 1 && Prog_ThemeUser.background.b > 0.18f);
         // A fork of a built-in scheme takes the next number.
         Check(Prog_ForkScheme(&look, 2, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[2], S("Custom 2")));
-        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0xFDF6E3);
+        Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x2E3440);
         look.colorPicking = true;
         look.colorOption = Prog_Option_ColorBackground;
         Prog_PickColor(&look, 3, 1);

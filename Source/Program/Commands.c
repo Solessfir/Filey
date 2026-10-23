@@ -2432,10 +2432,10 @@ function void Prog__LayoutAnswer(Prog_State *state, b32 yes)
     }
     if (ask == Prog_LayoutAsk_Delete) Prog_SetLayout(state, name, (String){0}, true);
     if (ask == Prog_LayoutAsk_SwitchBranch) Prog_SwitchBranch(state, name);
-    // A deleted scheme that was shown gives way to the reference's dark one.
+    // A deleted scheme that was shown gives way to the default one.
     if (ask == Prog_LayoutAsk_DeleteScheme) {
         Prog_SetScheme(state, name, (String){0}, true);
-        if (Prog__EqualFolded(StrMake(state->schemeName.text, state->schemeName.length), name)) Prog_SetOptionText(state, Prog_Option_ColorScheme, S("fullmoon"));
+        if (Prog__EqualFolded(StrMake(state->schemeName.text, state->schemeName.length), name)) Prog_SetOptionText(state, Prog_Option_ColorScheme, S(Prog_DefaultScheme));
     }
 }
 

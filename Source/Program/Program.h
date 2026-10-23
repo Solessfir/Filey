@@ -937,7 +937,9 @@ typedef enum Prog_LayoutAsk {
 
 #define Prog_MaxLayouts 64
 // Default and the reference's six, which the custom schemes follow.
-#define Prog_BuiltInSchemes 7
+#define Prog_BuiltInSchemes 10
+// The first built-in scheme, shown where the settings name none.
+#define Prog_DefaultScheme "catppuccin-mocha"
 // The colors a scheme is made of, its groups, as the Options list them from Prog_Option_ColorClear on.
 #define Prog_ColorGroupCount 33
 

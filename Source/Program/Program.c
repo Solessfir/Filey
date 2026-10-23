@@ -310,42 +310,42 @@ typedef struct Prog_Theme {
 
 #define Prog_Hex(v) { (((v) >> 16) & 255) / 255.0f, (((v) >> 8) & 255) / 255.0f, ((v) & 255) / 255.0f, 1 }
 
-// The neutral default scheme, as Prog__ThemeFromScheme makes it from its colors.
+// The default scheme, the first built-in one, as Prog__ThemeFromScheme makes it from its colors.
 global const Prog_Theme Prog_ThemeCustom = {
-    .window                   = Prog_Hex(0x191919),
-    .background               = Prog_Hex(0x191919),
-    .inner                    = Prog_Hex(0x191919),
-    .caption                  = Prog_Hex(0x1F1F1F),
-    .menu                     = Prog_Hex(0x1F1F1F),
-    .panel                    = Prog_Hex(0x1F1F1F),
-    .alternateRow             = Prog_Hex(0x1C1C1C),
-    .separator                = Prog_Hex(0x1C1C1C),
+    .window                   = Prog_Hex(0x11111B),
+    .background               = Prog_Hex(0x1E1E2E),
+    .inner                    = Prog_Hex(0x1E1E2E),
+    .caption                  = Prog_Hex(0x11111B),
+    .menu                     = Prog_Hex(0x181825),
+    .panel                    = Prog_Hex(0x181825),
+    .alternateRow             = Prog_Hex(0x222233),
+    .separator                = Prog_Hex(0x11111B),
     .hover                    = Prog_Hex(0x595959),
-    .selection                = Prog_Hex(0x505050),
-    .focus                    = Prog_Hex(0x505050),
-    .tabBorder                = Prog_Hex(0x383838),
-    .text                     = Prog_Hex(0xDDDEE0),
-    .textDim                  = Prog_Hex(0x6B7078),
-    .textHeading              = Prog_Hex(0xA2A2A2),
-    .textMatch                = Prog_Hex(0x00AAFF),
-    .marquee                  = Prog_Hex(0x00ADEE),
-    .accent                   = Prog_Hex(0x0079A6),
-    .track                    = Prog_Hex(0x383C3D),
-    .outline                  = Prog_Hex(0x1F1F1F),
-    .danger                   = Prog_Hex(0xFF6358),
-    .icon                     = Prog_Hex(0x9A9A9A),
-    .iconDisabled             = Prog_Hex(0x464646),
-    .file                     = Prog_Hex(0xDDDEE0),
-    .folder                   = Prog_Hex(0xDDDEE0),
-    .contentHover             = Prog_Hex(0xDDDEE0),
-    .contentSelection         = Prog_Hex(0xDDDEE0),
-    .contentDisabledSelection = Prog_Hex(0xA4A5A6),
-    .outlineHover             = Prog_Hex(0x757C80),
-    .outlineSelection         = Prog_Hex(0xA5AEB3),
-    .outlineDisabledSelection = Prog_Hex(0x464A4D),
-    .matchHover               = Prog_Hex(0x00B9FF),
-    .matchSelection           = Prog_Hex(0x00AAFF),
-    .matchDisabledSelection   = Prog_Hex(0x44B8E3),
+    .selection                = Prog_Hex(0x394461),
+    .focus                    = Prog_Hex(0x394461),
+    .tabBorder                = Prog_Hex(0x313244),
+    .text                     = Prog_Hex(0xCDD6F4),
+    .textDim                  = Prog_Hex(0x7F849C),
+    .textHeading              = Prog_Hex(0xB0B7D4),
+    .textMatch                = Prog_Hex(0x89DCEB),
+    .marquee                  = Prog_Hex(0x89B4FA),
+    .accent                   = Prog_Hex(0x89B4FA),
+    .track                    = Prog_Hex(0x313244),
+    .outline                  = Prog_Hex(0x313244),
+    .danger                   = Prog_Hex(0xF38BA8),
+    .icon                     = Prog_Hex(0x9399B2),
+    .iconDisabled             = Prog_Hex(0x47495C),
+    .file                     = Prog_Hex(0xCDD6F4),
+    .folder                   = Prog_Hex(0xCDD6F4),
+    .contentHover             = Prog_Hex(0xCDD6F4),
+    .contentSelection         = Prog_Hex(0xCDD6F4),
+    .contentDisabledSelection = Prog_Hex(0xA1A8C3),
+    .outlineHover             = Prog_Hex(0x6C7086),
+    .outlineSelection         = Prog_Hex(0x9399B2),
+    .outlineDisabledSelection = Prog_Hex(0x585B70),
+    .matchHover               = Prog_Hex(0x89DCEB),
+    .matchSelection           = Prog_Hex(0x89DCEB),
+    .matchDisabledSelection   = Prog_Hex(0x69A3B2),
     .hoverAmount              = Prog_Hex(0x595959),
     .hiddenAmount             = Prog_Hex(0x595959),
     .disabledAmount           = Prog_Hex(0x595959),
@@ -396,16 +396,22 @@ global const Prog_Theme Prog_ThemeGlass = {
     .disabledAmount = Prog_Gray(89),
 };
 
-// The built-in schemes' colors, in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's order of the groups.
+// The built-in schemes' colors, popular themes' palettes in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's order of the groups.
 global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = {
-    { 0x191919, 0x1F1F1F, 0x191919, 0x1F1F1F, 0x383C3D, 0x191919, 0x383838, 0x1F1F1F, 0x1C1C1C, 0x1C1C1C, 0x9A9A9A, 0xDDDEE0, 0x6B7078, 0x999999, 0xDDDEE0, 0xDDDEE0, 0xFF6358, 0x0079A6, 0x505050, 0x00ADEE, 0x00AAFF, 0x595959, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
-    { 0xFFFFFF, 0xEBEBEB, 0xFFFFFF, 0xF8F8F8, 0xDADBDE, 0xFFFFFF, 0xD8D8D9, 0xC6C6C7, 0xF7F7F7, 0xFBFBFB, 0x909293, 0x3E3F40, 0x8A8A8C, 0x828485, 0x3E3F40, 0x3E3F40, 0xFF6666, 0x00ADEE, 0x00ADEE, 0x0093CC, 0x0078CC, 0x808080, 0x666666, 0x666666, 0x1A6480, 0xFFFFFF, 0xFFFFFF, 0xB3B3B3, 0xE6E6E6, 0xE0E0E3, 0x0050FF, 0x0050FF, 0x7397E6 },
-    { 0xFDF8E9, 0xE6DEC9, 0xFDF6E3, 0xEEE8D5, 0xD6D1BF, 0xF7F1DD, 0xCCC8BC, 0xC4C0B5, 0xF2ECD9, 0xF7F1DE, 0x8F8B84, 0x595854, 0x8F897E, 0x8F8B84, 0x595854, 0x595854, 0xFF6666, 0x00ADEE, 0x00ADEE, 0x0093CC, 0x0065EE, 0x999999, 0x737373, 0x8C8C8C, 0x155066, 0xF7F7F7, 0xFFFFFF, 0xB3AFA5, 0xE0E0E0, 0xD9D9D9, 0x0050FF, 0x0050FF, 0x7397E6 },
-    { 0x313135, 0x44454A, 0x37383C, 0x3D3E42, 0x585A60, 0x36363B, 0x515257, 0x6B6C73, 0x3D3E42, 0x3A3C40, 0xABACAF, 0xE7E8EB, 0x959599, 0xABACAF, 0xE7E8EB, 0xE7E8EB, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x333333, 0x757575, 0x4D4D4D, 0xE7E8EB, 0xF8F9FB, 0xC9CACC, 0x82848C, 0xB8B8B8, 0x6B6C73, 0x00B9FF, 0x00B9FF, 0x009DD9 },
-    { 0x151515, 0x272A2B, 0x191B1C, 0x1F2223, 0x383C3D, 0x1B1B1C, 0x343A3B, 0x464A4D, 0x202324, 0x1D1F21, 0x9A9C9D, 0xDDDEE0, 0x6B7078, 0x9A9C9D, 0xDDDEE0, 0xDDDEE0, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
-    { 0x002730, 0x003C4D, 0x002B36, 0x003442, 0x004E63, 0x002F3B, 0x265561, 0x2D6270, 0x003340, 0x002F3B, 0x9DAFB4, 0xF2F2F2, 0x6B8F99, 0x9DAFB4, 0xF2F2F2, 0xF2F2F2, 0xBF616A, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x404040, 0x666666, 0x4D4D4D, 0xF2F2F2, 0xF2F2F2, 0xCCCCCC, 0x387B8C, 0xB3B3B3, 0x2D6270, 0x00B9FF, 0x00B9FF, 0x009DD9 },
-    { 0x002047, 0x001D42, 0x002451, 0x00204A, 0x1F4370, 0x001F47, 0x2D4462, 0x365275, 0x00295C, 0x002757, 0xA1ABB7, 0xE7E7E7, 0x6B7F99, 0xA1ABB7, 0xE7E7E7, 0xE7E7E7, 0xFF4D4D, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x666666, 0x666666, 0xE7E7E7, 0xF2F2F2, 0xBDBDBD, 0x4D73A6, 0xA6A6A6, 0x41628C, 0x00B9FF, 0x00B9FF, 0x009ED9 },
+    { 0x11111B, 0x11111B, 0x1E1E2E, 0x181825, 0x313244, 0x1E1E2E, 0x313244, 0x313244, 0x11111B, 0x222233, 0x9399B2, 0xCDD6F4, 0x7F849C, 0xA6ADC8, 0xCDD6F4, 0xCDD6F4, 0xF38BA8, 0x89B4FA, 0x394461, 0x89B4FA, 0x89DCEB, 0x595959, 0x595959, 0x595959, 0xCDD6F4, 0xCDD6F4, 0xA1A8C3, 0x6C7086, 0x9399B2, 0x585B70, 0x89DCEB, 0x89DCEB, 0x69A3B2 },
+    { 0xDCE0E8, 0xDCE0E8, 0xEFF1F5, 0xE6E9EF, 0xCCD0DA, 0xEFF1F5, 0xCCD0DA, 0xCCD0DA, 0xDCE0E8, 0xE7EAEF, 0x7C7F93, 0x4C4F69, 0x8C8FA1, 0x6C6F85, 0x4C4F69, 0x4C4F69, 0xD20F39, 0x1E66F5, 0xC1D2F5, 0x1E66F5, 0x04A5E5, 0x808080, 0x666666, 0x666666, 0x4C4F69, 0x4C4F69, 0x75788C, 0x9CA0B0, 0x7C7F93, 0xACB0BE, 0x04A5E5, 0x04A5E5, 0x4BBCEA },
+    { 0x242933, 0x242933, 0x2E3440, 0x292E39, 0x3B4252, 0x2E3440, 0x3B4252, 0x3B4252, 0x242933, 0x313744, 0x8A93A5, 0xD8DEE9, 0x616E88, 0xB8C0CE, 0xD8DEE9, 0xD8DEE9, 0xBF616A, 0x81A1C1, 0x434F60, 0x81A1C1, 0x88C0D0, 0x595959, 0x595959, 0x595959, 0xD8DEE9, 0xD8DEE9, 0xAEB4BF, 0x4C566A, 0x8A93A5, 0x4C566A, 0x88C0D0, 0x88C0D0, 0x6D96A5 },
+    { 0x1D2021, 0x1D2021, 0x282828, 0x222424, 0x3C3836, 0x282828, 0x3C3836, 0x3C3836, 0x1D2021, 0x2C2C2B, 0xA89984, 0xEBDBB2, 0x928374, 0xBDAE93, 0xEBDBB2, 0xEBDBB2, 0xFB4934, 0x83A598, 0x3F4744, 0x83A598, 0xFABD2F, 0x595959, 0x595959, 0x595959, 0xEBDBB2, 0xEBDBB2, 0xBAAE90, 0x7C6F64, 0xA89984, 0x665C54, 0xFABD2F, 0xFABD2F, 0xBB902D },
+    { 0x13141C, 0x16161E, 0x1A1B26, 0x16161E, 0x292E42, 0x1A1B26, 0x292E42, 0x292E42, 0x13141C, 0x1D1F2C, 0x8F96BC, 0xC0CAF5, 0x737AA2, 0xA9B1D6, 0xC0CAF5, 0xC0CAF5, 0xF7768E, 0x7AA2F7, 0x323D5A, 0x7AA2F7, 0x7DCFFF, 0x595959, 0x595959, 0x595959, 0xC0CAF5, 0xC0CAF5, 0x979EC1, 0x545C7E, 0x8F96BC, 0x414868, 0x7DCFFF, 0x7DCFFF, 0x5F99BE },
+    { 0x1E2227, 0x21252B, 0x282C34, 0x21252B, 0x31353F, 0x282C34, 0x31353F, 0x31353F, 0x1E2227, 0x2A2E36, 0x9DA5B4, 0xD7DAE0, 0x7F848E, 0xABB2BF, 0xD7DAE0, 0xD7DAE0, 0xE06C75, 0x61AFEF, 0x364D63, 0x61AFEF, 0x56B6C2, 0x595959, 0x595959, 0x595959, 0xD7DAE0, 0xD7DAE0, 0xABAFB5, 0x5C6370, 0x9DA5B4, 0x4B5263, 0x56B6C2, 0x56B6C2, 0x488D97 },
+    { 0x191A21, 0x191A21, 0x282A36, 0x21222C, 0x343746, 0x282A36, 0x343746, 0x343746, 0x191A21, 0x2B2D3A, 0xA4A9C4, 0xF8F8F2, 0x7E88B8, 0xC9CBD6, 0xF8F8F2, 0xF8F8F2, 0xFF5555, 0xBD93F9, 0x4D4467, 0xBD93F9, 0x8BE9FD, 0x595959, 0x595959, 0x595959, 0xF8F8F2, 0xF8F8F2, 0xC4C5C3, 0x6272A4, 0xA4A9C4, 0x565A73, 0x8BE9FD, 0x8BE9FD, 0x6DB0C1 },
+    { 0x001E26, 0x00222B, 0x002B36, 0x00252F, 0x073642, 0x002B36, 0x073642, 0x073642, 0x001E26, 0x022D39, 0x839496, 0xA9B7B7, 0x657B83, 0x93A1A1, 0xA9B7B7, 0xA9B7B7, 0xDC322F, 0x268BD2, 0x0A435D, 0x268BD2, 0x2AA198, 0x595959, 0x595959, 0x595959, 0xA9B7B7, 0xA9B7B7, 0x7F9497, 0x586E75, 0x839496, 0x274F5A, 0x2AA198, 0x2AA198, 0x1D7E7B },
+    { 0xE4DDC8, 0xE4DDC8, 0xFDF6E3, 0xEEE8D5, 0xDDD6C1, 0xFDF6E3, 0xDDD6C1, 0xDDD6C1, 0xE4DDC8, 0xF6EFDC, 0x839496, 0x4F6269, 0x93A1A1, 0x657B83, 0x4F6269, 0x4F6269, 0xDC322F, 0x268BD2, 0xCEDEDF, 0x268BD2, 0x2AA198, 0x808080, 0x666666, 0x666666, 0x4F6269, 0x4F6269, 0x7B8788, 0xA3ACA7, 0x839496, 0xC5BDAA, 0x2AA198, 0x2AA198, 0x69BBAF },
+    { 0x13111C, 0x13111C, 0x191724, 0x1F1D2E, 0x26233A, 0x191724, 0x26233A, 0x26233A, 0x13111C, 0x1C1A29, 0x908CAA, 0xE0DEF4, 0x6E6A86, 0x908CAA, 0xE0DEF4, 0xE0DEF4, 0xEB6F92, 0xC4A7E7, 0x443B55, 0xC4A7E7, 0x9CCFD8, 0x595959, 0x595959, 0x595959, 0xE0DEF4, 0xE0DEF4, 0xAEACC0, 0x6E6A86, 0x908CAA, 0x524F67, 0x9CCFD8, 0x9CCFD8, 0x7598A2 },
 };
+
+// The reference's dark scheme, for side-by-side checks with the Compare tool; settings name it fullmoon, and the choices leave it out.
+global const u32 Prog_SchemeFullMoon[Prog_ColorGroupCount] = { 0x151515, 0x272A2B, 0x191B1C, 0x1F2223, 0x383C3D, 0x1B1B1C, 0x343A3B, 0x464A4D, 0x202324, 0x1D1F21, 0x9A9C9D, 0xDDDEE0, 0x6B7078, 0x9A9C9D, 0xDDDEE0, 0xDDDEE0, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 };
 
 function R_Color Prog__HexColor(u32 hex) { return (R_Color){ (f32)((hex >> 16) & 255) / 255.0f, (f32)((hex >> 8) & 255) / 255.0f, (f32)(hex & 255) / 255.0f, 1 }; }
 
@@ -506,8 +512,13 @@ function b32 Prog__ParseColor(String text, R_Color *color)
     return true;
 }
 
-// The built-in schemes, before the custom ones.
-global const String Prog_OptionSchemes[] = { SInit("default"), SInit("sirius"), SInit("pollux"), SInit("eridanus"), SInit("fullmoon"), SInit("regulus"), SInit("altair") };
+// The built-in schemes, before the custom ones, by their names in the settings and as the choices show them.
+// The first is the default, and the second the light one that "light" names.
+global const String Prog_OptionSchemes[] = { SInit(Prog_DefaultScheme), SInit("catppuccin-latte"), SInit("nord"), SInit("gruvbox"), SInit("tokyo-night"), SInit("one-dark"),
+                                             SInit("dracula"), SInit("solarized-dark"), SInit("solarized-light"), SInit("rose-pine") };
+global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Catppuccin Mocha"), NoTrF("Catppuccin Latte"), NoTrF("Nord"), NoTrF("Gruvbox"), NoTrF("Tokyo Night"),
+                                                        NoTrF("One Dark"), NoTrF("Dracula"), NoTrF("Solarized Dark"), NoTrF("Solarized Light"), NoTrF("Rosé Pine") };
+static_assert(CArrayCount(Prog_OptionSchemeLabels) == Prog_BuiltInSchemes, "the built-in schemes labeled");
 static_assert(CArrayCount(Prog_OptionSchemes) == Prog_BuiltInSchemes, "the built-in schemes counted");
 static_assert(Prog_Option_ColorMatchDisabledSelection - Prog_Option_ColorClear + 1 == Prog_ColorGroupCount, "the color groups counted");
 
@@ -518,12 +529,16 @@ global const char *const Prog_ColorGroupNames[Prog_ColorGroupCount] = {
     "ContentDisabledSelection", "OutlineHover", "OutlineSelection", "OutlineDisabledSelection", "MatchHover", "MatchSelection", "MatchDisabledSelection",
 };
 
-// Gives `groups` the colors of the scheme named `name`: a built-in one, or a custom one's over the default scheme's; "light" is the first light
-// one. Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name.
+// Gives `groups` the colors of the scheme named `name`: a built-in one, or a custom one's over the default scheme's; "light" is the light
+// one after the default. Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name, as for fullmoon.
 function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
 {
     MemCopy(groups, Prog_SchemeColors[0], sizeof(Prog_SchemeColors[0]));
-    if (Prog__EqualFolded(name, S("light"))) name = S("sirius");
+    if (Prog__EqualFolded(name, S("light"))) name = Prog_OptionSchemes[1];
+    if (Prog__EqualFolded(name, S("fullmoon"))) {
+        MemCopy(groups, Prog_SchemeFullMoon, sizeof(Prog_SchemeFullMoon));
+        return 0;
+    }
     for (u32 i = 0; i < CArrayCount(Prog_OptionSchemes); ++i) {
         if (!Prog__EqualFolded(name, Prog_OptionSchemes[i])) continue;
         MemCopy(groups, Prog_SchemeColors[i], sizeof(Prog_SchemeColors[i]));
@@ -589,7 +604,7 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
-//   theme = fullmoon              the reference's scheme under the colors below, for side-by-side checks
+//   theme = nord                  a built-in scheme, under the colors below; fullmoon is the reference's, for side-by-side checks
 //   animations = false            menus, scrolling and the caret change at once
 //   color.<theme field> = #rrggbb[aa]
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window
@@ -878,8 +893,9 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("# Filey settings, applied as soon as this file is saved.\n"
                                 "# Lines are \"name = value\", switches true or false; remove the # in front of a setting to change it.\n\n"
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
-                                "# A scheme by its name: default, sirius, pollux, eridanus, fullmoon, regulus, altair or a custom one; colors set before this line are replaced.\n# theme = default\n"
-                                "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = sirius\n\n"
+                                "# A scheme by its name: catppuccin-mocha, catppuccin-latte, nord, gruvbox, tokyo-night, one-dark, dracula, solarized-dark,\n"
+                                "# solarized-light, rose-pine or a custom one; colors set before this line are replaced.\n# theme = catppuccin-mocha\n"
+                                "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = false\n# theme.light = catppuccin-latte\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
                                 "# The thickness of the outlines, in pixels: 1, 1.5, 2, 2.5 or 3; the lines between areas take the nearest whole pixels.\n# borders = 1\n\n"
@@ -6473,12 +6489,10 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
         if (StrIsEqual(name, S("errors"))) return Tr("Errors Only");
         if (StrIsEqual(name, S("off"))) return Tr("None");
     }
-    // A custom scheme keeps its own name, and the reference's has its own.
+    // A built-in scheme shows its theme's own name, and a custom one keeps its.
     b32 schemes = option == Prog_Option_ColorScheme || option == Prog_Option_LightScheme || option == Prog_Option_DarkScheme;
-    if (schemes && StrIsEqual(name, S("fullmoon"))) return NoTr("Full Moon");
-    b32 builtIn = false;
-    for (u32 i = 0; i < Prog_BuiltInSchemes; ++i) builtIn |= StrIsEqual(name, Prog_OptionSchemes[i]);
-    if (schemes && !builtIn) return name;
+    for (u32 i = 0; schemes && i < Prog_BuiltInSchemes; ++i) if (StrIsEqual(name, Prog_OptionSchemes[i])) return StrFromCStr(Prog_OptionSchemeLabels[i]);
+    if (schemes) return name;
     // A layout keeps its own name.
     if (option == Prog_Option_LoadOnStartup && !StrIsEqual(name, S("root")) && !StrIsEqual(name, S("home"))) return name;
     if (option == Prog_Option_CharacterKeyAction) {
