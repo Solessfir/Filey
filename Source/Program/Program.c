@@ -6622,10 +6622,12 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
                     f32 inset = MaxF32(floorf(6.4f * s + 0.5f), floorf((width - typedWidth) * 0.5f));
                     Prog__EditContents(&state->sliderEdit, inset, floorf((height - m->line) * 0.5f), true, 0, m);
                 } else {
-                    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-                    UI_SetNextPrefWidth(UI_Pixels(floorf(at * width + 0.5f)));
-                    UI_SetNextPrefHeight(UI_Pixels(height));
-                    UI_SetNextCornerRadius(radius);
+                    // The fill keeps clear of the border, a little inside it.
+                    f32 gap = line + floorf(1.6f * s + 0.5f);
+                    UI_SetNextFloatingOffset((UI_Vec2){ gap, gap });
+                    UI_SetNextPrefWidth(UI_Pixels(floorf(at * (width - 2 * gap) + 0.5f)));
+                    UI_SetNextPrefHeight(UI_Pixels(height - 2 * gap));
+                    UI_SetNextCornerRadius(MaxF32(0, radius - gap));
                     UI_SetNextColors((UI_Colors){ .background = theme->selection });
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                     // Opacities are percentages.
