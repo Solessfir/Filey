@@ -10281,7 +10281,7 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextImage(state->previewTexture, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ shownWidth, shownHeight }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
             // An audio file's waveform shows how far it has played. A press on it, and a drag after, moves the playhead under the pointer,
-            // and letting go plays from there, so that ffplay starts again once rather than at every step.
+            // and letting go plays from there, so that ffmpeg starts again once rather than at every step.
             f32 start = view->rect.x0 + left + x;
             f32 pointed = UI__Clamp((UI->mouse.x - start) / MaxF32(shownWidth, 1), 0, 1);
             if (audio && drag.pressed && UI->mouse.x >= start && UI->mouse.x < start + shownWidth) state->scrubbing = true;
@@ -10504,7 +10504,7 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
             if (playing) UI_KeepAnimating();
         }
         // How loud: the speaker turns the sound off and on again, and the bar beside it sets it by a press, a drag or the wheel, which what
-        // plays takes once let go, as ffplay starts again for it.
+        // plays follows as it moves; the setting is kept once it is let go.
         Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
         u32 volume = state->volumeDragging ? state->volumeDragged : state->audioMuted ? 0 : state->audioVolume;
         String speaker = !volume ? Icon_VolumeX : volume < 34 ? Icon_Volume : volume < 67 ? Icon_Volume1 : Icon_Volume2;
@@ -10516,6 +10516,7 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
         UI_Interaction drag = UI_InteractionFromBlock(slider);
         if (drag.pressed) state->volumeDragging = true;
         if (state->volumeDragging) state->volumeDragged = (u8)(UI__Clamp((UI->mouse.x - slider->rect.x0 - knob * 0.5f) / track, 0, 1) * 100 + 0.5f);
+        atomic_store(&state->playerVolume, state->volumeDragging ? state->volumeDragged : state->audioMuted ? 0u : state->audioVolume);
         if (state->volumeDragging && !drag.active) {
             state->volumeDragging = false;
             Prog_QueueCommand(state, Prog_CommandKind_InspectorVolume, 0, 0, UINT64_MAX)->target = state->volumeDragged;

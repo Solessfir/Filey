@@ -394,7 +394,7 @@ typedef struct Prog_JobInput {
     u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
     u8 videoCodec, videoQuality;  // what a video is compressed to
     b32 downloadAudio;            // a download is the sound alone
-    u8 volume;                    // what audio plays at, 0 to 100
+    const atomic_uint *volume;    // what audio plays at, 0 to 100, read as it plays
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
     u64 generation;
@@ -1650,7 +1650,7 @@ typedef struct Prog_State {
     P_Progress playerProgress[2];
     u32 playerSlot;
     u64 playerHash;
-    u8 playerVolume;     // what it started at, which a pause going on takes again where that changed
+    atomic_uint playerVolume;  // what it plays at, which the inspector's volume bar sets as it moves
     b32 audioMuted;      // the speaker button's, for the session
     b32 volumeDragging;  // the volume follows the pointer along its bar until the press ends
     u8 volumeDragged;
@@ -1921,7 +1921,7 @@ function void Prog_ResumeTorrents(Prog_State *state);
 function u32 Prog_TorrentSlot(const Prog_State *state, String path);
 function u64 Prog_TorrentWaiting(const Prog_State *state, String path);
 function void Prog_GitPull(Prog_State *state);
-function b32 Prog_PlayAudio(String path, u64 start, u32 volume, P_Progress *progress, const P_CancelToken *cancel);
+function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, const P_CancelToken *cancel);
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
 function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);

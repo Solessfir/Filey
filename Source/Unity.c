@@ -19,6 +19,7 @@
 #include "Win/WinIcons.c"
 #include "Win/WinShell.c"
 #include "Win/WinLaunch.c"
+#include "Win/WinAudio.c"
 #include "Win/WinWindow.c"
 #include "Win/WinFont.c"
 #elif defined(__linux__)
@@ -27,6 +28,7 @@
 #include "Linux/LinuxFiles.c"
 #include "Linux/LinuxIcons.c"
 #include "Linux/LinuxApps.c"
+#include "Linux/LinuxAudio.c"
 #include "Linux/LinuxWindow.c"
 #include "Linux/LinuxFont.c"
 #else

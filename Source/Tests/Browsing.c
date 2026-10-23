@@ -564,13 +564,20 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(Prog_TorrentSlot(&notes, a) == Prog_MaxTransfers + 1 && Prog_TorrentWaiting(&notes, a) == UINT64_MAX);
             Check(Prog_TorrentSlot(&notes, c) == UINT32_MAX && Prog_TorrentWaiting(&notes, c) == 1 && Prog_TorrentWaiting(&notes, S("C:/t/d.torrent")) == UINT64_MAX);
             ArenaRelease(&notes.torrentArena);
-            // ffplay's -stats line, rewritten in place, counts the milliseconds played; its "nan" before the clock starts counts nothing.
-            P_Progress played = {0};
-            Prog__Player player = { .progress = &played };
-            Prog__PlayerOutput(&player, S("    nan    :  0.000 fd=   0\r   1.98 M-A:  0.000 fd=   0\r  12.5"));
-            Check(atomic_load(&played.doneBytes) == 1980);
-            Prog__PlayerOutput(&player, S("0 M-A: 0.000\r"));
-            Check(atomic_load(&played.doneBytes) == 12500);
+            // The decoded sound comes in pieces that may cut a frame, which waits for the next, and plays at the volume set as it comes.
+            {
+                atomic_uint volume = 50;
+                Prog__Player player = { .volume = &volume };
+                i16 first[3] = { 1000, -1000, 400 }, second[3] = { -400, 2000, 2000 };
+                u64 frames = 0;
+                i16 *heard = Prog__PlayerFrames(&player, &notes.frameArena, StrMake((const char *)first, 6), &frames);
+                Check(frames == 1 && heard[0] == 250 && heard[1] == -250 && player.carried == 2);
+                atomic_store(&volume, 100u);
+                heard = Prog__PlayerFrames(&player, &notes.frameArena, StrMake((const char *)second, 6), &frames);
+                Check(frames == 2 && heard[0] == 400 && heard[1] == -400 && heard[2] == 2000 && heard[3] == 2000 && player.carried == 0);
+                heard = Prog__PlayerFrames(&player, &notes.frameArena, StrMake((const char *)first, 2), &frames);
+                Check(frames == 0 && player.carried == 2);
+            }
             Check(Prog_IsWebUrl(S("https://youtu.be/x")) && Prog_IsWebUrl(S("HTTP://a.b")) && !Prog_IsWebUrl(S("ftp://a")) && !Prog_IsWebUrl(S("https://a b")));
         }
         // A language file translates by the English text, keeps a translation's conversions only where they match, and a custom file of a

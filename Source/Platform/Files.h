@@ -318,6 +318,14 @@ typedef void P_CommandOutput(void *user, String text);
 // or exited with an error.
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
                                 P_Progress *progress);
+// Sound out, 16-bit samples interleaved over `channels` at `rate` a second, through the system's mixer, with about a tenth of a second
+// queued ahead. NULL where there is no sound.
+typedef struct P_Audio P_Audio;
+function P_Audio *P_AudioOpen(Arena *arena, u32 rate, u32 channels);
+// Queues `frames` frames, waiting while the queue is full; gives the frames heard so far.
+function u64 P_AudioWrite(P_Audio *audio, const i16 *samples, u32 frames);
+// Stops it, at once or with `drain` once what is queued has been heard.
+function void P_AudioClose(P_Audio *audio, b32 drain);
 // Whether anything is at `path`, a link itself included.
 function b32 P_PathExists(String path);
 // Where the item at `path` really is: a shortcut's or link's target, with the links on the way to it followed; false when that cannot be told,

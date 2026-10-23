@@ -1512,12 +1512,12 @@ function void Prog__StartPlayer(Prog_State *state, String path, u64 start)
     input->kind = Prog_JobKind_Play;
     input->path = StrCopy(&job->arena, path);
     input->offset = start;
-    input->volume = state->audioMuted ? 0 : state->audioVolume;
+    atomic_store(&state->playerVolume, state->audioMuted ? 0u : state->audioVolume);
+    input->volume = &state->playerVolume;
     input->progress = progress;
     job->input = input;
     P_JobSubmit(job);
     state->playerJob = job;
-    state->playerVolume = input->volume;
     state->playerHash = MapHashBytes(path.value, path.length);
 }
 
@@ -4193,11 +4193,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
                 String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
                 P_Progress *progress = &state->playerProgress[state->playerSlot];
-                b32 mine = state->playerJob && state->playerHash == MapHashBytes(path.value, path.length);
-                // A pause goes on at the volume set meanwhile, which ffplay takes as it starts again there.
-                b32 louder = mine && atomic_load(&progress->paused) && state->playerVolume != (state->audioMuted ? 0 : state->audioVolume);
-                if (louder) Prog__StartPlayer(state, path, atomic_load(&progress->doneBytes));
-                else if (mine) atomic_store(&progress->paused, !atomic_load(&progress->paused));
+                if (state->playerJob && state->playerHash == MapHashBytes(path.value, path.length)) atomic_store(&progress->paused, !atomic_load(&progress->paused));
                 else Prog__StartPlayer(state, path, 0);
             } break;
             case Prog_CommandKind_InspectorMute:
@@ -4207,12 +4203,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->audioMuted = false;
                     Prog_SetOption(state, Prog_Option_AudioVolume, (i32)Min(command->target, (u64)100));
                 }
-                // What plays starts again where it is at the new volume.
-                if (state->focusedRow >= state->directory.count || !Prog_IsAudio(state->directory.entries[state->focusedRow].file.name)) break;
-                String path = Prog_JoinPath(&state->frameArena, state->directory.path, state->directory.entries[state->focusedRow].file.name);
-                P_Progress *progress = &state->playerProgress[state->playerSlot];
-                b32 playing = state->playerJob && state->playerHash == MapHashBytes(path.value, path.length) && !atomic_load(&progress->paused);
-                if (playing && state->playerVolume != (state->audioMuted ? 0 : state->audioVolume)) Prog__StartPlayer(state, path, atomic_load(&progress->doneBytes));
+                atomic_store(&state->playerVolume, state->audioMuted ? 0u : state->audioVolume);
             } break;
             case Prog_CommandKind_TorrentDrop: {
                 if (command->row >= state->torrents.header.count) break;

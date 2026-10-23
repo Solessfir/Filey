@@ -1,5 +1,5 @@
 // Audio and video through the FFmpeg tools found on the PATH: the details ffprobe reads of a file, an audio file's waveform and a video's frame,
-// videos compressed, on the graphics card when it has an encoder, and audio played with ffplay; downloads by URL with yt-dlp, and torrents
+// videos compressed, on the graphics card when it has an encoder, and audio decoded by ffmpeg for the platform's sound; downloads by URL with yt-dlp, and torrents
 // with aria2c.
 
 function b32 Prog__HasExtension(String path, const String *extensions, u32 count)
@@ -875,38 +875,63 @@ function P_FileError Prog_FetchTorrent(Arena *arena, String source, String folde
     return result;
 }
 
-// What ffplay's -stats line says as it plays, rewritten in place with carriage returns: the seconds of the file played, first.
+// The sound ffmpeg decodes, as 16-bit stereo at 48 kHz, played as it comes at the volume set as it goes, and how far it has been heard.
+#define Prog_PlayerRate 48000
 typedef struct Prog__Player {
     P_Progress *progress;
-    char pending[256];
-    u64 pendingLength;
+    P_Audio *audio;
+    const atomic_uint *volume;
+    u64 start;    // milliseconds in
+    u8 carry[4];  // a frame the last piece cut in two
+    u32 carried;
 } Prog__Player;
+
+// The whole frames of what came, after the part of one the last piece left, at the volume set now, into `arena`.
+function i16 *Prog__PlayerFrames(Prog__Player *player, Arena *arena, String text, u64 *frames)
+{
+    u64 bytes = player->carried + text.length, whole = bytes / 4;
+    i16 *samples = ArenaPushArrayNoZero(arena, Max(whole * 2, (u64)1), i16);
+    if (whole) {
+        u8 *into = (u8 *)samples;
+        MemCopy(into, player->carry, player->carried);
+        MemCopy(into + player->carried, text.value, whole * 4 - player->carried);
+        player->carried = (u32)(bytes - whole * 4);
+        MemCopy(player->carry, text.value + text.length - player->carried, player->carried);
+    } else {
+        MemCopy(player->carry + player->carried, text.value, text.length);
+        player->carried = (u32)bytes;
+    }
+    // Loudness grows as the square of the setting, which the ear hears as even steps.
+    f32 level = (f32)Min(atomic_load(player->volume), 100u) / 100.0f, gain = level * level;
+    for (u64 i = 0; i < whole * 2; ++i) samples[i] = (i16)((f32)samples[i] * gain);
+    *frames = whole;
+    return samples;
+}
 
 function void Prog__PlayerOutput(void *user, String text)
 {
     Prog__Player *player = user;
-    for (u64 i = 0; i < text.length; ++i) {
-        char c = text.value[i];
-        if (c != '\n' && c != '\r') {
-            if (player->pendingLength < sizeof(player->pending)) player->pending[player->pendingLength++] = c;
-            continue;
-        }
-        String line = StrMake(player->pending, player->pendingLength);
-        player->pendingLength = 0;
-        while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
-        if (line.length && line.value[0] >= '0' && line.value[0] <= '9' && player->progress) atomic_store(&player->progress->doneBytes, (u64)(Prog__MediaNumber(line) * 1000));
-    }
+    if (!player->audio) return;
+    Scratch scratch = GetScratch();
+    u64 frames = 0;
+    i16 *samples = Prog__PlayerFrames(player, scratch.arena, text, &frames);
+    u64 heard = P_AudioWrite(player->audio, samples, (u32)frames);
+    if (player->progress) atomic_store(&player->progress->doneBytes, player->start + heard * 1000 / Prog_PlayerRate);
+    ReleaseScratch(scratch);
 }
 
-// Plays the audio file at `path` from `start` milliseconds in with ffplay, without a window, at `volume` from 0 to 100, keeping `progress`'s
-// done count at the milliseconds played; pausing `progress` pauses it, and a cancel stops it. False when ffplay is not there or cannot play it.
-function b32 Prog_PlayAudio(String path, u64 start, u32 volume, P_Progress *progress, const P_CancelToken *cancel)
+// Plays the audio file at `path` from `start` milliseconds in, decoded by ffmpeg and played by the system's sound at `volume`, 0 to 100,
+// read as it plays, keeping `progress`'s done count at the milliseconds heard; pausing `progress` pauses it, and a cancel stops it at once.
+// False when ffmpeg is not there or cannot decode it, or there is no sound to play it on.
+function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, const P_CancelToken *cancel)
 {
-    Scratch scratch = GetScratch();
-    String arguments[] = { S("ffplay"), S("-nodisp"), S("-autoexit"), S("-hide_banner"), S("-loglevel"), S("error"), S("-stats"), S("-volume"),
-                           StrFormat(scratch.arena, "%u", Min(volume, 100u)), S("-ss"), StrFormat(scratch.arena, "%.3f", (f64)start / 1000), path };
-    Prog__Player player = { .progress = progress };
-    b32 result = P_RunCommandStream(Prog_ParentPath(path), arguments, CArrayCount(arguments), true, Prog__PlayerOutput, &player, cancel, progress);
+    Scratch scratch = GetScratchEx(arena);
+    String arguments[] = { S("ffmpeg"), S("-hide_banner"), S("-loglevel"), S("error"), S("-nostdin"), S("-ss"), StrFormat(scratch.arena, "%.3f", (f64)start / 1000),
+                           S("-i"), path, S("-vn"), S("-f"), S("s16le"), S("-ac"), S("2"), S("-ar"), StrFormat(scratch.arena, "%u", Prog_PlayerRate), S("-") };
+    Prog__Player player = { .progress = progress, .audio = P_AudioOpen(arena, Prog_PlayerRate, 2), .volume = volume, .start = start };
+    b32 result = player.audio && P_RunCommandStream(Prog_ParentPath(path), arguments, CArrayCount(arguments), false, Prog__PlayerOutput, &player, cancel, progress);
+    // To its end, what is queued is heard first.
+    P_AudioClose(player.audio, result && !P_IsCancelled(cancel));
     ReleaseScratch(scratch);
     return result;
 }
