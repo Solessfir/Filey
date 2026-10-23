@@ -1,11 +1,13 @@
-# Filey
+<h1 align="center"><img src="Source/Resources/Filey.svg" width="40" alt=""> Filey</h1>
 
-A fast, keyboard-first file manager for Windows and Linux, written in C.
+<p align="center">A fast, keyboard-first file manager for Windows and Linux, written in C.</p>
 
 > [!IMPORTANT]
 > Filey is heavily inspired by [File Pilot](https://filepilot.tech/) and is a vibe-coded project.
 > If you care about hand-crafted software, use File Pilot instead, or better, buy it.
 > Developers like Vjekoslav Krajačić, who build amazing apps like it by hand, deserve our support.
+
+![Filey with two panels: a git repository on the left and an archive listed in the inspector on the right](Docs/Screenshot.png)
 
 ## Features
 
