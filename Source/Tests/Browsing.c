@@ -2674,6 +2674,24 @@ function void TestPlaces(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// Flags a run passes before its folders say how they open: --replace in the shown tab, which stays shown, the next one in a tab behind it;
+// --split in a new panel beside, a file there selected in its folder, with --inspect showing the inspector.
+function void TestOpenFlags(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (state.jobs.initialized) {
+        Check(TestWaitDirectory(&state));
+        Prog_OpenPaths(&state, StrFormat(&state.frameArena, "--replace\n%S/Empty\n%S/Folder2", fixture->path, fixture->path));
+        Check(TestWaitDirectory(&state) && state.tabCount == 2 && state.activeTab == 0 && TestEndsWith(Prog_TabPath(&state, 0), S("/Empty")) && TestEndsWith(Prog_TabPath(&state, 1), S("/Folder2")));
+        u32 panels = state.panelCount;
+        Prog_OpenPaths(&state, StrFormat(&state.frameArena, "--split\n--inspect\n%S/plain.txt", fixture->path));
+        Check(TestWaitDirectory(&state) && state.panelCount == panels + 1 && StrIsEqual(state.directory.path, fixture->path) && state.previewShown);
+        Check(state.hasFocus && state.focusedRow < state.directory.count && StrIsEqual(state.directory.entries[state.focusedRow].file.name, S("plain.txt")));
+    }
+    Prog_Release(&state);
+}
+
 // In a tree, a new item goes into the unfolded folder in focus, and a change inside one shows by itself.
 function void TestTreeFileCommands(TestFileFixture *fixture)
 {
@@ -4097,6 +4115,7 @@ function void TestBrowsing(void)
         TestUpdates(&fixture);
         TestPlaces(&fixture);
         TestUserGroups(&fixture);
+        TestOpenFlags(&fixture);
         TestTrash(&fixture);
 #if defined(_WIN32)
         P__TestDropForwarding(&fixture);

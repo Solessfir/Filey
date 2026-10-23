@@ -5784,7 +5784,9 @@ function void Prog_ApplyTabTraits(Prog_State *state, String traits)
 }
 
 // Folders a later run of the program handed this one, a line each, each in a new tab of the active panel after its shown one, the last shown.
-// A tab dragged over from another window follows its folder with its traits, after a tab character.
+// A tab dragged over from another window follows its folder with its traits, after a tab character. Flags before the folders, as the run
+// was given them, say how they open: --replace in the shown tab, which stays shown with the next ones in tabs behind it, --split or
+// --split=bottom each in a new split of the active panel, and --inspect with the inspector showing a file given.
 function void Prog_OpenPaths(Prog_State *state, String text)
 {
     // A tab dragged over from another window goes into the strip slot it made room in, else after the active panel's shown tab.
@@ -5793,17 +5795,40 @@ function void Prog_OpenPaths(Prog_State *state, String text)
     if (into != UINT32_MAX) Prog__ActivatePanel(state, into);
     Prog__UsePanel(state, state->activePanel);
     ArrayStr lines = StrSplit(&state->frameArena, text, '\n');
+    b32 replace = false, inspect = false, kept = false;
+    u32 splitKind = Prog_SplitKind_None;
     for (u64 i = 0; i < lines.header.count; ++i) {
-        Index split = StrIndexChar(lines.v[i], '\t', SSF_None);
-        String path = split.exists ? StrFromTo(lines.v[i], 0, (i64)split.value) : lines.v[i];
-        if (!path.length) continue;
-        u32 count = state->tabCount;
-        // A file, as Show in Filey passes one, opens its folder with it selected.
-        if (!split.exists && P_PathExists(path) && !P_IsDirectory(path)) {
-            Prog_ShowInFolder(state, path, true);
+        String line = lines.v[i];
+        if (line.length > 2 && line.value[0] == '-' && line.value[1] == '-') {
+            replace |= StrIsEqual(line, S("--replace"));
+            inspect |= StrIsEqual(line, S("--inspect"));
+            if (StrIsEqual(line, S("--split")) || StrIsEqual(line, S("--split=right"))) splitKind = Prog_SplitKind_Horizontal;
+            if (StrIsEqual(line, S("--split=bottom"))) splitKind = Prog_SplitKind_Vertical;
             continue;
         }
-        Prog_OpenTab(state, path, into != UINT32_MAX ? Min(state->foreignSlot, state->tabCount) : state->activeTab + 1, true);
+        Index split = StrIndexChar(line, '\t', SSF_None);
+        String path = split.exists ? StrFromTo(line, 0, (i64)split.value) : line;
+        if (!path.length) continue;
+        u32 count = state->tabCount;
+        b32 file = !split.exists && P_PathExists(path) && !P_IsDirectory(path);
+        if (splitKind != Prog_SplitKind_None || replace) {
+            String folder = file ? Prog_ParentPath(path) : path;
+            if (splitKind != Prog_SplitKind_None) Prog_SplitPanel(state, state->activePanel, (Prog_SplitKind)splitKind, false, folder);
+            else Prog_RequestDirectory(state, folder, true, 0);
+            if (file) Prog_SelectNext(state, Prog__FolderName(path));
+            // The next folders in tabs of their own after the one replaced, which stays shown, as showing another would stop its listing.
+            kept |= replace;
+            replace = false;
+            if (file && inspect) state->previewShown = true;
+            continue;
+        }
+        // A file, as Show in Filey passes one, opens its folder with it selected.
+        if (file) {
+            Prog_ShowInFolder(state, path, true);
+            if (inspect) state->previewShown = true;
+            continue;
+        }
+        Prog_OpenTab(state, path, into != UINT32_MAX ? Min(state->foreignSlot, state->tabCount) : state->activeTab + 1, !kept);
         into = UINT32_MAX;
         if (split.exists && state->tabCount > count) Prog_ApplyTabTraits(state, StrFrom(lines.v[i], split.value + 1));
     }

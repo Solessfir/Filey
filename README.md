@@ -54,6 +54,10 @@ curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/install.sh | ba
 
 `wget -qO-` works in place of `curl -sSL` in both.
 
+### Command line
+
+`filey <folder or file>...` opens each in a new tab of the open window, a file in its folder with it selected. `--replace` shows the first in the current tab instead, `--split` (or `--split=bottom`) opens each in a new panel beside the current one, `--inspect` opens the inspector on a file given, and `--new-window` opens a window of its own.
+
 ### Updates
 
 Filey asks GitHub once a day whether a newer release is out (with `curl`, which Windows 10 and later and Linux desktops have). When one is, a notice and the main menu offer **Update**, which downloads it, puts it in place of the running Filey and starts it again with your panels and tabs. **Update Check** in the Options turns the daily check off; **Check For Updates** in the command palette asks at once.

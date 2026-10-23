@@ -368,10 +368,20 @@ int main(void)
         P_WaitForExit((u32)replaced, 15000);
         P_RemoveReplaced(P_ExecutablePath(startup.arena));
     }
-    if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, startPaths)) {
+    // Flags that say how the folders open go with them to the window that opens them, as lines before them: --replace, --split[=bottom] and
+    // --inspect, which Prog_OpenPaths reads. A first run opens as it would without folders, and then them so.
+    ArrayStr handed = {0};
+    String split = P_StartupOption(startup.arena, S("--split="));
+    if (P_StartupFlag(S("--replace"))) ArrayPush(startup.arena, handed, S("--replace"));
+    if (P_StartupFlag(S("--split")) || split.length) ArrayPush(startup.arena, handed, StrIsEqual(split, S("bottom")) ? S("--split=bottom") : S("--split"));
+    if (P_StartupFlag(S("--inspect"))) ArrayPush(startup.arena, handed, S("--inspect"));
+    b32 flagged = handed.header.count != 0;
+    for (u64 i = 0; flagged && i < startPaths.header.count; ++i) ArrayPush(startup.arena, handed, startPaths.v[i]);
+    if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, flagged ? handed : startPaths)) {
         ReleaseScratch(startup);
         return 0;
     }
+    if (flagged) startPaths = (ArrayStr){0};
     PlatformWindowDesc window = { .title = S("Filey"), .width = 1280, .height = 800 };
     Prog_StartupWindow(configDirectory, &window);
     Prog_SessionWindow(configDirectory, &window);
@@ -411,6 +421,11 @@ int main(void)
     if (ok && uninstall) Prog__OpenSetup(&loop.state);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
     if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
+    if (ok && flagged) {
+        StrBuilder text = {0};
+        for (u64 i = 0; i < handed.header.count; ++i) StrBuildStr(startup.arena, &text, StrFormat(startup.arena, i ? "\n%S" : "%S", handed.v[i]));
+        Prog_OpenPaths(&loop.state, text.buffer);
+    }
     // The torrent downloads the last run left unfinished go on, in the main window only.
     if (ok && !separateWindow) Prog_ResumeTorrents(&loop.state);
     // A tab moved out of another window brings its zoom and focused item.
