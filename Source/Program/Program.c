@@ -10596,6 +10596,21 @@ function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f
     }
 }
 
+// An item's name over its type and size, or a folder's counts, and when it was changed, a line each.
+function void Prog__InspectorFacts(Prog_State *state, const Prog_Entry *entry, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
+    String type = Prog_Tr(entry->type);
+    String details = entry->file.kind == P_FileKind_Directory
+        ? (entry->measured ? StrFormat(frame, "%S, %S, %S, %S", type, StrFormat(frame, TrN(entry->folders, "%u folder", "%u folders"), (u32)entry->folders),
+                                       StrFormat(frame, TrN(entry->files, "%u file", "%u files"), (u32)entry->files), Prog_FormatSize(frame, entry->bytes)) : type)
+        : StrFormat(frame, "%S, %S", type, Prog_FormatSize(frame, entry->file.size));
+    Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
+    Prog__Label(Prog_EntryModified(frame, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+}
+
 // The inspector beside the list or below it, `size` wide or tall with its divider:
 // a toolbar with its layouts, the text view's switches and the item's name, the focused item's text, picture or folder,
 // and a footer with the filter and what the item holds.
@@ -10705,6 +10720,14 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__InspectorText(state, m);
         } else if (pdf) {
             Prog__InspectorPdf(state, m);
+        } else if (image && Prog_IsAudio(entry->file.name)) {
+            // An audio file's facts over its waveform, which takes the rest.
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(3 * m->row + m->inset));
+            UI_SetNextChildrenLayout(UI_Layout_Vertical);
+            UI_SetNextChildrenPadding((UI_Padding){ m->inset, m->inset, m->inset, 0 });
+            UI_Parent(UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorFacts")), UI_Flag_Clip)) Prog__InspectorFacts(state, entry, m);
+            Prog__InspectorImage(state, m);
         } else if (image) {
             Prog__InspectorImage(state, m);
         } else if (folder) {
@@ -10739,15 +10762,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                         UI_AddBlock(UI_Flag_DrawImage);
                         Prog__Spacer(UI_Flex(), UI_Pixels(m->inset));
                     }
-                    Prog__Label(entry->file.name, UI_Flex(), m->row, 0, theme->textHeading, 0);
-                    Arena *frame = &state->frameArena;
-                    String type = Prog_Tr(entry->type);
-                    String details = entry->file.kind == P_FileKind_Directory
-                        ? (entry->measured ? StrFormat(frame, "%S, %S, %S, %S", type, StrFormat(frame, TrN(entry->folders, "%u folder", "%u folders"), (u32)entry->folders),
-                                                       StrFormat(frame, TrN(entry->files, "%u file", "%u files"), (u32)entry->files), Prog_FormatSize(frame, entry->bytes)) : type)
-                        : StrFormat(frame, "%S, %S", type, Prog_FormatSize(frame, entry->file.size));
-                    Prog__Label(details, UI_Flex(), m->row, 0, theme->textDim, 0);
-                    Prog__Label(Prog_EntryModified(&state->frameArena, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
+                    Prog__InspectorFacts(state, entry, m);
                     // A file inside an archive is taken out before it shows, which a large one takes a while for.
                     P_Progress *taking = state->previewJob ? ((Prog_JobInput *)state->previewJob->input)->progress : NULL;
                     u64 total = taking ? atomic_load(&taking->totalBytes) : 0, done = total ? Min(atomic_load(&taking->doneBytes), total) : 0;
