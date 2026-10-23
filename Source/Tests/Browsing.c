@@ -3071,8 +3071,8 @@ function void TestSettings(void)
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 4 && Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 60 && Prog_OptionValue(&look, Prog_Option_RoundCorners));
         Prog_ApplySettings(&look, S("spacing = 7\ncorners = square\nrows.alternate = on\ninactive.opacity = 85\ntheme = light\nspacing = 99\n"));
         Check(Prog_OptionValue(&look, Prog_Option_Spacing) == 7 && !Prog_OptionValue(&look, Prog_Option_RoundCorners) && look.alternatingRows);
-        // "light" is the light scheme after the default, Catppuccin Latte.
-        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == 1 && (u32)(Prog_ThemeUser.background.r * 255 + 0.5f) == 0xEF &&
+        // "light" is the light scheme, Catppuccin Latte.
+        Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == Prog_LightScheme && (u32)(Prog_ThemeUser.background.r * 255 + 0.5f) == 0xEF &&
               look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x4C4F69);
         // The default theme is the one its colors make. The full moon scheme, which the choices leave out, shows the default among them, and its
         // popups and disabled icons come from its surface, background, icon and disabled colors.
@@ -3094,7 +3094,7 @@ function void TestSettings(void)
         Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look, Prog_BuiltInSchemes, Prog_Option_ColorScheme) && look.schemeNames.header.count == 2);
         Check(StrIsEqual(look.schemeNames.v[0], S("Custom 1")) && look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f);
         // A fork of a built-in scheme takes the next number.
-        Check(Prog_ForkScheme(&look, 2, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[1], S("Custom 2")) && StrIsEqual(look.schemeNames.v[2], S("Mine")));
+        Check(Prog_ForkScheme(&look, 0, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[1], S("Custom 2")) && StrIsEqual(look.schemeNames.v[2], S("Mine")));
         Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x191919);
         look.colorPicking = true;
         look.colorOption = Prog_Option_ColorBackground;

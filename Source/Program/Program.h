@@ -938,8 +938,9 @@ typedef enum Prog_LayoutAsk {
 #define Prog_MaxLayouts 64
 // Default and the reference's six, which the custom schemes follow.
 #define Prog_BuiltInSchemes 7
-// The first built-in scheme, shown where the settings name none.
-#define Prog_DefaultScheme "catppuccin-frappe"
+// The first built-in scheme, shown where the settings name none, and the light one that "light" names.
+#define Prog_DefaultScheme "filey-dark"
+#define Prog_LightScheme 2
 // A custom scheme's file in the settings folder ends so, after its name.
 #define Prog_SchemeExtension S(".scheme")
 // The colors a scheme is made of, its groups, as the Options list them from Prog_Option_ColorClear on.
