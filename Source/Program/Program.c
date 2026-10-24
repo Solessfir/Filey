@@ -11557,6 +11557,14 @@ function void Prog__InspectorTorrent(Prog_State *state, const Prog_Entry *entry,
     Prog__ScrollBar(list, row, S("TorrentFiles"), 1, m);
 }
 
+// Audio plays through ffmpeg, looked for once a run.
+function b32 Prog__HasFfmpeg(void)
+{
+    local_persist i32 found = -1;
+    if (found < 0) found = P_ProgramFound(S("ffmpeg"));
+    return found > 0;
+}
+
 // The inspector toolbar's tools for an audio file, a video or a torrent: playing it with how far it is; the codec and quality of Compress
 // Video, which Options sets too, and the button that starts it; downloading the torrent, or pausing and stopping its download.
 function void Prog__InspectorTools(Prog_State *state, const Prog_Entry *entry, f32 tight, const Prog_Metrics *m)
@@ -11751,7 +11759,9 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 if (grid.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorToggleImageGrid, 0, 0, grid.clickOrder);
                 Prog__ToolbarButton(state, S("InspectorMinimap"), state->imageHideMinimap ? Icon_LocateOff : Icon_Locate, Prog_CommandKind_InspectorToggleImageMinimap, true, m);
             }
-            if (entry && (Prog_IsAudio(entry->file.name) || Prog_IsVideo(entry->file.name) || Prog_IsTorrent(entry->file.name))) Prog__InspectorTools(state, entry, tight, m);
+            if (entry && ((Prog_IsAudio(entry->file.name) && Prog__HasFfmpeg()) || Prog_IsVideo(entry->file.name) || Prog_IsTorrent(entry->file.name))) {
+                Prog__InspectorTools(state, entry, tight, m);
+            }
             if (text) {
                 f32 apart = floorf(6.4f * s + 0.5f);
                 Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
