@@ -60,10 +60,13 @@ function void TestCodegenParse(void)
                                          "v = TrN(Count(a), \"%S file\", \"%S files\"); u = TrN(1, \"%S file\", \"%S files\");\n"), &strings, &plurals);
         Check(strings.header.count == 2 && StrIsEqual(strings.v[0], S("Open")) && StrIsEqual(strings.v[1], S("%u \\\"items\\\"")));
         Check(plurals.header.count == 1 && StrIsEqual(plurals.v[0], S("%S files")));
-        // Text that looks shown to the user fails the build unless translated or kept with NoTr, and comments, keys and single words pass.
+        // Text that looks shown to the user fails the build unless translated or kept with NoTr, and comments and keys pass.
+        // A word alone fails as a string made of it, but not as a block's key, a word compared with or a bare literal of a table.
         ArrayStr untranslated = Codegen_UntranslatedStrings(&arena, S("a = S(\"Shown text\");\nb = Tr(\"Shown text\"); c = NoTr(\"Kept text\"); d = S(\"Word\");\n"
-                                                                     "// \"Comment text\"\ne = TrN(n, \"One file\", \"Many files\"); f = S(\"Key/Name\"); g = StrFormat(x, \"Moved %u items\", n);\n"));
-        Check(untranslated.header.count == 2 && StrIsEqual(untranslated.v[0], S("1: Shown text")) && StrIsEqual(untranslated.v[1], S("4: Moved %u items")));
+                                                                     "// \"Comment text\"\ne = TrN(n, \"One file\", \"Many files\"); f = S(\"Key/Name\"); g = StrFormat(x, \"Moved %u items\", n);\n"
+                                                                     "h = UI_KeyFromStr(k, S(\"Close\")); i = StrIsEqual(n, S(\"Desktop\")); j = { \"Escape\" }; l = Tr(\"Copy\"); o = NoTrInit(\"Kept\");\n"));
+        Check(untranslated.header.count == 3 && StrIsEqual(untranslated.v[0], S("1: Shown text")) && StrIsEqual(untranslated.v[1], S("2: Word")) &&
+              StrIsEqual(untranslated.v[2], S("4: Moved %u items")));
         Check(TestCodegenContains(Codegen_EmitStrings(&arena, strings, plurals), S("    \"Open\",\n")));
     }
 

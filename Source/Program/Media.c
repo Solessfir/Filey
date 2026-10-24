@@ -837,7 +837,7 @@ function String Prog__TorrentFileName(Arena *arena, String name)
         text[i] = c < 32 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' || c == '\\' || c == '|' || c == '?' || c == '*' ? '_' : c;
     }
     while (length && (text[length - 1] == '.' || text[length - 1] == ' ')) --length;
-    return length ? StrMake((const char *)text, length) : S("Torrent");
+    return length ? StrMake((const char *)text, length) : NoTr("Torrent");
 }
 
 // The .torrent aria2c saved in `folder` for a magnet link, named by its info hash `hash`, renamed after the torrent, or the file of that name

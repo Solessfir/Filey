@@ -18,6 +18,7 @@ function const char *Prog_TrPlural(u64 count, const char *one, const char *other
 #define TrMark(text) S(text)
 // Text kept as it is on purpose, as a saved name or a file's, which the build's check for untranslated text passes over.
 #define NoTr(text) S(text)
+#define NoTrInit(text) SInit(text)
 #define NoTrF(text) text
 
 // Where crashes are reported, a new issue of the project's.

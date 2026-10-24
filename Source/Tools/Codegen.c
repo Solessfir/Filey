@@ -311,9 +311,25 @@ function void Codegen_CollectStrings(Arena *arena, String text, ArrayStr *string
 
 function b32 Codegen__EndsWith(String s, String end) { return s.length >= end.length && StrIsEqual(StrFrom(s, s.length - end.length), end); }
 
+// The name of the call whose arguments `before`, the line up to a point in it, is in, or empty.
+function String Codegen__EnclosingCall(String before)
+{
+    i64 depth = 0;
+    for (u64 k = before.length; k-- > 0;) {
+        if (before.value[k] == ')') ++depth;
+        else if (before.value[k] == '(' && depth-- == 0) {
+            u64 start = k;
+            while (start > 0 && Codegen__IsIdentifier(before.value[start - 1])) --start;
+            return StrFromTo(before, start, (i64)k);
+        }
+    }
+    return (String){0};
+}
+
 // The text in `text`, a source file, that looks shown to the user but is not translated, one "line: text" for each, to fail the build with: a
-// literal that starts with a capitalized word and holds a space, outside Tr, TrF, TrInit, TrMark and TrN. NoTr and NoTrF keep one as it is on
-// purpose. Comments and preprocessor lines are left alone.
+// literal that starts with a capitalized word and holds a space, outside Tr, TrF, TrInit, TrMark and TrN, or one capitalized word alone made a
+// string with S or SInit, as a label's, but for a block's key and a word compared with.
+// NoTr and NoTrF keep one as it is on purpose. Comments and preprocessor lines are left alone.
 function ArrayStr Codegen_UntranslatedStrings(Arena *arena, String text)
 {
     ArrayStr result = {0};
@@ -340,10 +356,19 @@ function ArrayStr Codegen_UntranslatedStrings(Arena *arena, String text)
             b32 capitalized = literal.length > 2 && literal.value[0] >= 'A' && literal.value[0] <= 'Z' && literal.value[1] >= 'a' && literal.value[1] <= 'z';
             u64 word = 1;
             while (word < literal.length && literal.value[word] >= 'a' && literal.value[word] <= 'z') ++word;
+            String before = StrFromTo(line, 0, (i64)quote);
+            b32 alone = capitalized && (word == literal.length || (word + 1 == literal.length && (literal.value[word] == '.' || literal.value[word] == ':')));
+            if (alone) {
+                String call = Codegen__EnclosingCall(before);
+                b32 made = StrIsEqual(call, S("S")) || StrIsEqual(call, S("SInit"));
+                String outer = made ? Codegen__EnclosingCall(StrFromTo(before, 0, (i64)(before.length - call.length - 1))) : (String){0};
+                b32 compared = StrIsEqual(outer, S("UI_KeyFromStr")) || StrIsEqual(outer, S("StrIsEqual")) || StrIsEqual(outer, S("Prog__EqualFolded")) || StrIsEqual(outer, S("StrIndexStr"));
+                if (made && !compared) ArrayPush(arena, result, StrFormat(arena, "%u: %S", (u32)number, literal));
+                continue;
+            }
             if (!capitalized || word >= literal.length || !StrIndexChar(StrFrom(literal, word), ' ', SSF_None).exists) continue;
             char next = literal.value[word];
             if (next != ' ' && next != ',' && next != '.' && next != '?') continue;
-            String before = StrFromTo(line, 0, (i64)quote);
             if (Codegen__EndsWith(before, S("Tr(")) || Codegen__EndsWith(before, S("TrF(")) || Codegen__EndsWith(before, S("TrInit(")) || Codegen__EndsWith(before, S("TrMark("))) continue;
             // The two forms of a TrN, which come after its count.
             u64 counted = 0;

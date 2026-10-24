@@ -602,7 +602,16 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Check(!strcmp(TrN(1, "%u file", "%u files"), "%u f1") && !strcmp(TrN(22, "%u file", "%u files"), "%u f2") && !strcmp(TrN(12, "%u file", "%u files"), "%u f5"));
             Check(!strcmp(TrN(21, "%u file", "%u files"), "%u f1") && !strcmp(TrN(3, "%u row", "%u rows"), "%u rows"));
             Check(StrIsEqual(Tr("Two\nlines"), S("Deux\nlignes")));
+            // A language's rule picks the form: one for every count, 0 counted as one, or Polish's three, where 21 takes the many form.
+            Prog_AddLanguageText(S("%u files\n= %u f\n"));
+            Check(!strcmp(TrN(1, "%u file", "%u files"), "%u f") && !strcmp(TrN(7, "%u file", "%u files"), "%u f"));
+            Prog_AddLanguageText(S("# plural: french\n%u files\n= %u f1 | %u fn\n"));
+            Check(!strcmp(TrN(0, "%u file", "%u files"), "%u f1") && !strcmp(TrN(2, "%u file", "%u files"), "%u fn"));
+            Prog_AddLanguageText(S("# plural: polish\n%u files\n= %u p1 | %u p2 | %u p5\n"));
+            Check(!strcmp(TrN(1, "%u file", "%u files"), "%u p1") && !strcmp(TrN(22, "%u file", "%u files"), "%u p2") && !strcmp(TrN(21, "%u file", "%u files"), "%u p5"));
+            Check(!strcmp(TrN(12, "%u file", "%u files"), "%u p5") && !strcmp(TrN(0, "%u file", "%u files"), "%u p5"));
             Prog_UseLanguage(&quiet, (String){0});
+            Check(Prog_LanguagePlural == Prog_Plural_Forms);
             Check(StrIsEqual(Tr("Open"), S("Open")));
             // The menu items kept by their text follow the language shown, and are saved in English.
             {

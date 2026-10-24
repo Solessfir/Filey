@@ -2901,7 +2901,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             if (!count || state->directory.archive || P_IsTrashFolder(state->directory.path)) break;
             String folder = Prog_ParentPath(paths[0]);
             String stem = count == 1 ? (P_IsDirectory(paths[0]) ? Prog_EntryLeaf(paths[0]) : Prog__NameStem(Prog_EntryLeaf(paths[0]))) : Prog_EntryLeaf(folder);
-            String name = Prog__FreeName(frame, folder, stem.length ? stem : S("Archive"), kind == Prog_CommandKind_CompressZip ? S(".zip") : S(".7z"));
+            String name = Prog__FreeName(frame, folder, stem.length ? stem : NoTr("Archive"), kind == Prog_CommandKind_CompressZip ? S(".zip") : S(".7z"));
             Prog__FileJobOp(state, Prog_JobKind_Transfer, paths, count, folder, false, name, Prog_TransferOp_Pack);
         } break;
         case Prog_CommandKind_ExtractHere:
@@ -3484,7 +3484,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Arena *frame = &state->frameArena;
                 String shown = StrMake(state->language.text, state->language.length);
                 // A custom language chosen is opened again, its file made anew if it has gone.
-                String name = Prog_LanguageIsCustom(shown) ? shown : StrFormat(frame, "%S (custom)", shown.length ? shown : S("English"));
+                String name = Prog_LanguageIsCustom(shown) ? shown : StrFormat(frame, "%S (custom)", shown.length ? shown : NoTr("English"));
                 String path = Prog_JoinPath(frame, state->configDirectory, StrFormat(frame, "%S.lang", name)), existing = {0};
                 if (!P_ReadFile(frame, path, &existing)) P_WriteFile(frame, path, Prog_LanguageTemplate(frame, name));
                 Prog_ListLanguages(state);
@@ -3985,9 +3985,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 String details = {0};
                 if (Prog__ContainsFolded(name, S(".txt")) && P_ReadFile(frame, Prog_JoinPath(frame, folder, name), &details)) details = StrFromTo(details, 0, (i64)Min(details.length, (u64)3000));
 #if defined(_WIN32)
-                String system = S("Windows");
+                String system = NoTr("Windows");
 #else
-                String system = S("Linux");
+                String system = NoTr("Linux");
 #endif
                 // A minidump goes in a zip, as GitHub takes no .dmp files, which is put on the clipboard to paste into the issue and selected in the
                 // tab below to drag there instead.

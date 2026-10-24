@@ -3109,7 +3109,7 @@ function void Prog__DirectoryJob(P_Job *job)
         // The archive comes down into a folder in this run's own, and the executable in it takes the running one's place.
         P_FileError *error = ArenaPushStruct(&job->arena, P_FileError);
         String run = P_RunFolder(&job->arena), created = {0};
-        *error = run.length ? P_CreateItem(&job->arena, run, S("Update"), true, &created) : (P_FileError){ 1, TrMark("There is no folder to download into.") };
+        *error = run.length ? P_CreateItem(&job->arena, run, NoTr("Update"), true, &created) : (P_FileError){ 1, TrMark("There is no folder to download into.") };
         String folder = Prog_JoinPath(&job->arena, run, created), archive = Prog_JoinPath(&job->arena, folder, Prog__FolderName(input->name)), output = {0};
         String arguments[] = { S("curl"), S("-fsSL"), S("--max-time"), S("600"), S("-o"), archive, input->name };
         if (!error->code && !P_RunCommand(&job->arena, folder, arguments, CArrayCount(arguments), 660000, &output, true)) *error = (P_FileError){ 1, TrMark("The download failed.") };
@@ -3784,7 +3784,7 @@ function b32 Prog__ContainsFolded(String text, String needle);
 // The folder crash reports go to, in the cache folder.
 function String Prog_CrashFolder(Arena *arena, const Prog_State *state)
 {
-    return state->cacheDirectory.length ? Prog_JoinPath(arena, state->cacheDirectory, S("Crashes")) : (String){0};
+    return state->cacheDirectory.length ? Prog_JoinPath(arena, state->cacheDirectory, NoTr("Crashes")) : (String){0};
 }
 
 // Offers the newest crash report no start has offered yet to be reported, after marking every new one offered (".seen" before its extension).
@@ -7538,8 +7538,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
-            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
-                          input->kind == Prog_JobKind_Restore ? S("Restore") : input->move ? S("Move") : S("Copy");
+            String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? NoTr("Download") : input->kind == Prog_JobKind_Trash ? NoTr("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? NoTr("Delete") : input->kind == Prog_JobKind_Create ? NoTr("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
+                          input->kind == Prog_JobKind_Restore ? NoTr("Restore") : input->move ? NoTr("Move") : NoTr("Copy");
             // One stopped from its card, with Escape or in the system's own progress window ends without an error.
             if (error.code && !P_IsCancelled(&job->cancelToken) && !P_FileErrorIsCancel(error)) {
                 String failed = input->transferOp == Prog_TransferOp_CompressVideo ? Tr("Compress video failed") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? Tr("Download failed") : input->kind == Prog_JobKind_Trash ? Tr("Trash failed") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? Tr("Delete failed")

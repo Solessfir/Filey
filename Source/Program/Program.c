@@ -26,7 +26,7 @@ function String Prog_SystemLanguage(void)
         ReleaseScratch(scratch);
         known = true;
     }
-    return result.length ? result : S("English");
+    return result.length ? result : NoTr("English");
 }
 
 // The chosen language's translations by their English text, each ending in a zero for TrF.
@@ -56,9 +56,18 @@ function const char *Prog_TrFormat(const char *english)
     return found.value;
 }
 
-// The format of a counted text for `count`. A translation lists its forms apart by zeros, as its file separates them by " | ", and how many
-// there are tells them apart: two as English's, for one and the rest, three as the East Slavic languages', for one, a few and many.
-// ponytail: forms told apart by their number only; a language with other rules, as Polish's or Arabic's, needs its file to name them.
+// How the chosen language picks a counted text's form, which its file names on a line "# plural: french" or "# plural: polish".
+typedef enum Prog_Plural {
+    Prog_Plural_Forms,   // by how many forms there are: one for every count, two as English's, three as Russian's for one, a few and many
+    Prog_Plural_French,  // two, the first for 0 and 1, as French and Brazilian Portuguese have
+    Prog_Plural_Polish,  // three, for 1 alone, a few (2 to 4, 22 to 24, but not 12 to 14) and many, as Polish has
+    Prog_Plural_Count,
+} Prog_Plural;
+global Prog_Plural Prog_LanguagePlural;
+global const char *const Prog_PluralNames[Prog_Plural_Count] = { "", "french", "polish" };
+
+// The format of a counted text for `count`: a translation lists its forms apart by zeros, as its file separates them by " | ", and the
+// language's rule picks one.
 function const char *Prog_TrPlural(u64 count, const char *one, const char *other)
 {
     String found = Prog_Tr(StrFromCStr(other));
@@ -66,8 +75,11 @@ function const char *Prog_TrPlural(u64 count, const char *one, const char *other
     u32 forms = 1;
     for (u64 i = 0; i < found.length; ++i) forms += found.value[i] == 0;
     u64 last = count % 10, tens = count % 100;
-    u32 form = forms == 2 ? count != 1
-             : forms >= 3 ? (last == 1 && tens != 11 ? 0 : last >= 2 && last <= 4 && (tens < 12 || tens > 14) ? 1 : 2) : 0;
+    b32 few = last >= 2 && last <= 4 && (tens < 12 || tens > 14);
+    u32 form = forms == 1 ? 0
+             : forms == 2 ? (Prog_LanguagePlural == Prog_Plural_French ? count > 1 : count != 1)
+             : Prog_LanguagePlural == Prog_Plural_Polish ? (count == 1 ? 0 : few ? 1 : 2)
+             : (last == 1 && tens != 11 ? 0 : few ? 1 : 2);
     const char *result = found.value;
     while (form--) result += strlen(result) + 1;
     return result;
@@ -143,6 +155,12 @@ function void Prog_AddLanguageText(String text)
         String line = StrFromTo(text, at, (i64)(at + end.value));
         at += end.value + 1;
         if (line.length && line.value[line.length - 1] == '\r') --line.length;
+        if (line.length > 9 && StrIsEqual(StrFromTo(line, 0, 9), S("# plural:"))) {
+            String rule = StrFrom(line, 9);
+            while (rule.length && rule.value[0] == ' ') rule = StrFrom(rule, 1);
+            while (rule.length && rule.value[rule.length - 1] == ' ') --rule.length;
+            for (u32 r = 0; r < Prog_Plural_Count; ++r) if (StrIsEqual(rule, StrFromCStr(Prog_PluralNames[r]))) Prog_LanguagePlural = (Prog_Plural)r;
+        }
         if (!line.length || line.value[0] == '#') continue;
         if (line.length >= 1 && line.value[0] == '=') {
             String translation = Prog__Unescape(&Prog_LanguageArena, StrFrom(line, line.length >= 2 && line.value[1] == ' ' ? 2 : 1));
@@ -200,6 +218,7 @@ function void Prog__LoadLanguage(Prog_State *state, String name)
     ArenaClear(&Prog_LanguageArena);
     Prog_LanguageMap = (typeof(Prog_LanguageMap)){0};
     Prog_LanguageEnglish = (typeof(Prog_LanguageEnglish)){0};
+    Prog_LanguagePlural = Prog_Plural_Forms;
     ArenaClear(&Prog__CommandTextArena);
     MemZero(Prog__CommandTexts, sizeof(Prog__CommandTexts));
     if (!name.length || Prog__EqualFolded(name, S("English"))) return;
@@ -245,12 +264,17 @@ function String Prog_LanguageTemplate(Arena *arena, String name)
     StrBuildStr(arena, &text, StrFormat(arena, "# Filey language: %S\n"
                                                "# Each entry is Filey's English text on one line and its translation on the next, after \"= \".\n"
                                                "# An entry left empty shows in English. Keep the %%u, %%S and other conversions of a line, in their order.\n"
-                                               "# Saved, the file applies at once while this language is chosen in Options.\n\n", name));
+                                               "# Saved, the file applies at once while this language is chosen in Options.\n", name));
+    // The rule the shown language counts by, which a translation into another may change: "french", for two forms with 0 counted as one,
+    // or "polish", for three told apart as Polish does.
+    if (Prog_LanguagePlural != Prog_Plural_Forms) StrBuildStr(arena, &text, StrFormat(arena, "# plural: %s\n", Prog_PluralNames[Prog_LanguagePlural]));
+    StrBuildStr(arena, &text, S("\n"));
     for (u64 i = 0; i + 1 < CArrayCount(Prog_Strings); ++i) {
         String english = StrFromCStr(Prog_Strings[i]), shown = Prog_Tr(english);
         StrBuildStr(arena, &text, StrFormat(arena, "%S\n= %S\n\n", Prog__Escape(arena, english), shown.value == english.value ? S("") : Prog__Escape(arena, shown)));
     }
-    StrBuildStr(arena, &text, S("# Counted texts: the forms for one, then for the rest, separated by \" | \"; three forms are for one, a few and many, as Russian has.\n\n"));
+    StrBuildStr(arena, &text, S("# Counted texts: one form for every count, or the forms for one and for the rest, or for one, a few and many as Russian has, separated by \" | \".\n"
+                                "# A \"# plural: french\" line at the top counts 0 as one; \"# plural: polish\" tells three forms apart as Polish does.\n\n"));
     for (u64 i = 0; i + 1 < CArrayCount(Prog_PluralStrings); ++i) {
         String english = StrFromCStr(Prog_PluralStrings[i]), shown = Prog_Tr(english);
         StrBuildStr(arena, &text, StrFormat(arena, "%S\n= ", english));
@@ -1078,7 +1102,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 // The options of the Options popup, in its order.
 global const String Prog_OptionSwitch[] = { SInit("false"), SInit("true") };
 // English, then the built-in languages; the custom ones follow.
-global const String Prog_OptionLanguages[] = { SInit("English"), SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439") };
+global const String Prog_OptionLanguages[] = { NoTrInit("English"), SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439") };
 global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };
@@ -2633,7 +2657,7 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
     // Keyed, so that its last layout tells whether a dragged tab is over it.
     UI_Block *strip = UI_AddBlockFromKey(UI_KeyFromStr(0, S("TabStrip")), UI_Flag_DrawBackground);
     UI_Parent(strip) {
-        if (caption) Prog__Caption(state, S("Caption"), width, bar, -top);
+        if (caption) Prog__Caption(state, NoTr("Caption"), width, bar, -top);
         // The tab's outline, a little thinner than the strip's line, runs a pixel in from its sides.
         f32 stroke = m->stroke, edge = floorf(0.8f * scale + 0.5f);
         f32 button = floorf(m->bar * 0.75f);
@@ -3107,7 +3131,7 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     if (lock.clicked) Prog_QueueCommand(state, Prog_CommandKind_FolderViewToggle, 0, 0, lock.clickOrder);
     Prog__Spacer(UI_Pixels(apart), UI_Pixels(Prog__StripHeight(m)));
     b32 bookmarked = Prog_IsBookmarked(state, path);
-    UI_Interaction bookmark = Prog__TextButton(S("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(width), height, 0,
+    UI_Interaction bookmark = Prog__TextButton(NoTr("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(width), height, 0,
                                                bookmarked ? theme->textMatch : theme->icon, bookmarked ? theme->textMatch : theme->text, theme->iconDisabled,
                                                path.length != 0, m);
     if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_BookmarksToggle, bookmarked ? Tr("This path is bookmarked.") : Tr("This path is not bookmarked."));
@@ -3192,8 +3216,8 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
     UI_Parent(toolbar) {
         Prog__Spacer(UI_Pixels(floorf(4.8f * m->scale + 0.5f)), UI_Pixels(bar));
         String up = Prog_UpPath(state->directory.path);
-        Prog__ToolbarButton(state, S("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
-        Prog__ToolbarButton(state, S("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
+        Prog__ToolbarButton(state, NoTr("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
+        Prog__ToolbarButton(state, NoTr("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, up.length != 0, m);
         Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, 0, m);
         Prog__Spacer(UI_Pixels(floorf(6.4f * m->scale + 0.5f)), UI_Pixels(bar));
@@ -4949,7 +4973,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     }
     // The scroll bar sits in the window's coordinates, since the boxes around the list have no layout of their own yet.
     state->listScrolls = list->contentSize.y > list->rect.y1 - list->rect.y0 + 0.5f && list->rect.y1 > list->rect.y0;
-    UI_Parent(UI->root) Prog__ScrollBar(list, pitch.y, S("Files"), 1, m);
+    UI_Parent(UI->root) Prog__ScrollBar(list, pitch.y, NoTr("Files"), 1, m);
 }
 
 function String Prog__FormatCount(Arena *arena, u64 count);
@@ -9365,7 +9389,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                         u32 chipCount = Prog_HotkeyChips(&state->frameArena, state, (Prog_CommandKind)at.kind, chips, CArrayCount(chips));
                         for (u32 c = 0; c < chipCount; ++c) {
                             Prog__Spacer(UI_Pixels(floorf(3.2f * s + 0.5f)), UI_Pixels(face));
-                            Prog__HotkeyChipButton(state, S("Palette"), (Prog_CommandKind)at.kind, &chips[c], face, highlighted, m);
+                            Prog__HotkeyChipButton(state, NoTr("Palette"), (Prog_CommandKind)at.kind, &chips[c], face, highlighted, m);
                         }
                     }
                 }
@@ -12083,7 +12107,7 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 facts->props.childrenAlignment = (UI_Vec2){ 0, 0 };
                 UI_Parent(facts) {
                     f32 before = floorf(7.2f * s + 0.5f);
-                    Prog__LabelPadded(state->previewHex ? S("Hex") : state->previewArchive ? Tr("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
+                    Prog__LabelPadded(state->previewHex ? NoTr("Hex") : state->previewArchive ? Tr("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
                     Prog__Icon(Icon_TextAlignStart, 0, m->pill, theme->icon, 0.5f, m);
                     // The lines the filter keeps out of all of them, of a big file's window those it holds until those of the whole file are
                     // found, with a plus where there were more than it holds; the whole file's once counted; for hex, the file's size.
@@ -12584,7 +12608,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextImage(state->setupLogo, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ logo, logo }, (R_Color){ 1, 1, 1, 1 });
             UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
         }
-        String name = S("Filey");
+        String name = NoTr("Filey");
         Prog__SetupText(name, large, theme->icon, middle - floorf(R_TextWidth(large, name) * 0.5f), floorf(217.6f * s + 0.5f));
         // What runs and what is installed: the version in a brighter color.
         String before, version, after;
