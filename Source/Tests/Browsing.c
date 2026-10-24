@@ -1978,6 +1978,51 @@ function void TestStaleRunFolders(TestFileFixture *fixture)
 
 // A big text file's lines counted in steps: each step's first line, its number and the highlighter's state there, across a block comment
 // that spans a step's start; and a window's lines from a state.
+// Encrypted 7z archives, made here with 7-Zip, which reads them for libarchive: one whose names are encrypted too, which lists nothing
+// without the password, and one whose names show. Each asks for its password, takes only the right one, then lists and takes out. Without
+// 7-Zip installed there is nothing to test.
+function void TestEncryptedSevenZip(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    // A command reads what it is handed on its standard input.
+#if defined(_WIN32)
+    String echo[] = { S("findstr"), S("^") };
+#else
+    String echo[] = { S("cat") };
+#endif
+    String echoed = {0};
+    Check(P_RunCommandInput(&arena, fixture->path, echo, CArrayCount(echo), S("given line\n"), 10000, &echoed, NULL) && StrIndexStr(echoed, S("given line"), SSF_None).exists);
+    String program = P__SevenZipProgram(&arena), output = {0};
+    if (!program.length) {
+        ArenaRelease(&arena);
+        return;
+    }
+    String plain = Prog_JoinPath(&arena, fixture->path, S("secret.txt"));
+    Check(!P_WriteFile(&arena, plain, S("hidden words")).code);
+    String names[] = { S("headers.7z"), S("content.7z") };
+    for (u32 n = 0; n < CArrayCount(names); ++n) {
+        String archive = Prog_JoinPath(&arena, fixture->path, names[n]);
+        String make[] = { program, S("a"), S("-psecret"), n == 0 ? S("-mhe=on") : S("-mhe=off"), S("--"), archive, plain };
+        Check(P_RunCommand(&arena, fixture->path, make, CArrayCount(make), 30000, &output, false));
+        P_DirectoryResult locked = P_EnumerateArchive(&arena, archive, (String){0}, NULL);
+        Check(locked.locked && locked.files.header.count == n);
+        Check(!P_ArchiveCheckPassword(archive, S("wrong"), NULL) && P_ArchiveCheckPassword(archive, S("secret"), NULL));
+        P_ArchiveSetPassword(archive, S("secret"));
+        P_DirectoryResult listed = P_EnumerateArchive(&arena, archive, (String){0}, NULL);
+        Check(!listed.errorCode && listed.files.header.count == 1 && StrIsEqual(listed.files.v[0].name, S("secret.txt")) && listed.files.v[0].size == 12);
+        String made = {0}, name = S("secret.txt"), contents = {0};
+        Check(!P_CreateItem(&arena, fixture->path, S("Opened"), true, &made).code);
+        String into = Prog_JoinPath(&arena, fixture->path, made);
+        Check(!P_ExtractArchive(&arena, archive, (String){0}, &name, 1, into, NULL, NULL).code);
+        Check(P_ReadFile(&arena, Prog_JoinPath(&arena, into, S("secret.txt")), &contents) && StrIsEqual(contents, S("hidden words")));
+        Check(P_EnumerateDirectory(&arena, into, NULL).files.header.count == 1);
+        Check(P__TestRemovePath(fixture, StrFormat(&arena, "%S/secret.txt", made), false) && P__TestRemovePath(fixture, made, true));
+        Check(P__TestRemovePath(fixture, names[n], false));
+    }
+    Check(P__TestRemovePath(fixture, S("secret.txt"), false));
+    ArenaRelease(&arena);
+}
+
 function void TestTextIndex(TestFileFixture *fixture)
 {
     Arena arena = {0};
@@ -4619,6 +4664,7 @@ function void TestBrowsing(void)
         TestGitFetchLimit(&fixture);
         TestRepoCommits(&fixture);
         TestTextIndex(&fixture);
+        TestEncryptedSevenZip(&fixture);
         TestStaleRunFolders(&fixture);
         TestSchemeFiles(&fixture);
         TestStartupWindowColor(&fixture);

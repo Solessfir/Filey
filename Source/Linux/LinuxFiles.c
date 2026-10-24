@@ -2044,7 +2044,7 @@ function b32 P_ReadFile(Arena *arena, String path, String *contents)
 
 // The command gets a process group of its own, so that stopping or pausing it reaches the programs it started too, as yt-dlp's ffmpeg.
 function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount, b32 errors,
-                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress)
+                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress, String input)
 {
     if (!count) return false;
     Scratch scratch = GetScratchEx(conflict);
@@ -2081,8 +2081,10 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
         }
         variables[kept] = NULL;
     }
-    i32 ends[2] = {0};
+    i32 ends[2] = {0}, reads[2] = { -1, -1 };
     b32 result = false;
+    // What it reads comes through a pipe of its own, written once it has started.
+    if (input.length && pipe2(reads, O_CLOEXEC) != 0) reads[0] = reads[1] = -1;
     if (program && folder && pipe2(ends, O_CLOEXEC) == 0) {
         pid_t child = _Fork();
         if (child == 0) {
@@ -2090,14 +2092,27 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
             i32 quiet = open("/dev/null", O_RDWR);
             dup2(ends[1], 1);
             if (errors) dup2(ends[1], 2);
+            if (reads[0] >= 0) dup2(reads[0], 0);
             if (quiet >= 0) {
-                dup2(quiet, 0);
+                if (reads[0] < 0) dup2(quiet, 0);
                 if (!errors) dup2(quiet, 2);
             }
             if (chdir(folder) == 0) execve(program, args, variables);
             _exit(127);
         }
         close(ends[1]);
+        if (reads[0] >= 0) {
+            close(reads[0]);
+            // A program that quits before reading it would otherwise end Filey with SIGPIPE.
+            signal(SIGPIPE, SIG_IGN);
+            if (child > 0) for (u64 at = 0; at < input.length;) {
+                ssize_t wrote = write(reads[1], input.value + at, input.length - at);
+                if (wrote < 0 && errno == EINTR) continue;
+                if (wrote <= 0) break;
+                at += (u64)wrote;
+            }
+            close(reads[1]);
+        }
         if (child > 0) {
             // Set from here too, as the child may not have run yet when a signal is sent to its group.
             setpgid(child, child);
@@ -2157,7 +2172,7 @@ function b32 P_RunCommandWith(Arena *arena, String directory, const String *argu
                               u32 timeoutMilliseconds, String *output, b32 errors, const P_CancelToken *cancel)
 {
     P__CommandText collected = { .arena = arena };
-    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL);
+    b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL, (String){0});
     *output = collected.text.buffer;
     return result;
 }
@@ -2197,7 +2212,16 @@ function String P_EnvironmentValue(Arena *arena, String name)
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
                                 P_Progress *progress)
 {
-    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress);
+    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress, (String){0});
+}
+
+function b32 P_RunCommandInput(Arena *arena, String directory, const String *arguments, u32 count, String input, u32 timeoutMilliseconds, String *output,
+                               const P_CancelToken *cancel)
+{
+    P__CommandText collected = { .arena = arena };
+    b32 result = P__RunCommand(arena, directory, arguments, count, NULL, 0, false, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL, input);
+    *output = collected.text.buffer;
+    return result;
 }
 
 function b32 P_PathExists(String path)

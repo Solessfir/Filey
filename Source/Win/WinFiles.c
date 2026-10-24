@@ -1113,7 +1113,7 @@ function void P__PauseCommand(HANDLE group, HANDLE process, b32 pause)
 // With `together` they also end when it does, or when Filey does.
 // Without, as for git's status, helpers such as its file system monitor outlive a command that finished.
 function b32 P__RunCommand(Arena *conflict, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount, b32 errors,
-                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress, b32 together)
+                           u32 timeoutMilliseconds, P_CommandOutput *output, void *user, const P_CancelToken *cancel, P_Progress *progress, b32 together, String input)
 {
     if (!count) return false;
     Scratch scratch = GetScratchEx(conflict);
@@ -1166,10 +1166,19 @@ function b32 P__RunCommand(Arena *conflict, String directory, const String *argu
     // step, which the system's few kilobytes would hold to a trickle.
     if (folder && CreatePipe(&readEnd, &writeEnd, &inherit, 1 << 20)) {
         SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
-        STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = errors ? writeEnd : NULL, .hStdInput = NULL };
+        // What it reads, written once it has started; the pipe holds all of it.
+        HANDLE inputRead = NULL, inputWrite = NULL;
+        if (input.length && CreatePipe(&inputRead, &inputWrite, &inherit, (DWORD)Max(input.length, (u64)4096))) SetHandleInformation(inputWrite, HANDLE_FLAG_INHERIT, 0);
+        STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES, .hStdOutput = writeEnd, .hStdError = errors ? writeEnd : NULL, .hStdInput = inputRead };
         PROCESS_INFORMATION process = {0};
         b32 started = CreateProcessW(NULL, wide, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, block, folder, &startup, &process) != 0;
         CloseHandle(writeEnd);
+        if (inputRead) CloseHandle(inputRead);
+        if (inputWrite) {
+            DWORD written = 0;
+            if (started) WriteFile(inputWrite, input.value, (DWORD)input.length, &written, NULL);
+            CloseHandle(inputWrite);
+        }
         if (started) {
             // Where it cannot join one, as inside a job that takes no others, the command alone is paused and stopped.
             if (group && !AssignProcessToJobObject(group, process.hProcess)) CloseHandle(group), group = NULL;
@@ -1240,7 +1249,7 @@ function b32 P__RunCollected(Arena *arena, String directory, const String *argum
 {
     P__CommandText collected = { .arena = arena };
     b32 result = P__RunCommand(arena, directory, arguments, count, environment, environmentCount, errors, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL,
-                               together);
+                               together, (String){0});
     *output = collected.text.buffer;
     return result;
 }
@@ -1268,7 +1277,16 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
 function b32 P_RunCommandStream(String directory, const String *arguments, u32 count, b32 errors, P_CommandOutput *output, void *user, const P_CancelToken *cancel,
                                 P_Progress *progress)
 {
-    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress, true);
+    return P__RunCommand(NULL, directory, arguments, count, NULL, 0, errors, 0, output, user, cancel, progress, true, (String){0});
+}
+
+function b32 P_RunCommandInput(Arena *arena, String directory, const String *arguments, u32 count, String input, u32 timeoutMilliseconds, String *output,
+                               const P_CancelToken *cancel)
+{
+    P__CommandText collected = { .arena = arena };
+    b32 result = P__RunCommand(arena, directory, arguments, count, NULL, 0, false, timeoutMilliseconds, P__CollectOutput, &collected, cancel, NULL, true, input);
+    *output = collected.text.buffer;
+    return result;
 }
 
 function String P_EnvironmentValue(Arena *arena, String name)

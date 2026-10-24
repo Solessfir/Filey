@@ -253,9 +253,128 @@ function b32 P__ArchiveNext(void *reader, void **entry, String *name, b32 *folde
     return false;
 }
 
+// Encrypted 7z and RAR archives, which libarchive cannot decrypt, are read with 7-Zip's command line program once their password is
+// given, which it is handed on its standard input.
+function b32 P__SevenZipKind(String archive)
+{
+    String names[] = { S(".7z"), S(".rar"), S(".cb7"), S(".cbr") };
+    for (u32 i = 0; i < CArrayCount(names); ++i) {
+        b32 same = archive.length > names[i].length;
+        for (u64 c = 0; c < names[i].length && same; ++c) {
+            char letter = archive.value[archive.length - names[i].length + c];
+            same = (letter >= 'A' && letter <= 'Z' ? (char)(letter + 32) : letter) == names[i].value[c];
+        }
+        if (same) return true;
+    }
+    return false;
+}
+
+// 7-Zip's program by the names its packages give it on the PATH, else where its installer puts it on Windows; empty without one.
+function String P__SevenZipProgram(Arena *arena)
+{
+    String names[] = { S("7z"), S("7zz"), S("7za") };
+    for (u32 i = 0; i < CArrayCount(names); ++i) if (P_ProgramFound(names[i])) return names[i];
+    String programs = P_EnvironmentValue(arena, S("ProgramFiles"));
+    String installed = programs.length ? StrFormat(arena, "%S/7-Zip/7z.exe", programs) : (String){0};
+    return installed.length && P_PathExists(installed) ? installed : (String){0};
+}
+
+// Whether 7-Zip reads `archive`: a 7z or RAR one with a password given, and 7-Zip there to read it with, as `program`.
+function b32 P__SevenZipReads(Arena *arena, String archive, String *program)
+{
+    *program = P__SevenZipKind(archive) && P_ArchiveHasPassword(archive) ? P__SevenZipProgram(arena) : (String){0};
+    return program->length != 0;
+}
+
+// `name` in the folder `folder`.
+function String P__ArchiveJoin(Arena *arena, String folder, String name)
+{
+    return StrFormat(arena, folder.length && folder.value[folder.length - 1] == '/' ? "%S%S" : "%S/%S", folder, name);
+}
+
+// The folder `archive` is in, which 7-Zip runs in.
+function String P__ArchiveFolder(String archive)
+{
+    Index slash = StrIndexChar(archive, '/', SSF_SearchBackwards);
+    return slash.exists ? StrFromTo(archive, 0, (i64)Max(slash.value, (u64)(slash.value == 2 ? 3 : 1))) : S(".");
+}
+
+// Days from 1970-01-01 to the date, by the proleptic Gregorian calendar.
+function i64 P__DaysFromCivil(i64 year, i64 month, i64 day)
+{
+    year -= month <= 2;
+    i64 era = (year >= 0 ? year : year - 399) / 400, yearOfEra = year - era * 400;
+    i64 dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1, dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    return era * 146097 + dayOfEra - 719468;
+}
+
+// Every entry of `archive` as 7-Zip lists it, by its whole path with '/' between parts, with `password`; the first encrypted file's path in
+// `encrypted`. False when 7-Zip could not list it, as for a wrong password where the names are encrypted too.
+function b32 P__SevenZipList(Arena *arena, String program, String archive, String password, const P_CancelToken *cancel, P_FileArray *files, String *encrypted)
+{
+    String arguments[] = { program, S("l"), S("-slt"), S("-ba"), S("-sccUTF-8"), S("--"), archive }, output = {0};
+    b32 result = P_RunCommandInput(arena, P__ArchiveFolder(archive), arguments, CArrayCount(arguments), StrFormat(arena, "%S\n", password), 120000, &output, cancel);
+    *files = (P_FileArray){0};
+    if (encrypted) *encrypted = (String){0};
+    P_File file = {0};
+    b32 started = false, locked = false;
+    ArrayStr lines = StrSplit(arena, output, '\n');
+    for (u64 l = 0; l <= lines.header.count; ++l) {
+        String line = l < lines.header.count ? lines.v[l] : (String){0};
+        while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+        if (!line.length || (line.length > 7 && StrIsEqual(StrFromTo(line, 0, 7), S("Path = ")))) {
+            if (started && file.name.length) {
+                ArrayPush(arena, *files, file);
+                if (encrypted && locked && !encrypted->length && file.kind != P_FileKind_Directory) *encrypted = file.name;
+            }
+            file = (P_File){ .kind = P_FileKind_File, .metadataValid = true };
+            started = line.length != 0, locked = false;
+            if (!line.length) continue;
+        }
+        Index equals = StrIndexStr(line, S(" = "), SSF_None);
+        if (!equals.exists || !started) continue;
+        String key = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 3);
+        if (StrIsEqual(key, S("Path"))) {
+            char *name = ArenaPushArray(arena, value.length + 1, char);
+            for (u64 i = 0; i < value.length; ++i) name[i] = value.value[i] == '\\' ? '/' : value.value[i];
+            file.name = StrMake(name, value.length);
+        } else if (StrIsEqual(key, S("Folder")) && value.length && value.value[0] == '+') {
+            file.kind = P_FileKind_Directory;
+        } else if (StrIsEqual(key, S("Attributes")) && value.length && value.value[0] == 'D') {
+            file.kind = P_FileKind_Directory;
+        } else if (StrIsEqual(key, S("Size"))) {
+            for (u64 i = 0; i < value.length && value.value[i] >= '0' && value.value[i] <= '9'; ++i) file.size = file.size * 10 + (u64)(value.value[i] - '0');
+        } else if (StrIsEqual(key, S("Encrypted"))) {
+            locked = value.length && value.value[0] == '+';
+        } else if (StrIsEqual(key, S("Modified")) && value.length >= 19) {
+            // "2024-01-31 12:34:56", in local time.
+            i64 parts[6] = {0};
+            u64 at[] = { 0, 5, 8, 11, 14, 17 }, width[] = { 4, 2, 2, 2, 2, 2 };
+            for (u32 p = 0; p < 6; ++p) for (u64 i = 0; i < width[p]; ++i) parts[p] = parts[p] * 10 + (value.value[at[p] + i] - '0');
+            i64 local = P__DaysFromCivil(parts[0], parts[1], parts[2]) * 86400 + parts[3] * 3600 + parts[4] * 60 + parts[5];
+            file.modifiedTimeUnix = local - P_LocalOffset(local);
+        }
+    }
+    return result;
+}
+
 function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelToken *cancel, P_FileArray *files)
 {
     *files = (P_FileArray){0};
+    Scratch scratch = GetScratchEx(arena);
+    String program = {0};
+    if (P__SevenZipReads(scratch.arena, path, &program)) {
+        P_FileArray all = {0};
+        P__SevenZipList(scratch.arena, program, path, StrFromCStr(P__ArchivePassword(scratch.arena, path)), cancel, &all, NULL);
+        for (u64 i = 0; i < all.header.count && files->header.count < limit; ++i) {
+            P_File file = all.v[i];
+            file.name = StrCopy(arena, file.name);
+            ArrayPush(arena, *files, file);
+        }
+        ReleaseScratch(scratch);
+        return files->header.count != 0;
+    }
+    ReleaseScratch(scratch);
     if (!P__LoadArchive()) return false;
     P__Archive *a = &P__archive;
     void *reader = P__ArchiveRead(path, NULL), *entry = NULL;
@@ -269,9 +388,55 @@ function b32 P_ListArchive(Arena *arena, String path, u64 limit, const P_CancelT
     return files->header.count != 0;
 }
 
+// The items of the level `inner` of an archive whose entries are `all`, by their whole paths: its folders, met as entries of their own or
+// only in the paths of what they hold, each listed once.
+function void P__ArchiveLevel(Arena *arena, const P_FileArray *all, String inner, P_DirectoryResult *result)
+{
+    Scratch scratch = GetScratchEx(arena);
+    struct { MapHeader header; struct { String key; u64 value; } *v; } seen = {0};
+    for (u64 i = 0; i < all->header.count; ++i) {
+        String name = all->v[i].name, rest = name;
+        if (inner.length) {
+            if (name.length <= inner.length + 1 || name.value[inner.length] != '/' || !StrIsEqual(StrFromTo(name, 0, (i64)inner.length), inner)) continue;
+            rest = StrFrom(name, inner.length + 1);
+        }
+        Index slash = StrIndexChar(rest, '/', SSF_None);
+        String child = slash.exists ? StrFromTo(rest, 0, (i64)slash.value) : rest;
+        b32 deeper = slash.exists, isFolder = deeper || all->v[i].kind == P_FileKind_Directory;
+        u64 at = MapsGet(seen, u64, child);
+        if (!at) {
+            ArrayPush(arena, result->files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            at = result->files.header.count;
+            MapsPut(scratch.arena, seen, result->files.v[at - 1].name, at);
+        }
+        if (!deeper) {
+            P_File *file = &result->files.v[at - 1];
+            file->size = isFolder ? 0 : all->v[i].size;
+            file->modifiedTimeUnix = all->v[i].modifiedTimeUnix;
+            file->metadataValid = true;
+            file->hidden = child.value[0] == '.';
+        }
+    }
+    ReleaseScratch(scratch);
+}
+
 function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, String inner, const P_CancelToken *cancel)
 {
     P_DirectoryResult result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    String program = {0};
+    if (P__SevenZipReads(scratch.arena, archive, &program)) {
+        P_FileArray all = {0};
+        if (!P__SevenZipList(scratch.arena, program, archive, StrFromCStr(P__ArchivePassword(scratch.arena, archive)), cancel, &all, NULL) && !all.header.count) {
+            result.errorCode = P__ArchiveFailed;
+            result.errorString = StrCopy(arena, S("7-Zip could not read the archive, or its password is wrong."));
+        }
+        P__ArchiveLevel(arena, &all, inner, &result);
+        result.cancelled = P_IsCancelled(cancel);
+        ReleaseScratch(scratch);
+        return result;
+    }
+    ReleaseScratch(scratch);
     P__Archive *a = &P__archive;
     void *reader = P__LoadArchive() ? P__ArchiveRead(archive, NULL) : NULL, *entry = NULL;
     if (!reader) {
@@ -309,12 +474,39 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
         }
     }
     result.cancelled = P_IsCancelled(cancel);
+    // A 7z or RAR one stops at what is encrypted, or lists names whose data is, which 7-Zip reads once the password is given; without 7-Zip
+    // there is nothing to ask a password for.
+    if (P__SevenZipKind(archive)) {
+        const char *error = a->error(reader);
+        b32 encrypted = result.locked || (error && (StrIndexStr(StrFromCStr(error), S("ncrypt"), SSF_None).exists || StrIndexStr(StrFromCStr(error), S("assword"), SSF_None).exists));
+        Scratch found = GetScratchEx(arena);
+        b32 sevenZip = encrypted && P__SevenZipProgram(found.arena).length;
+        ReleaseScratch(found);
+        result.locked = sevenZip;
+        if (encrypted && !sevenZip) {
+            result.errorCode = P__ArchiveUnsupported;
+            result.errorString = StrCopy(arena, S("The archive is encrypted; 7-Zip opens it once installed."));
+        }
+    }
     a->free(reader);
     return result;
 }
 
 function b32 P_ArchiveCheckPassword(String archive, String password, const P_CancelToken *cancel)
 {
+    // A 7z or RAR one by 7-Zip: listed, which a wrong password fails where the names are encrypted, then its first encrypted file tested.
+    if (P__SevenZipKind(archive)) {
+        Scratch scratch = GetScratch();
+        String program = P__SevenZipProgram(scratch.arena), encrypted = {0};
+        P_FileArray all = {0};
+        b32 opens = program.length && P__SevenZipList(scratch.arena, program, archive, password, cancel, &all, &encrypted);
+        if (opens && encrypted.length) {
+            String arguments[] = { program, S("t"), S("-sccUTF-8"), S("--"), archive, encrypted }, output = {0};
+            opens = P_RunCommandInput(scratch.arena, P__ArchiveFolder(archive), arguments, CArrayCount(arguments), StrFormat(scratch.arena, "%S\n", password), 0, &output, cancel);
+        }
+        ReleaseScratch(scratch);
+        return opens && !P_IsCancelled(cancel);
+    }
     if (!P__LoadArchive() || !P__archive.addPassphrase || !P__archive.entryEncrypted) return false;
     P__Archive *a = &P__archive;
     Scratch scratch = GetScratch();
@@ -367,11 +559,36 @@ function b32 P__ArchivePathSafe(String path)
 }
 
 // The progress counts the archive file read through, as the time it takes follows that more than the size of what is taken out.
+// P_ExtractArchive by 7-Zip, into a folder of its own in `directory`, which goes once its items are moved to their places there.
+function P_FileError P__SevenZipExtract(Arena *arena, String program, String archive, String inner, const String *names, const String *placed, u64 count,
+                                        String directory, P_Progress *progress, const P_CancelToken *cancel)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String made = {0};
+    P_FileError result = P_CreateItem(scratch.arena, directory, S(".filey-7z"), true, &made);
+    String through = P__ArchiveJoin(scratch.arena, directory, made);
+    String *arguments = ArenaPushArray(scratch.arena, count + 7, String);
+    u32 used = 0;
+    arguments[used++] = program, arguments[used++] = S("x"), arguments[used++] = S("-y"), arguments[used++] = S("-sccUTF-8");
+    arguments[used++] = StrFormat(scratch.arena, "-o%S", through), arguments[used++] = S("--"), arguments[used++] = archive;
+    for (u64 k = 0; k < count; ++k) arguments[used++] = inner.length ? StrFormat(scratch.arena, "%S/%S", inner, names[k]) : names[k];
+    String output = {0};
+    if (!result.code && !P_RunCommandInput(scratch.arena, P__ArchiveFolder(archive), arguments, used, StrFormat(scratch.arena, "%S\n", StrFromCStr(P__ArchivePassword(scratch.arena, archive))), 0, &output, cancel)) {
+        result = P_IsCancelled(cancel) ? P__FileError(arena, P__ArchiveCancelled) : (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("7-Zip could not take the items out, or the archive's password is wrong.")) };
+    }
+    for (u64 k = 0; !result.code && k < count; ++k) {
+        String taken = inner.length ? StrFormat(scratch.arena, "%S/%S/%S", through, inner, names[k]) : P__ArchiveJoin(scratch.arena, through, names[k]);
+        result = P_ReplaceFile(scratch.arena, taken, P__ArchiveJoin(scratch.arena, directory, placed[k]));
+        if (!result.code) atomic_fetch_add(&progress->doneItems, 1);
+    }
+    if (made.length) P_DeleteItems(scratch.arena, &through, 1, false, NULL);
+    ReleaseScratch(scratch);
+    return result.code && !result.message.value ? P__FileError(arena, result.code) : result;
+}
+
 function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner, const String *names, u64 count, String directory, P_Progress *progress,
                                       const P_CancelToken *cancel)
 {
-    if (!P__LoadArchive()) return P__FileError(arena, P__ArchiveUnsupported);
-    P__Archive *a = &P__archive;
     P_Progress none = {0};
     if (!progress) progress = &none;
     Scratch scratch = GetScratchEx(arena);
@@ -383,6 +600,18 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
             if (!P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, placed[k]))) break;
         }
     }
+    String program = {0};
+    if (P__SevenZipReads(scratch.arena, archive, &program)) {
+        atomic_fetch_add(&progress->totalItems, count);
+        P_FileError result = P__SevenZipExtract(arena, program, archive, inner, names, placed, count, directory, progress, cancel);
+        ReleaseScratch(scratch);
+        return result;
+    }
+    if (!P__LoadArchive()) {
+        ReleaseScratch(scratch);
+        return P__FileError(arena, P__ArchiveUnsupported);
+    }
+    P__Archive *a = &P__archive;
     atomic_fetch_add(&progress->totalItems, count);
     atomic_fetch_add(&progress->totalBytes, P__ArchiveFileSize(archive));
     void *reader = P__ArchiveRead(archive, NULL), *entry = NULL;
@@ -418,6 +647,7 @@ function P_FileError P_ExtractArchive(Arena *arena, String archive, String inner
     if (reader) a->free(reader);
     ReleaseScratch(scratch);
     if (locked) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("The archive's password is missing or wrong.")) };
+    if (error && P__SevenZipKind(archive)) return (P_FileError){ P__ArchiveFailed, StrCopy(arena, S("The archive could not be read; an encrypted 7z or RAR one opens with 7-Zip installed.")) };
     return error ? P__FileError(arena, error) : (P_FileError){0};
 }
 

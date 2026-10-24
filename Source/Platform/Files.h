@@ -381,6 +381,10 @@ function b32 P_ProgramFound(String name);
 // `cancel`, which may be NULL, stops it with what it started.
 function b32 P_RunCommandWith(Arena *arena, String directory, const String *arguments, u32 count, const String *environment, u32 environmentCount,
                               u32 timeoutMilliseconds, String *output, b32 errors, const P_CancelToken *cancel);
+// P_RunCommandWith with `input` written to the command's standard input, which is then closed, and without what it writes as errors: a
+// password goes to a program that asks for it there rather than on its command line, which other programs can read.
+function b32 P_RunCommandInput(Arena *arena, String directory, const String *arguments, u32 count, String input, u32 timeoutMilliseconds, String *output,
+                               const P_CancelToken *cancel);
 // The program's environment variable `name`; empty when it is not set.
 function String P_EnvironmentValue(Arena *arena, String name);
 // What a command writes, handed over as it comes.

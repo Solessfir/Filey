@@ -7816,6 +7816,20 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     P_ArchiveSetPassword(input->path, input->name);
                     Prog_ClosePassword(state);
                     Prog_Reload(state);
+                    // Other panels in the archive list it again too, as the inspector's list of it, whose names may have been encrypted.
+                    u32 back = state->currentPanel;
+                    for (u32 p = 0; p < state->panelCount; ++p) {
+                        Prog__UsePanel(state, p);
+                        // An inspector showing it reads it again, for its counts.
+                        if (StrIsEqual(state->previewPath, input->path)) state->previewPath = (String){0};
+                        if (p == back) continue;
+                        String shown = state->directory.path;
+                        if (shown.length >= input->path.length && StrIsEqual(StrFromTo(shown, 0, (i64)input->path.length), input->path) &&
+                            (shown.length == input->path.length || shown.value[input->path.length] == '/')) {
+                            Prog_Reload(state);
+                        }
+                    }
+                    Prog__UsePanel(state, back);
                 } else {
                     state->passwordWrong = true;
                     state->password.anchor = 0;
