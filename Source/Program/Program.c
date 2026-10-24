@@ -3166,11 +3166,10 @@ typedef struct Prog_Columns {
     Prog_Column v[Prog_ColumnKind_Count + 1];
 } Prog_Columns;
 
-// The sort a column's title selects.
-// This PC's drives are not sorted, so its own columns sort nothing (Prog_Sort_Count).
+// The sort a column's title selects; the usage columns sort by size, and Git by nothing (Prog_Sort_Count).
 global const Prog_Sort Prog_ColumnSort[Prog_ColumnId_Count] = {
     Prog_Sort_Name, Prog_Sort_Type, Prog_Sort_Modified, Prog_Sort_Folders, Prog_Sort_Files, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Accessed, Prog_Sort_Size, Prog_Sort_Size,
-    Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count, Prog_Sort_Count,
+    Prog_Sort_FileSystem, Prog_Sort_FreeSpace, Prog_Sort_PercentFull, Prog_Sort_Original, Prog_Sort_Deleted, Prog_Sort_Count,
 };
 
 global const String Prog_ColumnTitles[Prog_ColumnId_Count] = {
@@ -3325,6 +3324,12 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
     }
     b32 sliding = fixed && (state->columnDrag || UI->nowMicroseconds < state->columnSlideUntil);
     f32 inside[Prog_ColumnKind_Count] = {0};
+    // A sort by size shows its arrow on the Size column, else on the first usage column shown, which sort the same.
+    u32 sizeArrow = Prog_ColumnId_Count;
+    for (u32 c = 0; c < columns->count; ++c) {
+        u32 id = columns->v[c].id;
+        if (id == Prog_ColumnId_Size || (sizeArrow == Prog_ColumnId_Count && Prog_ColumnSort[id] == Prog_Sort_Size)) sizeArrow = id;
+    }
     UI_Parent(header) {
         if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(base), UI_Pixels(m->row));
         // The held column is built last, over the others.
@@ -3334,7 +3339,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
             if (held != (pass == 1)) continue;
             u32 id = column->id;
             Prog_Sort sort = Prog_ColumnSort[id];
-            b32 sorted = sort < Prog_Sort_Count && state->sort == sort && (id < Prog_ColumnId_FolderUsage);
+            b32 sorted = sort < Prog_Sort_Count && state->sort == sort && (sort != Prog_Sort_Size || id == sizeArrow);
             UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", column->title));
             b32 sortable = sort < Prog_Sort_Count && !state->loading;
             b32 hot = UI->hotKey == key && sortable;

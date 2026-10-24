@@ -751,6 +751,28 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             }
         }
     }
+    // The drives' and the bin's own orders: by free space, fullness, file system, original folder and when deleted.
+    {
+        Prog_Entry made[3] = {
+            { .file = { .name = S("a"), .size = 100 }, .freeBytes = 10, .fileSystem = S("NTFS"), .original = S("C:/b"), .deletedTimeUnix = 30 },
+            { .file = { .name = S("b"), .size = 100 }, .freeBytes = 90, .fileSystem = S("exFAT"), .original = S("C:/c"), .deletedTimeUnix = 10 },
+            { .file = { .name = S("c"), .size = 1000 }, .freeBytes = 500, .fileSystem = S("FAT32"), .original = S("C:/a"), .deletedTimeUnix = 20 },
+        };
+        Prog_Entry buffer[3];
+        struct { Prog_Sort sort; const char *order; } orders[] = {
+            { Prog_Sort_FreeSpace, "abc" }, { Prog_Sort_PercentFull, "bca" }, { Prog_Sort_FileSystem, "bca" }, { Prog_Sort_Original, "cab" }, { Prog_Sort_Deleted, "bca" },
+        };
+        for (u32 o = 0; o < CArrayCount(orders); ++o) {
+            Prog_Entry copy[3] = { made[0], made[1], made[2] };
+            Prog_Entry *sorted = Prog__SortEntries(copy, buffer, 3, orders[o].sort, false, Prog_FolderSort_Mixed, NULL);
+            Check(sorted && sorted[0].file.name.value[0] == orders[o].order[0] && sorted[1].file.name.value[0] == orders[o].order[1] && sorted[2].file.name.value[0] == orders[o].order[2]);
+        }
+    }
+    // What follows goes by name, from A.
+    state.sort = Prog_Sort_Name;
+    state.descending = false;
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+    Check(TestWaitDirectory(&state));
     // The zoom popup sets a level, and leaves one out of range alone.
     {
         u32 before = state.zoom;

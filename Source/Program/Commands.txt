@@ -1987,6 +1987,31 @@ command SortByType {
     tooltip = "Sort folder contents by file type."
 }
 
+command SortByDateDeleted {
+    label   = "Sort By Date Deleted^order,recycle bin,trash,day,month,year"
+    tooltip = "Sort the Recycle Bin by when its items were deleted."
+}
+
+command SortByOriginalLocation {
+    label   = "Sort By Original Location^order,recycle bin,trash,folder"
+    tooltip = "Sort the Recycle Bin by the folders its items were deleted from."
+}
+
+command SortByFreeSpace {
+    label   = "Sort By Free Space^order,drives,this pc"
+    tooltip = "Sort the drives by the space they have left."
+}
+
+command SortByPercentFull {
+    label   = "Sort By Percent Full^order,drives,this pc,usage"
+    tooltip = "Sort the drives by how full they are."
+}
+
+command SortByFileSystem {
+    label   = "Sort By File System^order,drives,this pc,ntfs,ext4"
+    tooltip = "Sort the drives by their file system."
+}
+
 command InspectorToggleDetails {
     label   = "Toggle Inspector Details^properties,stats,preview,show,hide"
     tooltip = "Toggle display of extra file metadata details in the inspector."

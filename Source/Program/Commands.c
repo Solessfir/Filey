@@ -698,7 +698,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
-    Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType,
+    Prog_CommandKind_SortByDateAccessed, Prog_CommandKind_SortByItemCount, Prog_CommandKind_SortByType, Prog_CommandKind_SortByDateDeleted,
+    Prog_CommandKind_SortByOriginalLocation, Prog_CommandKind_SortByFreeSpace, Prog_CommandKind_SortByPercentFull, Prog_CommandKind_SortByFileSystem,
     Prog_CommandKind_PaletteToggleDetails,
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
@@ -1393,6 +1394,11 @@ function b32 Prog_CommandChecked(const Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_SortByDateAccessed: return state->sort == Prog_Sort_Accessed;
         case Prog_CommandKind_SortByItemCount: return state->sort == Prog_Sort_Items;
         case Prog_CommandKind_SortByType: return state->sort == Prog_Sort_Type;
+        case Prog_CommandKind_SortByDateDeleted: return state->sort == Prog_Sort_Deleted;
+        case Prog_CommandKind_SortByOriginalLocation: return state->sort == Prog_Sort_Original;
+        case Prog_CommandKind_SortByFreeSpace: return state->sort == Prog_Sort_FreeSpace;
+        case Prog_CommandKind_SortByPercentFull: return state->sort == Prog_Sort_PercentFull;
+        case Prog_CommandKind_SortByFileSystem: return state->sort == Prog_Sort_FileSystem;
         default: return false;
     }
 }
@@ -3488,16 +3494,22 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_SortByDateModified:
             case Prog_CommandKind_SortByDateAccessed:
             case Prog_CommandKind_SortByItemCount:
-            case Prog_CommandKind_SortByType: {
-                local_persist const Prog_Sort sorts[] = { Prog_Sort_Name, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Modified, Prog_Sort_Accessed, Prog_Sort_Items, Prog_Sort_Type };
-                static_assert(Prog_CommandKind_SortByType - Prog_CommandKind_SortByName + 1 == CArrayCount(sorts), "a sort for every Sort By command");
+            case Prog_CommandKind_SortByType:
+            case Prog_CommandKind_SortByDateDeleted:
+            case Prog_CommandKind_SortByOriginalLocation:
+            case Prog_CommandKind_SortByFreeSpace:
+            case Prog_CommandKind_SortByPercentFull:
+            case Prog_CommandKind_SortByFileSystem: {
+                local_persist const Prog_Sort sorts[] = { Prog_Sort_Name, Prog_Sort_Size, Prog_Sort_Created, Prog_Sort_Modified, Prog_Sort_Accessed, Prog_Sort_Items, Prog_Sort_Type,
+                                                          Prog_Sort_Deleted, Prog_Sort_Original, Prog_Sort_FreeSpace, Prog_Sort_PercentFull, Prog_Sort_FileSystem };
+                static_assert(Prog_CommandKind_SortByFileSystem - Prog_CommandKind_SortByName + 1 == CArrayCount(sorts), "a sort for every Sort By command");
                 command->row = (u64)sorts[command->kind - Prog_CommandKind_SortByName];
             }
                 [[fallthrough]];
             case Prog_CommandKind_Sort: {
                 // A new sort starts with the biggest and newest first, names and types from A; the same sort again turns it around.
                 if (command->row < Prog_Sort_Count) {
-                    b32 alphabetic = command->row == Prog_Sort_Name || command->row == Prog_Sort_Type;
+                    b32 alphabetic = Prog_SortByText(command->row);
                     state->descending = state->sort == command->row ? !state->descending : !alphabetic;
                     state->sort = (u8)command->row;
                     Prog_Reload(state);

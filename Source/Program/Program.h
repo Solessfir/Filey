@@ -39,8 +39,17 @@ typedef enum Prog_Sort {
     Prog_Sort_Created,
     Prog_Sort_Accessed,
     Prog_Sort_Items,     // folders and files inside, together
+    // The Recycle Bin's and This PC's own columns.
+    Prog_Sort_Deleted,
+    Prog_Sort_Original,
+    Prog_Sort_FreeSpace,
+    Prog_Sort_PercentFull,
+    Prog_Sort_FileSystem,
     Prog_Sort_Count,
 } Prog_Sort;
+
+// Sorts by a text rather than a number: from A first, the rest from the most.
+#define Prog_SortByText(sort) ((sort) == Prog_Sort_Name || (sort) == Prog_Sort_Type || (sort) == Prog_Sort_Original || (sort) == Prog_Sort_FileSystem)
 
 static_assert((i32)Prog_Sort_Size == (i32)P_FileOrderKey_Size && (i32)Prog_Sort_Folders == (i32)P_FileOrderKey_Count);
 

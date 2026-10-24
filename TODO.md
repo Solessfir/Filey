@@ -8,7 +8,7 @@
 
 ## Missing
 
-- Sorting: the Recycle Bin's Date Deleted and Original Location columns and This PC's File System, Free Space and Percent Full columns cannot be sorted by; the usage columns sort by size but show no arrow. Dates compare whole seconds, so items saved in the same second keep name order.
+- Sorting: dates compare whole seconds, so items saved in the same second keep name order.
 - This PC's crumb has no folder dropdown.
 - Long Path Support in Options (paths already go through `\\?\`; only the option is missing), checkboxes in the icon views, and the palette Misc group's viewport options.
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).

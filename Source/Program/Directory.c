@@ -760,6 +760,13 @@ function i32 Prog_CompareNames(String a, String b)
 
 #define Prog__Order(a, b) ((a) == (b) ? 0 : (a) < (b) ? -1 : 1)
 
+// How full a drive is, in millionths, for its order.
+function u64 Prog__Fullness(const Prog_Entry *entry)
+{
+    u64 total = entry->file.size;
+    return total ? (u64)((f64)(total - Min(entry->freeBytes, total)) / (f64)total * 1e6) : 0;
+}
+
 // Folders first, then by `sort`, then by name: in an expanded listing by the item's own name and then its place.
 // Folders sort by their totals once measured, and by zero until then.
 function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog_Sort sort, b32 descending, Prog_FolderSort folders)
@@ -783,6 +790,11 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
         case Prog_Sort_Created: result = Prog__Order(a->file.createdTimeUnix, b->file.createdTimeUnix); break;
         case Prog_Sort_Accessed: result = Prog__Order(a->file.accessedTimeUnix, b->file.accessedTimeUnix); break;
         case Prog_Sort_Items: result = Prog__Order(a->folders + a->files, b->folders + b->files); break;
+        case Prog_Sort_Deleted: result = Prog__Order(a->deletedTimeUnix, b->deletedTimeUnix); break;
+        case Prog_Sort_Original: result = Prog_CompareNames(a->original, b->original); break;
+        case Prog_Sort_FreeSpace: result = Prog__Order(a->freeBytes, b->freeBytes); break;
+        case Prog_Sort_PercentFull: result = Prog__Order(Prog__Fullness(a), Prog__Fullness(b)); break;
+        case Prog_Sort_FileSystem: result = Prog_CompareNames(a->fileSystem, b->fileSystem); break;
         default: InvalidPath;
     }
     if (!result) result = Prog_CompareNames(an, bn);
@@ -796,8 +808,8 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
 typedef struct Prog__SortKey {
     u64 group;
     u64 value;
-    String name;       // the name shown, which the order is next decided by, after the type when sorting by type
-    String type;
+    String name;       // the name shown, which the order is next decided by, after the text a sort by text goes by
+    String text;
     u64 prefix;        // the characters from the top byte down, zero past `prefixLength`
     u32 index;
     u8 prefixLength;
@@ -830,11 +842,15 @@ function Prog__SortKey Prog__MakeSortKey(const Prog_Entry *entry, u32 index, Pro
         case Prog_Sort_Created: result.value = (u64)entry->file.createdTimeUnix ^ flip; break;
         case Prog_Sort_Accessed: result.value = (u64)entry->file.accessedTimeUnix ^ flip; break;
         case Prog_Sort_Items: result.value = entry->folders + entry->files; break;
+        case Prog_Sort_Deleted: result.value = (u64)entry->deletedTimeUnix ^ flip; break;
+        case Prog_Sort_FreeSpace: result.value = entry->freeBytes; break;
+        case Prog_Sort_PercentFull: result.value = Prog__Fullness(entry); break;
+        case Prog_Sort_Original: case Prog_Sort_FileSystem: break;
         default: InvalidPath;
     }
     result.name = entry->label.length ? entry->label : Prog_EntryLeaf(entry->file.name);
-    if (sort == Prog_Sort_Type) result.type = entry->type;
-    String name = sort == Prog_Sort_Type ? result.type : result.name;
+    result.text = sort == Prog_Sort_Type ? entry->type : sort == Prog_Sort_Original ? entry->original : sort == Prog_Sort_FileSystem ? entry->fileSystem : (String){0};
+    String name = sort != Prog_Sort_Name && Prog_SortByText(sort) ? result.text : result.name;
     u64 length = 0;
     while (length < 8 && length < name.length && !(name.value[length] >= '0' && name.value[length] <= '9')) {
         result.prefix |= (u64)Prog__FoldAscii((u8)name.value[length]) << (56 - 8 * length);
@@ -860,7 +876,7 @@ function i32 Prog__CompareKeys(const Prog__Sort *job, const Prog__SortKey *a, co
         else if (a->prefixWhole && a->prefixLength == shared && !(b->prefixWhole && b->prefixLength == shared)) result = -1;
         else if (b->prefixWhole && b->prefixLength == shared && !(a->prefixWhole && a->prefixLength == shared)) result = 1;
         else {
-            if (job->sort == Prog_Sort_Type) result = Prog_CompareNames(a->type, b->type);
+            if (job->sort != Prog_Sort_Name && Prog_SortByText(job->sort)) result = Prog_CompareNames(a->text, b->text);
             if (!result) result = Prog_CompareNames(a->name, b->name);
             if (!result) return Prog__CompareEntries(&job->entries[a->index], &job->entries[b->index], job->sort, job->descending, job->folders);
         }
@@ -2754,7 +2770,7 @@ function void Prog__DirectoryJob(P_Job *job)
     result->expanded = input->expanded;
     result->driveKind = StrIsEqual(input->path, Prog_ThisPC) ? P_DriveKind_SolidState : (u8)P_PathDriveKind(input->path);
     P_DirectoryResult listing = {0};
-    // This PC lists the drives, in the system's order.
+    // This PC lists the drives.
     if (StrIsEqual(input->path, Prog_ThisPC)) {
         P_ArrayPlace drives = P_Drives(&job->arena);
         result->entries = ArenaPushArray(&job->arena, Max(drives.header.count, (u64)1), Prog_Entry);
@@ -2770,6 +2786,12 @@ function void Prog__DirectoryJob(P_Job *job)
             entry->measured = true;
         }
         result->totalFolders = result->folderCount = result->count;
+        // In the system's order by name, which their names, as "Local Disk (C:)", do not keep; by size, free space and the like, sorted.
+        if (input->sort != Prog_Sort_Name) {
+            Prog_Entry *buffer = ArenaPushArray(&job->arena, Max(result->count, (u64)1), Prog_Entry);
+            Prog_Entry *sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, Prog_FolderSort_Mixed, &job->cancelToken);
+            if (sorted) result->entries = sorted;
+        }
         return;
     }
     // The Recycle Bin lists what it holds, each with its own name, where it came from and when it went.
