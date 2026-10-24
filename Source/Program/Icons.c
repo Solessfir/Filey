@@ -134,7 +134,7 @@ function const Prog_Icon *Prog__LookUpIcon(Prog_State *state, Arena *arena, Prog
         ++state->iconsPending;
         return NULL;
     }
-    if (icon->state == Prog_IconState_Pending) icon->wanted = state->ui.frameIndex;
+    icon->wanted = state->ui.frameIndex;
     if (icon->state == Prog_IconState_Pending && !icon->making) ++state->iconsPending;
     return icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
@@ -487,6 +487,26 @@ function void Prog__ReplaceIcon(const Prog_IconAtlas *atlas, Prog_Icon *icon, co
     Prog__MeasurePicture(icon, pixels, atlas->size);
 }
 
+// Places `icon`, of `map`, in the next cell of its full atlas or else in the cell of the loaded icon of `map` drawn longest ago, before
+// frame `since`, which is dropped, to be asked for again when it is drawn; false when every one was drawn since, which leaves `icon` where it was. Placed, `icon` can move in `map`.
+function b32 Prog__PlaceOrEvict(Prog_IconAtlas *atlas, Prog_IconMap *map, Prog_Icon *icon, const u32 *pixels, u64 since)
+{
+    if (Prog__PlaceIcon(atlas, icon, pixels)) return true;
+    u64 stale = UINT64_MAX;
+    for (u64 i = 0; i < map->header.count; ++i) {
+        const Prog_Icon *other = &map->v[i].value;
+        if (other->state == Prog_IconState_Loaded && other->wanted < since && (stale == UINT64_MAX || other->wanted < map->v[stale].value.wanted)) stale = i;
+    }
+    if (stale == UINT64_MAX) return false;
+    icon->texture = map->v[stale].value.texture;
+    icon->uv = map->v[stale].value.uv;
+    icon->state = Prog_IconState_Loaded;
+    Prog__ReplaceIcon(atlas, icon, pixels);
+    String key = map->v[stale].key;
+    MapsDel(*map, key);
+    return true;
+}
+
 // An icon for pixels already in hand, such as a menu item's picture, cached by content so that reopening a menu reuses its cells.
 function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
 {
@@ -498,11 +518,15 @@ function const Prog_Icon *Prog_ImageIcon(Prog_State *state, P_Image image)
         Scratch scratch = GetScratch();
         Prog_Icon placed = {0};
         u32 *pixels = Prog_ResizeIcon(scratch.arena, image, state->iconSize);
-        if (!pixels || !Prog__PlaceIcon(&state->iconAtlas, &placed, pixels)) placed.state = Prog_IconState_Failed;
-        ReleaseScratch(scratch);
+        placed.state = Prog_IconState_Pending;
         MapsPut(&state->iconArena, state->icons, StrCopy(&state->iconArena, key), placed);
         icon = MapsGetPtrNull(state->icons, key);
+        if (!pixels || !Prog__PlaceOrEvict(&state->iconAtlas, &state->icons, icon, pixels, state->ui.frameIndex)) icon->state = Prog_IconState_Failed;
+        ReleaseScratch(scratch);
+        // Placing it can move it in the map.
+        icon = MapsGetPtrNull(state->icons, key);
     }
+    icon->wanted = state->ui.frameIndex;
     return icon && icon->state == Prog_IconState_Loaded ? icon : NULL;
 }
 
@@ -577,7 +601,9 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
         // The tab list's folder pictures have their own atlas.
         Prog_Icon *picture = thumbnail && request->size == state->folderPictureAtlas.size ? MapsGetPtrNull(state->folderPictures, request->key) : NULL;
         if (picture) {
-            if (!pixels[i] || !Prog__PlaceIcon(&state->folderPictureAtlas, picture, pixels[i])) picture->state = Prog_IconState_Failed;
+            if (!pixels[i] || !Prog__PlaceOrEvict(&state->folderPictureAtlas, &state->folderPictures, picture, pixels[i], state->ui.frameIndex)) {
+                picture->state = Prog_IconState_Failed;
+            }
             continue;
         }
         // Thumbnails and their stand-ins of a tier no slot holds any longer are dropped; the items ask again at theirs.
@@ -592,7 +618,7 @@ function void Prog__TakeIcons(Prog_State *state, P_Job *job)
             if (pixels[i]) Prog__ReplaceIcon(slot ? &slot->atlas : &state->iconAtlas, icon, pixels[i]);
         } else if (pixels[i] == NULL) {
             icon->state = Prog_IconState_Failed;
-        } else if (!Prog__PlaceIcon(slot ? &slot->atlas : &state->iconAtlas, icon, pixels[i])) {
+        } else if (!Prog__PlaceOrEvict(slot ? &slot->atlas : &state->iconAtlas, map, icon, pixels[i], slot ? slot->drawn : state->ui.frameIndex)) {
             if (slot) Prog__ResetThumbnails(slot, request->size);
             else icon->state = Prog_IconState_Failed;
         }

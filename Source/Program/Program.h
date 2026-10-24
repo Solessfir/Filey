@@ -392,7 +392,7 @@ typedef struct Prog_Icon {
     R_Rect uv;
     R_Rect pictureUv;  // a picture fitted to its cell's width: the rows it covers, and its width over its height; else `aspect` is 0
     f32 aspect;
-    u64 wanted;    // the last frame that drew or waited for it, which orders the thumbnails still to be made
+    u64 wanted;    // the last frame that drew or waited for it, which orders the thumbnails still to be made and picks the cell a full atlas gives up
 } Prog_Icon;
 
 typedef struct Prog_IconMap { MapHeader header; struct { String key; Prog_Icon value; } *v; } Prog_IconMap;
@@ -1529,12 +1529,12 @@ typedef struct Prog_State {
     Prog_PathSet warmed;
     i32 iconSize;
     f32 iconScale;                       // the display scale iconSize was reached at
-    // ponytail: fixed page count (8192 icons at 16 px); later icons fall back to glyphs.
+    // A fixed page count (8192 icons at 16 px); once it is full, a new icon takes the cell of the one drawn longest ago.
     Prog_IconAtlas iconAtlas;
     // Thumbnails for the icon views, keyed by P_FileThumbnailKey, loaded at the tier of sizes at or above what the zoom draws and scaled down
     // to it, so that most zoom steps load nothing. Each tier in use has a slot of its own, so that panels zoomed apart keep theirs; a new
-    // tier takes the slot drawn from longest ago, and until its thumbnails come another slot's are drawn. A full atlas drops its slot's
-    // thumbnails, and the items still shown ask again.
+    // tier takes the slot drawn from longest ago, and until its thumbnails come another slot's are drawn. A full atlas gives a new thumbnail
+    // the cell of the one drawn longest ago, and drops its slot's thumbnails only when every one was drawn in the last frame.
     Prog_ThumbnailSlot thumbnailSlots[Prog_ThumbnailSlots];
     // The tab list's folder pictures, at their one size.
     Arena folderPictureArena;
@@ -1593,7 +1593,6 @@ typedef struct Prog_State {
     String menuMoved;         // the label of the item last pinned or unpinned, in menuArena, which slides to its place lit
     u32 menuDepth;            // open submenu levels below the top one
     u32 menuHighlight;        // item index, or UINT32_MAX for none
-    const Prog_Icon **menuIcons;  // per item, NULL when it has no picture
     Prog_MenuCommand *menuCommands;  // per item of Filey's own menus; NULL for the system's
     UI_Key menuHot;           // hot block when the menu was last built
     Prog_TextEdit menuSearch; // typed into a system menu, which then shows only its top items holding it

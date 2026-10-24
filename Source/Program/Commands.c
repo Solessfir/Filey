@@ -87,7 +87,6 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuTarget = (String){0};
     state->menuMiller = false;
     state->menuSidebar = 0;
-    state->menuIcons = NULL;
     state->menuCommands = NULL;
     state->menuRowCount = 0;
     state->menuDepth = 0;
@@ -211,8 +210,6 @@ function void Prog__ApplyMenuPins(Prog_State *state)
             break;
         }
     }
-    state->menuIcons = ArenaPushArray(&state->menuArena, Max(state->menu.count, 1u), const Prog_Icon *);
-    for (u32 i = 0; i < state->menu.count; ++i) state->menuIcons[i] = Prog_ImageIcon(state, state->menu.items[i].icon);
 }
 
 // Shown items of a menu level: unlabeled owner-drawn items are dropped, and so are separators at the ends or next to another separator.
@@ -396,7 +393,6 @@ function void Prog_OpenCommandMenu(Prog_State *state, const Prog_MenuCommand *it
     if (!count) return;
     state->menu.items = ArenaPushArray(&state->menuArena, count, P_MenuItem);
     state->menuCommands = ArenaPushArray(&state->menuArena, count, Prog_MenuCommand);
-    state->menuIcons = ArenaPushArray(&state->menuArena, count, const Prog_Icon *);
     for (u32 i = 0; i < count; ++i) {
         Prog_MenuCommand item = items[i];
         item.label = StrCopy(&state->menuArena, item.label.length ? item.label : Prog_CommandLabel(item.kind));

@@ -6531,7 +6531,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
             }
             UI_Parent(row) {
                 R_Color color = enabled ? theme->text : theme->textDim;
-                const Prog_Icon *icon = state->menuIcons ? state->menuIcons[index] : NULL;
+                // Looked up as it is drawn, as a full icon atlas can give its cell to another.
+                const Prog_Icon *icon = Prog_ImageIcon(state, item->icon);
                 const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[index] : NULL;
                 // An open submenu's items sit in from its item's.
                 if (depths[i]) Prog__Spacer(UI_Pixels(depths[i] * indent), UI_Pixels(itemHeight));

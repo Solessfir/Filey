@@ -765,6 +765,23 @@ function void TestThumbnailSlots(void)
     for (u32 i = 0; i < 8 * 8; ++i) pixels[i] = 0xFF000000u;
     Prog__MeasurePicture(&icon, pixels, 8);
     Check(icon.aspect == 0);
+    // A full atlas of four cells gives a new picture the cell of the one drawn longest ago, and none of one drawn since the frame given.
+    {
+        Arena arena = {0};
+        Prog_IconMap map = {0};
+        Prog_IconAtlas atlas = {0};
+        Prog__ResetAtlas(&atlas, 8, 16, 1);
+        String keys[6] = { S("a"), S("b"), S("c"), S("d"), S("e"), S("f") };
+        u64 wanted[6] = { 3, 1, 2, 2, 4, 4 };
+        for (u32 i = 0; i < 6; ++i) MapsPut(&arena, map, keys[i], ((Prog_Icon){ .state = Prog_IconState_Pending, .wanted = wanted[i] }));
+        for (u32 i = 0; i < 4; ++i) Check(Prog__PlaceOrEvict(&atlas, &map, MapsGetPtrNull(map, keys[i]), pixels, 3));
+        R_Rect cell = MapsGetPtrNull(map, S("b"))->uv;
+        Check(Prog__PlaceOrEvict(&atlas, &map, MapsGetPtrNull(map, S("e")), pixels, 3) && !MapsGetPtrNull(map, S("b")));
+        const Prog_Icon *taken = MapsGetPtrNull(map, S("e"));
+        Check(taken->state == Prog_IconState_Loaded && taken->uv.x0 == cell.x0 && taken->uv.y0 == cell.y0 && cell.x0 == 0.5f);
+        Check(!Prog__PlaceOrEvict(&atlas, &map, MapsGetPtrNull(map, S("f")), pixels, 2) && MapsGetPtrNull(map, S("f"))->state == Prog_IconState_Pending);
+        ArenaRelease(&arena);
+    }
 }
 
 function void TestProgramVirtualRows(void)

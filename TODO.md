@@ -9,7 +9,6 @@
 ## From the RAD Debugger
 
 - Text width: the reference rasterizes through the same DirectWrite GDI interop as raddbg (`src/font_provider/dwrite`), with advances from `GetGdiCompatibleGlyphMetrics` in GDI-natural mode and gamma 1.5 and enhanced contrast 1.0 fixed; Filey takes design advances and the system's gamma and contrast. For Segoe UI, GDI-natural advances make words 0-3 px wider at 15 px and 1-5 px narrower at 16.25 px. Measure the reference's label width at a known size first.
-- Cache eviction: raddbg's artifact cache (`src/artifact_cache`) evicts entries untouched for a while and serves the stale value while it recomputes. Filey's thumbnail atlas clears a whole slot when full, and the type icons stop being added.
 - Maybe: per-corner colors in the rect shader, for fades at the edges of scrolled lists; linear-light blending into an sRGB framebuffer, only if the reference does it too.
 
 ## Linux
