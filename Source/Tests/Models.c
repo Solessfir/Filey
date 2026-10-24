@@ -93,7 +93,6 @@ function void TestModels(void)
 {
     Arena arena = {0};
     Prog_Mesh mesh = {0};
-
     // OBJ: a quad and a triangle given from the end, with texture and normal indices; a vertex with another texture coordinate, or none,
     // is a vertex of its own.
     String obj = S("# test\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvt 0 0.25\nf 1/1/1 2/1/1 3/1/1 4/1/1\nf -4 -3 -1\n");
@@ -264,6 +263,29 @@ function void TestModels(void)
         TestPut(&bytes, zero, 13);
         Check(TestReadModel(&arena, Prog_ModelKind_Fbx, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.positions.header.count == 9 && mesh.indices.header.count == 3);
         Check(mesh.positions.v[0] == 5 && mesh.positions.v[3] == 6 && mesh.positions.v[7] == 1 && mesh.indices.v[2] == 2);
+    }
+
+    // Text USD: a quad under a prim moved five along X, Z up, red by its display color and bound to a green material through its shader;
+    // documentation, time samples and a variant set are passed over.
+    {
+        String text = S("#usda 1.0\n(\n    doc = \"\"\"A (long) \"doc\" string\"\"\"\n    upAxis = \"Z\"\n)\n\n"
+                        "def Xform \"root\" (\n    customData = { dictionary d = { bool b = 1 } }\n)\n{\n"
+                        "    double3 xformOp:translate = (5, 0, 0)\n"
+                        "    float3 xformOp:scale.timeSamples = { 0: (1, 1, 1), 10: (2, 2, 2) }\n"
+                        "    uniform token[] xformOpOrder = [\"xformOp:translate\"]\n"
+                        "    variantSet \"look\" = { \"a\" { } }\n"
+                        "    def Mesh \"quad\" (\n        prepend apiSchemas = [\"MaterialBindingAPI\"]\n    )\n    {\n"
+                        "        int[] faceVertexCounts = [4]\n        int[] faceVertexIndices = [0, 1, 2, 3]\n"
+                        "        point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]\n"
+                        "        color3f[] primvars:displayColor = [(1, 0, 0)] (\n            interpolation = \"constant\"\n        )\n"
+                        "        rel material:binding = </root/look/green>\n    }\n"
+                        "    def Scope \"look\"\n    {\n        def Material \"green\"\n        {\n"
+                        "            token outputs:surface.connect = </root/look/green/surface.outputs:surface>\n"
+                        "            def Shader \"surface\"\n            {\n                uniform token info:id = \"UsdPreviewSurface\"\n"
+                        "                color3f inputs:diffuseColor = (0, 1, 0)\n                token outputs:surface\n            }\n        }\n    }\n}\n");
+        Check(TestReadModel(&arena, Prog_ModelKind_Usd, text, &mesh) && mesh.zUp && mesh.positions.header.count == 12 && mesh.indices.header.count == 6);
+        Check(mesh.positions.v[0] == 5 && mesh.positions.v[3] == 6 && mesh.colors.header.count == 4 && mesh.colors.v[0] == 0xFF0000FFu);
+        Check(mesh.parts.header.count == 1 && mesh.parts.v[0].color == 0xFF00FF00u);
     }
 
     // Text FBX: the same mesh and model as the binary one, its arrays over more than one line, with comments, and a value-less node.

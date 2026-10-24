@@ -3070,56 +3070,444 @@ function u32 Prog__UsdBound(const Prog__Usd *usd, const Prog__UsdProperties *pro
     return binding ? Prog__UsdTarget(usd, Prog__UsdField(usd, *binding, S("targetPaths"))) : UINT32_MAX;
 }
 
-function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+// A text layer, .usda, read into the tables a binary one fills: its prims and properties as paths and specs, each spec's fields, and their
+// values written into a buffer of its own as the binary format lays them out, so that the meshes are read from it the same way. What the
+// meshes do not need, as time samples, variants and references, is passed over.
+function b32 Prog__UsdIsText(String data)
 {
-    // A .usdz is a zip whose first file is its root layer, and which holds the pictures its materials use.
-    String zip = {0};
-    if (data.length >= 4 && Prog__Read32((const u8 *)data.value) == 0x04034B50) zip = data, data = Prog__ZipView(arena, zip, (String){0});
-    Prog__Usd usd = {0};
-    if (!Prog__UsdParse(arena, data, &usd)) return false;
-    usd.xformOpOrder = Prog__UsdTokenIndex(&usd, S("xformOpOrder"));
+    return data.length >= 5 && MemCompare(data.value, "#usda", 5) == 0;
+}
+
+typedef struct Prog__UsdLayer {
+    const char *at, *end;
+    Arena *arena;
+    Prog__Usd *usd;
+    StrBuilder values;
+    struct { ArrayHeader header; String *v; } tokens;
+    struct { ArrayHeader header; u32 *v; } fieldTokens, pathParent, pathToken, specPath, specFieldSet;
+    struct { ArrayHeader header; u64 *v; } fieldValues;
+    struct { ArrayHeader header; i32 *v; } fieldSets;
+    struct { ArrayHeader header; b8 *v; } pathProperty;
+    struct { ArrayHeader header; String *v; } pathNames;                        // each path whole, as "/World/Cube.points", to find targets by
+    struct { ArrayHeader header; struct { u64 at; String target; } *v; } links;  // list ops written before the paths they name were met
+    u32 open[8], openCount;  // the fields of the spec being written
+    u32 fieldsOpen;
+} Prog__UsdLayer;
+
+function void Prog__UsdTextSkip(Prog__UsdLayer *t)
+{
+    while (t->at < t->end) {
+        char c = *t->at;
+        if (c == '#') {
+            while (t->at < t->end && *t->at != '\n') ++t->at;
+        } else if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ';') {
+            ++t->at;
+        } else {
+            break;
+        }
+    }
+}
+
+function b32 Prog__UsdTextNameByte(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == ':' || c == '.' || c == '-' || c == '+';
+}
+
+function String Prog__UsdTextName(Prog__UsdLayer *t)
+{
+    Prog__UsdTextSkip(t);
+    const char *from = t->at;
+    while (t->at < t->end && Prog__UsdTextNameByte(*t->at)) ++t->at;
+    return StrMake(from, (u64)(t->at - from));
+}
+
+function b32 Prog__UsdTextIs(Prog__UsdLayer *t, char c)
+{
+    Prog__UsdTextSkip(t);
+    if (t->at < t->end && *t->at == c) {
+        ++t->at;
+        return true;
+    }
+    return false;
+}
+
+// Text between the quote at the cursor and the one that ends it, three of them for a long one; between '@'s for an asset path.
+function String Prog__UsdTextQuoted(Prog__UsdLayer *t)
+{
+    Prog__UsdTextSkip(t);
+    if (t->at >= t->end) return (String){0};
+    char quote = *t->at;
+    b32 triple = t->end - t->at >= 3 && t->at[1] == quote && t->at[2] == quote;
+    t->at += triple ? 3 : 1;
+    const char *from = t->at;
+    while (t->at < t->end && !(*t->at == quote && (!triple || (t->end - t->at >= 3 && t->at[1] == quote && t->at[2] == quote)))) t->at += *t->at == '\\' && t->end - t->at > 1 ? 2 : 1;
+    String result = StrMake(from, (u64)(t->at - from));
+    t->at = t->end - t->at > (triple ? 3 : 1) ? t->at + (triple ? 3 : 1) : t->end;
+    return result;
+}
+
+// Past a value of any shape, nested brackets and braces with what is in them.
+function void Prog__UsdTextPass(Prog__UsdLayer *t)
+{
+    Prog__UsdTextSkip(t);
+    u32 depth = 0;
+    do {
+        if (t->at >= t->end) return;
+        char c = *t->at;
+        if (c == '"' || c == '\'' || c == '@') {
+            Prog__UsdTextQuoted(t);
+        } else if (c == '<') {
+            while (t->at < t->end && *t->at != '>') ++t->at;
+            ++t->at;
+        } else if (c == '(' || c == '[' || c == '{') {
+            ++depth, ++t->at;
+        } else if (c == ')' || c == ']' || c == '}') {
+            if (depth) --depth;
+            ++t->at;
+        } else if (depth) {
+            ++t->at;
+        } else if (!Prog__UsdTextName(t).length) {
+            // A bare value is a word; anything else is passed a byte at a time.
+            ++t->at;
+        }
+        Prog__UsdTextSkip(t);
+    } while (depth);
+}
+
+function u32 Prog__UsdTextToken(Prog__UsdLayer *t, String text)
+{
+    for (u64 i = 0; i < t->tokens.header.count; ++i) if (StrIsEqual(t->tokens.v[i], text)) return (u32)i;
+    ArrayPush(t->arena, t->tokens, StrCopy(t->arena, text));
+    return (u32)(t->tokens.header.count - 1);
+}
+
+// A path's index, made under `parent` when it is new.
+function u32 Prog__UsdTextPath(Prog__UsdLayer *t, u32 parent, String name, b32 property)
+{
+    String whole = parent == UINT32_MAX ? S("/") : StrFormat(t->arena, property ? "%S.%S" : parent == 0 ? "%S%S" : "%S/%S", t->pathNames.v[parent], name);
+    for (u64 i = 0; i < t->pathNames.header.count; ++i) if (StrIsEqual(t->pathNames.v[i], whole)) return (u32)i;
+    ArrayPush(t->arena, t->pathNames, whole);
+    ArrayPush(t->arena, t->pathParent, parent);
+    ArrayPush(t->arena, t->pathToken, Prog__UsdTextToken(t, parent == UINT32_MAX ? S("") : name));
+    ArrayPush(t->arena, t->pathProperty, (b8)property);
+    return (u32)(t->pathNames.header.count - 1);
+}
+
+// A spec for path `path`, whose fields the next Prog__UsdTextField calls add until Prog__UsdTextEndSpec.
+function void Prog__UsdTextSpec(Prog__UsdLayer *t, u32 path)
+{
+    ArrayPush(t->arena, t->specPath, path);
+    ArrayPush(t->arena, t->specFieldSet, (u32)t->fieldSets.header.count);
+}
+
+function void Prog__UsdTextField(Prog__UsdLayer *t, String name, u64 rep)
+{
+    ArrayPush(t->arena, t->fieldTokens, Prog__UsdTextToken(t, name));
+    ArrayPush(t->arena, t->fieldValues, rep);
+    ArrayPush(t->arena, t->fieldSets, (i32)(t->fieldTokens.header.count - 1));
+}
+
+function void Prog__UsdTextEndSpec(Prog__UsdLayer *t) { ArrayPush(t->arena, t->fieldSets, -1); }
+
+#define Prog__UsdRep(type, array, inlined, payload) ((u64)(array) << 63 | (u64)(inlined) << 62 | (u64)(type) << 48 | ((u64)(payload) & UINT64_C(0xFFFFFFFFFFFF)))
+
+function u64 Prog__UsdTextTokenRep(Prog__UsdLayer *t, String text) { return Prog__UsdRep(11, 0, 1, Prog__UsdTextToken(t, text)); }
+
+// A target path written as a list op of one explicit item, its index filled in once every path is known.
+function u64 Prog__UsdTextLink(Prog__UsdLayer *t, String target)
+{
+    u64 at = t->values.buffer.length;
+    u8 header = 1 << 1;
+    u64 count = 1;
+    u32 none = UINT32_MAX;
+    StrBuildStr(t->arena, &t->values, StrMake((const char *)&header, 1));
+    StrBuildStr(t->arena, &t->values, StrMake((const char *)&count, 8));
+    ArrayPush(t->arena, t->links, ((typeof(*t->links.v)){ t->values.buffer.length, StrCopy(t->arena, target) }));
+    StrBuildStr(t->arena, &t->values, StrMake((const char *)&none, 4));
+    return Prog__UsdRep(34, 0, 0, at);
+}
+
+// The numbers of a value, flattened, with how many make one element: 1 for plain numbers, else the size of its tuples.
+function void Prog__UsdTextNumbers(Prog__UsdLayer *t, Prog_ArrayF32 *numbers, u32 *width, b32 *array)
+{
+    Prog__UsdTextSkip(t);
+    *width = 1;
+    *array = t->at < t->end && *t->at == '[';
+    u32 depth = 0, inTuple = 0, tupleDepth = *array ? 2 : 1;
+    do {
+        Prog__UsdTextSkip(t);
+        if (t->at >= t->end) break;
+        char c = *t->at;
+        if (c == '[' || c == '(') {
+            ++depth, ++t->at;
+            if (depth == tupleDepth) inTuple = 0;
+        } else if (c == ']' || c == ')') {
+            if (depth == tupleDepth && inTuple) *width = inTuple;
+            if (depth) --depth;
+            ++t->at;
+        } else if (c == ',') {
+            ++t->at;
+        } else {
+            f64 value = 0;
+            const char *before = t->at;
+            if (Prog__Number(&t->at, t->end, &value)) {
+                ArrayPush(t->arena, *numbers, (f32)value);
+                if (depth == tupleDepth) ++inTuple;
+            } else {
+                t->at = before;
+                Prog__UsdTextPass(t);
+            }
+        }
+    } while (depth && t->at < t->end);
+}
+
+// An attribute's value, by its type's name, as the binary format writes it; 0 for one the meshes do not use.
+function u64 Prog__UsdTextValue(Prog__UsdLayer *t, String type)
+{
+    Prog__UsdTextSkip(t);
+    if (t->at >= t->end) return 0;
+    char c = *t->at;
+    if (c == '"' || c == '\'' || c == '@') return Prog__UsdTextTokenRep(t, Prog__UsdTextQuoted(t));
+    if (c == '<') {
+        const char *from = ++t->at;
+        while (t->at < t->end && *t->at != '>') ++t->at;
+        String target = StrMake(from, (u64)(t->at - from));
+        if (t->at < t->end) ++t->at;
+        return Prog__UsdTextLink(t, target);
+    }
+    b32 tokens = StrIsEqual(type, S("token[]"));
+    if (tokens) {
+        // A list of tokens, as xformOpOrder is.
+        struct { ArrayHeader header; u32 *v; } list = {0};
+        Prog__UsdTextIs(t, '[');
+        while (!Prog__UsdTextIs(t, ']') && t->at < t->end) {
+            if (Prog__UsdTextIs(t, ',')) continue;
+            Prog__UsdTextSkip(t);
+            if (*t->at == '"' || *t->at == '\'') ArrayPush(t->arena, list, Prog__UsdTextToken(t, Prog__UsdTextQuoted(t)));
+            else ++t->at;
+        }
+        u64 at = t->values.buffer.length, count = list.header.count;
+        StrBuildStr(t->arena, &t->values, StrMake((const char *)&count, 8));
+        if (count) StrBuildStr(t->arena, &t->values, StrMake((const char *)list.v, count * 4));
+        return Prog__UsdRep(11, 1, 0, at);
+    }
+    Prog_ArrayF32 numbers = {0};
+    u32 width = 1;
+    b32 array = false;
+    Prog__UsdTextNumbers(t, &numbers, &width, &array);
+    u64 count = width ? numbers.header.count / width : 0;
+    u64 at = t->values.buffer.length;
+    if (StrIsEqual(type, S("int[]"))) {
+        StrBuildStr(t->arena, &t->values, StrMake((const char *)&count, 8));
+        for (u64 i = 0; i < numbers.header.count; ++i) {
+            i32 v = (i32)numbers.v[i];
+            StrBuildStr(t->arena, &t->values, StrMake((const char *)&v, 4));
+        }
+        return Prog__UsdRep(3, 1, 0, at);
+    }
+    if (StrIsEqual(type, S("matrix4d")) && numbers.header.count == 16) {
+        for (u32 i = 0; i < 16; ++i) {
+            f64 v = numbers.v[i];
+            StrBuildStr(t->arena, &t->values, StrMake((const char *)&v, 8));
+        }
+        return Prog__UsdRep(15, 0, 0, at);
+    }
+    // Tuples of two, three or four floats: vec2f, vec3f and vec4f, single or arrays.
+    if (width < 2 || width > 4 || !count) return 0;
+    u32 kind = width == 2 ? 20 : width == 3 ? 24 : 28;
+    if (array) StrBuildStr(t->arena, &t->values, StrMake((const char *)&count, 8));
+    else count = 1;
+    StrBuildStr(t->arena, &t->values, StrMake((const char *)numbers.v, count * width * 4));
+    return Prog__UsdRep(kind, array, 0, at);
+}
+
+// The metadata in parentheses after a prim or a property: the fields kept are written to the spec being written.
+function void Prog__UsdTextMetadata(Prog__UsdLayer *t)
+{
+    if (!Prog__UsdTextIs(t, '(')) return;
+    while (!Prog__UsdTextIs(t, ')') && t->at < t->end) {
+        Prog__UsdTextSkip(t);
+        if (*t->at == '"') {
+            // A layer's or prim's documentation.
+            Prog__UsdTextQuoted(t);
+            continue;
+        }
+        String word = Prog__UsdTextName(t);
+        if (!word.length) {
+            ++t->at;
+            continue;
+        }
+        if (StrIsEqual(word, S("prepend")) || StrIsEqual(word, S("append")) || StrIsEqual(word, S("delete")) || StrIsEqual(word, S("add"))) word = Prog__UsdTextName(t);
+        if (!Prog__UsdTextIs(t, '=')) continue;
+        Prog__UsdTextSkip(t);
+        if ((StrIsEqual(word, S("upAxis")) || StrIsEqual(word, S("interpolation"))) && t->at < t->end && (*t->at == '"' || *t->at == '\'')) {
+            Prog__UsdTextField(t, word, Prog__UsdTextTokenRep(t, Prog__UsdTextQuoted(t)));
+        } else {
+            Prog__UsdTextPass(t);
+        }
+    }
+}
+
+// The prims and properties inside a prim's braces, or at the top of the layer, under the path `parent`.
+function void Prog__UsdTextBody(Prog__UsdLayer *t, u32 parent, u32 depth)
+{
+    while (t->at < t->end && depth < 64) {
+        Prog__UsdTextSkip(t);
+        if (t->at >= t->end) break;
+        if (*t->at == '}') {
+            ++t->at;
+            break;
+        }
+        String word = Prog__UsdTextName(t);
+        if (!word.length) {
+            ++t->at;
+            continue;
+        }
+        if (StrIsEqual(word, S("def")) || StrIsEqual(word, S("over")) || StrIsEqual(word, S("class"))) {
+            Prog__UsdTextSkip(t);
+            String type = t->at < t->end && *t->at != '"' ? Prog__UsdTextName(t) : (String){0};
+            String name = Prog__UsdTextQuoted(t);
+            u32 path = Prog__UsdTextPath(t, parent, name, false);
+            Prog__UsdTextSpec(t, path);
+            if (type.length) Prog__UsdTextField(t, S("typeName"), Prog__UsdTextTokenRep(t, type));
+            Prog__UsdTextMetadata(t);
+            Prog__UsdTextEndSpec(t);
+            if (Prog__UsdTextIs(t, '{')) Prog__UsdTextBody(t, path, depth + 1);
+            continue;
+        }
+        if (StrIsEqual(word, S("variantSet")) || StrIsEqual(word, S("reorder"))) {
+            // Variants are not chosen between; what follows is passed over to the end of its braces or line.
+            while (t->at < t->end && *t->at != '{' && *t->at != '\n') ++t->at;
+            if (t->at < t->end && *t->at == '{') Prog__UsdTextPass(t);
+            continue;
+        }
+        // A property: its qualifiers, its type, a relationship's "rel", then its name and value.
+        while (StrIsEqual(word, S("custom")) || StrIsEqual(word, S("uniform")) || StrIsEqual(word, S("varying")) || StrIsEqual(word, S("config"))) word = Prog__UsdTextName(t);
+        b32 relationship = StrIsEqual(word, S("rel"));
+        String type = relationship ? S("rel") : word;
+        if (!relationship && Prog__UsdTextIs(t, '[')) {
+            Prog__UsdTextIs(t, ']');
+            type = StrFormat(t->arena, "%S[]", word);
+        }
+        String name = Prog__UsdTextName(t);
+        b32 connection = name.length > 8 && StrIsEqual(StrFrom(name, name.length - 8), S(".connect"));
+        b32 samples = name.length > 12 && StrIsEqual(StrFrom(name, name.length - 12), S(".timeSamples"));
+        if (connection) name.length -= 8;
+        u64 value = 0;
+        if (Prog__UsdTextIs(t, '=')) {
+            Prog__UsdTextSkip(t);
+            if (samples || (t->at < t->end && t->at[0] == 'N' && t->end - t->at >= 4 && MemCompare(t->at, "None", 4) == 0)) Prog__UsdTextPass(t);
+            else if (relationship && t->at < t->end && *t->at == '[') {
+                // Several targets: the first is kept.
+                ++t->at;
+                Prog__UsdTextSkip(t);
+                if (t->at < t->end && *t->at == '<') value = Prog__UsdTextValue(t, type);
+                while (t->at < t->end && *t->at != ']') ++t->at;
+                if (t->at < t->end) ++t->at;
+            } else {
+                value = Prog__UsdTextValue(t, type);
+            }
+        }
+        if (samples || !name.length) {
+            Prog__UsdTextMetadata(t);
+            continue;
+        }
+        u32 path = Prog__UsdTextPath(t, parent, name, true);
+        Prog__UsdTextSpec(t, path);
+        Prog__UsdTextField(t, S("typeName"), Prog__UsdTextTokenRep(t, type));
+        if (value) Prog__UsdTextField(t, relationship ? S("targetPaths") : connection ? S("connectionPaths") : S("default"), value);
+        Prog__UsdTextMetadata(t);
+        Prog__UsdTextEndSpec(t);
+    }
+}
+
+function b32 Prog__UsdParseText(Arena *arena, String data, Prog__Usd *usd)
+{
+    Prog__UsdLayer t = { .at = data.value, .end = data.value + data.length, .arena = arena, .usd = usd };
+    // Past the "#usda 1.0" line, then the layer's metadata, which goes to the root's spec.
+    while (t.at < t.end && *t.at != '\n') ++t.at;
+    u32 root = Prog__UsdTextPath(&t, UINT32_MAX, (String){0}, false);
+    Prog__UsdTextSpec(&t, root);
+    Prog__UsdTextMetadata(&t);
+    Prog__UsdTextEndSpec(&t);
+    Prog__UsdTextBody(&t, root, 0);
+    // Each target now that every path is known: a prim, or a property of one, made where it was not met.
+    u8 *values = (u8 *)t.values.buffer.value;
+    for (u64 i = 0; i < t.links.header.count; ++i) {
+        String target = t.links.v[i].target;
+        Index dot = StrIndexChar(target, '.', SSF_SearchBackwards);
+        String prim = dot.exists ? StrFromTo(target, 0, (i64)dot.value) : target;
+        u32 found = UINT32_MAX;
+        for (u64 p = 0; p < t.pathNames.header.count && found == UINT32_MAX; ++p) if (StrIsEqual(t.pathNames.v[p], prim)) found = (u32)p;
+        if (found != UINT32_MAX && dot.exists) found = Prog__UsdTextPath(&t, found, StrFrom(target, dot.value + 1), true);
+        MemCopy(values + t.links.v[i].at, &found, 4);
+    }
+    usd->file = t.values.buffer;
+    usd->counts64 = true;
+    usd->tokens = t.tokens.v;
+    usd->tokenCount = (u32)t.tokens.header.count;
+    usd->fieldTokens = t.fieldTokens.v;
+    usd->fieldValues = t.fieldValues.v;
+    usd->fieldCount = (u32)t.fieldTokens.header.count;
+    usd->fieldSets = t.fieldSets.v;
+    usd->fieldSetCount = (u32)t.fieldSets.header.count;
+    usd->pathParent = t.pathParent.v;
+    usd->pathToken = t.pathToken.v;
+    usd->pathProperty = t.pathProperty.v;
+    usd->pathCount = (u32)t.pathNames.header.count;
+    usd->specPath = t.specPath.v;
+    usd->specFieldSet = t.specFieldSet.v;
+    usd->specType = ArenaPushArray(arena, Max(t.specPath.header.count, (u64)1), u32);
+    usd->specCount = (u32)t.specPath.header.count;
+    return usd->pathCount > 1;
+}
+
+// The meshes of a parsed stage, placed, colored and with their materials' looks, from the .usdz `zip` when it is one.
+function b32 Prog__UsdMeshes(Arena *arena, Prog__Usd *usd, String zip, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    usd->xformOpOrder = Prog__UsdTokenIndex(usd, S("xformOpOrder"));
     // Each prim path's spec, and each property's by its prim and name; the geometry subsets, which bind materials to some of a mesh's faces.
-    u32 *primSpec = ArenaPushArray(arena, Max(usd.pathCount, 1u), u32);
-    for (u32 i = 0; i < usd.pathCount; ++i) primSpec[i] = UINT32_MAX;
+    u32 *primSpec = ArenaPushArray(arena, Max(usd->pathCount, 1u), u32);
+    for (u32 i = 0; i < usd->pathCount; ++i) primSpec[i] = UINT32_MAX;
     Prog__UsdProperties properties = {0};
-    for (u32 s = 0; s < usd.specCount; ++s) {
-        u32 p = usd.specPath[s];
-        if (p >= usd.pathCount) continue;
-        if (usd.pathProperty[p] && usd.pathParent[p] < usd.pathCount) MapPut(arena, properties, (u64)usd.pathParent[p] << 32 | usd.pathToken[p], s);
-        else if (!usd.pathProperty[p]) primSpec[p] = s;
+    for (u32 s = 0; s < usd->specCount; ++s) {
+        u32 p = usd->specPath[s];
+        if (p >= usd->pathCount) continue;
+        if (usd->pathProperty[p] && usd->pathParent[p] < usd->pathCount) MapPut(arena, properties, (u64)usd->pathParent[p] << 32 | usd->pathToken[p], s);
+        else if (!usd->pathProperty[p]) primSpec[p] = s;
     }
     struct { ArrayHeader header; u32 *v; } subsets = {0};
-    for (u32 prim = 0; prim < usd.pathCount; ++prim) {
-        u64 type = primSpec[prim] != UINT32_MAX ? Prog__UsdField(&usd, primSpec[prim], S("typeName")) : 0;
-        if (type && StrIsEqual(Prog__UsdText(&usd, type), S("GeomSubset"))) ArrayPush(arena, subsets, prim);
+    for (u32 prim = 0; prim < usd->pathCount; ++prim) {
+        u64 type = primSpec[prim] != UINT32_MAX ? Prog__UsdField(usd, primSpec[prim], S("typeName")) : 0;
+        if (type && StrIsEqual(Prog__UsdText(usd, type), S("GeomSubset"))) ArrayPush(arena, subsets, prim);
     }
     // Z is up as the stage says, which Blender's exports do; Y otherwise.
     u32 root = UINT32_MAX;
-    for (u32 i = 0; i < usd.pathCount && root == UINT32_MAX; ++i) if (usd.pathParent[i] == UINT32_MAX && primSpec[i] != UINT32_MAX) root = i;
-    u64 up = root != UINT32_MAX ? Prog__UsdField(&usd, primSpec[root], S("upAxis")) : 0;
-    mesh->zUp = up && Prog__UsdInlined(up) && Prog__UsdPayload(up) < usd.tokenCount && StrIsEqual(usd.tokens[Prog__UsdPayload(up)], S("Z"));
-    Prog__Affine *world = ArenaPushArray(arena, Max(usd.pathCount, 1u), Prog__Affine);
-    b8 *placed = ArenaPushArray(arena, Max(usd.pathCount, 1u), b8);
-    u32 pointsToken = Prog__UsdTokenIndex(&usd, S("points")), countsToken = Prog__UsdTokenIndex(&usd, S("faceVertexCounts"));
-    u32 indicesToken = Prog__UsdTokenIndex(&usd, S("faceVertexIndices"));
-    for (u32 prim = 0; prim < usd.pathCount && !P_IsCancelled(cancel); ++prim) {
-        u64 type = primSpec[prim] != UINT32_MAX ? Prog__UsdField(&usd, primSpec[prim], S("typeName")) : 0;
-        if (!type || !Prog__UsdInlined(type) || Prog__UsdPayload(type) >= usd.tokenCount || !StrIsEqual(usd.tokens[Prog__UsdPayload(type)], S("Mesh"))) continue;
+    for (u32 i = 0; i < usd->pathCount && root == UINT32_MAX; ++i) if (usd->pathParent[i] == UINT32_MAX && primSpec[i] != UINT32_MAX) root = i;
+    u64 up = root != UINT32_MAX ? Prog__UsdField(usd, primSpec[root], S("upAxis")) : 0;
+    mesh->zUp = up && Prog__UsdInlined(up) && Prog__UsdPayload(up) < usd->tokenCount && StrIsEqual(usd->tokens[Prog__UsdPayload(up)], S("Z"));
+    Prog__Affine *world = ArenaPushArray(arena, Max(usd->pathCount, 1u), Prog__Affine);
+    b8 *placed = ArenaPushArray(arena, Max(usd->pathCount, 1u), b8);
+    u32 pointsToken = Prog__UsdTokenIndex(usd, S("points")), countsToken = Prog__UsdTokenIndex(usd, S("faceVertexCounts"));
+    u32 indicesToken = Prog__UsdTokenIndex(usd, S("faceVertexIndices"));
+    for (u32 prim = 0; prim < usd->pathCount && !P_IsCancelled(cancel); ++prim) {
+        u64 type = primSpec[prim] != UINT32_MAX ? Prog__UsdField(usd, primSpec[prim], S("typeName")) : 0;
+        if (!type || !Prog__UsdInlined(type) || Prog__UsdPayload(type) >= usd->tokenCount || !StrIsEqual(usd->tokens[Prog__UsdPayload(type)], S("Mesh"))) continue;
         const u32 *pointsSpec = MapGetPtrNull(properties, (u64)prim << 32 | pointsToken);
         const u32 *countsSpec = MapGetPtrNull(properties, (u64)prim << 32 | countsToken), *indicesSpec = MapGetPtrNull(properties, (u64)prim << 32 | indicesToken);
         if (!pointsSpec || !countsSpec || !indicesSpec) continue;
         u64 pointCount, faceCount, cornerCount;
-        f32 *points = Prog__UsdVec3(arena, &usd, Prog__UsdField(&usd, *pointsSpec, S("default")), &pointCount);
-        i32 *counts = Prog__UsdIntArray(arena, &usd, Prog__UsdField(&usd, *countsSpec, S("default")), &faceCount);
-        i32 *corners = Prog__UsdIntArray(arena, &usd, Prog__UsdField(&usd, *indicesSpec, S("default")), &cornerCount);
+        f32 *points = Prog__UsdVec3(arena, usd, Prog__UsdField(usd, *pointsSpec, S("default")), &pointCount);
+        i32 *counts = Prog__UsdIntArray(arena, usd, Prog__UsdField(usd, *countsSpec, S("default")), &faceCount);
+        i32 *corners = Prog__UsdIntArray(arena, usd, Prog__UsdField(usd, *indicesSpec, S("default")), &cornerCount);
         if (!points || !counts || !corners || pointCount >= UINT32_MAX) continue;
         // Its place: its own ops, then each parent's, worked out once for each.
         u32 chain[256], depth = 0;
-        for (u32 p = prim; p < usd.pathCount && !placed[p] && depth < CArrayCount(chain); p = usd.pathParent[p]) chain[depth++] = p;
+        for (u32 p = prim; p < usd->pathCount && !placed[p] && depth < CArrayCount(chain); p = usd->pathParent[p]) chain[depth++] = p;
         while (depth--) {
-            u32 p = chain[depth], up2 = usd.pathParent[p];
-            Prog__Affine above = up2 < usd.pathCount && placed[up2] ? world[up2] : Prog__AffineIdentity;
-            world[p] = Prog__AffineMultiply(above, Prog__UsdLocal(arena, &usd, p, primSpec, &properties));
+            u32 p = chain[depth], up2 = usd->pathParent[p];
+            Prog__Affine above = up2 < usd->pathCount && placed[up2] ? world[up2] : Prog__AffineIdentity;
+            world[p] = Prog__AffineMultiply(above, Prog__UsdLocal(arena, usd, p, primSpec, &properties));
             placed[p] = true;
         }
         Scratch scratch = GetScratchEx(arena);
@@ -3129,28 +3517,28 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
         Prog_MeshPart looks[17];
         u32 lookCount = 1, *lookOf = ArenaPushArray(scratch.arena, Max(faceCount, (u64)1), u32);
         String uvName = S("primvars:st");
-        u32 bound = Prog__UsdBound(&usd, &properties, prim);
-        looks[0] = bound != UINT32_MAX ? Prog__UsdLook(arena, &usd, &properties, bound, zip, mesh, &uvName) : (Prog_MeshPart){ .image = UINT32_MAX };
+        u32 bound = Prog__UsdBound(usd, &properties, prim);
+        looks[0] = bound != UINT32_MAX ? Prog__UsdLook(arena, usd, &properties, bound, zip, mesh, &uvName) : (Prog_MeshPart){ .image = UINT32_MAX };
         for (u64 i = 0; i < subsets.header.count && lookCount < CArrayCount(looks); ++i) {
             u32 subset = subsets.v[i];
-            const u32 *faces = usd.pathParent[subset] == prim ? Prog__UsdProperty(&usd, &properties, subset, S("indices")) : NULL;
-            u32 material = faces ? Prog__UsdBound(&usd, &properties, subset) : UINT32_MAX;
+            const u32 *faces = usd->pathParent[subset] == prim ? Prog__UsdProperty(usd, &properties, subset, S("indices")) : NULL;
+            u32 material = faces ? Prog__UsdBound(usd, &properties, subset) : UINT32_MAX;
             u64 n = 0;
-            i32 *list = material != UINT32_MAX ? Prog__UsdIntArray(scratch.arena, &usd, Prog__UsdField(&usd, *faces, S("default")), &n) : NULL;
+            i32 *list = material != UINT32_MAX ? Prog__UsdIntArray(scratch.arena, usd, Prog__UsdField(usd, *faces, S("default")), &n) : NULL;
             if (!list) continue;
-            looks[lookCount] = Prog__UsdLook(arena, &usd, &properties, material, zip, mesh, &uvName);
+            looks[lookCount] = Prog__UsdLook(arena, usd, &properties, material, zip, mesh, &uvName);
             for (u64 k = 0; k < n; ++k) if (list[k] >= 0 && (u64)list[k] < faceCount) lookOf[list[k]] = lookCount;
             ++lookCount;
         }
         // Its vertices' colors, linear: displayColor, or else the first color primvar, as Blender writes a color attribute.
         Prog__UsdPrimvar uv, color;
-        b32 mapped = Prog__UsdReadPrimvar(scratch.arena, &usd, &properties, prim, uvName, 2, &uv);
-        b32 colored = Prog__UsdReadPrimvar(scratch.arena, &usd, &properties, prim, S("primvars:displayColor"), 4, &color);
-        for (u32 s = 0; s < usd.specCount && !colored; ++s) {
-            u32 p = usd.specPath[s];
-            if (p >= usd.pathCount || !usd.pathProperty[p] || usd.pathParent[p] != prim) continue;
-            String name = usd.tokens[usd.pathToken[p] < usd.tokenCount ? usd.pathToken[p] : 0], typeName = Prog__UsdText(&usd, Prog__UsdField(&usd, s, S("typeName")));
-            if (StrIsEqual(StrFromTo(name, 0, 9), S("primvars:")) && StrIsEqual(StrFromTo(typeName, 0, 5), S("color"))) colored = Prog__UsdReadPrimvar(scratch.arena, &usd, &properties, prim, name, 4, &color);
+        b32 mapped = Prog__UsdReadPrimvar(scratch.arena, usd, &properties, prim, uvName, 2, &uv);
+        b32 colored = Prog__UsdReadPrimvar(scratch.arena, usd, &properties, prim, S("primvars:displayColor"), 4, &color);
+        for (u32 s = 0; s < usd->specCount && !colored; ++s) {
+            u32 p = usd->specPath[s];
+            if (p >= usd->pathCount || !usd->pathProperty[p] || usd->pathParent[p] != prim) continue;
+            String name = usd->tokens[usd->pathToken[p] < usd->tokenCount ? usd->pathToken[p] : 0], typeName = Prog__UsdText(usd, Prog__UsdField(usd, s, S("typeName")));
+            if (StrIsEqual(StrFromTo(name, 0, 9), S("primvars:")) && StrIsEqual(StrFromTo(typeName, 0, 5), S("color"))) colored = Prog__UsdReadPrimvar(scratch.arena, usd, &properties, prim, name, 4, &color);
         }
         // A color3 has no alpha, which reads as 0 here.
         b32 opaque = colored && color.count && color.values[3] == 0;
@@ -3196,6 +3584,16 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
     return mesh->indices.header.count > 0;
 }
 
+function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    // A .usdz is a zip whose first file is its root layer, and which holds the pictures its materials use.
+    String zip = {0};
+    if (data.length >= 4 && Prog__Read32((const u8 *)data.value) == 0x04034B50) zip = data, data = Prog__ZipView(arena, zip, (String){0});
+    Prog__Usd usd = {0};
+    if (!(Prog__UsdIsText(data) ? Prog__UsdParseText(arena, data, &usd) : Prog__UsdParse(arena, data, &usd))) return false;
+    return Prog__UsdMeshes(arena, &usd, zip, cancel, mesh);
+}
+
 // -----------------------------------------------------------------------------
 
 typedef enum Prog_ModelKind {
@@ -3210,12 +3608,13 @@ typedef enum Prog_ModelKind {
     Prog_ModelKind_Usd,
     Prog_ModelKind_Usdc,
     Prog_ModelKind_Usdz,
+    Prog_ModelKind_Usda,
     Prog_ModelKind_Count,
 } Prog_ModelKind;
 
 function Prog_ModelKind Prog_ModelKindOf(String path)
 {
-    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz") };
+    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda") };
     // Blender's backups, "scene.blend1" and on, are .blend files too.
     String backup = path;
     while (backup.length > 6 && backup.value[backup.length - 1] >= '0' && backup.value[backup.length - 1] <= '9') --backup.length;
@@ -3239,9 +3638,10 @@ function b32 Prog__ReadModelKind(Arena *arena, Prog_ModelKind kind, String path,
         case Prog_ModelKind_Glb: return Prog__ReadGltf(arena, path, data, true, cancel, mesh);
         case Prog_ModelKind_Fbx: return Prog__ReadFbx(arena, data, cancel, mesh);
         case Prog_ModelKind_Blend: return Prog__ReadBlend(arena, data, cancel, mesh);
-        // A .usd may be binary or text; only the binary crate is read.
+        // A .usd may be binary or text, which its first bytes tell.
         case Prog_ModelKind_Usd:
         case Prog_ModelKind_Usdc:
+        case Prog_ModelKind_Usda:
         case Prog_ModelKind_Usdz: return Prog__ReadUsd(arena, path, data, cancel, mesh);
         default: return false;
     }
