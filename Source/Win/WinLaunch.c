@@ -363,6 +363,16 @@ function void P_CatchCrashes(String folder, String version)
 
 function P_FileError P_OpenPath(Arena *arena, String path, P_FileOrder order)
 {
+    // A device's file is opened by its item, which the shell copies off the device first, as Explorer's are.
+    if (P__IsDevicePath(path)) {
+        HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        PIDLIST_ABSOLUTE list = P__PathIdList(path);
+        SHELLEXECUTEINFOW info = {.cbSize = sizeof(info), .fMask = SEE_MASK_INVOKEIDLIST | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI, .lpIDList = (void *)list, .nShow = SW_SHOWNORMAL};
+        u32 error = !list ? ERROR_PATH_NOT_FOUND : ShellExecuteExW(&info) ? 0 : GetLastError();
+        ILFree(list);
+        if (SUCCEEDED(com)) CoUninitialize();
+        return error ? P__FileError(arena, error) : (P_FileError){0};
+    }
     Scratch scratch = GetScratchEx(arena);
     String absolute = P_AbsolutePath(scratch.arena, path);
     wchar *wide = absolute.length ? P__FilePathWide(scratch.arena, absolute) : NULL;

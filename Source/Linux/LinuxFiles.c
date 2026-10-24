@@ -1974,6 +1974,20 @@ function P_ArrayPlace P_Drives(Arena *arena)
         }
         b32 seen = false;
         for (u64 j = 0; j < result.header.count; ++j) seen |= StrIsEqual(result.v[j].path, path);
+        // GVFS mounts what it reaches in folders of its one mount, phones as "mtp:host=SAMSUNG_Android_R58N" and cameras as "gphoto2:host=...".
+        if (!seen && StrIsEqual(fields.v[2], S("fuse.gvfsd-fuse"))) {
+            P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, path, NULL);
+            for (u64 j = 0; j < listing.files.header.count; ++j) {
+                String name = listing.files.v[j].name;
+                b32 phone = StrIsEqual(StrFromTo(name, 0, 4), S("mtp:")), camera = StrIsEqual(StrFromTo(name, 0, 8), S("gphoto2:"));
+                if (!phone && !camera) continue;
+                Index host = StrIndexStr(name, S("host="), SSF_IndexPlusOne);
+                String shown = StrCopy(arena, host.exists ? StrFrom(name, host.value) : name);
+                for (u64 c = 0; c < shown.length; ++c) if (shown.value[c] == '_') ((char *)shown.value)[c] = ' ';
+                ArrayPush(arena, result, ((P_Place){ .name = shown, .path = StrFormat(arena, "%S/%S", path, name), .type = phone ? S("Mobile Phone") : S("Camera"), .device = true }));
+            }
+            continue;
+        }
         if (!wanted || seen) continue;
         P_Place place = { .path = StrCopy(arena, path), .fileSystem = StrCopy(arena, fields.v[2]) };
         Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);

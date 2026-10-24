@@ -75,10 +75,10 @@ function void P__TestPause(void)
 function void P__TestDropForwarding(TestFileFixture *fixture)
 {
     Scratch scratch = GetScratchEx(&fixture->arena);
-    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, fixture->path));
+    IShellFolder *folder = P__ShellFolder(fixture->path);
     IDataObject *data = NULL;
     String names[] = { S("plain.txt") };
-    Check(folder && P__ShellChildren(folder, names, 1, &P__IID_IDataObject, (void **)&data));
+    Check(folder && P__ShellChildren(folder, fixture->path, names, 1, &P__IID_IDataObject, (void **)&data));
     if (data) {
         FORMATETC drop = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
         Check(data->lpVtbl->QueryGetData(data, &drop) == S_OK);

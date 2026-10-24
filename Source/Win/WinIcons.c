@@ -177,13 +177,16 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     b32 bare = !StrIndexChar(path, '/', SSF_None).exists && !StrIndexChar(path, '\\', SSF_None).exists;
     b32 byType = !exact && (!StrIsEqual(key, path) || bare);
     b32 generic = !exact && (StrIsEqual(key, S("/file")) || StrIsEqual(key, S("/folder")));
-    wchar *wide = P__FilePathWide(scratch.arena, generic ? S("item") : path);
+    // A device's item, which has no path for the shell to read, is known by its type, or by its item id for its own icon.
+    b32 device = P__IsDevicePath(path);
+    String leaf = device ? StrFrom(path, StrIndexChar(path, '/', SSF_SearchBackwards).value + 1) : path;
+    wchar *wide = device && !byType ? L"" : P__FilePathWide(scratch.arena, generic ? S("item") : leaf);
     b32 result = false;
     if (wide) {
         P__EnsureCom();
         DWORD attributes = kind == P_FileKind_Directory || kind == P_FileKind_Drive ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
         SHFILEINFOW info = {0};
-        b32 found = SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0)) != 0;
+        b32 found = !(device && !byType) && SHGetFileInfoW(wide, attributes, &info, sizeof(info), SHGFI_SYSICONINDEX | (byType ? SHGFI_USEFILEATTRIBUTES : 0)) != 0;
         // Shell folders without a file path, such as This PC by its class id, are found by their item id instead; the Recycle Bin's
         // folder on disk is a plain one to the shell, so its own icon, empty or full, comes from the Recycle Bin itself.
         PIDLIST_ABSOLUTE list = NULL;
@@ -192,7 +195,7 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
             ILFree(list);
             list = NULL;
         }
-        if (!found && !byType && SUCCEEDED(SHParseDisplayName(wide, NULL, &list, 0, NULL))) {
+        if (!found && !byType && (list = P__PathIdList(path)) != NULL) {
             found = SHGetFileInfoW((const wchar *)list, 0, &info, sizeof(info), SHGFI_PIDL | SHGFI_SYSICONINDEX) != 0;
             ILFree(list);
         }
@@ -297,12 +300,12 @@ function b32 P__ClearFolderBackground(Arena *scratch, P_Image *image)
 function b32 P__ShellThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, SIIGBF flags, P_Image *image)
 {
     Scratch scratch = GetScratchEx(arena);
-    wchar *wide = P__FilePathWide(scratch.arena, path);
+    PIDLIST_ABSOLUTE list = P__PathIdList(path);
     b32 result = false;
-    if (wide) {
+    if (list) {
         P__EnsureCom();
         IShellItemImageFactory *factory = NULL;
-        if (SUCCEEDED(SHCreateItemFromParsingName(wide, NULL, &P__IID_IShellItemImageFactory, (void **)&factory))) {
+        if (SUCCEEDED(SHCreateItemFromIDList(list, &P__IID_IShellItemImageFactory, (void **)&factory))) {
             HBITMAP bitmap = NULL;
             if (SUCCEEDED(factory->lpVtbl->GetImage(factory, (SIZE){ size, size }, SIIGBF_RESIZETOFIT | flags, &bitmap)) && bitmap) {
                 result = P__BitmapPixels(arena, bitmap, image);
@@ -314,6 +317,7 @@ function b32 P__ShellThumbnail(Arena *arena, String path, P_FileKind kind, i32 s
             }
             factory->lpVtbl->Release(factory);
         }
+        ILFree(list);
     }
     ReleaseScratch(scratch);
     return result;

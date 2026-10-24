@@ -3,13 +3,30 @@
 #pragma push_macro("function")
 #undef function
 #include <shellapi.h>
+#include <shlobj.h>
 #include <objbase.h>
 #include <lm.h>
 #include <winioctl.h>
 #pragma pop_macro("function")
 
+// Phones, cameras and other devices that the shell shows under This PC have no file paths. Filey names them and what is on them by the
+// names shown, under the folder that lists the drives, as "This PC/Phone/Internal storage/DCIM". The file APIs cannot reach them, so
+// these have no Win32 form; the shell reaches them by their item id lists, learned as their folders are listed.
+function b32 P__IsDevicePath(String path)
+{
+    return path.length > 8 && MemCompare(path.value, "This PC/", 8) == 0;
+}
+
+// The shell's item id list of the device path `path`, for ILFree, or NULL when it is not there; `folder` says whether it is a folder.
+function PIDLIST_ABSOLUTE P__DeviceIdList(String path, b32 *folder);
+function P_DirectoryResult P__EnumerateDevice(Arena *arena, String path, const P_CancelToken *cancel);
+
 function wchar *P__FilePathWide(Arena *arena, String path)
 {
+    if (P__IsDevicePath(path)) {
+        SetLastError(ERROR_PATH_NOT_FOUND);
+        return NULL;
+    }
     if (path.length > INT32_MAX || StrIndexChar(path, '\0', SSF_None).exists) {
         SetLastError(ERROR_INVALID_NAME);
         return NULL;
@@ -26,6 +43,18 @@ function wchar *P__FilePathWide(Arena *arena, String path)
         if (result[i] == L'/') result[i] = L'\\';
     }
     return result;
+}
+
+// The shell's item id list of `path`, a device's too, for ILFree; NULL when it is not there.
+function PIDLIST_ABSOLUTE P__PathIdList(String path)
+{
+    if (P__IsDevicePath(path)) return P__DeviceIdList(path, NULL);
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FilePathWide(scratch.arena, path);
+    PIDLIST_ABSOLUTE list = NULL;
+    if (!wide || FAILED(SHParseDisplayName(wide, NULL, &list, 0, NULL))) list = NULL;
+    ReleaseScratch(scratch);
+    return list;
 }
 
 function String P__FileStringWide(Arena *arena, const wchar *text, i32 length)
@@ -194,6 +223,10 @@ function void P__ArchiveRemove(String path)
 
 function String P_AbsolutePath(Arena *arena, String path)
 {
+    if (P__IsDevicePath(path)) {
+        while (path.length > 8 && path.value[path.length - 1] == '/') --path.length;
+        return StrCopy(arena, path);
+    }
     Scratch scratch = GetScratchEx(arena);
     wchar *input = P__FilePathWide(scratch.arena, path.length ? path : S("."));
     String result = {0};
@@ -349,6 +382,7 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
         result.cancelled = true;
         return result;
     }
+    if (P__IsDevicePath(path)) return P__EnumerateDevice(arena, path, cancel);
     ArenaMark mark = ArenaGetMark(arena);
     Scratch scratch = GetScratchEx(arena);
     wchar *directory = P__FileExtendedPath(scratch.arena, path);
@@ -452,9 +486,49 @@ function P_FileError P_SetMode(Arena *arena, String path, u16 mode)
     return P__FileError(arena, ERROR_NOT_SUPPORTED);
 }
 
+global const CLSID P__CLSID_FileOperation = { 0x3AD05575, 0x8857, 0x4850, { 0x92, 0x77, 0x11, 0xB8, 0x5B, 0xDB, 0x8E, 0x09 } };
+global const IID P__IID_IFileOperation   = { 0x947AAB5F, 0x0A5C, 0x4C13, { 0xB4, 0xD6, 0x4B, 0xF7, 0x83, 0x6F, 0xC9, 0xF8 } };
+global const IID P__IID_IShellItem       = { 0x43826D1E, 0xE718, 0x42EE, { 0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE } };
+
+// Renames the device item `path` to `name`, or with `create` makes the item `name` in the device folder `path`, a folder or an empty file,
+// through the shell's file operation; the error, or 0.
+function u32 P__DeviceChange(String path, String name, b32 create, b32 folder)
+{
+    HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    Scratch scratch = GetScratch();
+    PIDLIST_ABSOLUTE list = P__PathIdList(path);
+    wchar *wide = P__FilePathWide(scratch.arena, name);
+    IShellItem *item = NULL;
+    IFileOperation *op = NULL;
+    u32 error = !list || !wide ? ERROR_PATH_NOT_FOUND : 0;
+    if (!error && FAILED(SHCreateItemFromIDList(list, &P__IID_IShellItem, (void **)&item))) error = ERROR_PATH_NOT_FOUND;
+    if (!error && FAILED(CoCreateInstance(&P__CLSID_FileOperation, NULL, CLSCTX_ALL, &P__IID_IFileOperation, (void **)&op))) error = ERROR_NOT_SUPPORTED;
+    if (!error) {
+        op->lpVtbl->SetOperationFlags(op, FOF_NOERRORUI | FOF_NOCONFIRMATION | FOF_SILENT);
+        HRESULT queued = create ? op->lpVtbl->NewItem(op, item, folder ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL, wide, NULL, NULL)
+                                : op->lpVtbl->RenameItem(op, item, wide, NULL);
+        HRESULT done = SUCCEEDED(queued) ? op->lpVtbl->PerformOperations(op) : queued;
+        BOOL aborted = FALSE;
+        op->lpVtbl->GetAnyOperationsAborted(op, &aborted);
+        error = aborted ? ERROR_CANCELLED : FAILED(done) ? (HRESULT_FACILITY(done) == FACILITY_WIN32 ? (u32)HRESULT_CODE(done) : ERROR_GEN_FAILURE) : 0;
+    }
+    if (op) op->lpVtbl->Release(op);
+    if (item) item->lpVtbl->Release(item);
+    ILFree(list);
+    ReleaseScratch(scratch);
+    if (SUCCEEDED(com)) CoUninitialize();
+    return error;
+}
+
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to)
 {
     if (!P__ValidFileName(from) || !P__ValidFileName(to)) return P__FileError(arena, ERROR_INVALID_NAME);
+    if (P__IsDevicePath(directory)) {
+        Scratch scratch = GetScratchEx(arena);
+        u32 error = P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, to)) ? ERROR_ALREADY_EXISTS : P__DeviceChange(StrFormat(scratch.arena, "%S/%S", directory, from), to, false, false);
+        ReleaseScratch(scratch);
+        return error ? P__FileError(arena, error) : (P_FileError){0};
+    }
     Scratch scratch = GetScratchEx(arena);
     wchar *source = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, from));
     wchar *target = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, to));
@@ -640,8 +714,11 @@ function P_FileError P_CreateItem(Arena *arena, String directory, String name, b
     u32 error = ERROR_ALREADY_EXISTS;
     for (u32 n = 1; n < 10000 && error == ERROR_ALREADY_EXISTS; ++n) {
         String candidate = n == 1 ? name : StrFormat(scratch.arena, "%S (%u)%S", stem, n, extension);
-        wchar *path = P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, candidate));
-        if (!path) {
+        b32 device = P__IsDevicePath(directory);
+        wchar *path = device ? NULL : P__FilePathWide(scratch.arena, StrFormat(scratch.arena, "%S/%S", directory, candidate));
+        if (device) {
+            error = P_PathExists(StrFormat(scratch.arena, "%S/%S", directory, candidate)) ? ERROR_ALREADY_EXISTS : P__DeviceChange(directory, candidate, true, folder);
+        } else if (!path) {
             error = GetLastError();
         } else if (folder) {
             error = CreateDirectoryW(path, NULL) ? 0 : GetLastError();
@@ -673,8 +750,53 @@ function String P__PlacedPath(Arena *arena, String directory, String path)
 // Set by WinWindow.c; dialogs that verbs open are owned by it.
 global HWND P__shellOwner;
 
+// The same through the shell's file operation on the items, for a copy, move or delete with a device's items in it, which have no paths
+// for the string form to name.
+function P_FileError P__ShellItemOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, HWND owner, String *placed)
+{
+    HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    Scratch scratch = GetScratchEx(arena);
+    PIDLIST_ABSOLUTE *lists = ArenaPushArray(scratch.arena, Max(count, (u64)1), PIDLIST_ABSOLUTE);
+    u32 error = 0;
+    for (u64 i = 0; i < count; ++i) {
+        lists[i] = P__PathIdList(paths[i]);
+        if (!lists[i]) error = ERROR_PATH_NOT_FOUND;
+    }
+    PIDLIST_ABSOLUTE target = directory.length ? P__PathIdList(directory) : NULL;
+    if (directory.length && !target) error = ERROR_PATH_NOT_FOUND;
+    IShellItemArray *items = NULL;
+    IShellItem *into = NULL;
+    IFileOperation *op = NULL;
+    if (!error && FAILED(SHCreateShellItemArrayFromIDLists((UINT)count, (PCIDLIST_ABSOLUTE_ARRAY)lists, &items))) error = ERROR_PATH_NOT_FOUND;
+    if (!error && target && FAILED(SHCreateItemFromIDList(target, &P__IID_IShellItem, (void **)&into))) error = ERROR_PATH_NOT_FOUND;
+    if (!error && FAILED(CoCreateInstance(&P__CLSID_FileOperation, NULL, CLSCTX_ALL, &P__IID_IFileOperation, (void **)&op))) error = ERROR_NOT_SUPPORTED;
+    if (!error) {
+        op->lpVtbl->SetOperationFlags(op, (DWORD)flags | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR);
+        if (owner) op->lpVtbl->SetOwnerWindow(op, owner);
+        HRESULT queued = operation == FO_COPY ? op->lpVtbl->CopyItems(op, (IUnknown *)items, into)
+                       : operation == FO_MOVE ? op->lpVtbl->MoveItems(op, (IUnknown *)items, into)
+                       : operation == FO_DELETE ? op->lpVtbl->DeleteItems(op, (IUnknown *)items) : E_NOTIMPL;
+        HRESULT done = SUCCEEDED(queued) ? op->lpVtbl->PerformOperations(op) : queued;
+        BOOL aborted = FALSE;
+        op->lpVtbl->GetAnyOperationsAborted(op, &aborted);
+        error = aborted ? ERROR_CANCELLED : FAILED(done) ? (HRESULT_FACILITY(done) == FACILITY_WIN32 ? (u32)HRESULT_CODE(done) : ERROR_GEN_FAILURE) : 0;
+    }
+    for (u64 i = 0; placed && i < count; ++i) placed[i] = P__PlacedPath(arena, directory, paths[i]);
+    if (op) op->lpVtbl->Release(op);
+    if (into) into->lpVtbl->Release(into);
+    if (items) items->lpVtbl->Release(items);
+    for (u64 i = 0; i < count; ++i) ILFree(lists[i]);
+    ILFree(target);
+    ReleaseScratch(scratch);
+    if (SUCCEEDED(com)) CoUninitialize();
+    return error ? P__FileError(arena, error) : (P_FileError){0};
+}
+
 function P_FileError P__ShellFileOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, HWND owner, String *placed)
 {
+    b32 device = P__IsDevicePath(directory);
+    for (u64 i = 0; i < count && !device; ++i) device = P__IsDevicePath(paths[i]);
+    if (device) return P__ShellItemOperation(arena, operation, paths, count, directory, flags, owner, placed);
     Scratch scratch = GetScratchEx(arena);
     // Both lists end with an extra null.
     u64 length = 1;
@@ -1303,6 +1425,12 @@ function String P_EnvironmentValue(Arena *arena, String name)
 
 function b32 P_IsDirectory(String path)
 {
+    if (P__IsDevicePath(path)) {
+        b32 folder = false;
+        PIDLIST_ABSOLUTE list = P__DeviceIdList(path, &folder);
+        ILFree(list);
+        return list && folder;
+    }
     Scratch scratch = GetScratch();
     wchar *wide = P__FileExtendedPath(scratch.arena, path);
     DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
@@ -1401,6 +1529,11 @@ function void P_RemoveStaleRunFolders(void)
 
 function b32 P_PathExists(String path)
 {
+    if (P__IsDevicePath(path)) {
+        PIDLIST_ABSOLUTE list = P__DeviceIdList(path, NULL);
+        ILFree(list);
+        return list != NULL;
+    }
     Scratch scratch = GetScratch();
     wchar *wide = P__FileExtendedPath(scratch.arena, path);
     b32 result = wide && GetFileAttributesW(wide) != INVALID_FILE_ATTRIBUTES;

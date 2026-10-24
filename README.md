@@ -16,6 +16,7 @@
 - **Go To and the command palette**: jump to recent, bookmarked or typed paths, and run any command by name. Every hotkey can be changed.
 - **Inspector**: previews text with syntax highlighting and line numbers, images, PDFs, 3D models (OBJ, STL, PLY, glTF, FBX, .blend, USD, Collada, 3DS, 3MF), see-through where their materials are, Word and Excel text, archives, and any file as hex.
 - **Archives as folders**: browse zip, 7z, rar, tar and cab files, archives inside archives too, and drag, copy and paste in and out of them. An encrypted archive asks for its password; encrypted 7z and RAR ones open with [7-Zip](https://www.7-zip.org) installed.
+- **Phones and cameras**: browse a phone or camera connected by USB, under This PC on Windows and through GVFS on Linux, and copy, move, rename and delete on it as in any folder.
 - **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
 - **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, light and dark following the system, and a transparent glass look in any of them.
 - **Languages**: English and Russian, plus your own through a translation file.

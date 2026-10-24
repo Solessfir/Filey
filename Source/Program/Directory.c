@@ -6521,7 +6521,7 @@ function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current)
 
 
 // A drive with a medium to read: its size, or its file system, which an audio CD shows without one; a busy drive is taken to have one.
-function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length || drive->busy; }
+function b32 Prog__HasMedium(const P_Place *drive) { return drive->totalBytes || drive->fileSystem.length || drive->busy || drive->device; }
 
 // The listed drive `path` is on, or NULL.
 function const P_Place *Prog_PathDrive(const Prog_State *state, String path)

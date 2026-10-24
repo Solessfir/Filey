@@ -343,6 +343,7 @@ typedef struct P_Place {
     String remote;      // network drives only: the share it stands for, as "//nas/media"; empty where the system does not say
     b8 busy;            // drives only: did not answer in time, such as one spinning up a disc, so its details come with a later listing
     b8 home;            // the user's home, which goes by its folder's name, the account's
+    b8 device;          // drives only: a device without a drive letter, such as a phone, under This PC on Windows
 } P_Place;
 
 typedef struct P_ArrayPlace { ArrayHeader header; P_Place *v; } P_ArrayPlace;

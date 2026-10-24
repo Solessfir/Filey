@@ -940,6 +940,27 @@ function String PlatformClipboardGetText(Arena *arena)
 
 function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
 {
+    // A device's items go as the shell's own data object, which Explorer and Filey both paste from.
+    b32 device = false;
+    for (u64 i = 0; i < count && !device; ++i) device = P__IsDevicePath(paths[i]);
+    if (device) {
+        IDataObject *data = P__ShellDataObject(paths, count);
+        HGLOBAL effect = data ? GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD)) : NULL;
+        DWORD *value = effect ? GlobalLock(effect) : NULL;
+        if (value) {
+            *value = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY | DROPEFFECT_LINK;
+            GlobalUnlock(effect);
+            FORMATETC format = { (CLIPFORMAT)RegisterClipboardFormatW(L"Preferred DropEffect"), NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+            STGMEDIUM medium = { .tymed = TYMED_HGLOBAL, .hGlobal = effect };
+            if (SUCCEEDED(data->lpVtbl->SetData(data, &format, &medium, TRUE))) effect = NULL;
+        }
+        if (effect) GlobalFree(effect);
+        if (data) {
+            OleSetClipboard(data);
+            data->lpVtbl->Release(data);
+        }
+        return;
+    }
     Scratch scratch = GetScratch();
     // CF_HDROP is a DROPFILES header followed by the paths, each null-terminated, and one more null.
     u64 length = 1;
@@ -988,6 +1009,34 @@ function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
 {
     *paths = (ArrayStr){0};
     *cut = false;
+    // Without a list of paths, the shell's items, such as a device's, which have none, by the paths Filey names them by.
+    if (!IsClipboardFormatAvailable(CF_HDROP)) {
+        IDataObject *data = NULL;
+        IShellItemArray *items = NULL;
+        if (SUCCEEDED(OleGetClipboard(&data)) && data && SUCCEEDED(SHCreateShellItemArrayFromDataObject(data, &P__IID_IShellItemArray, (void **)&items))) {
+            DWORD count = 0;
+            items->lpVtbl->GetCount(items, &count);
+            for (DWORD i = 0; i < count; ++i) {
+                IShellItem *item = NULL;
+                String path = SUCCEEDED(items->lpVtbl->GetItemAt(items, i, &item)) ? P__ShellItemPath(arena, item) : (String){0};
+                if (path.length) ArrayPush(arena, *paths, path);
+                if (item) item->lpVtbl->Release(item);
+            }
+            items->lpVtbl->Release(items);
+            FORMATETC format = { (CLIPFORMAT)RegisterClipboardFormatW(L"Preferred DropEffect"), NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+            STGMEDIUM medium = {0};
+            if (paths->header.count && SUCCEEDED(data->lpVtbl->GetData(data, &format, &medium))) {
+                const DWORD *value = GlobalLock(medium.hGlobal);
+                if (value) {
+                    *cut = (*value & DROPEFFECT_MOVE) != 0 && !(*value & DROPEFFECT_COPY);
+                    GlobalUnlock(medium.hGlobal);
+                }
+                ReleaseStgMedium(&medium);
+            }
+        }
+        if (data) data->lpVtbl->Release(data);
+        return paths->header.count != 0;
+    }
     if (!OpenClipboard(Win.window)) return false;
     HDROP drop = GetClipboardData(CF_HDROP);
     u32 count = drop ? DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0) : 0;

@@ -150,30 +150,41 @@ function void P__MenuRead(Arena *arena, P__ShellMenu *shell, HMENU popup, P__Arr
     }
 }
 
-function IShellFolder *P__ShellFolder(const wchar *path)
+function IShellFolder *P__ShellFolder(String path)
 {
     IShellFolder *result = NULL;
-    PIDLIST_ABSOLUTE list = NULL;
-    if (path && SUCCEEDED(SHParseDisplayName(path, NULL, &list, 0, NULL))) {
-        if (FAILED(SHBindToObject(NULL, list, NULL, &P__IID_IShellFolder, (void **)&result))) result = NULL;
-        ILFree(list);
-    }
+    PIDLIST_ABSOLUTE list = P__PathIdList(path);
+    if (list && FAILED(SHBindToObject(NULL, list, NULL, &P__IID_IShellFolder, (void **)&result))) result = NULL;
+    ILFree(list);
     return result;
 }
 
-// A shell object (`iid`) for `names` inside `folder`, such as their context menu or data object.
-function b32 P__ShellChildren(IShellFolder *folder, const String *names, u64 count, const IID *iid, void **object)
+// A shell object (`iid`) for `names` inside `folder`, the folder at `directory`, such as their context menu or data object. A device's
+// folder, which knows its items by ids rather than by their names, has them from their paths.
+function b32 P__ShellChildren(IShellFolder *folder, String directory, const String *names, u64 count, const IID *iid, void **object)
 {
     Scratch scratch = GetScratch();
     PITEMID_CHILD *children = ArenaPushArray(scratch.arena, Max(count, (u64)1), PITEMID_CHILD);
+    PIDLIST_ABSOLUTE *lists = ArenaPushArray(scratch.arena, Max(count, (u64)1), PIDLIST_ABSOLUTE);
+    b32 device = P__IsDevicePath(directory);
     u64 parsed = 0;
     b32 ok = true;
     for (; parsed < count && ok; ++parsed) {
+        lists[parsed] = NULL;
+        if (device) {
+            lists[parsed] = P__DeviceIdList(StrFormat(scratch.arena, "%S/%S", directory, names[parsed]), NULL);
+            children[parsed] = lists[parsed] ? ILFindLastID(lists[parsed]) : NULL;
+            ok = children[parsed] != NULL;
+            continue;
+        }
         wchar *name = P__FilePathWide(scratch.arena, names[parsed]);
         ok = name && SUCCEEDED(folder->lpVtbl->ParseDisplayName(folder, P__shellOwner, NULL, name, NULL, (PIDLIST_RELATIVE *)&children[parsed], NULL));
     }
     ok = ok && SUCCEEDED(folder->lpVtbl->GetUIObjectOf(folder, P__shellOwner, (UINT)count, (PCUITEMID_CHILD_ARRAY)children, iid, NULL, object));
-    for (u64 i = 0; i < parsed; ++i) ILFree(children[i]);
+    for (u64 i = 0; i < parsed; ++i) {
+        if (device) ILFree(lists[i]);
+        else ILFree(children[i]);
+    }
     ReleaseScratch(scratch);
     return ok;
 }
@@ -183,9 +194,10 @@ function IShellFolder *P__ShellParent(Arena *arena, const String *paths, u64 cou
 {
     IShellFolder *result = NULL;
     b32 ok = count > 0;
+    for (u64 i = 0; i < count; ++i) lists[i] = NULL;
     for (u64 i = 0; i < count && ok; ++i) {
-        wchar *path = P__FilePathWide(arena, paths[i]);
-        ok = path && SUCCEEDED(SHParseDisplayName(path, NULL, &lists[i], 0, NULL));
+        lists[i] = P__PathIdList(paths[i]);
+        ok = lists[i] != NULL;
         if (ok) children[i] = ILFindLastID(lists[i]);
     }
     if (ok && FAILED(SHBindToParent(lists[0], &P__IID_IShellFolder, (void **)&result, NULL))) result = NULL;
@@ -263,7 +275,7 @@ function b32 P__ContextMenuBuild(Arena *arena, String directory, const String *n
     b32 ok = false;
     if (!directory.length && !count) {
         // This PC's background, with Explorer's own items for it, such as Add a network location and Properties.
-        IShellFolder *computer = P__ShellFolder(L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}");
+        IShellFolder *computer = P__ShellFolder(S("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"));
         ok = computer && SUCCEEDED(computer->lpVtbl->CreateViewObject(computer, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
         if (computer) computer->lpVtbl->Release(computer);
     } else if (!directory.length) {
@@ -286,13 +298,13 @@ function b32 P__ContextMenuBuild(Arena *arena, String directory, const String *n
             shell->menu = P__RecycleBinMenu(arena, paths, count);
             ReleaseScratch(scratch);
         }
-        IShellFolder *folder = shell->menu ? NULL : P__ShellFolder(shell->directory);
+        IShellFolder *folder = shell->menu ? NULL : P__ShellFolder(directory);
         ok = shell->menu || folder != NULL;
         if (shell->menu) {
         } else if (ok && count == 0) {
             ok = SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IContextMenu, (void **)&shell->menu));
         } else if (ok) {
-            ok = P__ShellChildren(folder, names, count, &P__IID_IContextMenu, (void **)&shell->menu);
+            ok = P__ShellChildren(folder, directory, names, count, &P__IID_IContextMenu, (void **)&shell->menu);
         }
         if (folder) folder->lpVtbl->Release(folder);
     }
@@ -956,8 +968,9 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
         // A program's or a script's own drop target, from its folder, starts it with the files, as Explorer's does.
         Index slash = P__drop.onFile ? StrIndexChar(P__drop.bound, '/', SSF_SearchBackwards) : (Index){0};
         String leaf = slash.exists ? StrFrom(P__drop.bound, slash.value + 1) : (String){0};
-        IShellFolder *parent = leaf.length ? P__ShellFolder(P__FilePathWide(scratch.arena, StrFromTo(P__drop.bound, 0, (i64)slash.value + 1))) : NULL;
-        if (parent && !P__ShellChildren(parent, &leaf, 1, &P__IID_IDropTarget, (void **)&shell)) shell = NULL;
+        String above = leaf.length ? StrFromTo(P__drop.bound, 0, (i64)slash.value + 1) : (String){0};
+        IShellFolder *parent = leaf.length ? P__ShellFolder(above) : NULL;
+        if (parent && !P__ShellChildren(parent, above, &leaf, 1, &P__IID_IDropTarget, (void **)&shell)) shell = NULL;
         if (parent) parent->lpVtbl->Release(parent);
         if (shell) {
             DWORD entered = allowed;
@@ -965,7 +978,7 @@ function void P__DropOver(DWORD keys, POINTL point, DWORD *effect)
             else shell->lpVtbl->Release(shell);
             shell = NULL;
         }
-        IShellFolder *folder = P__drop.bound.length && !P__drop.keepsFiles && !P__drop.onFile ? P__ShellFolder(P__FilePathWide(scratch.arena, P__drop.bound)) : NULL;
+        IShellFolder *folder = P__drop.bound.length && !P__drop.keepsFiles && !P__drop.onFile ? P__ShellFolder(P__drop.bound) : NULL;
         if (folder && SUCCEEDED(folder->lpVtbl->CreateViewObject(folder, P__shellOwner, &P__IID_IDropTarget, (void **)&shell))) {
             DWORD entered = allowed;
             if (SUCCEEDED(shell->lpVtbl->DragEnter(shell, P__drop.data, keys, point, &entered))) P__drop.shell = shell;
@@ -1010,10 +1023,10 @@ function b32 P_DragFiles(String directory, const String *names, u64 count)
     if (!count || P__drop.dragging) return false;
     P__EnsureCom();
     Scratch scratch = GetScratch();
-    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, directory));
+    IShellFolder *folder = P__ShellFolder(directory);
     IDataObject *data = NULL;
     b32 result = false;
-    if (folder && P__ShellChildren(folder, names, count, &P__IID_IDataObject, (void **)&data)) {
+    if (folder && P__ShellChildren(folder, directory, names, count, &P__IID_IDataObject, (void **)&data)) {
         DWORD effect = DROPEFFECT_NONE;
         P__drop.dragging = true;
         // A NULL drop source selects the shell's own, which also draws the drag image.
@@ -1040,9 +1053,9 @@ function b32 P_ShowProperties(String directory, const String *names, u64 count)
     if (!count) return false;
     P__EnsureCom();
     Scratch scratch = GetScratch();
-    IShellFolder *folder = P__ShellFolder(P__FilePathWide(scratch.arena, directory));
+    IShellFolder *folder = P__ShellFolder(directory);
     IDataObject *data = NULL;
-    b32 result = folder && P__ShellChildren(folder, names, count, &P__IID_IDataObject, (void **)&data) && SUCCEEDED(SHMultiFileProperties(data, 0));
+    b32 result = folder && P__ShellChildren(folder, directory, names, count, &P__IID_IDataObject, (void **)&data) && SUCCEEDED(SHMultiFileProperties(data, 0));
     if (data) data->lpVtbl->Release(data);
     if (folder) folder->lpVtbl->Release(folder);
     ReleaseScratch(scratch);
@@ -1083,6 +1096,8 @@ function String P__KnownFolder(Arena *arena, const GUID *id)
 
 function P_DriveKind P_PathDriveKind(String path)
 {
+    // A device answers slowly, as a network share does.
+    if (P__IsDevicePath(path)) return P_DriveKind_Network;
     if (path.length >= 2 && path.value[0] == '/' && path.value[1] == '/') return P_DriveKind_Network;
     if (path.length < 2 || path.value[1] != ':') return P_DriveKind_SolidState;
     wchar root[] = { (wchar)path.value[0], L':', L'\\', 0 }, volume[] = { L'\\', L'\\', L'.', L'\\', (wchar)path.value[0], L':', 0 };
@@ -1379,6 +1394,236 @@ function DWORD WINAPI P__DriveAnswerThread(void *user)
     return 0;
 }
 
+global const IID P__IID_IShellItem2      = { 0x7E9FB0D3, 0x919F, 0x4307, { 0xAB, 0x2E, 0x9B, 0x18, 0x60, 0x31, 0x0C, 0x93 } };
+global const IID P__IID_IEnumShellItems  = { 0x70629033, 0xE363, 0x4A28, { 0xA5, 0x67, 0x0D, 0xB7, 0x80, 0x06, 0xE6, 0xD7 } };
+global const GUID P__BHID_EnumItems      = { 0x94F60519, 0x2850, 0x4924, { 0xAA, 0x5A, 0xD1, 0x5E, 0x84, 0x86, 0x80, 0x39 } };
+global const PROPERTYKEY P__PKEY_Size         = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 12 };
+global const PROPERTYKEY P__PKEY_DateModified = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 14 };
+global const PROPERTYKEY P__PKEY_DateCreated  = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 15 };
+global const PROPERTYKEY P__PKEY_ItemTypeText = { { 0xB725F130, 0x47EF, 0x101A, { 0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC } }, 4 };
+
+// What a device path stands for in the shell, its item id list's bytes, kept from every listing of a device's folder, on any thread.
+typedef struct P__DeviceName { String list; u64 listing; b8 folder; } P__DeviceName;
+typedef struct P__DeviceNames { MapHeader header; struct { String key; P__DeviceName value; } *v; } P__DeviceNames;
+global SRWLOCK P__deviceLock = SRWLOCK_INIT;
+global Arena P__deviceArena;
+global u64 P__deviceListings;  // listings so far, which stamp what each found, so that one leaves out what is no longer there
+global P__DeviceNames P__deviceNames;
+
+function i64 P__FileTimeUnix(FILETIME time, u32 *ticks)
+{
+    u64 value = ((u64)time.dwHighDateTime << 32) | time.dwLowDateTime;
+    if (ticks) *ticks = (u32)(value % UINT64_C(10000000));
+    return value ? (i64)(value / UINT64_C(10000000)) - INT64_C(11644473600) : 0;
+}
+
+// The shell item for the device path `path`, or This PC itself; NULL when it is not there.
+function IShellItem *P__DeviceItem(String path)
+{
+    IShellItem *item = NULL;
+    if (StrIsEqual(path, S("This PC"))) {
+        if (FAILED(SHCreateItemFromParsingName(L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, &P__IID_IShellItem, (void **)&item))) item = NULL;
+        return item;
+    }
+    PIDLIST_ABSOLUTE list = P__DeviceIdList(path, NULL);
+    if (list && FAILED(SHCreateItemFromIDList(list, &P__IID_IShellItem, (void **)&item))) item = NULL;
+    ILFree(list);
+    return item;
+}
+
+// Lists the device folder `path`, or This PC's devices, remembering what each item's path stands for; with `files`, their details too, and
+// with `types` the kind of each, as "Mobile Phone". The drives in This PC, which have paths of their own, are left out. False when the
+// folder could not be read, with `error` set.
+function b32 P__ListDevice(Arena *arena, String path, const P_CancelToken *cancel, P_FileArray *files, ArrayStr *types, u32 *error)
+{
+    b32 com = SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+    b32 top = StrIsEqual(path, S("This PC")), result = false;
+    IShellItem *folder = P__DeviceItem(path);
+    IEnumShellItems *items = NULL;
+    HRESULT bound = folder ? folder->lpVtbl->BindToHandler(folder, NULL, &P__BHID_EnumItems, &P__IID_IEnumShellItems, (void **)&items) : E_FAIL;
+    if (error) *error = SUCCEEDED(bound) ? 0 : folder ? (u32)HRESULT_CODE(bound) : ERROR_PATH_NOT_FOUND;
+    if (SUCCEEDED(bound) && items) {
+        result = true;
+        Scratch scratch = GetScratchEx(arena);
+        AcquireSRWLockExclusive(&P__deviceLock);
+        u64 listing = ++P__deviceListings;
+        ReleaseSRWLockExclusive(&P__deviceLock);
+        b32 whole = true;
+        IShellItem *child = NULL;
+        while (items->lpVtbl->Next(items, 1, &child, NULL) == S_OK) {
+            if (P_IsCancelled(cancel)) {
+                child->lpVtbl->Release(child);
+                whole = false;
+                break;
+            }
+            SFGAOF attributes = 0;
+            child->lpVtbl->GetAttributes(child, SFGAO_FOLDER | SFGAO_STREAM | SFGAO_FILESYSTEM | SFGAO_HIDDEN, &attributes);
+            wchar *name = NULL;
+            PIDLIST_ABSOLUTE list = NULL;
+            // The name as it is edited keeps a file's extension, which the name shown may leave out.
+            if (FAILED(child->lpVtbl->GetDisplayName(child, SIGDN_PARENTRELATIVEEDITING, &name))) name = NULL;
+            if (!name && FAILED(child->lpVtbl->GetDisplayName(child, SIGDN_NORMALDISPLAY, &name))) name = NULL;
+            if (FAILED(SHGetIDListFromObject((IUnknown *)child, &list))) list = NULL;
+            if (name && list && !(top && (attributes & SFGAO_FILESYSTEM))) {
+                b8 isFolder = (attributes & SFGAO_FOLDER) && !(attributes & SFGAO_STREAM);
+                String shown = P__FileStringWide(scratch.arena, name, lstrlenW(name));
+                String key = StrFormat(scratch.arena, "%S/%S", path, shown);
+                String bytes = StrMake((const char *)list, ILGetSize(list));
+                AcquireSRWLockExclusive(&P__deviceLock);
+                P__DeviceName *known = MapsGetPtrNull(P__deviceNames, key);
+                if (!known || !StrIsEqual(known->list, bytes) || known->folder != isFolder) {
+                    MapsPut(&P__deviceArena, P__deviceNames, StrCopy(&P__deviceArena, key), ((P__DeviceName){ StrCopy(&P__deviceArena, bytes), listing, isFolder }));
+                } else {
+                    known->listing = listing;
+                }
+                ReleaseSRWLockExclusive(&P__deviceLock);
+                if (files) {
+                    P_File file = { .name = StrCopy(arena, shown), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File, .hidden = (attributes & SFGAO_HIDDEN) != 0 };
+                    IShellItem2 *details = NULL;
+                    if (SUCCEEDED(child->lpVtbl->QueryInterface(child, &P__IID_IShellItem2, (void **)&details))) {
+                        ULONGLONG size = 0;
+                        FILETIME time = {0};
+                        if (SUCCEEDED(details->lpVtbl->GetUInt64(details, &P__PKEY_Size, &size))) file.size = size;
+                        if (SUCCEEDED(details->lpVtbl->GetFileTime(details, &P__PKEY_DateModified, &time))) file.modifiedTimeUnix = P__FileTimeUnix(time, &file.modifiedTicks);
+                        if (SUCCEEDED(details->lpVtbl->GetFileTime(details, &P__PKEY_DateCreated, &time))) file.createdTimeUnix = P__FileTimeUnix(time, &file.createdTicks);
+                        file.metadataValid = file.modifiedTimeUnix != 0;
+                        if (types) {
+                            wchar *type = NULL;
+                            String text = {0};
+                            if (SUCCEEDED(details->lpVtbl->GetString(details, &P__PKEY_ItemTypeText, &type)) && type) {
+                                text = P__FileStringWide(arena, type, lstrlenW(type));
+                                CoTaskMemFree(type);
+                            }
+                            ArrayPush(arena, *types, text);
+                        }
+                        details->lpVtbl->Release(details);
+                    } else if (types) {
+                        ArrayPush(arena, *types, (String){0});
+                    }
+                    ArrayPush(arena, *files, file);
+                }
+            }
+            if (name) CoTaskMemFree(name);
+            ILFree(list);
+            child->lpVtbl->Release(child);
+        }
+        // What the folder held before and no longer does is forgotten, the items in it with it.
+        if (whole) {
+            AcquireSRWLockExclusive(&P__deviceLock);
+            for (u64 i = P__deviceNames.header.count; i-- > 0;) {
+                String key = P__deviceNames.v[i].key;
+                if (key.length <= path.length + 1 || MemCompare(key.value, path.value, path.length) != 0 || key.value[path.length] != '/') continue;
+                if (!StrIndexChar(StrFrom(key, path.length + 1), '/', SSF_None).exists && P__deviceNames.v[i].value.listing == listing) continue;
+                String gone = StrFromTo(key, 0, (i64)path.length + 1 + (i64)StrIndexChar(StrFrom(key, path.length + 1), '/', SSF_CountOnFail).value);
+                const P__DeviceName *top = MapsGetPtrNull(P__deviceNames, gone);
+                if (top && top->listing == listing) continue;
+                MapsDel(P__deviceNames, key);
+            }
+            ReleaseSRWLockExclusive(&P__deviceLock);
+        }
+        ReleaseScratch(scratch);
+        items->lpVtbl->Release(items);
+    }
+    if (folder) folder->lpVtbl->Release(folder);
+    if (com) CoUninitialize();
+    return result;
+}
+
+function PIDLIST_ABSOLUTE P__DeviceIdList(String path, b32 *folder)
+{
+    while (path.length > 8 && path.value[path.length - 1] == '/') --path.length;
+    for (u32 attempt = 0; attempt < 2; ++attempt) {
+        AcquireSRWLockShared(&P__deviceLock);
+        const P__DeviceName *known = MapsGetPtrNull(P__deviceNames, path);
+        PIDLIST_ABSOLUTE result = known ? ILClone((PCIDLIST_ABSOLUTE)known->list.value) : NULL;
+        if (known && folder) *folder = known->folder;
+        ReleaseSRWLockShared(&P__deviceLock);
+        if (result || attempt) return result;
+        // Not listed yet: its folder is, which finds its folder's folder the same way first.
+        Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+        if (!slash.exists) return result;
+        Scratch scratch = GetScratch();
+        P__ListDevice(scratch.arena, StrFromTo(path, 0, (i64)slash.value), NULL, NULL, NULL, NULL);
+        ReleaseScratch(scratch);
+    }
+    return NULL;
+}
+
+// The path Filey names the shell item `item` by: its file's, or a device's item's under This PC, by the names of the items it is in; empty
+// for any other item.
+function String P__ShellItemPath(Arena *arena, IShellItem *item)
+{
+    String result = {0};
+    wchar *wide = NULL;
+    if (SUCCEEDED(item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &wide)) && wide) {
+        result = P_AbsolutePath(arena, P__FileStringWide(arena, wide, lstrlenW(wide)));
+        CoTaskMemFree(wide);
+        return result;
+    }
+    PIDLIST_ABSOLUTE list = NULL, computer = NULL;
+    if (SUCCEEDED(SHGetIDListFromObject((IUnknown *)item, &list)) &&
+        SUCCEEDED(SHParseDisplayName(L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, &computer, 0, NULL)) && ILIsParent(computer, list, FALSE)) {
+        Scratch scratch = GetScratchEx(arena);
+        u64 start = ILGetSize(computer) - sizeof(USHORT), total = ILGetSize(list) - sizeof(USHORT);
+        StrBuilder path = {0};
+        StrBuildStr(scratch.arena, &path, S("This PC"));
+        b32 ok = true;
+        // Each id after This PC's adds the name of the item it reaches.
+        for (u64 at = start; at < total && ok;) {
+            u64 next = at + ((const SHITEMID *)((const u8 *)list + at))->cb;
+            u8 *prefix = ArenaPushArray(scratch.arena, next + sizeof(USHORT), u8);
+            MemCopy(prefix, (const void *)(uintptr_t)list, next);
+            MemZero(prefix + next, sizeof(USHORT));
+            IShellItem *part = NULL;
+            wchar *name = NULL;
+            ok = SUCCEEDED(SHCreateItemFromIDList((PCIDLIST_ABSOLUTE)prefix, &P__IID_IShellItem, (void **)&part)) &&
+                 (SUCCEEDED(part->lpVtbl->GetDisplayName(part, SIGDN_PARENTRELATIVEEDITING, &name)) || SUCCEEDED(part->lpVtbl->GetDisplayName(part, SIGDN_NORMALDISPLAY, &name)));
+            if (ok) {
+                StrBuildChar(scratch.arena, &path, '/');
+                StrBuildStr(scratch.arena, &path, P__FileStringWide(scratch.arena, name, lstrlenW(name)));
+            }
+            if (name) CoTaskMemFree(name);
+            if (part) part->lpVtbl->Release(part);
+            at = next;
+        }
+        if (ok && total > start) result = StrCopy(arena, path.buffer);
+        ReleaseScratch(scratch);
+    }
+    ILFree(list);
+    ILFree(computer);
+    return result;
+}
+
+// The shell's data object of `paths`, all in one folder, for the clipboard when a device's are among them, which have no paths to list.
+function IDataObject *P__ShellDataObject(const String *paths, u64 count)
+{
+    if (!count) return NULL;
+    Scratch scratch = GetScratch();
+    Index slash = StrIndexChar(paths[0], '/', SSF_SearchBackwards);
+    String directory = slash.exists ? StrFromTo(paths[0], 0, (i64)slash.value) : (String){0};
+    String *names = ArenaPushArray(scratch.arena, count, String);
+    for (u64 i = 0; i < count; ++i) names[i] = StrFrom(paths[i], StrIndexChar(paths[i], '/', SSF_SearchBackwards).value + 1);
+    IShellFolder *folder = directory.length ? P__ShellFolder(directory) : NULL;
+    IDataObject *data = NULL;
+    if (folder && !P__ShellChildren(folder, directory, names, count, &P__IID_IDataObject, (void **)&data)) data = NULL;
+    if (folder) folder->lpVtbl->Release(folder);
+    ReleaseScratch(scratch);
+    return data;
+}
+
+function P_DirectoryResult P__EnumerateDevice(Arena *arena, String path, const P_CancelToken *cancel)
+{
+    P_DirectoryResult result = {0};
+    u32 error = 0;
+    if (!P__ListDevice(arena, path, cancel, &result.files, NULL, &error)) {
+        P_FileError status = P__FileError(arena, error ? error : ERROR_PATH_NOT_FOUND);
+        result.errorCode = status.code;
+        result.errorString = status.message;
+    }
+    result.cancelled = P_IsCancelled(cancel);
+    return result;
+}
+
 function P_ArrayPlace P_Drives(Arena *arena)
 {
     P_ArrayPlace result = {0};
@@ -1444,6 +1689,15 @@ function P_ArrayPlace P_Drives(Arena *arena)
         }
         ArrayPush(arena, result, place);
         P__DriveAnswerRelease(answer);
+    }
+    // After the drives, the devices in This PC, such as phones.
+    P_FileArray devices = {0};
+    ArrayStr kinds = {0};
+    P__ListDevice(scratch.arena, S("This PC"), NULL, &devices, &kinds, NULL);
+    for (u64 i = 0; i < devices.header.count; ++i) {
+        if (devices.v[i].kind != P_FileKind_Directory) continue;
+        String name = StrCopy(arena, devices.v[i].name);
+        ArrayPush(arena, result, ((P_Place){ .name = name, .path = StrFormat(arena, "This PC/%S", name), .type = StrCopy(arena, kinds.v[i]), .device = true }));
     }
     ReleaseScratch(scratch);
     return result;

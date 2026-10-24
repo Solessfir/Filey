@@ -1320,12 +1320,17 @@ function void TestFileIcons(TestFileFixture *fixture)
         Check(!P_ExtractArchive(&arena, archive, S("docs"), &name, 1, out, NULL, NULL).code);
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, out, S("a.txt")), &contents) && StrIsEqual(contents, S("hi")));
 #if defined(_WIN32)
+        // A device's path keeps its form, has no Win32 one for the file APIs, and one of no device is not there.
+        {
+            Check(StrIsEqual(P_AbsolutePath(&arena, S("This PC/Phone/Internal storage/")), S("This PC/Phone/Internal storage")));
+            Check(!P__FilePathWide(&arena, S("This PC/Phone/DCIM")) && !P_PathExists(S("This PC/No Such Device ")) && P_PathDriveKind(S("This PC/Phone")) == P_DriveKind_Network);
+        }
         // A drag of the archive's items, which the shell drops, is kept by the names they take where they land, to select them there.
         {
             P__EnsureCom();
-            IShellFolder *shell = P__ShellFolder(P__FilePathWide(&arena, folder));
+            IShellFolder *shell = P__ShellFolder(folder);
             IDataObject *data = NULL;
-            Check(shell && P__ShellChildren(shell, &name, 1, &P__IID_IDataObject, (void **)&data));
+            Check(shell && P__ShellChildren(shell, folder, &name, 1, &P__IID_IDataObject, (void **)&data));
             if (data) {
                 P__drop.bound = out;
                 P__DropKeepNames(data);
