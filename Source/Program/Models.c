@@ -2541,10 +2541,154 @@ function void Prog__BlendCopies(Arena *arena, Prog__BlendPolys *polys, u32 copie
     *polys = made;
 }
 
-// A mirror's copy across one axis: the first as it is, the second with that axis turned over.
+// `other`'s polygons added after `polys`', moved by `shift`; what one of them has of texture coordinates or colors and the other has not
+// is filled in at 0 and unset.
+function void Prog__BlendAppend(Arena *arena, Prog__BlendPolys *polys, const Prog__BlendPolys *other, const f32 shift[3])
+{
+    Prog__BlendPolys made = { .pointCount = polys->pointCount + other->pointCount, .faceCount = polys->faceCount + other->faceCount,
+                              .cornerCount = polys->cornerCount + other->cornerCount };
+    if (made.pointCount >= UINT32_MAX || made.cornerCount >= UINT32_MAX) return;
+    made.points = ArenaPushArrayNoZero(arena, Max(made.pointCount, (u64)1) * 3, f32);
+    made.faceStart = ArenaPushArrayNoZero(arena, made.faceCount + 1, u32);
+    made.faceLook = ArenaPushArrayNoZero(arena, Max(made.faceCount, (u64)1), u32);
+    made.cornerPoint = ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32);
+    b32 mapped = polys->cornerUv || other->cornerUv, colored = polys->cornerColor || other->cornerColor;
+    made.cornerUv = mapped ? ArenaPushArray(arena, Max(made.cornerCount, (u64)1) * 2, f32) : NULL;
+    made.cornerColor = colored ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32) : NULL;
+    MemCopy(made.points, polys->points, polys->pointCount * 12);
+    for (u64 v = 0; v < other->pointCount; ++v) for (u32 k = 0; k < 3; ++k) made.points[(polys->pointCount + v) * 3 + k] = other->points[v * 3 + k] + shift[k];
+    MemCopy(made.faceStart, polys->faceStart, polys->faceCount * 4);
+    MemCopy(made.faceLook, polys->faceLook, polys->faceCount * 4);
+    for (u64 f = 0; f < other->faceCount; ++f) {
+        made.faceStart[polys->faceCount + f] = (u32)(polys->cornerCount + other->faceStart[f]);
+        made.faceLook[polys->faceCount + f] = other->faceLook[f];
+    }
+    made.faceStart[made.faceCount] = (u32)made.cornerCount;
+    MemCopy(made.cornerPoint, polys->cornerPoint, polys->cornerCount * 4);
+    for (u64 c = 0; c < other->cornerCount; ++c) made.cornerPoint[polys->cornerCount + c] = (u32)(polys->pointCount + other->cornerPoint[c]);
+    if (mapped && polys->cornerUv) MemCopy(made.cornerUv, polys->cornerUv, polys->cornerCount * 8);
+    if (mapped && other->cornerUv) MemCopy(made.cornerUv + polys->cornerCount * 2, other->cornerUv, other->cornerCount * 8);
+    for (u64 c = 0; colored && c < made.cornerCount; ++c) {
+        const Prog__BlendPolys *from = c < polys->cornerCount ? polys : other;
+        u64 at = c < polys->cornerCount ? c : c - polys->cornerCount;
+        made.cornerColor[c] = from->cornerColor ? from->cornerColor[at] : Prog_ModelUnset;
+    }
+    *polys = made;
+}
+
+// A mirror's copy across one axis: the first as it is, the second turned over that axis, about the object's origin or, with `around`, by
+// the placement that turns it over about the mirror object's.
+typedef struct Prog__BlendMirror { u32 axis; b32 around; Prog__Affine turn; } Prog__BlendMirror;
+
 function void Prog__BlendMirrorMove(void *user, u32 copy, f32 *p)
 {
-    if (copy) p[*(const u32 *)user] = -p[*(const u32 *)user];
+    const Prog__BlendMirror *mirror = user;
+    if (!copy) return;
+    if (mirror->around) {
+        f32 q[3];
+        Prog__MeshPoint(q, &mirror->turn, p[0], p[1], p[2]);
+        MemCopy(p, q, 12);
+    } else {
+        p[mirror->axis] = -p[mirror->axis];
+    }
+}
+
+// The inverse of a placement that has one.
+function Prog__Affine Prog__AffineInverse(Prog__Affine a)
+{
+    const f32 *m = a.m;
+    f32 c00 = m[5] * m[10] - m[6] * m[9], c01 = m[2] * m[9] - m[1] * m[10], c02 = m[1] * m[6] - m[2] * m[5];
+    f32 c10 = m[6] * m[8] - m[4] * m[10], c11 = m[0] * m[10] - m[2] * m[8], c12 = m[2] * m[4] - m[0] * m[6];
+    f32 c20 = m[4] * m[9] - m[5] * m[8], c21 = m[1] * m[8] - m[0] * m[9], c22 = m[0] * m[5] - m[1] * m[4];
+    f32 det = m[0] * c00 + m[1] * c10 + m[2] * c20, d = det != 0 ? 1 / det : 0;
+    Prog__Affine r = { { c00 * d, c01 * d, c02 * d, 0, c10 * d, c11 * d, c12 * d, 0, c20 * d, c21 * d, c22 * d, 0 } };
+    for (u32 row = 0; row < 3; ++row) r.m[row * 4 + 3] = -(r.m[row * 4] * m[3] + r.m[row * 4 + 1] * m[7] + r.m[row * 4 + 2] * m[11]);
+    return r;
+}
+
+// The polygons made solid, as Solidify does by default: the surface moved along its points' normals by `thickness` as `offset` puts it,
+// from -1, inward, to 1, outward, the shell beside it facing the other way, and a rim joining them along the open edges.
+function void Prog__BlendSolidify(Arena *arena, Prog__BlendPolys *polys, f32 thickness, f32 offset, b32 rim)
+{
+    u64 points = polys->pointCount, faces = polys->faceCount, corners = polys->cornerCount;
+    if (points * 2 >= UINT32_MAX || corners * 4 >= UINT32_MAX) return;
+    Scratch scratch = GetScratchEx(arena);
+    // The points' normals, weighted by the faces' areas, and how many faces each edge has.
+    f32 *normals = ArenaPushArray(scratch.arena, Max(points, (u64)1) * 3, f32);
+    struct { MapHeader header; struct { u64 key; u64 value; } *v; } edgeFaces = {0};
+    for (u64 f = 0; f < faces; ++f) {
+        u32 from = polys->faceStart[f], to = polys->faceStart[f + 1];
+        f32 n[3] = {0};
+        for (u32 c = from; c < to; ++c) {
+            const f32 *a = polys->points + (u64)polys->cornerPoint[c] * 3, *b = polys->points + (u64)polys->cornerPoint[c + 1 < to ? c + 1 : from] * 3;
+            n[0] += (a[1] - b[1]) * (a[2] + b[2]), n[1] += (a[2] - b[2]) * (a[0] + b[0]), n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+            u32 p = polys->cornerPoint[c], q = polys->cornerPoint[c + 1 < to ? c + 1 : from];
+            u64 key = p < q ? (u64)p << 32 | q : (u64)q << 32 | p, count = 0;
+            MapTryGet(edgeFaces, key, &count);
+            MapPut(scratch.arena, edgeFaces, key, count + 1);
+        }
+        for (u32 c = from; c < to; ++c) for (u32 k = 0; k < 3; ++k) normals[(u64)polys->cornerPoint[c] * 3 + k] += n[k];
+    }
+    u64 rims = 0;
+    for (u64 f = 0; rim && f < faces; ++f) {
+        u32 from = polys->faceStart[f], to = polys->faceStart[f + 1];
+        for (u32 c = from; c < to; ++c) {
+            u32 p = polys->cornerPoint[c], q = polys->cornerPoint[c + 1 < to ? c + 1 : from];
+            u64 count = 0;
+            MapTryGet(edgeFaces, p < q ? (u64)p << 32 | q : (u64)q << 32 | p, &count);
+            rims += count == 1;
+        }
+    }
+    Prog__BlendPolys made = { .pointCount = points * 2, .faceCount = faces * 2 + rims, .cornerCount = corners * 2 + rims * 4 };
+    made.points = ArenaPushArrayNoZero(arena, Max(made.pointCount, (u64)1) * 3, f32);
+    made.faceStart = ArenaPushArrayNoZero(arena, made.faceCount + 1, u32);
+    made.faceLook = ArenaPushArrayNoZero(arena, Max(made.faceCount, (u64)1), u32);
+    made.cornerPoint = ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32);
+    made.cornerUv = polys->cornerUv ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1) * 2, f32) : NULL;
+    made.cornerColor = polys->cornerColor ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32) : NULL;
+    f32 out = thickness * (offset + 1) / 2, in = thickness * (offset - 1) / 2;
+    for (u64 v = 0; v < points; ++v) {
+        f32 *n = normals + v * 3, length = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]), scale = length > 0 ? 1 / length : 0;
+        for (u32 k = 0; k < 3; ++k) {
+            made.points[v * 3 + k] = polys->points[v * 3 + k] + n[k] * scale * out;
+            made.points[(points + v) * 3 + k] = polys->points[v * 3 + k] + n[k] * scale * in;
+        }
+    }
+    // The surface, then the shell with each face's corners the other way round, then the rim's quads.
+    u64 at = 0, face = 0;
+    for (u32 shell = 0; shell < 2; ++shell) {
+        for (u64 f = 0; f < faces; ++f, ++face) {
+            u32 from = polys->faceStart[f], to = polys->faceStart[f + 1];
+            made.faceStart[face] = (u32)at;
+            made.faceLook[face] = polys->faceLook[f];
+            for (u32 k = 0; k < to - from; ++k, ++at) {
+                u32 c = shell ? to - 1 - k : from + k;
+                made.cornerPoint[at] = (u32)(polys->cornerPoint[c] + (shell ? points : 0));
+                if (made.cornerUv) MemCopy(made.cornerUv + at * 2, polys->cornerUv + (u64)c * 2, 8);
+                if (made.cornerColor) made.cornerColor[at] = polys->cornerColor[c];
+            }
+        }
+    }
+    for (u64 f = 0; rims && f < faces; ++f) {
+        u32 from = polys->faceStart[f], to = polys->faceStart[f + 1];
+        for (u32 c = from; c < to; ++c) {
+            u32 next = c + 1 < to ? c + 1 : from, p = polys->cornerPoint[c], q = polys->cornerPoint[next];
+            u64 count = 0;
+            MapTryGet(edgeFaces, p < q ? (u64)p << 32 | q : (u64)q << 32 | p, &count);
+            if (count != 1) continue;
+            made.faceStart[face] = (u32)at;
+            made.faceLook[face++] = polys->faceLook[f];
+            u32 quad[4] = { q, p, (u32)(p + points), (u32)(q + points) }, from4[4] = { next, c, c, next };
+            for (u32 k = 0; k < 4; ++k, ++at) {
+                made.cornerPoint[at] = quad[k];
+                if (made.cornerUv) MemCopy(made.cornerUv + at * 2, polys->cornerUv + (u64)from4[k] * 2, 8);
+                if (made.cornerColor) made.cornerColor[at] = polys->cornerColor[from4[k]];
+            }
+        }
+    }
+    made.faceStart[made.faceCount] = (u32)made.cornerCount;
+    *polys = made;
+    ReleaseScratch(scratch);
 }
 
 // An array's copies, each one step further.
@@ -2673,14 +2817,18 @@ function void Prog__BlendSubdivide(Arena *arena, Prog__BlendPolys *polys)
     ReleaseScratch(scratch);
 }
 
-// The object's modifiers that show in the viewport, in their order: Mirror across its axes about the object's origin, Array's copies one
-// step apart, by a constant offset and one relative to the mesh's size, and Subdivision Surface's Catmull-Clark levels, at most three,
-// and while the result stays below a few million corners. The others, and these modifiers' finer options, are passed over.
-function void Prog__BlendModify(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *object, Prog__BlendPolys *polys)
+// The object's modifiers that show in the viewport, in their order: Mirror across its axes about the object's origin or its mirror
+// object's, Array's copies one step apart, by a constant offset and one relative to the mesh's size, with its caps, Subdivision Surface's
+// Catmull-Clark levels, at most three, while the result stays below a few million corners, and Solidify's shell and rim. The others, and
+// these modifiers' finer options, are passed over.
+function Prog__Affine Prog__BlendPlace(const Prog__Blend *blend, u32 objectType, const Prog__BlendBlock *object, u32 depth);
+function b32 Prog__BlendReadPolys(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *block, u32 lookCount, Prog__BlendPolys *out);
+
+function void Prog__BlendModify(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *object, u32 lookCount, Prog__BlendPolys *polys)
 {
     u32 objectType = Prog__BlendStruct(blend, S("Object")), modifierType = Prog__BlendStruct(blend, S("ModifierData"));
     u32 mirrorType = Prog__BlendStruct(blend, S("MirrorModifierData")), arrayType = Prog__BlendStruct(blend, S("ArrayModifierData"));
-    u32 subsurfType = Prog__BlendStruct(blend, S("SubsurfModifierData"));
+    u32 subsurfType = Prog__BlendStruct(blend, S("SubsurfModifierData")), solidifyType = Prog__BlendStruct(blend, S("SolidifyModifierData"));
     if (modifierType == UINT32_MAX) return;
     u32 steps = 0;
     for (const Prog__BlendBlock *modifier = Prog__BlendAt(blend, object, Prog__BlendPointer(blend, objectType, object->data, object->length, S("modifiers")));
@@ -2691,7 +2839,17 @@ function void Prog__BlendModify(Arena *arena, const Prog__Blend *blend, const Pr
         u64 size = modifier->length;
         if (modifier->sdna == mirrorType && mirrorType != UINT32_MAX) {
             i64 flag = Prog__BlendInt(blend, mirrorType, data, size, S("flag"));
-            for (u32 axis = 0; axis < 3; ++axis) if (flag & (1 << (3 + axis))) Prog__BlendCopies(arena, polys, 2, Prog__BlendMirrorMove, &axis);
+            // About the mirror object, when it has one: into its space, turned over there, and back.
+            const Prog__BlendBlock *around = Prog__BlendAt(blend, modifier, Prog__BlendPointer(blend, mirrorType, data, size, S("mirror_ob")));
+            Prog__Affine self = Prog__BlendPlace(blend, objectType, object, 0), there = around && around->sdna == objectType ? Prog__BlendPlace(blend, objectType, around, 0) : self;
+            for (u32 axis = 0; axis < 3; ++axis) {
+                if (!(flag & (1 << (3 + axis)))) continue;
+                Prog__BlendMirror mirror = { .axis = axis, .around = around && around->sdna == objectType };
+                Prog__Affine flip = Prog__AffineIdentity;
+                flip.m[axis * 4 + axis] = -1;
+                mirror.turn = Prog__AffineMultiply(Prog__AffineInverse(self), Prog__AffineMultiply(there, Prog__AffineMultiply(flip, Prog__AffineMultiply(Prog__AffineInverse(there), self))));
+                Prog__BlendCopies(arena, polys, 2, Prog__BlendMirrorMove, &mirror);
+            }
         } else if (modifier->sdna == arrayType && arrayType != UINT32_MAX) {
             i64 count = Prog__BlendInt(blend, arrayType, data, size, S("count")), fit = Prog__BlendInt(blend, arrayType, data, size, S("fit_type"));
             i64 kinds = Prog__BlendInt(blend, arrayType, data, size, S("offset_type"));
@@ -2708,11 +2866,27 @@ function void Prog__BlendModify(Arena *arena, const Prog__Blend *blend, const Pr
             f32 stride = sqrtf(step[0] * step[0] + step[1] * step[1] + step[2] * step[2]);
             if (fit == 1) count = stride > 0 ? (i64)(length / stride + 1e-4f) + 1 : 1;
             if (count > 1 && count <= 1024 && polys->cornerCount * (u64)count < (UINT64_C(1) << 24)) Prog__BlendCopies(arena, polys, (u32)count, Prog__BlendArrayMove, step);
+            // Its caps: the start cap's mesh a step before the first copy, the end cap's a step after the last.
+            for (u32 end = 0; end < 2; ++end) {
+                const Prog__BlendBlock *cap = Prog__BlendAt(blend, modifier, Prog__BlendPointer(blend, arrayType, data, size, end ? S("end_cap") : S("start_cap")));
+                const Prog__BlendBlock *capMesh = cap && cap->sdna == objectType ? Prog__BlendAt(blend, cap, Prog__BlendPointer(blend, objectType, cap->data, cap->length, S("data"))) : NULL;
+                Prog__BlendPolys capped = {0};
+                if (!capMesh || capMesh->code != Prog__BlendCode('M', 'E', 0, 0) || !Prog__BlendReadPolys(arena, blend, capMesh, lookCount, &capped)) continue;
+                f32 shift[3];
+                for (u32 k = 0; k < 3; ++k) shift[k] = step[k] * (end ? (f32)Max(count, (i64)1) : -1);
+                Prog__BlendAppend(arena, polys, &capped, shift);
+            }
         } else if (modifier->sdna == subsurfType && subsurfType != UINT32_MAX) {
             // Catmull-Clark, not the simple kind, which keeps the shape.
             if (Prog__BlendInt(blend, subsurfType, data, size, S("subdivType")) != 0) continue;
             i64 levels = Min(Prog__BlendInt(blend, subsurfType, data, size, S("levels")), (i64)3);
             for (i64 level = 0; level < levels && polys->cornerCount * 4 < (UINT64_C(1) << 23); ++level) Prog__BlendSubdivide(arena, polys);
+        } else if (modifier->sdna == solidifyType && solidifyType != UINT32_MAX) {
+            f32 thickness = 0, offset = -1;
+            Prog__BlendFloats(blend, solidifyType, data, size, S("offset"), &thickness, 1);
+            Prog__BlendFloats(blend, solidifyType, data, size, S("offset_fac"), &offset, 1);
+            i64 flag = Prog__BlendInt(blend, solidifyType, data, size, S("flag"));
+            if (thickness != 0 && polys->cornerCount * 4 < (UINT64_C(1) << 24)) Prog__BlendSolidify(arena, polys, thickness, offset, (flag & 1) != 0);
         }
     }
 }
@@ -2722,6 +2896,67 @@ function u64 Prog__BlendSlot(const Prog__Blend *blend, const Prog__BlendBlock *s
 {
     if (!slots || (u64)(index + 1) * blend->pointer > slots->length) return 0;
     return blend->pointer == 8 ? Prog__Read64(slots->data + index * 8) : Prog__Read32(slots->data + index * 4);
+}
+
+// Mesh `block`'s polygons, in its own space, with its active texture coordinates and color attribute, each face's material slot below
+// `lookCount`; false for a mesh of the layout before Blender 3.4, which has none of these.
+function b32 Prog__BlendReadPolys(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *block, u32 lookCount, Prog__BlendPolys *out)
+{
+    *out = (Prog__BlendPolys){0};
+    u32 meshType = Prog__BlendStruct(blend, S("Mesh"));
+    if (meshType == UINT32_MAX || !block || block->sdna != meshType) return false;
+    const u8 *mesh = block->data;
+    u64 length = block->length;
+    const Prog__BlendBlock *owner = block;
+    i64 vertices = Prog__BlendInt(blend, meshType, mesh, length, S("totvert")), faces = Prog__BlendInt(blend, meshType, mesh, length, S("totpoly"));
+    i64 corners = Prog__BlendInt(blend, meshType, mesh, length, S("totloop"));
+    if (vertices <= 0 || faces <= 0 || corners <= 0 || vertices > (1 << 26) || corners > (1 << 28)) return false;
+    const f32 *positions = (const f32 *)Prog__BlendLayer(blend, block, meshType, S("vdata"), S("position"), (u64)vertices * 12);
+    const u8 *cornerVerts = Prog__BlendLayer(blend, block, meshType, S("ldata"), S(".corner_vert"), (u64)corners * 4);
+    const Prog__BlendBlock *offsets = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("poly_offset_indices")));
+    if (!positions || !cornerVerts || !offsets || offsets->length < (u64)(faces + 1) * 4) return false;
+        i32 domain = 0;
+        const Prog__BlendBlock *materialIndex = Prog__BlendAttribute(blend, owner, meshType, S("pdata"), S("material_index"), &domain);
+        if (materialIndex && (domain != Prog__BlendOnFace || materialIndex->length < (u64)faces * 4)) materialIndex = NULL;
+        // Its active texture coordinates, two floats for each corner, and its active color attribute, for each point or corner.
+        const Prog__BlendBlock *named = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("active_uv_map_attribute")));
+        String uvName = named ? Prog__BlendName(named->data, named->length) : S("UVMap");
+        const Prog__BlendBlock *uvs = Prog__BlendAttribute(blend, owner, meshType, S("ldata"), uvName.length ? uvName : S("UVMap"), &domain);
+        if (uvs && (domain != Prog__BlendOnCorner || uvs->length < (u64)corners * 8)) uvs = NULL;
+        named = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("active_color_attribute")));
+        const Prog__BlendBlock *colors = named ? Prog__BlendAttribute(blend, owner, meshType, (String){0}, Prog__BlendName(named->data, named->length), &domain) : NULL;
+        u64 elements = domain == Prog__BlendOnCorner ? (u64)corners : (u64)vertices;
+        u32 colorBytes = colors && colors->length >= elements * 16 ? 16 : colors && colors->length >= elements * 4 ? 4 : 0;
+        b32 cornerColors = colorBytes && domain == Prog__BlendOnCorner;
+        if (!colorBytes || (domain != Prog__BlendOnCorner && domain != Prog__BlendOnPoint)) colors = NULL;
+        // As polygons, where its modifiers are worked out: its points, its faces' corners, each one's point, texture coordinate and color,
+        // and each face's material.
+        Prog__BlendPolys polys = { .pointCount = (u64)vertices, .faceCount = (u64)faces, .cornerCount = (u64)corners };
+        polys.points = ArenaPushArrayNoZero(arena, (u64)vertices * 3, f32);
+        MemCopy(polys.points, positions, (u64)vertices * 12);
+        polys.faceStart = ArenaPushArrayNoZero(arena, (u64)faces + 1, u32);
+        polys.faceLook = ArenaPushArrayNoZero(arena, (u64)faces, u32);
+        polys.cornerPoint = ArenaPushArrayNoZero(arena, (u64)corners, u32);
+        polys.cornerUv = uvs ? ArenaPushArrayNoZero(arena, (u64)corners * 2, f32) : NULL;
+        polys.cornerColor = colors ? ArenaPushArrayNoZero(arena, (u64)corners, u32) : NULL;
+        u64 kept = 0, cornersKept = 0;
+        for (i64 f = 0; f < faces; ++f) {
+            u32 from = Prog__Read32(offsets->data + f * 4), to = Prog__Read32(offsets->data + (f + 1) * 4);
+            if (to > (u64)corners || from >= to) continue;
+            i32 index = materialIndex ? (i32)Prog__Read32(materialIndex->data + f * 4) : 0;
+            polys.faceStart[kept] = (u32)cornersKept;
+            polys.faceLook[kept++] = (u32)Min(Max(index, 0), (i32)Max(lookCount, 1u) - 1);
+            for (u32 c = from; c < to; ++c, ++cornersKept) {
+                u32 point = Prog__Read32(cornerVerts + (u64)c * 4);
+                polys.cornerPoint[cornersKept] = point < (u64)vertices ? point : 0;
+                if (uvs) MemCopy(polys.cornerUv + cornersKept * 2, uvs->data + (u64)c * 8, 8);
+                if (colors) polys.cornerColor[cornersKept] = Prog__BlendColor(colors, cornerColors ? c : point < (u64)vertices ? point : 0, colorBytes);
+            }
+        }
+        polys.faceCount = kept, polys.cornerCount = cornersKept;
+        polys.faceStart[kept] = (u32)cornersKept;
+    *out = polys;
+    return true;
 }
 
 // Adds mesh `block`'s faces, placed by `place`, as triangles fanned from each face's first corner, in the parts its materials give them:
@@ -2755,47 +2990,9 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
             u64 old = byObject ? Prog__BlendSlot(blend, own, i) : Prog__BlendSlot(blend, slots, i);
             looks[i] = Prog__BlendLook(arena, blend, Prog__BlendAt(blend, NULL, old), out);
         }
-        i32 domain = 0;
-        const Prog__BlendBlock *materialIndex = Prog__BlendAttribute(blend, owner, meshType, S("pdata"), S("material_index"), &domain);
-        if (materialIndex && (domain != Prog__BlendOnFace || materialIndex->length < (u64)faces * 4)) materialIndex = NULL;
-        // Its active texture coordinates, two floats for each corner, and its active color attribute, for each point or corner.
-        const Prog__BlendBlock *named = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("active_uv_map_attribute")));
-        String uvName = named ? Prog__BlendName(named->data, named->length) : S("UVMap");
-        const Prog__BlendBlock *uvs = Prog__BlendAttribute(blend, owner, meshType, S("ldata"), uvName.length ? uvName : S("UVMap"), &domain);
-        if (uvs && (domain != Prog__BlendOnCorner || uvs->length < (u64)corners * 8)) uvs = NULL;
-        named = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("active_color_attribute")));
-        const Prog__BlendBlock *colors = named ? Prog__BlendAttribute(blend, owner, meshType, (String){0}, Prog__BlendName(named->data, named->length), &domain) : NULL;
-        u64 elements = domain == Prog__BlendOnCorner ? (u64)corners : (u64)vertices;
-        u32 colorBytes = colors && colors->length >= elements * 16 ? 16 : colors && colors->length >= elements * 4 ? 4 : 0;
-        b32 cornerColors = colorBytes && domain == Prog__BlendOnCorner;
-        if (!colorBytes || (domain != Prog__BlendOnCorner && domain != Prog__BlendOnPoint)) colors = NULL;
-        // As polygons, where its modifiers are worked out: its points, its faces' corners, each one's point, texture coordinate and color,
-        // and each face's material.
-        Prog__BlendPolys polys = { .pointCount = (u64)vertices, .faceCount = (u64)faces, .cornerCount = (u64)corners };
-        polys.points = ArenaPushArrayNoZero(scratch.arena, (u64)vertices * 3, f32);
-        MemCopy(polys.points, positions, (u64)vertices * 12);
-        polys.faceStart = ArenaPushArrayNoZero(scratch.arena, (u64)faces + 1, u32);
-        polys.faceLook = ArenaPushArrayNoZero(scratch.arena, (u64)faces, u32);
-        polys.cornerPoint = ArenaPushArrayNoZero(scratch.arena, (u64)corners, u32);
-        polys.cornerUv = uvs ? ArenaPushArrayNoZero(scratch.arena, (u64)corners * 2, f32) : NULL;
-        polys.cornerColor = colors ? ArenaPushArrayNoZero(scratch.arena, (u64)corners, u32) : NULL;
-        u64 kept = 0, cornersKept = 0;
-        for (i64 f = 0; f < faces; ++f) {
-            u32 from = Prog__Read32(offsets->data + f * 4), to = Prog__Read32(offsets->data + (f + 1) * 4);
-            if (to > (u64)corners || from >= to) continue;
-            i32 index = materialIndex ? (i32)Prog__Read32(materialIndex->data + f * 4) : 0;
-            polys.faceStart[kept] = (u32)cornersKept;
-            polys.faceLook[kept++] = (u32)Min(Max(index, 0), (i32)Max(lookCount, 1u) - 1);
-            for (u32 c = from; c < to; ++c, ++cornersKept) {
-                u32 point = Prog__Read32(cornerVerts + (u64)c * 4);
-                polys.cornerPoint[cornersKept] = point < (u64)vertices ? point : 0;
-                if (uvs) MemCopy(polys.cornerUv + cornersKept * 2, uvs->data + (u64)c * 8, 8);
-                if (colors) polys.cornerColor[cornersKept] = Prog__BlendColor(colors, cornerColors ? c : point < (u64)vertices ? point : 0, colorBytes);
-            }
-        }
-        polys.faceCount = kept, polys.cornerCount = cornersKept;
-        polys.faceStart[kept] = (u32)cornersKept;
-        if (object) Prog__BlendModify(scratch.arena, blend, object, &polys);
+        Prog__BlendPolys polys = {0};
+        Prog__BlendReadPolys(scratch.arena, blend, block, lookCount, &polys);
+        if (object) Prog__BlendModify(scratch.arena, blend, object, lookCount, &polys);
         Prog__Corners made = Prog__CornersMake(scratch.arena, polys.pointCount, polys.cornerCount);
         f32 *points = ArenaPushArrayNoZero(scratch.arena, Max(polys.pointCount, (u64)1) * 3, f32);
         for (u64 v = 0; v < polys.pointCount; ++v) Prog__MeshPoint(points + v * 3, place, polys.points[v * 3], polys.points[v * 3 + 1], polys.points[v * 3 + 2]);
@@ -2908,6 +3105,8 @@ function b32 Prog__ReadBlend(Arena *arena, String data, const P_CancelToken *can
         // Mesh objects, Blender's type 1.
         if (object->code != Prog__BlendCode('O', 'B', 0, 0) || object->sdna != objectType) continue;
         if (Prog__BlendInt(&blend, objectType, object->data, object->length, S("type")) != 1) continue;
+        // Hidden in the viewport, as an array's cap or a boolean's cutter often is.
+        if ((Prog__BlendInt(&blend, objectType, object->data, object->length, S("restrictflag")) | Prog__BlendInt(&blend, objectType, object->data, object->length, S("visibility_flag"))) & 1) continue;
         const Prog__BlendBlock *data = Prog__BlendAt(&blend, NULL, Prog__BlendPointer(&blend, objectType, object->data, object->length, S("data")));
         Prog__Affine place = Prog__BlendPlace(&blend, objectType, object, 0);
         if (data && data->code == Prog__BlendCode('M', 'E', 0, 0)) Prog__BlendMesh(arena, &blend, object, data, &place, mesh);

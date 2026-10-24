@@ -3,7 +3,6 @@
 ## Missing
 
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
-- 3D models: a .blend's modifiers other than Mirror, Array and Subdivision Surface, and those three's finer options (a mirror object, merging, caps, creases).
 - Low priority: faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
 
@@ -29,6 +28,7 @@ To be checked on Linux:
 - Writing RAR archives (no free RAR writer exists), and entries in Windows 11's first right-click menu, which shows only a packaged app's `IExplorerCommand`.
 - A Direct3D 11 renderer and Office documents' real layout.
 - Seeding torrents, and a waveform drawn natively rather than ffmpeg's picture tinted with the accent.
+- A .blend's Boolean and Bevel modifiers, and Mirror's merging and Subdivision Surface's creases: heavy for a preview that is flat shaded and small.
 - Binding the left, middle and right buttons and the wheel to commands: only the side buttons bind, as the reference's mouse hotkeys cannot be changed at all.
 - Release flags: `-O3`, `-march=x86-64-v2` and `-v3`, and profile-guided optimization measured within the noise of `-O2` or slower.
 

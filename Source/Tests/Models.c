@@ -538,12 +538,28 @@ function void TestModels(void)
         Check(polys.pointCount == 8 + 12 + 6 && polys.faceCount == 24 && polys.cornerCount == 96 && polys.faceStart[24] == 96);
         f32 corner = polys.points[0], side = polys.points[(8 + 12) * 3 + 2];
         Check(corner > -1 && corner < -0.5f && side == -1 && polys.cornerColor[0] == 0xFF0000FFu && polys.cornerColor[2] == 0xFF0000FFu);
-        u32 axis = 0;
-        Prog__BlendCopies(&arena, &polys, 2, Prog__BlendMirrorMove, &axis);
+        Prog__BlendMirror mirror = { .axis = 0 };
+        Prog__BlendCopies(&arena, &polys, 2, Prog__BlendMirrorMove, &mirror);
         Check(polys.pointCount == 52 && polys.faceCount == 48 && polys.cornerPoint[96] == polys.cornerPoint[0] + 26 && polys.points[26 * 3] == -polys.points[0]);
         f32 step[3] = { 0, 3, 0 };
         Prog__BlendCopies(&arena, &polys, 3, Prog__BlendArrayMove, step);
         Check(polys.pointCount == 156 && polys.faceStart[polys.faceCount] == polys.cornerCount && polys.points[104 * 3 + 1] == polys.points[1] + 6);
+    }
+    // Solidify on an open square facing up: the surface where it was, a shell below it by the thickness, facing down, and a rim of four
+    // quads round its open edges; a cap appended moved by its step, without colors of its own.
+    {
+        f32 square[12] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+        u32 starts[2] = { 0, 4 }, looks[1] = {0}, corners[4] = { 0, 1, 2, 3 }, colors[4] = { 0xFF0000FFu, 0xFF0000FFu, 0xFF0000FFu, 0xFF0000FFu };
+        Prog__BlendPolys polys = { .points = square, .pointCount = 4, .faceStart = starts, .faceLook = looks, .faceCount = 1, .cornerPoint = corners,
+                                   .cornerColor = colors, .cornerCount = 4 };
+        Prog__BlendSolidify(&arena, &polys, 0.5f, -1, true);
+        Check(polys.pointCount == 8 && polys.faceCount == 6 && polys.cornerCount == 24 && polys.points[2] == 0 && polys.points[4 * 3 + 2] == -0.5f);
+        Check(polys.cornerPoint[4] == 7 && polys.cornerPoint[7] == 4 && polys.cornerColor[23] == 0xFF0000FFu);
+        Prog__BlendPolys cap = { .points = square, .pointCount = 4, .faceStart = starts, .faceLook = looks, .faceCount = 1, .cornerPoint = corners, .cornerCount = 4 };
+        f32 shift[3] = { 0, 0, 2 };
+        Prog__BlendAppend(&arena, &polys, &cap, shift);
+        Check(polys.pointCount == 12 && polys.faceCount == 7 && polys.cornerPoint[24] == 8 && polys.points[8 * 3 + 2] == 2 && polys.cornerColor[24] == Prog_ModelUnset);
+        Check(Prog__AffineInverse(Prog__AffineCompose((f32[3]){ 1, 2, 3 }, (f32[4]){ 0, 0, 0, 1 }, (f32[3]){ 2, 2, 2 })).m[3] == -0.5f);
     }
     // Sorting by depth: floats of either sign in their order; the inspector's see-through parts from the farthest along the view, in the
     // places see-through parts had, and the solid one where it was.
