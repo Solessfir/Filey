@@ -4572,12 +4572,14 @@ typedef struct Prog__Paint {
     u32 corners[3];
     const f32 *uvs[3];
     f32 light;
+    b32 blend;  // see-through by the part's, the corners' and the picture's alphas, rather than solid with the picture's cut out
 } Prog__Paint;
 
-// The lit color at the point weighted `l0`, `l1` and `l2` between the triangle's corners, as opaque RGBA; 0 where its picture is see-through.
+// The lit color at the point weighted `l0`, `l1` and `l2` between the triangle's corners, as RGBA, opaque but where it blends; 0 where it
+// is see-through.
 function u32 Prog__PaintAt(const Prog__Paint *paint, f32 l0, f32 l1, f32 l2)
 {
-    f32 rgb[3];
+    f32 rgb[3], alpha = 1;
     for (u32 k = 0; k < 3; ++k) {
         u32 shift = k * 8;
         f32 corner = ((f32)((paint->corners[0] >> shift) & 0xFF) * l0 + (f32)((paint->corners[1] >> shift) & 0xFF) * l1 + (f32)((paint->corners[2] >> shift) & 0xFF) * l2) / 255.0f;
@@ -4588,12 +4590,32 @@ function u32 Prog__PaintAt(const Prog__Paint *paint, f32 l0, f32 l1, f32 l2)
         i32 w = paint->image->width, h = paint->image->height;
         i32 x = (i32)((u - floorf(u)) * (f32)w), y = (i32)((v - floorf(v)) * (f32)h);
         u32 texel = paint->image->pixels[(u64)Min(Max(y, 0), h - 1) * (u64)w + (u64)Min(Max(x, 0), w - 1)];
-        if ((texel >> 24) < 128) return 0;
+        if (!paint->blend && (texel >> 24) < 128) return 0;
         for (u32 k = 0; k < 3; ++k) rgb[k] *= (f32)((texel >> (k * 8)) & 0xFF) / 255.0f;
+        if (paint->blend) alpha *= (f32)(texel >> 24) / 255.0f;
     }
-    u32 result = 0xFF000000u;
+    if (paint->blend) {
+        alpha *= (f32)(paint->color >> 24) / 255.0f;
+        alpha *= ((f32)(paint->corners[0] >> 24) * l0 + (f32)(paint->corners[1] >> 24) * l1 + (f32)(paint->corners[2] >> 24) * l2) / 255.0f;
+    }
+    u32 coverage = (u32)MinF32(alpha * 255 + 0.5f, 255);
+    if (!coverage) return 0;
+    u32 result = coverage << 24;
     for (u32 k = 0; k < 3; ++k) result |= (u32)MinF32(rgb[k] * paint->light + 0.5f, 255) << (k * 8);
     return result;
+}
+
+// A sample's straight color `*shade` and alpha `*alpha` with `color` over them, by its alpha.
+function void Prog__PaintOver(u32 *shade, u8 *alpha, u32 color)
+{
+    f32 a = (f32)(color >> 24) / 255, below = (f32)*alpha / 255 * (1 - a), total = a + below;
+    u32 result = (u32)(total * 255 + 0.5f) << 24;
+    for (u32 k = 0; k < 3; ++k) {
+        f32 mixed = total > 0 ? ((f32)((color >> (k * 8)) & 0xFF) * a + (f32)((*shade >> (k * 8)) & 0xFF) * below) / total : 0;
+        result |= (u32)MinF32(mixed + 0.5f, 255) << (k * 8);
+    }
+    *shade = result;
+    *alpha = (u8)(result >> 24);
 }
 
 // Draws `shape` into `size` squared straight RGBA pixels, seen from in front of it, above and to its right without perspective, fitted to
@@ -4636,18 +4658,24 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
         u64 samples = (u64)side * (u64)side;
         f32 *depth = ArenaPushArrayNoZero(scratch.arena, samples, f32);
         u32 *shade = ArenaPushArray(scratch.arena, samples, u32);
+        u8 *cover = ArenaPushArray(scratch.arena, samples, u8);
         for (u64 i = 0; i < samples; ++i) depth[i] = -INFINITY;
         // The light, toward the upper left and the view.
         const f32 lx = -0.398f, ly = 0.597f, lz = 0.697f;
         b32 cancelled = false;
         const u32 *indices = shape->indices;
-        u32 part = 0;
-        for (u64 t = 0; t < triangles; ++t) {
+        // The solid parts first, then the see-through ones over them, which leave the depth as it was.
+        b32 seeThrough = false;
+        for (u32 i = 0; i < shape->partCount; ++i) seeThrough |= shape->parts[i].blend;
+        for (u32 pass = 0; pass < (seeThrough ? 2u : 1u) && !cancelled; ++pass)
+        for (u64 t = 0, part = 0; t < triangles; ++t) {
             if ((t & 0x3FFF) == 0x3FFF && P_IsCancelled(cancel)) {
                 cancelled = true;
                 break;
             }
             while (part + 1 < shape->partCount && shape->parts[part + 1].first <= t * 3) ++part;
+            b32 blended = shape->partCount && shape->parts[part].blend;
+            if (blended != (pass == 1)) continue;
             u32 ia = indices[t * 3], ib = indices[t * 3 + 1], ic = indices[t * 3 + 2];
             const f32 *a = view + (u64)ia * 3, *b = view + (u64)ib * 3, *c = view + (u64)ic * 3;
             // The normal, in a space with Y up again.
@@ -4674,6 +4702,7 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
                 .corners = { shape->colors[ia], shape->colors[ib], shape->colors[ic] },
                 .uvs = { shape->uvs + (u64)ia * 2, shape->uvs + (u64)ib * 2, shape->uvs + (u64)ic * 2 },
                 .light = 0.22f + 0.78f * MaxF32(light, 0),
+                .blend = blended,
             };
             // One color for the whole triangle when nothing varies across it.
             b32 flat = !paint.image && paint.corners[0] == paint.corners[1] && paint.corners[1] == paint.corners[2];
@@ -4686,7 +4715,8 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
                 u64 at = (u64)y0 * (u64)side + (u64)x0;
                 f32 z = MaxF32(a[2], MaxF32(b[2], c[2]));
                 u32 color = flat ? tone : Prog__PaintAt(&paint, 1.0f / 3, 1.0f / 3, 1.0f / 3);
-                if (color && z > depth[at]) depth[at] = z, shade[at] = color;
+                if (color && z > depth[at] && blended) Prog__PaintOver(&shade[at], &cover[at], color);
+                else if (color && z > depth[at]) depth[at] = z, shade[at] = color, cover[at] = 255;
                 continue;
             }
             if (!(area > 0)) continue;
@@ -4702,12 +4732,16 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
                 f32 w0 = w0Row, w1 = w1Row, w2 = w2Row, z = (w0 * a[2] + w1 * b[2] + w2 * c[2]) * inverse;
                 f32 *depthRow = depth + (u64)y * (u64)side;
                 u32 *shadeRow = shade + (u64)y * (u64)side;
+                u8 *coverRow = cover + (u64)y * (u64)side;
                 for (i32 x = x0; x <= x1; ++x) {
                     if (w0 >= 0 && w1 >= 0 && w2 >= 0 && z > depthRow[x]) {
                         u32 color = flat ? tone : Prog__PaintAt(&paint, w0 * inverse, w1 * inverse, w2 * inverse);
-                        if (color) {
+                        if (color && blended) {
+                            Prog__PaintOver(&shadeRow[x], &coverRow[x], color);
+                        } else if (color) {
                             depthRow[x] = z;
                             shadeRow[x] = color;
+                            coverRow[x] = 255;
                         }
                     }
                     w0 += e0x, w1 += e1x, w2 += e2x, z += zx;
@@ -4716,7 +4750,7 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
             }
         }
         if (!cancelled) {
-            // Each pixel averages its four samples: the color of those covered, and how many are covered as its alpha.
+            // Each pixel averages its four samples, by how much each is covered: their colors weighted by it, and its sum as the alpha.
             result = ArenaPushArrayNoZero(arena, (u64)size * (u64)size, u32);
             for (i32 y = 0; y < size; ++y) {
                 for (i32 x = 0; x < size; ++x) {
@@ -4724,13 +4758,12 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
                     u64 corners[4] = { at, at + 1, at + (u64)side, at + (u64)side + 1 };
                     u32 covered = 0, sum[3] = {0};
                     for (u32 k = 0; k < 4; ++k) {
-                        if (depth[corners[k]] > -INFINITY) {
-                            ++covered;
-                            for (u32 channel = 0; channel < 3; ++channel) sum[channel] += (shade[corners[k]] >> (channel * 8)) & 0xFF;
-                        }
+                        u32 weight = cover[corners[k]];
+                        covered += weight;
+                        for (u32 channel = 0; channel < 3; ++channel) sum[channel] += ((shade[corners[k]] >> (channel * 8)) & 0xFF) * weight;
                     }
                     u32 pixel = 0;
-                    if (covered) pixel = sum[0] / covered | (sum[1] / covered) << 8 | (sum[2] / covered) << 16 | (covered * 255 / 4) << 24;
+                    if (covered) pixel = sum[0] / covered | (sum[1] / covered) << 8 | (sum[2] / covered) << 16 | (covered / 4) << 24;
                     result[(u64)y * (u64)size + (u64)x] = pixel;
                 }
             }

@@ -502,6 +502,28 @@ function void TestModels(void)
         square.parts.v[0].first = 0;
         pixels = Prog__ModelShape(&arena, &square, &drawn) ? Prog_DrawMesh(&arena, &drawn, 64, &token) : NULL;
         Check(drawn.partCount == 1 && drawn.parts[0].count == 9 && pixels && (pixels[32 * 64 + 32] & 0xFF) > 0x40 && ((pixels[32 * 64 + 32] >> 8) & 0xFFFF) == 0);
+        // A see-through blue square in front of half of it: half covered where it is alone, blue over red where they meet, whichever is
+        // drawn first.
+        Prog_Mesh layered = {0};
+        f32 both[24] = { -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0, -2, -1, 1, 0, -1, 1, 0, 1, 1, -2, 1, 1 };
+        MemCopy(ArrayAdd(&arena, layered.positions, 24), both, sizeof(both));
+        u32 order[12] = { 4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3 };
+        MemCopy(ArrayAdd(&arena, layered.indices, 12), order, sizeof(order));
+        Prog_MeshPart glass = { .color = 0x80FF0000u, .image = UINT32_MAX, .blend = true }, red = { .color = 0xFF0000FFu, .image = UINT32_MAX };
+        layered.indices.header.count = 0;
+        Prog__MeshLook(&arena, &layered, &glass);
+        layered.indices.header.count = 6;
+        Prog__MeshLook(&arena, &layered, &red);
+        layered.indices.header.count = 12;
+        pixels = Prog__ModelShape(&arena, &layered, &drawn) ? Prog_DrawMesh(&arena, &drawn, 64, &token) : NULL;
+        u32 alone = 0, over = 0, solid = 0;
+        for (i32 x = 0; pixels && x < 64; ++x) {
+            u32 p = pixels[32 * 64 + x], a = p >> 24, r = p & 0xFF, b = (p >> 16) & 0xFF;
+            alone += a > 100 && a < 160 && b > r;
+            over += a == 255 && b > 0x20 && r > 0x20;
+            solid += a == 255 && r > 0x40 && b == 0;
+        }
+        Check(pixels && alone && over && solid);
     }
     // The mesh for the GPU: a triangle naming a vertex that is not there is left out, Z up turns Y up, and its bounds' center and radius.
     {
