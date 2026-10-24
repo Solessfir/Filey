@@ -1984,6 +1984,10 @@ typedef struct Prog_State {
     u64 sidebarDrag;
     u64 sidebarGap;
     u32 sidebarDragGroup;
+    // A group's title dragged among the others: one more than the group, one more than the place in the order it would go before, and
+    // each group's title's top in the last build.
+    u32 groupDrag, groupGap;
+    f32 groupTops[Prog_SidebarGroupMax];
     b32 placesWanted;         // the sidebar was built, so its places are kept current
     b32 windowInactive;       // another window has the focus, which dims the title strip
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for

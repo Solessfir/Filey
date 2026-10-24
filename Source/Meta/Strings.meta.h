@@ -465,8 +465,6 @@ global const char *const Prog_Strings[] = {
     "Show Hidden Places",
     "Rename Group",
     "Delete Group",
-    "Move Group Up",
-    "Move Group Down",
     "Open in New Tab",
     "Open in New Window",
     "Open in Right Split",

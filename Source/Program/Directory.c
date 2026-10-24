@@ -4517,7 +4517,7 @@ function u32 Prog_SidebarGroupAt(const Prog_State *state, u32 n)
 }
 
 // Moves the sidebar's group `group` a place up or down; back in the default order, it is no longer kept.
-function void Prog_ShiftGroup(Prog_State *state, u32 group, b32 down)
+function void Prog_MoveGroup(Prog_State *state, u32 group, u32 before)
 {
     u32 count = Prog_SidebarGroupCount(state), at = count;
     u8 order[Prog_SidebarGroupMax] = {0};
@@ -4525,11 +4525,12 @@ function void Prog_ShiftGroup(Prog_State *state, u32 group, b32 down)
         order[n] = (u8)Prog_SidebarGroupAt(state, n);
         if (order[n] == group) at = n;
     }
-    if (at == count || (down ? at + 1 >= count : at == 0)) return;
-    u32 other = down ? at + 1 : at - 1;
-    u8 swapped = order[at];
-    order[at] = order[other];
-    order[other] = swapped;
+    if (at == count) return;
+    before = Min(before, count);
+    u32 to = before > at ? before - 1 : before;
+    MemMove(order + at, order + at + 1, count - at - 1);
+    MemMove(order + to + 1, order + to, count - 1 - to);
+    order[to] = (u8)group;
     b32 ordered = false;
     for (u32 n = 0; n < count; ++n) ordered |= order[n] != n;
     MemCopy(state->groupOrder, order, sizeof(order));

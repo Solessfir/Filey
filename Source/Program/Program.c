@@ -5136,7 +5136,7 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Group/%S", title));
-    b32 hot = UI->hotKey == key;
+    b32 hot = UI->hotKey == key || state->groupDrag == (u32)group + 1;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Pixels(m->row));
     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -5146,7 +5146,16 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     UI_SetNextColors((UI_Colors){ .background = theme->alternateRow });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable | (hot ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
-    if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
+    if ((u32)group < Prog_SidebarGroupMax) state->groupTops[group] = row->rect.y0;
+    // Dragged, it moves among the groups, before the one the line the sidebar draws is at; the click its release makes folds nothing.
+    b32 moved = false;
+    if (interaction.active && interaction.isDragging && interaction.button == MouseButton_Left && !state->sidebarFilter.length) state->groupDrag = (u32)group + 1;
+    if (interaction.released && state->groupDrag == (u32)group + 1) {
+        if (state->groupGap) Prog_QueueCommand(state, Prog_CommandKind_GroupMove, (u64)group, 0, interaction.clickOrder)->target = state->groupGap - 1;
+        state->groupDrag = state->groupGap = 0;
+        moved = true;
+    }
+    if (interaction.clicked && interaction.button == MouseButton_Left && !moved) Prog_QueueCommand(state, Prog_CommandKind_ToggleGroup, (u64)group, 0, interaction.clickOrder);
     // A right click opens the group's menu.
     if (interaction.pressed && interaction.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_GroupMenu, (u64)group, 0, interaction.pressOrder)->at = UI->mouse;
     UI_Parent(row) {
@@ -5408,7 +5417,16 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         Prog__SidebarFilterBox(state, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
         // The groups, in the order they were put in.
-        for (u32 n = 0; n < Prog_SidebarGroupCount(state); ++n) {
+        // A group's title dragged opens a gap, easing, where it would go, as the bookmarks do for a folder dragged among them.
+        f32 groupApart = floorf(12.8f * m->scale + 0.5f), groupGaps[Prog_SidebarGroupMax + 1] = {0};
+        for (u32 n = 0; n <= Prog_SidebarGroupCount(state) && n <= Prog_SidebarGroupMax; ++n) {
+            UI_Key gapKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupGap/%u", n));
+            f32 target = state->groupDrag && state->groupGap == n + 1 ? groupApart : 0;
+            if (target != 0 || UI_Kept(gapKey) != 0) groupGaps[n] = floorf(UI_Animate(gapKey, target, 0) + 0.5f);
+        }
+        for (u32 n = 0; n <= Prog_SidebarGroupCount(state); ++n) {
+            if (groupGaps[n] > 0) Prog__Spacer(UI_Flex(), UI_Pixels(groupGaps[n]));
+            if (n == Prog_SidebarGroupCount(state)) break;
             u32 id = Prog_SidebarGroupAt(state, n);
             switch (id) {
                 case Prog_Group_Recents: {
@@ -5586,6 +5604,33 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
                     }
                 } break;
+            }
+        }
+        // A group's title dragged goes before the group whose upper half the pointer is over, or last, marked by a line there.
+        // One whose press the system took away ends without a move.
+        if (state->groupDrag && !UI->activeKey) state->groupDrag = state->groupGap = 0;
+        if (state->groupDrag) {
+            u32 count = Prog_SidebarGroupCount(state), before = count;
+            f32 end = sidebar->rect.y0 + sidebar->contentSize.y - sidebar->scrollShown.y - groupGaps[Min(count, (u32)Prog_SidebarGroupMax)];
+            f32 lineY = end + groupGaps[Min(count, (u32)Prog_SidebarGroupMax)] * 0.5f;
+            for (u32 n = 0; n < count && before == count; ++n) {
+                f32 top = state->groupTops[Prog_SidebarGroupAt(state, n)], next = n + 1 < count ? state->groupTops[Prog_SidebarGroupAt(state, n + 1)] : end;
+                if (UI->mouse.y < (top + next) * 0.5f) {
+                    before = n;
+                    lineY = top - groupGaps[n] * 0.5f;
+                }
+            }
+            // Just above or below itself it stays where it is, so neither is offered.
+            u32 at = count;
+            for (u32 n = 0; n < count; ++n) if (Prog_SidebarGroupAt(state, n) == state->groupDrag - 1) at = n;
+            state->groupGap = before == at || before == at + 1 ? 0 : before + 1;
+            if (state->groupGap) {
+                f32 thickness = MaxF32(2, floorf(2 * m->scale)), left = floorf(12.0f * m->scale + 0.5f), right = floorf(14.4f * m->scale + 0.5f);
+                UI_SetNextFloatingOffset((UI_Vec2){ left - floorf(m->gap * 0.75f), floorf(lineY) - sidebar->rect.y0 });
+                UI_SetNextPrefWidth(UI_Pixels(sidebar->rect.x1 - sidebar->rect.x0 - left - right));
+                UI_SetNextPrefHeight(UI_Pixels(thickness));
+                UI_SetNextColors((UI_Colors){ .background = theme->accent });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         }
     }

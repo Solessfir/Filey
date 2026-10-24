@@ -1894,10 +1894,8 @@ command GroupItemRemove {
 command GroupItemMove {
 }
 
-command GroupShiftUp {
-}
-
-command GroupShiftDown {
+// A group's title dragged among the others: the group, and as its target the place in the groups' order it goes before.
+command GroupMove {
 }
 
 command GroupsRestore {

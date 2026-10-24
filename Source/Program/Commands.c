@@ -1493,10 +1493,9 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
                        .disabled = (b8)(!state->placesHidden.header.count && !state->placesShowHidden));
             Prog__Item(.kind = Prog_CommandKind_GroupsRestore, .icon = Icon_RotateCcw, .disabled = (b8)!state->groupsOrdered);
         } break;
-        // A sidebar group's: its own commands, then moving it among the groups.
+        // A sidebar group's: its own commands, then a new group and the groups' order put back; a group moves by dragging its title.
         case Prog_CommandKind_GroupMenu: {
-            u32 groups = Prog_SidebarGroupCount(state), group = (u32)Min(command->row, (u64)groups - 1), at = 0;
-            for (u32 n = 0; n < groups; ++n) if (Prog_SidebarGroupAt(state, n) == group) at = n;
+            u32 groups = Prog_SidebarGroupCount(state), group = (u32)Min(command->row, (u64)groups - 1);
             if (group >= Prog_Group_Count) {
                 Prog__Item(.kind = Prog_CommandKind_GroupRename, .row = group, .label = Tr("Rename Group"), .icon = Icon_Pencil);
                 Prog__Item(.kind = Prog_CommandKind_GroupDelete, .row = group, .label = Tr("Delete Group"), .icon = Icon_X);
@@ -1510,8 +1509,6 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             if (group == Prog_Group_Recents) Prog__Item(.kind = Prog_CommandKind_RecentsClear, .icon = Icon_X, .disabled = (b8)!state->recents.header.count);
             if (group != Prog_Group_Storage) Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_GroupNew, .label = Tr("New Group"), .icon = Icon_Plus, .disabled = (b8)(state->userGroupCount >= Prog_MaxUserGroups));
-            Prog__Item(.kind = Prog_CommandKind_GroupShiftUp, .row = (u64)group, .label = Tr("Move Group Up"), .icon = Icon_ChevronUp, .disabled = (b8)(at == 0));
-            Prog__Item(.kind = Prog_CommandKind_GroupShiftDown, .row = (u64)group, .label = Tr("Move Group Down"), .icon = Icon_ChevronDown, .disabled = (b8)(at + 1 >= groups));
             Prog__Item(.kind = Prog_CommandKind_GroupsRestore, .icon = Icon_RotateCcw, .disabled = (b8)!state->groupsOrdered);
         } break;
         // The path bar's, for the crumb right-clicked or the shown folder: opening it elsewhere, its path, and how paths show.
@@ -3909,10 +3906,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_PlaceMove: Prog_MovePlace(state, command->row, command->target); break;
             case Prog_CommandKind_PlacesShowHidden: state->placesShowHidden = !state->placesShowHidden; break;
             case Prog_CommandKind_PlacesRestore: Prog_RestorePlaces(state); break;
-            case Prog_CommandKind_GroupShiftUp:
-            case Prog_CommandKind_GroupShiftDown: {
-                if (command->row < Prog_SidebarGroupCount(state)) Prog_ShiftGroup(state, (u32)command->row, command->kind == Prog_CommandKind_GroupShiftDown);
-            } break;
+            case Prog_CommandKind_GroupMove: if (command->row < Prog_SidebarGroupCount(state)) Prog_MoveGroup(state, (u32)command->row, (u32)command->target); break;
             case Prog_CommandKind_GroupNew: {
                 // Made at once, with its name in its title to be typed over, as a new folder's is; the sidebar shows to hold it.
                 if (state->userGroupCount >= Prog_MaxUserGroups) break;

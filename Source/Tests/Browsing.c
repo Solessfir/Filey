@@ -2836,7 +2836,7 @@ function void TestUserGroups(TestFileFixture *fixture)
     Check(StrIsEqual(state.userGroups[1].name, S("Play")) && state.userGroups[1].closed && !Prog_GroupOpen(&state, (Prog_Group)(Prog_Group_Count + 1)) && Prog_GroupOpen(&state, (Prog_Group)Prog_Group_Count));
     Check(StrIsEqual(Prog__SidebarPath(&state, (Prog_Group)Prog_Group_Count, 1), S("/c")));
     // A group moved up keeps its place when another is deleted, and the numbers after the deleted one move down.
-    Prog_ShiftGroup(&state, Prog_Group_Count + 1, false);
+    Prog_MoveGroup(&state, Prog_Group_Count + 1, Prog_Group_Count);
     Check(state.groupsOrdered && Prog_SidebarGroupAt(&state, Prog_Group_Count) == Prog_Group_Count + 1);
     // Go To's fold of the group after it moves down with it.
     state.gotoGroupsFolded = 2;
@@ -3027,12 +3027,12 @@ function void TestPlaces(TestFileFixture *fixture)
     Check(Prog_PlaceHidden(&state, state.places.v[1].path) && state.placesHidden.header.count == 1);
     Prog_TogglePlaceHidden(&state, 1);
     Check(!state.placesHidden.header.count);
-    // The groups move a place at a time, and back in their own order are not kept.
-    Prog_ShiftGroup(&state, Prog_Group_Places, false);
+    // A group moves before another, and back in their own order the groups are not kept.
+    Prog_MoveGroup(&state, Prog_Group_Places, 2);
     Check(state.groupsOrdered && Prog_SidebarGroupAt(&state, 2) == Prog_Group_Places && Prog_SidebarGroupAt(&state, 3) == Prog_Group_Storage);
-    Prog_ShiftGroup(&state, Prog_Group_Places, true);
+    Prog_MoveGroup(&state, Prog_Group_Places, 4);
     Check(!state.groupsOrdered && Prog_SidebarGroupAt(&state, 3) == Prog_Group_Places);
-    Prog_ShiftGroup(&state, Prog_Group_Recents, false);
+    Prog_MoveGroup(&state, Prog_Group_Recents, 0);
     Check(!state.groupsOrdered);
     ArenaRelease(&state.placesArena);
     ArenaRelease(&state.placesOrderArena);
