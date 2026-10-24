@@ -1959,6 +1959,10 @@ typedef struct Prog_State {
     // A slow second click on the row of the sidebar folder shown renames it, once the double-click time passes without another press: when,
     // the press that asked for it, one more than its group, and its row.
     u64 sidebarRenameAt, sidebarRenamePress;
+    // A slow click on the name of the list's one selected item renames it the same way: the row pressed while it was so, and the rename
+    // asked for, with the press that asked for it, its panel and the listing it was in.
+    u64 listSlowRow;
+    u64 listRenameAt, listRenamePress, listRenamePanel, listRenameListing, listRenameRow;
     u32 sidebarRenameGroup;
     u64 sidebarRenameIndex;
     // The box asking for an encrypted archive's password: the archive, the password typed and the dots shown for it, whether the last one

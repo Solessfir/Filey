@@ -4035,6 +4035,21 @@ function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_K
     if (interaction.pressed && state->marqueeKey == key) state->marqueeKey = 0;
     b32 keepSelection = entry->selected && state->selectedCount > 1 && !interaction.mods && interaction.pressCount == 1;
     b32 result = false;
+    // A plain click on the name of the item that alone is selected and focused renames it once the double-click time passes without another
+    // press, as in Explorer; a drag or a double click does not.
+    if (interaction.pressed) {
+        b32 slow = interaction.button == MouseButton_Left && interaction.pressCount == 1 && !interaction.mods && onName && !renaming && !state->singleClick &&
+                   entry->selected && state->selectedCount == 1 && state->hasFocus && state->focusedRow == index;
+        state->listSlowRow = slow ? index + 1 : 0;
+    }
+    if (interaction.clicked && interaction.button == MouseButton_Left && state->listSlowRow == index + 1 && state->marqueeKey != key) {
+        state->listRenameAt = UI->nowMicroseconds + (UI->doubleClickMicroseconds ? UI->doubleClickMicroseconds : UINT64_C(500000));
+        state->listRenamePress = UI->lastPressTime;
+        state->listRenamePanel = Prog__PanelId(state);
+        state->listRenameListing = state->listing;
+        state->listRenameRow = index;
+        state->listSlowRow = 0;
+    }
     // Clicks inside the name being edited stay in the box instead of reopening or dragging the item.
     if (renaming && UI__Contains(state->renameRect, UI->mouse)) {
     } else if (!state->loading && interaction.pressed && interaction.button == MouseButton_Right) {
@@ -4555,6 +4570,19 @@ function void Prog__GroupHeading(Prog_State *state, UI_Key seed, u32 index, f32 
 function void Prog__List(Prog_State *state, const Prog_Columns *columns, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
+    // The rename a slow click asked for, unless another press came, the listing changed or the item is no longer the one focused.
+    if (state->listRenameAt && state->listRenamePanel == Prog__PanelId(state)) {
+        b32 stale = UI->lastPressTime != state->listRenamePress || state->listing != state->listRenameListing || state->renaming ||
+                    !state->hasFocus || state->focusedRow != state->listRenameRow;
+        if (stale) {
+            state->listRenameAt = 0;
+        } else if (UI->nowMicroseconds >= state->listRenameAt) {
+            Prog_QueueCommand(state, Prog_CommandKind_Rename, 0, 0, 0);
+            state->listRenameAt = 0;
+        } else {
+            UI_KeepAnimating();
+        }
+    }
     // The usage columns' totals, while one of them shows: the measured items' bytes, and the size of the drive the folder is on.
     state->listBytes = state->volumeBytes = 0;
     b32 usage = false;
