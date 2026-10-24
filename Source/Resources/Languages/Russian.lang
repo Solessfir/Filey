@@ -3165,3 +3165,15 @@ Type the archive's password...
 
 That password does not open it.
 = Этот пароль не подходит.
+
+Select bytes to read them as numbers
+= Выделите байты, чтобы прочитать их как числа
+
+Find bytes or text...
+= Найти байты или текст...
+
+Not found
+= Не найдено
+
+Nothing in it matches "%S".
+= В нём нет совпадений с «%S».

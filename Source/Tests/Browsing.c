@@ -1166,6 +1166,12 @@ function void TestFileIcons(TestFileFixture *fixture)
     String sixteen = Prog_HexRowText(&arena, (const u8 *)"0123456789abcdef", 16, 0x10, 16, Prog_HexPlaces(0x10000));
     Check(StrIsEqual(sixteen, S("0010  30 31 32 33 34 35 36 37  38 39 61 62 63 64 65 66  0123456789abcdef")) && Prog_HexPlaces(0x10001) == 5);
     Check(Prog_HexPerLine(4, 72) == 16 && Prog_HexPerLine(4, 71) == 8 && Prog_HexPerLine(4, 10) == 4);
+    // A press there takes the byte of the hex column or the character it is on, the gaps going to the byte before them.
+    Check(Prog_HexByteAt(4, 16, 6) == 0 && Prog_HexByteAt(4, 16, 7.5f) == 0 && Prog_HexByteAt(4, 16, 8.6f) == 1 && Prog_HexByteAt(4, 16, 31) == 8);
+    Check(Prog_HexByteAt(4, 16, 56) == 0 && Prog_HexByteAt(4, 16, 60.5f) == 4 && Prog_HexByteAt(4, 16, 100) == 15);
+    // Its find takes hex, two digits a byte with or without spaces between bytes, and anything else as text.
+    Check(StrIsEqual(Prog_HexQuery(&arena, S("4D 5a")), S("MZ")) && StrIsEqual(Prog_HexQuery(&arena, S("4d5a90")), S("MZ\x90")));
+    Check(StrIsEqual(Prog_HexQuery(&arena, S("MZ")), S("MZ")) && StrIsEqual(Prog_HexQuery(&arena, S("abc")), S("abc")) && StrIsEqual(Prog_HexQuery(&arena, S("a bc")), S("a bc")));
     // A code file's lines are colored by what each byte is, and a comment left open goes on into the next line.
     u8 tokens[64];
     Check(Prog_SyntaxLine(Prog_Syntax_C, S("int x = 0x1F; // done"), 0, tokens) == 0);

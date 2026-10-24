@@ -275,6 +275,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
     Prog_JobKind_HexPage,
+    Prog_JobKind_HexFind,     // the first place from `offset` on, round to it again, where the bytes `name` are in the file `path`
     Prog_JobKind_TextWindow,  // a big text file's window: from `offset`, the line numbered `line`, which starts inside highlighter state `open`
     Prog_JobKind_TextIndex,   // a big text file's lines, counted in steps
     Prog_JobKind_PdfPage,
@@ -529,10 +530,13 @@ typedef struct Prog_TextIndex {
 } Prog_TextIndex;
 // The largest file inside an archive that is taken out to be previewed.
 #define Prog_ArchivePreviewBytes (UINT64_C(256) << 20)
-// A file shown as hex is read a page at a time as its rows come into sight, up to Prog_HexRows rows; past that the view would need more
-// precision than its float scroll offset has.
+// A file shown as hex is read a page at a time as its rows come into sight, into Prog_HexSlots pages kept at once. The view holds up to
+// Prog_HexRows rows of it at a time, which is as far as the precision of its float scroll offset goes, and moves them along as it scrolls.
+// Up to Prog_HexCopyBytes of it are copied as hex.
 #define Prog_HexPageBytes (1 << 20)
 #define Prog_HexRows (1 << 20)
+#define Prog_HexSlots 32
+#define Prog_HexCopyBytes (4 << 20)
 // The inspector's text size in points, unless changed.
 #define Prog_InspectorFontSize 10
 #define Prog_InspectorFontMin 8
@@ -1238,8 +1242,10 @@ typedef struct Prog_PdfView {
 //   previewShown: open; previewPath: the item shown or on its way, loaded by previewJob into previewArena; previewText, previewTexture: what it is
 //   previewPicture: the texture holds previewPath's picture, previewTextureWidth by previewTextureHeight; previewImage: it is an image file's own,
 //     previewImageWidth by previewImageHeight; previewFolder: a folder, which the inspector's panel lists
-//   previewHex: the file shows as hex from hexPages, its pages read so far, NULL for the rest, in previewArena, hexPageCount of them out of
-//     hexSize bytes, hexPageJob the page on its way, one at a time
+//   previewHex: the file shows as hex from hexPages, its pages kept, NULL for the rest, hexPageCount of them out of hexSize bytes, each in
+//     one of the hexSlots, which hold the pages hexSlotPage says, in previewArena; hexPageJob the page on its way, one at a time; hexBase the
+//     byte the view's rows start from; previewAnchor to previewCaret the bytes selected, from the one pressed, hexPress; hexFindJob a find
+//     on its way, and hexJumpTo the place it found, which the view goes to
 //   previewArchive: previewText lists an archive's contents; previewArchiveTotals, once previewArchiveCounted, what the inspector's panel lists of
 //     one; previewStamp: its size and modified time as counted, so that a change counts it again
 //   previewDocument: previewText is a Word document's, which wraps unless documentUnwrapped; previewSubmitted: when the job started, so that a quick
@@ -1264,6 +1270,7 @@ typedef struct Prog_PdfView {
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
+    X(u8 **, hexSlots) X(u64 *, hexSlotPage) X(u64, hexBase) X(u64, hexPress) X(P_Job *, hexFindJob) X(u64, hexJumpTo) \
     X(b32, previewArchive) X(b32, previewDocument) X(P_DirectoryTotals, previewArchiveTotals) X(b32, previewArchiveCounted) X(u64, previewStamp) \
     X(u64, previewSubmitted) \
     X(enum8(Prog_ImageScale), imageScaleMode) X(f32, imageScale) X(f32, imageFit) X(UI_Vec2, imagePan) X(UI_Vec2, imageDragFrom) \

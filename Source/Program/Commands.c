@@ -2367,8 +2367,12 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
-    state->hexPages = NULL;
-    state->hexPageCount = 0;
+    state->hexPages = state->hexSlots = NULL;
+    state->hexSlotPage = NULL;
+    state->hexPageCount = state->hexBase = state->hexPress = 0;
+    state->hexJumpTo = UINT64_MAX;
+    if (state->hexFindJob) P_RequestCancel(&state->hexFindJob->cancelToken);
+    state->hexFindJob = NULL;
     state->hexSize = 0;
     if (state->hexPageJob) P_RequestCancel(&state->hexPageJob->cancelToken);
     state->hexPageJob = NULL;
@@ -2984,6 +2988,22 @@ function void Prog_DragSelection(Prog_State *state)
 // The text selected in the inspector's text view, when it has some: with its filter on, only of the lines it shows, in `arena`.
 function b32 Prog_InspectorSelection(const Prog_State *state, Arena *arena, String *text)
 {
+    // The hex view's bytes as hex, sixteen to a line, while they are all kept.
+    if (state->previewShown && state->previewHex) {
+        u64 from = Min(state->previewAnchor, state->previewCaret), to = Min(Max(state->previewAnchor, state->previewCaret), state->hexSize);
+        if (from >= to || to - from > Prog_HexCopyBytes || !state->hexPages) return false;
+        local_persist const char digits[] = "0123456789ABCDEF";
+        char *out = ArenaPushArrayNoZero(arena, (to - from) * 3, char);
+        for (u64 at = from; at < to; ++at) {
+            const u8 *page = at / Prog_HexPageBytes < state->hexPageCount ? state->hexPages[at / Prog_HexPageBytes] : NULL;
+            if (!page) return false;
+            u8 byte = page[at % Prog_HexPageBytes];
+            char *put = out + (at - from) * 3;
+            put[0] = digits[byte >> 4], put[1] = digits[byte & 15], put[2] = (at - from) % 16 == 15 ? '\n' : ' ';
+        }
+        *text = StrMake(out, (to - from) * 3 - 1);
+        return true;
+    }
     u64 from = Min(state->previewAnchor, state->previewCaret), to = Min(Max(state->previewAnchor, state->previewCaret), state->previewText.length);
     if (!state->previewShown || state->previewHex || from >= to) return false;
     if (!Prog_EditText(&state->inspectorFilter).length || !state->previewKept) {
@@ -3290,7 +3310,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->inspectorFilter.anchor = 0;
                 state->inspectorFilter.cursor = state->inspectorFilter.length;
             } break;
-            case Prog_CommandKind_InspectorApplyFilter: state->inspectorFiltering = false; break;
+            // In the hex view the box finds, and keeps the keyboard for the next one.
+            case Prog_CommandKind_InspectorApplyFilter: {
+                if (state->previewHex) Prog_FindHex(state);
+                else state->inspectorFiltering = false;
+            } break;
             case Prog_CommandKind_InspectorRemoveFilter: {
                 state->inspectorFilter = (Prog_TextEdit){ .version = state->inspectorFilter.version + 1 };
                 state->inspectorFiltering = false;

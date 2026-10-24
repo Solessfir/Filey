@@ -1762,6 +1762,35 @@ function u32 Prog_HexPerLine(u32 places, f32 cells)
     return 4;
 }
 
+// The byte of a row at character `column`, by the hex column or the character it is in, else the nearest.
+function u32 Prog_HexByteAt(u32 places, u32 perLine, f32 column)
+{
+    f32 chars = (f32)Prog_HexCharColumn(places, perLine, 0);
+    if (column >= chars - 1) return (u32)MinF32(MaxF32(floorf(column - chars), 0), (f32)(perLine - 1));
+    u32 result = 0;
+    for (u32 i = 0; i < perLine; ++i) if ((f32)Prog_HexByteColumn(places, i) <= column + 0.5f) result = i;
+    return result;
+}
+
+// The bytes a hex view's find looks for: those of `query` written as hex, two digits each with or without spaces between them, else its own.
+function String Prog_HexQuery(Arena *arena, String query)
+{
+    u8 *bytes = ArenaPushArrayNoZero(arena, Max(query.length, (u64)1), u8);
+    u64 count = 0, digits = 0;
+    u32 high = 0;
+    b32 hex = query.length != 0;
+    for (u64 i = 0; i < query.length && hex; ++i) {
+        u8 c = (u8)query.value[i];
+        u32 value = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 16;
+        if (c == ' ' && digits % 2 == 0) continue;
+        if (value == 16) hex = false;
+        else if (digits++ % 2 == 0) high = value;
+        else bytes[count++] = (u8)(high << 4 | value);
+    }
+    if (hex && count && digits % 2 == 0) return StrMake((const char *)bytes, count);
+    return query;
+}
+
 // The row of the `count` bytes at `bytes`, which start `offset` bytes into the file.
 function String Prog_HexRowText(Arena *arena, const u8 *bytes, u64 count, u64 offset, u32 perLine, u32 places)
 {
@@ -2400,6 +2429,29 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = error;
         return;
     }
+    // A hex view's find: the first place from `offset` to the end, and from the start back to it, that holds the bytes `name`, read a page and
+    // as much more as they are long at a time, so that one across two pages is found.
+    if (input->kind == Prog_JobKind_HexFind) {
+        u64 *found = ArenaPushStruct(&job->arena, u64);
+        *found = UINT64_MAX;
+        String copy = Prog_ArchiveCopy(&job->arena, input->path, NULL, &job->cancelToken), path = copy.length ? copy : input->path, pattern = input->name;
+        Scratch scratch = GetScratchEx(&job->arena);
+        for (u32 pass = 0; pattern.length && pass < 2 && *found == UINT64_MAX && !P_IsCancelled(&job->cancelToken); ++pass) {
+            u64 at = pass ? 0 : input->offset, end = pass ? Min(input->offset + pattern.length - 1, input->size) : input->size;
+            while (at + pattern.length <= end && *found == UINT64_MAX && !P_IsCancelled(&job->cancelToken)) {
+                ArenaMark mark = ArenaGetMark(scratch.arena);
+                String chunk = {0};
+                if (!P_ReadFileAt(scratch.arena, path, at, Prog_HexPageBytes + pattern.length - 1, &chunk) || chunk.length < pattern.length) break;
+                Index hit = StrIndexStr(chunk, pattern, SSF_None);
+                if (hit.exists && at + hit.value + pattern.length <= end) *found = at + hit.value;
+                ArenaRestore(mark);
+                at += Prog_HexPageBytes;
+            }
+        }
+        ReleaseScratch(scratch);
+        job->result = found;
+        return;
+    }
     if (input->kind == Prog_JobKind_HexPage) {
         String *bytes = ArenaPushStruct(&job->arena, String), copy = Prog_ArchiveCopy(&job->arena, input->path, NULL, &job->cancelToken);
         if (!P_ReadFileAt(&job->arena, copy.length ? copy : input->path, input->offset, Prog_HexPageBytes, bytes)) *bytes = (String){0};
@@ -2983,6 +3035,52 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     input->path = StrCopy(&job->arena, folder);
     job->input = input;
     state->gitJob = job;
+    P_JobSubmit(job);
+}
+
+// Takes in page `page` of the hex view's file: into a free slot, else the one whose page is farthest from it, whose page goes.
+function void Prog_KeepHexPage(Prog_State *state, u64 page, String bytes)
+{
+    if (page >= state->hexPageCount || state->hexPages[page]) return;
+    if (!state->hexSlots) {
+        state->hexSlots = ArenaPushArray(&state->previewArena, Prog_HexSlots, u8 *);
+        state->hexSlotPage = ArenaPushArrayNoZero(&state->previewArena, Prog_HexSlots, u64);
+        for (u32 i = 0; i < Prog_HexSlots; ++i) state->hexSlotPage[i] = UINT64_MAX;
+    }
+    u32 slot = 0;
+    u64 farthest = 0;
+    for (u32 i = 0; i < Prog_HexSlots; ++i) {
+        u64 at = state->hexSlotPage[i];
+        if (at == UINT64_MAX) {
+            slot = i;
+            break;
+        }
+        u64 distance = at > page ? at - page : page - at;
+        if (distance > farthest) farthest = distance, slot = i;
+    }
+    if (state->hexSlotPage[slot] != UINT64_MAX) state->hexPages[state->hexSlotPage[slot]] = NULL;
+    if (!state->hexSlots[slot]) state->hexSlots[slot] = ArenaPushArrayNoZero(&state->previewArena, Prog_HexPageBytes, u8);
+    MemCopy(state->hexSlots[slot], bytes.value, Min(bytes.length, (u64)Prog_HexPageBytes));
+    state->hexSlotPage[slot] = page;
+    state->hexPages[page] = state->hexSlots[slot];
+}
+
+// Finds what the hex view's find box holds, as hex bytes or as text, from the byte after the selection's start, round to it again.
+function void Prog_FindHex(Prog_State *state)
+{
+    String query = Prog_EditText(&state->inspectorFilter);
+    if (!state->previewHex || !query.length || state->hexFindJob) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_HexFind;
+    input->panel = Prog__PanelId(state);
+    input->path = StrCopy(&job->arena, state->previewPath);
+    input->newName = StrCopy(&job->arena, query);
+    input->name = StrCopy(&job->arena, Prog_HexQuery(&job->arena, query));
+    input->size = state->hexSize;
+    input->offset = state->previewAnchor < state->previewCaret ? Min(state->previewAnchor + 1, state->hexSize) : 0;
+    job->input = input;
+    state->hexFindJob = job;
     P_JobSubmit(job);
 }
 
@@ -6491,13 +6589,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (job == state->previewJob && preview && preview->hex) {
                 // Its first page, and room for the rest as they are read.
                 state->previewJob = NULL;
-                u64 shown = Min(state->hexSize, (u64)Prog_HexRows * 16);
-                state->hexPageCount = (shown + Prog_HexPageBytes - 1) / Prog_HexPageBytes;
+                state->hexPageCount = (state->hexSize + Prog_HexPageBytes - 1) / Prog_HexPageBytes;
                 state->hexPages = ArenaPushArray(&state->previewArena, Max(state->hexPageCount, (u64)1), u8 *);
-                if (state->hexPageCount) {
-                    state->hexPages[0] = ArenaPushArrayNoZero(&state->previewArena, Prog_HexPageBytes, u8);
-                    MemCopy(state->hexPages[0], preview->text.value, Min(preview->text.length, (u64)Prog_HexPageBytes));
-                }
+                Prog_KeepHexPage(state, 0, preview->text);
                 state->previewHex = true;
                 changed = true;
             } else if (job == state->previewJob && preview) {
@@ -6730,11 +6824,23 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (state->hexPageJob == job) state->hexPageJob = NULL;
             const String *bytes = job->result;
             u64 page = input->offset / Prog_HexPageBytes;
-            if (bytes && state->previewHex && StrIsEqual(input->path, state->previewPath) && page < state->hexPageCount && !state->hexPages[page]) {
-                state->hexPages[page] = ArenaPushArray(&state->previewArena, Prog_HexPageBytes, u8);
-                MemCopy(state->hexPages[page], bytes->value, Min(bytes->length, (u64)Prog_HexPageBytes));
-            }
+            if (bytes && state->previewHex && StrIsEqual(input->path, state->previewPath)) Prog_KeepHexPage(state, page, *bytes);
             changed = true;
+        } else if (input->kind == Prog_JobKind_HexFind) {
+            // What it found is selected and gone to; nothing found says so.
+            if (state->hexFindJob == job) state->hexFindJob = NULL;
+            const u64 *found = job->result;
+            if (found && state->previewHex && StrIsEqual(input->path, state->previewPath)) {
+                if (*found != UINT64_MAX) {
+                    state->previewAnchor = *found;
+                    state->previewCaret = *found + input->name.length;
+                    state->hexJumpTo = *found;
+                    state->previewTextFocus = true;
+                } else {
+                    Prog_Notify(state, Prog_NoticeKind_Info, S("hex.notfound"), Tr("Not found"), StrFormat(&state->frameArena, TrF("Nothing in it matches \"%S\"."), input->newName));
+                }
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_Open) {
             P_FileError *error = job->result;
             if (error && error->code) {

@@ -9946,8 +9946,59 @@ function void Prog__InspectorRow(Prog_State *state, String text, const u8 *match
 }
 
 
-// A file's bytes as hex rows, as many to a row as fit, zeros dimmed and bytes that are not printable characters in the match color.
-// Only the rows in sight get blocks, and the pages they are in are read when first in sight.
+// How a byte of the hex view looks: its kind, zero, a printable character or neither, and how bright its value makes it, in four steps.
+function u32 Prog__HexLook(u8 byte)
+{
+    return byte == 0 ? 0 : (byte >= 0x20 && byte < 0x7F ? 8u : 16u) + 1u + (byte >> 6);
+}
+
+function R_Color Prog__HexInk(const Prog_Theme *theme, u32 look)
+{
+    R_Color color = look == 0 ? theme->textDim : look < 16 ? theme->text : theme->textMatch;
+    color.a *= look == 0 ? 0.5f : 0.55f + 0.15f * (f32)((look & 7) - 1);
+    return color;
+}
+
+// A scroll bar for more than the view's block holds, as a big file's: the thumb `share` of the way down its track and `visible` of it long;
+// true once it is let go after a drag, with where it was left in `target`, as a share of the way.
+function b32 Prog__WholeScrollBar(UI_Block *view, f32 share, f32 visible, String name, f32 *target, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, viewHeight = view->rect.y1 - view->rect.y0;
+    if (viewHeight <= 0 || visible >= 1) return false;
+    f32 head = floorf(31.2f * s + 0.5f), foot = floorf(13.6f * s + 0.5f), track = MaxF32(0, viewHeight - head - foot);
+    f32 thumb = MaxF32(floorf(track * visible), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
+    // Where the thumb was taken, and where it is dragged to while it is, of the bar dragged.
+    local_persist f32 grab, held = -1;
+    local_persist UI_Key heldKey;
+    UI_Key key = UI_KeyFromStr(0, StrFormat(UI->frameArena, "%S/ScrollThumb", name));
+    b32 holding = held >= 0 && heldKey == key;
+    f32 place = floorf((track - thumb) * MinF32(MaxF32(holding ? held : share, 0), 1));
+    f32 x = view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), y = view->rect.y0 - UI->parent->rect.y0;
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + place });
+    UI_SetNextPrefWidth(UI_Pixels(thick));
+    UI_SetNextPrefHeight(UI_Pixels(thumb));
+    UI_SetNextCornerRadius(floorf(thick * 0.5f));
+    UI_SetNextColors((UI_Colors){ .background = theme->track });
+    UI_Block *bar = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
+    UI_Interaction drag = UI_InteractionFromBlock(bar);
+    if (drag.pressed) grab = UI->mouse.y - (view->rect.y0 + head + place);
+    if (drag.active && track > thumb) {
+        held = MinF32(MaxF32((UI->mouse.y - grab - view->rect.y0 - head) / (track - thumb), 0), 1);
+        heldKey = key;
+    }
+    if (drag.released && holding) {
+        *target = held;
+        held = -1;
+        return true;
+    }
+    return false;
+}
+
+// The inspector's hex view: the file's bytes in rows, as many to a row as fit, each colored by its kind and brighter the higher its value,
+// zeros at half strength, from pages read as they come into sight. It holds up to Prog_HexRows rows from hexBase at a time, moved along as
+// the view nears either end, with a scroll bar for the whole file. Dragging over either column selects bytes, which Copy takes as hex, and
+// the peek bar under the rows reads those from the selection's start as numbers.
 function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -9957,25 +10008,74 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    f32 margin = floorf(32.8f * s + 0.5f), left = floorf(9.6f * s + 0.5f);
-    UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(13.6f * s + 0.5f), margin, floorf(4.0f * s + 0.5f) });
-    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText")), UI_Flag_Clip | UI_Flag_Scrollable);
+    f32 margin = floorf(32.8f * s + 0.5f), left = floorf(9.6f * s + 0.5f), above = floorf(13.6f * s + 0.5f);
+    UI_SetNextChildrenPadding((UI_Padding){ 0, above, margin, floorf(4.0f * s + 0.5f) });
+    UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText")), UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_LeftMouseClickable);
+    UI_Interaction press = UI_InteractionFromBlock(view);
+    b32 dragging = UI->activeKey == view->key;
+    if (UI->hotKey == view->key || dragging) state->cursor = PlatformCursor_Text;
     if (state->inspectorResetScroll) {
         view->scrollOffset = view->scrollShown = (UI_Vec2){0};
+        state->hexBase = 0;
         state->inspectorResetScroll = false;
     }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
     UI_LimitScrollEase(view);
     // A view new this frame has no size yet, so its rows in sight come in the next.
     if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
-    u64 shownBytes = Min(state->hexSize, state->hexPageCount * Prog_HexPageBytes);
-    u32 places = Prog_HexPlaces(state->hexSize);
+    u64 total = state->hexSize;
+    u32 places = Prog_HexPlaces(total);
     u32 perLine = Prog_HexPerLine(places, (view->rect.x1 - view->rect.x0 - left - margin) / cell);
-    u64 rows = (shownBytes + perLine - 1) / perLine, cutRows = Min(rows, (u64)Prog_HexRows);
-    b32 cut = cutRows * perLine < state->hexSize;
-    u64 rowCount = cutRows + (cut ? 1 : 0);
-    f32 from = MinF32(view->scrollOffset.y, view->scrollShown.y), to = MaxF32(view->scrollOffset.y, view->scrollShown.y) + (view->rect.y1 - view->rect.y0);
-    u64 first = Min((u64)MaxF32(0, floorf(from / pitch)), rowCount), last = Min((u64)MaxF32(0, ceilf(to / pitch)) + 1, rowCount);
+    u64 totalRows = (total + perLine - 1) / perLine, span = Prog_HexRows, lastBase = totalRows > span ? totalRows - span : 0;
+    u64 baseRow = Min(state->hexBase / perLine, lastBase);
+    f32 height = MaxF32(0, view->rect.y1 - view->rect.y0);
+    u64 seen = (u64)(height / pitch) + 1;
+    // A find's match, or a place the scroll bar was let go at, comes to the view's middle.
+    if (state->hexJumpTo != UINT64_MAX) {
+        u64 row = Min(state->hexJumpTo / perLine, totalRows), top = row > seen / 2 ? row - seen / 2 : 0;
+        baseRow = Min(top > span / 2 ? top - span / 2 : 0, lastBase);
+        view->scrollOffset.y = view->scrollShown.y = (f32)(top - baseRow) * pitch;
+        state->hexJumpTo = UINT64_MAX;
+    }
+    // Near either end of the rows it holds, the window moves to have the top row in its middle, and the scroll back by as many rows.
+    u64 topRow = baseRow + (u64)MaxF32(0, floorf(view->scrollShown.y / pitch)), reach = span / 8, windowRows = Min(totalRows - baseRow, span);
+    if ((baseRow > 0 && topRow < baseRow + reach) || (baseRow < lastBase && topRow + seen + reach > baseRow + windowRows)) {
+        u64 rebased = Min(topRow > span / 2 ? topRow - span / 2 : 0, lastBase);
+        f32 shift = (f32)((i64)baseRow - (i64)rebased) * pitch;
+        view->scrollOffset.y = MaxF32(0, view->scrollOffset.y + shift);
+        view->scrollShown.y = MaxF32(0, view->scrollShown.y + shift);
+        baseRow = rebased;
+        windowRows = Min(totalRows - baseRow, span);
+    }
+    state->hexBase = baseRow * perLine;
+    f32 from = MinF32(view->scrollOffset.y, view->scrollShown.y), to = MaxF32(view->scrollOffset.y, view->scrollShown.y) + height;
+    u64 first = Min((u64)MaxF32(0, floorf(from / pitch)), windowRows), last = Min((u64)MaxF32(0, ceilf(to / pitch)) + 1, windowRows);
+    // The byte under the pointer, of the rows in sight, and the one it was pressed on: a press selects that, and a drag from there the bytes
+    // up to the one it is over.
+    u64 hit = UINT64_MAX, pressedOn = UINT64_MAX;
+    for (u32 which = 0; which < 2 && last > first && total; ++which) {
+        UI_Vec2 at = which ? UI->pressOrigin : UI->mouse;
+        f32 pointerRow = floorf((at.y - view->rect.y0 - above + view->scrollShown.y) / pitch);
+        u64 pointed = baseRow + (u64)MinF32(MaxF32(pointerRow, (f32)first), (f32)(last - 1));
+        u64 byte = Min(pointed * perLine + Prog_HexByteAt(places, perLine, (at.x - view->rect.x0 - left) / cell), total - 1);
+        if (which) pressedOn = byte;
+        else hit = byte;
+    }
+    if (pressedOn != UINT64_MAX && press.pressed) {
+        state->hexPress = hit = pressedOn;
+        state->previewAnchor = hit;
+        state->previewCaret = hit + 1;
+        state->previewTextFocus = true;
+    } else if (hit != UINT64_MAX && dragging) {
+        state->previewAnchor = Min(state->hexPress, hit);
+        state->previewCaret = Max(state->hexPress, hit) + 1;
+        f32 over = UI->mouse.y < view->rect.y0 ? UI->mouse.y - view->rect.y0 : UI->mouse.y > view->rect.y1 ? UI->mouse.y - view->rect.y1 : 0;
+        if (over != 0) {
+            view->scrollOffset.y = MaxF32(0, view->scrollOffset.y + over * 0.25f);
+            UI_KeepAnimating();
+        }
+    }
+    u64 selectFrom = Min(state->previewAnchor, state->previewCaret), selectTo = Min(Max(state->previewAnchor, state->previewCaret), total);
     Arena *frame = &state->frameArena;
     UI_Parent(view) {
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch));
@@ -9986,12 +10086,7 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
             UI_Block *rowBlock = UI_AddBlock(UI_Flag_Clip);
             UI_Parent(rowBlock) {
                 Prog__Spacer(UI_Pixels(left), UI_Pixels(pitch));
-                if (row >= cutRows) {
-                    UI_SetNextFont(font);
-                    Prog__Label(S("..."), UI_TextContent(), pitch, 0, theme->textDim, 0);
-                    continue;
-                }
-                u64 offset = row * perLine, count = Min((u64)perLine, state->hexSize - offset);
+                u64 offset = (baseRow + row) * perLine, count = Min((u64)perLine, total - offset);
                 const u8 *page = state->hexPages[offset / Prog_HexPageBytes];
                 // A page not read yet is asked for, one at a time, and its rows stay empty until it comes.
                 if (!page) {
@@ -10009,72 +10104,103 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
                     continue;
                 }
                 const u8 *bytes = page + offset % Prog_HexPageBytes;
+                // The selected bytes of the row, behind their hex and their characters.
+                u64 a = Max(selectFrom, offset), b = Min(selectTo, offset + count);
+                if (a < b) {
+                    u64 spans[2][2] = { { Prog_HexByteColumn(places, a - offset), Prog_HexByteColumn(places, b - 1 - offset) + 2 },
+                                        { Prog_HexCharColumn(places, perLine, a - offset), Prog_HexCharColumn(places, perLine, b - offset) } };
+                    for (u32 part = 0; part < 2; ++part) {
+                        UI_SetNextFloatingOffset((UI_Vec2){ left + (f32)spans[part][0] * cell, 0 });
+                        UI_SetNextPrefWidth(UI_Pixels((f32)(spans[part][1] - spans[part][0]) * cell));
+                        UI_SetNextPrefHeight(UI_Pixels(pitch));
+                        UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                    }
+                }
                 String text = Prog_HexRowText(frame, bytes, count, offset, perLine, places);
                 UI_SetNextFont(font);
                 Prog__Label(StrFromTo(text, 0, places), UI_Pixels((f32)(places + 2) * cell), pitch, 0, theme->textDim, 0);
-                // Runs of bytes of one kind share a label, in the hex columns and then in the characters.
+                // Runs of bytes that look alike share a label, in the hex columns and then in the characters.
                 for (u32 part = 0; part < 2; ++part) {
                     for (u64 at = 0; at < count;) {
-                        u32 kind = bytes[at] == 0 ? 0 : bytes[at] >= 0x20 && bytes[at] < 0x7F ? 1 : 2;
+                        u32 look = Prog__HexLook(bytes[at]);
                         u64 end = at + 1;
-                        while (end < count && (bytes[end] == 0 ? 0u : bytes[end] >= 0x20 && bytes[end] < 0x7F ? 1u : 2u) == kind) ++end;
+                        while (end < count && Prog__HexLook(bytes[end]) == look) ++end;
                         u64 start = part ? Prog_HexCharColumn(places, perLine, at) : Prog_HexByteColumn(places, at);
                         // The last hex run takes the spaces up to the characters, which keeps a short last row's characters under those above.
                         u64 stop = part ? Prog_HexCharColumn(places, perLine, end) : end == count ? Prog_HexCharColumn(places, perLine, 0) : Prog_HexByteColumn(places, end);
-                        R_Color color = kind == 0 ? theme->textDim : kind == 1 ? theme->text : theme->textMatch;
                         UI_SetNextFont(font);
-                        Prog__Label(StrFromTo(text, start, (i64)stop), UI_Pixels((f32)(stop - start) * cell), pitch, 0, color, 0);
+                        Prog__Label(StrFromTo(text, start, (i64)stop), UI_Pixels((f32)(stop - start) * cell), pitch, 0, Prog__HexInk(theme, look), 0);
                         at = end;
                     }
                 }
             }
         }
-        Prog__Spacer(UI_Flex(), UI_Pixels((f32)(rowCount - last) * pitch));
+        Prog__Spacer(UI_Flex(), UI_Pixels((f32)(windowRows - last) * pitch));
     }
-    Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
+    // A file of more rows than the view holds has a scroll bar for all of them.
+    if (totalRows > span) {
+        f32 target = 0, share = (f32)((f64)(baseRow + (u64)(view->scrollShown.y / pitch)) / (f64)Max(totalRows > seen ? totalRows - seen : 0, (u64)1));
+        if (Prog__WholeScrollBar(view, share, (f32)((f64)seen / (f64)totalRows), S("InspectorText"), &target, m)) {
+            state->hexJumpTo = ((u64)((f64)target * (f64)(totalRows > seen ? totalRows - seen : 0)) + seen / 2) * perLine;
+        }
+    } else {
+        Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
+    }
+    // The peek bar: the bytes from the selection's start as numbers, little-endian, as many of them as there are, and else how to get them.
+    StrBuilder peek = {0};
+    u8 held[8] = {0};
+    u32 have = 0;
+    for (; selectFrom < selectTo && have < 8 && selectFrom + have < total; ++have) {
+        const u8 *page = state->hexPages[(selectFrom + have) / Prog_HexPageBytes];
+        if (!page) break;
+        held[have] = page[(selectFrom + have) % Prog_HexPageBytes];
+    }
+    if (have) {
+        u64 value = 0;
+        for (u32 i = 0; i < have; ++i) value |= (u64)held[i] << (8 * i);
+        StrBuildStr(frame, &peek, StrFormat(frame, "%llX", (unsigned long long)selectFrom));
+        for (u32 width = 1; width <= 8 && width <= have; width *= 2) {
+            u64 part = width == 8 ? value : value & ((UINT64_C(1) << (8 * width)) - 1);
+            StrBuildStr(frame, &peek, StrFormat(frame, "    u%u %llu", width * 8, (unsigned long long)part));
+        }
+        f32 single = 0;
+        f64 twice = 0;
+        if (have >= 4) MemCopy(&single, held, 4), StrBuildStr(frame, &peek, StrFormat(frame, "    f32 %g", (f64)single));
+        if (have >= 8) MemCopy(&twice, held, 8), StrBuildStr(frame, &peek, StrFormat(frame, "    f64 %g", twice));
+    }
+    UI_SetNextChildrenPadding((UI_Padding){ left, 0, margin, 0 });
+    UI_Block *bar = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
+    UI_Parent(bar) {
+        UI_SetNextFont(have ? font : m->detail);
+        Prog__Label(have ? peek.buffer : Tr("Select bytes to read them as numbers"), UI_Flex(), m->row, 0, theme->textDim, 0);
+    }
 }
 
 // A big text file's scroll bar, for the whole file rather than the window it holds: the thumb sits where the top line is in the file, by its
 // bytes, and let go elsewhere, the view goes there, in the window when it holds that place, else at the count's step there once counted.
 function void Prog__TextScrollBar(Prog_State *state, UI_Block *view, f32 pitch, u32 top, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 s = m->scale, viewHeight = view->rect.y1 - view->rect.y0;
     u32 count = state->previewLineCount;
     String text = state->previewText;
+    f32 viewHeight = view->rect.y1 - view->rect.y0;
     if (viewHeight <= 0 || !state->previewSize || !count) return;
     u64 at = state->previewOffset + state->previewLines[Min(top, count - 1)];
     f64 lines = state->textIndex.done ? (f64)state->textIndex.lines : (f64)state->previewSize * (f64)count / (f64)Max(text.length, (u64)1);
-    f32 head = floorf(31.2f * s + 0.5f), foot = floorf(13.6f * s + 0.5f), track = MaxF32(0, viewHeight - head - foot);
-    f32 thumb = MaxF32(floorf(track * (f32)MinF64(1, (f64)viewHeight / (lines * (f64)pitch))), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
-    // Where the thumb was taken, and where it is dragged to, as a share of the track, while it is.
-    local_persist f32 grab, held = -1;
-    f32 place = floorf((track - thumb) * (held >= 0 ? held : (f32)MinF64(1, (f64)at / (f64)state->previewSize)));
-    f32 x = view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), y = view->rect.y0 - UI->parent->rect.y0;
-    UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + place });
-    UI_SetNextPrefWidth(UI_Pixels(thick));
-    UI_SetNextPrefHeight(UI_Pixels(thumb));
-    UI_SetNextCornerRadius(floorf(thick * 0.5f));
-    UI_SetNextColors((UI_Colors){ .background = theme->track });
-    UI_Block *bar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText/ScrollThumb")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
-    UI_Interaction drag = UI_InteractionFromBlock(bar);
-    if (drag.pressed) grab = UI->mouse.y - (view->rect.y0 + head + place);
-    if (drag.active && track > thumb) held = MinF32(MaxF32((UI->mouse.y - grab - view->rect.y0 - head) / (track - thumb), 0), 1);
-    if (drag.released && held >= 0) {
-        u64 target = (u64)((f64)held * (f64)state->previewSize);
-        held = -1;
-        if (target >= state->previewOffset && target < state->previewOffset + text.length) {
-            u32 low = 0, high = count;
-            while (low + 1 < high) {
-                u32 middle = (low + high) / 2;
-                if (state->previewOffset + state->previewLines[middle] <= target) low = middle;
-                else high = middle;
-            }
-            view->scrollOffset.y = view->scrollShown.y = (f32)low * pitch;
-        } else if (state->textIndex.done && state->textIndex.count) {
-            u64 step = Min(target / Prog_TextStep, state->textIndex.count - 1);
-            Prog_RequestTextWindow(state, state->textIndex.offsets[step], state->textIndex.numbers[step], state->textIndex.states[step], true);
+    f32 target = 0;
+    if (!Prog__WholeScrollBar(view, (f32)((f64)at / (f64)state->previewSize), (f32)MinF64(1, (f64)viewHeight / (lines * (f64)pitch)), S("InspectorText"), &target, m)) return;
+    u64 place = (u64)((f64)target * (f64)state->previewSize);
+    if (place >= state->previewOffset && place < state->previewOffset + text.length) {
+        u32 low = 0, high = count;
+        while (low + 1 < high) {
+            u32 middle = (low + high) / 2;
+            if (state->previewOffset + state->previewLines[middle] <= place) low = middle;
+            else high = middle;
         }
+        view->scrollOffset.y = view->scrollShown.y = (f32)low * pitch;
+    } else if (state->textIndex.done && state->textIndex.count) {
+        u64 step = Min(place / Prog_TextStep, state->textIndex.count - 1);
+        Prog_RequestTextWindow(state, state->textIndex.offsets[step], state->textIndex.numbers[step], state->textIndex.states[step], true);
     }
 }
 
@@ -11375,7 +11501,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             footer = Prog__Box(UI_Flex(), UI_Pixels(m->pill), UI_Layout_Horizontal, theme->background, 0);
         }
         if (footer) UI_Parent(footer) {
-            if (text && !state->previewHex) Prog__InspectorFilterBox(state, StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewLineCount), m);
+            // In the hex view the box finds bytes, written as hex, or text.
+            if (text) Prog__InspectorFilterBox(state, state->previewHex ? Tr("Find bytes or text...") : StrFormat(&state->frameArena, TrF("Filter %u lines..."), state->previewLineCount), m);
             Prog__Spacer(UI_Flex(), UI_Pixels(m->pill));
             if (pdf) {
                 String pages = StrFormat(&state->frameArena, TrN(state->pdf.pageCount, "%u page", "%u pages"), state->pdf.pageCount);

@@ -1,9 +1,5 @@
 # TODO
 
-## Next
-
-- Hex view: rows stop at a million (16 MB), since the scroll offset is a float; no selection and copy, no searching for bytes. From raddbg's memory view: brightness that follows the byte's value, zeros at half strength, and a peek bar reading the bytes at the cursor as u8 to u64 and f32/f64.
-
 ## Look
 
 - Low priority: in the title bar the new tab plus sits level with the tabs, which hang below the strip's middle, while the tab list's chevron and the window buttons are centered on the whole strip, about 5 pixels higher. Likely fix: the chevron level with the tabs too, in a tab-sized box, as Windows Terminal and Chrome pair them.
