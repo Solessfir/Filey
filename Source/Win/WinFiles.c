@@ -483,14 +483,14 @@ function DWORD WINAPI P__WatchThread(void *user)
     return 0;
 }
 
-function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user)
+function b32 P__WatchStart(P_DirectoryWatch *watch, String path, b32 tree, P_JobWakeCallback *wake, void *user)
 {
     P_DirectoryWatchStop(watch);
     Scratch scratch = GetScratch();
     wchar *wide = P__FilePathWide(scratch.arena, path);
     P__Watch *state = ArenaPushStruct(&watch->arena, P__Watch);
     *state = (P__Watch){ .wake = wake, .user = user };
-    state->change = wide ? FindFirstChangeNotificationW(wide, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_ATTRIBUTES |
+    state->change = wide ? FindFirstChangeNotificationW(wide, tree ? TRUE : FALSE, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_ATTRIBUTES |
                                                                      FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE) : INVALID_HANDLE_VALUE;
     ReleaseScratch(scratch);
     state->stop = state->change != INVALID_HANDLE_VALUE ? CreateEventW(NULL, TRUE, FALSE, NULL) : NULL;
@@ -501,6 +501,16 @@ function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWa
         return false;
     }
     return true;
+}
+
+function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user)
+{
+    return P__WatchStart(watch, path, false, wake, user);
+}
+
+function b32 P_DirectoryWatchStartTree(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user)
+{
+    return P__WatchStart(watch, path, true, wake, user);
 }
 
 function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch)

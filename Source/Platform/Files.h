@@ -175,6 +175,9 @@ typedef struct P_DirectoryWatch {
 } P_DirectoryWatch;
 
 function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user);
+// The same for everything below `path` on Windows, which watches a whole tree with one handle; Linux's inotify watches one folder each, so
+// there it is P_DirectoryWatchStart.
+function b32 P_DirectoryWatchStartTree(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user);
 // True once for any number of changes since the previous call.
 function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch);
 function void P_DirectoryWatchStop(P_DirectoryWatch *watch);

@@ -2287,13 +2287,20 @@ function void Prog__DirectoryJob(P_Job *job)
         for (u64 i = 0; i < input->rowCount && !P_IsCancelled(&job->cancelToken); ++i) {
             String folder = Prog_JoinPath(&job->arena, input->path, input->names[i]), head = {0};
             if (!Prog__ReadGitHead(&job->arena, folder, &head)) continue;
-            Prog_Repo repo = { Prog_GitBranch(head), -1 };
+            Prog_Repo repo = { Prog_GitBranch(head), -1, -1, -1 };
             String status[] = { S("git"), S("--no-optional-locks"), S("status"), S("--porcelain=v1"), S("-z"), S("--untracked-files=no") };
             String changes = {0};
             if (input->offset && P_RunCommand(&job->arena, folder, status, CArrayCount(status), 4000, &changes, false)) {
                 Prog_GitStatus counted = {0};
                 Prog_ReadGitChanges(&job->arena, folder, folder, changes, &counted);
                 repo.changes = (i32)counted.changes;
+            }
+            String commits[] = { S("git"), S("rev-list"), S("--left-right"), S("--count"), S("HEAD...@{upstream}") }, counts = {0};
+            u64 ahead = 0, behind = 0;
+            if (input->offset && P_RunCommand(&job->arena, folder, commits, CArrayCount(commits), 3000, &counts, false) && Prog__TakeNumber(&counts, &ahead) &&
+                Prog__TakeNumber(&counts, &behind)) {
+                repo.ahead = (i32)Min(ahead, (u64)INT32_MAX);
+                repo.behind = (i32)Min(behind, (u64)INT32_MAX);
             }
             MapsPut(&job->arena, *result, input->names[i], repo);
         }
@@ -4510,6 +4517,8 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     if (state->measureJob) P_RequestCancel(&state->measureJob->cancelToken);
     P_DirectoryWatchStop(&state->watch);
     ArenaRelease(&state->watch.arena);
+    P_DirectoryWatchStop(&state->gitWatch);
+    P_DirectoryWatchStop(&state->gitDirWatch);
     Prog__StopTreeWatches(state);
     ArenaRelease(&state->directoryArena);
     ArenaRelease(&state->historyArena);
@@ -6139,6 +6148,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         for (u32 i = 0; i < state->treeWatches.count; ++i) {
             if (P_DirectoryWatchTakeChanged(&state->treeWatches.v[i])) state->watchDirty = true;
         }
+        // A change in the repository asks for its status again, at most every second and a half, as a build writes into it for a while.
+        if (P_DirectoryWatchTakeChanged(&state->gitWatch) | P_DirectoryWatchTakeChanged(&state->gitDirWatch)) state->gitDirty = true;
+        if (state->gitDirty && !state->gitJob && state->git.root.length) {
+            if (now - state->gitTime >= 1500000) {
+                state->gitDirty = false;
+                Prog_RequestGitStatus(state, state->directory.path);
+            } else {
+                Prog_WakeAt(state, state->gitTime + 1500000);
+            }
+        }
         // A change while the folder is being listed reloads it once that is done, which wakes the window.
         if (state->watchDirty && !state->directoryJob) {
             state->watchDirty = false;
@@ -6406,6 +6425,18 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
                 // A branch without an upstream has no commits to pull to count.
                 if (status->behind >= 0) Prog__FetchGit(state, status->root);
+                // The repository is watched, its whole tree where the system can and its .git folder, so that a change anywhere in it, a
+                // commit or a checkout asks for its status again.
+                u64 watched = status->root.length ? MapHashBytes(status->root.value, status->root.length) : 0;
+                if (watched != state->gitWatched) {
+                    P_DirectoryWatchStop(&state->gitWatch);
+                    P_DirectoryWatchStop(&state->gitDirWatch);
+                    state->gitWatched = watched;
+                    if (watched) {
+                        P_DirectoryWatchStartTree(&state->gitWatch, status->root, state->jobs.wake, state->jobs.wakeUser);
+                        P_DirectoryWatchStart(&state->gitDirWatch, Prog_JoinPath(&state->frameArena, status->root, S(".git")), state->jobs.wake, state->jobs.wakeUser);
+                    }
+                }
                 changed = true;
             }
             if (state->gitAgain) Prog_RequestGitStatus(state, state->directory.path);
@@ -6467,8 +6498,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->reposJob = NULL;
                 for (u64 i = 0; found && StrIsEqual(input->path, state->directory.path) && i < found->header.count; ++i) {
                     Prog_Repo repo = found->v[i].value, *known = MapsGetPtrNull(state->repos, found->v[i].key);
-                    if (known) known->changes = input->offset && repo.changes < 0 ? 0 : repo.changes;
-                    else MapsPut(&state->repoArena, state->repos, StrCopy(&state->repoArena, found->v[i].key), ((Prog_Repo){ StrCopy(&state->repoArena, repo.branch), -1 }));
+                    if (known) {
+                        known->changes = input->offset && repo.changes < 0 ? 0 : repo.changes;
+                        known->ahead = repo.ahead;
+                        known->behind = repo.behind;
+                    } else {
+                        MapsPut(&state->repoArena, state->repos, StrCopy(&state->repoArena, found->v[i].key), ((Prog_Repo){ StrCopy(&state->repoArena, repo.branch), -1, -1, -1 }));
+                    }
                     changed = true;
                 }
                 // A status that failed or timed out counts as nothing to show, and the next one goes on.

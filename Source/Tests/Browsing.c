@@ -1859,6 +1859,36 @@ function void TestGitFetchLimit(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// The Git column's repositories show their commits to push and to pull: a clone one commit ahead of the repository it came from, both made
+// here with git, which the tests need on the PATH.
+function void TestRepoCommits(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String repos = Prog_JoinPath(&arena, fixture->path, S("Repos")), clone = Prog_JoinPath(&arena, repos, S("clone")), made = {0}, output = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Repos"), true, &made).code);
+    String init[] = { S("git"), S("init"), S("-q"), S("--bare"), S("origin.git") }, copy[] = { S("git"), S("clone"), S("-q"), S("origin.git"), S("clone") };
+    String commit[] = { S("git"), S("-c"), S("user.name=Test"), S("-c"), S("user.email=test@example.com"), S("-c"), S("commit.gpgsign=false"), S("commit"), S("-q"), S("--allow-empty"), S("-m"), S("one") };
+    String push[] = { S("git"), S("push"), S("-q"), S("-u"), S("origin"), S("HEAD") };
+    b32 ready = P_RunCommand(&arena, repos, init, CArrayCount(init), 10000, &output, false) && P_RunCommand(&arena, repos, copy, CArrayCount(copy), 10000, &output, false) &&
+                P_RunCommand(&arena, clone, commit, CArrayCount(commit), 10000, &output, false) && P_RunCommand(&arena, clone, push, CArrayCount(push), 10000, &output, false) &&
+                P_RunCommand(&arena, clone, commit, CArrayCount(commit), 10000, &output, false);
+    Check(ready);
+    if (ready) {
+        Prog_State state = {0};
+        Check(Prog_Init(&state, repos, NULL, NULL) && state.jobs.initialized && TestWaitDirectory(&state));
+        String name = S("clone");
+        for (u32 pass = 0; pass < 2; ++pass) {
+            Prog__RepoJob(&state, &name, 1, pass == 1);
+            for (u64 start = PlatformNowMicroseconds(); state.reposJob && PlatformNowMicroseconds() - start < Millions(20); P__TestPause()) Prog_TakeCompletions(&state);
+        }
+        const Prog_Repo *repo = MapsGetPtrNull(state.repos, name);
+        Check(repo && repo->branch.length && repo->changes == 0 && repo->ahead == 1 && repo->behind == 0);
+        Prog_Release(&state);
+    }
+    Check(!P_DeleteItems(&arena, &repos, 1, false, NULL).code && !P_PathExists(repos));
+    ArenaRelease(&arena);
+}
+
 // The Quick Access filter: its hotkey gives its box the keyboard, typing finds sidebar items by their names' letters in order, Enter keeps the
 // filter and hands the keyboard back, Escape takes back what was typed since the box got the keyboard, and the clear button clears it.
 function void TestQuickAccessFilter(TestFileFixture *fixture)
@@ -4287,6 +4317,7 @@ function void TestBrowsing(void)
         TestFilter(&fixture);
         TestQuickAccessFilter(&fixture);
         TestGitFetchLimit(&fixture);
+        TestRepoCommits(&fixture);
         TestSchemeFiles(&fixture);
         TestStartupWindowColor(&fixture);
     TestPasteLinkAndQuick(&fixture);

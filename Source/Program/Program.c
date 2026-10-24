@@ -3927,20 +3927,28 @@ function void Prog__ItemIcon(Prog_State *state, const Prog_Entry *entry, f32 siz
 // in the color of a changed file.
 function void Prog__RepoTag(Prog_State *state, const Prog_Repo *repo, UI_Block *cell, f32 x, f32 limit, f32 height, R_Color ink, const Prog_Metrics *m)
 {
-    String count = repo->changes > 0 ? StrFormat(&state->frameArena, "~%d", repo->changes) : (String){0};
-    String texts[3] = { Icon_GitBranch, repo->branch, count };
-    const R_Font *fonts[3] = { m->iconsSmall, m->detail, m->detail };
-    R_Color inks[3] = { ink, ink, Prog__GitInk(Prog_GitMark_Modified) };
-    f32 befores[3] = { 0, floorf(3.2f * m->scale + 0.5f), floorf(6.4f * m->scale + 0.5f) }, widths[3];
-    for (u32 i = 0; i < 3; ++i) widths[i] = texts[i].length ? R_TextWidth(fonts[i], texts[i]) : 0;
-    f32 room = limit - x - widths[0] - befores[1] - (count.length ? befores[2] + widths[2] : 0);
+    // After the branch: the tracked files changed, then the commits to push and to pull, each an arrow and a count, as the path bar shows them.
+    Arena *frame = &state->frameArena;
+    String count = repo->changes > 0 ? StrFormat(frame, "~%d", repo->changes) : (String){0};
+    String ahead = repo->ahead > 0 ? StrFormat(frame, "%d", repo->ahead) : (String){0}, behind = repo->behind > 0 ? StrFormat(frame, "%d", repo->behind) : (String){0};
+    String texts[7] = { Icon_GitBranch, repo->branch, count, ahead.length ? Icon_ArrowUp : (String){0}, ahead, behind.length ? Icon_ArrowDown : (String){0}, behind };
+    const R_Font *fonts[7] = { m->iconsSmall, m->detail, m->detail, m->iconsSmall, m->detail, m->iconsSmall, m->detail };
+    R_Color match = Prog_CurrentTheme()->textMatch;
+    R_Color inks[7] = { ink, ink, Prog__GitInk(Prog_GitMark_Modified), match, match, match, match };
+    f32 snug = floorf(3.2f * m->scale + 0.5f), apart = floorf(6.4f * m->scale + 0.5f);
+    f32 befores[7] = { 0, snug, apart, apart, 0, apart, 0 }, widths[7], others = 0;
+    for (u32 i = 0; i < 7; ++i) {
+        widths[i] = texts[i].length ? R_TextWidth(fonts[i], texts[i]) : 0;
+        if (i != 1 && texts[i].length) others += befores[i] + widths[i];
+    }
+    f32 room = limit - x - others - befores[1];
     if (!repo->branch.length || room <= 0) return;
     if (widths[1] > room) {
-        texts[1] = Prog__Ellipsize(&state->frameArena, m->detail, texts[1], room);
+        texts[1] = Prog__Ellipsize(frame, m->detail, texts[1], room);
         widths[1] = R_TextWidth(m->detail, texts[1]);
     }
     UI_Parent(cell) {
-        for (u32 i = 0; i < 3; ++i) {
+        for (u32 i = 0; i < 7; ++i) {
             if (!texts[i].length) continue;
             x += befores[i];
             UI_SetNextFloatingOffset((UI_Vec2){ x, 0 });

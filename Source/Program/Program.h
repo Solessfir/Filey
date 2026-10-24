@@ -545,6 +545,7 @@ typedef struct Prog_GitMarks {
 typedef struct Prog_Repo {
     String branch;
     i32 changes;
+    i32 ahead, behind;  // the commits to push and to pull, -1 while not known or without an upstream
 } Prog_Repo;
 
 typedef struct Prog_Repos {
@@ -1304,6 +1305,7 @@ typedef struct Prog_TreeWatches {
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \
     X(Arena, gitArena) X(Prog_GitStatus, git) X(P_Job *, gitJob) X(b32, gitAgain) X(u64, gitTime) \
+    X(P_DirectoryWatch, gitWatch) X(P_DirectoryWatch, gitDirWatch) X(u64, gitWatched) X(b32, gitDirty) \
     X(Arena, repoArena) X(Prog_Repos, repos) X(String, reposPath) X(P_Job *, reposJob) X(u64, reposNext) X(u64, reposTime) \
     X(b32, miller) X(Arena, millerArena) X(Prog_MillerColumns *, millerColumns) \
     X(Arena, pickArena) X(ArrayStr, pickNames) X(f32, pickScroll) X(b32, pickScrollSet) \

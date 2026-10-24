@@ -643,6 +643,11 @@ function b32 P_DirectoryWatchStart(P_DirectoryWatch *watch, String path, P_JobWa
     return ok;
 }
 
+function b32 P_DirectoryWatchStartTree(P_DirectoryWatch *watch, String path, P_JobWakeCallback *wake, void *user)
+{
+    return P_DirectoryWatchStart(watch, path, wake, user);
+}
+
 function b32 P_DirectoryWatchTakeChanged(P_DirectoryWatch *watch)
 {
     P__Watch *state = watch->native;
