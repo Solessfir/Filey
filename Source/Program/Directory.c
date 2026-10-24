@@ -5931,8 +5931,7 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
     u32 numbers[Prog_MaxPanels] = {0}, count = 0;
     for (u32 p = 0; p < state->panelCount; ++p) numbers[p] = state->panels[p].inspectorOf ? UINT32_MAX : count++;
     u32 shown = state->panels[active].inspectorOf ? Prog_PanelIndex(state, state->panels[active].inspectorOf) : active;
-    StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\npreview %u\n", shown < state->panelCount ? numbers[shown] : 0,
-                                        state->sidebarHidden ? 1u : 0u, state->previewShown ? 1u : 0u));
+    StrBuildStr(arena, &text, StrFormat(arena, "session 1\nactive %u\nsidebar %u\n", shown < state->panelCount ? numbers[shown] : 0, state->sidebarHidden ? 1u : 0u));
     if (state->sidebarWidth > 0) StrBuildStr(arena, &text, StrFormat(arena, "sidebarwidth %u\n", (u32)(state->sidebarWidth + 0.5f)));
     StrBuildStr(arena, &text, S("groups"));
     for (u32 g = 0; g < Prog_Group_Count; ++g) StrBuildStr(arena, &text, state->groupToggled[g] ? S(" 1") : S(" 0"));
@@ -5990,6 +5989,8 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
             b32 own = shown ? state->ownView : state->tabs[t].ownView;
             u32 groupBy = own ? (shown ? state->ownSettings : state->tabs[t].ownSettings).groupBy : shown ? state->groupBy : state->tabs[t].groupBy;
             if (groupBy) StrBuildStr(arena, &text, StrFormat(arena, "group %u %u\n", numbers[p], groupBy));
+            // Its inspector, open in this tab alone.
+            if (shown ? state->previewShown : state->tabs[t].previewShown) StrBuildStr(arena, &text, StrFormat(arena, "inspect %u\n", numbers[p]));
         }
     }
     Prog__UsePanel(state, active);
@@ -6006,9 +6007,9 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     u32 splitPanel[Prog_MaxSplits] = {0};
     typedef struct { b32 sticky, expanded, hideFolders, hideFiles; String text; } Filter;
     typedef struct { b32 on; String folders; } Tree;
-    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Tree trees[Prog_MaxTabs]; u8 groupBy[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels =
+    struct { u32 zoom, activeTab, tabCount; b32 miller; String tabs[Prog_MaxTabs]; Filter filters[Prog_MaxTabs]; Tree trees[Prog_MaxTabs]; u8 groupBy[Prog_MaxTabs]; b32 inspect[Prog_MaxTabs]; Prog_ViewSettings view, inspector; } *panels =
         ArenaPushArray(scratch.arena, Prog_MaxPanels, typeof(*panels));
-    u64 panelCount = 0, active = 0, sidebarHidden = 0, previewShown = 0, sidebarWidth = 0;
+    u64 panelCount = 0, active = 0, sidebarHidden = 0, sidebarWidth = 0;
     b32 valid = false;
     ArrayStr lines = StrSplit(scratch.arena, text, '\n');
     for (u64 l = 0; l < lines.header.count; ++l) {
@@ -6021,7 +6022,6 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
         else if (StrIsEqual(word, S("active"))) Prog__TakeNumber(&rest, &active);
         else if (StrIsEqual(word, S("sidebar"))) Prog__TakeNumber(&rest, &sidebarHidden);
         else if (StrIsEqual(word, S("sidebarwidth"))) Prog__TakeNumber(&rest, &sidebarWidth);
-        else if (StrIsEqual(word, S("preview"))) Prog__TakeNumber(&rest, &previewShown);
         else if (StrIsEqual(word, S("split"))) {
             if (!(Prog__TakeNumber(&rest, &a) && Prog__TakeNumber(&rest, &b) && Prog__TakeNumber(&rest, &c) && Prog__TakeNumber(&rest, &d) && Prog__TakeNumber(&rest, &e) && Prog__TakeNumber(&rest, &f))
                 || a >= Prog_MaxSplits || b >= Prog_SplitKind_Count || c >= Prog_MaxSplits || d >= Prog_MaxSplits || e >= Prog_MaxPanels) valid = false;
@@ -6067,6 +6067,8 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
             if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && panels[a].tabCount && Prog__TakeNumber(&rest, &b)) {
                 panels[a].groupBy[panels[a].tabCount - 1] = (u8)Min(b, (u64)Prog_GroupBy_Count - 1);
             }
+        } else if (StrIsEqual(word, S("inspect"))) {
+            if (Prog__TakeNumber(&rest, &a) && a + 1 == panelCount && panels[a].tabCount) panels[a].inspect[panels[a].tabCount - 1] = true;
         }
     }
     // The tree from the root must reach every panel once, each with a tab.
@@ -6089,7 +6091,6 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
     if (valid) {
         state->sidebarHidden = sidebarHidden != 0;
         state->sidebarWidth = sidebarWidth ? UI__Clamp((f32)sidebarWidth, Prog_SidebarMin, Prog_SidebarMax) : 0;
-        state->previewShown = previewShown != 0;
         for (u32 p = 0; p < panelCount; ++p) {
             if (p) {
                 state->panels[p] = (Prog_Panel){ .id = ++state->nextPanelId };
@@ -6139,6 +6140,7 @@ function b32 Prog_RestoreSession(Prog_State *state, String text)
                 ArrayStr folders = tree->folders.length ? StrSplit(scratch.arena, tree->folders, '\t') : (ArrayStr){0};
                 Prog__SetList(t ? &tab->treeArena : &state->treeArena, t ? &tab->treeOpen : &state->treeOpen, folders.v, folders.header.count);
                 *(t ? &tab->groupBy : &state->groupBy) = panels[p].groupBy[t];
+                *(t ? &tab->previewShown : &state->previewShown) = panels[p].inspect[t];
             }
             Prog_RequestDirectory(state, panels[p].tabs[0], false, 0);
             if (panels[p].activeTab < state->tabCount) Prog_SelectTab(state, panels[p].activeTab);

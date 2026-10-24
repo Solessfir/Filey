@@ -3906,6 +3906,8 @@ function void TestPanels(TestFileFixture *fixture)
         state.groupBy = Prog_GroupBy_Size;
         String unfolded[] = { S("Folder2"), S("Folder2/a b") };
         Prog__SetList(&state.treeArena, &state.treeOpen, unfolded, CArrayCount(unfolded));
+        // And the inspector, open in the shown tab and not in the other.
+        state.previewShown = true;
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));
@@ -3918,6 +3920,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(restored.columnSet.count == 6 && restored.folderSort == Prog_FolderSort_Last && restored.inspectorView.zoom == Prog_ZoomColumns && restored.inspectorView.columns.count == 2);
         Check(restored.miller && restored.tree && restored.treeOpen.header.count == 2 && StrIsEqual(restored.treeOpen.v[1], S("Folder2/a b")));
         Check(restored.groupBy == Prog_GroupBy_Size);
+        Check(restored.previewShown && !restored.tabs[restored.activeTab ? 0 : 1].previewShown);
         // A layout keeps the same, and puts a window that has other tabs back the way it was; a deleted one no longer applies.
         Prog_SetLayout(&restored, S("Two"), Prog_LayoutText(&sessionArena, &state), false);
         Prog_OpenTab(&restored, fixture->path, restored.tabCount, true);
