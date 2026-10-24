@@ -4653,6 +4653,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     background = (R_Color){ background.r + (wash.r - background.r) * into, background.g + (wash.g - background.g) * into, background.b + (wash.b - background.b) * into,
                             background.a + (1 - background.a) * into };
     UI_SetNextColors((UI_Colors){ .background = background });
+    UI_SetNextEdgeFade(floorf(m->row * 0.75f));
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
                                         (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     UI_Interaction listInteraction = UI_InteractionFromBlock(list);
@@ -5533,7 +5534,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
     UI_SetNextChildrenPadding((UI_Padding){ floorf(m->gap * 0.75f), 0, floorf(m->gap * 0.75f), m->gap });
     UI_SetNextColors((UI_Colors){ .background = theme->panel });
-    UI_Block *sidebar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_RightMouseClickable);
+    UI_SetNextEdgeFade(floorf(m->row * 0.75f));
+    UI_Block *sidebar =UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_RightMouseClickable);
     // The rename a slow click asked for starts once the double-click time passed without another press.
     if (state->sidebarRenameAt && UI->lastPressTime != state->sidebarRenamePress) {
         state->sidebarRenameAt = 0;

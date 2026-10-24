@@ -105,6 +105,8 @@ function void R_DrawLine(f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, R_Color 
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness);
 // A fill that fades from nothing at its edge to `color` `softness` pixels inside it, for shadows.
 function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness);
+// A fill whose color goes between the colors of its corners, top left, top right, bottom left and bottom right.
+function void R_DrawGradientRect(R_Rect rect, const R_Color corners[4], f32 cornerRadius);
 function void R_DrawTexturedRect(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color color);
 // Draws an RGBA texture multiplied by `tint`.
 function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint);

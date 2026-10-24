@@ -146,9 +146,11 @@ typedef struct GL_Instance {
                         // 4 multiplies by its RGBA, which is premultiplied, as a model's drawing is
     f32     softness;   // 0 has a sharp edge; otherwise a fill fades in from it over this width
     f32     shape;      // R_Shape flags, and GL_ShapeLine: a line between the points in `uv`, `radius` from its middle to its edge
+    R_Color corners[3]; // with GL_ShapeGradient, the top right, bottom left and bottom right corners' colors, `color` being the top left's
 } GL_Instance;
 
-#define GL_ShapeLine 32
+#define GL_ShapeLine     32
+#define GL_ShapeGradient 64
 
 typedef struct GL_Batch {
     GLuint texture;     // 0 until a textured instance joins the batch
@@ -280,9 +282,14 @@ global const char GL_VertexShader[] =
     "layout(location = 2) in vec4 aColor;\n"
     "layout(location = 3) in vec4 aStyle;\n"
     "layout(location = 4) in float aShape;\n"
+    "layout(location = 5) in vec4 aTopRight;\n"
+    "layout(location = 6) in vec4 aBottomLeft;\n"
+    "layout(location = 7) in vec4 aBottomRight;\n"
     "uniform vec2 uViewport;\n"
     "out vec2 vUV;\n"
     "out vec4 vColor;\n"
+    "flat out vec4 vCorners[4];\n"
+    "out vec2 vAcross;\n"
     "out vec2 vLocal;\n"
     "out vec2 vHalfSize;\n"
     "out vec4 vStyle;\n"
@@ -302,6 +309,8 @@ global const char GL_VertexShader[] =
     "    vSegment = aUV;\n"
     "    vPosition = position;\n"
     "    vColor = aColor;\n"
+    "    vCorners = vec4[4](aColor, aTopRight, aBottomLeft, aBottomRight);\n"
+    "    vAcross = (position - aRect.xy) / max(aRect.zw - aRect.xy, vec2(1e-6));\n"
     "    vStyle = aStyle;\n"
     "    vec2 ndc = position / uViewport * 2.0 - 1.0;\n"
     "    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);\n"
@@ -312,6 +321,8 @@ global const char GL_FragmentShader[] =
     "uniform sampler2D uTexture;\n"
     "in vec2 vUV;\n"
     "in vec4 vColor;\n"
+    "flat in vec4 vCorners[4];\n"
+    "in vec2 vAcross;\n"
     "in vec2 vLocal;\n"
     "in vec2 vHalfSize;\n"
     "in vec4 vStyle;\n"
@@ -320,12 +331,15 @@ global const char GL_FragmentShader[] =
     "in vec2 vPosition;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
+    // A gradient goes between its corners' colors by where the pixel is across the box.
+    "    vec2 t = clamp(vAcross, 0.0, 1.0);\n"
+    "    vec4 shade = (vShape & 64) == 0 ? vColor : mix(mix(vCorners[0], vCorners[1], t.x), mix(vCorners[2], vCorners[3], t.x), t.y);\n"
     // A line shades by its distance from the segment between its points, less its half width.
     "    if ((vShape & 32) != 0) {\n"
     "        vec2 along = vSegment.zw - vSegment.xy, from = vPosition - vSegment.xy;\n"
     "        float t = clamp(dot(from, along) / max(dot(along, along), 1e-6), 0.0, 1.0);\n"
     "        float edge = length(from - along * t) - vStyle.x;\n"
-    "        fragColor = vec4(vColor.rgb, vColor.a * clamp(0.5 - edge, 0.0, 1.0));\n"
+    "        fragColor = vec4(shade.rgb, shade.a * clamp(0.5 - edge, 0.0, 1.0));\n"
     "        return;\n"
     "    }\n"
     "    float radius = min(vStyle.x, min(vHalfSize.x, vHalfSize.y));\n"
@@ -340,10 +354,10 @@ global const char GL_FragmentShader[] =
     "        alpha *= clamp(0.5 + distance + vStyle.y, 0.0, 1.0);\n"
     "    }\n"
     "    if (vStyle.z > 2.5 && vStyle.z < 3.5) {\n"
-    "        fragColor = texture(uTexture, vUV) * (vColor.a * alpha);\n"
+    "        fragColor = texture(uTexture, vUV) * (shade.a * alpha);\n"
     "        return;\n"
     "    }\n"
-    "    vec4 color = vColor;\n"
+    "    vec4 color = shade;\n"
     "    if (vStyle.z > 3.5) {\n"
     "        vec4 picture = texture(uTexture, vUV);\n"
     "        color *= vec4(picture.rgb / max(picture.a, 0.004), picture.a);\n"
@@ -502,7 +516,7 @@ function b32 R_Init(void)
     GL.BindVertexArray(GL.vertexArray);
     GL.GenBuffers(1, &GL.instanceBuffer);
     GL.BindBuffer(GL_ARRAY_BUFFER, GL.instanceBuffer);
-    for (GLuint i = 0; i < 5; ++i) {
+    for (GLuint i = 0; i < 8; ++i) {
         GL.EnableVertexAttribArray(i);
         GL.VertexAttribDivisor(i, 1);
     }
@@ -748,7 +762,7 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
         instance.thickness *= GL.scale;
         instance.softness *= GL.scale;
     }
-    instance.shape = (f32)(GL.shape | (line ? GL_ShapeLine : 0));
+    instance.shape = (f32)(GL.shape | (line ? GL_ShapeLine : 0) | ((u32)instance.shape & GL_ShapeGradient));
     R_Rect clip = GL__CurrentClip();
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
     b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
@@ -822,6 +836,7 @@ function void GL__DrawInstance(u32 index, GLuint texture)
     GL.VertexAttribPointer(2, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, color)));
     GL.VertexAttribPointer(3, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
     GL.VertexAttribPointer(4, 1, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, shape)));
+    for (GLuint i = 0; i < 3; ++i) GL.VertexAttribPointer(5 + i, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, corners) + i * sizeof(R_Color)));
     GL.BindTexture(GL_TEXTURE_2D, texture);
     GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, 1);
 }
@@ -905,6 +920,11 @@ function void R_DrawLine(f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, R_Color 
 function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness)
 {
     GL__PushInstance((GL_Instance){ .rect = rect, .color = color, .radius = cornerRadius, .softness = softness }, 0);
+}
+
+function void R_DrawGradientRect(R_Rect rect, const R_Color corners[4], f32 cornerRadius)
+{
+    GL__PushInstance((GL_Instance){ .rect = rect, .color = corners[0], .corners = { corners[1], corners[2], corners[3] }, .radius = cornerRadius, .shape = GL_ShapeGradient }, 0);
 }
 
 function void R_DrawRectOutline(R_Rect rect, R_Color color, f32 cornerRadius, f32 thickness)
@@ -1081,6 +1101,7 @@ function void R_EndFrame(void)
         GL.VertexAttribPointer(2, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, color)));
         GL.VertexAttribPointer(3, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, radius)));
         GL.VertexAttribPointer(4, 1, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, shape)));
+        for (GLuint i = 0; i < 3; ++i) GL.VertexAttribPointer(5 + i, 4, GL_FLOAT, 0, stride, (const void *)(uintptr_t)(base + offsetof(GL_Instance, corners) + i * sizeof(R_Color)));
 
         // Scissor rects are bottom-up.
         i32 x0 = (i32)floorf(batch->clip.x0);

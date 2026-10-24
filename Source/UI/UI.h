@@ -66,6 +66,7 @@ typedef struct UI_Properties {
     f32 scale; // 0 draws it at its size; otherwise it and everything inside it are drawn that much larger around its center
     f32 blur;  // 0 draws over what is under it; otherwise it first blurs that, this many pixels across, inside its corners
     f32 softness;  // 0 gives the background a sharp edge; otherwise it fades in from its edge over this many pixels
+    f32 edgeFade;  // a scrolling block's content fades into its background over this many pixels at an edge it has more past
     u32 shape;     // R_Shape flags for its blur, background and border
     // 1 has the blurs drawn from it on read the frame as it was before it, until a block with 2, for boxes side by side to blur as one.
     u32 blurSource;
@@ -190,6 +191,7 @@ function void UI_SetNextBlur(f32 radius);
 function void UI_SetNextShape(u32 shape);
 function void UI_SetNextBlurSource(u32 source);
 function void UI_SetNextSoftness(f32 softness);
+function void UI_SetNextEdgeFade(f32 pixels);
 function void UI_SetNextScale(f32 scale);
 
 // Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.

@@ -349,6 +349,7 @@ function void UI_SetNextBlur(f32 radius) { UI->next.blur = radius; }
 function void UI_SetNextShape(u32 shape) { UI->next.shape = shape; }
 function void UI_SetNextBlurSource(u32 source) { UI->next.blurSource = source; }
 function void UI_SetNextSoftness(f32 softness) { UI->next.softness = softness; }
+function void UI_SetNextEdgeFade(f32 pixels) { UI->next.edgeFade = pixels; }
 function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
@@ -587,6 +588,17 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
     if (clipsChildren && !visible) return;
     if (clipsChildren && block->first) R_PushClip(block->clipRect);
     for (UI_Block *child = block->first; child; child = child->next) UI__DrawBlock(child, opacity);
+    // Over the content, coming in as far as it has scrolled, so that a list at its top or end keeps its first or last row clear.
+    f32 fade = block->props.edgeFade;
+    if (fade > 0 && block->first && FlagExists(block->flags, UI_Flag_Scrollable)) {
+        R_Color solid = UI__Faded(block->props.colors.background, opacity), clear = solid;
+        clear.a = 0;
+        f32 above = MinF32(fade, block->scrollShown.y);
+        f32 below = MinF32(fade, block->contentSize.y - (block->rect.y1 - block->rect.y0) - block->scrollShown.y);
+        R_Rect r = block->rect;
+        if (above >= 1) R_DrawGradientRect((R_Rect){ r.x0, r.y0, r.x1, r.y0 + above }, (R_Color[4]){ solid, solid, clear, clear }, 0);
+        if (below >= 1) R_DrawGradientRect((R_Rect){ r.x0, r.y1 - below, r.x1, r.y1 }, (R_Color[4]){ clear, clear, solid, solid }, 0);
+    }
     if (clipsChildren && block->first) R_PopClip();
     if (layer) {
         UI->drawingLayer = false;

@@ -8,7 +8,7 @@
 
 ## From the RAD Debugger
 
-- Maybe: per-corner colors in the rect shader, for fades at the edges of scrolled lists; linear-light blending into an sRGB framebuffer, only if the reference does it too.
+- Maybe: linear-light blending into an sRGB framebuffer, only if the reference does it too.
 
 ## Linux
 

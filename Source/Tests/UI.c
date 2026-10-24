@@ -143,6 +143,11 @@ function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacit
 {
 }
 
+function void R_DrawGradientRect(R_Rect rect, const R_Color corners[4], f32 cornerRadius)
+{
+    TestUIRecordDraw(rect, corners[0], 0);
+}
+
 function void R_DrawSoftRect(R_Rect rect, R_Color color, f32 cornerRadius, f32 softness)
 {
 }
