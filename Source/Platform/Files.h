@@ -16,6 +16,9 @@ typedef struct P_File {
     i64 modifiedTimeUnix; // Seconds since the Unix epoch.
     i64 createdTimeUnix;  // 0 when the file system does not say
     i64 accessedTimeUnix;
+    u32 modifiedTicks;  // the times' parts within their second, in 100 ns ticks, 0 where the file system does not say
+    u32 createdTicks;
+    u32 accessedTicks;
     enum8(P_FileKind) kind;
     b8 hidden;          // marked hidden, or named with a dot first
     b8 system;          // marked as the system's own, on Windows

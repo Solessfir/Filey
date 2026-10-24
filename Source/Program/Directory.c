@@ -768,6 +768,10 @@ function i32 Prog_CompareNames(String a, String b)
 }
 
 #define Prog__Order(a, b) ((a) == (b) ? 0 : (a) < (b) ? -1 : 1)
+// A file time's sort key: its seconds, 2^39 past the earliest, in the high bits and its ticks, fewer than 2^24, in the low ones.
+#define Prog__TimeKey(seconds, ticks) (((u64)((seconds) + (INT64_C(1) << 39)) << 24) | (u64)(ticks))
+// A time to the 100 ns tick, its seconds then its ticks.
+#define Prog__OrderTime(aSeconds, aTicks, bSeconds, bTicks) ((aSeconds) != (bSeconds) ? Prog__Order(aSeconds, bSeconds) : Prog__Order(aTicks, bTicks))
 
 // How full a drive is, in millionths, for its order.
 function u64 Prog__Fullness(const Prog_Entry *entry)
@@ -791,13 +795,13 @@ function i32 Prog__CompareEntries(const Prog_Entry *a, const Prog_Entry *b, Prog
         case Prog_Sort_Name: break;
         case Prog_Sort_Type: result = Prog_CompareNames(a->type, b->type); break;
         case Prog_Sort_Modified:
-            result = a->file.modifiedTimeUnix == b->file.modifiedTimeUnix ? 0 : a->file.modifiedTimeUnix < b->file.modifiedTimeUnix ? -1 : 1;
+            result = Prog__OrderTime(a->file.modifiedTimeUnix, a->file.modifiedTicks, b->file.modifiedTimeUnix, b->file.modifiedTicks);
             break;
         case Prog_Sort_Size: result = Prog__Order(ad ? a->bytes : a->file.size, bd ? b->bytes : b->file.size); break;
         case Prog_Sort_Folders: result = Prog__Order(a->folders, b->folders); break;
         case Prog_Sort_Files: result = Prog__Order(a->files, b->files); break;
-        case Prog_Sort_Created: result = Prog__Order(a->file.createdTimeUnix, b->file.createdTimeUnix); break;
-        case Prog_Sort_Accessed: result = Prog__Order(a->file.accessedTimeUnix, b->file.accessedTimeUnix); break;
+        case Prog_Sort_Created: result = Prog__OrderTime(a->file.createdTimeUnix, a->file.createdTicks, b->file.createdTimeUnix, b->file.createdTicks); break;
+        case Prog_Sort_Accessed: result = Prog__OrderTime(a->file.accessedTimeUnix, a->file.accessedTicks, b->file.accessedTimeUnix, b->file.accessedTicks); break;
         case Prog_Sort_Items: result = Prog__Order(a->folders + a->files, b->folders + b->files); break;
         case Prog_Sort_Deleted: result = Prog__Order(a->deletedTimeUnix, b->deletedTimeUnix); break;
         case Prog_Sort_Original: result = Prog_CompareNames(a->original, b->original); break;
@@ -844,12 +848,12 @@ function Prog__SortKey Prog__MakeSortKey(const Prog_Entry *entry, u32 index, Pro
     u64 flip = UINT64_C(1) << 63;
     switch (sort) {
         case Prog_Sort_Name: case Prog_Sort_Type: break;
-        case Prog_Sort_Modified: result.value = (u64)entry->file.modifiedTimeUnix ^ flip; break;
+        case Prog_Sort_Modified: result.value = Prog__TimeKey(entry->file.modifiedTimeUnix, entry->file.modifiedTicks); break;
         case Prog_Sort_Size: result.value = folder ? entry->bytes : entry->file.size; break;
         case Prog_Sort_Folders: result.value = entry->folders; break;
         case Prog_Sort_Files: result.value = entry->files; break;
-        case Prog_Sort_Created: result.value = (u64)entry->file.createdTimeUnix ^ flip; break;
-        case Prog_Sort_Accessed: result.value = (u64)entry->file.accessedTimeUnix ^ flip; break;
+        case Prog_Sort_Created: result.value = Prog__TimeKey(entry->file.createdTimeUnix, entry->file.createdTicks); break;
+        case Prog_Sort_Accessed: result.value = Prog__TimeKey(entry->file.accessedTimeUnix, entry->file.accessedTicks); break;
         case Prog_Sort_Items: result.value = entry->folders + entry->files; break;
         case Prog_Sort_Deleted: result.value = (u64)entry->deletedTimeUnix ^ flip; break;
         case Prog_Sort_FreeSpace: result.value = entry->freeBytes; break;

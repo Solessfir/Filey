@@ -392,6 +392,8 @@ function void TestSortKeys(void)
         entry->file.kind = r % 5 == 0 ? P_FileKind_Directory : P_FileKind_File;
         entry->file.size = r % 4;
         entry->file.modifiedTimeUnix = (i64)(r % 7) - 3;
+        // Items saved within one second go by the ticks inside it.
+        entry->file.modifiedTicks = (u32)((r * UINT64_C(7919)) % 10000000);
         entry->type = StrFromCStr(types[r % 5]);
         entry->recentFirst = r % 23 == 0;
         entry->shownFrame = i;

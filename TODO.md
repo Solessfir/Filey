@@ -7,7 +7,6 @@
 
 ## Missing
 
-- Sorting: dates compare whole seconds, so items saved in the same second keep name order.
 - Long Path Support in Options (paths already go through `\\?\`; only the option is missing), checkboxes in the icon views, and the palette Misc group's viewport options.
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
 - Mouse bindings: only the side buttons bind to commands; the left, middle, right and wheel actions are fixed switches.

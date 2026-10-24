@@ -192,6 +192,9 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
                     file.modifiedTimeUnix = (i64)metadata.stx_mtime.tv_sec;
                     file.accessedTimeUnix = (i64)metadata.stx_atime.tv_sec;
                     file.createdTimeUnix = (metadata.stx_mask & STATX_BTIME) ? (i64)metadata.stx_btime.tv_sec : 0;
+                    file.modifiedTicks = metadata.stx_mtime.tv_nsec / 100;
+                    file.accessedTicks = metadata.stx_atime.tv_nsec / 100;
+                    file.createdTicks = (metadata.stx_mask & STATX_BTIME) ? metadata.stx_btime.tv_nsec / 100 : 0;
                 }
             }
             ArrayPush(arena, result.files, file);
