@@ -10,14 +10,18 @@
 #pragma push_macro("global")
 #undef function
 #undef global
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Weverything"
+#endif
 #define ZDEC_NO_MESSAGE
 #include "Lib/zstd/zstd_decompress.c"
 #undef ERROR
 #undef MIN
 #undef MAX
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#endif
 #pragma pop_macro("global")
 #pragma pop_macro("function")
 #include <setjmp.h>
