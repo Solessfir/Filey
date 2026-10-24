@@ -16,7 +16,6 @@
 - The image view's readout of the hovered pixel's color at high zoom.
 - 3D models: easing for the view's turns and zoom (raddbg smooths by `1 - 2^(-rate*dt)`), text USD (`.usda`), text FBX, a .blend's modifiers, and Collada, 3DS and 3MF. Colors not read: PLY's per-face `texcoord` lists, a .blend's object-linked materials, glTF's `KHR_texture_transform`, and transparency other than a picture's cut-out alpha; Blender 3.4 to 4.x files are untested and earlier ones get no colors.
 - Archives: encrypted 7z and RAR archives, which libarchive cannot decrypt, and an archive inside an archive opens in its program.
-- Syntax highlighting: XML/HTML, CMake and Makefiles (by whole name), and colors from the theme instead of the fixed dark and light ones.
 - Media: the waveform is ffmpeg's picture tinted with the accent rather than drawn natively, yt-dlp always gets `--no-playlist`, a cancelled torrent's part files are kept (so that it resumes), no seeding options, and no notice how much smaller a compressed video came out.
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
 - Big text files: the inspector holds 16 MB of one at a time; its filter looks only through the lines held, and its lines are not wrapped.

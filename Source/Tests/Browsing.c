@@ -1205,6 +1205,21 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(Prog_SyntaxLine(Prog_Syntax_Json, S("{ \"key\": \"value\", \"n\": 12 }"), 0, tokens) == 0 && tokens[2] == Prog_Token_Keyword && tokens[10] == Prog_Token_String);
     Check(Prog_SyntaxLine(Prog_Syntax_Python, S("x = '''doc"), 0, NULL) != 0 && Prog_SyntaxLine(Prog_Syntax_Markdown, S("# Title"), 0, tokens) == 0 && tokens[2] == Prog_Token_Heading);
     Check(Prog_SyntaxForPath(S("C:/x/Thing.CPP")) == Prog_Syntax_C && Prog_SyntaxForPath(S("/a/b.py")) == Prog_Syntax_Python && Prog_SyntaxForPath(S("/a/notes.txt")) == Prog_Syntax_None);
+    // Markup: tags as headings, attributes as keywords, values as strings, entities as numbers, and comments and tags that go on over lines.
+    u8 inside = Prog_SyntaxLine(Prog_Syntax_Markup, S("<a href=\"x\">&amp; <!-- c"), 0, tokens);
+    Check(inside && tokens[0] == Prog_Token_Heading && tokens[1] == Prog_Token_Heading && tokens[3] == Prog_Token_Keyword && tokens[8] == Prog_Token_String && tokens[11] == Prog_Token_Heading);
+    Check(tokens[12] == Prog_Token_Number && tokens[16] == Prog_Token_Number && tokens[17] == Prog_Token_Plain && tokens[18] == Prog_Token_Comment && tokens[23] == Prog_Token_Comment);
+    u8 tag = Prog_SyntaxLine(Prog_Syntax_Markup, S("--> <b"), inside, tokens);
+    Check(tag && tag != inside && tokens[0] == Prog_Token_Comment && tokens[3] == Prog_Token_Plain && tokens[4] == Prog_Token_Heading);
+    Check(Prog_SyntaxLine(Prog_Syntax_Markup, S(" id=\"y\" />"), tag, tokens) == 0 && tokens[1] == Prog_Token_Keyword && tokens[4] == Prog_Token_String && tokens[9] == Prog_Token_Heading);
+    // CMake's commands and arguments, its variables and comments; a Makefile's targets, variables and directives.
+    Check(Prog_SyntaxLine(Prog_Syntax_CMake, S("target_link_libraries(app PUBLIC ${LIBS}) # c"), 0, tokens) == 0);
+    Check(tokens[0] == Prog_Token_Keyword && tokens[20] == Prog_Token_Keyword && tokens[22] == Prog_Token_Plain && tokens[26] == Prog_Token_Keyword && tokens[33] == Prog_Token_Number && tokens[42] == Prog_Token_Comment);
+    Check(Prog_SyntaxLine(Prog_Syntax_Make, S("all: main.o $(OBJ)"), 0, tokens) == 0 && tokens[0] == Prog_Token_Heading && tokens[2] == Prog_Token_Heading && tokens[5] == Prog_Token_Plain);
+    Check(tokens[12] == Prog_Token_Number && tokens[17] == Prog_Token_Number);
+    Check(Prog_SyntaxLine(Prog_Syntax_Make, S("CC := gcc"), 0, tokens) == 0 && tokens[0] == Prog_Token_Plain);
+    Check(Prog_SyntaxLine(Prog_Syntax_Make, S("ifeq ($(A),1)"), 0, tokens) == 0 && tokens[0] == Prog_Token_Keyword && tokens[6] == Prog_Token_Number);
+    Check(Prog_SyntaxForPath(S("/a/CMakeLists.txt")) == Prog_Syntax_CMake && Prog_SyntaxForPath(S("/a/Makefile")) == Prog_Syntax_Make && Prog_SyntaxForPath(S("C:/a/App.vcxproj")) == Prog_Syntax_Markup);
     // Batch files: keywords in any case, variables and arguments, quoted strings, and REM, :: and label lines.
     Check(Prog_SyntaxForPath(S("C:/x/Build.BAT")) == Prog_Syntax_Batch && Prog_SyntaxForPath(S("C:/x/run.cmd")) == Prog_Syntax_Batch && Prog_SyntaxForPath(S("/a/b.sh")) == Prog_Syntax_Shell);
     Check(Prog_SyntaxLine(Prog_Syntax_Batch, S("IF exist \"%ROOT%\" set X=%~dp0 & echo %%a 50%"), 0, tokens) == 0);

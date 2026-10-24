@@ -1321,12 +1321,27 @@ global const Prog__SyntaxDesc Prog__Syntaxes[Prog_Syntax_Count] = {
     [Prog_Syntax_Json] = { SInit("//"), {0}, SInit("/*"), SInit("*/"), SInit(" true false null ") },
     [Prog_Syntax_Ini] = { {0}, {0}, {0}, {0}, SInit(" true false yes no on off null ") },
     [Prog_Syntax_Markdown] = { {0}, {0}, {0}, {0}, {0} },
+    [Prog_Syntax_Markup] = { {0}, {0}, SInit("<!--"), SInit("-->"), {0} },
+    // CMake's commands are matched as written, which is lowercase in most files, and the arguments it knows in capitals.
+    [Prog_Syntax_CMake] = { SInit("#"), {0}, SInit("#[["), SInit("]]"),
+        SInit(" add_compile_definitions add_compile_options add_custom_command add_custom_target add_definitions add_dependencies add_executable add_library "
+          "add_link_options add_subdirectory add_test cmake_minimum_required cmake_policy configure_file else elseif endforeach endfunction endif endmacro "
+          "endwhile enable_language enable_testing file find_library find_package find_path find_program foreach function get_filename_component get_property "
+          "get_target_property if include include_directories install link_directories link_libraries list macro message option project return set "
+          "set_property set_target_properties string target_compile_definitions target_compile_features target_compile_options target_include_directories "
+          "target_link_libraries target_link_options target_sources unset while AND OR NOT DEFINED EQUAL LESS GREATER STREQUAL MATCHES VERSION_LESS "
+          "VERSION_GREATER VERSION_EQUAL EXISTS IS_DIRECTORY PUBLIC PRIVATE INTERFACE REQUIRED COMPONENTS STATIC SHARED MODULE OBJECT IMPORTED ALIAS ON OFF "
+          "TRUE FALSE YES NO CACHE FORCE PARENT_SCOPE APPEND STATUS WARNING FATAL_ERROR SEND_ERROR ") },
+    [Prog_Syntax_Make] = { SInit("#"), {0}, {0}, {0},
+        SInit(" ifeq ifneq ifdef ifndef else endif include sinclude define endef export unexport override undefine vpath private ") },
 };
 
 // The language of `path`, by its extension or, for a few, its whole name.
 function Prog_Syntax Prog_SyntaxForPath(String path)
 {
     String name = Prog_EntryLeaf(path);
+    if (Prog__EqualFolded(name, S("CMakeLists.txt"))) return Prog_Syntax_CMake;
+    if (Prog__EqualFolded(name, S("Makefile")) || Prog__EqualFolded(name, S("GNUmakefile"))) return Prog_Syntax_Make;
     Index dot = StrIndexChar(name, '.', SSF_SearchBackwards);
     String extension = dot.exists ? StrFrom(name, dot.value + 1) : (String){0};
     char lower[16];
@@ -1348,6 +1363,9 @@ function Prog_Syntax Prog_SyntaxForPath(String path)
         { " json jsonc json5 uproject uplugin code-workspace ", Prog_Syntax_Json },
         { " ini toml cfg conf properties yaml yml editorconfig gitignore gitattributes gitconfig gitmodules desktop ", Prog_Syntax_Ini },
         { " md markdown ", Prog_Syntax_Markdown },
+        { " xml html htm xhtml svg xaml axaml csproj vcxproj vbproj fsproj vcxitems filters props targets nuspec plist resx xsd xsl xslt manifest storyboard xib ", Prog_Syntax_Markup },
+        { " cmake ", Prog_Syntax_CMake },
+        { " mk mak make ", Prog_Syntax_Make },
     };
     for (u64 i = 0; i < CArrayCount(table); ++i) {
         String list = StrFromCStr(table[i].extensions);
@@ -1374,7 +1392,7 @@ function void Prog__MarkTokens(u8 *classes, u64 from, u64 to, Prog_Token kind)
 }
 
 // What a line can leave open for the next ones: a comment over several lines, Python's triple-quoted strings, a Markdown code fence.
-enum { Prog__Open_None, Prog__Open_Comment, Prog__Open_Triple2, Prog__Open_Triple1, Prog__Open_Fence };
+enum { Prog__Open_None, Prog__Open_Comment, Prog__Open_Triple2, Prog__Open_Triple1, Prog__Open_Fence, Prog__Open_Tag };
 
 // Marks what each byte of `line` is in `syntax` into `classes` when it is not NULL (a byte each), starting inside what `open` says the lines
 // before left open; returns what this one leaves open. A line at a time, so that only the lines in sight are worked out, after one pass that
@@ -1441,6 +1459,73 @@ function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classe
             at = end;
         }
         return Prog__Open_None;
+    }
+    if (syntax == Prog_Syntax_Markup) {
+        // Comments, and tags with their names as headings, their attributes as keywords and their values as strings; entities are numbers.
+        // A comment or a tag may go on over lines.
+        for (u64 at = 0; at < n;) {
+            if (open == Prog__Open_Comment) {
+                u64 stop = at;
+                while (stop < n && !Prog__StartsAt(line, stop, desc->blockEnd)) ++stop;
+                b32 closed = stop < n;
+                stop = closed ? stop + desc->blockEnd.length : n;
+                Prog__MarkTokens(classes, at, stop, Prog_Token_Comment);
+                at = stop;
+                if (closed) open = Prog__Open_None;
+                continue;
+            }
+            u8 c = t[at];
+            if (open == Prog__Open_Tag) {
+                u64 end = at + 1;
+                if (c == '>' || (c == '/' && at + 1 < n && t[at + 1] == '>')) {
+                    end = c == '>' ? at + 1 : at + 2;
+                    Prog__MarkTokens(classes, at, end, Prog_Token_Heading);
+                    open = Prog__Open_None;
+                } else if (c == '"' || c == '\'') {
+                    while (end < n && t[end] != c) ++end;
+                    end = Min(end + 1, n);
+                    Prog__MarkTokens(classes, at, end, Prog_Token_String);
+                } else if (Prog__IdentChar(c)) {
+                    while (end < n && (Prog__IdentChar(t[end]) || t[end] == ':' || t[end] == '-' || t[end] == '.')) ++end;
+                    Prog__MarkTokens(classes, at, end, Prog_Token_Keyword);
+                }
+                at = end;
+                continue;
+            }
+            if (Prog__StartsAt(line, at, desc->blockStart)) {
+                Prog__MarkTokens(classes, at, at + desc->blockStart.length, Prog_Token_Comment);
+                at += desc->blockStart.length;
+                open = Prog__Open_Comment;
+                continue;
+            }
+            if (c == '<' && at + 1 < n && (Prog__IdentChar(t[at + 1]) || t[at + 1] == '/' || t[at + 1] == '!' || t[at + 1] == '?')) {
+                u64 end = at + 2;
+                while (end < n && (Prog__IdentChar(t[end]) || t[end] == ':' || t[end] == '-' || t[end] == '.')) ++end;
+                Prog__MarkTokens(classes, at, end, Prog_Token_Heading);
+                open = Prog__Open_Tag;
+                at = end;
+                continue;
+            }
+            if (c == '&') {
+                u64 end = at + 1;
+                while (end < n && end - at < 12 && (Prog__IdentChar(t[end]) || t[end] == '#')) ++end;
+                if (end < n && t[end] == ';' && end > at + 1) {
+                    Prog__MarkTokens(classes, at, end + 1, Prog_Token_Number);
+                    at = end + 1;
+                    continue;
+                }
+            }
+            ++at;
+        }
+        return open;
+    }
+    // A Makefile's target, the name before a colon at the start of a line that is no assignment, is a heading.
+    if (syntax == Prog_Syntax_Make && n && t[0] != '\t' && t[0] != '#') {
+        u64 colon = 0;
+        while (colon < n && t[colon] != ':' && t[colon] != '=' && t[colon] != '#') ++colon;
+        b32 target = colon < n && t[colon] == ':' && !(colon + 1 < n && t[colon + 1] == '=') && colon > 0;
+        b32 directive = Prog__StartsAt(line, 0, S("ifeq")) || Prog__StartsAt(line, 0, S("ifneq")) || Prog__StartsAt(line, 0, S("define"));
+        if (target && !directive) Prog__MarkTokens(classes, 0, colon, Prog_Token_Heading);
     }
     if (syntax == Prog_Syntax_Batch) {
         // REM and :: lines are comments, :name lines labels; a leading @ only keeps the line from being echoed.
@@ -1560,6 +1645,16 @@ function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classe
                 if (next < n && t[next] == ':') kind = Prog_Token_Keyword;
             }
             Prog__MarkTokens(classes, at, end, kind);
+            at = end;
+            continue;
+        }
+        // A variable, $(name) or ${name}, in a Makefile, CMake and the shell.
+        if (c == '$' && at + 1 < n && (t[at + 1] == '(' || t[at + 1] == '{') && (syntax == Prog_Syntax_Make || syntax == Prog_Syntax_CMake || syntax == Prog_Syntax_Shell)) {
+            u8 close = t[at + 1] == '(' ? ')' : '}';
+            u64 end = at + 2;
+            while (end < n && t[end] != close) ++end;
+            end = Min(end + 1, n);
+            Prog__MarkTokens(classes, at, end, Prog_Token_Number);
             at = end;
             continue;
         }

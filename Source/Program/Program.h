@@ -615,6 +615,9 @@ typedef enum Prog_Syntax {
     Prog_Syntax_Json,
     Prog_Syntax_Ini,       // INI, TOML, YAML and other key files
     Prog_Syntax_Markdown,
+    Prog_Syntax_Markup,    // XML, HTML, SVG and the project files written in XML
+    Prog_Syntax_CMake,
+    Prog_Syntax_Make,      // Makefiles
     Prog_Syntax_Count,
 } Prog_Syntax;
 
@@ -843,6 +846,11 @@ typedef enum Prog_Option {
     Prog_Option_ColorMatchHover,
     Prog_Option_ColorMatchSelection,
     Prog_Option_ColorMatchDisabledSelection,
+    // The inspector's code, past the reference's groups.
+    Prog_Option_ColorCodeKeyword,
+    Prog_Option_ColorCodeString,
+    Prog_Option_ColorCodeNumber,
+    Prog_Option_ColorCodeHeading,
     Prog_Option_AlternatingRows,
     Prog_Option_InactiveOpacity,
     Prog_Option_ShowFileExtension,
@@ -1066,7 +1074,7 @@ typedef enum Prog_LayoutAsk {
 // A custom scheme's file in the settings folder ends so, after its name.
 #define Prog_SchemeExtension S(".scheme")
 // The colors a scheme is made of, its groups, as the Options list them from Prog_Option_ColorClear on.
-#define Prog_ColorGroupCount 33
+#define Prog_ColorGroupCount 37
 
 // The installed font families, sorted by name and each once.
 typedef struct Prog_FontsListed {

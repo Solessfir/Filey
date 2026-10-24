@@ -300,6 +300,10 @@ typedef struct Prog_Theme {
     R_Color matchHover;    // letters a filter matched, in an item under the pointer
     R_Color matchSelection;
     R_Color matchDisabledSelection;
+    R_Color codeKeyword;   // the inspector's code: keywords, strings, numbers and headings; comments take textDim
+    R_Color codeString;
+    R_Color codeNumber;
+    R_Color codeHeading;
     // Grays whose brightness is an amount: how much of the selection color washes an item under the pointer, and how much shows of a
     // hidden item and of one that would do nothing now.
     R_Color hoverAmount;
@@ -345,6 +349,10 @@ global const Prog_Theme Prog_ThemeCustom = {
     .matchHover               = Prog_Hex(0x00B9FF),
     .matchSelection           = Prog_Hex(0x00AAFF),
     .matchDisabledSelection   = Prog_Hex(0x44B8E3),
+    .codeKeyword              = Prog_Hex(0xC678DD),
+    .codeString               = Prog_Hex(0x98C379),
+    .codeNumber               = Prog_Hex(0xD19A66),
+    .codeHeading              = Prog_Hex(0x61AFEF),
     .hoverAmount              = Prog_Hex(0x595959),
     .hiddenAmount             = Prog_Hex(0x595959),
     .disabledAmount           = Prog_Hex(0x595959),
@@ -353,17 +361,17 @@ global const Prog_Theme Prog_ThemeCustom = {
 // The built-in schemes' colors, popular themes' palettes and Filey's own dark one, in Prog_OptionSchemes' order, each by Prog_Option_ColorClear's
 // order of the groups.
 global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = {
-    { 0x191919, 0x1F1F1F, 0x191919, 0x1F1F1F, 0x383C3D, 0x191919, 0x383838, 0x1F1F1F, 0x1C1C1C, 0x1C1C1C, 0x9A9A9A, 0xDDDEE0, 0x6B7078, 0x999999, 0xDDDEE0, 0xDDDEE0, 0xFF6358, 0x0079A6, 0x505050, 0x00ADEE, 0x00AAFF, 0x595959, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 },
-    { 0x232634, 0x232634, 0x303446, 0x292C3C, 0x414559, 0x303446, 0x414559, 0x414559, 0x232634, 0x34384A, 0x949CBB, 0xC6D0F5, 0x838BA7, 0xA5ADCE, 0xC6D0F5, 0xC6D0F5, 0xE78284, 0x8CAAEE, 0x475270, 0x8CAAEE, 0x99D1DB, 0x595959, 0x595959, 0x595959, 0xC6D0F5, 0xC6D0F5, 0xA1A9C9, 0x737994, 0x949CBB, 0x626880, 0x99D1DB, 0x99D1DB, 0x7AA2AE },
-    { 0xDCE0E8, 0xDCE0E8, 0xEFF1F5, 0xE6E9EF, 0xCCD0DA, 0xEFF1F5, 0xCCD0DA, 0xCCD0DA, 0xDCE0E8, 0xE7EAEF, 0x7C7F93, 0x4C4F69, 0x8C8FA1, 0x6C6F85, 0x4C4F69, 0x4C4F69, 0xD20F39, 0x1E66F5, 0xC1D2F5, 0x1E66F5, 0x04A5E5, 0x808080, 0x666666, 0x666666, 0x4C4F69, 0x4C4F69, 0x75788C, 0x9CA0B0, 0x7C7F93, 0xACB0BE, 0x04A5E5, 0x04A5E5, 0x4BBCEA },
-    { 0x242933, 0x242933, 0x2E3440, 0x292E39, 0x3B4252, 0x2E3440, 0x3B4252, 0x3B4252, 0x242933, 0x313744, 0x8A93A5, 0xD8DEE9, 0x616E88, 0xB8C0CE, 0xD8DEE9, 0xD8DEE9, 0xBF616A, 0x81A1C1, 0x434F60, 0x81A1C1, 0x88C0D0, 0x595959, 0x595959, 0x595959, 0xD8DEE9, 0xD8DEE9, 0xAEB4BF, 0x4C566A, 0x8A93A5, 0x4C566A, 0x88C0D0, 0x88C0D0, 0x6D96A5 },
-    { 0x1D2021, 0x1D2021, 0x282828, 0x222424, 0x3C3836, 0x282828, 0x3C3836, 0x3C3836, 0x1D2021, 0x2C2C2B, 0xA89984, 0xEBDBB2, 0x928374, 0xBDAE93, 0xEBDBB2, 0xEBDBB2, 0xFB4934, 0x83A598, 0x3F4744, 0x83A598, 0xFABD2F, 0x595959, 0x595959, 0x595959, 0xEBDBB2, 0xEBDBB2, 0xBAAE90, 0x7C6F64, 0xA89984, 0x665C54, 0xFABD2F, 0xFABD2F, 0xBB902D },
-    { 0x13141C, 0x16161E, 0x1A1B26, 0x16161E, 0x292E42, 0x1A1B26, 0x292E42, 0x292E42, 0x13141C, 0x1D1F2C, 0x8F96BC, 0xC0CAF5, 0x737AA2, 0xA9B1D6, 0xC0CAF5, 0xC0CAF5, 0xF7768E, 0x7AA2F7, 0x323D5A, 0x7AA2F7, 0x7DCFFF, 0x595959, 0x595959, 0x595959, 0xC0CAF5, 0xC0CAF5, 0x979EC1, 0x545C7E, 0x8F96BC, 0x414868, 0x7DCFFF, 0x7DCFFF, 0x5F99BE },
-    { 0x1E2227, 0x21252B, 0x282C34, 0x21252B, 0x31353F, 0x282C34, 0x31353F, 0x31353F, 0x1E2227, 0x2A2E36, 0x9DA5B4, 0xD7DAE0, 0x7F848E, 0xABB2BF, 0xD7DAE0, 0xD7DAE0, 0xE06C75, 0x61AFEF, 0x364D63, 0x61AFEF, 0x56B6C2, 0x595959, 0x595959, 0x595959, 0xD7DAE0, 0xD7DAE0, 0xABAFB5, 0x5C6370, 0x9DA5B4, 0x4B5263, 0x56B6C2, 0x56B6C2, 0x488D97 },
+    { 0x191919, 0x1F1F1F, 0x191919, 0x1F1F1F, 0x383C3D, 0x191919, 0x383838, 0x1F1F1F, 0x1C1C1C, 0x1C1C1C, 0x9A9A9A, 0xDDDEE0, 0x6B7078, 0x999999, 0xDDDEE0, 0xDDDEE0, 0xFF6358, 0x0079A6, 0x505050, 0x00ADEE, 0x00AAFF, 0x595959, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3, 0xC678DD, 0x98C379, 0xD19A66, 0x61AFEF },
+    { 0x232634, 0x232634, 0x303446, 0x292C3C, 0x414559, 0x303446, 0x414559, 0x414559, 0x232634, 0x34384A, 0x949CBB, 0xC6D0F5, 0x838BA7, 0xA5ADCE, 0xC6D0F5, 0xC6D0F5, 0xE78284, 0x8CAAEE, 0x475270, 0x8CAAEE, 0x99D1DB, 0x595959, 0x595959, 0x595959, 0xC6D0F5, 0xC6D0F5, 0xA1A9C9, 0x737994, 0x949CBB, 0x626880, 0x99D1DB, 0x99D1DB, 0x7AA2AE, 0xCA9EE6, 0xA6D189, 0xEF9F76, 0x8CAAEE },
+    { 0xDCE0E8, 0xDCE0E8, 0xEFF1F5, 0xE6E9EF, 0xCCD0DA, 0xEFF1F5, 0xCCD0DA, 0xCCD0DA, 0xDCE0E8, 0xE7EAEF, 0x7C7F93, 0x4C4F69, 0x8C8FA1, 0x6C6F85, 0x4C4F69, 0x4C4F69, 0xD20F39, 0x1E66F5, 0xC1D2F5, 0x1E66F5, 0x04A5E5, 0x808080, 0x666666, 0x666666, 0x4C4F69, 0x4C4F69, 0x75788C, 0x9CA0B0, 0x7C7F93, 0xACB0BE, 0x04A5E5, 0x04A5E5, 0x4BBCEA, 0x8839EF, 0x40A02B, 0xFE640B, 0x1E66F5 },
+    { 0x242933, 0x242933, 0x2E3440, 0x292E39, 0x3B4252, 0x2E3440, 0x3B4252, 0x3B4252, 0x242933, 0x313744, 0x8A93A5, 0xD8DEE9, 0x616E88, 0xB8C0CE, 0xD8DEE9, 0xD8DEE9, 0xBF616A, 0x81A1C1, 0x434F60, 0x81A1C1, 0x88C0D0, 0x595959, 0x595959, 0x595959, 0xD8DEE9, 0xD8DEE9, 0xAEB4BF, 0x4C566A, 0x8A93A5, 0x4C566A, 0x88C0D0, 0x88C0D0, 0x6D96A5, 0x81A1C1, 0xA3BE8C, 0xB48EAD, 0x88C0D0 },
+    { 0x1D2021, 0x1D2021, 0x282828, 0x222424, 0x3C3836, 0x282828, 0x3C3836, 0x3C3836, 0x1D2021, 0x2C2C2B, 0xA89984, 0xEBDBB2, 0x928374, 0xBDAE93, 0xEBDBB2, 0xEBDBB2, 0xFB4934, 0x83A598, 0x3F4744, 0x83A598, 0xFABD2F, 0x595959, 0x595959, 0x595959, 0xEBDBB2, 0xEBDBB2, 0xBAAE90, 0x7C6F64, 0xA89984, 0x665C54, 0xFABD2F, 0xFABD2F, 0xBB902D, 0xFB4934, 0xB8BB26, 0xD3869B, 0xFABD2F },
+    { 0x13141C, 0x16161E, 0x1A1B26, 0x16161E, 0x292E42, 0x1A1B26, 0x292E42, 0x292E42, 0x13141C, 0x1D1F2C, 0x8F96BC, 0xC0CAF5, 0x737AA2, 0xA9B1D6, 0xC0CAF5, 0xC0CAF5, 0xF7768E, 0x7AA2F7, 0x323D5A, 0x7AA2F7, 0x7DCFFF, 0x595959, 0x595959, 0x595959, 0xC0CAF5, 0xC0CAF5, 0x979EC1, 0x545C7E, 0x8F96BC, 0x414868, 0x7DCFFF, 0x7DCFFF, 0x5F99BE, 0xBB9AF7, 0x9ECE6A, 0xFF9E64, 0x7AA2F7 },
+    { 0x1E2227, 0x21252B, 0x282C34, 0x21252B, 0x31353F, 0x282C34, 0x31353F, 0x31353F, 0x1E2227, 0x2A2E36, 0x9DA5B4, 0xD7DAE0, 0x7F848E, 0xABB2BF, 0xD7DAE0, 0xD7DAE0, 0xE06C75, 0x61AFEF, 0x364D63, 0x61AFEF, 0x56B6C2, 0x595959, 0x595959, 0x595959, 0xD7DAE0, 0xD7DAE0, 0xABAFB5, 0x5C6370, 0x9DA5B4, 0x4B5263, 0x56B6C2, 0x56B6C2, 0x488D97, 0xC678DD, 0x98C379, 0xD19A66, 0x61AFEF },
 };
 
 // The reference's dark scheme, for side-by-side checks with the Compare tool; settings name it fullmoon, and the choices leave it out.
-global const u32 Prog_SchemeFullMoon[Prog_ColorGroupCount] = { 0x151515, 0x272A2B, 0x191B1C, 0x1F2223, 0x383C3D, 0x1B1B1C, 0x343A3B, 0x464A4D, 0x202324, 0x1D1F21, 0x9A9C9D, 0xDDDEE0, 0x6B7078, 0x9A9C9D, 0xDDDEE0, 0xDDDEE0, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3 };
+global const u32 Prog_SchemeFullMoon[Prog_ColorGroupCount] = { 0x151515, 0x272A2B, 0x191B1C, 0x1F2223, 0x383C3D, 0x1B1B1C, 0x343A3B, 0x464A4D, 0x202324, 0x1D1F21, 0x9A9C9D, 0xDDDEE0, 0x6B7078, 0x9A9C9D, 0xDDDEE0, 0xDDDEE0, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3, 0xC678DD, 0x98C379, 0xD19A66, 0x61AFEF };
 
 function R_Color Prog__HexColor(u32 hex) { return (R_Color){ (f32)((hex >> 16) & 255) / 255.0f, (f32)((hex >> 8) & 255) / 255.0f, (f32)(hex & 255) / 255.0f, 1 }; }
 
@@ -396,7 +404,8 @@ function Prog_Theme Prog__ThemeFromScheme(const u32 *groups)
         .contentDisabledSelection = Prog__GroupColor(ContentDisabledSelection), .outlineHover = Prog__GroupColor(OutlineHover), .outlineSelection = Prog__GroupColor(OutlineSelection),
         .outlineDisabledSelection = Prog__GroupColor(OutlineDisabledSelection), .matchHover = Prog__GroupColor(MatchHover), .matchSelection = Prog__GroupColor(MatchSelection),
         .matchDisabledSelection = Prog__GroupColor(MatchDisabledSelection), .hoverAmount = Prog__GroupColor(Hover), .hiddenAmount = Prog__GroupColor(Hidden),
-        .disabledAmount = Prog__GroupColor(Disabled),
+        .disabledAmount = Prog__GroupColor(Disabled), .codeKeyword = Prog__GroupColor(CodeKeyword), .codeString = Prog__GroupColor(CodeString),
+        .codeNumber = Prog__GroupColor(CodeNumber), .codeHeading = Prog__GroupColor(CodeHeading),
     };
 #undef Prog__GroupColor
 #undef Prog__Group
@@ -434,7 +443,8 @@ global const struct { const char *name; u64 offset; } Prog_ThemeColors[] = {
     Prog__ThemeColor(marquee), Prog__ThemeColor(accent), Prog__ThemeColor(track), Prog__ThemeColor(outline), Prog__ThemeColor(danger), Prog__ThemeColor(icon), Prog__ThemeColor(iconDisabled),
     Prog__ThemeColor(file), Prog__ThemeColor(folder), Prog__ThemeColor(contentHover), Prog__ThemeColor(contentSelection), Prog__ThemeColor(contentDisabledSelection),
     Prog__ThemeColor(outlineHover), Prog__ThemeColor(outlineSelection), Prog__ThemeColor(outlineDisabledSelection), Prog__ThemeColor(matchHover), Prog__ThemeColor(matchSelection),
-    Prog__ThemeColor(matchDisabledSelection), Prog__ThemeColor(hoverAmount), Prog__ThemeColor(hiddenAmount), Prog__ThemeColor(disabledAmount),
+    Prog__ThemeColor(matchDisabledSelection), Prog__ThemeColor(codeKeyword), Prog__ThemeColor(codeString), Prog__ThemeColor(codeNumber), Prog__ThemeColor(codeHeading),
+    Prog__ThemeColor(hoverAmount), Prog__ThemeColor(hiddenAmount), Prog__ThemeColor(disabledAmount),
 #undef Prog__ThemeColor
 };
 static_assert(sizeof(Prog_ThemeColors) / sizeof(Prog_ThemeColors[0]) * sizeof(R_Color) == sizeof(Prog_Theme));
@@ -510,13 +520,14 @@ global const char *const Prog_OptionSchemeLabels[] = { NoTrF("Filey Dark"), NoTr
 static_assert(Prog_LightScheme < Prog_BuiltInSchemes, "the light scheme built in");
 static_assert(CArrayCount(Prog_OptionSchemeLabels) == Prog_BuiltInSchemes, "the built-in schemes labeled");
 static_assert(CArrayCount(Prog_OptionSchemes) == Prog_BuiltInSchemes, "the built-in schemes counted");
-static_assert(Prog_Option_ColorMatchDisabledSelection - Prog_Option_ColorClear + 1 == Prog_ColorGroupCount, "the color groups counted");
+static_assert(Prog_Option_ColorCodeHeading - Prog_Option_ColorClear + 1 == Prog_ColorGroupCount, "the color groups counted");
 
 // The groups' names in a custom scheme's lines.
 global const char *const Prog_ColorGroupNames[Prog_ColorGroupCount] = {
     "Clear", "Caption", "Background", "Surface", "Foreground", "Inner", "Border", "Outline", "Separator", "AlternatingRow", "IconTint", "Text", "Secondary", "Group",
     "File", "Folder", "Warning", "Progress", "Selection", "RectSelection", "Match", "Hidden", "Hover", "Disabled", "ContentHover", "ContentSelection",
     "ContentDisabledSelection", "OutlineHover", "OutlineSelection", "OutlineDisabledSelection", "MatchHover", "MatchSelection", "MatchDisabledSelection",
+    "CodeKeyword", "CodeString", "CodeNumber", "CodeHeading",
 };
 
 // Gives `groups` the colors of the built-in scheme named `name`, or the default scheme's for an unknown one; "light" is the light one. Returns its place among the built-in schemes, UINT32_MAX for an unknown name and 0 for fullmoon, which the choices leave out.
@@ -565,7 +576,14 @@ function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
     if (builtIn != UINT32_MAX) return (u8)builtIn;
     for (u64 i = 0; i < state->schemeNames.header.count; ++i) {
         if (!Prog__EqualFolded(state->schemeNames.v[i], name)) continue;
-        Prog__ReadSchemeText(state->schemeTexts.v[i], groups);
+        // A light scheme from before the code colors takes the light built-in scheme's, as the default dark one's are too pale on it.
+        String text = state->schemeTexts.v[i];
+        Prog__ReadSchemeText(text, groups);
+        R_Color under = Prog__HexColor(groups[Prog_Option_ColorBackground - Prog_Option_ColorClear]);
+        if (!StrIndexStr(text, S("Code"), SSF_None).exists && under.r + under.g + under.b > 1.5f) {
+            u32 first = Prog_Option_ColorCodeKeyword - Prog_Option_ColorClear;
+            MemCopy(groups + first, Prog_SchemeColors[Prog_LightScheme] + first, (Prog_ColorGroupCount - first) * sizeof(u32));
+        }
         return (u8)(CArrayCount(Prog_OptionSchemes) + i);
     }
     return 0;
@@ -1113,6 +1131,10 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_ColorMatchHover] = { TrInit("Match Hover"), TrInit("Color for matching letters in filtered text when items are hovered."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
     [Prog_Option_ColorMatchSelection] = { TrInit("Match Selection"), TrInit("Color for matching letters in filtered text when items are selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
     [Prog_Option_ColorMatchDisabledSelection] = { TrInit("Match Disabled Selection"), TrInit("Color for matching letters in filtered text when items are both disabled and selected."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorCodeKeyword] = { TrInit("Code Keyword"), TrInit("Color of keywords and keys in the inspector's code."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorCodeString] = { TrInit("Code String"), TrInit("Color of strings and quoted text in the inspector's code."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorCodeNumber] = { TrInit("Code Number"), TrInit("Color of numbers and variables in the inspector's code."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
+    [Prog_Option_ColorCodeHeading] = { TrInit("Code Heading"), TrInit("Color of headings, sections and tags in the inspector's text."), Prog_OptionControl_Color, 0, 0, NULL, 0, {0} },
     [Prog_Option_AlternatingRows] = { TrInit("Alternating Row Colors"), TrInit("Applies alternating row colors to improve readability and distinguish adjacent rows."),
                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("rows.alternate") },
     [Prog_Option_InactiveOpacity] = { TrInit("Inactive Panel Contents Opacity"), TrInit("Applies dimming to inactive panel contents to make the active panel stand out."), Prog_OptionControl_Slider,
@@ -9924,13 +9946,12 @@ function u32 Prog__WrapLine(String line, u32 columns, u32 *starts, u32 room)
 // A code token's color: lighter hues on a dark theme and deeper ones on a light one, told apart by how bright its text is.
 function R_Color Prog__TokenColor(const Prog_Theme *theme, u8 kind)
 {
-    b32 dark = theme->text.r + theme->text.g + theme->text.b > 1.5f;
     switch (kind) {
-        case Prog_Token_Keyword: return dark ? (R_Color)Prog_Rgb(198, 120, 221) : (R_Color)Prog_Rgb(166, 38, 164);
-        case Prog_Token_String: return dark ? (R_Color)Prog_Rgb(152, 195, 121) : (R_Color)Prog_Rgb(64, 140, 60);
+        case Prog_Token_Keyword: return theme->codeKeyword;
+        case Prog_Token_String: return theme->codeString;
         case Prog_Token_Comment: return theme->textDim;
-        case Prog_Token_Number: return dark ? (R_Color)Prog_Rgb(209, 154, 102) : (R_Color)Prog_Rgb(152, 104, 1);
-        case Prog_Token_Heading: return dark ? (R_Color)Prog_Rgb(97, 175, 239) : (R_Color)Prog_Rgb(1, 100, 200);
+        case Prog_Token_Number: return theme->codeNumber;
+        case Prog_Token_Heading: return theme->codeHeading;
         default: return theme->text;
     }
 }

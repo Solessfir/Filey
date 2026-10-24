@@ -2580,7 +2580,7 @@ function void Prog__CloseFontPicker(Prog_State *state)
 // The color picker for the color of `option`, which only a custom scheme has.
 function void Prog__OpenColorPicker(Prog_State *state, Prog_Option option)
 {
-    if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorMatchDisabledSelection) return;
+    if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorCodeHeading) return;
     state->colorPicking = true;
     state->colorOption = (u8)option;
     state->pickerOriginal = state->schemeGroups[option - Prog_Option_ColorClear];
@@ -3949,7 +3949,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_ColorHexEdit: {
                 Prog_Option option = (Prog_Option)command->row;
-                if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorMatchDisabledSelection) break;
+                if (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || option < Prog_Option_ColorClear || option > Prog_Option_ColorCodeHeading) break;
                 state->hexOption = (u8)option;
                 state->hexEdit = (Prog_TextEdit){0};
                 String text = StrFormat(&state->frameArena, "%06X", state->schemeGroups[option - Prog_Option_ColorClear]);

@@ -3207,3 +3207,27 @@ Sort By File System
 
 Sort the drives by their file system.
 = Сортировать диски по файловой системе.
+
+Code Keyword
+= Код: ключевые слова
+
+Color of keywords and keys in the inspector's code.
+= Цвет ключевых слов и ключей в коде инспектора.
+
+Code String
+= Код: строки
+
+Color of strings and quoted text in the inspector's code.
+= Цвет строк и текста в кавычках в коде инспектора.
+
+Code Number
+= Код: числа
+
+Color of numbers and variables in the inspector's code.
+= Цвет чисел и переменных в коде инспектора.
+
+Code Heading
+= Код: заголовки
+
+Color of headings, sections and tags in the inspector's text.
+= Цвет заголовков, разделов и тегов в тексте инспектора.
