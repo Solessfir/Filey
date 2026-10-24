@@ -6930,6 +6930,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->previewTextureHeight = preview->height;
                     state->previewPicture = state->previewTexture.u64[0] != 0;
                     state->previewImage = state->previewPicture && preview->image;
+                    state->previewPixels = NULL;
+                    if (state->previewImage) {
+                        u64 pixels = (u64)preview->width * (u64)preview->height;
+                        state->previewPixels = ArenaPushArrayNoZero(&state->previewArena, pixels, u32);
+                        MemCopy(state->previewPixels, preview->pixels, pixels * sizeof(u32));
+                    }
                     if (preview->pdfPages && state->previewPicture) {
                         state->pdf.sizes = ArenaPushArray(&state->previewArena, (u64)preview->pdfPages * 2, f32);
                         MemCopy(state->pdf.sizes, preview->pdfSizes, (u64)preview->pdfPages * 2 * sizeof(f32));

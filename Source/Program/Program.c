@@ -11323,6 +11323,48 @@ function void Prog__InspectorImage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextColors((UI_Colors){ .border = theme->tabBorder });
             UI_AddBlock(UI_Flag_Floating | (audio ? 0 : UI_Flag_DrawBorder));
         }
+        // Zoomed in far enough that its pixels show, the one under the pointer is read out beside it: its color, its value and where it is.
+        f32 overX = UI->mouse.x - (view->rect.x0 + left + x), overY = UI->mouse.y - (view->rect.y0 + top + y);
+        b32 over = UI->hotKey == view->key && !drag.active && overX >= 0 && overY >= 0 && overX < shownWidth && overY < shownHeight;
+        if (!audio && over && scale >= 4 && state->previewPixels && state->previewTextureWidth > 0 && state->previewTextureHeight > 0) {
+            i32 px = Min((i32)(overX / scale), (i32)width - 1), py = Min((i32)(overY / scale), (i32)height - 1);
+            i32 tx = Min((i32)((f32)px * (f32)state->previewTextureWidth / width), state->previewTextureWidth - 1);
+            i32 ty = Min((i32)((f32)py * (f32)state->previewTextureHeight / height), state->previewTextureHeight - 1);
+            u32 pixel = state->previewPixels[(u64)ty * (u64)state->previewTextureWidth + (u64)tx];
+            u32 r = pixel & 0xFF, g = (pixel >> 8) & 0xFF, b = (pixel >> 16) & 0xFF, a = pixel >> 24;
+            Arena *frame = &state->frameArena;
+            String value = a == 255 ? StrFormat(frame, "#%02X%02X%02X", r, g, b) : StrFormat(frame, "#%02X%02X%02X%02X", r, g, b, a);
+            String where = StrFormat(frame, "%d, %d", px, py);
+            f32 pad = floorf(6.4f * s + 0.5f), swatch = floorf(m->line * 0.9f), tall = m->row;
+            f32 cardWidth = pad + swatch + pad + R_TextWidth(m->detail, value) + m->gap + R_TextWidth(m->detail, where) + pad;
+            f32 cardX = UI->mouse.x - view->rect.x0 + floorf(16.0f * s), cardY = UI->mouse.y - view->rect.y0 + floorf(16.0f * s);
+            if (cardX + cardWidth > view->rect.x1 - view->rect.x0) cardX = UI->mouse.x - view->rect.x0 - floorf(8.0f * s) - cardWidth;
+            if (cardY + tall > view->rect.y1 - view->rect.y0) cardY = UI->mouse.y - view->rect.y0 - floorf(8.0f * s) - tall;
+            UI_SetNextFloatingOffset((UI_Vec2){ floorf(cardX), floorf(cardY) });
+            UI_SetNextPrefWidth(UI_Pixels(cardWidth));
+            UI_SetNextPrefHeight(UI_Pixels(tall));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
+            UI_SetNextCornerRadius(m->radius);
+            UI_SetNextBorderThickness(m->stroke);
+            UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
+            UI_Block *card = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+            UI_Parent(card) {
+                UI_SetNextPrefWidth(UI_Pixels(swatch));
+                UI_SetNextPrefHeight(UI_Pixels(swatch));
+                UI_SetNextCornerRadius(floorf(2.4f * s + 0.5f));
+                UI_SetNextBorderThickness(m->stroke);
+                UI_SetNextColors((UI_Colors){ .background = { (f32)r / 255.0f, (f32)g / 255.0f, (f32)b / 255.0f, 1 }, .border = theme->tabBorder });
+                UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+                Prog__Spacer(UI_Pixels(pad), UI_Pixels(tall));
+                UI_SetNextFont(m->detail);
+                Prog__Label(value, UI_TextContent(), tall, 0, theme->text, 0);
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(tall));
+                UI_SetNextFont(m->detail);
+                Prog__Label(where, UI_TextContent(), tall, 0, theme->textDim, 0);
+            }
+        }
         // The minimap: the whole picture dimmed in the bottom right corner, with the part in sight bright and outlined.
         if (!state->imageHideMinimap && (shownWidth > roomWidth + 0.5f || shownHeight > roomHeight + 0.5f)) {
             f32 most = floorf(240.0f * s + 0.5f), tall = floorf(160.0f * s + 0.5f), shrink = MinF32(most / width, tall / height);

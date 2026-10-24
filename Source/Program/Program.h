@@ -1265,7 +1265,8 @@ typedef struct Prog_PdfView {
 // The inspector each tab has of its own, beside its list while shown, previewing its focused item, so that tabs of one panel and other panels
 // each keep theirs:
 //   previewShown: open; previewPath: the item shown or on its way, loaded by previewJob into previewArena; previewText, previewTexture: what it is
-//   previewPicture: the texture holds previewPath's picture, previewTextureWidth by previewTextureHeight; previewImage: it is an image file's own,
+//   previewPicture: the texture holds previewPath's picture, previewTextureWidth by previewTextureHeight, an image file's with its pixels kept
+//     in previewPixels, for the readout of the one under the pointer; previewImage: it is an image file's own,
 //     previewImageWidth by previewImageHeight; previewFolder: a folder, which the inspector's panel lists
 //   previewHex: the file shows as hex from hexPages, its pages kept, NULL for the rest, hexPageCount of them out of hexSize bytes, each in
 //     one of the hexSlots, which hold the pages hexSlotPage says, in previewArena; hexPageJob the page on its way, one at a time; hexBase the
@@ -1294,6 +1295,7 @@ typedef struct Prog_PdfView {
     X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
     X(b32, previewPicture) X(i32, previewTextureWidth) X(i32, previewTextureHeight) X(b32, previewImage) X(i32, previewImageWidth) X(i32, previewImageHeight) \
+    X(u32 *, previewPixels) \
     X(b32, previewFolder) X(b32, previewHex) X(u64, hexSize) X(u8 **, hexPages) X(u64, hexPageCount) X(P_Job *, hexPageJob) \
     X(u8 **, hexSlots) X(u64 *, hexSlotPage) X(u64, hexBase) X(u64, hexPress) X(P_Job *, hexFindJob) X(u64, hexJumpTo) \
     X(b32, previewArchive) X(b32, previewDocument) X(P_DirectoryTotals, previewArchiveTotals) X(b32, previewArchiveCounted) X(u64, previewStamp) \
