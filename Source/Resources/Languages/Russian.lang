@@ -990,20 +990,23 @@ This cannot be undone.
 Copy to that window
 = Скопировать в то окно
 
-Move to that window (Ctrl to copy)
-= Переместить в то окно (Ctrl, чтобы скопировать)
+Move to that window
+= Переместить в то окно
 
 Copy to a new window
 = Скопировать в новое окно
 
-Move to a new window (Ctrl to copy)
-= Переместить в новое окно (Ctrl, чтобы скопировать)
+Move to a new window
+= Переместить в новое окно
 
 Copy
 = Копировать
 
-Move (Ctrl to copy)
-= Переместить (Ctrl, чтобы скопировать)
+Move
+= Переместить
+
+to copy
+= — скопировать
 
 Path
 = Путь

@@ -10092,24 +10092,33 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         { { cx - wide * 0.5f, top, cx + wide * 0.5f, top + low }, 2, false, 0, Prog_TabDrop_Top },
         { { cx - wide * 0.5f, height - low - gap, cx + wide * 0.5f, height - gap }, 2, false, 1, Prog_TabDrop_Bottom },
     };
-    // The part of the panel the tab would take, the tab strip's height above the body too, washed under the zones while the pointer is over one.
+    // The part of the panel the tab would take, washed under the zones while the pointer is over one: the body's half or all of it, and but
+    // for the bottom half a tab's height of the strip above it, shaped as a tab.
     for (u32 i = 0; i < CArrayCount(zones); ++i) {
         R_Rect box = zones[i].box;
         if ((own && zones[i].drop == Prog_TabDrop_Into) || !UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse)) continue;
         Prog_TabDrop drop = zones[i].drop;
-        f32 halfWidth = floorf(width * 0.5f), halfHeight = floorf((height + m->bar) * 0.5f);
-        R_Rect wash = { drop == Prog_TabDrop_Right ? halfWidth : 0, drop == Prog_TabDrop_Bottom ? halfHeight - m->bar : -m->bar,
-                        drop == Prog_TabDrop_Left ? halfWidth : width, drop == Prog_TabDrop_Top ? halfHeight - m->bar : height };
+        f32 halfWidth = floorf(width * 0.5f), halfHeight = floorf(height * 0.5f);
+        f32 x0 = drop == Prog_TabDrop_Right ? halfWidth : 0, x1 = drop == Prog_TabDrop_Left ? halfWidth : width;
+        UI_Block *dragged = UI__Find(state->tabDragKey);
+        f32 tab = dragged ? dragged->rect.y1 - dragged->rect.y0 : m->bar;
         const Prog_Theme *theme = Prog_CurrentTheme();
         R_Color fill = theme->selection;
         fill.a *= theme->hoverAmount.r * (2.0f / 3.0f);
-        UI_SetNextFloatingOffset((UI_Vec2){ wash.x0, wash.y0 });
-        UI_SetNextPrefWidth(UI_Pixels(wash.x1 - wash.x0));
-        UI_SetNextPrefHeight(UI_Pixels(wash.y1 - wash.y0));
-        UI_SetNextCornerRadius(m->radius);
-        UI_SetNextBorderThickness(m->stroke);
-        UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->tabBorder });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        struct { R_Rect rect; u32 shape; } parts[2] = {
+            { { x0, -tab, x1, 0 }, R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight },
+            { { x0, drop == Prog_TabDrop_Bottom ? halfHeight : 0, x1, drop == Prog_TabDrop_Top ? halfHeight : height }, R_Shape_SquareTopLeft | R_Shape_SquareTopRight },
+        };
+        for (u32 p = drop == Prog_TabDrop_Bottom ? 1 : 0; p < 2; ++p) {
+            UI_SetNextFloatingOffset((UI_Vec2){ parts[p].rect.x0, parts[p].rect.y0 });
+            UI_SetNextPrefWidth(UI_Pixels(parts[p].rect.x1 - parts[p].rect.x0));
+            UI_SetNextPrefHeight(UI_Pixels(parts[p].rect.y1 - parts[p].rect.y0));
+            UI_SetNextCornerRadius(m->radius);
+            UI_SetNextShape(drop == Prog_TabDrop_Bottom ? 0 : parts[p].shape);
+            UI_SetNextBorderThickness(m->stroke);
+            UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->tabBorder });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        }
         break;
     }
     for (u32 i = 0; i < CArrayCount(zones); ++i) {
@@ -10131,11 +10140,15 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
     String path = state->tabDrop.fromSlot < state->tabCount ? Prog_TabPath(state, state->tabDrop.fromSlot) : (String){0};
     Prog__UsePanel(state, state->activePanel);
     b32 copy = (UI->mods & KeyMod_Control) != 0;
-    String action = state->tabDrop.kind == Prog_TabDrop_Window && state->tabDropOther ? (copy ? Tr("Copy to that window") : Tr("Move to that window (Ctrl to copy)"))
-                  : state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? Tr("Copy to a new window") : Tr("Move to a new window (Ctrl to copy)"))
-                  : copy ? Tr("Copy") : Tr("Move (Ctrl to copy)");
+    String action = state->tabDrop.kind == Prog_TabDrop_Window && state->tabDropOther ? (copy ? Tr("Copy to that window") : Tr("Move to that window"))
+                  : state->tabDrop.kind == Prog_TabDrop_Window ? (copy ? Tr("Copy to a new window") : Tr("Move to a new window"))
+                  : copy ? Tr("Copy") : Tr("Move");
+    // While it moves, the key that copies follows in a key chip.
+    String key = NoTr("Ctrl"), hint = Tr("to copy");
+    f32 chip = floorf(4.8f * m->scale + 0.5f) * 2 + R_TextWidth(m->detail, key);
+    f32 words = R_TextWidth(m->font, action) + (copy ? 0 : 2 * m->gap + MaxF32(chip, floorf(30.4f * m->scale + 0.5f)) + R_TextWidth(m->font, hint));
     // Wide enough for what it says, and kept inside the window, which it cannot draw outside of.
-    f32 width = MaxF32(floorf(m->line * 12.0f), R_TextWidth(m->font, action) + 2 * m->gap), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
+    f32 width = MaxF32(floorf(m->line * 12.0f), words + 2 * m->gap), height = floorf(m->bar * 0.85f), radius = floorf(8.0f * scale + 0.5f);
     // A translucent theme's panels would leave it unreadable over the list, so it takes the menus' color there.
     R_Color face = theme->panel.a < 1 ? theme->menu : theme->panel, foot = theme->background.a < 1 ? theme->menu : theme->background;
     R_Rect view = UI->root->rect;
@@ -10156,7 +10169,9 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_SetNextChildrenPadding((UI_Padding){ floorf(14.0f * scale), 0, m->gap, 0 });
+        // With what letting go does under it, the two are one card.
         UI_SetNextCornerRadius(radius);
+        UI_SetNextShape(outside ? 0 : R_Shape_SquareBottomLeft | R_Shape_SquareBottomRight);
         UI_SetNextBorderThickness(m->separator);
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(height));
@@ -10178,11 +10193,24 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
         if (outside) return;
         UI_SetNextPrefWidth(UI_Pixels(width));
         UI_SetNextPrefHeight(UI_Pixels(m->row));
-        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextCornerRadius(radius);
+        UI_SetNextShape(R_Shape_SquareTopLeft | R_Shape_SquareTopRight);
         UI_SetNextBorderThickness(m->separator);
-        UI_SetNextColors((UI_Colors){ .background = foot, .border = theme->tabBorder, .text = theme->text });
-        UI_SetNextText(action);
-        UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
+        UI_SetNextColors((UI_Colors){ .background = foot, .border = theme->tabBorder });
+        UI_Block *footer = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        UI_Parent(footer) {
+            Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
+            Prog__Label(action, UI_TextContent(), m->row, 0, theme->text, 0);
+            if (!copy) {
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->row));
+                Prog__Chip(key, m->row, false, false, m);
+                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->row));
+                Prog__Label(hint, UI_TextContent(), m->row, 0, theme->text, 0);
+            }
+            Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
+        }
     }
 }
 
