@@ -3,12 +3,11 @@
 ## Missing
 
 - Network: the computers and shares on the network as a folder (the Recycle Bin and phones are listed). Phones on Linux through GVFS are untested with a device.
-- Low priority: faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
 - Languages: the Chinese, French, German, Polish, Portuguese and Spanish translations want a native speaker's review.
 
-## From the RAD Debugger
+## Possible features
 
-- Maybe: linear-light blending into an sRGB framebuffer, only if the reference does it too.
+- Faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
 
 ## Linux
 
@@ -28,6 +27,7 @@ To be checked on Linux:
 - Seeding torrents, and a waveform drawn natively rather than ffmpeg's picture tinted with the accent.
 - A .blend's Boolean and Bevel modifiers, and Mirror's merging and Subdivision Surface's creases: heavy for a preview that is flat shaded and small.
 - Binding the left, middle and right buttons and the wheel to commands: only the side buttons bind, as the reference's mouse hotkeys cannot be changed at all.
+- Linear-light blending into an sRGB framebuffer: the reference blends the stored values, as Filey does; its drop zone's wash measures exactly that.
 - Release flags: `-O3`, `-march=x86-64-v2` and `-v3`, and profile-guided optimization measured within the noise of `-O2` or slower.
 
 ## Checks
