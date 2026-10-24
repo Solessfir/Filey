@@ -2499,8 +2499,16 @@ function u32 Prog__BlendColor(const Prog__BlendBlock *values, u64 at, u32 bytes)
     return Prog__Read32(values->data + at * 4) | 0xFF000000u;
 }
 
-// Adds mesh `block`'s faces, placed by `place`, as triangles fanned from each face's first corner, in the parts its materials give them.
-function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *block, const Prog__Affine *place, Prog_Mesh *out)
+// The pointer at slot `index` of the pointer array `slots`, or 0.
+function u64 Prog__BlendSlot(const Prog__Blend *blend, const Prog__BlendBlock *slots, u32 index)
+{
+    if (!slots || (u64)(index + 1) * blend->pointer > slots->length) return 0;
+    return blend->pointer == 8 ? Prog__Read64(slots->data + index * 8) : Prog__Read32(slots->data + index * 4);
+}
+
+// Adds mesh `block`'s faces, placed by `place`, as triangles fanned from each face's first corner, in the parts its materials give them:
+// a slot's own, or the object `object`'s where the slot is linked to the object.
+function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *object, const Prog__BlendBlock *block, const Prog__Affine *place, Prog_Mesh *out)
 {
     u32 meshType = Prog__BlendStruct(blend, S("Mesh"));
     if (meshType == UINT32_MAX || block->sdna != meshType) return;
@@ -2526,8 +2534,13 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
         Prog_MeshPart looks[32];
         u32 lookCount = (u32)Min(Max(Prog__BlendInt(blend, meshType, mesh, length, S("totcol")), (i64)0), (i64)CArrayCount(looks));
         const Prog__BlendBlock *slots = Prog__BlendAt(blend, owner, Prog__BlendPointer(blend, meshType, mesh, length, S("mat")));
+        u32 objectType = Prog__BlendStruct(blend, S("Object"));
+        const Prog__BlendBlock *own = object ? Prog__BlendAt(blend, object, Prog__BlendPointer(blend, objectType, object->data, object->length, S("mat"))) : NULL;
+        const Prog__BlendBlock *linked = object ? Prog__BlendAt(blend, object, Prog__BlendPointer(blend, objectType, object->data, object->length, S("matbits"))) : NULL;
+        i64 objectSlots = object ? Prog__BlendInt(blend, objectType, object->data, object->length, S("totcol")) : 0;
         for (u32 i = 0; i < lookCount; ++i) {
-            u64 old = slots && (u64)(i + 1) * blend->pointer <= slots->length ? (blend->pointer == 8 ? Prog__Read64(slots->data + i * 8) : Prog__Read32(slots->data + i * 4)) : 0;
+            b32 byObject = linked && own && (i64)i < objectSlots && i < linked->length && linked->data[i];
+            u64 old = byObject ? Prog__BlendSlot(blend, own, i) : Prog__BlendSlot(blend, slots, i);
             looks[i] = Prog__BlendLook(arena, blend, Prog__BlendAt(blend, NULL, old), out);
         }
         i32 domain = 0;
@@ -2658,7 +2671,7 @@ function b32 Prog__ReadBlend(Arena *arena, String data, const P_CancelToken *can
         if (Prog__BlendInt(&blend, objectType, object->data, object->length, S("type")) != 1) continue;
         const Prog__BlendBlock *data = Prog__BlendAt(&blend, NULL, Prog__BlendPointer(&blend, objectType, object->data, object->length, S("data")));
         Prog__Affine place = Prog__BlendPlace(&blend, objectType, object, 0);
-        if (data && data->code == Prog__BlendCode('M', 'E', 0, 0)) Prog__BlendMesh(arena, &blend, data, &place, mesh);
+        if (data && data->code == Prog__BlendCode('M', 'E', 0, 0)) Prog__BlendMesh(arena, &blend, object, data, &place, mesh);
     }
     return mesh->indices.header.count > 0;
 }
