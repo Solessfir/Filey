@@ -483,6 +483,9 @@ function b32 P__LoadImage(Arena *arena, const wchar *wide, IStream *stream, Stri
     return result;
 }
 
+// The shell names types in the system's language, and names every one.
+function void P_SetTypeWords(String language, String folder, String file, String fileOf) { (void)language, (void)folder, (void)file, (void)fileOf; }
+
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)
 {
     Scratch scratch = GetScratchEx(arena);

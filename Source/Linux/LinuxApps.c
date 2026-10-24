@@ -478,40 +478,40 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     ReleaseScratch(scratch);
     u32 openWith = UINT32_MAX;
     if (inTrash) {
-        if (count) items[itemCount++] = (P_MenuItem){ .label = S("Delete"), .action = P_MenuAction_Delete };
+        if (count) items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Delete"), .action = P_MenuAction_Delete };
     } else if (count) {
-        items[itemCount++] = (P_MenuItem){ .label = S("Open"), .verb = S("open"), .isDefault = true };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Open"), .verb = S("open"), .isDefault = true };
         if (appCount) {
             openWith = itemCount;
-            items[itemCount++] = (P_MenuItem){ .label = S("Open With") };
+            items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Open With") };
         }
     }
     if (terminal) {
         itemTerminal[itemCount] = true;
-        items[itemCount++] = (P_MenuItem){ .label = S("Open in Terminal"), .verb = S("openterminal") };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Open in Terminal"), .verb = S("openterminal") };
     }
     if (count && !trash && !inTrash) {
         items[itemCount++] = separator;
-        items[itemCount++] = (P_MenuItem){ .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
-        items[itemCount++] = (P_MenuItem){ .label = S("Copy"), .verb = S("copy"), .action = P_MenuAction_Copy };
-        items[itemCount++] = (P_MenuItem){ .label = S("Duplicate"), .action = P_MenuAction_Duplicate };
-        items[itemCount++] = (P_MenuItem){ .label = S("Copy As Path"), .action = P_MenuAction_CopyAsPath };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Copy"), .verb = S("copy"), .action = P_MenuAction_Copy };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Duplicate"), .action = P_MenuAction_Duplicate };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Copy As Path"), .action = P_MenuAction_CopyAsPath };
         items[itemCount++] = separator;
-        if (count == 1) items[itemCount++] = (P_MenuItem){ .label = S("Rename"), .verb = S("rename") };
-        items[itemCount++] = (P_MenuItem){ .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
-        items[itemCount++] = (P_MenuItem){ .label = S("Delete"), .action = P_MenuAction_Delete };
+        if (count == 1) items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Rename"), .verb = S("rename") };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Delete"), .action = P_MenuAction_Delete };
     } else if (!count && !inTrash) {
         items[itemCount++] = separator;
-        items[itemCount++] = (P_MenuItem){ .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
         items[itemCount++] = separator;
-        items[itemCount++] = (P_MenuItem){ .label = S("New") };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("New") };
     }
     u32 rootCount = itemCount;
     if (!count && !inTrash) {
         items[rootCount - 1].firstChild = rootCount;
         items[rootCount - 1].childCount = 2;
-        items[itemCount++] = (P_MenuItem){ .label = S("Folder"), .action = P_MenuAction_NewFolder };
-        items[itemCount++] = (P_MenuItem){ .label = S("File"), .action = P_MenuAction_NewFile };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Folder"), .action = P_MenuAction_NewFolder };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("File"), .action = P_MenuAction_NewFile };
     }
     if (openWith != UINT32_MAX) {
         items[openWith].firstChild = itemCount;

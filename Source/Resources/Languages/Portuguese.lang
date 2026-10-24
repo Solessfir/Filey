@@ -3299,3 +3299,15 @@ Give the inspector less of its panel.
 
 Items cannot be added to an archive inside another
 = Não é possível adicionar itens a um arquivo compactado dentro de outro
+
+Open With
+= Abrir com
+
+Open in Terminal
+= Abrir no terminal
+
+New
+= Novo
+
+%S file
+= Arquivo %S

@@ -235,6 +235,9 @@ function void Prog_UseLanguage(Prog_State *state, String name)
     Prog__LoadLanguage(state, name);
     Prog__TranslateMenuLists(state, false);
     Prog_UseUnits();
+    String code = {0};
+    for (u64 i = 0; i < CArrayCount(Prog_BuiltInLanguages); ++i) if (StrIsEqual(name, Prog_BuiltInLanguages[i].name)) code = Prog_BuiltInLanguages[i].code;
+    P_SetTypeWords(code, Tr("Folder"), Tr("File"), StrFromCStr(TrF("%S file")));
 }
 
 function void Prog__LoadLanguage(Prog_State *state, String name)

@@ -155,6 +155,19 @@ function P_ContextMenu Prog__ShapeMenu(Prog_State *state, P_ContextMenu base)
     return (P_ContextMenu){ .items = items, .count = kept + children, .rootCount = kept, .native = base.native };
 }
 
+// The system's menu items that are Filey's own, as Linux's are, in the language shown; these are their English texts, for the language files.
+global const String Prog__OwnMenuWords[] = { TrInit("Open"), TrInit("Open With"), TrInit("Open in Terminal"), TrInit("Cut"), TrInit("Copy"), TrInit("Duplicate"),
+                                             TrInit("Copy As Path"), TrInit("Rename"), TrInit("Trash"), TrInit("Delete"), TrInit("Paste"), TrInit("New"),
+                                             TrInit("Folder"), TrInit("File") };
+
+function void Prog__TranslateOwnItems(Prog_State *state)
+{
+    (void)Prog__OwnMenuWords;
+    for (u32 i = 0; state->menuOpen && i < state->menu.count; ++i) {
+        if (state->menu.items[i].own) state->menu.items[i].label = Prog_Tr(state->menu.items[i].label);
+    }
+}
+
 function void Prog__ApplyMenuPins(Prog_State *state)
 {
     if (state->menuCommands || !state->menuOpen) return;
@@ -1775,6 +1788,7 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     ProfileScope("OpenContextMenu") {
         state->menuOpen = P_ContextMenuOpen(&state->menuArena, folder, names, state->menuRowCount, &state->menu);
     }
+    Prog__TranslateOwnItems(state);
     if (!state->menuOpen) {
         Prog_CloseMenu(state);
         return;
@@ -3553,6 +3567,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     break;
                 }
                 state->menuOpen = P_ContextMenuOpen(&state->menuArena, folder, &name, 1, &state->menu);
+                Prog__TranslateOwnItems(state);
                 if (!state->menuOpen) {
                     Prog_CloseMenu(state);
                     break;

@@ -3299,3 +3299,15 @@ Give the inspector less of its panel.
 
 Items cannot be added to an archive inside another
 = Nie można dodawać elementów do archiwum znajdującego się w innym archiwum
+
+Open With
+= Otwórz za pomocą
+
+Open in Terminal
+= Otwórz w terminalu
+
+New
+= Nowy
+
+%S file
+= Plik %S

@@ -3298,3 +3298,15 @@ Give the inspector less of its panel.
 
 Items cannot be added to an archive inside another
 = No se pueden añadir elementos a un archivo comprimido que está dentro de otro
+
+Open With
+= Abrir con
+
+Open in Terminal
+= Abrir en el terminal
+
+New
+= Nuevo
+
+%S file
+= Archivo %S

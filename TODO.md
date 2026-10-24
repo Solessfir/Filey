@@ -18,7 +18,6 @@ To be checked on Linux:
 - Asking a server for its shares (`smbclient -L`, or the gvfs mounts in `$XDG_RUNTIME_DIR/gvfs`); mounted CIFS and NFS shares already show as drives.
 - Following the theme's light or dark change while Filey runs (the settings portal's `SettingChanged`), and the portal path on a desktop that has it.
 - An update replaces only the executable, not the desktop entry and icons.
-- Type names ("Folder", "File", "%S file") stay English.
 - A drag from an archive to other apps extracts before it starts.
 
 ## Not planned

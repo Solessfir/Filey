@@ -1113,6 +1113,13 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(P_FileTypeName(&arena, S("plain.txt"), P_FileKind_File).length);
     Check(P_FileTypeName(&arena, S("Folder2"), P_FileKind_Directory).length);
     Check(P_FileTypeName(&arena, S("LICENSE"), P_FileKind_File).length);
+#if defined(__linux__)
+    // Types the MIME database does not name take the words the program gives, in its language.
+    P_SetTypeWords(S("fr"), S("Dossier"), S("Fichier"), S("Fichier %S"));
+    Check(StrIsEqual(P_FileTypeName(&arena, S("Folder2"), P_FileKind_Directory), S("Dossier")));
+    Check(StrIsEqual(P_FileTypeName(&arena, S("odd.zzqq"), P_FileKind_File), S("Fichier zzqq")));
+    P_SetTypeWords(S(""), S("Folder"), S("File"), S("%S file"));
+#endif
 
     P_Image image = {0};
     String file = Prog_JoinPath(&arena, fixture->path, S("plain.txt"));

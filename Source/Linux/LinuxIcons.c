@@ -1160,18 +1160,46 @@ function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size
     return result;
 }
 
-// ponytail: the untranslated <comment> only; pick the xml:lang one matching LANG when localization lands.
+// The words P_SetTypeWords gives, swapped whole for new ones as the language changes while listings read them; the old ones are kept.
+typedef struct P__TypeWords { String language, folder, file, fileOf; } P__TypeWords;
+global _Atomic(const P__TypeWords *) P__typeWords;
+global Arena P__typeWordsArena;
+
+function void P_SetTypeWords(String language, String folder, String file, String fileOf)
+{
+    P__TypeWords *words = ArenaPushStruct(&P__typeWordsArena, P__TypeWords);
+    *words = (P__TypeWords){ StrCopy(&P__typeWordsArena, language), StrCopy(&P__typeWordsArena, folder), StrCopy(&P__typeWordsArena, file),
+                             StrCopy(&P__typeWordsArena, fileOf) };
+    atomic_store(&P__typeWords, words);
+}
+
+// The MIME type's name in the chosen language, as "Ordner" for "de", from its <comment xml:lang="de">, or one of a region of it, as
+// "pt_BR" for "pt"; else the English <comment>.
 function String P__MimeComment(Arena *arena, String mime)
 {
     const P__IconData *icons = P__Icons();
+    const P__TypeWords *words = atomic_load(&P__typeWords);
+    String language = words ? words->language : (String){0};
     for (u64 d = 0; d < icons->dataDirs.header.count; ++d) {
         Scratch scratch = GetScratchEx(arena);
         String xml = P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/mime/%S.xml", icons->dataDirs.v[d], mime));
-        Index open = StrIndexStr(xml, S("<comment>"), SSF_None);
-        Index close = open.exists ? StrIndexStr(StrFrom(xml, open.value), S("</comment>"), SSF_None) : (Index){0};
+        Index open = {0};
+        u64 start = 0;
+        if (language.length) {
+            String exact = StrFormat(scratch.arena, "<comment xml:lang=\"%S\">", language), region = StrFormat(scratch.arena, "<comment xml:lang=\"%S_", language);
+            open = StrIndexStr(xml, exact, SSF_None);
+            if (open.exists) start = open.value + exact.length;
+            else if ((open = StrIndexStr(xml, region, SSF_None)).exists) {
+                Index end = StrIndexChar(StrFrom(xml, open.value), '>', SSF_None);
+                open.exists = end.exists;
+                start = open.value + end.value + 1;
+            }
+        }
+        if (!open.exists && (open = StrIndexStr(xml, S("<comment>"), SSF_None)).exists) start = open.value + 9;
+        Index close = open.exists ? StrIndexStr(StrFrom(xml, start), S("</comment>"), SSF_None) : (Index){0};
         String result = {0};
         if (close.exists) {
-            String raw = StrFromTo(xml, open.value + 9, (i64)(open.value + close.value));
+            String raw = StrFromTo(xml, start, (i64)(start + close.value));
             StrBuilder builder = {0};
             for (u64 i = 0; i < raw.length; ++i) {
                 local_persist const struct { String entity; char c; } entities[] = {
@@ -1200,14 +1228,16 @@ function String P__MimeComment(Arena *arena, String mime)
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind)
 {
     pthread_once(&P__iconsOnce, P__LoadIconData);
-    if (kind == P_FileKind_Directory) return S("Folder");
+    const P__TypeWords *words = atomic_load(&P__typeWords);
+    if (kind == P_FileKind_Directory) return words && words->folder.length ? words->folder : S("Folder");
     Scratch scratch = GetScratchEx(arena);
     String key = P_FileTypeKey(scratch.arena, name, kind);
-    String result = S("File");
+    String result = words && words->file.length ? words->file : S("File");
     if (key.length > 1 && key.value[0] == '.') {
         String mime = MapsGet(P__Icons()->mimeByExtension, String, StrFrom(key, 1));
         String comment = mime.length ? P__MimeComment(arena, mime) : (String){0};
-        result = comment.length ? comment : StrFormat(arena, "%S file", StrFrom(key, 1));
+        String format = words && words->fileOf.length ? words->fileOf : S("%S file");
+        result = comment.length ? comment : StrFormat(arena, (const char *)P__FilePathCString(scratch.arena, format), StrFrom(key, 1));
     }
     ReleaseScratch(scratch);
     return result;

@@ -3298,3 +3298,15 @@ Give the inspector less of its panel.
 
 Items cannot be added to an archive inside another
 = 无法将项目添加到嵌套在另一个压缩文件中的压缩文件
+
+Open With
+= 打开方式
+
+Open in Terminal
+= 在终端中打开
+
+New
+= 新建
+
+%S file
+= %S 文件

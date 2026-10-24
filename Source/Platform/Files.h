@@ -497,6 +497,10 @@ function String P_FileThumbnailKey(Arena *arena, String path, P_FileKind kind);
 // Only the name is used, never the file.
 // Slow enough to run in a job and cache per P_FileTypeKey.
 function String P_FileTypeName(Arena *arena, String name, P_FileKind kind);
+// The language P_FileTypeName names types in where the system has names in several, by its code such as "de" (empty for English), and the
+// words it takes where the system has none: a folder's, a file's, and a file's of an extension, as "%S file", in that language.
+// Linux's MIME database has each type's name in many languages; Windows' shell names them in the system's own.
+function void P_SetTypeWords(String language, String folder, String file, String fileOf);
 
 // Context menus.
 // Windows reads the shell's own menu, extensions included; Linux offers the actions Filey implements itself.
@@ -535,6 +539,7 @@ typedef struct P_MenuItem {
     b8 separator;
     b8 disabled;
     b8 isDefault;
+    b8 own;            // the label is Filey's own English, as Linux's menu has, which the program shows translated
     enum8(P_MenuAction) action;
 } P_MenuItem;
 

@@ -3297,3 +3297,15 @@ Give the inspector less of its panel.
 
 Items cannot be added to an archive inside another
 = Нельзя добавить файлы в архив внутри другого архива
+
+Open With
+= Открыть с помощью
+
+Open in Terminal
+= Открыть в терминале
+
+New
+= Создать
+
+%S file
+= Файл %S
