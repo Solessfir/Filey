@@ -5320,8 +5320,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
 }
 
-// The box for a group's items, which slides open and shut to the height its items took last frame (none on the first frame it opens, which
-// shows them at once); null while it is shut, when the items need no blocks.
+// The box for a group's items, which eases open and shut over its whole height, that of its items in the last frame; null while it is shut,
+// when the items need no blocks.
 function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Prog_Metrics *m)
 {
     // A filter shows what it finds in every group.
@@ -5329,7 +5329,7 @@ function UI_Block *Prog__GroupBody(Prog_State *state, Prog_Group group, const Pr
     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GroupBody/%u", (u32)group));
     UI_Block *last = UI__Find(key);
     f32 full = last ? last->contentSize.y : 0;
-    f32 shown = UI_Slide(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, Prog__SlideCap(m) / MaxF32(full, 1));
+    f32 shown = UI_Animate(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
     if (!open && shown <= 0) return NULL;
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(shown >= 1 ? UI_Fill() : UI_Pixels(floorf(full * shown + 0.5f)));
