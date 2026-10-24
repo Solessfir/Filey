@@ -584,9 +584,18 @@ function void Prog_GroupToggle(Prog_State *state, u32 index)
     u64 count = 0;
     for (u64 i = 0; i < state->groupsFolded.header.count; ++i) if (!StrIsEqual(state->groupsFolded.v[i], label)) kept[count++] = state->groupsFolded.v[i];
     if (!folded) kept[count++] = label;
+    // Its items ease open in the view, or ease shut in it before the view leaves them out.
+    b32 eases = state->ui.animate && (folded || state->groups[index].count);
+    if (eases) {
+        state->groupEasePanel = Prog__PanelId(state);
+        state->groupEaseStart = PlatformNowMicroseconds();
+        state->groupEaseIndex = index;
+        state->groupEaseFolding = !folded;
+        state->groupEaseSettling = false;
+    }
     Prog__SetList(&state->groupArena, &state->groupsFolded, kept, count);
     ReleaseScratch(scratch);
-    Prog_ApplyFilter(state, false);
+    if (!eases || folded) Prog_ApplyFilter(state, false);
 }
 
 function void Prog_ApplyFilter(Prog_State *state, b32 edited)

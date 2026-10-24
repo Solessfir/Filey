@@ -4554,7 +4554,8 @@ function void Prog__GroupHeading(Prog_State *state, UI_Key seed, u32 index, f32 
     if (interaction.clicked && interaction.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_GroupToggle, index, 0, interaction.clickOrder);
     UI_Parent(heading) {
         R_Color color = hot ? theme->text : theme->textHeading;
-        Prog__Icon(group->count || !group->total ? Icon_ChevronDown : Icon_ChevronRight, m->iconSlot, height, color, 0.5f, m);
+        // Folded as soon as it is clicked, while its items ease shut.
+        Prog__Icon(!Prog__GroupFolded(state, group->label) || !group->total ? Icon_ChevronDown : Icon_ChevronRight, m->iconSlot, height, color, 0.5f, m);
         Prog__Label(Prog_Tr(group->label), UI_TextContent(), height, 0, color, 0);
         Prog__Label(StrFormat(&state->frameArena, "%" PRIu64, group->total), UI_TextContent(), height, m->gap, theme->textDim, 0);
         UI_Block *rule = Prog__Box(UI_Flex(), UI_Pixels(height), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -4677,9 +4678,32 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     u32 groupCount = Max(state->groupCount, 1u);
     f32 heading = state->groupCount ? floorf(m->row * 1.4f + 0.5f) : 0, contentHeight = 0;
     state->groupHeading = heading;
+    // A group whose heading was clicked eases its items open or shut, as the sidebar's groups do: `easeShown` of their height shows, in a
+    // clip, and the groups after it move up by what is hidden. A long one eases over no more than the list's height.
+    u32 easeGroup = UINT32_MAX;
+    f32 easeShown = 0;
+    if (state->groupEaseStart && state->groupEasePanel == Prog__PanelId(state)) {
+        b32 folding = state->groupEaseFolding;
+        f32 since = (f32)(UI->nowMicroseconds - Min(state->groupEaseStart, UI->nowMicroseconds)) / 1e6f, eased = 1 - expf(-34.0f * since);
+        if (!UI->animate || state->groupEaseIndex >= state->groupCount) eased = 1;
+        if (eased > 0.999f) {
+            eased = 1;
+            // One folded up stays shut until the view without its items comes.
+            if (folding && !state->groupEaseSettling) Prog_QueueCommand(state, Prog_CommandKind_GroupFoldSettle, 0, 0, 0);
+            state->groupEaseSettling = true;
+            if (!folding) state->groupEaseStart = 0;
+        } else {
+            UI_KeepAnimating();
+        }
+        if (state->groupEaseStart && state->groupEaseIndex < groupCount) {
+            easeGroup = state->groupEaseIndex;
+            f32 body = (f32)((groups[easeGroup].count + perLine - 1) / perLine) * pitch.y, eases = MinF32(body, list->rect.y1 - list->rect.y0 + pitch.y);
+            easeShown = floorf(eases * (folding ? 1 - eased : eased) + 0.5f);
+        }
+    }
     for (u32 g = 0; g < groupCount; ++g) {
         groups[g].top = contentHeight;
-        contentHeight += heading + (f32)((groups[g].count + perLine - 1) / perLine) * pitch.y;
+        contentHeight += heading + (g == easeGroup ? easeShown : (f32)((groups[g].count + perLine - 1) / perLine) * pitch.y);
     }
 
     state->pageRows = (u64)(Max(0.0f, list->rect.y1 - list->rect.y0) / pitch.y);
@@ -4755,6 +4779,15 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             }
             u64 lines = (group->count + perLine - 1) / perLine;
             u64 first = viewFrom > below ? (u64)((viewFrom - below) / pitch.y) : 0, end = viewTo > below ? Min(lines, (u64)((viewTo - below) / pitch.y) + 1) : 0;
+            // The group easing open or shut has its lines in a clip as tall as it shows.
+            UI_Block *easing = NULL, *outside = NULL;
+            if (g == easeGroup) {
+                end = Min(end, (u64)ceilf(easeShown / pitch.y));
+                if (below > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(below - drawn));
+                easing = Prog__Box(UI_Flex(), UI_Pixels(easeShown), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
+                outside = UI_PushParent(easing);
+                drawn = below;
+            }
             // The rows after a tree's folder easing come into sight from further away.
             if (treeShift > 0) first = first > state->treeEaseRows ? first - state->treeEaseRows : 0;
             if (treeShift < 0) end = Min(lines, end + state->treeEaseRows);
@@ -4823,6 +4856,10 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
                         }
                     }
                 }
+            }
+            if (easing) {
+                UI_PopParent(outside);
+                drawn = below + easeShown;
             }
         }
         if (!state->loading && !state->marquee && listInteraction.active && listInteraction.isDragging && listInteraction.button == MouseButton_Left) marqueeFrom = list->key;

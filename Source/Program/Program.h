@@ -1969,6 +1969,11 @@ typedef struct Prog_State {
     b32 treeEaseOpening, treeEasePending, treeEaseFolding, treeEaseRelisted;
     u8 treeEaseName[1024];
     u32 treeEaseNameLength;
+    // A list group's heading clicked eases its items open or shut: the panel, when it began and the group; one folding up keeps its items
+    // in the view until they are shut, and asks once for the view without them.
+    u64 groupEasePanel, groupEaseStart;
+    u32 groupEaseIndex;
+    b32 groupEaseFolding, groupEaseSettling;
     u64 listRenameAt, listRenamePress, listRenamePanel, listRenameListing, listRenameRow;
     u32 sidebarRenameGroup;
     u64 sidebarRenameIndex;

@@ -3781,6 +3781,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->revealFocus = true;
             } break;
             case Prog_CommandKind_GroupToggle: if (!state->loading && command->row < state->groupCount) Prog_GroupToggle(state, (u32)command->row); break;
+            case Prog_CommandKind_GroupFoldSettle: {
+                state->groupEaseStart = 0;
+                Prog_ApplyFilter(state, false);
+            } break;
             case Prog_CommandKind_LayoutsSave: {
                 Prog_CloseMenu(state);
                 state->paletteOpen = false;

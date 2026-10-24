@@ -1750,6 +1750,10 @@ command GroupBySize {
 command GroupToggle {
 }
 
+// A list group whose items eased shut, which the view leaves out once they have.
+command GroupFoldSettle {
+}
+
 // A Miller column's row clicked; carries the row, the column's slot as its target and the press count.
 command MillerSelect {
 }
