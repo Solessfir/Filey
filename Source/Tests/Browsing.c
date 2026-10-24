@@ -1129,6 +1129,21 @@ function void TestFileIcons(TestFileFixture *fixture)
     String torrent = Prog_JoinPath(&arena, fixture->path, S("set.torrent"));
     Check(!P_WriteFile(&arena, torrent, S("d4:infod5:filesld6:lengthi40e4:pathl6:Season5:a.mkveed4:attr1:p6:lengthi24e4:pathl4:.pad2:24eed6:lengthi50e4:pathl5:b.txteee4:name3:Setee")).code);
     Check(Prog__TorrentWhole(torrent, (String){0}) && Prog__TorrentWhole(torrent, S("1,3")) && !Prog__TorrentWhole(torrent, S("3")) && !Prog__TorrentWhole(S("nowhere.torrent"), (String){0}));
+    // One stopped from its card takes its files, its control file and their emptied folders with it, leaving what else is there; finished, with
+    // no control file, it keeps them.
+    {
+        String set = Prog_JoinPath(&arena, fixture->path, S("Set")), season = Prog_JoinPath(&arena, set, S("Season")), created = {0};
+        Check(!P_CreateItem(&arena, fixture->path, S("Set"), true, &created).code && !P_CreateItem(&arena, set, S("Season"), true, &created).code);
+        String video = Prog_JoinPath(&arena, season, S("a.mkv")), text = Prog_JoinPath(&arena, set, S("b.txt")), mine = Prog_JoinPath(&arena, set, S("mine.txt"));
+        String control = Prog_JoinPath(&arena, fixture->path, S("Set.aria2"));
+        Check(!P_WriteFile(&arena, video, S("v")).code && !P_WriteFile(&arena, text, S("t")).code && !P_WriteFile(&arena, mine, S("m")).code);
+        Prog_DiscardTorrent(&arena, torrent, fixture->path);
+        Check(P_PathExists(video) && P_PathExists(text));
+        Check(!P_WriteFile(&arena, control, S("c")).code);
+        Prog_DiscardTorrent(&arena, torrent, fixture->path);
+        Check(!P_PathExists(control) && !P_PathExists(video) && !P_PathExists(season) && !P_PathExists(text) && P_PathExists(mine));
+        Check(P__TestRemovePath(fixture, S("Set/mine.txt"), false) && P__TestRemovePath(fixture, S("Set"), true));
+    }
     Check(!P_DeleteItems(&arena, &torrent, 1, false, NULL).code);
 #if defined(__linux__)
     Check(image.width == 1 && image.height == 1 && StrIsEqual(P_FileThumbnailKey(&arena, picture, P_FileKind_File), picture));

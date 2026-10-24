@@ -1311,7 +1311,12 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
         }
         return result;
     }
-    if (input->transferOp == Prog_TransferOp_Torrent) return Prog_DownloadTorrent(arena, input->paths[0], input->path, input->name, input->progress, cancel, placed);
+    if (input->transferOp == Prog_TransferOp_Torrent) {
+        result = Prog_DownloadTorrent(arena, input->paths[0], input->path, input->name, input->progress, cancel, placed);
+        // Stopped from its card it leaves nothing behind; a quit keeps what is down, for the next run to go on from.
+        if (P_IsCancelled(cancel) && input->progress && atomic_load(&input->progress->discard)) Prog_DiscardTorrent(arena, input->paths[0], input->path);
+        return result;
+    }
     if (input->transferOp == Prog_TransferOp_TorrentFetch) return Prog_FetchTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->downloadPlaylist, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Pack) {
@@ -6774,6 +6779,35 @@ function String Prog__AriaPath(Arena *arena, String path)
     (void)arena;
     return path;
 #endif
+}
+
+function void Prog_DiscardTorrent(Arena *arena, String source, String folder)
+{
+    Scratch scratch = GetScratchEx(arena);
+    String bytes = {0};
+    Prog_TorrentInfo info = {0};
+    if (P_ReadFile(scratch.arena, source, &bytes) && Prog_ReadTorrent(scratch.arena, bytes, &info) && info.name.length) {
+        String top = Prog_JoinPath(scratch.arena, folder, Prog__AriaPath(scratch.arena, info.name)), control = StrFormat(scratch.arena, "%S.aria2", top);
+        if (P_PathExists(control)) {
+            ArrayStr gone = {0};
+            ArrayPush(scratch.arena, gone, control);
+            for (u32 i = 0; i < info.fileCount; ++i) {
+                String path = info.single ? top : Prog_JoinPath(scratch.arena, top, Prog__AriaPath(scratch.arena, info.files[i].path));
+                if (P_PathExists(path)) ArrayPush(scratch.arena, gone, path);
+            }
+            P_DeleteItems(scratch.arena, gone.v, gone.header.count, false, NULL);
+            // Then the folders that held them, up to the torrent's own, each only once nothing else is in it.
+            for (u32 i = 0; !info.single && i < info.fileCount; ++i) {
+                String at = Prog_ParentPath(Prog_JoinPath(scratch.arena, top, Prog__AriaPath(scratch.arena, info.files[i].path)));
+                for (; at.length >= top.length && P_PathExists(at); at = Prog_ParentPath(at)) {
+                    P_DirectoryResult listing = P_EnumerateDirectory(scratch.arena, at, NULL);
+                    if (listing.errorCode || listing.files.header.count) break;
+                    P_DeleteItems(scratch.arena, &at, 1, false, NULL);
+                }
+            }
+        }
+    }
+    ReleaseScratch(scratch);
 }
 
 // Asks how far the files of the torrent the active inspector shows are: once it shows them, every two seconds while its download runs, and

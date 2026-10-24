@@ -4379,7 +4379,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_TransferCancel: {
                 Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;
-                if (transfer && transfer->job) P_RequestCancel(&transfer->job->cancelToken);
+                if (!transfer || !transfer->job) break;
+                atomic_store(&transfer->progress.discard, true);
+                P_RequestCancel(&transfer->job->cancelToken);
             } break;
             case Prog_CommandKind_TransferReveal: {
                 Prog_Transfer *transfer = command->row < Prog_TransferSlots ? &state->transfers[command->row] : NULL;

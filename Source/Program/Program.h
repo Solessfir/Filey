@@ -2156,6 +2156,9 @@ function b32 Prog_IsWebUrl(String text);
 function b32 Prog_IsMagnet(String text);
 function b32 Prog_IsTorrent(String text);
 function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, String selection, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
+// Removes what a torrent's download stopped short left in `folder`: the files it was writing, aria2c's control file, and the folders that held
+// them once they are empty. Without the control file the download had finished, or never started, and nothing goes.
+function void Prog_DiscardTorrent(Arena *arena, String source, String folder);
 function P_FileError Prog_FetchTorrent(Arena *arena, String source, String folder, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function b32 Prog_ReadTorrent(Arena *arena, String bytes, Prog_TorrentInfo *info);
 function String Prog_MagnetHash(Arena *arena, String magnet);
