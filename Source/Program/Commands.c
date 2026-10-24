@@ -1137,7 +1137,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
         u64 searched = state->searchPlaces.header.count, nearby = recents + bookmarks + places + searched + grouped, drives = state->drives.header.count;
         Arena *arena = &state->gotoFoundArena;
         // With Alt+E the walk's index once it is done, and before then the last run's, unless there is none.
-        const Prog_Index *index = !state->gotoDrives ? NULL : state->indexKept ? &state->savedIndex : state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;
+        const Prog_Index *index = !state->gotoDrives ? NULL : state->indexDone || !state->savedIndex.count ? &state->index : &state->savedIndex;
         String last = StrMake((const char *)state->gotoFoundText, state->gotoFoundTextLength);
         if (!state->gotoPool || !StrIsEqual(last, text) || state->gotoNearby != nearby + drives || state->gotoShowHidden != state->showHidden || state->gotoIndex != index) {
             ArenaClear(arena);
@@ -1225,8 +1225,8 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                     if (rank >= state->gotoFloor) continue;
                     char made[1024];
                     String path = Prog__IndexPathTo(made, sizeof(made), index, found.entry);
-                    // The short list's are not offered again.
-                    if (MapsGetPtrNull(state->gotoSeen, path)) continue;
+                    // The short list's are not offered again, nor what has gone since the index was made.
+                    if (MapsGetPtrNull(state->gotoSeen, path) || Prog_IndexGone(index, found.entry)) continue;
                     u8 flags = index->flags[found.entry];
                     String name = Prog_IndexName(index, found.entry);
                     b32 hidden = (flags & Prog_IndexFlag_Hidden) || (name.length && name.value[0] == '.');

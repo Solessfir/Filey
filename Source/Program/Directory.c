@@ -40,7 +40,116 @@ function void Prog_IndexAdd(Prog_Index *index, String name, u32 parent, u8 flags
     index->names[index->count] = packed;
     index->parents[index->count] = parent;
     index->flags[index->count] = flags;
+    if (index->firstChild) {
+        u32 entry = (u32)index->count;
+        index->firstChild[entry] = index->nextSibling[entry] = UINT32_MAX;
+        if (parent < entry) {
+            // Last among its folder's, as the walk would have put it.
+            u32 *link = &index->firstChild[parent];
+            while (*link != UINT32_MAX) link = &index->nextSibling[*link];
+            *link = entry;
+        }
+    }
     ++index->count;
+}
+
+// Links each entry to its folder's other items, once the index is whole, so that a folder listed again can bring them up to date.
+function void Prog_IndexLink(Prog_Index *index)
+{
+    if (index->firstChild || !index->names) return;
+    index->firstChild = ArenaPushArrayNoZero(&index->tables, Prog_MaxIndexed, u32);
+    index->nextSibling = ArenaPushArrayNoZero(&index->tables, Prog_MaxIndexed, u32);
+    for (u64 i = 0; i < index->count; ++i) index->firstChild[i] = index->nextSibling[i] = UINT32_MAX;
+    // From the last, so that each folder's items keep their order.
+    for (u64 i = index->count; i-- > 0;) {
+        u32 parent = index->parents[i];
+        if (parent >= i) continue;
+        index->nextSibling[i] = index->firstChild[parent];
+        index->firstChild[parent] = (u32)i;
+    }
+}
+
+function u8 Prog__FoldAscii(u8 c);
+
+// Whether entry `entry` is gone, or a folder it is inside is.
+function b32 Prog_IndexGone(const Prog_Index *index, u32 entry)
+{
+    for (u32 depth = 0; entry < index->count && depth < 256; entry = index->parents[entry], ++depth) if (index->flags[entry] & Prog_IndexFlag_Gone) return true;
+    return false;
+}
+
+function b32 Prog__IndexNameIs(String a, String b)
+{
+    if (a.length != b.length) return false;
+    for (u64 i = 0; i < a.length; ++i) if (Prog__FoldAscii((u8)a.value[i]) != Prog__FoldAscii((u8)b.value[i])) return false;
+    return true;
+}
+
+// The entry of the folder at `path` in a linked index, from the root that starts it down through the folders' items; UINT32_MAX when it
+// is not there.
+function u32 Prog__IndexFind(const Prog_Index *index, String path)
+{
+    if (!index->firstChild) return UINT32_MAX;
+    u32 at = UINT32_MAX;
+    String rest = {0};
+    for (u32 root = 0; root < index->count && index->parents[root] == UINT32_MAX; ++root) {
+        String name = Prog_IndexName(index, root);
+        if (path.length < name.length || !Prog__IndexNameIs(StrFromTo(path, 0, (i64)name.length), name)) continue;
+        if (path.length > name.length && name.value[name.length - 1] != '/' && path.value[name.length] != '/') continue;
+        at = root;
+        rest = StrFrom(path, name.length);
+        break;
+    }
+    while (at != UINT32_MAX && rest.length) {
+        while (rest.length && rest.value[0] == '/') rest = StrFrom(rest, 1);
+        if (!rest.length) break;
+        Index slash = StrIndexChar(rest, '/', SSF_CountOnFail);
+        String part = StrFromTo(rest, 0, (i64)slash.value);
+        rest = StrFrom(rest, slash.value);
+        u32 found = UINT32_MAX;
+        for (u32 child = index->firstChild[at]; child != UINT32_MAX && found == UINT32_MAX; child = index->nextSibling[child]) {
+            if (!(index->flags[child] & (Prog_IndexFlag_Gone | Prog_IndexFlag_File)) && Prog__IndexNameIs(Prog_IndexName(index, child), part)) found = child;
+        }
+        at = found;
+    }
+    return at;
+}
+
+// Brings the items of folder `folder` up to date with its listing `files`: those gone are marked so, and new ones added after the others.
+function void Prog_IndexApply(Prog_Index *index, u32 folder, const P_File *files, u64 count)
+{
+    if (!index->firstChild || folder >= index->count) return;
+    Scratch scratch = GetScratch();
+    // The listing's names by their folded hash, in a table twice its size of one more than their place.
+    u64 slots = 1;
+    while (slots < count * 2 + 2) slots <<= 1;
+    u32 *listed = ArenaPushArray(scratch.arena, slots, u32);
+    b8 *kept = ArenaPushArray(scratch.arena, Max(count, (u64)1), b8);
+    for (u64 i = 0; i < count; ++i) {
+        u64 hash = UINT64_C(1469598103934665603);
+        for (u64 k = 0; k < files[i].name.length; ++k) hash = (hash ^ Prog__FoldAscii((u8)files[i].name.value[k])) * UINT64_C(1099511628211);
+        u64 at = hash & (slots - 1);
+        while (listed[at]) at = (at + 1) & (slots - 1);
+        listed[at] = (u32)i + 1;
+    }
+    for (u32 child = index->firstChild[folder]; child != UINT32_MAX; child = index->nextSibling[child]) {
+        if (index->flags[child] & Prog_IndexFlag_Gone) continue;
+        String name = Prog_IndexName(index, child);
+        u64 hash = UINT64_C(1469598103934665603);
+        for (u64 k = 0; k < name.length; ++k) hash = (hash ^ Prog__FoldAscii((u8)name.value[k])) * UINT64_C(1099511628211);
+        u32 match = 0;
+        for (u64 at = hash & (slots - 1); listed[at] && !match; at = (at + 1) & (slots - 1)) {
+            if (Prog__IndexNameIs(files[listed[at] - 1].name, name)) match = listed[at];
+        }
+        if (match) kept[match - 1] = true;
+        else index->flags[child] |= Prog_IndexFlag_Gone;
+    }
+    for (u64 i = 0; i < count; ++i) {
+        const P_File *file = &files[i];
+        b32 directory = file->kind == P_FileKind_Directory && !file->symbolicLink;
+        if (!kept[i]) Prog_IndexAdd(index, file->name, folder, (u8)((file->hidden ? Prog_IndexFlag_Hidden : 0) | (directory ? 0 : Prog_IndexFlag_File)));
+    }
+    ReleaseScratch(scratch);
 }
 
 function void Prog_IndexRelease(Prog_Index *index)
@@ -2321,8 +2430,11 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_IndexLoad) {
         Prog_Indexed *result = ArenaPushStruct(&job->arena, Prog_Indexed);
         job->result = result;
+        // Read whole, as a drive's index runs to many megabytes, past what P_ReadFile takes.
         String text = {0};
-        if (!P_ReadFile(&job->arena, input->name, &text) || text.length < Prog_IndexFileMagic.length || !StrIsEqual(StrFromTo(text, 0, (i64)Prog_IndexFileMagic.length), Prog_IndexFileMagic)) return;
+        u64 size = 0;
+        if (!P_FileSize(input->name, &size) || !P_ReadFileAt(&job->arena, input->name, 0, size, &text) || text.length < Prog_IndexFileMagic.length ||
+            !StrIsEqual(StrFromTo(text, 0, (i64)Prog_IndexFileMagic.length), Prog_IndexFileMagic)) return;
         // Counted first, so that the entries fill arrays of their size.
         u64 count = 0;
         for (u64 at = Prog_IndexFileMagic.length; at + 7 <= text.length;) {
@@ -2347,13 +2459,26 @@ function void Prog__DirectoryJob(P_Job *job)
             result->packed[result->count++] = (const u8 *)text.value + at + 5;
             at += 7 + length;
         }
-        // Whole and written by a walk that ended less than a day ago, it serves as it is.
+        // Whole and written by a walk that ended less than a day ago, it serves as it is, as an index of its own that the folders listed
+        // again bring up to date.
         i64 age = P_NowUnix() - P_FileModifiedTime(input->name);
         result->fresh = result->count == count && age >= 0 && age < Prog_IndexFreshSeconds;
+        if (result->fresh) {
+            for (u64 i = 0; i < result->count && !P_IsCancelled(&job->cancelToken); ++i) {
+                Prog_IndexAdd(&result->whole, Prog__PackedName(result->packed[i]), result->parents[i], (u8)result->flags[i]);
+            }
+            Prog_IndexLink(&result->whole);
+        }
         return;
     }
     if (input->kind == Prog_JobKind_IndexFinish) {
         P_ReplaceFile(&job->arena, input->path, input->name);
+        return;
+    }
+    if (input->kind == Prog_JobKind_IndexRefresh) {
+        P_DirectoryResult *listing = ArenaPushStruct(&job->arena, P_DirectoryResult);
+        *listing = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+        job->result = listing;
         return;
     }
     if (input->kind == Prog_JobKind_GoTo) {
@@ -3249,6 +3374,21 @@ function void Prog_TidyRunFolders(Prog_State *state)
     P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Tidy;
+    job->input = input;
+    P_JobSubmit(job);
+}
+
+// Lists the folder at `path` again in a job to bring the finished drive index up to date with it, as a folder shown or changed by a file
+// operation is: what has gone from it is left out of searches, and what is new is found.
+function void Prog_IndexRefresh(Prog_State *state, String path)
+{
+    String archive = {0}, inner = {0};
+    if (!state->indexDone || !state->index.firstChild || !path.length || Prog_InArchive(path, &archive, &inner) || StrIsEqual(path, Prog_ThisPC) ||
+        P_IsTrashFolder(path)) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_IndexRefresh;
+    input->path = StrCopy(&job->arena, path);
     job->input = input;
     P_JobSubmit(job);
 }
@@ -6800,6 +6940,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         state->indexAt = batchCount ? batch[0] : at;
         if (!batchCount || index->count >= Prog_MaxIndexed) {
             state->indexDone = true;
+            Prog_IndexLink(index);
             // The walk replaces the last run's, on disk too.
             Prog_IndexRelease(&state->savedIndex);
             if (state->cacheDirectory.length) {
@@ -6836,7 +6977,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_IndexRefresh || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -7139,6 +7280,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 String from = Prog_JoinPath(&state->frameArena, input->path, input->name), to = Prog_JoinPath(&state->frameArena, input->path, input->newName);
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
                 Prog__FollowMoved(state, &from, &to, 1);
+                Prog_IndexRefresh(state, input->path);
                 state->placesTime = 0;
                 // The folder shown, renamed from the sidebar, goes on showing under its new name.
                 if (Prog__IsUnder(state->directory.path, from)) {
@@ -7165,6 +7307,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_ReloadFolderIcon(state, P_TrashFolder(&state->frameArena));
             }
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
+            // The drive index learns of the folders it changed: where the items went, and for a move or a delete where they were.
+            Prog_IndexRefresh(state, input->path);
+            if (input->move || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete) {
+                String last = input->path;
+                for (u64 i = 0; i < input->pathCount; ++i) {
+                    String parent = Prog_ParentPath(input->paths[i]);
+                    if (!StrIsEqual(parent, last)) Prog_IndexRefresh(state, parent);
+                    last = parent;
+                }
+            }
             P_FileError error = created ? (job->result ? ((Prog_Created *)job->result)->error : (P_FileError){0})
                               : job->result ? *(P_FileError *)job->result : (P_FileError){0};
             String verb = input->transferOp == Prog_TransferOp_CompressVideo ? NoTr("Compress video") : input->transferOp == Prog_TransferOp_Download || input->transferOp == Prog_TransferOp_Torrent || input->transferOp == Prog_TransferOp_TorrentFetch ? S("Download") : input->kind == Prog_JobKind_Trash ? S("Trash") : input->kind == Prog_JobKind_Delete || input->kind == Prog_JobKind_EmptyTrash ? S("Delete") : input->kind == Prog_JobKind_Create ? S("Create") : input->kind == Prog_JobKind_Link ? NoTr("Paste shortcut") :
@@ -7264,18 +7416,35 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // Another frame hands out the next slice.
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_IndexRefresh) {
+            const P_DirectoryResult *listing = job->result;
+            if (listing && !listing->cancelled && state->indexDone && !P_IsCancelled(&job->cancelToken)) {
+                u32 folder = Prog__IndexFind(&state->index, input->path);
+                if (folder != UINT32_MAX) Prog_IndexApply(&state->index, folder, listing->files.v, listing->files.header.count);
+            }
         } else if (input->kind == Prog_JobKind_IndexLoad) {
             if (state->indexLoadJob == job) state->indexLoadJob = NULL;
             const Prog_Indexed *result = job->result;
-            // Kept in the job's arena, where its names point into the file read.
-            if (result && result->count && !state->indexDone && !P_IsCancelled(&job->cancelToken)) {
-                Prog_Index *saved = &state->savedIndex;
-                Prog_IndexRelease(saved);
-                *saved = (Prog_Index){ .arena = job->arena, .names = result->packed, .parents = result->parents, .flags = (u8 *)result->flags, .count = result->count };
-                job->arena = (Arena){0};
+            b32 usable = result && result->count && !state->indexDone && !P_IsCancelled(&job->cancelToken);
+            if (usable && result->fresh && result->whole.count) {
                 // A recent one is the index, with no walk.
-                if (result->fresh) state->indexDone = state->indexKept = true;
+                Prog_IndexRelease(&state->index);
+                state->index = result->whole;
+                state->indexDone = true;
                 changed = true;
+            } else {
+                if (result) {
+                    Prog_Index unused = result->whole;
+                    Prog_IndexRelease(&unused);
+                }
+                // Another is searched while the walk runs, kept in the job's arena, where its names point into the file read.
+                if (usable) {
+                    Prog_Index *saved = &state->savedIndex;
+                    Prog_IndexRelease(saved);
+                    *saved = (Prog_Index){ .arena = job->arena, .names = result->packed, .parents = result->parents, .flags = (u8 *)result->flags, .count = result->count };
+                    job->arena = (Arena){0};
+                    changed = true;
+                }
             }
         } else if (input->kind == Prog_JobKind_GoTo) {
             if (state->gotoJob == job) state->gotoJob = NULL;
@@ -7683,6 +7852,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     ++state->listing;
                     Prog_ApplyFilter(state, false);
                     Prog__SortByTotals(state);
+                    // The drive index learns of what changed in a folder shown.
+                    if (!result->archive) Prog_IndexRefresh(state, result->path);
                     // The listing a tree's folder unfolded for eases from the rows there were; one that folded up is done with any listing.
                     // One that comes while a folder's rows are still easing shut, from a watch, goes on easing in it, the rows after the
                     // folder rising from where they are into their places.

@@ -2819,6 +2819,30 @@ function void TestUpdates(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// The finished drive index brought up to date by a folder listed again: its folders found by path whatever their case, an item no longer
+// there marked gone with what was inside it, and a new one added in its folder, where the next listing finds it.
+function void TestIndexPatch(void)
+{
+    Prog_Index index = {0};
+    Prog_IndexAdd(&index, S("C:/"), UINT32_MAX, 0);
+    Prog_IndexAdd(&index, S("Work"), 0, 0);
+    Prog_IndexAdd(&index, S("notes.txt"), 1, Prog_IndexFlag_File);
+    Prog_IndexAdd(&index, S("Old"), 1, 0);
+    Prog_IndexAdd(&index, S("inside.txt"), 3, Prog_IndexFlag_File);
+    Prog_IndexLink(&index);
+    Check(Prog__IndexFind(&index, S("C:/")) == 0 && Prog__IndexFind(&index, S("c:/work")) == 1 && Prog__IndexFind(&index, S("C:/Work/Old")) == 3);
+    Check(Prog__IndexFind(&index, S("C:/Work/notes.txt")) == UINT32_MAX && Prog__IndexFind(&index, S("C:/Missing")) == UINT32_MAX);
+    P_File listed[] = { { .name = SInit("NOTES.TXT"), .kind = P_FileKind_File }, { .name = SInit("New"), .kind = P_FileKind_Directory, .hidden = true } };
+    Prog_IndexApply(&index, 1, listed, CArrayCount(listed));
+    Check(index.count == 6 && StrIsEqual(Prog_IndexName(&index, 5), S("New")) && index.parents[5] == 1 && index.flags[5] == Prog_IndexFlag_Hidden);
+    Check(!Prog_IndexGone(&index, 2) && Prog_IndexGone(&index, 3) && Prog_IndexGone(&index, 4) && !Prog_IndexGone(&index, 5));
+    Check(Prog__IndexFind(&index, S("C:/Work/Old")) == UINT32_MAX && Prog__IndexFind(&index, S("C:/Work/New")) == 5);
+    // Listed again as it is, nothing changes.
+    Prog_IndexApply(&index, 1, listed, CArrayCount(listed));
+    Check(index.count == 6);
+    Prog_IndexRelease(&index);
+}
+
 // The user's own groups: made, named, their folders added, moved and taken out, folded and deleted, the groups' order keeping up, and read
 // back from Groups.conf.
 function void TestUserGroups(TestFileFixture *fixture)
@@ -3462,6 +3486,10 @@ function void TestTabs(TestFileFixture *fixture)
         Check(StrIsEqual(Prog__PackedName(loaded->packed[i]), Prog_IndexName(&state.index, i)) && loaded->parents[i] == state.index.parents[i] &&
               (u8)loaded->flags[i] == state.index.flags[i]);
     }
+    // And the index it makes, whole and linked, which the app takes as its own.
+    Prog_Index whole = loaded ? loaded->whole : (Prog_Index){0};
+    Check(whole.count == state.index.count && whole.firstChild && Prog__IndexFind(&whole, Prog_IndexName(&whole, 0)) == 0);
+    Prog_IndexRelease(&whole);
     ArenaRelease(&load.arena);
     // The options write their lines into Settings.conf, over the commented-out defaults, and apply at once; each keeps the others.
     {
@@ -4549,6 +4577,7 @@ function void TestBrowsing(void)
         TestUpdates(&fixture);
         TestPlaces(&fixture);
         TestUserGroups(&fixture);
+        TestIndexPatch();
         TestSidebarNames(&fixture);
         TestOpenFlags(&fixture);
 #if defined(_WIN32)

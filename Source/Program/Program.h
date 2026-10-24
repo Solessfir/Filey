@@ -270,6 +270,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Index,
     Prog_JobKind_IndexLoad,
     Prog_JobKind_IndexFinish,
+    Prog_JobKind_IndexRefresh,     // lists `path` whole, to bring its items in the finished drive index up to date
     Prog_JobKind_Transfer,
     Prog_JobKind_Trash,
     Prog_JobKind_Delete,
@@ -1031,7 +1032,8 @@ typedef struct Prog_ArrayFlag { ArrayHeader header; b8 *v; } Prog_ArrayFlag;
 typedef struct Prog_ArrayU32 { ArrayHeader header; u32 *v; } Prog_ArrayU32;
 
 // Listed: a folder whose items the index has already, read with its whole drive from the file system's table, which the walk does not list.
-enum { Prog_IndexFlag_Hidden = 1, Prog_IndexFlag_File = 2, Prog_IndexFlag_Listed = 4 };
+// Gone: an item no longer there when its folder was listed again, which search leaves out with what was inside it.
+enum { Prog_IndexFlag_Hidden = 1, Prog_IndexFlag_File = 2, Prog_IndexFlag_Listed = 4, Prog_IndexFlag_Gone = 8 };
 
 // Every folder and file on the drives, each as its name inside the entry of its parent, so that a few million fit; a root's name is its whole path.
 // Each name is packed as its length in two bytes and then its bytes, in `arena` or in the saved index file read into it.
@@ -1042,6 +1044,9 @@ typedef struct Prog_Index {
     u32 *parents;           // UINT32_MAX for a root
     u8 *flags;              // Prog_IndexFlag_
     u64 count;
+    // Once it is whole: each entry's first item and the next item in its folder, UINT32_MAX for none, so that a folder listed again
+    // brings its items up to date.
+    u32 *firstChild, *nextSibling;
 } Prog_Index;
 
 // What was found inside the first `listed` of an index job's folders, in order, each with the entry of the folder it is in.
@@ -1050,6 +1055,7 @@ typedef struct Prog_Indexed {
     String *names;
     const u8 **packed;  // IndexLoad: the names, in the file read
     b32 fresh;          // IndexLoad: the file was written less than Prog_IndexFreshSeconds ago
+    Prog_Index whole;   // IndexLoad: then the index made of it, linked, to serve as it is
     u32 *parents;
     b8 *flags;
     u64 count;
@@ -1960,7 +1966,6 @@ typedef struct Prog_State {
     // A name edited in its sidebar row, which the Save Layout box's state carries: nameFor is 1 for the group of the user's nameGroup, and
     // 2 for the folder namePath, row nameIndex of sidebar group nameGroup; the press before it began, and whether its box was built.
     f32 inspectorShare;       // the inspector's share of its panel, 0 for half
-    b32 indexKept;            // the saved index was recent enough to serve as the index, so the drives were not walked
     b32 longPaths;            // the system lets programs use paths longer than 260 characters, as last read
     b32 longPathsSetting;     // and a job is asking it to change that
     u8 nameFor;
