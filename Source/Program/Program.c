@@ -10044,7 +10044,7 @@ function void Prog__ContextMenu(Prog_State *state, const Prog_Metrics *m)
 }
 
 // One drop zone at `box` (in the panel's coordinates): a faint frame around a sketch of the panel it would make, one of `parts` across or down,
-// the `target`th washed in the selection color and outlined with it, more strongly while the pointer is over the zone.
+// the `target`th washed in the selection color and outlined with it, filled with it while the pointer is over the zone.
 // Returns whether the pointer is over it.
 function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32 target, const Prog_Metrics *m)
 {
@@ -10063,7 +10063,7 @@ function b32 Prog__DropZone(R_Rect box, R_Rect panel, u32 parts, b32 across, u32
         f32 part = floorf(((across ? innerWidth : innerHeight) - (f32)(parts - 1) * pad) / (f32)parts);
         for (u32 i = 0; i < parts; ++i) {
             R_Color fill = theme->selection;
-            fill.a *= i == target ? (hot ? 2 : 1) * theme->hoverAmount.r : 0;
+            fill.a *= i == target ? (hot ? 1 : theme->hoverAmount.r) : 0;
             UI_SetNextFloatingOffset(across ? (UI_Vec2){ pad + (f32)i * (part + pad), pad } : (UI_Vec2){ pad, pad + (f32)i * (part + pad) });
             UI_SetNextPrefWidth(UI_Pixels(across ? part : innerWidth));
             UI_SetNextPrefHeight(UI_Pixels(across ? innerHeight : part));
@@ -10092,6 +10092,26 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         { { cx - wide * 0.5f, top, cx + wide * 0.5f, top + low }, 2, false, 0, Prog_TabDrop_Top },
         { { cx - wide * 0.5f, height - low - gap, cx + wide * 0.5f, height - gap }, 2, false, 1, Prog_TabDrop_Bottom },
     };
+    // The part of the panel the tab would take, the tab strip's height above the body too, washed under the zones while the pointer is over one.
+    for (u32 i = 0; i < CArrayCount(zones); ++i) {
+        R_Rect box = zones[i].box;
+        if ((own && zones[i].drop == Prog_TabDrop_Into) || !UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse)) continue;
+        Prog_TabDrop drop = zones[i].drop;
+        f32 halfWidth = floorf(width * 0.5f), halfHeight = floorf((height + m->bar) * 0.5f);
+        R_Rect wash = { drop == Prog_TabDrop_Right ? halfWidth : 0, drop == Prog_TabDrop_Bottom ? halfHeight - m->bar : -m->bar,
+                        drop == Prog_TabDrop_Left ? halfWidth : width, drop == Prog_TabDrop_Top ? halfHeight - m->bar : height };
+        const Prog_Theme *theme = Prog_CurrentTheme();
+        R_Color fill = theme->selection;
+        fill.a *= theme->hoverAmount.r * (2.0f / 3.0f);
+        UI_SetNextFloatingOffset((UI_Vec2){ wash.x0, wash.y0 });
+        UI_SetNextPrefWidth(UI_Pixels(wash.x1 - wash.x0));
+        UI_SetNextPrefHeight(UI_Pixels(wash.y1 - wash.y0));
+        UI_SetNextCornerRadius(m->radius);
+        UI_SetNextBorderThickness(m->stroke);
+        UI_SetNextColors((UI_Colors){ .background = fill, .border = theme->tabBorder });
+        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+        break;
+    }
     for (u32 i = 0; i < CArrayCount(zones); ++i) {
         if (own && zones[i].drop == Prog_TabDrop_Into) continue;
         if (Prog__DropZone(zones[i].box, panel, zones[i].parts, zones[i].across, zones[i].target, m)) {
