@@ -545,7 +545,43 @@ typedef struct P__Watch {
     atomic_bool changed;
     P_JobWakeCallback *wake;
     void *user;
+    String device;          // a device's folder, which is listed again in turn rather than watched
+    P_CancelToken cancel;   // ends a listing of it under way when the watch stops
 } P__Watch;
+
+function b32 P__ListDevice(Arena *arena, String path, const P_CancelToken *cancel, P_FileArray *files, ArrayStr *types, u32 *error);
+
+// A device sends no notices of its changes, so its folder is listed again in turn, and a change in what it holds, or its going, wakes the
+// program. The next listing waits four times as long as the last one took, and at least two seconds, so that a large folder on a slow
+// phone is not listed without end.
+function DWORD WINAPI P__DeviceWatchThread(void *user)
+{
+    P__Watch *watch = user;
+    b32 known = false, was = false;
+    u64 before = 0;
+    DWORD pause = 2000;
+    while (WaitForSingleObject(watch->stop, pause) == WAIT_TIMEOUT) {
+        Arena arena = {0};
+        P_FileArray files = {0};
+        u64 start = PlatformNowMicroseconds(), seen = 0;
+        b32 listed = P__ListDevice(&arena, watch->device, &watch->cancel, &files, NULL, NULL);
+        if (P_IsCancelled(&watch->cancel)) {
+            ArenaRelease(&arena);
+            break;
+        }
+        // In any order: the sum of each item's hash.
+        for (u64 i = 0; i < files.header.count; ++i) {
+            const P_File *file = &files.v[i];
+            u64 parts[3] = { MapHashBytes(file->name.value, file->name.length), file->size, (u64)file->modifiedTimeUnix };
+            seen += MapHashBytes(parts, sizeof(parts));
+        }
+        ArenaRelease(&arena);
+        if (known && (listed != was || seen != before) && !atomic_exchange(&watch->changed, true) && watch->wake) watch->wake(watch->user);
+        known = true, was = listed, before = seen;
+        pause = (DWORD)Max((u64)2000, (PlatformNowMicroseconds() - start) * 4 / 1000);
+    }
+    return 0;
+}
 
 function DWORD WINAPI P__WatchThread(void *user)
 {
@@ -564,6 +600,18 @@ function DWORD WINAPI P__WatchThread(void *user)
 function b32 P__WatchStart(P_DirectoryWatch *watch, String path, b32 tree, P_JobWakeCallback *wake, void *user)
 {
     P_DirectoryWatchStop(watch);
+    if (P__IsDevicePath(path)) {
+        P__Watch *state = ArenaPushStruct(&watch->arena, P__Watch);
+        *state = (P__Watch){ .change = INVALID_HANDLE_VALUE, .wake = wake, .user = user, .device = StrCopy(&watch->arena, path) };
+        state->stop = CreateEventW(NULL, TRUE, FALSE, NULL);
+        state->thread = state->stop ? CreateThread(NULL, 0, P__DeviceWatchThread, state, 0, NULL) : NULL;
+        watch->native = state;
+        if (!state->thread) {
+            P_DirectoryWatchStop(watch);
+            return false;
+        }
+        return true;
+    }
     Scratch scratch = GetScratch();
     wchar *wide = P__FilePathWide(scratch.arena, path);
     P__Watch *state = ArenaPushStruct(&watch->arena, P__Watch);
@@ -602,6 +650,7 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
     P__Watch *state = watch->native;
     if (state) {
         if (state->thread) {
+            P_RequestCancel(&state->cancel);
             SetEvent(state->stop);
             WaitForSingleObject(state->thread, INFINITE);
             CloseHandle(state->thread);

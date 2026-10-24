@@ -540,6 +540,8 @@ function const void *_MapValueOrZero(const MapHeader *header, void *v, u64 kvSiz
 function b32   _MapDel(MapHeader *header, void *v, u64 kvSize, const void *key, u64 keySize, b32 isStr);
 function void *_MapReserve(Arena *arena, MapHeader *header, void *v, u64 kvSize, u64 keySize, b32 isStr, u64 n);
 function void  _MapClear(MapHeader *header);
+// The hash maps key their entries by, of any bytes.
+function u64   MapHashBytes(const void *data, u64 size);
 
 // Pointer to a temporary copy of the key, typed like the map's key.
 #define MapKeyPtr_(m, k) ((typeof((m).v->key)[1]){ (k) })
