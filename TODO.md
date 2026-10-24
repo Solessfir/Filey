@@ -3,12 +3,10 @@
 ## Look
 
 - Low priority: in the title bar the new tab plus sits level with the tabs, which hang below the strip's middle, while the tab list's chevron and the window buttons are centered on the whole strip, about 5 pixels higher. Likely fix: the chevron level with the tabs too, in a tab-sized box, as Windows Terminal and Chrome pair them.
-- The sidebar headings take the Group color brightened by a fixed 1.06; the reference's factor changes with the scheme.
 
 ## Missing
 
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
-- Mouse bindings: only the side buttons bind to commands; the left, middle, right and wheel actions are fixed switches.
 - Indexing the drives from the NTFS file table for a faster Go To walk.
 - 3D models: text USD (`.usda`), text FBX, a .blend's modifiers, and Collada, 3DS and 3MF. Colors not read: PLY's per-face `texcoord` lists, a .blend's object-linked materials, glTF's `KHR_texture_transform`, and transparency other than a picture's cut-out alpha; Blender 3.4 to 4.x files are untested and earlier ones get no colors.
 - Archives: encrypted 7z and RAR archives, which libarchive cannot decrypt, and an archive inside an archive opens in its program.
@@ -38,6 +36,7 @@ To be checked on Linux:
 
 - Writing RAR archives (no free RAR writer exists), and entries in Windows 11's first right-click menu, which shows only a packaged app's `IExplorerCommand`.
 - A Direct3D 11 renderer and Office documents' real layout.
+- Binding the left, middle and right buttons and the wheel to commands: only the side buttons bind, as the reference's mouse hotkeys cannot be changed at all.
 - Release flags: `-O3`, `-march=x86-64-v2` and `-v3`, and profile-guided optimization measured within the noise of `-O2` or slower.
 
 ## Checks

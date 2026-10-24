@@ -329,7 +329,7 @@ global const Prog_Theme Prog_ThemeCustom = {
     .tabBorder                = Prog_Hex(0x383838),
     .text                     = Prog_Hex(0xDDDEE0),
     .textDim                  = Prog_Hex(0x6B7078),
-    .textHeading              = Prog_Hex(0xA2A2A2),
+    .textHeading              = Prog_Hex(0xA1A1A1),
     .textMatch                = Prog_Hex(0x00AAFF),
     .marquee                  = Prog_Hex(0x00ADEE),
     .accent                   = Prog_Hex(0x0079A6),
@@ -375,19 +375,28 @@ global const u32 Prog_SchemeFullMoon[Prog_ColorGroupCount] = { 0x151515, 0x272A2
 
 function R_Color Prog__HexColor(u32 hex) { return (R_Color){ (f32)((hex >> 16) & 255) / 255.0f, (f32)((hex >> 8) & 255) / 255.0f, (f32)(hex & 255) / 255.0f, 1 }; }
 
-// `from` moved toward `to` by `amount`, from 0 to 1, or each channel scaled by `scale` when `to` is negative, to the nearest byte.
-function u32 Prog__ShiftHex(u32 from, i64 to, f32 amount)
+// `from` moved toward `to` by `amount`, from 0 to 1, to the nearest byte.
+function u32 Prog__ShiftHex(u32 from, u32 to, f32 amount)
 {
     u32 result = 0;
     for (u32 shift = 0; shift < 24; shift += 8) {
-        f32 a = (f32)((from >> shift) & 255), b = to < 0 ? a * amount : (f32)(((u64)to >> shift) & 255), mixed = to < 0 ? b : a + (b - a) * amount;
-        result |= (u32)floorf(UI__Clamp(mixed, 0, 255) + 0.5f) << shift;
+        f32 a = (f32)((from >> shift) & 255), b = (f32)((to >> shift) & 255);
+        result |= (u32)floorf(UI__Clamp(a + (b - a) * amount, 0, 255) + 0.5f) << shift;
     }
     return result;
 }
 
+// Each channel of `hex` raised by `levels`, up to 255.
+function u32 Prog__RaiseHex(u32 hex, u32 levels)
+{
+    u32 result = 0;
+    for (u32 shift = 0; shift < 24; shift += 8) result |= Min(((hex >> shift) & 255) + levels, 255u) << shift;
+    return result;
+}
+
 // The theme a scheme's colors make: the popups have the surface's, the focus outline the selection's, and the disabled icons the
-// icons' faded into the background by the disabled amount; the sections' titles show a little brighter than their color.
+// icons' faded into the background by the disabled amount; the sections' titles show 8 levels brighter than their color, as measured in
+// three schemes, within a level.
 function Prog_Theme Prog__ThemeFromScheme(const u32 *groups)
 {
 #define Prog__Group(name) groups[Prog_Option_Color##name - Prog_Option_ColorClear]
@@ -396,7 +405,7 @@ function Prog_Theme Prog__ThemeFromScheme(const u32 *groups)
         .window = Prog__GroupColor(Clear), .background = Prog__GroupColor(Background), .inner = Prog__GroupColor(Inner), .caption = Prog__GroupColor(Caption),
         .menu = Prog__GroupColor(Surface), .panel = Prog__GroupColor(Surface), .alternateRow = Prog__GroupColor(AlternatingRow), .separator = Prog__GroupColor(Separator),
         .hover = Prog__GroupColor(Hover), .selection = Prog__GroupColor(Selection), .focus = Prog__GroupColor(Selection), .tabBorder = Prog__GroupColor(Border),
-        .text = Prog__GroupColor(Text), .textDim = Prog__GroupColor(Secondary), .textHeading = Prog__HexColor(Prog__ShiftHex(Prog__Group(Group), -1, 1.06f)),
+        .text = Prog__GroupColor(Text), .textDim = Prog__GroupColor(Secondary), .textHeading = Prog__HexColor(Prog__RaiseHex(Prog__Group(Group), 8)),
         .textMatch = Prog__GroupColor(Match), .marquee = Prog__GroupColor(RectSelection), .accent = Prog__GroupColor(Progress), .track = Prog__GroupColor(Foreground),
         .outline = Prog__GroupColor(Outline), .danger = Prog__GroupColor(Warning), .icon = Prog__GroupColor(IconTint),
         .iconDisabled = Prog__HexColor(Prog__ShiftHex(Prog__Group(Background), Prog__Group(IconTint), (f32)(Prog__Group(Disabled) & 255) / 255.0f)),

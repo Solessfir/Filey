@@ -3920,7 +3920,7 @@ function void TestSettings(void)
         Prog_Theme made = Prog__ThemeFromScheme(Prog_SchemeColors[0]);
         Check(!MemCompare(&Prog_ThemeCustom, &made, sizeof(made)));
         Prog_ApplySettings(&look, S("theme.system = off\ntheme = FullMoon\n"));
-        Check(look.scheme == 0 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA3);
+        Check(look.scheme == 0 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA2);
         // A custom scheme by its name, its colors over the default scheme's, among the choices after the built-in ones; a fork of it is named
         // as the first free custom one and shows in its place by name, and the picker changes its colors.
         Prog_SetScheme(&look, S("Mine"), S("Background = #102030\nnonsense = #ffffff\n"), false);
