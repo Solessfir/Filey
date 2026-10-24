@@ -723,6 +723,8 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_ConsoleOpen, Prog_CommandKind_WindowMinimize, Prog_CommandKind_ToggleFullscreen, Prog_CommandKind_OpenSettings, Prog_CommandKind_LanguageCreate, Prog_CommandKind_BookmarksClear, Prog_CommandKind_FolderViewsClear,
     Prog_CommandKind_RecentsClear, Prog_CommandKind_PlacesShowHidden, Prog_CommandKind_PlacesRestore, Prog_CommandKind_GroupNew, Prog_CommandKind_GroupsRestore, Prog_CommandKind_NoticesUnmuteAll, Prog_CommandKind_NewWindow, Prog_CommandKind_WindowClose,
     Prog_CommandKind_LayoutsSave, Prog_CommandKind_LayoutsLoad, Prog_CommandKind_ExplorerOpen, Prog_CommandKind_SetupOpen, Prog_CommandKind_CopyVersion,
+    Prog_CommandKind_QuickAccessIncreaseViewport, Prog_CommandKind_QuickAccessDecreaseViewport, Prog_CommandKind_PanelIncreaseViewport, Prog_CommandKind_PanelDecreaseViewport,
+    Prog_CommandKind_PanelInspectorIncreaseViewport, Prog_CommandKind_PanelInspectorDecreaseViewport,
     Prog_CommandKind_CheckForUpdates, Prog_CommandKind_UpdateInstall,
     Prog__PaletteGroup(Options),
     Prog_CommandKind_OpenOptions, Prog_CommandKind_IncreaseFontSize, Prog_CommandKind_DecreaseFontSize, Prog_CommandKind_ResetFontSize, Prog_CommandKind_IncreaseSpacing,
@@ -795,6 +797,9 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
             return item && panels > 1;
         case Prog_CommandKind_PanelEvenSiblings: case Prog_CommandKind_PanelEvenAll: case Prog_CommandKind_PanelSwap: return panels > 1;
         case Prog_CommandKind_PanelResetLayout: return state->panelCount > 1 || state->zoomedPanel;
+        case Prog_CommandKind_PanelIncreaseViewport: case Prog_CommandKind_PanelDecreaseViewport: return panels > 1;
+        case Prog_CommandKind_PanelInspectorIncreaseViewport: case Prog_CommandKind_PanelInspectorDecreaseViewport: return state->previewShown;
+        case Prog_CommandKind_QuickAccessIncreaseViewport: case Prog_CommandKind_QuickAccessDecreaseViewport: return !state->sidebarHidden && !state->uiHidden;
         case Prog_CommandKind_FilesPopupPrev: case Prog_CommandKind_FilesPopupNext: return state->filesOpen;
         case Prog_CommandKind_Back: return state->historyAt > 0;
         case Prog_CommandKind_Forward: return state->historyAt + 1 < state->history.header.count;
@@ -3720,6 +3725,26 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_PanelEvenSiblings: Prog_EvenPanels(state, false); break;
             case Prog_CommandKind_PanelEvenAll: Prog_EvenPanels(state, true); break;
             case Prog_CommandKind_PanelSwap: Prog_SwapPanels(state); break;
+            // A step a press: the sidebar by 24 pixels, a split or the inspector by a twentieth.
+            case Prog_CommandKind_QuickAccessIncreaseViewport:
+            case Prog_CommandKind_QuickAccessDecreaseViewport: {
+                f32 step = command->kind == Prog_CommandKind_QuickAccessIncreaseViewport ? 24.0f : -24.0f;
+                state->sidebarWidth = UI__Clamp((state->sidebarWidth > 0 ? state->sidebarWidth : Prog_SidebarDefault) + step, Prog_SidebarMin, Prog_SidebarMax);
+            } break;
+            case Prog_CommandKind_PanelIncreaseViewport:
+            case Prog_CommandKind_PanelDecreaseViewport: {
+                const Prog_Panel *panel = &state->panels[state->activePanel];
+                u32 leaf = Prog__SplitOf(state, panel->inspectorOf ? panel->inspectorOf : panel->id), parent = Prog__SplitParent(state, leaf);
+                if (parent == UINT32_MAX) break;
+                Prog_Split *split = &state->splits[parent];
+                f32 step = (command->kind == Prog_CommandKind_PanelIncreaseViewport) == (split->first == leaf) ? 0.05f : -0.05f;
+                split->ratio = UI__Clamp((split->ratio > 0 ? split->ratio : 0.5f) + step, 0.1f, 0.9f);
+            } break;
+            case Prog_CommandKind_PanelInspectorIncreaseViewport:
+            case Prog_CommandKind_PanelInspectorDecreaseViewport: {
+                f32 step = command->kind == Prog_CommandKind_PanelInspectorIncreaseViewport ? 0.05f : -0.05f;
+                state->inspectorShare = UI__Clamp((state->inspectorShare > 0 ? state->inspectorShare : 0.5f) + step, 0.2f, 0.8f);
+            } break;
             case Prog_CommandKind_PanelResetLayout: Prog_KeepOnePanel(state, true); break;
             case Prog_CommandKind_ToggleHideUI: state->uiHidden = !state->uiHidden; break;
             case Prog_CommandKind_TogglePanelZoom: {

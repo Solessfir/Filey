@@ -3255,3 +3255,39 @@ Long Paths Support
 
 Enable support for paths longer than 260 characters in every program (admin access required to change).
 = Включить поддержку путей длиннее 260 символов во всех программах (для изменения нужны права администратора).
+
+Increase Quick Access Size
+= Увеличить панель быстрого доступа
+
+Make the sidebar wider.
+= Сделать боковую панель шире.
+
+Decrease Quick Access Size
+= Уменьшить панель быстрого доступа
+
+Make the sidebar narrower.
+= Сделать боковую панель уже.
+
+Increase Panel Size
+= Увеличить панель
+
+Give the current panel more of its split.
+= Отдать текущей панели больше места в разделении.
+
+Decrease Panel Size
+= Уменьшить панель
+
+Give the current panel less of its split.
+= Отдать текущей панели меньше места в разделении.
+
+Increase Inspector Size
+= Увеличить инспектор
+
+Give the inspector more of its panel.
+= Отдать инспектору больше места в панели.
+
+Decrease Inspector Size
+= Уменьшить инспектор
+
+Give the inspector less of its panel.
+= Отдать инспектору меньше места в панели.

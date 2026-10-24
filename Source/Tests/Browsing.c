@@ -2088,6 +2088,15 @@ function void TestEvenPanels(TestFileFixture *fixture)
     state.splits[0].ratio = state.splits[column].ratio = 0.8f;
     TestBrowsingCommand(&state, Prog_CommandKind_PanelEvenAll, 0);
     Check(fabsf(state.splits[0].ratio - 1.0f / 3.0f) < 1e-5f && state.splits[column].ratio == 0.5f);
+    // The current panel's share of its split grows a step and shrinks back, and the sidebar widens a step.
+    u32 leaf = Prog__SplitOf(&state, state.panels[state.activePanel].id), parent = Prog__SplitParent(&state, leaf);
+    f32 share = state.splits[parent].ratio > 0 ? state.splits[parent].ratio : 0.5f;
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelIncreaseViewport, 0);
+    Check(fabsf((state.splits[parent].first == leaf ? state.splits[parent].ratio - share : share - state.splits[parent].ratio) - 0.05f) < 1e-5f);
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelDecreaseViewport, 0);
+    Check(fabsf(state.splits[parent].ratio - share) < 1e-5f);
+    TestBrowsingCommand(&state, Prog_CommandKind_QuickAccessIncreaseViewport, 0);
+    Check(fabsf(state.sidebarWidth - (Prog_SidebarDefault + 24)) < 1e-4f);
     // The second panel is active, first in the row it shares with the column.
     u64 active = state.panels[state.activePanel].id;
     Check(state.splits[state.splits[row].first].panel == active && state.splits[row].second == column);

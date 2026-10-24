@@ -7,7 +7,6 @@
 
 ## Missing
 
-- Checkboxes in the icon views, and the palette Misc group's viewport options.
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
 - Mouse bindings: only the side buttons bind to commands; the left, middle, right and wheel actions are fixed switches.
 - Indexing the drives from the NTFS file table for a faster Go To walk.

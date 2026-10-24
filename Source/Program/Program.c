@@ -1945,7 +1945,7 @@ function Prog_Metrics Prog__Metrics(const R_Font *font, const R_Font *icons, f32
         .pill = floorf(line * 2.0f + 0.5f),
         .separator = MaxF32(1.0f, floorf(1.6f * scale + 0.5f)),
         .stroke = 1.2f * scale,
-        .sidebar = floorf(179.2f * scale + 0.5f),
+        .sidebar = floorf(Prog_SidebarDefault * scale + 0.5f),
         .inset = floorf(15.0f * scale + 0.5f),
         .gap = floorf(8.0f * scale + 0.5f),
         .iconSlot = floorf(30.0f * scale + 0.5f),
@@ -4446,6 +4446,12 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
     f32 text = width - m->gap;
     UI_Parent(cell) {
         Prog__ItemIcon(state, entry, iconSize, width, iconSize, 0.5f, 0, highlighted, m);
+        // While several are selected, when asked, a checked box in the cell's corner takes it out of the selection, as the rows' does.
+        f32 box = floorf(16.0f * m->scale + 0.5f), corner = floorf(6.4f * m->scale + 0.5f);
+        UI_SetNextFloatingOffset((UI_Vec2){ corner, corner });
+        UI_SetNextPrefWidth(UI_Pixels(box));
+        UI_SetNextPrefHeight(UI_Pixels(box));
+        UI_Parent(UI_AddBlock(UI_Flag_Floating)) Prog__ItemCheckbox(state, index, box, box, m);
         if (renaming) {
             Prog__RenameBox(state, UI_Pixels(width), true, m);
         } else if (entry->drive) {
@@ -12049,8 +12055,9 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 mainHeight = height - (top ? m->separator : 0) - (top ? Prog__TitleStripHeight(m) : Prog__StripHeight(m));
     b32 below = state->inspectorLayout == Prog_InspectorLayout_Below || (state->inspectorLayout == Prog_InspectorLayout_Auto && mainHeight > width);
     if (inspecting) state->inspectorBelow = below;
-    f32 previewWidth = inspecting && !below ? floorf((width - m->separator) * 0.5f) : 0;
-    f32 previewHeight = inspecting && below ? floorf((mainHeight - m->separator) * 0.5f) : 0;
+    f32 share = state->inspectorShare > 0 ? state->inspectorShare : 0.5f;
+    f32 previewWidth = inspecting && !below ? floorf((width - m->separator) * share) : 0;
+    f32 previewHeight = inspecting && below ? floorf((mainHeight - m->separator) * share) : 0;
     f32 listWidth = width - previewWidth;
     Prog_Columns columns = Prog__Columns(state, scale, listWidth - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
     // A panel a split just made zooms in from 60% of its size about its middle, easing with a 38 ms time constant.

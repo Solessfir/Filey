@@ -1416,6 +1416,8 @@ typedef struct Prog_Split {
 // How narrow and wide dragging its edge makes the sidebar, in logical pixels.
 #define Prog_SidebarMin 120.0f
 #define Prog_SidebarMax 480.0f
+// Its width before its edge is dragged.
+#define Prog_SidebarDefault 179.2f
 
 // Where a dragged tab goes: a slot of a panel's strip, into a panel, a new panel on one of a panel's sides, or a new window.
 typedef enum Prog_TabDrop {
@@ -1954,6 +1956,7 @@ typedef struct Prog_State {
     u32 userGroupDropIn, userGroupDropShownIn;
     // A name edited in its sidebar row, which the Save Layout box's state carries: nameFor is 1 for the group of the user's nameGroup, and
     // 2 for the folder namePath, row nameIndex of sidebar group nameGroup; the press before it began, and whether its box was built.
+    f32 inspectorShare;       // the inspector's share of its panel, 0 for half
     b32 longPaths;            // the system lets programs use paths longer than 260 characters, as last read
     b32 longPathsSetting;     // and a job is asking it to change that
     u8 nameFor;

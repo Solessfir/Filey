@@ -1596,6 +1596,36 @@ command PanelEvenAll {
     tooltip = "Even viewport size of all panels."
 }
 
+command QuickAccessIncreaseViewport {
+    label   = "Increase Quick Access Size^sidebar,wider,grow,viewport"
+    tooltip = "Make the sidebar wider."
+}
+
+command QuickAccessDecreaseViewport {
+    label   = "Decrease Quick Access Size^sidebar,narrower,shrink,viewport"
+    tooltip = "Make the sidebar narrower."
+}
+
+command PanelIncreaseViewport {
+    label   = "Increase Panel Size^grow,bigger,split,pane,viewport"
+    tooltip = "Give the current panel more of its split."
+}
+
+command PanelDecreaseViewport {
+    label   = "Decrease Panel Size^shrink,smaller,split,pane,viewport"
+    tooltip = "Give the current panel less of its split."
+}
+
+command PanelInspectorIncreaseViewport {
+    label   = "Increase Inspector Size^preview,grow,bigger,viewport"
+    tooltip = "Give the inspector more of its panel."
+}
+
+command PanelInspectorDecreaseViewport {
+    label   = "Decrease Inspector Size^preview,shrink,smaller,viewport"
+    tooltip = "Give the inspector less of its panel."
+}
+
 command PanelSwap {
     label   = "Swap Panels^exchange,flip,mirror,rotate,pane"
     tooltip = "Swap the current panel with what is beside it in its split."
