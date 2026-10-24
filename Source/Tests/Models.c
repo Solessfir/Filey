@@ -288,6 +288,39 @@ function void TestModels(void)
         Check(mesh.parts.header.count == 1 && mesh.parts.v[0].color == 0xFF00FF00u);
     }
 
+    // Collada: a quad as a polylist and a triangle with vertex colors in one geometry, put in the scene twice by nodes moved apart, the quad
+    // in its material's red through the node's binding, with Z up.
+    {
+        String dae = S("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                       "<COLLADA xmlns=\"http://www.collada.org/2005/11/COLLADASchema\" version=\"1.4.1\">\n"
+                       "  <asset><up_axis>Z_UP</up_axis></asset>\n"
+                       "  <library_effects><effect id=\"red-effect\"><profile_COMMON><technique sid=\"common\"><lambert>\n"
+                       "    <diffuse><color sid=\"diffuse\">1 0 0 1</color></diffuse></lambert></technique></profile_COMMON></effect></library_effects>\n"
+                       "  <library_materials><material id=\"red\" name=\"red\"><instance_effect url=\"#red-effect\"/></material></library_materials>\n"
+                       "  <library_geometries><geometry id=\"shape\" name=\"shape\"><mesh>\n"
+                       "    <source id=\"shape-positions\"><float_array id=\"shape-positions-array\" count=\"21\">0 0 0 1 0 0 1 1 0 0 1 0\n 5 5 5 6 5 5 5 6 5</float_array>\n"
+                       "      <technique_common><accessor source=\"#shape-positions-array\" count=\"7\" stride=\"3\"/></technique_common></source>\n"
+                       "    <source id=\"shape-colors\"><float_array id=\"shape-colors-array\" count=\"4\">0 1 0 1</float_array>\n"
+                       "      <technique_common><accessor source=\"#shape-colors-array\" count=\"1\" stride=\"4\"/></technique_common></source>\n"
+                       "    <vertices id=\"shape-vertices\"><input semantic=\"POSITION\" source=\"#shape-positions\"/></vertices>\n"
+                       "    <polylist material=\"red-material\" count=\"1\"><input semantic=\"VERTEX\" source=\"#shape-vertices\" offset=\"0\"/>\n"
+                       "      <vcount>4 </vcount><p>0 1 2 3</p></polylist>\n"
+                       "    <triangles count=\"1\"><input semantic=\"VERTEX\" source=\"#shape-vertices\" offset=\"0\"/><input semantic=\"COLOR\" source=\"#shape-colors\" offset=\"1\"/>\n"
+                       "      <p>4 0 5 0 6 0</p></triangles>\n"
+                       "  </mesh></geometry></library_geometries>\n"
+                       "  <library_visual_scenes><visual_scene id=\"scene\">\n"
+                       "    <node id=\"a\"><matrix sid=\"transform\">1 0 0 10 0 1 0 0 0 0 1 0 0 0 0 1</matrix>\n"
+                       "      <instance_geometry url=\"#shape\"><bind_material><technique_common><instance_material symbol=\"red-material\" target=\"#red\"/></technique_common></bind_material></instance_geometry></node>\n"
+                       "    <node id=\"b\"><translate>0 0 -3</translate><instance_geometry url=\"#shape\"/></node>\n"
+                       "  </visual_scene></library_visual_scenes>\n"
+                       "  <scene><instance_visual_scene url=\"#scene\"/></scene>\n"
+                       "</COLLADA>\n");
+        Check(TestReadModel(&arena, Prog_ModelKind_Dae, dae, &mesh) && mesh.zUp && mesh.indices.header.count == 18 && mesh.positions.header.count == 42);
+        Check(mesh.positions.v[0] == 10 && mesh.positions.v[3] == 11 && mesh.positions.v[21 + 2] == -3 && mesh.parts.header.count == 4);
+        Check(mesh.parts.v[0].color == 0xFF0000FFu && !mesh.parts.v[1].color && !mesh.parts.v[2].color && mesh.colors.v[4] == 0xFF00FF00u);
+        Check(Prog_ModelKindOf(S("scene.DAE")) == Prog_ModelKind_Dae && Prog_ModelKindOf(S("scene.usda")) == Prog_ModelKind_Usda);
+    }
+
     // Text FBX: the same mesh and model as the binary one, its arrays over more than one line, with comments, and a value-less node.
     {
         String text = S("; FBX 7.4.0 project file\n"

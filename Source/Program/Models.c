@@ -3595,6 +3595,394 @@ function b32 Prog__ReadUsd(Arena *arena, String path, String data, const P_Cance
 }
 
 // -----------------------------------------------------------------------------
+// XML, for Collada and 3MF: elements with their attributes left as written, to be looked through by name, and the text that first follows
+// each element's start, as a list of numbers is, in place in the file.
+
+typedef struct Prog__Xml Prog__Xml;
+struct Prog__Xml {
+    String name, attributes, text;
+    Prog__Xml *first, *last, *next;
+};
+
+// Past `from` to just after `marker`, or to the end.
+function const char *Prog__XmlPast(const char *from, const char *end, const char *marker)
+{
+    u64 length = 0;
+    while (marker[length]) ++length;
+    for (const char *p = from; p + length <= end; ++p) if (MemCompare(p, marker, length) == 0) return p + length;
+    return end;
+}
+
+function Prog__Xml *Prog__XmlParse(Arena *arena, String data, const P_CancelToken *cancel)
+{
+    Prog__Xml *document = ArenaPushStruct(arena, Prog__Xml), *stack[256] = { document };
+    u32 depth = 0;
+    const char *p = data.value, *end = data.value + data.length;
+    for (u64 step = 0; p < end; ++step) {
+        if ((step & 0xFFFF) == 0 && P_IsCancelled(cancel)) return NULL;
+        const char *open = p;
+        while (open < end && *open != '<') ++open;
+        Prog__Xml *top = stack[depth];
+        if (open > p && !top->text.length) top->text = StrMake(p, (u64)(open - p));
+        if (open >= end) break;
+        p = open + 1;
+        if (p < end && *p == '?') {
+            p = Prog__XmlPast(p, end, "?>");
+        } else if (end - p >= 3 && MemCompare(p, "!--", 3) == 0) {
+            p = Prog__XmlPast(p, end, "-->");
+        } else if (end - p >= 8 && MemCompare(p, "![CDATA[", 8) == 0) {
+            const char *from = p + 8;
+            p = Prog__XmlPast(from, end, "]]>");
+            if (!top->text.length) top->text = StrMake(from, (u64)Max((i64)(p - from) - 3, (i64)0));
+        } else if (p < end && *p == '!') {
+            p = Prog__XmlPast(p, end, ">");
+        } else if (p < end && *p == '/') {
+            p = Prog__XmlPast(p, end, ">");
+            if (depth) --depth;
+        } else {
+            const char *name = p;
+            while (p < end && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n' && *p != '/' && *p != '>') ++p;
+            const char *attributes = p;
+            char quote = 0;
+            while (p < end && (quote || *p != '>')) {
+                if (quote ? *p == quote : (*p == '"' || *p == '\'')) quote = quote ? 0 : *p;
+                ++p;
+            }
+            b32 closed = p > attributes && p[-1] == '/';
+            Prog__Xml *element = ArenaPushStruct(arena, Prog__Xml);
+            element->name = StrMake(name, (u64)(attributes - name));
+            element->attributes = StrMake(attributes, (u64)(p - attributes - (closed ? 1 : 0)));
+            if (top->last) top->last->next = element;
+            else top->first = element;
+            top->last = element;
+            if (p < end) ++p;
+            if (!closed && depth + 1 < CArrayCount(stack)) stack[++depth] = element;
+        }
+    }
+    return document;
+}
+
+// Whether the element is named `name`, whatever namespace prefix it is written with.
+function b32 Prog__XmlIs(const Prog__Xml *element, String name)
+{
+    if (!element) return false;
+    Index colon = StrIndexChar(element->name, ':', SSF_None);
+    return StrIsEqual(colon.exists ? StrFrom(element->name, colon.value + 1) : element->name, name);
+}
+
+function Prog__Xml *Prog__XmlChild(const Prog__Xml *element, String name)
+{
+    for (Prog__Xml *child = element ? element->first : NULL; child; child = child->next) if (Prog__XmlIs(child, name)) return child;
+    return NULL;
+}
+
+// The value of the attribute `name`, as written between its quotes; empty without it.
+function String Prog__XmlValue(const Prog__Xml *element, String name)
+{
+    if (!element) return (String){0};
+    String a = element->attributes;
+    for (u64 at = 0; at + name.length < a.length; ++at) {
+        if (MemCompare(a.value + at, name.value, name.length) != 0 || (at && !Prog__IsSpace(a.value[at - 1]) && a.value[at - 1] != '\n')) continue;
+        u64 p = at + name.length;
+        while (p < a.length && (Prog__IsSpace(a.value[p]) || a.value[p] == '\n')) ++p;
+        if (p >= a.length || a.value[p] != '=') continue;
+        ++p;
+        while (p < a.length && (Prog__IsSpace(a.value[p]) || a.value[p] == '\n')) ++p;
+        if (p >= a.length || (a.value[p] != '"' && a.value[p] != '\'')) continue;
+        char quote = a.value[p++];
+        u64 from = p;
+        while (p < a.length && a.value[p] != quote) ++p;
+        return StrFromTo(a, from, (i64)p);
+    }
+    return (String){0};
+}
+
+function f64 Prog__XmlNumber(const Prog__Xml *element, String name, f64 fallback)
+{
+    String text = Prog__XmlValue(element, name);
+    const char *p = text.value;
+    f64 value = 0;
+    return text.length && Prog__Number(&p, text.value + text.length, &value) ? value : fallback;
+}
+
+// The numbers of an element's text, as many as there are up to `limit`.
+function f32 *Prog__XmlNumbers(Arena *arena, String text, u64 limit, u64 *count)
+{
+    f32 *result = ArenaPushArrayNoZero(arena, Max(Min(limit, text.length / 2 + 1), (u64)1), f32);
+    const char *p = text.value, *end = text.value + text.length;
+    u64 n = 0;
+    while (p < end && n < limit) {
+        while (p < end && (Prog__IsSpace(*p) || *p == '\n' || *p == ',')) ++p;
+        f64 value = 0;
+        const char *before = p;
+        if (p >= end) break;
+        if (Prog__Number(&p, end, &value)) result[n++] = (f32)value;
+        if (p == before) ++p;
+    }
+    *count = n;
+    return result;
+}
+
+// -----------------------------------------------------------------------------
+// Collada (.dae): the visual scene's nodes, placed by their matrix, translate, rotate and scale steps, and the geometries they name, each
+// primitive in its bound material's diffuse color or texture; without a scene, every geometry where it is.
+
+typedef struct Prog__DaeIds { MapHeader header; struct { String key; u64 value; } *v; } Prog__DaeIds;
+
+typedef struct Prog__Dae {
+    Prog__DaeIds ids;
+    Prog_Mesh *mesh;
+    const P_CancelToken *cancel;
+} Prog__Dae;
+
+// The element a "#id" or "id" names.
+function Prog__Xml *Prog__DaeAt(const Prog__Dae *dae, String reference)
+{
+    if (reference.length && reference.value[0] == '#') reference = StrFrom(reference, 1);
+    return reference.length ? (Prog__Xml *)(uintptr_t)MapsGet(dae->ids, u64, reference) : NULL;
+}
+
+function void Prog__DaeIndex(Arena *arena, Prog__Dae *dae, Prog__Xml *element, u32 depth)
+{
+    for (Prog__Xml *child = element->first; child && depth < 128; child = child->next) {
+        String id = Prog__XmlValue(child, S("id"));
+        if (id.length && !MapsGet(dae->ids, u64, id)) MapsPut(arena, dae->ids, id, (u64)(uintptr_t)child);
+        Prog__DaeIndex(arena, dae, child, depth + 1);
+    }
+}
+
+// A source's numbers and how many make one element.
+function f32 *Prog__DaeSource(Arena *arena, const Prog__Dae *dae, String reference, u64 *count, u32 *stride)
+{
+    Prog__Xml *source = Prog__DaeAt(dae, reference), *values = Prog__XmlChild(source, S("float_array"));
+    Prog__Xml *accessor = Prog__XmlChild(Prog__XmlChild(source, S("technique_common")), S("accessor"));
+    if (!values) return NULL;
+    u64 n = 0;
+    f32 *numbers = Prog__XmlNumbers(arena, values->text, (u64)Prog__XmlNumber(values, S("count"), (f64)UINT32_MAX), &n);
+    *stride = (u32)Max(Prog__XmlNumber(accessor, S("stride"), 1), 1.0);
+    *count = n / *stride;
+    return numbers;
+}
+
+// A bound material's look: its effect's diffuse color, or the picture its texture samples, found through the effect's sampler and surface
+// parameters to the image they name.
+function Prog_MeshPart Prog__DaeLook(Arena *arena, const Prog__Dae *dae, Prog__Xml *material)
+{
+    Prog_MeshPart result = { .image = UINT32_MAX };
+    Prog__Xml *effect = Prog__DaeAt(dae, Prog__XmlValue(Prog__XmlChild(material, S("instance_effect")), S("url")));
+    Prog__Xml *common = Prog__XmlChild(effect, S("profile_COMMON")), *technique = Prog__XmlChild(common, S("technique")), *shading = NULL;
+    String kinds[] = { S("phong"), S("lambert"), S("blinn"), S("constant") };
+    for (u32 i = 0; i < CArrayCount(kinds) && !shading; ++i) shading = Prog__XmlChild(technique, kinds[i]);
+    Prog__Xml *diffuse = Prog__XmlChild(shading, S("diffuse"));
+    if (!diffuse) diffuse = Prog__XmlChild(shading, S("emission"));
+    Prog__Xml *color = Prog__XmlChild(diffuse, S("color")), *texture = Prog__XmlChild(diffuse, S("texture"));
+    if (color) {
+        u64 n = 0;
+        f32 *rgba = Prog__XmlNumbers(arena, color->text, 4, &n);
+        if (n >= 3) result.color = Prog__LinearColor(rgba[0], rgba[1], rgba[2], n >= 4 ? rgba[3] : 1) | 0xFF000000u;
+    }
+    if (texture) {
+        // The sampler's source names the surface, whose init_from names the image; Collada 1.5 and some exporters name the image at once.
+        String name = Prog__XmlValue(texture, S("texture")), image = name;
+        for (u32 hop = 0; hop < 2; ++hop) {
+            for (Prog__Xml *param = common ? common->first : NULL; param; param = param->next) {
+                if (!Prog__XmlIs(param, S("newparam")) || !StrIsEqual(Prog__XmlValue(param, S("sid")), image)) continue;
+                Prog__Xml *sampler = Prog__XmlChild(param, S("sampler2D")), *surface = Prog__XmlChild(param, S("surface"));
+                Prog__Xml *next = sampler ? Prog__XmlChild(sampler, S("source")) : Prog__XmlChild(surface, S("init_from"));
+                Prog__Xml *instance = Prog__XmlChild(sampler, S("instance_image"));
+                if (instance) image = Prog__XmlValue(instance, S("url"));
+                else if (next) image = next->text;
+                break;
+            }
+        }
+        Prog__Xml *picture = Prog__DaeAt(dae, image), *from = Prog__XmlChild(picture, S("init_from"));
+        Prog__Xml *ref = Prog__XmlChild(from, S("ref"));
+        String file = ref ? ref->text : from ? from->text : (String){0};
+        while (file.length && (Prog__IsSpace(file.value[0]) || file.value[0] == '\n')) file = StrFrom(file, 1);
+        while (file.length && (Prog__IsSpace(file.value[file.length - 1]) || file.value[file.length - 1] == '\n')) --file.length;
+        if (file.length > 8 && MemCompare(file.value, "file:///", 8) == 0) file = StrFrom(file, 8);
+        else if (file.length > 7 && MemCompare(file.value, "file://", 7) == 0) file = StrFrom(file, 7);
+        if (file.length) {
+            result.bare = result.color;
+            result.image = Prog__MeshImage(arena, dae->mesh, Prog__UriName(arena, file), (String){0});
+        }
+    }
+    return result;
+}
+
+// One of a mesh's primitives, its corners' indices in `p`: the triangles, polylist or polygons element `primitive`, with `vcount` corners a
+// polygon, or three.
+function void Prog__DaePrimitive(Arena *arena, const Prog__Dae *dae, const Prog__Xml *primitive, const Prog__Affine *place, Prog_MeshPart look)
+{
+    Prog_Mesh *mesh = dae->mesh;
+    Scratch scratch = GetScratchEx(arena);
+    // Its inputs, each at an offset in a corner's indices: the points through the vertices element, and the first texture coordinates and
+    // colors.
+    u32 stride = 1, pointAt = UINT32_MAX, uvAt = UINT32_MAX, colorAt = UINT32_MAX;
+    u32 pointWidth = 3, uvWidth = 2, colorWidth = 3;
+    u64 pointCount = 0, uvCount = 0, colorCount = 0;
+    f32 *points = NULL, *uvs = NULL, *colors = NULL;
+    for (Prog__Xml *input = primitive->first; input; input = input->next) {
+        if (!Prog__XmlIs(input, S("input"))) continue;
+        u32 offset = (u32)Prog__XmlNumber(input, S("offset"), 0);
+        stride = Max(stride, offset + 1);
+        String semantic = Prog__XmlValue(input, S("semantic")), source = Prog__XmlValue(input, S("source"));
+        if (StrIsEqual(semantic, S("VERTEX"))) {
+            Prog__Xml *vertices = Prog__DaeAt(dae, source);
+            for (Prog__Xml *v = vertices ? vertices->first : NULL; v; v = v->next) {
+                String kind = Prog__XmlValue(v, S("semantic"));
+                if (StrIsEqual(kind, S("POSITION"))) points = Prog__DaeSource(scratch.arena, dae, Prog__XmlValue(v, S("source")), &pointCount, &pointWidth), pointAt = offset;
+            }
+        } else if (StrIsEqual(semantic, S("TEXCOORD")) && uvAt == UINT32_MAX) {
+            uvs = Prog__DaeSource(scratch.arena, dae, source, &uvCount, &uvWidth), uvAt = offset;
+        } else if (StrIsEqual(semantic, S("COLOR")) && colorAt == UINT32_MAX) {
+            colors = Prog__DaeSource(scratch.arena, dae, source, &colorCount, &colorWidth), colorAt = offset;
+        }
+    }
+    if (!points || pointWidth < 3 || pointCount >= UINT32_MAX) {
+        ReleaseScratch(scratch);
+        return;
+    }
+    if (!uvs || uvWidth < 2) uvAt = UINT32_MAX;
+    if (!colors || colorWidth < 3) colorAt = UINT32_MAX;
+    f32 *at = ArenaPushArrayNoZero(scratch.arena, Max(pointCount, (u64)1) * 3, f32);
+    for (u64 v = 0; v < pointCount; ++v) Prog__MeshPoint(at + v * 3, place, points[v * pointWidth], points[v * pointWidth + 1], points[v * pointWidth + 2]);
+    Prog__MeshPart(arena, mesh, look.color, look.image, look.bare);
+    b32 polylist = Prog__XmlIs(primitive, S("polylist"));
+    u64 sizeCount = 0;
+    f32 *sizes = polylist ? Prog__XmlNumbers(scratch.arena, Prog__XmlChild(primitive, S("vcount")) ? Prog__XmlChild(primitive, S("vcount"))->text : (String){0}, UINT32_MAX, &sizeCount) : NULL;
+    Prog__Corners made = Prog__CornersMake(scratch.arena, pointCount, pointCount * 2);
+    // Polygons have a <p> each; the others one for all of them.
+    for (Prog__Xml *list = primitive->first; list; list = list->next) {
+        if (!Prog__XmlIs(list, S("p"))) continue;
+        u64 n = 0;
+        f32 *indices = Prog__XmlNumbers(scratch.arena, list->text, UINT32_MAX, &n);
+        u64 cornerCount = n / stride, corner = 0;
+        for (u64 polygon = 0; corner < cornerCount && !P_IsCancelled(dae->cancel); ++polygon) {
+            u64 size = polylist ? (polygon < sizeCount ? (u64)sizes[polygon] : 0) : Prog__XmlIs(primitive, S("polygons")) ? cornerCount : 3;
+            if (!size) break;
+            u32 fan = 0, previous = 0;
+            for (u64 k = 0; k < size && corner < cornerCount; ++k, ++corner) {
+                const f32 *c = indices + corner * stride;
+                u64 point = (u64)c[pointAt];
+                u64 uv = uvAt != UINT32_MAX ? (u64)c[uvAt] : UINT64_MAX, color = colorAt != UINT32_MAX ? (u64)c[colorAt] : UINT64_MAX;
+                if (uv != UINT64_MAX && uv >= uvCount) uv = UINT64_MAX;
+                if (color != UINT64_MAX && color >= colorCount) color = UINT64_MAX;
+                u32 vertex = UINT32_MAX;
+                if (point < pointCount) {
+                    Prog__MeshCorner key = { (u32)point, (u32)(uv + 1), (u32)(color + 1), 0 };
+                    vertex = Prog__CornersFind(&made, key);
+                    if (vertex == UINT32_MAX && mesh->positions.header.count / 3 < UINT32_MAX) {
+                        vertex = (u32)(mesh->positions.header.count / 3);
+                        MemCopy(ArrayAdd(arena, mesh->positions, 3), at + point * 3, 12);
+                        if (uv != UINT64_MAX) {
+                            f32 *t = Prog__MeshUvs(arena, mesh) + (u64)vertex * 2;
+                            t[0] = uvs[uv * uvWidth];
+                            t[1] = 1 - uvs[uv * uvWidth + 1];
+                        }
+                        if (color != UINT64_MAX) {
+                            const f32 *rgb = colors + color * colorWidth;
+                            Prog__MeshColors(arena, mesh)[vertex] = Prog__LinearColor(rgb[0], rgb[1], rgb[2], colorWidth >= 4 ? rgb[3] : 1) | 0xFF000000u;
+                        }
+                        Prog__CornersAdd(&made, key, vertex);
+                    }
+                }
+                if (k == 0) fan = vertex;
+                else if (k >= 2) Prog__MeshTriangle(arena, mesh, fan, previous, vertex);
+                previous = vertex;
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+}
+
+// A geometry placed by `place`, its primitives' materials bound by the instance `instance` names them in.
+function void Prog__DaeGeometry(Arena *arena, const Prog__Dae *dae, const Prog__Xml *geometry, const Prog__Xml *instance, const Prog__Affine *place)
+{
+    Prog__Xml *mesh = Prog__XmlChild(geometry, S("mesh"));
+    Prog__Xml *bound = Prog__XmlChild(Prog__XmlChild(instance, S("bind_material")), S("technique_common"));
+    for (Prog__Xml *primitive = mesh ? mesh->first : NULL; primitive && !P_IsCancelled(dae->cancel); primitive = primitive->next) {
+        if (!Prog__XmlIs(primitive, S("triangles")) && !Prog__XmlIs(primitive, S("polylist")) && !Prog__XmlIs(primitive, S("polygons"))) continue;
+        String symbol = Prog__XmlValue(primitive, S("material"));
+        Prog__Xml *material = NULL;
+        for (Prog__Xml *link = bound ? bound->first : NULL; link && symbol.length && !material; link = link->next) {
+            if (Prog__XmlIs(link, S("instance_material")) && StrIsEqual(Prog__XmlValue(link, S("symbol")), symbol)) material = Prog__DaeAt(dae, Prog__XmlValue(link, S("target")));
+        }
+        if (!material) material = Prog__DaeAt(dae, symbol);
+        Prog_MeshPart look = material ? Prog__DaeLook(arena, dae, material) : (Prog_MeshPart){ .image = UINT32_MAX };
+        Prog__DaePrimitive(arena, dae, primitive, place, look);
+    }
+}
+
+// A node's own steps in their order, after its parent's placement.
+function Prog__Affine Prog__DaePlace(Arena *arena, const Prog__Xml *node, Prog__Affine place)
+{
+    for (Prog__Xml *step = node->first; step; step = step->next) {
+        u64 n = 0;
+        Scratch scratch = GetScratchEx(arena);
+        f32 *v = Prog__XmlNumbers(scratch.arena, step->text, 16, &n);
+        Prog__Affine local = Prog__AffineIdentity;
+        f32 zero[3] = {0}, ones[3] = { 1, 1, 1 }, identity[4] = { 0, 0, 0, 1 };
+        b32 used = true;
+        if (Prog__XmlIs(step, S("matrix")) && n == 16) {
+            for (u32 i = 0; i < 12; ++i) local.m[i] = v[i];
+        } else if (Prog__XmlIs(step, S("translate")) && n == 3) {
+            local = Prog__AffineCompose(v, identity, ones);
+        } else if (Prog__XmlIs(step, S("scale")) && n == 3) {
+            local = Prog__AffineCompose(zero, identity, v);
+        } else if (Prog__XmlIs(step, S("rotate")) && n == 4) {
+            f32 length = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), half = v[3] * 3.14159265f / 360.0f, s = length > 0 ? sinf(half) / length : 0;
+            f32 q[4] = { v[0] * s, v[1] * s, v[2] * s, cosf(half) };
+            local = Prog__AffineCompose(zero, q, ones);
+        } else {
+            used = false;
+        }
+        if (used) place = Prog__AffineMultiply(place, local);
+        ReleaseScratch(scratch);
+    }
+    return place;
+}
+
+function void Prog__DaeNode(Arena *arena, const Prog__Dae *dae, const Prog__Xml *node, Prog__Affine parent, u32 depth)
+{
+    if (depth > 64 || P_IsCancelled(dae->cancel)) return;
+    Prog__Affine place = Prog__DaePlace(arena, node, parent);
+    for (Prog__Xml *child = node->first; child; child = child->next) {
+        if (Prog__XmlIs(child, S("instance_geometry"))) {
+            Prog__Xml *geometry = Prog__DaeAt(dae, Prog__XmlValue(child, S("url")));
+            if (geometry) Prog__DaeGeometry(arena, dae, geometry, child, &place);
+        } else if (Prog__XmlIs(child, S("instance_node"))) {
+            Prog__Xml *shared = Prog__DaeAt(dae, Prog__XmlValue(child, S("url")));
+            if (shared) Prog__DaeNode(arena, dae, shared, place, depth + 1);
+        } else if (Prog__XmlIs(child, S("node"))) {
+            Prog__DaeNode(arena, dae, child, place, depth + 1);
+        }
+    }
+}
+
+function b32 Prog__ReadCollada(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    Prog__Xml *document = Prog__XmlParse(arena, data, cancel), *collada = Prog__XmlChild(document, S("COLLADA"));
+    if (!collada) return false;
+    Prog__Dae dae = { .mesh = mesh, .cancel = cancel };
+    Prog__DaeIndex(arena, &dae, collada, 0);
+    Prog__Xml *up = Prog__XmlChild(Prog__XmlChild(collada, S("asset")), S("up_axis"));
+    mesh->zUp = up && StrIndexStr(up->text, S("Z_UP"), SSF_None).exists;
+    Prog__Xml *scene = Prog__DaeAt(&dae, Prog__XmlValue(Prog__XmlChild(Prog__XmlChild(collada, S("scene")), S("instance_visual_scene")), S("url")));
+    if (!scene) scene = Prog__XmlChild(Prog__XmlChild(collada, S("library_visual_scenes")), S("visual_scene"));
+    if (scene) {
+        for (Prog__Xml *node = scene->first; node; node = node->next) if (Prog__XmlIs(node, S("node"))) Prog__DaeNode(arena, &dae, node, Prog__AffineIdentity, 0);
+    }
+    if (!mesh->indices.header.count) {
+        Prog__Xml *library = Prog__XmlChild(collada, S("library_geometries"));
+        for (Prog__Xml *geometry = library ? library->first : NULL; geometry; geometry = geometry->next) {
+            if (Prog__XmlIs(geometry, S("geometry"))) Prog__DaeGeometry(arena, &dae, geometry, NULL, &Prog__AffineIdentity);
+        }
+    }
+    return mesh->indices.header.count > 0;
+}
+
+// -----------------------------------------------------------------------------
 
 typedef enum Prog_ModelKind {
     Prog_ModelKind_None,
@@ -3609,12 +3997,13 @@ typedef enum Prog_ModelKind {
     Prog_ModelKind_Usdc,
     Prog_ModelKind_Usdz,
     Prog_ModelKind_Usda,
+    Prog_ModelKind_Dae,
     Prog_ModelKind_Count,
 } Prog_ModelKind;
 
 function Prog_ModelKind Prog_ModelKindOf(String path)
 {
-    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda") };
+    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda"), SInit(".dae") };
     // Blender's backups, "scene.blend1" and on, are .blend files too.
     String backup = path;
     while (backup.length > 6 && backup.value[backup.length - 1] >= '0' && backup.value[backup.length - 1] <= '9') --backup.length;
@@ -3643,6 +4032,7 @@ function b32 Prog__ReadModelKind(Arena *arena, Prog_ModelKind kind, String path,
         case Prog_ModelKind_Usdc:
         case Prog_ModelKind_Usda:
         case Prog_ModelKind_Usdz: return Prog__ReadUsd(arena, path, data, cancel, mesh);
+        case Prog_ModelKind_Dae: return Prog__ReadCollada(arena, data, cancel, mesh);
         default: return false;
     }
 }
