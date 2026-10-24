@@ -2551,8 +2551,8 @@ function void Prog__MillerSelect(Prog_State *state, u32 slot, u64 row, b32 open)
     const Prog_MillerColumn *column = &state->millerColumns->v[slot];
     const Prog_Entry *entry = &column->items[row];
     String path = Prog_JoinPath(&state->frameArena, column->path, entry->file.name), name = StrCopy(&state->frameArena, entry->file.name);
-    String folder = StrCopy(&state->frameArena, column->path), archive = {0}, inner = {0};
-    b32 opensAsFolder = entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(name) && !Prog_ArchiveSplit(folder, &archive, &inner) && !P_OpensInApp(path));
+    String folder = StrCopy(&state->frameArena, column->path);
+    b32 opensAsFolder = entry->file.kind == P_FileKind_Directory || (Prog_IsArchiveName(name) && !P_OpensInApp(path));
     if (open && opensAsFolder) {
         Prog_RequestDirectory(state, path, true, 0);
     } else if (open) {
@@ -4899,7 +4899,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     Prog__UsePanel(state, state->activePanel);
     if (state->dropPlace.length) drop = state->dropPlace, intoPanel = false, onFile = false;
     String archive = {0}, inner = {0};
-    if (Prog_ArchiveSplit(drop, &archive, &inner) && !P_ArchiveWritable(archive)) drop = (String){0}, intoPanel = false;
+    if (Prog_ArchiveSplit(drop, &archive, &inner) && (!P_ArchiveWritable(archive) || Prog_ArchiveNested(drop))) drop = (String){0}, intoPanel = false;
     P_SetDropOnFile(onFile);
     P_SetDropDirectory(drop);
     state->dropPanel = intoPanel && dropPanel != UINT32_MAX && P_DropPending() ? state->panels[dropPanel].id : 0;

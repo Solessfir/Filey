@@ -1372,6 +1372,32 @@ function void TestFileIcons(TestFileFixture *fixture)
         Check(P_ReadFile(&arena, Prog_JoinPath(&arena, transfer.path, S("note.txt")), &contents) && StrIsEqual(contents, S("new")));
         // What it took out is where it was placed, which is selected afterwards.
         Check(placed.header.count == 1 && StrIsEqual(placed.v[0], Prog_JoinPath(&arena, transfer.path, S("note.txt"))));
+        // An archive inside another lists, previews and copies out from its copy taken out, but takes nothing in; a folder named as an
+        // archive is a folder.
+        {
+            String deep = Prog_JoinPath(&arena, transfer.path, S("deep.txt")), inner = Prog_JoinPath(&arena, transfer.path, S("inner.zip"));
+            String outer = Prog_JoinPath(&arena, transfer.path, S("outer.zip"));
+            Check(!P_WriteFile(&arena, deep, S("deep")).code && !P_AddToArchive(&arena, inner, S("docs"), &deep, 1, 9, NULL, NULL).code);
+            Check(!P_AddToArchive(&arena, outer, S("box"), &inner, 1, 9, NULL, NULL).code && !P_AddToArchive(&arena, outer, S("odd.zip"), &deep, 1, 9, NULL, NULL).code);
+            String docs = StrFormat(&arena, "%S/box/inner.zip/docs", outer), resolvedArchive = {0}, resolvedInner = {0};
+            Check(Prog_ArchiveNested(docs) && !Prog_ArchiveNested(StrFormat(&arena, "%S/box", outer)));
+            Check(Prog_ResolveArchive(&arena, docs, &resolvedArchive, &resolvedInner, NULL) && StrIsEqual(resolvedInner, S("docs")) && TestEndsWith(resolvedArchive, S("/inner.zip")));
+            Check(!StrIsEqual(resolvedArchive, outer) && P_EnumerateArchive(&arena, resolvedArchive, resolvedInner, NULL).files.header.count == 1);
+            String shown = Prog_ArchiveCopy(&arena, StrFormat(&arena, "%S/deep.txt", docs), NULL, NULL);
+            Check(shown.length && P_ReadFile(&arena, shown, &contents) && StrIsEqual(contents, S("deep")));
+            String odd = StrFormat(&arena, "%S/odd.zip", outer);
+            Check(Prog_ResolveArchive(&arena, odd, &resolvedArchive, &resolvedInner, NULL) && StrIsEqual(resolvedArchive, outer) && StrIsEqual(resolvedInner, S("odd.zip")));
+            String nested = StrFormat(&arena, "%S/deep.txt", docs);
+            Prog_JobInput out3 = { .kind = Prog_JobKind_Transfer, .paths = &nested, .pathCount = 1, .path = Prog_JoinPath(&arena, fixture->path, S("Out2/Taken")) };
+            String made = {0};
+            Check(!P_CreateItem(&arena, transfer.path, S("Taken"), true, &made).code);
+            ArrayStr took = {0};
+            Check(!Prog__Transfer(&arena, &out3, &took, NULL).code && P_ReadFile(&arena, Prog_JoinPath(&arena, out3.path, S("deep.txt")), &contents) && StrIsEqual(contents, S("deep")));
+            Prog_JobInput in = { .kind = Prog_JobKind_Transfer, .paths = &deep, .pathCount = 1, .path = docs };
+            Check(Prog__Transfer(&arena, &in, &took, NULL).code);
+            Check(P__TestRemovePath(fixture, S("Out2/Taken/deep.txt"), false) && P__TestRemovePath(fixture, S("Out2/Taken"), true));
+            Check(P__TestRemovePath(fixture, S("Out2/outer.zip"), false) && P__TestRemovePath(fixture, S("Out2/inner.zip"), false) && P__TestRemovePath(fixture, S("Out2/deep.txt"), false));
+        }
         // Packing makes a new archive beside the items, and taking it out into a folder of its own puts its items there.
         {
             String packed[2] = { Prog_JoinPath(&arena, out, S("a.txt")), Prog_JoinPath(&arena, out, S("note.txt")) };

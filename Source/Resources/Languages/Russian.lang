@@ -3291,3 +3291,6 @@ Decrease Inspector Size
 
 Give the inspector less of its panel.
 = Отдать инспектору меньше места в панели.
+
+Items cannot be added to an archive inside another
+= Нельзя добавить файлы в архив внутри другого архива

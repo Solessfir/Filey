@@ -530,6 +530,7 @@ global const char *const Prog_Strings[] = {
     "Huge (1 to 4 GB)",
     "Gigantic (over 4 GB)",
     "No archive to take out",
+    "Items cannot be added to an archive inside another",
     "No temporary folder to take the items out into",
     "They are no longer in the bin",
     "git could not pull",
