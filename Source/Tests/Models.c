@@ -197,6 +197,12 @@ function void TestModels(void)
                        "0 0 0 255 0 0 255 0 0.25\n1 0 0 0 0 0 0 1 0\n0 1 0 0 0 255 255 0 1\n3 0 1 2\n");
     Check(TestReadModel(&arena, Prog_ModelKind_Ply, colored, &mesh) && mesh.colors.header.count == 3 && mesh.uvs.header.count == 6);
     Check(mesh.colors.v[0] == 0xFF0000FFu && mesh.colors.v[1] == Prog_ModelUnset && mesh.colors.v[2] == 0xFFFF0000u && mesh.uvs.v[1] == 0.75f && mesh.uvs.v[2] == 1);
+    // A face's own texture coordinates, as MeshLab writes them, make its corners vertices of their own with them.
+    String faceMapped = S("ply\nformat ascii 1.0\ncomment TextureFile skin.png\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\n"
+                          "element face 1\nproperty list uchar int vertex_indices\nproperty list uchar float texcoord\nend_header\n"
+                          "0 0 0\n1 0 0\n0 1 0\n3 0 1 2 6 0 0 1 0 0.5 1\n");
+    Check(TestReadModel(&arena, Prog_ModelKind_Ply, faceMapped, &mesh) && mesh.positions.header.count == 18 && mesh.indices.header.count == 3);
+    Check(mesh.indices.v[0] == 3 && mesh.indices.v[2] == 5 && mesh.positions.v[3 * 4] == 1 && mesh.uvs.v[3 * 2 + 1] == 1 && mesh.uvs.v[5 * 2] == 0.5f && mesh.uvs.v[5 * 2 + 1] == 0);
     {
         TestBytes bytes = {0};
         const char *header = "ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\n"

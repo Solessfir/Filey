@@ -683,7 +683,7 @@ typedef struct Prog__PlyProperty {
     u8 type, countType;  // sizes in bytes, 0 for none; floats are told apart by `real`
     b32 real, list;
     // 1, 2 or 3 for x, y and z of a vertex, 4 for a face's corners, 5, 6 and 7 for its red, green and blue, 8 and 9 for its u and v, 10 for
-    // its alpha
+    // its alpha, 11 for a face's corners' u and v, as MeshLab writes them
     u8 role;
 } Prog__PlyProperty;
 
@@ -787,10 +787,11 @@ typedef struct Prog__PlyWork {
     const char **rows, *end;
     u64 rowCount;
     const P_CancelToken *cancel;
-    b32 colored, mapped, cornered;
+    b32 colored, mapped, cornered, faceMapped;
     f32 *positions, *uvs;
     u32 *colors;
     Prog_ArrayU32 triangles[P_MaxLanes];
+    Prog_ArrayF32 cornerUvs[P_MaxLanes];  // with faceMapped, each triangle's corners' u and v
     Arena arenas[P_MaxLanes];
 } Prog__PlyWork;
 
@@ -804,6 +805,8 @@ function void Prog__PlyLane(void *user, u32 lane)
         const char *p = work->rows[i], *end = work->format == Prog__PlyAscii ? work->rows[i + 1] : work->end;
         // Position, then red, green and blue from 0 to 1, then u and v, then alpha.
         f64 values[9] = { 0, 0, 0, 1, 1, 1, 0, 0, 1 };
+        u32 cornerAt[256], cornerCount = 0, uvCount = 0;
+        f32 cornerUv[512];
         for (u32 k = 0; k < element->propertyCount; ++k) {
             const Prog__PlyProperty *property = &element->properties[k];
             f64 value = 0;
@@ -816,19 +819,26 @@ function void Prog__PlyLane(void *user, u32 lane)
             }
             if (!Prog__PlyValue(&p, end, property->countType, false, work->format, &value) || value < 0) break;
             u64 corners = (u64)value;
-            u32 first = 0, previous = 0;
             for (u64 c = 0; c < corners; ++c) {
                 if (!Prog__PlyValue(&p, end, property->type, property->real, work->format, &value)) break;
-                if (property->role != 4) continue;
-                u32 corner = value >= 0 && value < (f64)UINT32_MAX ? (u32)value : UINT32_MAX;
-                if (!c) first = corner;
-                else if (c >= 2) {
-                    u32 *triangle = ArrayAdd(&work->arenas[lane], work->triangles[lane], 3);
-                    triangle[0] = first, triangle[1] = previous, triangle[2] = corner;
-                }
-                previous = corner;
+                if (property->role == 4 && cornerCount < CArrayCount(cornerAt)) cornerAt[cornerCount++] = value >= 0 && value < (f64)UINT32_MAX ? (u32)value : UINT32_MAX;
+                if (property->role == 11 && uvCount < CArrayCount(cornerUv)) cornerUv[uvCount++] = (f32)value;
             }
         }
+        // A face's corners as a fan of triangles, with their own u and v when the face has them.
+        for (u32 c = 2; c < cornerCount; ++c) {
+            u32 *triangle = ArrayAdd(&work->arenas[lane], work->triangles[lane], 3);
+            triangle[0] = cornerAt[0], triangle[1] = cornerAt[c - 1], triangle[2] = cornerAt[c];
+            if (!work->faceMapped) continue;
+            f32 *uv = ArrayAdd(&work->arenas[lane], work->cornerUvs[lane], 6);
+            u32 from[3] = { 0, c - 1, c };
+            for (u32 k = 0; k < 3; ++k) {
+                b32 has = from[k] * 2 + 1 < uvCount;
+                uv[k * 2] = has ? cornerUv[from[k] * 2] : 0;
+                uv[k * 2 + 1] = has ? 1 - cornerUv[from[k] * 2 + 1] : 0;
+            }
+        }
+        cornerCount = uvCount = 0;
         if (!element->vertex) continue;
         f32 *v = work->positions + i * 3;
         v[0] = (f32)values[0];
@@ -890,6 +900,7 @@ function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cance
             String name = Prog__Word(&p, end);
             if (element->vertex && !property->list && name.length == 1 && name.value[0] >= 'x' && name.value[0] <= 'z') property->role = (u8)(name.value[0] - 'x' + 1);
             if (element->face && property->list && (StrIsEqual(name, S("vertex_indices")) || StrIsEqual(name, S("vertex_index")))) property->role = 4;
+            if (element->face && property->list && property->real && StrIsEqual(name, S("texcoord"))) property->role = 11;
             if (element->vertex && !property->list) {
                 local_persist const String names[] = {
                     SInit("red"), SInit("green"), SInit("blue"), SInit("s"), SInit("t"), SInit("diffuse_red"), SInit("diffuse_green"), SInit("diffuse_blue"),
@@ -926,6 +937,7 @@ function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cance
             work.colored |= element->properties[k].role >= 5 && element->properties[k].role <= 7;
             work.mapped |= element->properties[k].role >= 8 && element->properties[k].role <= 9;
             work.cornered |= element->properties[k].role == 4;
+            work.faceMapped |= element->properties[k].role == 11;
         }
         if (element->vertex) {
             work.positions = ArrayAdd(arena, mesh->positions, rowCount * 3);
@@ -936,7 +948,23 @@ function b32 Prog__ReadPly(Arena *arena, String data, const P_CancelToken *cance
         if (element->vertex || work.cornered) P_RunLanes(work.lanes, Prog__PlyLane, &work);
         for (u32 lane = 0; lane < work.lanes && work.cornered; ++lane) {
             Prog_ArrayU32 *triangles = &work.triangles[lane];
-            if (triangles->header.count) MemCopy(ArrayAdd(arena, mesh->indices, triangles->header.count), triangles->v, triangles->header.count * sizeof(u32));
+            if (!work.faceMapped && triangles->header.count) MemCopy(ArrayAdd(arena, mesh->indices, triangles->header.count), triangles->v, triangles->header.count * sizeof(u32));
+            // Faces with their own u and v: each corner a vertex of its own, at its point and in its color.
+            for (u64 t = 0; work.faceMapped && t < triangles->header.count; ++t) {
+                u32 point = triangles->v[t], made = UINT32_MAX;
+                if (point < vertices && mesh->positions.header.count / 3 < UINT32_MAX) {
+                    made = (u32)(mesh->positions.header.count / 3);
+                    f32 *at = ArrayAdd(arena, mesh->positions, 3);
+                    MemCopy(at, mesh->positions.v + (u64)point * 3, 12);
+                    if (mesh->colors.header.count > point) {
+                        u32 color = mesh->colors.v[point];
+                        Prog__MeshColors(arena, mesh)[made] = color;
+                    }
+                    f32 *uv = Prog__MeshUvs(arena, mesh) + (u64)made * 2;
+                    uv[0] = work.cornerUvs[lane].v[t * 2], uv[1] = work.cornerUvs[lane].v[t * 2 + 1];
+                }
+                ArrayPush(arena, mesh->indices, made);
+            }
             ArenaRelease(&work.arenas[lane]);
         }
         if (element->vertex) vertices += rowCount;
