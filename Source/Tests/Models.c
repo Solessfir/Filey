@@ -525,6 +525,26 @@ function void TestModels(void)
         }
         Check(pixels && alone && over && solid);
     }
+    // A .blend's modifiers on its polygons: a cube's Catmull-Clark level makes a quad of each corner, its points pulled in toward a sphere,
+    // its corners' colors taken between; a mirror doubles it across an axis, and an array copies it a step apart.
+    {
+        f32 cube[24] = { -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1 };
+        u32 sides[24] = { 0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 1, 2, 6, 5, 2, 3, 7, 6, 3, 0, 4, 7 };
+        u32 starts[7] = { 0, 4, 8, 12, 16, 20, 24 }, looks[6] = {0}, colors[24];
+        for (u32 i = 0; i < 24; ++i) colors[i] = i < 4 ? 0xFF0000FFu : 0xFF00FF00u;
+        Prog__BlendPolys polys = { .points = cube, .pointCount = 8, .faceStart = starts, .faceLook = looks, .faceCount = 6, .cornerPoint = sides,
+                                   .cornerColor = colors, .cornerCount = 24 };
+        Prog__BlendSubdivide(&arena, &polys);
+        Check(polys.pointCount == 8 + 12 + 6 && polys.faceCount == 24 && polys.cornerCount == 96 && polys.faceStart[24] == 96);
+        f32 corner = polys.points[0], side = polys.points[(8 + 12) * 3 + 2];
+        Check(corner > -1 && corner < -0.5f && side == -1 && polys.cornerColor[0] == 0xFF0000FFu && polys.cornerColor[2] == 0xFF0000FFu);
+        u32 axis = 0;
+        Prog__BlendCopies(&arena, &polys, 2, Prog__BlendMirrorMove, &axis);
+        Check(polys.pointCount == 52 && polys.faceCount == 48 && polys.cornerPoint[96] == polys.cornerPoint[0] + 26 && polys.points[26 * 3] == -polys.points[0]);
+        f32 step[3] = { 0, 3, 0 };
+        Prog__BlendCopies(&arena, &polys, 3, Prog__BlendArrayMove, step);
+        Check(polys.pointCount == 156 && polys.faceStart[polys.faceCount] == polys.cornerCount && polys.points[104 * 3 + 1] == polys.points[1] + 6);
+    }
     // Sorting by depth: floats of either sign in their order; the inspector's see-through parts from the farthest along the view, in the
     // places see-through parts had, and the solid one where it was.
     {

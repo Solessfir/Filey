@@ -2499,6 +2499,224 @@ function u32 Prog__BlendColor(const Prog__BlendBlock *values, u64 at, u32 bytes)
     return Prog__Read32(values->data + at * 4) | 0xFF000000u;
 }
 
+// A mesh as polygons, which its modifiers change: its points, its faces, each the corners from faceStart up to the next face's, the point,
+// texture coordinate and color of each corner, when it has them, and each face's material slot.
+typedef struct Prog__BlendPolys {
+    f32 *points;
+    u64 pointCount;
+    u32 *faceStart, *faceLook;
+    u64 faceCount;
+    u32 *cornerPoint, *cornerColor;
+    f32 *cornerUv;
+    u64 cornerCount;
+} Prog__BlendPolys;
+
+// The polygons `copies` times over, each copy's points through `move(copy, point)`, in place of the ones given.
+function void Prog__BlendCopies(Arena *arena, Prog__BlendPolys *polys, u32 copies, void (*move)(void *, u32, f32 *), void *user)
+{
+    Prog__BlendPolys made = { .pointCount = polys->pointCount * copies, .faceCount = polys->faceCount * copies, .cornerCount = polys->cornerCount * copies };
+    if (made.pointCount >= UINT32_MAX || made.cornerCount >= UINT32_MAX) return;
+    made.points = ArenaPushArrayNoZero(arena, Max(made.pointCount, (u64)1) * 3, f32);
+    made.faceStart = ArenaPushArrayNoZero(arena, made.faceCount + 1, u32);
+    made.faceLook = ArenaPushArrayNoZero(arena, Max(made.faceCount, (u64)1), u32);
+    made.cornerPoint = ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32);
+    made.cornerUv = polys->cornerUv ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1) * 2, f32) : NULL;
+    made.cornerColor = polys->cornerColor ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32) : NULL;
+    for (u32 k = 0; k < copies; ++k) {
+        u64 points = k * polys->pointCount, faces = k * polys->faceCount, corners = k * polys->cornerCount;
+        for (u64 v = 0; v < polys->pointCount; ++v) {
+            f32 *p = made.points + (points + v) * 3;
+            MemCopy(p, polys->points + v * 3, 12);
+            move(user, k, p);
+        }
+        for (u64 f = 0; f < polys->faceCount; ++f) {
+            made.faceStart[faces + f] = (u32)(corners + polys->faceStart[f]);
+            made.faceLook[faces + f] = polys->faceLook[f];
+        }
+        for (u64 c = 0; c < polys->cornerCount; ++c) made.cornerPoint[corners + c] = (u32)(points + polys->cornerPoint[c]);
+        if (made.cornerUv) MemCopy(made.cornerUv + corners * 2, polys->cornerUv, polys->cornerCount * 8);
+        if (made.cornerColor) MemCopy(made.cornerColor + corners, polys->cornerColor, polys->cornerCount * 4);
+    }
+    made.faceStart[made.faceCount] = (u32)made.cornerCount;
+    *polys = made;
+}
+
+// A mirror's copy across one axis: the first as it is, the second with that axis turned over.
+function void Prog__BlendMirrorMove(void *user, u32 copy, f32 *p)
+{
+    if (copy) p[*(const u32 *)user] = -p[*(const u32 *)user];
+}
+
+// An array's copies, each one step further.
+function void Prog__BlendArrayMove(void *user, u32 copy, f32 *p)
+{
+    const f32 *step = user;
+    for (u32 k = 0; k < 3; ++k) p[k] += step[k] * (f32)copy;
+}
+
+// The polygons subdivided once by Catmull-Clark: each face a fan of quads about its middle, through its edges' new points, and every point
+// moved toward the average of what is around it; a boundary keeps to its edges. The texture coordinates and colors are taken between a
+// face's own corners.
+function void Prog__BlendSubdivide(Arena *arena, Prog__BlendPolys *polys)
+{
+    u64 points = polys->pointCount, faces = polys->faceCount, corners = polys->cornerCount;
+    if (points + faces + corners >= UINT32_MAX / 2 || corners * 4 >= UINT32_MAX) return;
+    Scratch scratch = GetScratchEx(arena);
+    // Each corner's edge to the next corner of its face, found again by its two points.
+    struct { MapHeader header; struct { u64 key; u64 value; } *v; } edgeAt = {0};
+    u32 *cornerEdge = ArenaPushArrayNoZero(scratch.arena, Max(corners, (u64)1), u32);
+    struct { ArrayHeader header; u32 *v; } edgeA = {0}, edgeB = {0}, edgeFaces = {0};
+    struct { ArrayHeader header; f32 *v; } edgeFaceSum = {0};
+    f32 *facePoint = ArenaPushArray(scratch.arena, Max(faces, (u64)1) * 3, f32);
+    for (u64 f = 0; f < faces; ++f) {
+        u32 from = polys->faceStart[f], to = polys->faceStart[f + 1];
+        for (u32 c = from; c < to; ++c) for (u32 k = 0; k < 3; ++k) facePoint[f * 3 + k] += polys->points[(u64)polys->cornerPoint[c] * 3 + k] / (f32)(to - from);
+        for (u32 c = from; c < to; ++c) {
+            u32 a = polys->cornerPoint[c], b = polys->cornerPoint[c + 1 < to ? c + 1 : from];
+            u64 key = a < b ? (u64)a << 32 | b : (u64)b << 32 | a, at = 0;
+            if (!MapTryGet(edgeAt, key, &at)) {
+                at = edgeA.header.count;
+                MapPut(scratch.arena, edgeAt, key, at);
+                ArrayPush(scratch.arena, edgeA, a);
+                ArrayPush(scratch.arena, edgeB, b);
+                ArrayPush(scratch.arena, edgeFaces, 0);
+                for (u32 k = 0; k < 3; ++k) ArrayPush(scratch.arena, edgeFaceSum, 0.0f);
+            }
+            cornerEdge[c] = (u32)at;
+            ++edgeFaces.v[at];
+            for (u32 k = 0; k < 3; ++k) edgeFaceSum.v[at * 3 + k] += facePoint[f * 3 + k];
+        }
+    }
+    u64 edges = edgeA.header.count;
+    // The edges' new points: the average of their ends and their faces' middles, or their middles on a boundary.
+    f32 *edgePoint = ArenaPushArrayNoZero(scratch.arena, Max(edges, (u64)1) * 3, f32);
+    f32 *aroundEdges = ArenaPushArray(scratch.arena, Max(points, (u64)1) * 3, f32), *aroundFaces = ArenaPushArray(scratch.arena, Max(points, (u64)1) * 3, f32);
+    f32 *boundary = ArenaPushArray(scratch.arena, Max(points, (u64)1) * 3, f32);
+    u32 *edgeCount = ArenaPushArray(scratch.arena, Max(points, (u64)1), u32), *faceCount = ArenaPushArray(scratch.arena, Max(points, (u64)1), u32);
+    u32 *boundaryCount = ArenaPushArray(scratch.arena, Max(points, (u64)1), u32);
+    for (u64 e = 0; e < edges; ++e) {
+        const f32 *a = polys->points + (u64)edgeA.v[e] * 3, *b = polys->points + (u64)edgeB.v[e] * 3;
+        b32 open = edgeFaces.v[e] < 2;
+        for (u32 k = 0; k < 3; ++k) {
+            f32 middle = (a[k] + b[k]) / 2;
+            edgePoint[e * 3 + k] = open ? middle : (a[k] + b[k] + edgeFaceSum.v[e * 3 + k]) / (f32)(2 + edgeFaces.v[e]);
+            aroundEdges[(u64)edgeA.v[e] * 3 + k] += middle, aroundEdges[(u64)edgeB.v[e] * 3 + k] += middle;
+            if (open) boundary[(u64)edgeA.v[e] * 3 + k] += b[k], boundary[(u64)edgeB.v[e] * 3 + k] += a[k];
+        }
+        ++edgeCount[edgeA.v[e]], ++edgeCount[edgeB.v[e]];
+        if (open) ++boundaryCount[edgeA.v[e]], ++boundaryCount[edgeB.v[e]];
+    }
+    for (u64 f = 0; f < faces; ++f) {
+        for (u32 c = polys->faceStart[f]; c < polys->faceStart[f + 1]; ++c) {
+            ++faceCount[polys->cornerPoint[c]];
+            for (u32 k = 0; k < 3; ++k) aroundFaces[(u64)polys->cornerPoint[c] * 3 + k] += facePoint[f * 3 + k];
+        }
+    }
+    // The new points: the old ones moved, then the edges', then the faces'.
+    Prog__BlendPolys made = { .pointCount = points + edges + faces, .faceCount = corners, .cornerCount = corners * 4 };
+    made.points = ArenaPushArrayNoZero(arena, made.pointCount * 3, f32);
+    for (u64 v = 0; v < points; ++v) {
+        const f32 *p = polys->points + v * 3;
+        f32 *q = made.points + v * 3;
+        u32 n = edgeCount[v];
+        for (u32 k = 0; k < 3; ++k) {
+            if (boundaryCount[v] == 2) q[k] = (boundary[v * 3 + k] + 6 * p[k]) / 8;
+            else if (boundaryCount[v] || !n || !faceCount[v]) q[k] = p[k];
+            else q[k] = (aroundFaces[v * 3 + k] / (f32)faceCount[v] + 2 * aroundEdges[v * 3 + k] / (f32)n + (f32)(n - 3) * p[k]) / (f32)n;
+        }
+    }
+    MemCopy(made.points + points * 3, edgePoint, edges * 12);
+    MemCopy(made.points + (points + edges) * 3, facePoint, faces * 12);
+    // Each corner's quad: its point, its edge's, the face's middle and the edge's before it.
+    made.faceStart = ArenaPushArrayNoZero(arena, made.faceCount + 1, u32);
+    made.faceLook = ArenaPushArrayNoZero(arena, Max(made.faceCount, (u64)1), u32);
+    made.cornerPoint = ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32);
+    made.cornerUv = polys->cornerUv ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1) * 2, f32) : NULL;
+    made.cornerColor = polys->cornerColor ? ArenaPushArrayNoZero(arena, Max(made.cornerCount, (u64)1), u32) : NULL;
+    u64 quad = 0;
+    for (u64 f = 0; f < faces; ++f) {
+        u32 from = polys->faceStart[f], to = polys->faceStart[f + 1], count = to - from;
+        f32 middleUv[2] = {0};
+        f32 middleColor[4] = {0};
+        for (u32 c = from; c < to; ++c) {
+            if (polys->cornerUv) middleUv[0] += polys->cornerUv[c * 2] / (f32)count, middleUv[1] += polys->cornerUv[c * 2 + 1] / (f32)count;
+            for (u32 k = 0; polys->cornerColor && k < 4; ++k) middleColor[k] += (f32)((polys->cornerColor[c] >> (k * 8)) & 0xFF) / (f32)count;
+        }
+        for (u32 c = from; c < to; ++c, ++quad) {
+            u32 before = c > from ? c - 1 : to - 1, after = c + 1 < to ? c + 1 : from;
+            u64 at = quad * 4;
+            made.faceStart[quad] = (u32)at;
+            made.faceLook[quad] = polys->faceLook[f];
+            made.cornerPoint[at] = polys->cornerPoint[c];
+            made.cornerPoint[at + 1] = (u32)(points + cornerEdge[c]);
+            made.cornerPoint[at + 2] = (u32)(points + edges + f);
+            made.cornerPoint[at + 3] = (u32)(points + cornerEdge[before]);
+            if (made.cornerUv) {
+                const f32 *here = polys->cornerUv + c * 2, *next = polys->cornerUv + after * 2, *last = polys->cornerUv + before * 2;
+                f32 uv[8] = { here[0], here[1], (here[0] + next[0]) / 2, (here[1] + next[1]) / 2, middleUv[0], middleUv[1], (here[0] + last[0]) / 2, (here[1] + last[1]) / 2 };
+                MemCopy(made.cornerUv + at * 2, uv, sizeof(uv));
+            }
+            if (made.cornerColor) {
+                u32 here = polys->cornerColor[c], next = polys->cornerColor[after], last = polys->cornerColor[before], mix[3] = {0}, middle = 0;
+                for (u32 k = 0; k < 4; ++k) {
+                    u32 shift = k * 8, h = (here >> shift) & 0xFF;
+                    mix[0] |= ((h + ((next >> shift) & 0xFF) + 1) / 2) << shift;
+                    mix[1] |= ((h + ((last >> shift) & 0xFF) + 1) / 2) << shift;
+                    middle |= (u32)(middleColor[k] + 0.5f) << shift;
+                }
+                made.cornerColor[at] = here, made.cornerColor[at + 1] = mix[0], made.cornerColor[at + 2] = middle, made.cornerColor[at + 3] = mix[1];
+            }
+        }
+    }
+    made.faceStart[made.faceCount] = (u32)made.cornerCount;
+    *polys = made;
+    ReleaseScratch(scratch);
+}
+
+// The object's modifiers that show in the viewport, in their order: Mirror across its axes about the object's origin, Array's copies one
+// step apart, by a constant offset and one relative to the mesh's size, and Subdivision Surface's Catmull-Clark levels, at most three,
+// and while the result stays below a few million corners. The others, and these modifiers' finer options, are passed over.
+function void Prog__BlendModify(Arena *arena, const Prog__Blend *blend, const Prog__BlendBlock *object, Prog__BlendPolys *polys)
+{
+    u32 objectType = Prog__BlendStruct(blend, S("Object")), modifierType = Prog__BlendStruct(blend, S("ModifierData"));
+    u32 mirrorType = Prog__BlendStruct(blend, S("MirrorModifierData")), arrayType = Prog__BlendStruct(blend, S("ArrayModifierData"));
+    u32 subsurfType = Prog__BlendStruct(blend, S("SubsurfModifierData"));
+    if (modifierType == UINT32_MAX) return;
+    u32 steps = 0;
+    for (const Prog__BlendBlock *modifier = Prog__BlendAt(blend, object, Prog__BlendPointer(blend, objectType, object->data, object->length, S("modifiers")));
+         modifier && steps < 64; modifier = Prog__BlendAt(blend, object, Prog__BlendPointer(blend, modifierType, modifier->data, modifier->length, S("next"))), ++steps) {
+        // Shown in the viewport.
+        if (!(Prog__BlendInt(blend, modifierType, modifier->data, modifier->length, S("mode")) & 1)) continue;
+        const u8 *data = modifier->data;
+        u64 size = modifier->length;
+        if (modifier->sdna == mirrorType && mirrorType != UINT32_MAX) {
+            i64 flag = Prog__BlendInt(blend, mirrorType, data, size, S("flag"));
+            for (u32 axis = 0; axis < 3; ++axis) if (flag & (1 << (3 + axis))) Prog__BlendCopies(arena, polys, 2, Prog__BlendMirrorMove, &axis);
+        } else if (modifier->sdna == arrayType && arrayType != UINT32_MAX) {
+            i64 count = Prog__BlendInt(blend, arrayType, data, size, S("count")), fit = Prog__BlendInt(blend, arrayType, data, size, S("fit_type"));
+            i64 kinds = Prog__BlendInt(blend, arrayType, data, size, S("offset_type"));
+            f32 offset[3] = {0}, relative[3] = {0}, step[3] = {0}, length = 0;
+            Prog__BlendFloats(blend, arrayType, data, size, S("offset"), offset, 3);
+            Prog__BlendFloats(blend, arrayType, data, size, S("scale"), relative, 3);
+            Prog__BlendFloats(blend, arrayType, data, size, S("length"), &length, 1);
+            f32 low[3] = { INFINITY, INFINITY, INFINITY }, high[3] = { -INFINITY, -INFINITY, -INFINITY };
+            for (u64 v = 0; v < polys->pointCount; ++v) for (u32 k = 0; k < 3; ++k) low[k] = MinF32(low[k], polys->points[v * 3 + k]), high[k] = MaxF32(high[k], polys->points[v * 3 + k]);
+            for (u32 k = 0; k < 3 && polys->pointCount; ++k) {
+                if (kinds & 1) step[k] += offset[k];
+                if (kinds & 2) step[k] += relative[k] * (high[k] - low[k]);
+            }
+            f32 stride = sqrtf(step[0] * step[0] + step[1] * step[1] + step[2] * step[2]);
+            if (fit == 1) count = stride > 0 ? (i64)(length / stride + 1e-4f) + 1 : 1;
+            if (count > 1 && count <= 1024 && polys->cornerCount * (u64)count < (UINT64_C(1) << 24)) Prog__BlendCopies(arena, polys, (u32)count, Prog__BlendArrayMove, step);
+        } else if (modifier->sdna == subsurfType && subsurfType != UINT32_MAX) {
+            // Catmull-Clark, not the simple kind, which keeps the shape.
+            if (Prog__BlendInt(blend, subsurfType, data, size, S("subdivType")) != 0) continue;
+            i64 levels = Min(Prog__BlendInt(blend, subsurfType, data, size, S("levels")), (i64)3);
+            for (i64 level = 0; level < levels && polys->cornerCount * 4 < (UINT64_C(1) << 23); ++level) Prog__BlendSubdivide(arena, polys);
+        }
+    }
+}
+
 // The pointer at slot `index` of the pointer array `slots`, or 0.
 function u64 Prog__BlendSlot(const Prog__Blend *blend, const Prog__BlendBlock *slots, u32 index)
 {
@@ -2524,12 +2742,6 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
     u64 base = out->positions.header.count / 3;
     if (positions && cornerVerts && offsets && offsets->length >= (u64)(faces + 1) * 4) {
         Scratch scratch = GetScratchEx(arena);
-        f32 *points = ArenaPushArrayNoZero(scratch.arena, (u64)vertices * 3, f32);
-        for (i64 v = 0; v < vertices; ++v) {
-            f32 p[3];
-            MemCopy(p, (const u8 *)positions + v * 12, 12);
-            Prog__MeshPoint(points + v * 3, place, p[0], p[1], p[2]);
-        }
         // Its materials, and each face's.
         Prog_MeshPart looks[32];
         u32 lookCount = (u32)Min(Max(Prog__BlendInt(blend, meshType, mesh, length, S("totcol")), (i64)0), (i64)CArrayCount(looks));
@@ -2557,33 +2769,60 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
         u32 colorBytes = colors && colors->length >= elements * 16 ? 16 : colors && colors->length >= elements * 4 ? 4 : 0;
         b32 cornerColors = colorBytes && domain == Prog__BlendOnCorner;
         if (!colorBytes || (domain != Prog__BlendOnCorner && domain != Prog__BlendOnPoint)) colors = NULL;
-        Prog__Corners made = Prog__CornersMake(scratch.arena, (u64)vertices, (u64)corners);
+        // As polygons, where its modifiers are worked out: its points, its faces' corners, each one's point, texture coordinate and color,
+        // and each face's material.
+        Prog__BlendPolys polys = { .pointCount = (u64)vertices, .faceCount = (u64)faces, .cornerCount = (u64)corners };
+        polys.points = ArenaPushArrayNoZero(scratch.arena, (u64)vertices * 3, f32);
+        MemCopy(polys.points, positions, (u64)vertices * 12);
+        polys.faceStart = ArenaPushArrayNoZero(scratch.arena, (u64)faces + 1, u32);
+        polys.faceLook = ArenaPushArrayNoZero(scratch.arena, (u64)faces, u32);
+        polys.cornerPoint = ArenaPushArrayNoZero(scratch.arena, (u64)corners, u32);
+        polys.cornerUv = uvs ? ArenaPushArrayNoZero(scratch.arena, (u64)corners * 2, f32) : NULL;
+        polys.cornerColor = colors ? ArenaPushArrayNoZero(scratch.arena, (u64)corners, u32) : NULL;
+        u64 kept = 0, cornersKept = 0;
+        for (i64 f = 0; f < faces; ++f) {
+            u32 from = Prog__Read32(offsets->data + f * 4), to = Prog__Read32(offsets->data + (f + 1) * 4);
+            if (to > (u64)corners || from >= to) continue;
+            i32 index = materialIndex ? (i32)Prog__Read32(materialIndex->data + f * 4) : 0;
+            polys.faceStart[kept] = (u32)cornersKept;
+            polys.faceLook[kept++] = (u32)Min(Max(index, 0), (i32)Max(lookCount, 1u) - 1);
+            for (u32 c = from; c < to; ++c, ++cornersKept) {
+                u32 point = Prog__Read32(cornerVerts + (u64)c * 4);
+                polys.cornerPoint[cornersKept] = point < (u64)vertices ? point : 0;
+                if (uvs) MemCopy(polys.cornerUv + cornersKept * 2, uvs->data + (u64)c * 8, 8);
+                if (colors) polys.cornerColor[cornersKept] = Prog__BlendColor(colors, cornerColors ? c : point < (u64)vertices ? point : 0, colorBytes);
+            }
+        }
+        polys.faceCount = kept, polys.cornerCount = cornersKept;
+        polys.faceStart[kept] = (u32)cornersKept;
+        if (object) Prog__BlendModify(scratch.arena, blend, object, &polys);
+        Prog__Corners made = Prog__CornersMake(scratch.arena, polys.pointCount, polys.cornerCount);
+        f32 *points = ArenaPushArrayNoZero(scratch.arena, Max(polys.pointCount, (u64)1) * 3, f32);
+        for (u64 v = 0; v < polys.pointCount; ++v) Prog__MeshPoint(points + v * 3, place, polys.points[v * 3], polys.points[v * 3 + 1], polys.points[v * 3 + 2]);
         for (u32 look = 0; look < Max(lookCount, 1u); ++look) {
             Prog_MeshPart none = { .image = UINT32_MAX };
             Prog__MeshLook(arena, out, lookCount ? &looks[look] : &none);
-            for (i64 f = 0; f < faces; ++f) {
-                i32 index = materialIndex ? (i32)Prog__Read32(materialIndex->data + f * 4) : 0;
-                if ((u32)Min(Max(index, 0), (i32)Max(lookCount, 1u) - 1) != look) continue;
-                u32 from = Prog__Read32(offsets->data + f * 4), to = Prog__Read32(offsets->data + (f + 1) * 4);
-                if (to > (u64)corners || from >= to) continue;
+            for (u64 f = 0; f < polys.faceCount; ++f) {
+                if (polys.faceLook[f] != look) continue;
+                u32 from = polys.faceStart[f], to = polys.faceStart[f + 1];
                 u32 fan = 0, previous = 0;
                 for (u32 c = from; c < to; ++c) {
-                    u32 point = Prog__Read32(cornerVerts + (u64)c * 4), corner = UINT32_MAX;
-                    if (point < (u64)vertices) {
+                    u32 point = polys.cornerPoint[c], corner = UINT32_MAX;
+                    if (point < polys.pointCount) {
                         // The texture coordinate's two floats as they are, and the color.
                         Prog__MeshCorner key = { point, 0, 0, 0 };
-                        if (uvs) MemCopy(&key.a, uvs->data + (u64)c * 8, 8);
-                        if (colors) key.c = Prog__BlendColor(colors, cornerColors ? c : point, colorBytes);
+                        if (polys.cornerUv) MemCopy(&key.a, polys.cornerUv + (u64)c * 2, 8);
+                        if (polys.cornerColor) key.c = polys.cornerColor[c];
                         corner = Prog__CornersFind(&made, key);
                         if (corner == UINT32_MAX && out->positions.header.count / 3 < UINT32_MAX) {
                             corner = (u32)(out->positions.header.count / 3);
                             MemCopy(ArrayAdd(arena, out->positions, 3), points + (u64)point * 3, 12);
-                            if (uvs) {
+                            if (polys.cornerUv) {
                                 f32 *t = Prog__MeshUvs(arena, out) + (u64)corner * 2;
                                 MemCopy(t, &key.a, 8);
                                 t[1] = 1 - t[1];
                             }
-                            if (colors) Prog__MeshColors(arena, out)[corner] = key.c;
+                            if (polys.cornerColor) Prog__MeshColors(arena, out)[corner] = key.c;
                             Prog__CornersAdd(&made, key, corner);
                         }
                     }
