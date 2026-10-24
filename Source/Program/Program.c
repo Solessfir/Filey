@@ -4533,6 +4533,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     UI_Block *list = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Files")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable |
                                         (!state->loading ? UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable : 0));
     UI_Interaction listInteraction = UI_InteractionFromBlock(list);
+    if (UI->hotKey == list->key && !state->loading) state->hoverSpacePanel = Prog__PanelId(state);
     // A box drawn from the empty space leaves it the marquee's block, which only that drag's release is kept from clicking.
     if (listInteraction.pressed && state->marqueeKey == list->key) state->marqueeKey = 0;
     if (listInteraction.pressed && listInteraction.button == MouseButton_Right) {
@@ -12109,6 +12110,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->tabGhost = NULL;
     state->foreignOver = false;
     state->hasHoverRow = false;
+    state->hoverSpacePanel = 0;
     state->tooltipKey = 0;
     state->tooltipAbove = false;
     state->tooltipPath = (String){0};

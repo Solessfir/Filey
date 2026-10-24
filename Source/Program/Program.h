@@ -1567,6 +1567,7 @@ typedef struct Prog_State {
     R_Rect zoomAnchor;        // the active panel's view button in the last layout
     R_Rect zoomBox;           // the popup in the last layout
     b32 hasHoverRow;
+    u64 hoverSpacePanel;      // the panel whose list's empty space is under the pointer in the last build, 0 for none
     // Inline rename of the entry named renameFrom.
     b32 renaming;
     u8 renameFrom[1024];

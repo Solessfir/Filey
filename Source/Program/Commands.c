@@ -1679,21 +1679,22 @@ function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item)
 }
 
 // The menu a right-click would open now is built ahead of time, where the platform does that, so that it opens at once: the hovered
-// row's, with the rest of the selection when it is in it, else what the keyboard's menu acts on, as Prog__OpenMenu picks them. Big
-// selections, a menu open and folders inside archives are left out.
+// row's, with the rest of the selection when it is in it, the folder's own over the list's empty space, else what the keyboard's menu acts
+// on, as Prog__OpenMenu picks them. Big selections, a menu open and folders inside archives are left out.
 function void Prog_PrepareMenu(Prog_State *state)
 {
     if (state->menuOpen || state->loading || state->setupOpen || state->directory.archive || !state->directory.path.length) return;
     enum { most = 64 };
     u64 rows[most], count = 0;
     b32 hovered = state->hasHoverRow && state->hoverPanel == state->panels[state->activePanel].id && state->hoverRow < state->directory.count;
-    b32 selection = hovered ? state->directory.entries[state->hoverRow].selected && state->selectedCount > 1 : state->selectedCount != 0;
+    b32 space = !hovered && state->hoverSpacePanel == state->panels[state->activePanel].id;
+    b32 selection = !space && (hovered ? state->directory.entries[state->hoverRow].selected && state->selectedCount > 1 : state->selectedCount != 0);
     if (selection) {
         if (state->selectedCount > most) return;
         for (u64 i = 0; i < state->directory.count && count < state->selectedCount; ++i) if (state->directory.entries[i].selected) rows[count++] = i;
     } else if (hovered) {
         rows[count++] = state->hoverRow;
-    } else if (state->hasFocus && state->focusedRow < state->directory.count) {
+    } else if (!space && state->hasFocus && state->focusedRow < state->directory.count) {
         rows[count++] = state->focusedRow;
     }
     String names[most];
