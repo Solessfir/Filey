@@ -11768,7 +11768,7 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     UI_Parent(panel) {
         // The window's top border, over the title bar.
         if (top) Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
-        Prog__TabStrip(state, width, top, top && state->sidebarHidden && rect.x0 <= area.x0, top && rect.x1 >= area.x1, scale, m);
+        Prog__TabStrip(state, width, top, top && (state->sidebarHidden || state->uiHidden) && rect.x0 <= area.x0, top && rect.x1 >= area.x1, scale, m);
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), below ? UI_Layout_Vertical : UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(main) {
             // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more
@@ -11780,17 +11780,18 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 own->wasActive = (b8)active;
                 own->drawn = true;
             }
-            f32 shown = active ? 1 : 0, dimmed = active ? 0 : 1;
+            // Hide UI leaves a panel its status bar only while it filters, as the filter's box is in it.
+            f32 shown = active && (!state->uiHidden || state->filtering || state->filter.length) ? 1 : 0, dimmed = active ? 0 : 1;
             if (own->focusMicroseconds && UI->animate) {
                 f32 since = (f32)(UI->nowMicroseconds - Min(own->focusMicroseconds, UI->nowMicroseconds));
-                shown = active ? 1 - expf(-since / 60000.0f) : expf(-since / 28000.0f);
+                if (shown > 0 || !active) shown = active ? 1 - expf(-since / 60000.0f) : expf(-since / 28000.0f);
                 if (!active) dimmed = 1 - expf(-since / 25000.0f);
                 if (since < 400000) UI_KeepAnimating();
                 else own->focusMicroseconds = 0;
             }
             UI_Block *listSide = Prog__Box(below ? UI_Flex() : UI_Pixels(listWidth), below ? UI_Pixels(mainHeight - previewHeight) : UI_Flex(), UI_Layout_Vertical, theme->background, 0);
             UI_Parent(listSide) {
-                Prog__Toolbar(state, m);
+                if (!state->uiHidden) Prog__Toolbar(state, m);
                 UI_Block *listColumn = Prog__Box(UI_Flex(), UI_Flex(), state->miller ? UI_Layout_Horizontal : UI_Layout_Vertical, theme->background, 0);
                 UI_Parent(listColumn) {
                     if (state->miller) {
@@ -12223,7 +12224,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     // The sidebar slides in and out from the left edge, its contents moving with it rather than squeezing.
     f32 full = m->sidebar + m->separator;
-    f32 shown = UI_Slide(UI_KeyFromStr(0, S("SidebarSlide")), state->sidebarHidden ? 0.0f : 1.0f, Prog__SlideCap(m) / MaxF32(full, 1));
+    f32 shown = UI_Slide(UI_KeyFromStr(0, S("SidebarSlide")), state->sidebarHidden || state->uiHidden ? 0.0f : 1.0f, Prog__SlideCap(m) / MaxF32(full, 1));
     f32 sidebar = floorf(full * shown + 0.5f);
     if (sidebar > 0) {
         UI_SetNextPrefWidth(UI_Pixels(sidebar));

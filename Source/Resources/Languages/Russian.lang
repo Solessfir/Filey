@@ -3231,3 +3231,21 @@ Code Heading
 
 Color of headings, sections and tags in the inspector's text.
 = Цвет заголовков, разделов и тегов в тексте инспектора.
+
+Swap Panels
+= Поменять панели местами
+
+Swap the current panel with what is beside it in its split.
+= Поменять текущую панель местами с тем, что рядом с ней в её разделении.
+
+Reset Panel Layout
+= Сбросить расположение панелей
+
+Close every panel but the current one; Reopen Closed Tab brings their tabs back.
+= Закрыть все панели, кроме текущей; «Вернуть закрытую вкладку» вернёт их вкладки.
+
+Hide UI
+= Скрыть интерфейс
+
+Hide the sidebar, the toolbars and the status bars, or show them again.
+= Скрыть боковую панель, панели инструментов и строки состояния или показать их снова.

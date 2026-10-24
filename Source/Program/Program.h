@@ -1920,6 +1920,7 @@ typedef struct Prog_State {
     u64 confirmCount;
     // Sidebar.
     b32 sidebarHidden;
+    b32 uiHidden;  // Hide UI's focus mode: no sidebar, toolbars or status bars, but a status bar while its panel filters
     // The Quick Access filter: what its box holds, which leaves the sidebar the items whose names it finds, and whether the box has the keyboard.
     Prog_TextEdit sidebarFilter;
     Prog_TextEdit sidebarFilterBefore;  // what it was as this round of typing began, which Escape brings back

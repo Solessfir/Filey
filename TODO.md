@@ -12,7 +12,6 @@
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
 - Mouse bindings: only the side buttons bind to commands; the left, middle, right and wheel actions are fixed switches.
 - Indexing the drives from the NTFS file table for a faster Go To walk.
-- Panel commands: swap panels, reset to the default layout, hide the UI.
 - The image view's readout of the hovered pixel's color at high zoom.
 - 3D models: easing for the view's turns and zoom (raddbg smooths by `1 - 2^(-rate*dt)`), text USD (`.usda`), text FBX, a .blend's modifiers, and Collada, 3DS and 3MF. Colors not read: PLY's per-face `texcoord` lists, a .blend's object-linked materials, glTF's `KHR_texture_transform`, and transparency other than a picture's cut-out alpha; Blender 3.4 to 4.x files are untested and earlier ones get no colors.
 - Archives: encrypted 7z and RAR archives, which libarchive cannot decrypt, and an archive inside an archive opens in its program.

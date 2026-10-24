@@ -5021,6 +5021,19 @@ function void Prog_EvenPanels(Prog_State *state, b32 all)
     if (run != UINT32_MAX) Prog__EvenSplits(state, run, false);
 }
 
+// Swaps the two sides of the split the active panel is in, so that it and what is beside it trade places at the same sizes.
+function void Prog_SwapPanels(Prog_State *state)
+{
+    const Prog_Panel *panel = &state->panels[state->activePanel];
+    u32 parent = Prog__SplitParent(state, Prog__SplitOf(state, panel->inspectorOf ? panel->inspectorOf : panel->id));
+    if (parent == UINT32_MAX) return;
+    Prog_Split *split = &state->splits[parent];
+    u8 first = split->first;
+    split->first = split->second;
+    split->second = first;
+    if (split->ratio > 0) split->ratio = 1 - split->ratio;
+}
+
 // Splits panel `index` in two along `kind`, the new panel `before` it or after it, and makes the new one, which shows `path`, active.
 // Returns the new panel's index, or UINT32_MAX when there is no room.
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path)
@@ -5147,6 +5160,32 @@ function void Prog_ClosePanel(Prog_State *state, u32 index)
     state->panels[state->panelCount] = (Prog_Panel){0};
     if (state->currentPanel > index) --state->currentPanel;
     state->activePanel = state->currentPanel;
+}
+
+// Leaves the active panel, or the one whose inspector it is, as the only one, without inspector panels or zoom; with `remember`, the
+// closed panels' tabs go to the closed tabs, for Reopen Closed Tab.
+function void Prog_KeepOnePanel(Prog_State *state, b32 remember)
+{
+    Prog_CloseMenu(state);
+    if (state->renaming) Prog__EndRename(state, false);
+    u64 keep = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
+    u64 owners[Prog_MaxPanels] = {0};
+    u32 ownerCount = 0;
+    for (u32 i = 0; i < state->panelCount; ++i) if (!state->panels[i].inspectorOf) owners[ownerCount++] = state->panels[i].id;
+    for (u32 i = 0; i < ownerCount; ++i) Prog_DropInspectorPanel(state, owners[i]);
+    for (u32 guard = 0; state->panelCount > 1 && guard < Prog_MaxPanels; ++guard) {
+        u32 index = Prog_PanelIndex(state, keep) == 0 ? 1 : 0;
+        if (remember) {
+            Prog__UsePanel(state, index);
+            for (u32 i = 0; i < state->tabCount; ++i) {
+                String path = Prog_TabPath(state, i);
+                if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
+            }
+        }
+        Prog_ClosePanel(state, index);
+    }
+    Prog__ActivatePanel(state, 0);
+    state->zoomedPanel = 0;
 }
 
 // Moves, or with `copy` copies, a tab to where it was dropped; the tab takes its folder and history there, and the place it lands becomes active.
@@ -5992,16 +6031,8 @@ function b32 Prog_ApplyLayout(Prog_State *state, String name)
     if (!text.length) return false;
     Scratch scratch = GetScratch();
     text = Prog__ApplyWindowLine(StrCopy(scratch.arena, text));
-    // Every inspector's panel, then the panels but the shown one, then its tabs but the shown one.
-    Prog_CloseMenu(state);
-    if (state->renaming) Prog__EndRename(state, false);
-    u64 keep = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
-    u64 owners[Prog_MaxPanels] = {0};
-    u32 ownerCount = 0;
-    for (u32 i = 0; i < state->panelCount; ++i) if (!state->panels[i].inspectorOf) owners[ownerCount++] = state->panels[i].id;
-    for (u32 i = 0; i < ownerCount; ++i) Prog_DropInspectorPanel(state, owners[i]);
-    for (u32 guard = 0; state->panelCount > 1 && guard < Prog_MaxPanels; ++guard) Prog_ClosePanel(state, Prog_PanelIndex(state, keep) == 0 ? 1 : 0);
-    Prog__ActivatePanel(state, 0);
+    // The panels but the shown one, then its tabs but the shown one.
+    Prog_KeepOnePanel(state, false);
     for (u32 guard = 0; state->tabCount > 1 && guard < Prog_MaxTabs; ++guard) Prog_CloseTab(state, state->activeTab ? 0 : 1);
     b32 result = Prog_RestoreSession(state, text);
     ReleaseScratch(scratch);

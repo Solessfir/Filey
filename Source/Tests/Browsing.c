@@ -2055,7 +2055,8 @@ function void TestPasteLinkAndQuick(TestFileFixture *fixture)
 }
 
 // Evening panels: three split off one after another to the right share the row evenly, and a column split inside one keeps its own share
-// until all panels are evened.
+// until all panels are evened. Swapping trades the active panel's split's sides at their sizes, and resetting the layout leaves the
+// active panel alone, the others' tabs reopenable.
 function void TestEvenPanels(TestFileFixture *fixture)
 {
     Prog_State state = {0};
@@ -2077,6 +2078,17 @@ function void TestEvenPanels(TestFileFixture *fixture)
     state.splits[0].ratio = state.splits[column].ratio = 0.8f;
     TestBrowsingCommand(&state, Prog_CommandKind_PanelEvenAll, 0);
     Check(fabsf(state.splits[0].ratio - 1.0f / 3.0f) < 1e-5f && state.splits[column].ratio == 0.5f);
+    // The second panel is active, first in the row it shares with the column.
+    u64 active = state.panels[state.activePanel].id;
+    Check(state.splits[state.splits[row].first].panel == active && state.splits[row].second == column);
+    state.splits[row].ratio = 0.3f;
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelSwap, 0);
+    Check(state.splits[row].first == column && state.splits[state.splits[row].second].panel == active && fabsf(state.splits[row].ratio - 0.7f) < 1e-5f);
+    Check(state.panels[state.activePanel].id == active && fabsf(state.splits[0].ratio - 1.0f / 3.0f) < 1e-5f);
+    u64 closed = state.closedTabs.header.count;
+    TestBrowsingCommand(&state, Prog_CommandKind_PanelResetLayout, 0);
+    Check(state.panelCount == 1 && state.panels[0].id == active && state.splits[0].kind == Prog_SplitKind_Panel && state.closedTabs.header.count == closed + 3);
+    Check(!Prog_CommandAvailable(&state, Prog_CommandKind_PanelResetLayout) && !Prog_CommandAvailable(&state, Prog_CommandKind_PanelSwap));
     Prog_Release(&state);
 }
 

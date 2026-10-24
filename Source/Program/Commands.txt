@@ -1596,6 +1596,22 @@ command PanelEvenAll {
     tooltip = "Even viewport size of all panels."
 }
 
+command PanelSwap {
+    label   = "Swap Panels^exchange,flip,mirror,rotate,pane"
+    tooltip = "Swap the current panel with what is beside it in its split."
+}
+
+command PanelResetLayout {
+    label   = "Reset Panel Layout^default,single,one panel,close panels,pane"
+    tooltip = "Close every panel but the current one; Reopen Closed Tab brings their tabs back."
+}
+
+command ToggleHideUI {
+    label   = "Hide UI^focus mode,distraction free,toolbar,status bar,sidebar,chrome,minimal"
+    tooltip = "Hide the sidebar, the toolbars and the status bars, or show them again."
+    repeat  = "false"
+}
+
 command PanelSelectNext {
     label   = "Next Panel^focus,switch,cycle"
     tooltip = "Move to the next panel."

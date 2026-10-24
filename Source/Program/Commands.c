@@ -708,7 +708,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
-    Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_PanelEvenSiblings, Prog_CommandKind_PanelEvenAll, Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
+    Prog_CommandKind_SplitRight, Prog_CommandKind_SplitBottom, Prog_CommandKind_PanelEvenSiblings, Prog_CommandKind_PanelEvenAll, Prog_CommandKind_PanelSwap, Prog_CommandKind_PanelResetLayout, Prog_CommandKind_TogglePanelZoom, Prog_CommandKind_ToggleHideUI, Prog_CommandKind_PanelSelectNext, Prog_CommandKind_PanelSelectPrev, Prog_CommandKind_PanelLeft, Prog_CommandKind_PanelRight, Prog_CommandKind_PanelUp,
     Prog_CommandKind_PanelDown,
     Prog__PaletteGroup(Tabs),
     Prog_CommandKind_TabNew, Prog_CommandKind_TabClose, Prog_CommandKind_TabDuplicate, Prog_CommandKind_TabShiftLeft, Prog_CommandKind_TabShiftRight, Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs,
@@ -792,7 +792,8 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_SelectionCopyPrevPanel: case Prog_CommandKind_SelectionCopyNextPanel: case Prog_CommandKind_SelectionMovePrevPanel:
         case Prog_CommandKind_SelectionMoveNextPanel:
             return item && panels > 1;
-        case Prog_CommandKind_PanelEvenSiblings: case Prog_CommandKind_PanelEvenAll: return panels > 1;
+        case Prog_CommandKind_PanelEvenSiblings: case Prog_CommandKind_PanelEvenAll: case Prog_CommandKind_PanelSwap: return panels > 1;
+        case Prog_CommandKind_PanelResetLayout: return state->panelCount > 1 || state->zoomedPanel;
         case Prog_CommandKind_FilesPopupPrev: case Prog_CommandKind_FilesPopupNext: return state->filesOpen;
         case Prog_CommandKind_Back: return state->historyAt > 0;
         case Prog_CommandKind_Forward: return state->historyAt + 1 < state->history.header.count;
@@ -1471,6 +1472,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_SplitRight, .icon = Icon_UnfoldHorizontal);
             Prog__Item(.kind = Prog_CommandKind_SplitBottom, .icon = Icon_UnfoldVertical);
             Prog__Item(.kind = Prog_CommandKind_TogglePanelZoom, .icon = Icon_Maximize2, .toggle = true, .checked = state->zoomedPanel != 0);
+            Prog__Item(.kind = Prog_CommandKind_ToggleHideUI, .icon = Icon_Eye, .toggle = true, .checked = state->uiHidden);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabNew, .icon = Icon_SquarePlus);
             Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
@@ -3294,12 +3296,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabSelect8: Prog_SelectTab(state, (u32)(command->kind - Prog_CommandKind_TabSelect1)); break;
             case Prog_CommandKind_TabSelectLast: if (state->tabCount) Prog_SelectTab(state, state->tabCount - 1); break;
             case Prog_CommandKind_ToggleQuickAccess: {
-                state->sidebarHidden = !state->sidebarHidden;
+                // Out of Hide UI, the sidebar comes back with the rest.
+                state->sidebarHidden = state->uiHidden ? false : !state->sidebarHidden;
+                state->uiHidden = false;
                 if (state->sidebarHidden) state->sidebarFiltering = false;
             } break;
             case Prog_CommandKind_StartQuickAccessFilter: {
                 Prog_CloseMenu(state);
                 state->sidebarHidden = false;
+                state->uiHidden = false;
                 if (!state->sidebarFiltering) state->sidebarFilterBefore = state->sidebarFilter;
                 state->sidebarFiltering = true;
             } break;
@@ -3639,6 +3644,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_PanelEvenSiblings: Prog_EvenPanels(state, false); break;
             case Prog_CommandKind_PanelEvenAll: Prog_EvenPanels(state, true); break;
+            case Prog_CommandKind_PanelSwap: Prog_SwapPanels(state); break;
+            case Prog_CommandKind_PanelResetLayout: Prog_KeepOnePanel(state, true); break;
+            case Prog_CommandKind_ToggleHideUI: state->uiHidden = !state->uiHidden; break;
             case Prog_CommandKind_TogglePanelZoom: {
                 // The panel the keyboard is in, or the one whose inspector it is in.
                 u64 owner = state->panels[state->activePanel].inspectorOf ? state->panels[state->activePanel].inspectorOf : state->panels[state->activePanel].id;
