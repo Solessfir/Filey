@@ -4427,6 +4427,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->row < Prog_GoToSection_Folder) state->gotoFolded[command->row] = !state->gotoFolded[command->row];
                 else if (command->row >= Prog_GoToSection_Count && command->row < Prog_GoToSection_Count + Prog_MaxUserGroups) state->gotoGroupsFolded ^= 1u << (command->row - Prog_GoToSection_Count);
                 state->paletteHighlight = 0;
+                state->gotoEaseSection = (u32)command->row;
+                state->gotoEaseStart = PlatformNowMicroseconds();
+                state->gotoEaseFolding = Prog_GoToFolded(state, (u32)command->row);
             } break;
             case Prog_CommandKind_TabList: {
                 Prog_CloseMenu(state);

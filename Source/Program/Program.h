@@ -1972,6 +1972,10 @@ typedef struct Prog_State {
     // A list group's heading clicked eases its items open or shut: the panel, when it began and the group; one folding up keeps its items
     // in the view until they are shut, and asks once for the view without them.
     u64 groupEasePanel, groupEaseStart;
+    // A Go To section folding or unfolding eases, while the list does not scroll: the section, when it began, and whether it folds.
+    u32 gotoEaseSection;
+    u64 gotoEaseStart;
+    b32 gotoEaseFolding;
     u32 groupEaseIndex;
     b32 groupEaseFolding, groupEaseSettling;
     u64 listRenameAt, listRenamePress, listRenamePanel, listRenameListing, listRenameRow;

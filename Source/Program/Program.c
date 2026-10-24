@@ -6956,7 +6956,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
     // The rows in order: each section's title, then its items unless it is folded; a folder typed shows its items alone.
-    typedef struct { i32 item; i32 section; } Row;
+    typedef struct { i32 item; i32 section; b32 ghost; } Row;
     // Typing without a separator searches, and the rows found are one list too.
     b32 searching = !folder.length && state->palette.length;
     b32 sections = !folder.length && !searching;
@@ -6969,16 +6969,64 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         u32 section = sections ? Prog_GoToSectionAt(state, n) : 0;
         u64 size = section < Prog_GoToSection_Folder ? sizes[section] : state->userGroups[section - Prog_GoToSection_Count].folders.header.count;
         if (sections && !size) continue;
-        if (sections) rows[rowCount++] = (Row){ -1, (i32)section };
+        if (sections) rows[rowCount++] = (Row){ .item = -1, .section = (i32)section };
         for (u32 i = 0; i < count; ++i) {
             if (sections && found[i].section != section) continue;
             if (i == state->paletteHighlight) highlightRow = rowCount;
-            rows[rowCount++] = (Row){ (i32)i, (i32)found[i].section };
+            rows[rowCount++] = (Row){ .item = (i32)i, .section = (i32)found[i].section };
         }
     }
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
     // As the palette, the box reaches down to the bottom margin with the row after those that fit cut off.
     u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
+    // A section folding or unfolding eases, while the list does not scroll: its items, those it had for one folding up, show in a clip
+    // `easeShown` tall, and the box grows or shrinks with it.
+    u32 easeFrom = UINT32_MAX, easeTo = 0;
+    f32 easeShown = 0, easeFull = 0;
+    Prog_GoToItem *ghosts = NULL;
+    if (state->gotoEaseStart) {
+        f32 since = (f32)(UI->nowMicroseconds - Min(state->gotoEaseStart, UI->nowMicroseconds)) / 1e6f, eased = 1 - expf(-34.0f * since);
+        u32 section = state->gotoEaseSection, title = UINT32_MAX;
+        for (u32 r = 0; r < rowCount && title == UINT32_MAX; ++r) if (rows[r].item < 0 && (u32)rows[r].section == section) title = r;
+        if (!UI->animate || !sections || eased > 0.999f || title == UINT32_MAX) {
+            state->gotoEaseStart = 0;
+        } else {
+            u32 end = title + 1;
+            Row *easedRows = rows;
+            if (state->gotoEaseFolding) {
+                // Its items as they were, listed again with it unfolded.
+                b32 kept = section < Prog_GoToSection_Folder && state->gotoFolded[section];
+                u32 keptGroups = state->gotoGroupsFolded, ghostCount = 0;
+                if (section < Prog_GoToSection_Folder) state->gotoFolded[section] = false;
+                else state->gotoGroupsFolded &= ~(1u << (section - Prog_GoToSection_Count));
+                String ghostFolder = {0};
+                Prog_GoToItem *all = Prog_GoToMatches(state, &ghostCount, &ghostFolder);
+                if (section < Prog_GoToSection_Folder) state->gotoFolded[section] = kept;
+                state->gotoGroupsFolded = keptGroups;
+                ghosts = all;
+                u32 ghostRows = 0;
+                for (u32 i = 0; i < ghostCount; ++i) ghostRows += all[i].section == section;
+                easedRows = ArenaPushArray(&state->frameArena, rowCount + ghostRows + 1, Row);
+                MemCopy(easedRows, rows, (title + 1) * sizeof(Row));
+                for (u32 i = 0; i < ghostCount; ++i) if (all[i].section == section) easedRows[end++] = (Row){ (i32)i, (i32)section, true };
+                MemCopy(easedRows + end, rows + title + 1, (rowCount - title - 1) * sizeof(Row));
+                rowCount += end - title - 1;
+            } else {
+                while (end < rowCount && rows[end].item >= 0) ++end;
+            }
+            if (rowCount > visible || end == title + 1) {
+                state->gotoEaseStart = 0;
+                if (state->gotoEaseFolding) rowCount -= end - title - 1;
+            } else {
+                UI_KeepAnimating();
+                rows = easedRows;
+                easeFrom = title + 1;
+                easeTo = end;
+                easeFull = (f32)(end - title - 1) * row - (end == rowCount ? line : 0);
+                easeShown = floorf(easeFull * (state->gotoEaseFolding ? 1 - eased : eased) + 0.5f);
+            }
+        }
+    }
     // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top, unless the wheel scrolled it.
     if (!state->paletteWheeled && highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
     if (!state->paletteWheeled && highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
@@ -6995,7 +7043,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     row = floorf(row * grow + 0.5f);
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
-    f32 listHeight = MinF32((f32)shown * row - line, floorf(room * grow)) + 2 * pad;
+    f32 listHeight = MinF32((f32)shown * row - line - (easeFull - easeShown), floorf(room * grow)) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("GoToFade"))) * state->paletteFade;
     f32 radius = floorf(8.0f * s + 0.5f);
@@ -7076,9 +7124,16 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, gutter, pad });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
+            UI_Block *outside = NULL;
             for (u32 r = first; r < first + shown; ++r) {
                 Row at = rows[r];
                 f32 face = row - line;
+                // The section easing open or shut has its items in a clip as tall as it shows.
+                if (r == easeFrom) outside = UI_PushParent(Prog__Box(UI_Flex(), UI_Pixels(easeShown), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip));
+                if (r == easeTo && outside) {
+                    UI_PopParent(outside);
+                    outside = NULL;
+                }
                 if (at.item < 0) {
                     // A section's title, which folds it.
                     UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GoToSection/%d", at.section));
@@ -7103,9 +7158,9 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                     Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
                     continue;
                 }
-                Prog_GoToItem item = found[at.item];
+                Prog_GoToItem item = at.ghost ? ghosts[at.item] : found[at.item];
                 UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "GoTo/%d/%S", at.section, item.path));
-                b32 highlighted = (u32)at.item == state->paletteHighlight, hot = UI->hotKey == key;
+                b32 highlighted = !at.ghost && (u32)at.item == state->paletteHighlight, hot = UI->hotKey == key;
                 UI_SetNextPrefWidth(UI_Flex());
                 UI_SetNextPrefHeight(UI_Pixels(face));
                 UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -7117,7 +7172,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextColors((UI_Colors){ .background = theme->selection, .border = theme->selection });
                 UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted ? UI_Flag_DrawBackground : 0) | (hot && !highlighted ? UI_Flag_DrawBorder : 0));
                 UI_Interaction interaction = UI_InteractionFromBlock(entry);
-                if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, (u64)at.item, 0, interaction.clickOrder);
+                if (interaction.clicked && !at.ghost) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, (u64)at.item, 0, interaction.clickOrder);
                 UI_Parent(entry) {
                     const Prog_Icon *icon = item.file ? Prog_PathIcon(state, item.path, P_FileKind_File) : item.drive ? Prog_PathIcon(state, item.path, P_FileKind_Drive) : Prog_FolderIcon(state, item.path);
                     b32 faded = item.hidden && !highlighted;
@@ -7170,6 +7225,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 }
                 if (r + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
             }
+            if (outside) UI_PopParent(outside);
             if (rowCount > visible) {
                 // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
                 f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)rowCount), row);
