@@ -4341,6 +4341,15 @@ function void Prog__NoteFolders(Prog_State *state, String path, const Prog_Entry
 }
 
 // Bookmarks and recents at or inside items Filey moved or renamed from `from` to `to` follow them, as Explorer's pinned folders do.
+function void Prog__SetUserGroups(Prog_State *state, const Prog_UserGroup *groups, u32 count);
+
+// Where `path` is after the items `from` moved to `to`: in the place of the one it was or was inside, else where it was.
+function String Prog__MovedPath(Arena *arena, String path, const String *from, const String *to, u64 count)
+{
+    for (u64 m = 0; m < count; ++m) if (Prog__IsUnder(path, from[m])) return StrFormat(arena, "%S%S", to[m], StrFrom(path, from[m].length));
+    return path;
+}
+
 function void Prog__FollowMoved(Prog_State *state, const String *from, const String *to, u64 count)
 {
     Scratch scratch = GetScratch();
@@ -4349,16 +4358,8 @@ function void Prog__FollowMoved(Prog_State *state, const String *from, const Str
         String *followed = ArenaPushArray(scratch.arena, Max(paths.header.count, (u64)1), String);
         b32 changed = false;
         for (u64 i = 0; i < paths.header.count; ++i) {
-            String path = followed[i] = paths.v[i];
-            for (u64 m = 0; m < count; ++m) {
-                String old = from[m];
-                b32 inside = path.length >= old.length && StrIsEqual(StrFromTo(path, 0, (i64)old.length), old) &&
-                             (path.length == old.length || path.value[old.length] == '/' || (old.length && old.value[old.length - 1] == '/'));
-                if (!inside) continue;
-                followed[i] = StrFormat(scratch.arena, "%S%S", to[m], StrFrom(path, old.length));
-                changed = true;
-                break;
-            }
+            followed[i] = Prog__MovedPath(scratch.arena, paths.v[i], from, to, count);
+            changed = changed || followed[i].value != paths.v[i].value;
         }
         if (!changed) continue;
         if (list) {
@@ -4369,6 +4370,20 @@ function void Prog__FollowMoved(Prog_State *state, const String *from, const Str
             Prog__SaveList(state, Prog_BookmarksFile, state->bookmarks);
         }
     }
+    // The folders of the groups of the user's too.
+    Prog_UserGroup groups[Prog_MaxUserGroups] = {0};
+    b32 regrouped = false;
+    for (u32 g = 0; g < state->userGroupCount; ++g) {
+        const ArrayStr *folders = &state->userGroups[g].folders;
+        groups[g] = state->userGroups[g];
+        groups[g].folders = (ArrayStr){0};
+        for (u64 i = 0; i < folders->header.count; ++i) {
+            String folder = Prog__MovedPath(scratch.arena, folders->v[i], from, to, count);
+            regrouped = regrouped || folder.value != folders->v[i].value;
+            ArrayPush(scratch.arena, groups[g].folders, folder);
+        }
+    }
+    if (regrouped) Prog__SetUserGroups(state, groups, state->userGroupCount);
     ReleaseScratch(scratch);
 }
 
@@ -7038,6 +7053,12 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
                 Prog__FollowMoved(state, &from, &to, 1);
                 state->placesTime = 0;
+                // The folder shown, renamed from the sidebar, goes on showing under its new name.
+                if (Prog__IsUnder(state->directory.path, from)) {
+                    String shown = StrFormat(&state->frameArena, "%S%S", to, StrFrom(state->directory.path, from.length));
+                    if (state->historyAt < state->history.header.count) state->history.v[state->historyAt] = StrCopy(&state->historyArena, shown);
+                    Prog_RequestDirectory(state, shown, false, state->historyAt);
+                }
                 // Reloading now, rather than on the watch, selects the new name without waiting.
                 String listed = input->prefix.length ? StrFormat(&state->frameArena, "%S/%S", input->prefix, input->newName) : input->newName;
                 String folder = input->prefix.length ? Prog_JoinPath(&state->frameArena, state->directory.path, input->prefix) : state->directory.path;

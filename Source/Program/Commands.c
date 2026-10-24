@@ -86,6 +86,7 @@ function void Prog_CloseMenu(Prog_State *state)
     state->menuRows = NULL;
     state->menuTarget = (String){0};
     state->menuMiller = false;
+    state->menuSidebar = 0;
     state->menuIcons = NULL;
     state->menuCommands = NULL;
     state->menuRowCount = 0;
@@ -2157,6 +2158,22 @@ function void Prog__EndRename(Prog_State *state, b32 commit)
     P_JobSubmit(job);
 }
 
+// Renames the folder at `path`, a sidebar's, to `name` in a job, as the list's rename does.
+function void Prog__RenamePath(Prog_State *state, String path, String name)
+{
+    String from = Prog__FolderName(path);
+    if (!name.length || StrIsEqual(from, name)) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->panel = Prog__PanelId(state);
+    input->kind = Prog_JobKind_Rename;
+    input->path = StrCopy(&job->arena, Prog_ParentPath(path));
+    input->name = StrCopy(&job->arena, from);
+    input->newName = StrCopy(&job->arena, name);
+    job->input = input;
+    P_JobSubmit(job);
+}
+
 // Puts at the rename box's caret the date asked for, or the smallest number from 1 up that makes a name no other item in the folder has.
 function void Prog__RenameInsert(Prog_State *state, Prog_CommandKind kind)
 {
@@ -2206,7 +2223,14 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         return;
     }
     // A sidebar folder's menu: Open shows it here, and of Filey's own items, which act on the list's selection, only Copy As Path applies.
-    // A Miller column's item is renamed in its folder's list, gone to with it picked.
+    // Its Rename edits its row, and a Miller column's item is renamed in its folder's list, gone to with it picked.
+    if (state->menuTarget.length && state->menuSidebar && StrIsEqual(item.verb, S("rename"))) {
+        u32 group = state->menuSidebar - 1;
+        u64 row = state->menuSidebarIndex;
+        Prog_CloseMenu(state);
+        Prog_QueueCommand(state, Prog_CommandKind_SidebarRename, group, 0, UINT64_MAX)->target = row;
+        return;
+    }
     if (state->menuTarget.length && state->menuMiller && StrIsEqual(item.verb, S("rename"))) {
         String target = StrCopy(&state->frameArena, state->menuTarget);
         Prog_CloseMenu(state);
@@ -2683,15 +2707,20 @@ function void Prog__LayoutSaveButton(Prog_State *state, u32 button)
         state->nameFor = 0;
         return;
     }
-    // The name of a group of the user's, new or renamed; a tab would split its line in Groups.conf.
+    // A name edited in its sidebar row, a group's or a folder's, which an empty one leaves as it was; a tab would split a group's line in
+    // Groups.conf.
     if (state->nameFor) {
-        if (!name.length) return;
-        name = StrCopy(&state->frameArena, name);
-        for (u64 i = 0; i < name.length; ++i) if (name.value[i] == '\t') ((char *)name.value)[i] = ' ';
-        if (state->nameFor == 2) Prog_UserGroupRename(state, state->nameGroup, name);
-        else Prog_UserGroupNew(state, name);
+        u8 naming = state->nameFor;
         state->layoutSaving = false;
         state->nameFor = 0;
+        if (!name.length) return;
+        if (naming == 2) {
+            Prog__RenamePath(state, state->namePath, name);
+            return;
+        }
+        name = StrCopy(&state->frameArena, name);
+        for (u64 i = 0; i < name.length; ++i) if (name.value[i] == '\t') ((char *)name.value)[i] = ' ';
+        Prog_UserGroupRename(state, state->nameGroup, name);
         return;
     }
     b32 taken = Prog__LayoutNamed(state, name);
@@ -2965,6 +2994,49 @@ function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64
             return own < state->userGroupCount && index < state->userGroups[own].folders.header.count ? state->userGroups[own].folders.v[index] : (String){0};
         }
     }
+}
+
+// Whether the sidebar folder `path` of `group` is renamed by a slow click and its menu: a bookmark, a recent or one in a group of the user's,
+// which the user put there, rather than a place, a drive or This PC; not a drive's root, a folder inside an archive or one of the system's.
+function b32 Prog__SidebarRenamable(Prog_Group group, String path)
+{
+    b32 own = group == Prog_Group_Bookmarks || group == Prog_Group_Recents || (u32)group >= Prog_Group_Count;
+    String parent = Prog_ParentPath(path), archive = {0}, inner = {0};
+    return own && path.length && parent.length && !StrIsEqual(parent, path) && !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path) &&
+           !P_IsVirtualFolder(path) && !Prog_InArchive(path, &archive, &inner);
+}
+
+// Edits a name in its sidebar row, `text` selected to be typed over, as a list rename does: with `naming` 1 the name of the group of the
+// user's `group`, with 2 that of the folder `path`, row `index` of sidebar group `group`.
+function void Prog__BeginSidebarName(Prog_State *state, u8 naming, u32 group, u64 index, String text, String path)
+{
+    Prog_CloseMenu(state);
+    state->paletteOpen = false;
+    if (state->renaming) Prog__EndRename(state, true);
+    state->layoutSaving = true;
+    state->nameFor = naming;
+    state->nameGroup = group;
+    state->nameIndex = index;
+    ArenaClear(&state->nameArena);
+    state->namePath = StrCopy(&state->nameArena, path);
+    state->nameSince = state->ui.lastPressTime;
+    state->layoutName = (Prog_TextEdit){0};
+    u32 length = (u32)Min(text.length, (u64)sizeof(state->layoutName.text) - 1);
+    MemCopy(state->layoutName.text, text.value, length);
+    state->layoutName.length = state->layoutName.cursor = length;
+}
+
+// A new group's name: "New group", numbered past one a group of the user's has.
+function String Prog__NewGroupName(Prog_State *state)
+{
+    String base = Tr("New group"), name = base;
+    for (u32 n = 2; n < 1000; ++n) {
+        b32 taken = false;
+        for (u32 g = 0; g < state->userGroupCount && !taken; ++g) taken = Prog__EqualFolded(state->userGroups[g].name, name);
+        if (!taken) break;
+        name = StrFormat(&state->frameArena, "%S (%u)", base, n);
+    }
+    return name;
 }
 
 // Opens `row`, or the selection or focused row when it is UINT64_MAX, in new tabs behind the shown one: folders themselves and files' containing folders.
@@ -3469,6 +3541,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_CloseMenu(state);
                 state->menuTarget = StrCopy(&state->menuArena, path);
                 state->menuMiller = (b8)miller;
+                b32 renamable = !miller && Prog__SidebarRenamable((Prog_Group)command->row, path);
+                state->menuSidebar = renamable ? (u32)command->row + 1 : 0;
+                state->menuSidebarIndex = command->target;
                 String folder = {0}, name = {0};
                 if (!Prog__PathMenuArgs(path, &folder, &name)) {
                     Prog_CloseMenu(state);
@@ -3486,10 +3561,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__MenuAddGroups(state, !file && !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path));
                 Prog__ApplyMenuPins(state);
                 // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled,
-                // and its rename, which edits a list row, is left out; a Miller column's item is renamed in its folder's list.
+                // and its rename, which edits its row, is left out where it does not rename; a Miller column's item is renamed in its folder's list.
                 for (u32 i = 0; i < state->menu.count; ++i) {
                     P_MenuItem *item = &state->menu.items[i];
-                    if (StrIsEqual(item->verb, S("rename")) && !miller) item->label = (String){0};
+                    if (StrIsEqual(item->verb, S("rename")) && !miller && !renamable) item->label = (String){0};
                     b32 selection = StrIsEqual(item->verb, S("cut")) || StrIsEqual(item->verb, S("copy")) || StrIsEqual(item->verb, S("delete")) ||
                                     item->action == P_MenuAction_Cut || item->action == P_MenuAction_Copy || item->action == P_MenuAction_Duplicate ||
                                     item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete;
@@ -3838,24 +3913,23 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_GroupShiftDown: {
                 if (command->row < Prog_SidebarGroupCount(state)) Prog_ShiftGroup(state, (u32)command->row, command->kind == Prog_CommandKind_GroupShiftDown);
             } break;
-            case Prog_CommandKind_GroupNew:
+            case Prog_CommandKind_GroupNew: {
+                // Made at once, with its name in its title to be typed over, as a new folder's is; the sidebar shows to hold it.
+                if (state->userGroupCount >= Prog_MaxUserGroups) break;
+                Prog_UserGroupNew(state, Prog__NewGroupName(state));
+                state->sidebarHidden = state->uiHidden = state->sidebarFiltering = false;
+                state->sidebarFilter = (Prog_TextEdit){0};
+                u32 group = state->userGroupCount - 1;
+                Prog__BeginSidebarName(state, 1, group, 0, state->userGroups[group].name, (String){0});
+            } break;
             case Prog_CommandKind_GroupRename: {
-                // The name box, with the group's name to change for a rename.
-                b32 rename = command->kind == Prog_CommandKind_GroupRename;
-                if ((rename && (command->row < Prog_Group_Count || command->row - Prog_Group_Count >= state->userGroupCount)) || (!rename && state->userGroupCount >= Prog_MaxUserGroups)) break;
-                Prog_CloseMenu(state);
-                state->paletteOpen = false;
-                state->layoutSaving = true;
-                state->nameFor = rename ? 2 : 1;
-                state->nameGroup = rename ? (u32)(command->row - Prog_Group_Count) : 0;
-                state->nameAt = command->at;
-                state->layoutName = (Prog_TextEdit){0};
-                if (rename) {
-                    String name = state->userGroups[state->nameGroup].name;
-                    u32 length = (u32)Min(name.length, (u64)sizeof(state->layoutName.text) - 1);
-                    MemCopy(state->layoutName.text, name.value, length);
-                    state->layoutName.length = state->layoutName.cursor = length;
-                }
+                if (command->row < Prog_Group_Count || command->row - Prog_Group_Count >= state->userGroupCount) break;
+                u32 group = (u32)(command->row - Prog_Group_Count);
+                Prog__BeginSidebarName(state, 1, group, 0, state->userGroups[group].name, (String){0});
+            } break;
+            case Prog_CommandKind_SidebarRename: {
+                String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
+                if (Prog__SidebarRenamable((Prog_Group)command->row, path)) Prog__BeginSidebarName(state, 2, (u32)command->row, command->target, Prog__FolderName(path), path);
             } break;
             case Prog_CommandKind_GroupDelete: if (command->row >= Prog_Group_Count) Prog_UserGroupDelete(state, (u32)(command->row - Prog_Group_Count)); break;
             case Prog_CommandKind_GroupItemRemove: if (command->row >= Prog_Group_Count) Prog_UserGroupRemove(state, (u32)(command->row - Prog_Group_Count), command->target); break;

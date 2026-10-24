@@ -5060,6 +5060,50 @@ function void Prog__DriveGlyph(f32 width, f32 height, R_Color color, const Prog_
 }
 
 // A sidebar section title, which opens and closes the section; without an icon it shows the filled drive glyph.
+// The box a sidebar name is edited in, in place of its text in a group's title or a folder's row, as the list's rename box looks: as wide
+// as its text up to the room there, with the text where it was. A press anywhere else keeps the name, as Enter does.
+function void Prog__SidebarNameBox(Prog_State *state, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 pad = floorf(m->gap * 0.5f), tall = m->line + pad, above = floorf((tall - m->line) * 0.5f);
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_SetNextChildrenPadding((UI_Padding){ -pad, 0, 0, 0 });
+    UI_Block *cell = UI_AddBlockFromKey(UI_KeyFromStr(0, S("SidebarNameCell")), 0);
+    f32 room = cell->rect.x1 - cell->rect.x0 + pad, wide = R_TextWidth(m->font, Prog_EditText(&state->layoutName)) + 2 * pad + Prog__CaretWidth(m);
+    UI_Key key = UI_KeyFromStr(0, S("SidebarNameBox"));
+    UI_Parent(cell) {
+        UI_SetNextPrefWidth(UI_Pixels(room > pad ? MinF32(wide, room) : wide));
+        UI_SetNextPrefHeight(UI_Pixels(tall));
+        UI_SetNextCornerRadius(m->radius);
+        UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->focus });
+        UI_Block *box = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
+        UI_Parent(box) Prog__EditContents(&state->layoutName, pad, above, true, m);
+    }
+    state->nameShown = true;
+    // The sidebar scrolls to keep it in sight.
+    UI_Block *sidebar = UI__Find(UI_KeyFromStr(0, S("Sidebar")));
+    if (sidebar && cell->rect.y1 > cell->rect.y0) {
+        f32 top = cell->rect.y0 - sidebar->rect.y0 + sidebar->scrollShown.y, bottom = top + (cell->rect.y1 - cell->rect.y0);
+        sidebar->scrollOffset.y = MinF32(MaxF32(sidebar->scrollOffset.y, bottom + m->gap - (sidebar->rect.y1 - sidebar->rect.y0)), top);
+    }
+    if (UI->lastPressTime != state->nameSince && UI->lastPressKey != key) {
+        state->nameSince = UI->lastPressTime;
+        Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, 0);
+    }
+}
+
+// A slow second click's rename of `group`'s row `index`, which starts once the double-click time passes without another press.
+function void Prog__AskSidebarRename(Prog_State *state, Prog_Group group, u64 index)
+{
+    state->sidebarRenameGroup = (u32)group + 1;
+    state->sidebarRenameIndex = index;
+    state->sidebarRenameAt = UI->nowMicroseconds + (UI->doubleClickMicroseconds ? UI->doubleClickMicroseconds : UINT64_C(500000));
+    state->sidebarRenamePress = UI->lastPressTime;
+}
+
 function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title, String icon, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -5082,7 +5126,8 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
         f32 slot = floorf(m->line * 1.5f) - floorf(2.4f * m->scale + 0.5f);
         if (icon.length) Prog__Icon(icon, slot, m->row, color, 0, m);
         else Prog__DriveGlyph(slot, m->row, color, m);
-        Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
+        if (state->layoutSaving && state->nameFor == 1 && (u32)group == Prog_Group_Count + state->nameGroup) Prog__SidebarNameBox(state, m->row, m);
+        else Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
         Prog__Icon(Prog_GroupOpen(state, group) || state->sidebarFilter.length ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
     }
 }
@@ -5155,6 +5200,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     if (interaction.clicked && interaction.button == MouseButton_Left && !inTab && !moved) {
         Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_SidebarOpen, (u64)group, 0, interaction.clickOrder);
         command->target = index;
+        // One on the folder shown that is no double click's renames it, once the double-click time shows it is none, as in Explorer.
+        if (interaction.pressCount == 1 && StrIsEqual(path, state->directory.path) && Prog__SidebarRenamable(group, path)) Prog__AskSidebarRename(state, group, index);
     }
     if (UI->hotKey == key && !UI->activeKey && path.length && !StrIsEqual(path, Prog_ThisPC)) {
         state->tooltipKey = key;
@@ -5210,6 +5257,8 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
                 UI_SetNextColors((UI_Colors){ .background = theme->accent });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
+        } else if (state->layoutSaving && state->nameFor == 2 && state->nameGroup == (u32)group && state->nameIndex == index) {
+            Prog__SidebarNameBox(state, m->row, m);
         } else {
             Prog__MarkedText(name, marks, m->font, m->row, color);
         }
@@ -5315,6 +5364,15 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextChildrenPadding((UI_Padding){ floorf(m->gap * 0.75f), 0, floorf(m->gap * 0.75f), m->gap });
     UI_SetNextColors((UI_Colors){ .background = theme->panel });
     UI_Block *sidebar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Sidebar")), UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_Scrollable | UI_Flag_RightMouseClickable);
+    // The rename a slow click asked for starts once the double-click time passed without another press.
+    if (state->sidebarRenameAt && UI->lastPressTime != state->sidebarRenamePress) {
+        state->sidebarRenameAt = 0;
+    } else if (state->sidebarRenameAt && UI->nowMicroseconds >= state->sidebarRenameAt) {
+        Prog_QueueCommand(state, Prog_CommandKind_SidebarRename, state->sidebarRenameGroup - 1, 0, 0)->target = state->sidebarRenameIndex;
+        state->sidebarRenameAt = 0;
+    } else if (state->sidebarRenameAt) {
+        UI_KeepAnimating();
+    }
     // A right click on its empty space, where no group or place takes it, opens the sidebar's own menu.
     UI_Interaction background = UI_InteractionFromBlock(sidebar);
     if (background.pressed && background.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_SidebarBackgroundMenu, 0, 0, background.pressOrder)->at = UI->mouse;
@@ -8552,58 +8610,11 @@ function b32 Prog__LayoutButton(Prog_State *state, String key, String label, b32
     return able && UI_InteractionFromBlock(button).clicked;
 }
 
-// A group's name box opened from a menu: a small one where the menu was, Enter keeping the name and Escape or a click elsewhere dropping it.
-function void Prog__GroupNameBox(Prog_State *state, const Prog_Metrics *m)
-{
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    R_Rect view = UI->root->rect;
-    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
-    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
-    UI_Block *catcher = UI_AddBlockFromKey(UI_KeyFromStr(0, S("GroupNameCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel);
-    UI_Interaction outside = UI_InteractionFromBlock(catcher);
-    if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, outside.pressOrder);
-    f32 pad = floorf(8.0f * m->scale + 0.5f);
-    f32 width = floorf(220.0f * m->scale + 0.5f), height = m->line + m->row + 3 * pad;
-    f32 x = MinF32(state->nameAt.x, view.x1 - width - m->inset), y = MinF32(state->nameAt.y, view.y1 - height - m->inset);
-    UI_SetNextPrefWidth(UI_Pixels(width));
-    UI_SetNextPrefHeight(UI_Pixels(floorf(height)));
-    UI_SetNextFloatingOffset((UI_Vec2){ floorf(MaxF32(x, view.x0) - view.x0), floorf(MaxF32(y, view.y0) - view.y0) });
-    UI_SetNextChildrenLayout(UI_Layout_Vertical);
-    UI_SetNextChildrenPadding((UI_Padding){ pad, pad, pad, pad });
-    UI_SetNextCornerRadius(m->radius * 2);
-    UI_SetNextBorderThickness(m->stroke);
-    UI_SetNextBlur(Prog__FloatingBlur(m));
-    UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
-    UI_Block *box = UI_AddBlockFromKey(UI_KeyFromStr(0, S("GroupName")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
-    UI_Parent(box) {
-        // The title starts where the name does in the field under it.
-        Prog__Label(state->nameFor == 2 ? Tr("Rename group") : Tr("New group"), UI_Flex(), m->line, pad, theme->text, 0);
-        Prog__Spacer(UI_Flex(), UI_Pixels(pad));
-        UI_SetNextChildrenPadding((UI_Padding){ pad, 0, pad, 0 });
-        UI_SetNextCornerRadius(m->radius);
-        UI_Block *field = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
-        f32 top = floorf((m->row - m->line) * 0.5f + 0.5f);
-        UI_Parent(field) {
-            if (!state->layoutName.length) {
-                UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
-                UI_SetNextPrefHeight(UI_Pixels(m->line));
-                UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                UI_SetNextText(Tr("Type the group's name..."));
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
-            }
-            Prog__EditContents(&state->layoutName, 0, top, true, m);
-        }
-    }
-}
-
 // The Save Layout box: its title, the name being typed, and Save, Update, which only a taken name allows, and Cancel.
 function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
 {
-    if (!state->layoutSaving) return;
-    if (state->nameFor && (state->nameAt.x != 0 || state->nameAt.y != 0)) {
-        Prog__GroupNameBox(state, m);
-        return;
-    }
+    // A name in the sidebar is edited in its row.
+    if (!state->layoutSaving || state->nameFor) return;
     const Prog_Theme *theme = Prog_CurrentTheme();
     R_Rect view = UI->root->rect;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
@@ -8625,14 +8636,12 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextCornerRadius(radius);
     UI_SetNextColors((UI_Colors){ .background = theme->background });
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("LayoutSave")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
-    // It names a group of the user's too, new or renamed, with Save and Cancel.
-    b32 group = state->nameFor != 0;
     String name = Prog__TrimSpaces(Prog_EditText(&state->layoutName));
     b32 taken = false;
     for (u64 i = 0; i < state->layoutNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->layoutNames.v[i], name);
     UI_Parent(panel) {
         UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
-        UI_Parent(title) Prog__Label(state->nameFor == 2 ? Tr("Rename group") : group ? Tr("New group") : Tr("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
+        UI_Parent(title) Prog__Label(Tr("Save layout"), UI_Flex(), head, 0, theme->text, 0.5f);
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
@@ -8641,7 +8650,7 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, floorf((field - m->line) * 0.5f + 0.5f) });
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
                 UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                UI_SetNextText(group ? Tr("Type the group's name...") : Tr("Type a new or existing layout name to update..."));
+                UI_SetNextText(Tr("Type a new or existing layout name to update..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
             Prog__EditContents(&state->layoutName, 0, floorf((field - m->line) * 0.5f + 0.5f), true, m);
@@ -8656,10 +8665,8 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
             f32 apart = floorf(6.4f * s + 0.5f);
             if (Prog__LayoutButton(state, S("LayoutSaveSave"), Tr("Save"), name.length != 0, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 0, 0, 0);
             Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
-            if (!group) {
-                if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), Tr("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
-                Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
-            }
+            if (Prog__LayoutButton(state, S("LayoutSaveUpdate"), Tr("Update"), taken, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 1, 0, 0);
+            Prog__Spacer(UI_Pixels(apart), UI_Pixels(band));
             if (Prog__LayoutButton(state, S("LayoutSaveCancel"), Tr("Cancel"), true, m)) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
         }
     }
@@ -12267,6 +12274,11 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     }
     UI->keySeed = 0;
     if (sidebar > 0) Prog__SidebarEdge(state, view.x0 + sidebar - full, view.x0 + sidebar, view.y0 + m->separator + Prog__TitleStripHeight(m), view.y1, scale, m);
+    // A name being edited in the sidebar whose row is out of sight, folded away or with the sidebar gone, is dropped; one still sliding in is not.
+    if (state->layoutSaving && state->nameFor && !state->nameShown && (sidebar >= full || state->sidebarHidden || state->uiHidden)) {
+        Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, 0);
+    }
+    state->nameShown = false;
     Prog__UsePanel(state, state->activePanel);
     // Under a moving pointer, the panel it is over takes the keyboard, as a click there would, and one the keyboard switched to keeps it
     // until the pointer moves. A panel's inspector counts as the panel; nothing switches while a press, a text box or a popup has the input.

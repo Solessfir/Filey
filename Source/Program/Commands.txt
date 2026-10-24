@@ -1884,6 +1884,10 @@ command GroupRename {
 command GroupDelete {
 }
 
+// A sidebar folder's name edited in its row, from a slow second click or its menu's Rename; it carries the group and, as its target, the folder.
+command SidebarRename {
+}
+
 command GroupItemRemove {
 }
 

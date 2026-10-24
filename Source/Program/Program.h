@@ -1512,6 +1512,8 @@ typedef struct Prog_State {
     u64 menuRowCount;
     String menuTarget;        // the folder a sidebar item's menu acts on instead, in menuArena
     b8 menuMiller;            // and it is a Miller column's item, whose Rename goes to its folder to rename it there
+    u32 menuSidebar;          // or one more than the sidebar group of the item, menuSidebarIndex, whose Rename edits its row
+    u64 menuSidebarIndex;
     u32 menuPath[8];          // the open submenu item at each level
     R_Rect menuRects[9];      // each open level's panel in the last build, empty past the last one
     b32 menuApart[9];         // each submenu that could not sit against its opener's panel in the last build, whose opener is then lit
@@ -1945,8 +1947,20 @@ typedef struct Prog_State {
     u32 userGroupCount;
     u64 userGroupDrop, userGroupDropShown;
     u32 userGroupDropIn, userGroupDropShownIn;
-    u8 nameFor;               // what the name box names: a layout, a new group of the user's, or nameGroup's new name
+    // A name edited in its sidebar row, which the Save Layout box's state carries: nameFor is 1 for the group of the user's nameGroup, and
+    // 2 for the folder namePath, row nameIndex of sidebar group nameGroup; the press before it began, and whether its box was built.
+    u8 nameFor;
     u32 nameGroup;
+    u64 nameIndex;
+    Arena nameArena;
+    String namePath;
+    u64 nameSince;
+    b32 nameShown;
+    // A slow second click on the row of the sidebar folder shown renames it, once the double-click time passes without another press: when,
+    // the press that asked for it, one more than its group, and its row.
+    u64 sidebarRenameAt, sidebarRenamePress;
+    u32 sidebarRenameGroup;
+    u64 sidebarRenameIndex;
     // The box asking for an encrypted archive's password: the archive, the password typed and the dots shown for it, whether the last one
     // tried was wrong and one is being tried, and a hash of the archive the box was dismissed for last, which it does not ask for again.
     Arena passwordArena;
@@ -1954,7 +1968,6 @@ typedef struct Prog_State {
     Prog_TextEdit password, passwordShown;
     b8 passwordWrong, passwordTrying;
     u64 passwordDismissed;
-    UI_Vec2 nameAt;           // where a group's name box opens, from a menu; from the palette it is the Save Layout box
     // The places hidden from the sidebar and the order they were put in, by path, saved as PlacesHidden.conf and PlacesOrder.conf;
     // placesShowHidden shows the hidden ones too, faded, to show them again. sidebarDrag is one more than the row a drag moves among the places
     // or a group of the user's, sidebarDragGroup one more than that group, and sidebarGap one more than the row it would go before, one past

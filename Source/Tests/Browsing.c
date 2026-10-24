@@ -2869,6 +2869,56 @@ function void TestUserGroups(TestFileFixture *fixture)
     ArenaRelease(&arena);
 }
 
+// Names edited in their sidebar rows: a new group made at once as "New group", numbered past one taken, with its name selected to be typed
+// over, which Escape keeps; a folder of a group renamed on disk, the group following it; and a place, which is not renamed from there.
+function void TestSidebarNames(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL) && state.jobs.initialized);
+    Check(TestWaitDirectory(&state));
+    TestBrowsingCommand(&state, Prog_CommandKind_GroupNew, 0);
+    Check(state.userGroupCount == 1 && StrIsEqual(state.userGroups[0].name, S("New group")) && state.layoutSaving && state.nameFor == 1 && state.nameGroup == 0);
+    Check(StrIsEqual(Prog_EditText(&state.layoutName), S("New group")) && state.layoutName.anchor == 0 && state.layoutName.cursor == state.layoutName.length);
+    TestBrowsingCommand(&state, Prog_CommandKind_LayoutSaveButton, 2);
+    Check(!state.layoutSaving && !state.nameFor && StrIsEqual(state.userGroups[0].name, S("New group")));
+    TestBrowsingCommand(&state, Prog_CommandKind_GroupNew, 0);
+    Check(state.userGroupCount == 2 && StrIsEqual(state.userGroups[1].name, S("New group (2)")) && state.nameGroup == 1);
+    Prog__EditReplace(&state.layoutName, (const u8 *)"Work", 4);
+    TestBrowsingCommand(&state, Prog_CommandKind_LayoutSaveButton, 0);
+    Check(!state.layoutSaving && StrIsEqual(state.userGroups[1].name, S("Work")));
+    // Its title's Rename edits it again, and an empty name leaves it as it was.
+    TestBrowsingCommand(&state, Prog_CommandKind_GroupRename, Prog_Group_Count + 1);
+    Check(state.layoutSaving && state.nameFor == 1 && StrIsEqual(Prog_EditText(&state.layoutName), S("Work")));
+    Prog__EditReplace(&state.layoutName, (const u8 *)"", 0);
+    TestBrowsingCommand(&state, Prog_CommandKind_LayoutSaveButton, 0);
+    Check(StrIsEqual(state.userGroups[1].name, S("Work")));
+    String made = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Renamable"), true, &made).code && StrIsEqual(made, S("Renamable")));
+    ArrayStr folders = {0};
+    ArrayPush(&arena, folders, Prog_JoinPath(&arena, fixture->path, made));
+    Prog_UserGroupAdd(&state, 1, &folders, UINT64_MAX);
+    TestBrowsingCommand(&state, Prog_CommandKind_SidebarRename, Prog_Group_Count + 1);
+    Check(state.layoutSaving && state.nameFor == 2 && StrIsEqual(Prog_EditText(&state.layoutName), S("Renamable")) && state.layoutName.cursor == 9 && !state.layoutName.anchor);
+    Prog__EditReplace(&state.layoutName, (const u8 *)"Renamed", 7);
+    TestBrowsingCommand(&state, Prog_CommandKind_LayoutSaveButton, 0);
+    String renamed = Prog_JoinPath(&arena, fixture->path, S("Renamed"));
+    b32 followed = false;
+    for (u64 start = PlatformNowMicroseconds(); !followed && PlatformNowMicroseconds() - start < Millions(5); P__TestPause()) {
+        Prog_TakeCompletions(&state);
+        followed = state.userGroups[1].folders.header.count == 1 && StrIsEqual(state.userGroups[1].folders.v[0], renamed);
+    }
+    Check(followed && P_IsDirectory(renamed) && !P_PathExists(Prog_JoinPath(&arena, fixture->path, S("Renamable"))));
+    Check(P__TestRemovePath(fixture, S("Renamed"), true));
+    // A place is not renamed from the sidebar.
+    if (state.places.header.count) {
+        TestBrowsingCommand(&state, Prog_CommandKind_SidebarRename, Prog_Group_Places);
+        Check(!state.layoutSaving);
+    }
+    Prog_Release(&state);
+    ArenaRelease(&arena);
+}
+
 #if defined(_WIN32)
 // A drag out of another program that only describes its files, as a browser's picture or an archiver's files are: a picture, a folder with a
 // file in it, given as a stream, and a name that would climb out of where they are written.
@@ -4461,6 +4511,7 @@ function void TestBrowsing(void)
         TestUpdates(&fixture);
         TestPlaces(&fixture);
         TestUserGroups(&fixture);
+        TestSidebarNames(&fixture);
         TestOpenFlags(&fixture);
 #if defined(_WIN32)
         TestDescribedDrop(&fixture);
