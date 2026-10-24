@@ -10034,6 +10034,50 @@ function void Prog__InspectorHex(Prog_State *state, const Prog_Metrics *m)
     Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }
 
+// A big text file's scroll bar, for the whole file rather than the window it holds: the thumb sits where the top line is in the file, by its
+// bytes, and let go elsewhere, the view goes there, in the window when it holds that place, else at the count's step there once counted.
+function void Prog__TextScrollBar(Prog_State *state, UI_Block *view, f32 pitch, u32 top, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 s = m->scale, viewHeight = view->rect.y1 - view->rect.y0;
+    u32 count = state->previewLineCount;
+    String text = state->previewText;
+    if (viewHeight <= 0 || !state->previewSize || !count) return;
+    u64 at = state->previewOffset + state->previewLines[Min(top, count - 1)];
+    f64 lines = state->textIndex.done ? (f64)state->textIndex.lines : (f64)state->previewSize * (f64)count / (f64)Max(text.length, (u64)1);
+    f32 head = floorf(31.2f * s + 0.5f), foot = floorf(13.6f * s + 0.5f), track = MaxF32(0, viewHeight - head - foot);
+    f32 thumb = MaxF32(floorf(track * (f32)MinF64(1, (f64)viewHeight / (lines * (f64)pitch))), floorf(16.0f * s + 0.5f)), thick = floorf(11.2f * s + 0.5f);
+    // Where the thumb was taken, and where it is dragged to, as a share of the track, while it is.
+    local_persist f32 grab, held = -1;
+    f32 place = floorf((track - thumb) * (held >= 0 ? held : (f32)MinF64(1, (f64)at / (f64)state->previewSize)));
+    f32 x = view->rect.x1 - UI->parent->rect.x0 - thick - floorf(2.4f * s + 0.5f), y = view->rect.y0 - UI->parent->rect.y0;
+    UI_SetNextFloatingOffset((UI_Vec2){ x, y + head + place });
+    UI_SetNextPrefWidth(UI_Pixels(thick));
+    UI_SetNextPrefHeight(UI_Pixels(thumb));
+    UI_SetNextCornerRadius(floorf(thick * 0.5f));
+    UI_SetNextColors((UI_Colors){ .background = theme->track });
+    UI_Block *bar = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorText/ScrollThumb")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable);
+    UI_Interaction drag = UI_InteractionFromBlock(bar);
+    if (drag.pressed) grab = UI->mouse.y - (view->rect.y0 + head + place);
+    if (drag.active && track > thumb) held = MinF32(MaxF32((UI->mouse.y - grab - view->rect.y0 - head) / (track - thumb), 0), 1);
+    if (drag.released && held >= 0) {
+        u64 target = (u64)((f64)held * (f64)state->previewSize);
+        held = -1;
+        if (target >= state->previewOffset && target < state->previewOffset + text.length) {
+            u32 low = 0, high = count;
+            while (low + 1 < high) {
+                u32 middle = (low + high) / 2;
+                if (state->previewOffset + state->previewLines[middle] <= target) low = middle;
+                else high = middle;
+            }
+            view->scrollOffset.y = view->scrollShown.y = (f32)low * pitch;
+        } else if (state->textIndex.done && state->textIndex.count) {
+            u64 step = Min(target / Prog_TextStep, state->textIndex.count - 1);
+            Prog_RequestTextWindow(state, state->textIndex.offsets[step], state->textIndex.numbers[step], state->textIndex.states[step], true);
+        }
+    }
+}
+
 // The inspector's text: its lines in the monospace font, numbered in a gutter unless hidden, wrapped to the width when asked.
 // Only the rows in sight get blocks, with spacers for the rest.
 function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
@@ -10058,16 +10102,24 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
         view->scrollOffset = view->scrollShown = (UI_Vec2){0};
         state->inspectorResetScroll = false;
     }
+    // A big file's new window moves the view by the rows the window moved, so that the same line stays at the top.
+    if (state->textShift != 0) {
+        view->scrollOffset.y = MaxF32(0, view->scrollOffset.y + state->textShift * pitch);
+        view->scrollShown.y = MaxF32(0, view->scrollShown.y + state->textShift * pitch);
+        state->textShift = 0;
+    }
     if (!UI->animate) view->scrollShown = view->scrollOffset;
     UI_LimitScrollEase(view);
     if (view->rect.y1 <= view->rect.y0) UI_KeepAnimating();
     String text = state->previewText;
+    // What is worked out of a big file's window goes with it.
+    Arena *textArena = state->previewWindowed ? &state->textWindowArena : &state->previewArena;
     u64 selectFrom = Min(state->previewAnchor, state->previewCaret), selectTo = Max(state->previewAnchor, state->previewCaret);
     u32 lineCount = state->previewLineCount;
     // The lines the filter keeps, picked again when it changes; the rows are then worked out again too.
     String filter = Prog_EditText(&state->inspectorFilter);
     if (!state->previewKept || state->previewKeptVersion != state->inspectorFilter.version) {
-        state->previewKept = ArenaPushArray(&state->previewArena, lineCount + 1, u32);
+        state->previewKept = ArenaPushArray(textArena, lineCount + 1, u32);
         u32 kept = 0;
         for (u32 i = 0; i < lineCount; ++i) {
             if (!filter.length || Prog_FilterMatch(StrFromTo(text, state->previewLines[i], (i64)state->previewLines[i + 1]), filter, NULL)) state->previewKept[kept++] = i;
@@ -10079,17 +10131,19 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     u32 shownCount = state->previewKeptCount;
     // The numbers sit in a gutter that grows for long files; the text starts closer to the edge without them.
     u32 digits = 1;
-    for (u32 n = lineCount; n >= 10; n /= 10) ++digits;
+    u64 total = !state->previewWindowed ? lineCount : state->textIndex.done ? state->textIndex.lines : state->previewFirstLine + lineCount;
+    for (u64 n = total; n >= 10; n /= 10) ++digits;
     f32 digitWidth = R_TextWidth(m->detail, S("0")), numbers = (f32)digits * digitWidth;
     // A hex dump has its offsets for numbers and an archive's listing its sizes, and their lines are not wrapped.
     b32 numbered = !state->inspectorHideNumbers && !state->previewHex && !state->previewArchive;
     f32 gap = floorf(10.4f * s + 0.5f), left = !numbered ? floorf(9.6f * s + 0.5f) : MaxF32(floorf(52.0f * s + 0.5f), floorf(26.4f * s + 0.5f) + numbers + gap);
     f32 room = MaxF32(cell, view->rect.x1 - view->rect.x0 - left - margin);
-    b32 wrap = state->previewDocument ? !state->documentUnwrapped : state->inspectorWrap;
+    // A big file's lines are not wrapped, so that its rows are its lines as the window moves.
+    b32 wrap = !state->previewWindowed && (state->previewDocument ? !state->documentUnwrapped : state->inspectorWrap);
     u32 columns = wrap && !state->previewHex && !state->previewArchive ? Max((u32)(room / cell), 1u) : 0;
     // Each line's first row, worked out again when the width in characters changes.
     if (columns && state->previewRowColumns != columns) {
-        state->previewRows = ArenaPushArray(&state->previewArena, shownCount + 1, u32);
+        state->previewRows = ArenaPushArray(textArena, shownCount + 1, u32);
         u32 rows = 0;
         for (u32 i = 0; i < shownCount; ++i) {
             u32 line = state->previewKept[i];
@@ -10109,6 +10163,22 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
     if (pointerRow >= (f32)last) pointerCell = 1e9f;
     u32 hitRow = last > first ? (u32)MinF32(MaxF32(pointerRow, (f32)first), (f32)(last - 1)) : UINT32_MAX, hitLine = 0;
     u64 hit = UINT64_MAX;
+    // A big file's window moves on as the view nears either of its ends: ahead from a line it holds, back to a step of the count, once the
+    // whole file has been counted.
+    if (state->previewWindowed && !filter.length && lineCount) {
+        u32 reach = 2000, top = Min(first, lineCount - 1);
+        if (last + reach >= lineCount && state->previewOffset + text.length < state->previewSize && top > 0) {
+            u32 from = top > reach ? top - reach : top;
+            Prog_RequestTextWindow(state, state->previewOffset + state->previewLines[from], state->previewFirstLine + from, state->previewLineStates ? state->previewLineStates[from] : 0, false);
+        } else if (first < reach && state->previewOffset > 0 && state->textIndex.done && state->textIndex.count) {
+            u64 at = state->previewOffset + state->previewLines[top], back = at > Prog_TextWindow / 2 ? at - Prog_TextWindow / 2 : 0;
+            u64 step = Min(back / Prog_TextStep, state->textIndex.count - 1);
+            while (step > 0 && state->textIndex.offsets[step] >= state->previewOffset) --step;
+            if (state->textIndex.offsets[step] < state->previewOffset) {
+                Prog_RequestTextWindow(state, state->textIndex.offsets[step], state->textIndex.numbers[step], state->textIndex.states[step], false);
+            }
+        }
+    }
     UI_Parent(view) {
         Prog__Spacer(UI_Flex(), UI_Pixels((f32)first * pitch));
         // The shown line holding the first row in sight.
@@ -10163,7 +10233,7 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
                     // The number shows on a line's first row, right-aligned against the gap before the text.
                     if (numbered && r == 0) {
                         UI_SetNextFont(m->detail);
-                        Prog__Label(StrFormat(&state->frameArena, "%u", line + 1), UI_Pixels(left - gap), pitch, 0, theme->textDim, 1);
+                        Prog__Label(StrFormat(&state->frameArena, "%llu", (unsigned long long)(state->previewFirstLine + line + 1)), UI_Pixels(left - gap), pitch, 0, theme->textDim, 1);
                         Prog__Spacer(UI_Pixels(gap), UI_Pixels(pitch));
                     } else {
                         Prog__Spacer(UI_Pixels(left), UI_Pixels(pitch));
@@ -10195,7 +10265,8 @@ function void Prog__InspectorText(Prog_State *state, const Prog_Metrics *m)
             UI_KeepAnimating();
         }
     }
-    Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
+    if (state->previewWindowed) Prog__TextScrollBar(state, view, pitch, shownCount ? state->previewKept[Min(first, shownCount - 1)] : 0, m);
+    else Prog__ScrollBar(view, pitch, S("InspectorText"), 1, m);
 }
 
 // A dashed outline with round corners, `width` by `height` at `x`, `y` in the parent: the corners are cut from a rounded outline,
@@ -11336,10 +11407,12 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                     f32 before = floorf(7.2f * s + 0.5f);
                     Prog__LabelPadded(state->previewHex ? S("Hex") : state->previewArchive ? Tr("Archive") : S("UTF-8"), UI_TextContent(), m->pill, before, floorf(13.6f * s + 0.5f), theme->text, 0);
                     Prog__Icon(Icon_TextAlignStart, 0, m->pill, theme->icon, 0.5f, m);
-                    // The lines the filter keeps out of all of them; for hex, the file's size.
+                    // The lines the filter keeps out of all of them, of a big file's window those it holds; the whole file's once counted;
+                    // for hex, the file's size.
+                    u64 every = state->previewWindowed && state->textIndex.done ? state->textIndex.lines : state->previewLineCount;
                     String lines = state->previewHex ? Prog_FormatSize(&state->frameArena, state->hexSize)
                                  : state->inspectorFilter.length ? StrFormat(&state->frameArena, "%u/%u", state->previewKeptCount, state->previewLineCount)
-                                 : StrFormat(&state->frameArena, "%u", state->previewLineCount);
+                                 : StrFormat(&state->frameArena, "%llu", (unsigned long long)every);
                     Prog__LabelPadded(lines, UI_TextContent(), m->pill, floorf(10.4f * s + 0.5f), floorf(12.0f * s + 0.5f), theme->text, 0);
                     // The text's size, filled from the least to the most it can be.
                     u32 points = state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize;

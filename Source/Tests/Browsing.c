@@ -1859,6 +1859,47 @@ function void TestGitFetchLimit(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// A big text file's lines counted in steps: each step's first line, its number and the highlighter's state there, across a block comment
+// that spans a step's start; and a window's lines from a state.
+function void TestTextIndex(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    u32 *starts = NULL;
+    u8 *states = NULL;
+    Check(Prog_TextLines(&arena, S("a\n/* b\nc */\nd"), Prog_Syntax_C, 0, &starts, &states) == 4 && starts[1] == 2 && starts[4] == 13 && !states[1] && states[2] && !states[3]);
+    Check(StrIsEqual(Prog__WholeLines(S("one\ntwo\nthr"), false), S("one\ntwo\n")) && StrIsEqual(Prog__WholeLines(S("one\ntwo"), true), S("one\ntwo")));
+    // 40 bytes a line: a comment opens at line 70000, past the third step's start, and closes at 90000.
+    StrBuilder text = {0};
+    for (u32 i = 0; i < 100000; ++i) {
+        String body = i == 70000 ? S("/* a comment starts") : i == 90000 ? S("   and it ends */") : S("int value = 1; // a line");
+        char line[40];
+        for (u32 c = 0; c < sizeof(line); ++c) line[c] = c < body.length ? body.value[c] : ' ';
+        line[39] = '\n';
+        StrBuildStr(&arena, &text, StrMake(line, sizeof(line)));
+    }
+    String path = Prog_JoinPath(&arena, fixture->path, S("big.c"));
+    Check(text.buffer.length == 100000 * 40 && !P_WriteFile(&arena, path, text.buffer).code);
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL) && state.jobs.initialized && TestWaitDirectory(&state));
+    state.previewWindowed = true;
+    state.previewPath = state.textReadPath = path;
+    state.previewSize = text.buffer.length;
+    Prog__RequestTextIndex(&state);
+    for (u64 start = PlatformNowMicroseconds(); state.textIndexJob && PlatformNowMicroseconds() - start < Millions(20); P__TestPause()) Prog_TakeCompletions(&state);
+    const Prog_TextIndex *index = &state.textIndex;
+    Check(index->done && index->lines == 100000 && index->count == 4);
+    // Each step's first line starts at or after the step's start, on the 40 bytes of each line.
+    for (u64 step = 0; index->done && step < index->count; ++step) {
+        u64 number = (step * Prog_TextStep + 39) / 40;
+        Check(index->numbers[step] == number && index->offsets[step] == number * 40);
+    }
+    // The third step starts at line 52429, before the comment; the fourth at 78644, inside it.
+    Check(index->count == 4 && !index->states[2] && index->states[3]);
+    Prog_Release(&state);
+    Check(P__TestRemovePath(fixture, S("big.c"), false));
+    ArenaRelease(&arena);
+}
+
 // The Git column's repositories show their commits to push and to pull: a clone one commit ahead of the repository it came from, both made
 // here with git, which the tests need on the PATH.
 function void TestRepoCommits(TestFileFixture *fixture)
@@ -4318,6 +4359,7 @@ function void TestBrowsing(void)
         TestQuickAccessFilter(&fixture);
         TestGitFetchLimit(&fixture);
         TestRepoCommits(&fixture);
+        TestTextIndex(&fixture);
         TestSchemeFiles(&fixture);
         TestStartupWindowColor(&fixture);
     TestPasteLinkAndQuick(&fixture);

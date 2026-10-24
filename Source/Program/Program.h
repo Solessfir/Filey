@@ -275,6 +275,8 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Preview,
     Prog_JobKind_Undo,
     Prog_JobKind_HexPage,
+    Prog_JobKind_TextWindow,  // a big text file's window: from `offset`, the line numbered `line`, which starts inside highlighter state `open`
+    Prog_JobKind_TextIndex,   // a big text file's lines, counted in steps
     Prog_JobKind_PdfPage,
     Prog_JobKind_Git,
     Prog_JobKind_Repos,
@@ -458,7 +460,9 @@ typedef struct Prog_JobInput {
     String *paths;
     u64 pathCount;
     u64 *sizes;            // TorrentProgress: each of `paths`' size
-    u64 offset;            // HexPage: where its page starts in the file; PdfPage: the page
+    u64 offset;            // HexPage: where its page starts in the file; PdfPage: the page; TextWindow: where it starts
+    u64 line;              // TextWindow: the number of the line at `offset`, and what it starts inside of
+    u8 open;
     b32 hex;               // Preview: the file's bytes, whatever it holds
     u64 size;              // Preview: the file's size; PdfPage: the width to draw it at
     b32 inTab;             // Reveal: shown in a new tab
@@ -510,6 +514,19 @@ typedef struct Prog_Transfer {
 // How many of the recents the sidebar and Go To show.
 #define Prog_ShownRecentCount 10
 #define Prog_PreviewBytes (1 << 20)
+// A text file is held whole up to Prog_TextWindow; a bigger one shows that much of itself at a time, its window, which moves along as the
+// view does, and its lines are counted once in steps of Prog_TextStep for the numbers and the scroll bar of the whole file.
+#define Prog_TextWindow (16 << 20)
+#define Prog_TextStep (1 << 20)
+
+// A big text file's lines in steps of Prog_TextStep bytes: where the first line starting in each step starts, its number, and what the
+// highlighter is inside of there, for `count` steps, and the file's `lines`.
+typedef struct Prog_TextIndex {
+    u64 *offsets, *numbers;
+    u8 *states;
+    u64 count, lines;
+    b32 done;
+} Prog_TextIndex;
 // The largest file inside an archive that is taken out to be previewed.
 #define Prog_ArchivePreviewBytes (UINT64_C(256) << 20)
 // A file shown as hex is read a page at a time as its rows come into sight, up to Prog_HexRows rows; past that the view would need more
@@ -666,6 +683,14 @@ typedef struct Prog_Preview {
     String media;                   // an audio or video file's details from ffprobe, a "label\tvalue" line each
     f64 seconds;                    // and its length
     Prog_TorrentInfo torrent;       // a .torrent's files; none for any other file
+    // The text's lines, where each starts and one past its end, and with its syntax what each starts inside of; `windowed` when the text
+    // is the start of a file too big to hold, read from `readPath`, its copy taken out when it is inside an archive.
+    u32 *lines;
+    u8 *lineStates;
+    u32 lineCount;
+    u8 syntax;
+    b32 windowed;
+    String readPath;
 } Prog_Preview;
 
 // Pages of a PDF read at most, and drawn ones kept at once, each in a texture of its own.
@@ -1230,6 +1255,10 @@ typedef struct Prog_PdfView {
 //     downloaded, NULL until known, torrentRead: asked for once already
 //   inspectorFilter, inspectorFiltering: the text view's filter, with the keyboard in its box, which keeps previewKept, previewKeptCount lines,
 //     picked for its version previewKeptVersion
+//   previewWindowed: previewText is the window of a text file too big to hold, previewSize bytes, read from textReadPath: its bytes from
+//     previewOffset, the lines from previewFirstLine, in textWindowArena; textWindowJob reads the next window, from textWindowFrom, and
+//     textShift is the rows the view moves by once it is in place, so that the same line stays at the top, or with textJump it starts at its
+//     top, gone to from the scroll bar; textIndex, from textIndexJob, in textIndexArena, counts the whole file's lines
 #define Prog_PreviewFields(X) \
     X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
@@ -1241,7 +1270,9 @@ typedef struct Prog_PdfView {
     X(u32 *, previewLines) X(enum8(Prog_Syntax), previewSyntax) X(u8 *, previewLineStates) X(u32, previewLineCount) X(u32 *, previewRows) \
     X(u32, previewRowColumns) X(u64, previewAnchor) X(u64, previewCaret) X(u32, previewClicks) X(b32, previewTextFocus) X(R_Rect, inspectorTextRect) \
     X(b32, inspectorResetScroll) X(Prog_TextEdit, inspectorFilter) X(b32, inspectorFiltering) X(u32 *, previewKept) X(u32, previewKeptCount) \
-    X(u32, previewKeptVersion) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip) X(u64 *, torrentDone) X(b32, torrentRead)
+    X(u32, previewKeptVersion) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip) X(u64 *, torrentDone) X(b32, torrentRead) \
+    X(b32, previewWindowed) X(u64, previewSize) X(u64, previewOffset) X(u64, previewFirstLine) X(String, textReadPath) X(Arena, textWindowArena) \
+    X(P_Job *, textWindowJob) X(u64, textWindowFrom) X(f32, textShift) X(b32, textJump) X(Prog_TextIndex, textIndex) X(P_Job *, textIndexJob) X(Arena, textIndexArena)
 
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter, scroll and view:

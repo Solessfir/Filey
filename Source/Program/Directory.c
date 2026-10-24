@@ -1363,6 +1363,40 @@ enum { Prog__Open_None, Prog__Open_Comment, Prog__Open_Triple2, Prog__Open_Tripl
 // Marks what each byte of `line` is in `syntax` into `classes` when it is not NULL (a byte each), starting inside what `open` says the lines
 // before left open; returns what this one leaves open. A line at a time, so that only the lines in sight are worked out, after one pass that
 // keeps only what each line starts inside of.
+function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classes);
+
+// Where each line of `text` starts, and one past its end, and with `syntax` what each starts inside of, from `open` at the first; a last
+// newline ends a line rather than starting one.
+function u32 Prog_TextLines(Arena *arena, String text, Prog_Syntax syntax, u8 open, u32 **lines, u8 **states)
+{
+    u32 count = 0;
+    for (u64 i = 0; i < text.length; ++i) count += text.value[i] == '\n';
+    if (text.length && text.value[text.length - 1] != '\n') ++count;
+    *lines = ArenaPushArrayNoZero(arena, count + 1, u32);
+    u32 line = 0;
+    if (count) (*lines)[line++] = 0;
+    for (u64 i = 0; i + 1 < text.length; ++i) if (text.value[i] == '\n') (*lines)[line++] = (u32)(i + 1);
+    (*lines)[count] = (u32)text.length;
+    *states = NULL;
+    if (syntax) {
+        *states = ArenaPushArrayNoZero(arena, count + 1, u8);
+        for (u32 i = 0; i < count; ++i) {
+            (*states)[i] = open;
+            open = Prog_SyntaxLine(syntax, StrFromTo(text, (*lines)[i], (i64)(*lines)[i + 1]), open, NULL);
+        }
+        (*states)[count] = open;
+    }
+    return count;
+}
+
+// `text` up to its last line break, unless it reaches the file's end; a line longer than all of it stays whole.
+function String Prog__WholeLines(String text, b32 atEnd)
+{
+    if (atEnd) return text;
+    Index last = StrIndexChar(text, '\n', SSF_SearchBackwards);
+    return last.exists ? StrFromTo(text, 0, (i64)last.value + 1) : text;
+}
+
 function u8 Prog_SyntaxLine(Prog_Syntax syntax, String line, u8 open, u8 *classes)
 {
     Prog__MarkTokens(classes, 0, line.length, Prog_Token_Plain);
@@ -2379,6 +2413,79 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = image;
         return;
     }
+    // A window of a text file too big to hold: from the line starting at `offset`, as many whole lines as Prog_TextWindow holds.
+    if (input->kind == Prog_JobKind_TextWindow) {
+        Prog_Preview *result = ArenaPushStruct(&job->arena, Prog_Preview);
+        String read = {0};
+        if (P_ReadFileAt(&job->arena, input->path, input->offset, Prog_TextWindow, &read)) {
+            result->text = Prog__WholeLines(read, input->offset + read.length >= input->size);
+            result->syntax = (u8)Prog_SyntaxForPath(input->name);
+            result->lineCount = Prog_TextLines(&job->arena, result->text, (Prog_Syntax)result->syntax, input->open, &result->lines, &result->lineStates);
+        }
+        job->result = result;
+        return;
+    }
+    // A big text file's lines, counted in steps of Prog_TextStep: the first line starting in each, its number and the highlighter's state
+    // there, read through once. A code file's lines are put together across the reads to be highlighted, up to a window's length.
+    if (input->kind == Prog_JobKind_TextIndex) {
+        Prog_TextIndex *index = ArenaPushStruct(&job->arena, Prog_TextIndex);
+        Prog_Syntax syntax = Prog_SyntaxForPath(input->name);
+        u64 steps = input->size / Prog_TextStep + 1;
+        index->offsets = ArenaPushArray(&job->arena, steps, u64);
+        index->numbers = ArenaPushArray(&job->arena, steps, u64);
+        index->states = ArenaPushArray(&job->arena, steps, u8);
+        Scratch scratch = GetScratchEx(&job->arena);
+        Arena carryArena = {0};
+        StrBuilder carry = {0};
+        u64 at = 0, lineStart = 0, lines = 0, step = 0;
+        u8 open = 0;
+        b32 failed = false;
+        while (at < input->size && !P_IsCancelled(&job->cancelToken)) {
+            ArenaMark mark = ArenaGetMark(scratch.arena);
+            String chunk = {0};
+            if (!P_ReadFileAt(scratch.arena, input->path, at, Prog_TextStep, &chunk) || !chunk.length) {
+                failed = true;
+                break;
+            }
+            u64 from = 0;
+            for (u64 i = 0; i <= chunk.length; ++i) {
+                b32 end = i == chunk.length;
+                if (!end && chunk.value[i] != '\n') continue;
+                String piece = StrFromTo(chunk, from, (i64)i);
+                // A line that goes on in the next read is kept to be put together.
+                if (end) {
+                    if (syntax && carry.buffer.length + piece.length < Prog_TextWindow) StrBuildStr(&carryArena, &carry, piece);
+                    break;
+                }
+                // A line ends here: the highlighter goes past it, and the next one starts.
+                for (; step < steps && step * Prog_TextStep <= lineStart; ++step) {
+                    index->offsets[step] = lineStart, index->numbers[step] = lines, index->states[step] = open;
+                }
+                if (syntax) {
+                    if (carry.buffer.length && carry.buffer.length + piece.length < Prog_TextWindow) StrBuildStr(&carryArena, &carry, piece);
+                    open = Prog_SyntaxLine(syntax, carry.buffer.length ? carry.buffer : piece, open, NULL);
+                    carry = (StrBuilder){0};
+                    ArenaClear(&carryArena);
+                }
+                ++lines;
+                lineStart = at + i + 1;
+                from = i + 1;
+            }
+            at += chunk.length;
+            ArenaRestore(mark);
+        }
+        if (lineStart < input->size) {
+            for (; step < steps && step * Prog_TextStep <= lineStart; ++step) index->offsets[step] = lineStart, index->numbers[step] = lines, index->states[step] = open;
+            ++lines;
+        }
+        index->count = step;
+        index->lines = lines;
+        index->done = !failed && !P_IsCancelled(&job->cancelToken);
+        ArenaRelease(&carryArena);
+        ReleaseScratch(scratch);
+        job->result = index;
+        return;
+    }
     if (input->kind == Prog_JobKind_Preview) {
         // A 3D model's picture, else text where the start of the file reads as text, else the system's picture of it.
         // With the inspector set to hex, every file's bytes.
@@ -2440,7 +2547,14 @@ function void Prog__DirectoryJob(P_Job *job)
             result->document = Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docx")) || Prog__EqualFolded(StrFrom(path, path.length - 5), S(".docm"));
             // A Word document's or a spreadsheet's text, which its zip of XML would otherwise show as bytes.
         } else if (!input->folder && P_ReadFileStart(&job->arena, path, Prog_PreviewBytes, &start) && Prog__LooksLikeText(start)) {
+            // Whole where it fits, else its first window.
             result->text = start;
+            result->readPath = path;
+            String more = {0};
+            if (input->size > start.length && P_ReadFileStart(&job->arena, path, Prog_TextWindow, &more) && more.length > start.length) {
+                result->windowed = input->size > more.length;
+                result->text = Prog__WholeLines(more, !result->windowed);
+            }
         } else if (!input->folder && !P_IsCancelled(&job->cancelToken) &&
                    P_LoadImageFile(&job->arena, path, Prog_PreviewImageSide, &image, &result->sourceWidth, &result->sourceHeight)) {
             result->pixels = image.pixels;
@@ -2459,6 +2573,11 @@ function void Prog__DirectoryJob(P_Job *job)
                 result->width = result->height = Prog_PreviewSize;
             }
             ReleaseScratch(scratch);
+        }
+        // Where its lines start and, for code, what each starts inside of, here rather than as it is shown.
+        if (result->text.length && !result->hex) {
+            result->syntax = (u8)(result->archive ? Prog_Syntax_None : Prog_SyntaxForPath(input->path));
+            result->lineCount = Prog_TextLines(&job->arena, result->text, (Prog_Syntax)result->syntax, 0, &result->lines, &result->lineStates);
         }
         job->result = result;
         return;
@@ -2864,6 +2983,44 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     input->path = StrCopy(&job->arena, folder);
     job->input = input;
     state->gitJob = job;
+    P_JobSubmit(job);
+}
+
+// Counts the lines of the big text file the inspector shows a window of, in a job, for the numbers and the scroll bar of the whole file.
+function void Prog__RequestTextIndex(Prog_State *state)
+{
+    if (state->textIndexJob) P_RequestCancel(&state->textIndexJob->cancelToken);
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_TextIndex;
+    input->panel = Prog__PanelId(state);
+    input->path = StrCopy(&job->arena, state->textReadPath);
+    input->name = StrCopy(&job->arena, state->previewPath);
+    input->size = state->previewSize;
+    job->input = input;
+    state->textIndexJob = job;
+    P_JobSubmit(job);
+}
+
+// Reads the big text file's window from `offset`, the line numbered `line`, which starts inside `open`, unless one is on its way already
+// or it is the window shown; `jump` starts the view at its top.
+function void Prog_RequestTextWindow(Prog_State *state, u64 offset, u64 line, u8 open, b32 jump)
+{
+    if (state->textWindowJob || !state->previewWindowed || offset == state->previewOffset || offset >= state->previewSize) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_TextWindow;
+    input->panel = Prog__PanelId(state);
+    input->path = StrCopy(&job->arena, state->textReadPath);
+    input->name = StrCopy(&job->arena, state->previewPath);
+    input->size = state->previewSize;
+    input->offset = offset;
+    input->line = line;
+    input->open = open;
+    job->input = input;
+    state->textWindowJob = job;
+    state->textWindowFrom = offset;
+    state->textJump = jump;
     P_JobSubmit(job);
 }
 
@@ -3349,6 +3506,7 @@ function void Prog_InspectFolder(Prog_State *state, String path)
 function b32 Prog__TakeNumber(String *text, u64 *value);
 function String Prog__ApplyWindowLine(String text);
 function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob);
+function void Prog__ReleaseTextWindow(Arena *window, Arena *index, P_Job *windowJob, P_Job *indexJob);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
 function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view);
 
@@ -4531,6 +4689,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->pickArena);
     Prog__ReleasePreview(&state->previewArena, state->previewTexture, &state->model, &state->pdf, state->previewJob, state->hexPageJob);
+    Prog__ReleaseTextWindow(&state->textWindowArena, &state->textIndexArena, state->textWindowJob, state->textIndexJob);
     for (u32 i = 0; i < state->tabCount; ++i) {
         if (i != state->activeTab) Prog__ReleaseTab(&state->tabs[i]);
     }
@@ -5635,6 +5794,15 @@ function void Prog__DropModel(Prog_ModelView *model)
 }
 
 // Lets go of an inspector's preview: its jobs, its textures, its model's mesh and its arena.
+// A big text file's window and line count, and their jobs.
+function void Prog__ReleaseTextWindow(Arena *window, Arena *index, P_Job *windowJob, P_Job *indexJob)
+{
+    if (windowJob) P_RequestCancel(&windowJob->cancelToken);
+    if (indexJob) P_RequestCancel(&indexJob->cancelToken);
+    ArenaRelease(window);
+    ArenaRelease(index);
+}
+
 function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob)
 {
     if (job) P_RequestCancel(&job->cancelToken);
@@ -5650,6 +5818,7 @@ function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_M
 function void Prog__ReleaseTab(Prog_Tab *tab)
 {
     Prog__ReleasePreview(&tab->previewArena, tab->previewTexture, &tab->model, &tab->pdf, tab->previewJob, tab->hexPageJob);
+    Prog__ReleaseTextWindow(&tab->textWindowArena, &tab->textIndexArena, tab->textWindowJob, tab->textIndexJob);
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
     ArenaRelease(&tab->treeArena);
@@ -6333,7 +6502,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 changed = true;
             } else if (job == state->previewJob && preview) {
                 state->previewJob = NULL;
-                state->previewText = StrCopy(&state->previewArena, preview->text);
+                // A big file's window goes in an arena of its own, which the next window's replaces.
+                ArenaClear(&state->textWindowArena);
+                Arena *textArena = preview->windowed ? &state->textWindowArena : &state->previewArena;
+                state->previewText = StrCopy(textArena, preview->text);
                 state->previewMedia = StrCopy(&state->previewArena, preview->media);
                 state->previewSeconds = preview->seconds;
                 state->previewAnchor = state->previewCaret = 0;
@@ -6378,27 +6550,21 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->torrentSkip = ArenaPushArray(&state->previewArena, torrent->fileCount, b8);
                     Prog_TorrentSkip(Prog__SavedSelection(state, state->previewPath), &state->torrent, state->torrentSkip);
                 }
-                // Where its lines start, for the inspector; a last newline ends a line rather than starting one.
-                String text = state->previewText;
-                u32 lines = 0;
-                for (u64 i = 0; i < text.length; ++i) lines += text.value[i] == '\n';
-                if (text.length && text.value[text.length - 1] != '\n') ++lines;
-                state->previewLines = ArenaPushArray(&state->previewArena, lines + 1, u32);
+                // Where its lines start and, for code, what each starts inside of, from the job; the rest of the colors come for the lines in sight
+                // as they are drawn. A big file's lines are counted in a job of their own.
+                u32 lines = preview->lineCount;
+                state->previewLines = ArenaPushArray(textArena, lines + 1, u32);
+                if (preview->lines) MemCopy(state->previewLines, preview->lines, (u64)(lines + 1) * sizeof(u32));
                 state->previewLineCount = lines;
-                u32 line = 0;
-                if (lines) state->previewLines[line++] = 0;
-                for (u64 i = 0; i + 1 < text.length; ++i) if (text.value[i] == '\n') state->previewLines[line++] = (u32)(i + 1);
-                state->previewLines[lines] = (u32)text.length;
-                // A code file's colors: what each line starts inside of, in one pass, and the rest for the lines in sight as they are drawn.
-                state->previewSyntax = (u8)(preview->archive ? Prog_Syntax_None : Prog_SyntaxForPath(state->previewPath));
-                state->previewLineStates = NULL;
-                if (state->previewSyntax) {
-                    state->previewLineStates = ArenaPushArray(&state->previewArena, lines + 1, u8);
-                    u8 open = 0;
-                    for (u32 i = 0; i < lines; ++i) {
-                        state->previewLineStates[i] = open;
-                        open = Prog_SyntaxLine(state->previewSyntax, StrFromTo(text, state->previewLines[i], (i64)state->previewLines[i + 1]), open, NULL);
-                    }
+                state->previewSyntax = preview->syntax;
+                state->previewLineStates = preview->lineStates ? ArenaPushArrayNoZero(textArena, lines + 1, u8) : NULL;
+                if (preview->lineStates) MemCopy(state->previewLineStates, preview->lineStates, (u64)lines + 1);
+                state->previewWindowed = preview->windowed;
+                if (preview->windowed) {
+                    state->previewSize = input->size;
+                    state->previewOffset = state->previewFirstLine = 0;
+                    state->textReadPath = StrCopy(&state->previewArena, preview->readPath);
+                    Prog__RequestTextIndex(state);
                 }
                 if (preview->pixels) {
                     // The texture is made again for a picture of another size.
@@ -6527,6 +6693,39 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             const P_Image *image = job->result;
             if (image && image->pixels && state->pdf.pageCount && StrIsEqual(input->path, state->previewPath)) Prog__KeepPdfPage(state, (u32)input->offset, *image);
             changed = true;
+        } else if (input->kind == Prog_JobKind_TextWindow) {
+            // A big file's next window takes the place of the last, in the job's arena; the same line stays at the top, or the window's
+            // first does when it was gone to, and the selection, of the window before, goes.
+            if (state->textWindowJob == job) state->textWindowJob = NULL;
+            const Prog_Preview *window = job->result;
+            if (window && window->text.length && state->previewWindowed && StrIsEqual(input->path, state->textReadPath) && !P_IsCancelled(&job->cancelToken)) {
+                ArenaRelease(&state->textWindowArena);
+                state->textWindowArena = job->arena;
+                job->arena = (Arena){0};
+                if (state->textJump) state->inspectorResetScroll = true;
+                else state->textShift += (f32)((f64)state->previewFirstLine - (f64)input->line);
+                state->textJump = false;
+                state->previewText = window->text;
+                state->previewLines = window->lines;
+                state->previewLineStates = window->lineStates;
+                state->previewLineCount = window->lineCount;
+                state->previewOffset = input->offset;
+                state->previewFirstLine = input->line;
+                state->previewKept = state->previewRows = NULL;
+                state->previewRowColumns = 0;
+                state->previewAnchor = state->previewCaret = 0;
+                changed = true;
+            }
+        } else if (input->kind == Prog_JobKind_TextIndex) {
+            if (state->textIndexJob == job) state->textIndexJob = NULL;
+            const Prog_TextIndex *index = job->result;
+            if (index && index->done && state->previewWindowed && StrIsEqual(input->path, state->textReadPath)) {
+                ArenaRelease(&state->textIndexArena);
+                state->textIndexArena = job->arena;
+                job->arena = (Arena){0};
+                state->textIndex = *index;
+                changed = true;
+            }
         } else if (input->kind == Prog_JobKind_HexPage) {
             if (state->hexPageJob == job) state->hexPageJob = NULL;
             const String *bytes = job->result;

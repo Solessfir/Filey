@@ -2,7 +2,6 @@
 
 ## Next
 
-- Large text files: the inspector reads the first 1 MB. Keep a map of line offsets and checkpoints of the highlighter's state, as raddbg's text layer (`src/text`) does, to show and highlight any line of a huge file.
 - Hex view: rows stop at a million (16 MB), since the scroll offset is a float; no selection and copy, no searching for bytes. From raddbg's memory view: brightness that follows the byte's value, zeros at half strength, and a peek bar reading the bytes at the cursor as u8 to u64 and f32/f64.
 
 ## Look
@@ -26,6 +25,7 @@
 - Syntax highlighting: XML/HTML, CMake and Makefiles (by whole name), and colors from the theme instead of the fixed dark and light ones.
 - Media: the waveform is ffmpeg's picture tinted with the accent rather than drawn natively, yt-dlp always gets `--no-playlist`, a cancelled torrent's part files are kept (so that it resumes), no seeding options, and no notice how much smaller a compressed video came out.
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
+- Big text files: the inspector holds 16 MB of one at a time; its filter looks only through the lines held, and its lines are not wrapped.
 - Updates: the Apps & features entry keeps the version Filey Setup wrote.
 - Context menus: the sidebar's places are built when right-clicked, not ahead as the list's hovered or keyboard item is.
 
