@@ -2,7 +2,7 @@
 
 ## Missing
 
-- Virtual folders: Network (the computers and shares on the network), then Control Panel and the other shell namespaces (the Recycle Bin and phones are listed). Phones on Linux through GVFS are untested with a device.
+- Network: the computers and shares on the network as a folder (the Recycle Bin and phones are listed). Phones on Linux through GVFS are untested with a device.
 - Low priority: faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
 - Languages: the Chinese, French, German, Polish, Portuguese and Spanish translations want a native speaker's review.
 
@@ -25,6 +25,7 @@ To be checked on Linux:
 
 - Writing RAR archives (no free RAR writer exists), and entries in Windows 11's first right-click menu, which shows only a packaged app's `IExplorerCommand`.
 - A Direct3D 11 renderer and Office documents' real layout.
+- Control Panel, Libraries, Home, Gallery and apps' own shell folders: their native windows serve them, and Filey already opens the folders behind them.
 - Seeding torrents, and a waveform drawn natively rather than ffmpeg's picture tinted with the accent.
 - A .blend's Boolean and Bevel modifiers, and Mirror's merging and Subdivision Surface's creases: heavy for a preview that is flat shaded and small.
 - Binding the left, middle and right buttons and the wheel to commands: only the side buttons bind, as the reference's mouse hotkeys cannot be changed at all.
