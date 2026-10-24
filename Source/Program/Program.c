@@ -4710,6 +4710,36 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     f32 scrollFrom = MinF32(list->scrollOffset.y, list->scrollShown.y), scrollTo = MaxF32(list->scrollOffset.y, list->scrollShown.y);
     f32 visibleHeight = Max(pitch.y, UI->root->rect.y1 - UI->root->rect.y0) + (scrollTo - scrollFrom);
     f32 viewFrom = MaxF32(0, scrollFrom) - 2 * pitch.y, viewTo = MaxF32(0, scrollFrom) + visibleHeight + 4 * pitch.y;
+    // A tree's folder unfolding opens as the sidebar's groups do, easing: a clip under it grows over its items, pushing the rows after them
+    // down; one folding up lets the rows after it rise into its place. The rows after it are drawn `treeShift` from their places, and the
+    // clip is `treeOpen` tall. A long one eases over no more than the list's height, past which the rows after it are out of sight anyway.
+    f32 treeShift = 0, treeOpen = 0;
+    u64 treeRow = UINT64_MAX, treeNew = 0;
+    b32 folding = state->treeEaseFolding && state->treeEasePanel == Prog__PanelId(state);
+    if (state->treeEaseStart && state->treeEasePanel == Prog__PanelId(state) && (perLine != 1 || view == Prog_View_Columns || heading > 0 || !UI->animate ||
+                                                                                   state->treeEaseRow >= state->viewCount)) {
+        state->treeEaseStart = 0;
+        if (folding && !state->treeEaseRelisted) Prog_QueueCommand(state, Prog_CommandKind_Refresh, 0, 0, 0);
+        state->treeEaseFolding = false;
+    } else if (state->treeEaseStart && state->treeEasePanel == Prog__PanelId(state)) {
+        f32 since = (f32)(UI->nowMicroseconds - Min(state->treeEaseStart, UI->nowMicroseconds)) / 1e6f, eased = 1 - expf(-34.0f * since);
+        // A folder folded up is listed again once its rows are shut, and stays shut until that listing comes.
+        if (folding && eased > 0.999f) {
+            eased = 1;
+            if (!state->treeEaseRelisted) Prog_QueueCommand(state, Prog_CommandKind_Refresh, 0, 0, 0);
+            state->treeEaseRelisted = true;
+        }
+        if (!folding && eased > 0.999f) {
+            state->treeEaseStart = 0;
+        } else {
+            if (eased < 1) UI_KeepAnimating();
+            treeRow = state->treeEaseRow;
+            treeNew = state->treeEaseOpening || folding ? Min(state->treeEaseRows, state->viewCount - treeRow - 1) : 0;
+            f32 total = (f32)state->treeEaseRows * pitch.y, eases = MinF32(total, list->rect.y1 - list->rect.y0 + pitch.y);
+            treeOpen = floorf(eases * (folding ? 1 - eased : eased) + 0.5f);
+            treeShift = state->treeEaseOpening || folding ? treeOpen - total : floorf(eases * (1 - eased) + 0.5f);
+        }
+    }
     UI_Parent(list) {
         UI_Key directoryKey = UI_KeyFromStr(list->key, state->directory.path), groupKey = UI_KeyFromStr(directoryKey, S("Group"));
         UI_Key marqueeFrom = 0;
@@ -4725,8 +4755,16 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             }
             u64 lines = (group->count + perLine - 1) / perLine;
             u64 first = viewFrom > below ? (u64)((viewFrom - below) / pitch.y) : 0, end = viewTo > below ? Min(lines, (u64)((viewTo - below) / pitch.y) + 1) : 0;
+            // The rows after a tree's folder easing come into sight from further away.
+            if (treeShift > 0) first = first > state->treeEaseRows ? first - state->treeEaseRows : 0;
+            if (treeShift < 0) end = Min(lines, end + state->treeEaseRows);
             for (u64 line = first; line < end; ++line) {
                 f32 y = below + (f32)line * pitch.y;
+                if (treeRow != UINT64_MAX && line > treeRow) {
+                    if (line <= treeRow + treeNew) continue;
+                    y += treeShift;
+                    if (y + pitch.y < viewFrom || y > viewTo) continue;
+                }
                 if (y > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(y - drawn));
                 drawn = y + pitch.y;
                 u64 from = group->start + line * perLine, to = Min(group->start + group->count, from + perLine);
@@ -4734,7 +4772,24 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
                 if (perLine == 1 && view != Prog_View_Columns) {
                     u64 row = state->view[from];
                     UI_Key key = UI_KeyFromStr(directoryKey, state->directory.entries[row].file.name);
-                    if (Prog__Row(state, row, from, key, columns, view == Prog_View_List, m)) marqueeFrom = key;
+                    // Rows after a folder folding up are striped as they will be once its items are gone.
+                    u64 position = folding && treeRow != UINT64_MAX && line > treeRow ? from - treeNew : from;
+                    if (Prog__Row(state, row, position, key, columns, view == Prog_View_List, m)) marqueeFrom = key;
+                    // The folder's new items, in a clip from its bottom edge as tall as they have come out.
+                    if (line == treeRow && treeNew) {
+                        f32 top = y + pitch.y;
+                        u64 shownFrom = (u64)MaxF32(0, (viewFrom - top) / pitch.y), shownTo = Min(treeNew, (u64)MaxF32(0, (MinF32(viewTo, top + treeOpen) - top) / pitch.y) + 1);
+                        UI_SetNextFloatingOffset((UI_Vec2){ 0, top - list->scrollShown.y });
+                        UI_SetNextPrefWidth(UI_Pixels(inner));
+                        UI_SetNextPrefHeight(UI_Pixels(treeOpen));
+                        UI_SetNextChildrenLayout(UI_Layout_Vertical);
+                        UI_SetNextChildrenPadding((UI_Padding){ 0, (f32)shownFrom * pitch.y, 0, 0 });
+                        UI_Block *opening = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+                        UI_Parent(opening) for (u64 n = shownFrom; n < shownTo; ++n) {
+                            u64 at = treeRow + 1 + n, nested = state->view[at];
+                            Prog__Row(state, nested, at, UI_KeyFromStr(directoryKey, state->directory.entries[nested].file.name), columns, view == Prog_View_List, m);
+                        }
+                    }
                     continue;
                 }
                 UI_Block *cells = Prog__Box(UI_Flex(), UI_Pixels(pitch.y), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -4791,6 +4846,8 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
             Prog_QueueCommand(state, Prog_CommandKind_MarqueeSelect, 0, point.y >= anchor.y, 0);
             Prog__Marquee((R_Rect){ box.x0 - m->inset, box.y0 - list->scrollShown.y, box.x1 - m->inset, box.y1 - list->scrollShown.y }, m);
         }
+        // A tree's folder easing open or shut takes as much room as it shows, so that the scroll bar comes and goes with it.
+        if (treeRow != UINT64_MAX) contentHeight = MaxF32(drawn, contentHeight + treeShift);
         if (contentHeight > drawn) Prog__Spacer(UI_Flex(), UI_Pixels(contentHeight - drawn));
         // Cells that sit lower in their slot, as Columns' do, reach past the last one.
         if (state->viewCount && item.y1 > pitch.y) Prog__Spacer(UI_Flex(), UI_Pixels(item.y1 - pitch.y));

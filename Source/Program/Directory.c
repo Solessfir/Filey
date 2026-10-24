@@ -1017,6 +1017,35 @@ function void Prog_TreeToggle(Prog_State *state, String name)
     if (!open) kept[count++] = StrCopy(scratch.arena, name);
     Prog__SetList(&state->treeArena, &state->treeOpen, kept, count);
     ReleaseScratch(scratch);
+    if (name.length < sizeof(state->treeEaseName)) {
+        MemCopy(state->treeEaseName, name.value, name.length);
+        state->treeEaseNameLength = (u32)name.length;
+        state->treeEasePanel = Prog__PanelId(state);
+        state->treeEaseBefore = state->viewCount;
+        state->treeEaseOpening = !open;
+        state->treeEasePending = !open;
+        state->treeEaseFolding = false;
+        // Folding up, its rows, those after it inside it, ease shut in the listing there is, which the list lists again once they have.
+        u64 at = UINT64_MAX, rows = 0;
+        for (u64 v = 0; open && state->ui.animate && v < state->viewCount; ++v) {
+            String item = state->directory.entries[state->view[v]].file.name;
+            if (at == UINT64_MAX) {
+                if (StrIsEqual(item, name)) at = v;
+            } else if (item.length > name.length && StrIsEqual(StrFromTo(item, 0, (i64)name.length), name) && item.value[name.length] == '/') {
+                ++rows;
+            } else {
+                break;
+            }
+        }
+        if (at != UINT64_MAX && rows) {
+            state->treeEaseRow = at;
+            state->treeEaseRows = rows;
+            state->treeEaseStart = PlatformNowMicroseconds();
+            state->treeEaseFolding = true;
+            state->treeEaseRelisted = false;
+            return;
+        }
+    }
     Prog_Reload(state);
 }
 
@@ -7592,6 +7621,28 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     ++state->listing;
                     Prog_ApplyFilter(state, false);
                     Prog__SortByTotals(state);
+                    // The listing a tree's folder unfolded for eases from the rows there were; one that folded up is done with any listing.
+                    // One that comes while a folder's rows are still easing shut, from a watch, goes on easing in it, the rows after the
+                    // folder rising from where they are into their places.
+                    if (state->treeEaseFolding && state->treeEasePanel == Prog__PanelId(state)) {
+                        state->treeEaseFolding = state->treeEasePending = false;
+                        String name = StrMake((const char *)state->treeEaseName, state->treeEaseNameLength);
+                        u64 at = UINT64_MAX;
+                        for (u64 v = 0; v < state->viewCount && at == UINT64_MAX; ++v) if (StrIsEqual(state->directory.entries[state->view[v]].file.name, name)) at = v;
+                        if (at == UINT64_MAX || state->treeEaseRelisted) state->treeEaseStart = 0;
+                        else state->treeEaseRow = at;
+                    } else if (state->treeEasePending && state->treeEasePanel == Prog__PanelId(state)) {
+                        state->treeEasePending = false;
+                        String name = StrMake((const char *)state->treeEaseName, state->treeEaseNameLength);
+                        u64 rows = state->viewCount > state->treeEaseBefore ? state->viewCount - state->treeEaseBefore : state->treeEaseBefore - state->viewCount;
+                        for (u64 v = 0; v < state->viewCount && rows; ++v) {
+                            if (!StrIsEqual(state->directory.entries[state->view[v]].file.name, name)) continue;
+                            state->treeEaseRow = v;
+                            state->treeEaseRows = rows;
+                            state->treeEaseStart = PlatformNowMicroseconds();
+                            break;
+                        }
+                    }
                     // A walk under way in this folder carries on; refreshes would otherwise restart it forever.
                     if (!samePath && state->measureJob) {
                         P_RequestCancel(&state->measureJob->cancelToken);

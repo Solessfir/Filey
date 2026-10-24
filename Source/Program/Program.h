@@ -1962,6 +1962,13 @@ typedef struct Prog_State {
     // A slow click on the name of the list's one selected item renames it the same way: the row pressed while it was so, and the rename
     // asked for, with the press that asked for it, its panel and the listing it was in.
     u64 listSlowRow;
+    // A tree's folder unfolding or folding up eases open or shut: the panel and when it began, the folder's place in the view and how many
+    // rows came or go; until an unfolded one's listing comes, the folder and how many rows the view had. One folding up keeps the listing,
+    // its rows easing shut in it, and is listed again once they have.
+    u64 treeEasePanel, treeEaseStart, treeEaseRow, treeEaseRows, treeEaseBefore;
+    b32 treeEaseOpening, treeEasePending, treeEaseFolding, treeEaseRelisted;
+    u8 treeEaseName[1024];
+    u32 treeEaseNameLength;
     u64 listRenameAt, listRenamePress, listRenamePanel, listRenameListing, listRenameRow;
     u32 sidebarRenameGroup;
     u64 sidebarRenameIndex;
