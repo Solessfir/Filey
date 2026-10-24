@@ -290,6 +290,23 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 function b32 P_DeleteAsks(void);
 // Whether files can be marked as the system's own, as P_File.system says on Windows, which showing or hiding them needs.
 function b32 P_HasSystemFiles(void);
+// A whole volume's folders and files read from its file system's own table rather than folder by folder, in breadth-first order from
+// its root: each entry's name, the entry of the folder it is in (UINT32_MAX for the root's own), and whether it is a folder, hidden or a
+// link, which is not gone into.
+typedef struct P_VolumeEntry {
+    String name;
+    u32 parent;
+    b8 folder;
+    b8 hidden;
+    b8 link;
+} P_VolumeEntry;
+typedef struct P_VolumeTree {
+    P_VolumeEntry *entries;
+    u64 count;
+} P_VolumeTree;
+// Reads it for the drive whose root is `root`, as "C:/", at most `most` entries; false where that cannot be done, as on Windows without
+// an administrator's rights or on another file system than NTFS, and always on Linux.
+function b32 P_ReadVolumeTree(Arena *arena, String root, u64 most, const P_CancelToken *cancel, P_VolumeTree *tree);
 // Whether the system limits the programs that do not ask past it to paths of 260 characters, as Windows does unless its LongPathsEnabled
 // is set; Filey's own paths go past it either way.
 function b32 P_HasPathLimit(void);

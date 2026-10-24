@@ -2256,6 +2256,22 @@ function void Prog__DirectoryJob(P_Job *job)
             const P_DirectoryResult *listing = &slice.listings[result->listed];
             u32 parent = input->entries[result->listed++];
             Scratch scratch = GetScratchEx(&job->arena);
+            // A drive's root, where the file system's table can be read, as it can on NTFS with an administrator's rights, gives the whole
+            // drive at once, its folders marked as listed; elsewhere its folders are listed one by one.
+            P_VolumeTree tree = {0};
+            b32 driveRoot = StrIsEqual(Prog_ParentPath(folder), folder);
+            if (driveRoot && names.header.count < input->room && P_ReadVolumeTree(&job->arena, folder, input->room - names.header.count, &job->cancelToken, &tree)) {
+                u64 first = input->indexBase + names.header.count;
+                for (u64 i = 0; i < tree.count; ++i) {
+                    const P_VolumeEntry *entry = &tree.entries[i];
+                    b32 directory = entry->folder && !entry->link;
+                    ArrayPush(&job->arena, names, entry->name);
+                    ArrayPush(&job->arena, parents, entry->parent == UINT32_MAX ? parent : (u32)(first + entry->parent));
+                    ArrayPush(&job->arena, flags, (b8)((entry->hidden ? Prog_IndexFlag_Hidden : 0) | (directory ? Prog_IndexFlag_Listed : Prog_IndexFlag_File)));
+                }
+                ReleaseScratch(scratch);
+                continue;
+            }
             for (u64 i = 0; i < listing->files.header.count && names.header.count < input->room; ++i) {
                 const P_File *file = &listing->files.v[i];
                 b32 directory = file->kind == P_FileKind_Directory;
@@ -6776,7 +6792,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         u32 batch[4096];
         u64 batchCount = 0, at = state->indexAt;
         for (; at < index->count && batchCount < CArrayCount(batch); ++at) {
-            if (!(index->flags[at] & Prog_IndexFlag_File)) batch[batchCount++] = (u32)at;
+            if (!(index->flags[at] & (Prog_IndexFlag_File | Prog_IndexFlag_Listed))) batch[batchCount++] = (u32)at;
         }
         state->indexAt = batchCount ? batch[0] : at;
         if (!batchCount || index->count >= Prog_MaxIndexed) {
@@ -6804,6 +6820,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 input->paths[i] = Prog_IndexPath(&job->arena, index, batch[i]);
             }
             input->room = Prog_MaxIndexed - index->count;
+            input->indexBase = index->count;
             input->restart = batch[0] == 0;
             if (state->cacheDirectory.length) input->name = StrFormat(&job->arena, "%S.walk", Prog_JoinPath(&job->arena, state->cacheDirectory, Prog_IndexFile));
             job->input = input;

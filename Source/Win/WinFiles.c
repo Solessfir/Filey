@@ -5,6 +5,7 @@
 #include <shellapi.h>
 #include <objbase.h>
 #include <lm.h>
+#include <winioctl.h>
 #pragma pop_macro("function")
 
 function wchar *P__FilePathWide(Arena *arena, String path)
@@ -777,6 +778,123 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 // Only with a window to own its dialog, so that the headless tests confirm as other platforms do.
 function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
+
+// NTFS's master file table, enumerated through the volume as FSCTL_ENUM_USN_DATA gives it: a record for every file with its reference,
+// its folder's and its name, which opening the volume needs an administrator for. The table's own files, the first 24 records, are left out.
+typedef struct P__VolumeRecord {
+    u64 ref, parent;
+    u32 attributes;
+    String name;
+} P__VolumeRecord;
+typedef struct P__ArrayVolumeRecord { ArrayHeader header; P__VolumeRecord *v; } P__ArrayVolumeRecord;
+function b32 P__VolumeTreeFrom(Arena *arena, const P__VolumeRecord *records, u64 count, u64 rootRef, u64 most, P_VolumeTree *tree);
+
+function b32 P_ReadVolumeTree(Arena *arena, String root, u64 most, const P_CancelToken *cancel, P_VolumeTree *tree)
+{
+    *tree = (P_VolumeTree){0};
+    if (root.length < 2 || root.length > 3 || root.value[1] != ':' || (root.length == 3 && root.value[2] != '/' && root.value[2] != '\\')) return false;
+    wchar rootPath[4] = { (wchar)root.value[0], L':', L'\\', 0 }, system[16] = {0};
+    if (!GetVolumeInformationW(rootPath, NULL, 0, NULL, NULL, NULL, system, CArrayCount(system)) || lstrcmpiW(system, L"NTFS") != 0) return false;
+    wchar device[8] = { L'\\', L'\\', L'.', L'\\', rootPath[0], L':', 0 };
+    HANDLE volume = CreateFileW(device, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (volume == INVALID_HANDLE_VALUE) return false;
+    // The root folder's own reference, which its files and folders name as theirs.
+    u64 rootRef = 0;
+    HANDLE folder = CreateFileW(rootPath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    BY_HANDLE_FILE_INFORMATION info = {0};
+    if (folder != INVALID_HANDLE_VALUE && GetFileInformationByHandle(folder, &info)) rootRef = ((u64)info.nFileIndexHigh << 32) | info.nFileIndexLow;
+    if (folder != INVALID_HANDLE_VALUE) CloseHandle(folder);
+    if (!rootRef) {
+        CloseHandle(volume);
+        return false;
+    }
+    Scratch scratch = GetScratchEx(arena);
+    P__ArrayVolumeRecord records = {0};
+    MFT_ENUM_DATA_V0 enumerate = { .StartFileReferenceNumber = 0, .LowUsn = 0, .HighUsn = MAXLONGLONG };
+    u32 size = 1u << 20;
+    u8 *buffer = ArenaPushArrayNoZero(scratch.arena, size, u8);
+    DWORD got = 0;
+    b32 read = false;
+    while (!P_IsCancelled(cancel) && DeviceIoControl(volume, FSCTL_ENUM_USN_DATA, &enumerate, sizeof(enumerate), buffer, size, &got, NULL) && got > sizeof(u64)) {
+        read = true;
+        MemCopy(&enumerate.StartFileReferenceNumber, buffer, sizeof(u64));
+        for (u32 at = sizeof(u64); at + sizeof(USN_RECORD_V2) <= got;) {
+            const USN_RECORD_V2 *record = (const USN_RECORD_V2 *)(buffer + at);
+            if (!record->RecordLength) break;
+            if (record->MajorVersion == 2 && (record->FileReferenceNumber & UINT64_C(0xFFFFFFFFFFFF)) >= 24) {
+                const wchar *name = (const wchar *)((const u8 *)record + record->FileNameOffset);
+                P__VolumeRecord kept = { record->FileReferenceNumber, record->ParentFileReferenceNumber, record->FileAttributes,
+                                         P__FileStringWide(scratch.arena, name, (i32)(record->FileNameLength / sizeof(wchar))) };
+                ArrayPush(scratch.arena, records, kept);
+            }
+            at += record->RecordLength;
+        }
+    }
+    CloseHandle(volume);
+    b32 result = read && records.header.count && !P_IsCancelled(cancel) && P__VolumeTreeFrom(arena, records.v, records.header.count, rootRef, most, tree);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The tree of `count` table records under the root whose reference is `rootRef`, breadth first, at most `most` entries.
+function b32 P__VolumeTreeFrom(Arena *arena, const P__VolumeRecord *records, u64 count, u64 rootRef, u64 most, P_VolumeTree *tree)
+{
+    Scratch scratch = GetScratchEx(arena);
+    // Each record found by its reference, in a table twice its size of one more than its place, 0 for none.
+    u64 slots = 1;
+    while (slots < count * 2) slots <<= 1;
+    u32 *table = ArenaPushArray(scratch.arena, slots, u32);
+    for (u64 i = 0; i < count; ++i) {
+        u64 at = (records[i].ref * UINT64_C(0x9E3779B97F4A7C15)) >> 20 & (slots - 1);
+        while (table[at]) at = (at + 1) & (slots - 1);
+        table[at] = (u32)i + 1;
+    }
+    // Each record's folder, UINT32_MAX - 1 for the root and UINT32_MAX for one outside the tree, and the folders' records in runs.
+    u32 *owner = ArenaPushArrayNoZero(scratch.arena, count, u32), *runStart = ArenaPushArray(scratch.arena, count + 2, u32);
+    for (u64 i = 0; i < count; ++i) {
+        u64 parent = records[i].parent;
+        owner[i] = UINT32_MAX;
+        if (parent == rootRef) {
+            owner[i] = UINT32_MAX - 1;
+            continue;
+        }
+        for (u64 at = (parent * UINT64_C(0x9E3779B97F4A7C15)) >> 20 & (slots - 1); table[at]; at = (at + 1) & (slots - 1)) {
+            if (records[table[at] - 1].ref == parent) {
+                owner[i] = table[at] - 1;
+                break;
+            }
+        }
+    }
+    // Children by folder: the root's at slot `count`, counted, then placed.
+    for (u64 i = 0; i < count; ++i) if (owner[i] != UINT32_MAX) ++runStart[(owner[i] == UINT32_MAX - 1 ? count : owner[i]) + 1];
+    for (u64 i = 1; i < count + 2; ++i) runStart[i] += runStart[i - 1];
+    u32 *children = ArenaPushArrayNoZero(scratch.arena, Max(runStart[count + 1], 1u), u32), *filled = ArenaPushArray(scratch.arena, count + 1, u32);
+    for (u64 i = 0; i < count; ++i) {
+        if (owner[i] == UINT32_MAX) continue;
+        u64 group = owner[i] == UINT32_MAX - 1 ? count : owner[i];
+        children[runStart[group] + filled[group]++] = (u32)i;
+    }
+    // Breadth first from the root, as a walk of the folders takes them; a link is not gone into.
+    u64 room = Min(most, (u64)runStart[count + 1]);
+    P_VolumeEntry *entries = ArenaPushArray(arena, Max(room, (u64)1), P_VolumeEntry);
+    u32 *source = ArenaPushArrayNoZero(scratch.arena, Max(room, (u64)1), u32);
+    u64 shown = 0;
+    for (u32 i = runStart[count]; i < runStart[count + 1] && shown < room; ++i) source[shown] = children[i], entries[shown++].parent = UINT32_MAX;
+    for (u64 next = 0; next < shown; ++next) {
+        const P__VolumeRecord *record = &records[source[next]];
+        b32 isFolder = (record->attributes & FILE_ATTRIBUTE_DIRECTORY) != 0, link = (record->attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        entries[next].name = StrCopy(arena, record->name);
+        entries[next].folder = (b8)isFolder;
+        entries[next].hidden = (b8)((record->attributes & FILE_ATTRIBUTE_HIDDEN) != 0);
+        entries[next].link = (b8)link;
+        if (!isFolder || link) continue;
+        for (u32 i = runStart[source[next]]; i < runStart[source[next] + 1] && shown < room; ++i) source[shown] = children[i], entries[shown++].parent = (u32)next;
+    }
+    tree->entries = entries;
+    tree->count = shown;
+    ReleaseScratch(scratch);
+    return true;
+}
 
 function b32 P_HasPathLimit(void) { return true; }
 

@@ -483,6 +483,7 @@ typedef struct Prog_JobInput {
     b32 folder;
     b32 archive;           // Preview: an archive the inspector's panel lists, which the job counts
     b32 confirm;           // EmptyTrash and Delete: the system asks first
+    u64 indexBase;         // Index: how many entries the index had, which the first of those found follows
     P_Progress *progress;  // Transfer: its slot's, or NULL without one
     Prog_Undo undo;        // Undo: the step it reverses
     b32 redo;              // Undo: the step came from the redo stack
@@ -1029,7 +1030,8 @@ typedef struct Prog_ArrayFlag { ArrayHeader header; b8 *v; } Prog_ArrayFlag;
 
 typedef struct Prog_ArrayU32 { ArrayHeader header; u32 *v; } Prog_ArrayU32;
 
-enum { Prog_IndexFlag_Hidden = 1, Prog_IndexFlag_File = 2 };
+// Listed: a folder whose items the index has already, read with its whole drive from the file system's table, which the walk does not list.
+enum { Prog_IndexFlag_Hidden = 1, Prog_IndexFlag_File = 2, Prog_IndexFlag_Listed = 4 };
 
 // Every folder and file on the drives, each as its name inside the entry of its parent, so that a few million fit; a root's name is its whole path.
 // Each name is packed as its length in two bytes and then its bytes, in `arena` or in the saved index file read into it.

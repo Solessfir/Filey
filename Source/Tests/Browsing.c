@@ -2931,6 +2931,32 @@ function void TestSidebarNames(TestFileFixture *fixture)
 }
 
 #if defined(_WIN32)
+// A drive read from its file table becomes the walk's tree, breadth first: the root's folders and files in the table's order, then each
+// folder's; a link is not gone into, a record whose folder is not in the table is left out, and the room cuts it short.
+function void TestVolumeTree(void)
+{
+    Arena arena = {0};
+    u64 root = UINT64_C(0x0005000000000005);
+    P__VolumeRecord records[] = {
+        { 100, root, FILE_ATTRIBUTE_DIRECTORY, SInit("Alpha") },
+        { 101, root, FILE_ATTRIBUTE_HIDDEN, SInit("b.txt") },
+        { 102, 100, 0, SInit("c.txt") },
+        { 103, root, FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT, SInit("Link") },
+        { 104, 103, 0, SInit("d.txt") },
+        { 105, 999, 0, SInit("lost.txt") },
+        { 106, 100, FILE_ATTRIBUTE_DIRECTORY, SInit("Inner") },
+        { 107, 106, 0, SInit("e.txt") },
+    };
+    P_VolumeTree tree = {0};
+    Check(P__VolumeTreeFrom(&arena, records, CArrayCount(records), root, 100, &tree) && tree.count == 6);
+    const char *names[] = { "Alpha", "b.txt", "Link", "c.txt", "Inner", "e.txt" };
+    u32 parents[] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, 0, 0, 4 };
+    for (u32 i = 0; i < 6 && i < tree.count; ++i) Check(StrIsEqual(tree.entries[i].name, StrFromCStr(names[i])) && tree.entries[i].parent == parents[i]);
+    Check(tree.entries[0].folder && tree.entries[1].hidden && !tree.entries[1].folder && tree.entries[2].link && tree.entries[4].folder);
+    Check(P__VolumeTreeFrom(&arena, records, CArrayCount(records), root, 4, &tree) && tree.count == 4 && StrIsEqual(tree.entries[3].name, S("c.txt")));
+    ArenaRelease(&arena);
+}
+
 // A drag out of another program that only describes its files, as a browser's picture or an archiver's files are: a picture, a folder with a
 // file in it, given as a stream, and a name that would climb out of where they are written.
 global const wchar *const TestDescribedNames[] = { L"picture.png", L"folder", L"folder\\inner.txt", L"..\\escape.txt" };
@@ -4526,6 +4552,7 @@ function void TestBrowsing(void)
         TestOpenFlags(&fixture);
 #if defined(_WIN32)
         TestDescribedDrop(&fixture);
+        TestVolumeTree();
 #endif
         TestTrash(&fixture);
 #if defined(_WIN32)

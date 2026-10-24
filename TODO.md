@@ -7,7 +7,6 @@
 ## Missing
 
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
-- Indexing the drives from the NTFS file table for a faster Go To walk.
 - 3D models: text USD (`.usda`), text FBX, a .blend's modifiers, and Collada, 3DS and 3MF. Colors not read: PLY's per-face `texcoord` lists, a .blend's object-linked materials, glTF's `KHR_texture_transform`, and transparency other than a picture's cut-out alpha; Blender 3.4 to 4.x files are untested and earlier ones get no colors.
 - Archives: encrypted 7z and RAR archives, which libarchive cannot decrypt, and an archive inside an archive opens in its program.
 - Media: the waveform is ffmpeg's picture tinted with the accent rather than drawn natively, a cancelled torrent's part files are kept (so that it resumes), and no seeding options.

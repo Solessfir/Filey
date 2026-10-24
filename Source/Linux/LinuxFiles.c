@@ -1471,6 +1471,12 @@ function b32 P_EmptyTrashAsks(void) { return false; }
 function b32 P_DeleteAsks(void) { return false; }
 function b32 P_HasSystemFiles(void) { return false; }
 function b32 P_HasPathLimit(void) { return false; }
+function b32 P_ReadVolumeTree(Arena *arena, String root, u64 most, const P_CancelToken *cancel, P_VolumeTree *tree)
+{
+    (void)arena, (void)root, (void)most, (void)cancel;
+    *tree = (P_VolumeTree){0};
+    return false;
+}
 function b32 P_LongPathsEnabled(void) { return true; }
 function b32 P_SetLongPaths(b32 on) { return on; }
 function String P_TrashName(void) { return S("Trash"); }
