@@ -10759,7 +10759,10 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
     // Where the system has permissions, a row of their letters, owner's, group's and others', each turned on and off by a click.
     u16 mode = entry->file.mode;
     if (mode) state->permissionsPath = Prog_JoinPath(frame, state->directory.path, entry->file.name);
-    f32 height = head + (state->inspectorDetailsFolded ? 0 : m->separator + (f32)(count + (mode ? 1 : 0)) * row + top + bottom);
+    // Folding eases it shut to its title and open again, as the sidebar's groups do; the card clips what does not fit.
+    f32 body = m->separator + (f32)(count + (mode ? 1 : 0)) * row + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
+    f32 open = UI_Animate(UI_KeyFromStr(0, S("InspectorDetailsOpen")), folded, folded);
+    f32 height = head + floorf(body * open + 0.5f);
     UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -10780,7 +10783,7 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
             if (fold.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorFoldDetails, 0, 0, fold.clickOrder);
             Prog__ToolbarButton(state, S("InspectorDetailsClose"), Icon_X, Prog_CommandKind_InspectorToggleDetails, true, m);
         }
-        if (!state->inspectorDetailsFolded) {
+        if (open > 0) {
             Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
             Prog__Spacer(UI_Flex(), UI_Pixels(top));
             for (u32 i = 0; i < count; ++i) {
