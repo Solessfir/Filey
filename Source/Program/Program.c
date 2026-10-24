@@ -11392,12 +11392,23 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
             UI_SetNextPrefHeight(UI_Pixels(pitch));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-            UI_Block *line = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable);
+            UI_Block *line = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable);
             UI_Interaction press = UI_InteractionFromBlock(line);
-            if (press.pressed && press.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_MillerSelect, row, press.pressCount, press.pressOrder)->target = slot;
+            String path = Prog_JoinPath(frame, column->path, entry->file.name);
+            // A click goes to its folder with it selected, on the release, as the columns move along then; a drag takes it out as the
+            // list's items are, and a right press opens its own menu.
+            if (press.clicked && press.button == MouseButton_Left) Prog_QueueCommand(state, Prog_CommandKind_MillerSelect, row, press.pressCount, press.clickOrder)->target = slot;
+            if (press.active && press.isDragging && press.button == MouseButton_Left && !state->dragging && !state->dragRequested) {
+                state->dragPlace = StrCopy(&state->dropPlaceArena, path);
+                state->dragRequested = true;
+            }
+            if (press.pressed && press.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_MillerMenu, row, 0, press.pressOrder)->target = slot;
+            // Under a drag, a folder takes it in, lit, as the list's folders do.
+            b32 dropping = folder && P_DropPending() && UI__Contains(line->rect, UI->mouse);
+            if (dropping) state->dropPlace = StrCopy(&state->dropPlaceArena, path);
             UI_Parent(line) {
-                Prog__ItemBox(Prog__ItemLook(row == litRow, hot, false), UI_Percent(1), m);
-                const Prog_Icon *icon = Prog_PathIcon(state, Prog_JoinPath(frame, column->path, entry->file.name), entry->file.kind);
+                Prog__ItemBox(Prog__ItemLook(row == litRow || dropping, hot, false), UI_Percent(1), m);
+                const Prog_Icon *icon = Prog_PathIcon(state, path, entry->file.kind);
                 f32 size = (f32)state->iconSize;
                 if (icon) {
                     UI_SetNextPrefWidth(UI_Pixels(m->iconSlot - m->gap));

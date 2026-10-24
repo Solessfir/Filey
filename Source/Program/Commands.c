@@ -85,6 +85,7 @@ function void Prog_CloseMenu(Prog_State *state)
     MemZero(state->menuRects, sizeof(state->menuRects));
     state->menuRows = NULL;
     state->menuTarget = (String){0};
+    state->menuMiller = false;
     state->menuIcons = NULL;
     state->menuCommands = NULL;
     state->menuRowCount = 0;
@@ -2174,6 +2175,16 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
         return;
     }
     // A sidebar folder's menu: Open shows it here, and of Filey's own items, which act on the list's selection, only Copy As Path applies.
+    // A Miller column's item is renamed in its folder's list, gone to with it picked.
+    if (state->menuTarget.length && state->menuMiller && StrIsEqual(item.verb, S("rename"))) {
+        String target = StrCopy(&state->frameArena, state->menuTarget);
+        Prog_CloseMenu(state);
+        if (Prog_SelectNext(state, Prog__FolderName(target))) {
+            state->selectRename = true;
+            Prog_RequestDirectory(state, Prog_ParentPath(target), true, 0);
+        }
+        return;
+    }
     if (state->menuTarget.length && (item.action || StrIsEqual(item.verb, S("open")))) {
         String target = StrCopy(&state->frameArena, state->menuTarget);
         Prog_CloseMenu(state);
@@ -3369,11 +3380,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->kind == Prog_CommandKind_SidebarOpenInTab) Prog_OpenTab(state, path, state->activeTab + 1, false);
                 else if (!StrIsEqual(path, state->directory.path)) Prog_RequestDirectory(state, path, true, 0);
             } break;
-            case Prog_CommandKind_SidebarMenu: {
-                String path = Prog__SidebarPath(state, (Prog_Group)command->row, command->target);
+            case Prog_CommandKind_SidebarMenu:
+            case Prog_CommandKind_MillerMenu: {
+                // A Miller column's item, or a sidebar place: the menu of the item itself, acting on it rather than on the list's selection.
+                b32 miller = command->kind == Prog_CommandKind_MillerMenu;
+                const Prog_MillerColumn *column = miller && state->millerColumns && command->target < Prog_MillerSlots ? &state->millerColumns->v[command->target] : NULL;
+                String path = !miller ? Prog__SidebarPath(state, (Prog_Group)command->row, command->target)
+                            : column && command->row < column->count ? Prog_JoinPath(&state->frameArena, column->path, column->items[command->row].file.name) : (String){0};
+                b32 file = column && command->row < column->count && column->items[command->row].file.kind != P_FileKind_Directory;
                 if (!path.length) break;
                 Prog_CloseMenu(state);
                 state->menuTarget = StrCopy(&state->menuArena, path);
+                state->menuMiller = (b8)miller;
                 // A drive's root has no folder path above it, so it is named by its own path.
                 String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
                 b32 root = StrIsEqual(parent, path) || !parent.length;
@@ -3396,13 +3414,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (P_IsTrashFolder(path) && P_TrashHasItems()) {
                     Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, TrF("Empty %S"), Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
                 }
-                Prog__MenuAddGroups(state, !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path));
+                Prog__MenuAddGroups(state, !file && !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path));
                 Prog__ApplyMenuPins(state);
                 // Filey's own cut, copy, duplicate and delete act on the list's selection, so for a sidebar folder they are shown disabled,
-                // and its rename, which edits a list row, is left out.
+                // and its rename, which edits a list row, is left out; a Miller column's item is renamed in its folder's list.
                 for (u32 i = 0; i < state->menu.count; ++i) {
                     P_MenuItem *item = &state->menu.items[i];
-                    if (StrIsEqual(item->verb, S("rename"))) item->label = (String){0};
+                    if (StrIsEqual(item->verb, S("rename")) && !miller) item->label = (String){0};
                     b32 selection = StrIsEqual(item->verb, S("cut")) || StrIsEqual(item->verb, S("copy")) || StrIsEqual(item->verb, S("delete")) ||
                                     item->action == P_MenuAction_Cut || item->action == P_MenuAction_Copy || item->action == P_MenuAction_Duplicate ||
                                     item->action == P_MenuAction_Trash || item->action == P_MenuAction_Delete;

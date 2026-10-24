@@ -1051,6 +1051,8 @@ typedef struct Prog_MillerColumn {
     b32 hidden;         // it was listed with hidden items shown
     u64 listedAt;       // when its listing arrived; one shown again after a while is listed again
     u64 usedFrame;      // the frame it was last shown in; the one unused longest is listed over
+    P_DirectoryWatch watch;  // its folder's, from its first listing, which lists it again when it changes
+    b32 stale;
 } Prog_MillerColumn;
 
 #define Prog_MillerSlots 8
@@ -1448,6 +1450,7 @@ typedef struct Prog_State {
     u64 *menuRows;            // directory entries the menu acts on
     u64 menuRowCount;
     String menuTarget;        // the folder a sidebar item's menu acts on instead, in menuArena
+    b8 menuMiller;            // and it is a Miller column's item, whose Rename goes to its folder to rename it there
     u32 menuPath[8];          // the open submenu item at each level
     R_Rect menuRects[9];      // each open level's panel in the last build, empty past the last one
     b32 menuApart[9];         // each submenu that could not sit against its opener's panel in the last build, whose opener is then lit

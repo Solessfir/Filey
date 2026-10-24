@@ -1734,8 +1734,12 @@ command GroupBySize {
 command GroupToggle {
 }
 
-// A Miller column's row pressed; carries the row, the column's slot as its target and the press count.
+// A Miller column's row clicked; carries the row, the column's slot as its target and the press count.
 command MillerSelect {
+}
+
+// A Miller column's row right-clicked, for its menu; carries the row and the column's slot as its target.
+command MillerMenu {
 }
 
 command LayoutsSave {

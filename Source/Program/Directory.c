@@ -4480,6 +4480,7 @@ function Prog_MillerColumn *Prog_MillerList(Prog_State *state, String path)
     if (!column) {
         column = oldest;
         if (column->job) P_RequestCancel(&column->job->cancelToken);
+        P_DirectoryWatchStop(&column->watch);
         ArenaRelease(&column->arena);
         ArenaClear(&column->pathArena);
         *column = (Prog_MillerColumn){ .pathArena = column->pathArena, .hidden = state->showHidden };
@@ -4488,7 +4489,8 @@ function Prog_MillerColumn *Prog_MillerList(Prog_State *state, String path)
     b32 back = column->usedFrame + 1 < UI->frameIndex;
     column->usedFrame = UI->frameIndex;
     if (back) column->revealed = false;
-    if (!column->job && (!column->listed || (back && now - Min(column->listedAt, now) > UINT64_C(2000000)))) {
+    if (!column->job && (!column->listed || column->stale || (back && now - Min(column->listedAt, now) > UINT64_C(2000000)))) {
+        column->stale = false;
         P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
         Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
         input->kind = Prog_JobKind_FilesList;
@@ -4509,6 +4511,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     for (u32 i = 0; state->millerColumns && i < Prog_MillerSlots; ++i) {
         Prog_MillerColumn *column = &state->millerColumns->v[i];
         if (column->job) P_RequestCancel(&column->job->cancelToken);
+        P_DirectoryWatchStop(&column->watch);
         ArenaRelease(&column->arena);
         ArenaRelease(&column->pathArena);
     }
@@ -6148,6 +6151,14 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         for (u32 i = 0; i < state->treeWatches.count; ++i) {
             if (P_DirectoryWatchTakeChanged(&state->treeWatches.v[i])) state->watchDirty = true;
         }
+        // A Miller column whose folder changed is listed again while it shows, else once it shows again.
+        for (u32 i = 0; state->millerColumns && i < Prog_MillerSlots; ++i) {
+            Prog_MillerColumn *column = &state->millerColumns->v[i];
+            if (P_DirectoryWatchTakeChanged(&column->watch)) {
+                column->stale = true;
+                changed = true;
+            }
+        }
         // A change in the repository asks for its status again, at most every second and a half, as a build writes into it for a while.
         if (P_DirectoryWatchTakeChanged(&state->gitWatch) | P_DirectoryWatchTakeChanged(&state->gitDirWatch)) state->gitDirty = true;
         if (state->gitDirty && !state->gitJob && state->git.root.length) {
@@ -6704,6 +6715,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 column->count = listed->count;
                 column->listed = true;
                 column->listedAt = PlatformNowMicroseconds();
+                if (!column->watch.native) P_DirectoryWatchStart(&column->watch, column->path, state->jobs.wake, state->jobs.wakeUser);
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_FilesList) {

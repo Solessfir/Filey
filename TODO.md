@@ -2,7 +2,6 @@
 
 ## Next
 
-- Miller columns: the side columns take only a left press (no context menu, drags or rename), list again only when they come back into view rather than following a watch, and the middle column is a names-only list.
 - Large text files: the inspector reads the first 1 MB. Keep a map of line offsets and checkpoints of the highlighter's state, as raddbg's text layer (`src/text`) does, to show and highlight any line of a huge file.
 - Hex view: rows stop at a million (16 MB), since the scroll offset is a float; no selection and copy, no searching for bytes. From raddbg's memory view: brightness that follows the byte's value, zeros at half strength, and a peek bar reading the bytes at the cursor as u8 to u64 and f32/f64.
 
