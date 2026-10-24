@@ -3723,24 +3723,28 @@ function f32 *Prog__XmlNumbers(Arena *arena, String text, u64 limit, u64 *count)
     return result;
 }
 
+// Elements by their ids, kept as pointers.
+typedef struct Prog__XmlIds { MapHeader header; struct { String key; u64 value; } *v; } Prog__XmlIds;
+
+// The element a "#id" or "id" names.
+function Prog__Xml *Prog__XmlAt(const Prog__XmlIds *ids, String reference)
+{
+    if (reference.length && reference.value[0] == '#') reference = StrFrom(reference, 1);
+    return reference.length ? (Prog__Xml *)(uintptr_t)MapsGet(*ids, u64, reference) : NULL;
+}
+
 // -----------------------------------------------------------------------------
 // Collada (.dae): the visual scene's nodes, placed by their matrix, translate, rotate and scale steps, and the geometries they name, each
 // primitive in its bound material's diffuse color or texture; without a scene, every geometry where it is.
 
-typedef struct Prog__DaeIds { MapHeader header; struct { String key; u64 value; } *v; } Prog__DaeIds;
 
 typedef struct Prog__Dae {
-    Prog__DaeIds ids;
+    Prog__XmlIds ids;
     Prog_Mesh *mesh;
     const P_CancelToken *cancel;
 } Prog__Dae;
 
-// The element a "#id" or "id" names.
-function Prog__Xml *Prog__DaeAt(const Prog__Dae *dae, String reference)
-{
-    if (reference.length && reference.value[0] == '#') reference = StrFrom(reference, 1);
-    return reference.length ? (Prog__Xml *)(uintptr_t)MapsGet(dae->ids, u64, reference) : NULL;
-}
+function Prog__Xml *Prog__DaeAt(const Prog__Dae *dae, String reference) { return Prog__XmlAt(&dae->ids, reference); }
 
 function void Prog__DaeIndex(Arena *arena, Prog__Dae *dae, Prog__Xml *element, u32 depth)
 {
@@ -3983,6 +3987,160 @@ function b32 Prog__ReadCollada(Arena *arena, String data, const P_CancelToken *c
 }
 
 // -----------------------------------------------------------------------------
+// 3MF: a zip whose model part lists objects, each a mesh or components placed in it, and the build's items that place them, Z up. A
+// triangle takes its color from a base material or a color group, its corners' each, or its picture's coordinates from a texture group.
+
+typedef struct Prog__3mf {
+    Prog__XmlIds ids;  // the resources by their ids
+    String zip;
+    Prog_Mesh *mesh;
+    const P_CancelToken *cancel;
+} Prog__3mf;
+
+// A "#RRGGBB" or "#RRGGBBAA" color, as straight RGBA; 0 for another.
+function u32 Prog__3mfColor(String text)
+{
+    if ((text.length != 7 && text.length != 9) || text.value[0] != '#') return 0;
+    u32 bytes[4] = { 0, 0, 0, 255 };
+    for (u32 i = 0; i < (u32)(text.length - 1) / 2; ++i) {
+        i32 high = Prog__Hex(text.value[1 + i * 2]), low = Prog__Hex(text.value[2 + i * 2]);
+        if (high < 0 || low < 0) return 0;
+        bytes[i] = (u32)(high * 16 + low);
+    }
+    return bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24;
+}
+
+// A transform attribute's twelve numbers, written for row vectors, as a placement.
+function Prog__Affine Prog__3mfTransform(Arena *arena, const Prog__Xml *element)
+{
+    Prog__Affine result = Prog__AffineIdentity;
+    String text = Prog__XmlValue(element, S("transform"));
+    u64 n = 0;
+    Scratch scratch = GetScratchEx(arena);
+    f32 *v = text.length ? Prog__XmlNumbers(scratch.arena, text, 12, &n) : NULL;
+    if (n == 12) {
+        for (u32 row = 0; row < 3; ++row) for (u32 column = 0; column < 4; ++column) result.m[row * 4 + column] = v[column * 3 + row];
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The `index`th child of a property group: a base material, a color or a texture coordinate.
+function Prog__Xml *Prog__3mfEntry(const Prog__Xml *group, u64 index)
+{
+    u64 n = 0;
+    for (Prog__Xml *child = group ? group->first : NULL; child; child = child->next) if (child->name.length && n++ == index) return child;
+    return NULL;
+}
+
+function void Prog__3mfMesh(Arena *arena, const Prog__3mf *m, const Prog__Xml *object, const Prog__Xml *mesh, const Prog__Affine *place)
+{
+    Prog_Mesh *out = m->mesh;
+    Scratch scratch = GetScratchEx(arena);
+    Prog__Xml *vertices = Prog__XmlChild(mesh, S("vertices")), *triangles = Prog__XmlChild(mesh, S("triangles"));
+    u64 pointCount = 0;
+    for (Prog__Xml *v = vertices ? vertices->first : NULL; v; v = v->next) pointCount += Prog__XmlIs(v, S("vertex")) ? 1 : 0;
+    if (!pointCount || pointCount >= UINT32_MAX) {
+        ReleaseScratch(scratch);
+        return;
+    }
+    f32 *at = ArenaPushArrayNoZero(scratch.arena, pointCount * 3, f32);
+    u64 p = 0;
+    for (Prog__Xml *v = vertices->first; v; v = v->next) {
+        if (!Prog__XmlIs(v, S("vertex"))) continue;
+        Prog__MeshPoint(at + p * 3, place, (f32)Prog__XmlNumber(v, S("x"), 0), (f32)Prog__XmlNumber(v, S("y"), 0), (f32)Prog__XmlNumber(v, S("z"), 0));
+        ++p;
+    }
+    String objectGroup = Prog__XmlValue(object, S("pid"));
+    f64 objectIndex = Prog__XmlNumber(object, S("pindex"), 0);
+    Prog__Corners made = Prog__CornersMake(scratch.arena, pointCount, pointCount * 2);
+    u32 shownImage = UINT32_MAX - 1;
+    for (Prog__Xml *t = triangles ? triangles->first : NULL; t && !P_IsCancelled(m->cancel); t = t->next) {
+        if (!Prog__XmlIs(t, S("triangle"))) continue;
+        String groupId = Prog__XmlValue(t, S("pid"));
+        if (!groupId.length) groupId = objectGroup;
+        Prog__Xml *group = groupId.length ? Prog__XmlAt(&m->ids, groupId) : NULL;
+        f64 first = Prog__XmlNumber(t, S("p1"), groupId.length && !Prog__XmlValue(t, S("pid")).length ? objectIndex : 0);
+        f64 indices[3] = { first, Prog__XmlNumber(t, S("p2"), first), Prog__XmlNumber(t, S("p3"), first) };
+        b32 textured = Prog__XmlIs(group, S("texture2dgroup")), colors = Prog__XmlIs(group, S("colorgroup")), materials = Prog__XmlIs(group, S("basematerials"));
+        // A texture group's picture starts a part of its own.
+        u32 image = UINT32_MAX;
+        if (textured) {
+            Prog__Xml *texture = Prog__XmlAt(&m->ids, Prog__XmlValue(group, S("texid")));
+            String path = Prog__XmlValue(texture, S("path"));
+            if (path.length && path.value[0] == '/') path = StrFrom(path, 1);
+            if (path.length) image = Prog__MeshImage(arena, out, path, out->imageSide ? Prog__ZipView(arena, m->zip, path) : (String){0});
+        }
+        if (image != shownImage) {
+            Prog__MeshPart(arena, out, 0, image, 0);
+            shownImage = image;
+        }
+        u32 corners[3];
+        for (u32 k = 0; k < 3; ++k) {
+            f64 point = Prog__XmlNumber(t, k == 0 ? S("v1") : k == 1 ? S("v2") : S("v3"), -1);
+            corners[k] = UINT32_MAX;
+            if (point < 0 || point >= (f64)pointCount) continue;
+            Prog__Xml *entry = group ? Prog__3mfEntry(group, (u64)indices[k]) : NULL;
+            u32 color = materials ? Prog__3mfColor(Prog__XmlValue(entry, S("displaycolor"))) : colors ? Prog__3mfColor(Prog__XmlValue(entry, S("color"))) : 0;
+            Prog__MeshCorner key = { (u32)point, textured && entry ? (u32)indices[k] + 1 : 0, color, textured ? image + 1 : 0 };
+            u32 vertex = Prog__CornersFind(&made, key);
+            if (vertex == UINT32_MAX && out->positions.header.count / 3 < UINT32_MAX) {
+                vertex = (u32)(out->positions.header.count / 3);
+                MemCopy(ArrayAdd(arena, out->positions, 3), at + (u64)point * 3, 12);
+                if (textured && entry) {
+                    f32 *uv = Prog__MeshUvs(arena, out) + (u64)vertex * 2;
+                    uv[0] = (f32)Prog__XmlNumber(entry, S("u"), 0);
+                    uv[1] = 1 - (f32)Prog__XmlNumber(entry, S("v"), 0);
+                }
+                if (color) Prog__MeshColors(arena, out)[vertex] = color;
+                Prog__CornersAdd(&made, key, vertex);
+            }
+            corners[k] = vertex;
+        }
+        Prog__MeshTriangle(arena, out, corners[0], corners[1], corners[2]);
+    }
+    ReleaseScratch(scratch);
+}
+
+function void Prog__3mfObject(Arena *arena, const Prog__3mf *m, const Prog__Xml *object, Prog__Affine place, u32 depth)
+{
+    if (!object || depth > 32 || P_IsCancelled(m->cancel)) return;
+    Prog__Xml *mesh = Prog__XmlChild(object, S("mesh")), *components = Prog__XmlChild(object, S("components"));
+    if (mesh) Prog__3mfMesh(arena, m, object, mesh, &place);
+    for (Prog__Xml *c = components ? components->first : NULL; c; c = c->next) {
+        if (!Prog__XmlIs(c, S("component"))) continue;
+        Prog__Xml *part = Prog__XmlAt(&m->ids, Prog__XmlValue(c, S("objectid")));
+        Prog__3mfObject(arena, m, part, Prog__AffineMultiply(place, Prog__3mfTransform(arena, c)), depth + 1);
+    }
+}
+
+function b32 Prog__Read3mf(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    // The package's relationships name the model part; it is "3D/3dmodel.model" where they do not.
+    String name = S("3D/3dmodel.model");
+    Prog__Xml *rels = Prog__XmlChild(Prog__XmlParse(arena, Prog__ZipView(arena, data, S("_rels/.rels")), cancel), S("Relationships"));
+    for (Prog__Xml *r = rels ? rels->first : NULL; r; r = r->next) {
+        String target = Prog__XmlValue(r, S("Target"));
+        if (!StrIndexStr(Prog__XmlValue(r, S("Type")), S("3dmodel"), SSF_None).exists || !target.length) continue;
+        name = target.value[0] == '/' ? StrFrom(target, 1) : target;
+        break;
+    }
+    Prog__Xml *model = Prog__XmlChild(Prog__XmlParse(arena, Prog__ZipView(arena, data, name), cancel), S("model"));
+    if (!model) return false;
+    Prog__3mf m = { .zip = data, .mesh = mesh, .cancel = cancel };
+    Prog__Xml *resources = Prog__XmlChild(model, S("resources")), *build = Prog__XmlChild(model, S("build"));
+    for (Prog__Xml *r = resources ? resources->first : NULL; r; r = r->next) {
+        String id = Prog__XmlValue(r, S("id"));
+        if (id.length && !MapsGet(m.ids, u64, id)) MapsPut(arena, m.ids, id, (u64)(uintptr_t)r);
+    }
+    mesh->zUp = true;
+    for (Prog__Xml *item = build ? build->first : NULL; item; item = item->next) {
+        if (Prog__XmlIs(item, S("item"))) Prog__3mfObject(arena, &m, Prog__XmlAt(&m.ids, Prog__XmlValue(item, S("objectid"))), Prog__3mfTransform(arena, item), 0);
+    }
+    return mesh->indices.header.count > 0;
+}
+
+// -----------------------------------------------------------------------------
 
 typedef enum Prog_ModelKind {
     Prog_ModelKind_None,
@@ -3998,12 +4156,13 @@ typedef enum Prog_ModelKind {
     Prog_ModelKind_Usdz,
     Prog_ModelKind_Usda,
     Prog_ModelKind_Dae,
+    Prog_ModelKind_3mf,
     Prog_ModelKind_Count,
 } Prog_ModelKind;
 
 function Prog_ModelKind Prog_ModelKindOf(String path)
 {
-    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda"), SInit(".dae") };
+    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda"), SInit(".dae"), SInit(".3mf") };
     // Blender's backups, "scene.blend1" and on, are .blend files too.
     String backup = path;
     while (backup.length > 6 && backup.value[backup.length - 1] >= '0' && backup.value[backup.length - 1] <= '9') --backup.length;
@@ -4033,6 +4192,7 @@ function b32 Prog__ReadModelKind(Arena *arena, Prog_ModelKind kind, String path,
         case Prog_ModelKind_Usda:
         case Prog_ModelKind_Usdz: return Prog__ReadUsd(arena, path, data, cancel, mesh);
         case Prog_ModelKind_Dae: return Prog__ReadCollada(arena, data, cancel, mesh);
+        case Prog_ModelKind_3mf: return Prog__Read3mf(arena, data, cancel, mesh);
         default: return false;
     }
 }

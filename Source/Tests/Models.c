@@ -89,6 +89,47 @@ function void TestFbxArray(TestBytes *bytes, u8 type, u32 count, u32 encoding, c
     TestPut(bytes, data, length);
 }
 
+// A zip of `count` files stored as they are, as a .3mf package can be.
+function void TestZip(TestBytes *bytes, const String *names, const String *contents, u32 count)
+{
+    u32 offsets[8] = {0};
+    for (u32 i = 0; i < count; ++i) {
+        offsets[i] = (u32)bytes->length;
+        u32 size = (u32)contents[i].length;
+        u16 nameLength = (u16)names[i].length, zero = 0;
+        TestPutU32(bytes, 0x04034B50);
+        TestPut(bytes, "\x14\0\0\0\0\0\0\0\0\0\0\0\0\0", 14);
+        TestPutU32(bytes, size);
+        TestPutU32(bytes, size);
+        TestPut(bytes, &nameLength, 2);
+        TestPut(bytes, &zero, 2);
+        TestPut(bytes, names[i].value, names[i].length);
+        TestPut(bytes, contents[i].value, contents[i].length);
+    }
+    u32 directory = (u32)bytes->length;
+    for (u32 i = 0; i < count; ++i) {
+        u32 size = (u32)contents[i].length;
+        u16 nameLength = (u16)names[i].length;
+        TestPutU32(bytes, 0x02014B50);
+        TestPut(bytes, "\x14\0\x14\0\0\0\0\0\0\0\0\0\0\0\0\0", 16);
+        TestPutU32(bytes, size);
+        TestPutU32(bytes, size);
+        TestPut(bytes, &nameLength, 2);
+        TestPut(bytes, "\0\0\0\0\0\0\0\0\0\0\0\0", 12);
+        TestPutU32(bytes, offsets[i]);
+        TestPut(bytes, names[i].value, names[i].length);
+    }
+    u32 size = (u32)bytes->length - directory;
+    u16 entries = (u16)count;
+    TestPutU32(bytes, 0x06054B50);
+    TestPut(bytes, "\0\0\0\0", 4);
+    TestPut(bytes, &entries, 2);
+    TestPut(bytes, &entries, 2);
+    TestPutU32(bytes, size);
+    TestPutU32(bytes, directory);
+    TestPut(bytes, "\0\0", 2);
+}
+
 function void TestModels(void)
 {
     Arena arena = {0};
@@ -319,6 +360,30 @@ function void TestModels(void)
         Check(mesh.positions.v[0] == 10 && mesh.positions.v[3] == 11 && mesh.positions.v[21 + 2] == -3 && mesh.parts.header.count == 4);
         Check(mesh.parts.v[0].color == 0xFF0000FFu && !mesh.parts.v[1].color && !mesh.parts.v[2].color && mesh.colors.v[4] == 0xFF00FF00u);
         Check(Prog_ModelKindOf(S("scene.DAE")) == Prog_ModelKind_Dae && Prog_ModelKindOf(S("scene.usda")) == Prog_ModelKind_Usda);
+    }
+
+    // 3MF: a triangle in a base material's red, but for a corner a color group makes green, placed by a component and by the build's item,
+    // the model part named by the package's relationships.
+    {
+        String names[] = { S("_rels/.rels"), S("3D/part.model") };
+        String contents[] = {
+            S("<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+              "<Relationship Target=\"/3D/part.model\" Id=\"rel0\" Type=\"http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel\"/></Relationships>"),
+            S("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\""
+              " xmlns:m=\"http://schemas.microsoft.com/3dmanufacturing/material/2015/02\">\n<resources>\n"
+              "<basematerials id=\"1\"><base name=\"red\" displaycolor=\"#FF0000\"/></basematerials>\n"
+              "<m:colorgroup id=\"4\"><m:color color=\"#00FF00FF\"/></m:colorgroup>\n"
+              "<object id=\"2\" type=\"model\" pid=\"1\" pindex=\"0\"><mesh><vertices><vertex x=\"0\" y=\"0\" z=\"0\"/><vertex x=\"1\" y=\"0\" z=\"0\"/>"
+              "<vertex x=\"0\" y=\"1\" z=\"0\"/></vertices><triangles><triangle v1=\"0\" v2=\"1\" v3=\"2\"/>"
+              "<triangle v1=\"0\" v2=\"2\" v3=\"1\" pid=\"4\" p1=\"0\"/></triangles></mesh></object>\n"
+              "<object id=\"3\" type=\"model\"><components><component objectid=\"2\" transform=\"1 0 0 0 1 0 0 0 1 0 0 7\"/></components></object>\n"
+              "</resources>\n<build><item objectid=\"3\" transform=\"1 0 0 0 1 0 0 0 1 5 0 0\"/></build>\n</model>\n"),
+        };
+        TestBytes bytes = {0};
+        TestZip(&bytes, names, contents, 2);
+        Check(TestReadModel(&arena, Prog_ModelKind_3mf, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.zUp && mesh.indices.header.count == 6);
+        Check(mesh.positions.header.count == 18 && mesh.positions.v[0] == 5 && mesh.positions.v[2] == 7 && mesh.positions.v[3] == 6);
+        Check(mesh.colors.header.count == 6 && mesh.colors.v[0] == 0xFF0000FFu && mesh.colors.v[3] == 0xFF00FF00u && Prog_ModelKindOf(S("print.3MF")) == Prog_ModelKind_3mf);
     }
 
     // Text FBX: the same mesh and model as the binary one, its arrays over more than one line, with comments, and a value-less node.
