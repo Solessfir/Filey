@@ -1689,13 +1689,205 @@ typedef struct Prog__FbxModel {
     i64 parent;
 } Prog__FbxModel;
 
+// A text FBX, read into the nodes a binary one makes, each node's values written as the binary format writes its properties: numbers with
+// a point or an exponent as doubles and the rest as 64-bit integers, words and quoted text as strings, and an array, "*N { a: ... }", as a
+// plain array of doubles, or of integers for a list of indices. Only FBX 7's layout, as the binary one has, is understood after.
+typedef struct Prog__FbxText { const char *at, *end; } Prog__FbxText;
+
+// Past spaces, line ends and comments, which run from ';' to the end of the line.
+function void Prog__FbxTextSkip(Prog__FbxText *text)
+{
+    while (text->at < text->end) {
+        char c = *text->at;
+        if (c == ';') {
+            while (text->at < text->end && *text->at != '\n') ++text->at;
+        } else if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            ++text->at;
+        } else {
+            break;
+        }
+    }
+}
+
+function b32 Prog__FbxTextWordByte(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '+' || c == '.' || c == '|';
+}
+
+function String Prog__FbxTextWord(Prog__FbxText *text)
+{
+    const char *from = text->at;
+    while (text->at < text->end && Prog__FbxTextWordByte(*text->at)) ++text->at;
+    return StrMake(from, (u64)(text->at - from));
+}
+
+// Whether `word` is a number, and whether it has a fraction or an exponent; its value as an integer and as a double.
+function b32 Prog__FbxTextNumber(String word, b32 *real, i64 *integer, f64 *value)
+{
+    const char *p = word.value, *end = word.value + word.length;
+    if (!word.length || !Prog__Number(&p, end, value) || p != end) return false;
+    *real = StrIndexChar(word, '.', SSF_None).exists || StrIndexChar(word, 'e', SSF_None).exists || StrIndexChar(word, 'E', SSF_None).exists;
+    // Ids are 64-bit integers, more than a double holds exactly.
+    i64 sum = 0;
+    b32 negative = word.value[0] == '-';
+    for (u64 i = word.value[0] == '-' || word.value[0] == '+'; !*real && i < word.length; ++i) sum = sum * 10 + (word.value[i] - '0');
+    *integer = negative ? -sum : sum;
+    return true;
+}
+
+function void Prog__FbxTextBytes(Arena *arena, StrBuilder *blob, const void *bytes, u64 length)
+{
+    StrBuildStr(arena, blob, StrMake((const char *)bytes, length));
+}
+
+function void Prog__FbxTextString(Arena *arena, StrBuilder *blob, String text)
+{
+    u32 length = (u32)text.length;
+    StrBuildChar(arena, blob, 'S');
+    Prog__FbxTextBytes(arena, blob, &length, 4);
+    StrBuildStr(arena, blob, text);
+}
+
+// An array's numbers, from after its "*N" to past its closing brace.
+function void Prog__FbxTextArray(Arena *arena, Prog__FbxText *text, String name, StrBuilder *blob)
+{
+    Scratch scratch = GetScratchEx(arena);
+    struct { ArrayHeader header; f64 *v; } reals = {0};
+    struct { ArrayHeader header; i64 *v; } integers = {0};
+    b32 whole = true;
+    Prog__FbxTextSkip(text);
+    if (text->at < text->end && *text->at == '{') {
+        ++text->at;
+        Prog__FbxTextSkip(text);
+        Prog__FbxTextWord(text);
+        Prog__FbxTextSkip(text);
+        if (text->at < text->end && *text->at == ':') ++text->at;
+        for (;;) {
+            Prog__FbxTextSkip(text);
+            if (text->at >= text->end || *text->at == '}') break;
+            if (*text->at == ',') {
+                ++text->at;
+                continue;
+            }
+            String word = Prog__FbxTextWord(text);
+            b32 real = false;
+            i64 integer = 0;
+            f64 value = 0;
+            if (!word.length || !Prog__FbxTextNumber(word, &real, &integer, &value)) {
+                if (!word.length) ++text->at;
+                continue;
+            }
+            whole &= !real;
+            ArrayPush(scratch.arena, reals, value);
+            ArrayPush(scratch.arena, integers, integer);
+        }
+        if (text->at < text->end) ++text->at;
+    }
+    // Lists of indices are integers, as the binary format writes them; coordinates whose numbers happen to be whole stay doubles.
+    b32 indices = (name.length >= 5 && StrIsEqual(StrFrom(name, name.length - 5), S("Index"))) || StrIsEqual(name, S("Materials")) || StrIsEqual(name, S("Edges"));
+    whole &= indices;
+    u32 count = (u32)reals.header.count, encoding = 0, length = count * 8;
+    StrBuildChar(arena, blob, whole ? 'l' : 'd');
+    Prog__FbxTextBytes(arena, blob, &count, 4);
+    Prog__FbxTextBytes(arena, blob, &encoding, 4);
+    Prog__FbxTextBytes(arena, blob, &length, 4);
+    if (count) Prog__FbxTextBytes(arena, blob, whole ? (const void *)integers.v : (const void *)reals.v, length);
+    ReleaseScratch(scratch);
+}
+
+// The nodes up to the brace that closes the list, or the end of the file at the top.
+function Prog__FbxNode *Prog__FbxTextList(Arena *arena, Prog__FbxText *text, u32 depth)
+{
+    Prog__FbxNode *first = NULL, *last = NULL;
+    while (depth < 64) {
+        Prog__FbxTextSkip(text);
+        if (text->at >= text->end) break;
+        if (*text->at == '}') {
+            ++text->at;
+            break;
+        }
+        String name = Prog__FbxTextWord(text);
+        Prog__FbxTextSkip(text);
+        if (!name.length || text->at >= text->end || *text->at != ':') {
+            // Something not understood is passed over.
+            if (text->at < text->end) ++text->at;
+            continue;
+        }
+        ++text->at;
+        StrBuilder blob = {0};
+        for (;;) {
+            Prog__FbxTextSkip(text);
+            if (text->at >= text->end || *text->at == '{' || *text->at == '}') break;
+            if (*text->at == '"') {
+                const char *from = ++text->at;
+                while (text->at < text->end && *text->at != '"') ++text->at;
+                Prog__FbxTextString(arena, &blob, StrMake(from, (u64)(text->at - from)));
+                if (text->at < text->end) ++text->at;
+            } else if (*text->at == '*') {
+                ++text->at;
+                Prog__FbxTextWord(text);
+                Prog__FbxTextArray(arena, text, name, &blob);
+                break;
+            } else {
+                // A word followed by a colon names the next node; this one had no values.
+                const char *back = text->at;
+                String word = Prog__FbxTextWord(text);
+                if (!word.length) {
+                    ++text->at;
+                    continue;
+                }
+                const char *after = text->at;
+                Prog__FbxTextSkip(text);
+                if (text->at < text->end && *text->at == ':') {
+                    text->at = back;
+                    break;
+                }
+                text->at = after;
+                b32 real = false;
+                i64 integer = 0;
+                f64 value = 0;
+                if (Prog__FbxTextNumber(word, &real, &integer, &value)) {
+                    StrBuildChar(arena, &blob, real ? 'D' : 'L');
+                    if (real) Prog__FbxTextBytes(arena, &blob, &value, 8);
+                    else Prog__FbxTextBytes(arena, &blob, &integer, 8);
+                } else {
+                    Prog__FbxTextString(arena, &blob, word);
+                }
+            }
+            Prog__FbxTextSkip(text);
+            if (text->at < text->end && *text->at == ',') ++text->at;
+            else break;
+        }
+        Prog__FbxNode *node = ArenaPushStruct(arena, Prog__FbxNode);
+        node->name = name;
+        node->properties = (const u8 *)blob.buffer.value;
+        node->propertiesEnd = node->properties + blob.buffer.length;
+        Prog__FbxTextSkip(text);
+        if (text->at < text->end && *text->at == '{') {
+            ++text->at;
+            node->first = Prog__FbxTextList(arena, text, depth + 1);
+        }
+        if (last) last->next = node;
+        else first = node;
+        last = node;
+    }
+    return first;
+}
+
 function b32 Prog__ReadFbx(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
 {
     const u8 *file = (const u8 *)data.value;
-    if (data.length < 27 || MemCompare(file, "Kaydara FBX Binary  \0", 21) != 0) return false;
-    u32 version = 0;
-    MemCopy(&version, file + 23, 4);
-    Prog__FbxNode *top = Prog__FbxList(arena, file, file + 27, file + data.length, version >= 7500, 0);
+    Prog__FbxNode *top = NULL;
+    if (data.length >= 27 && MemCompare(file, "Kaydara FBX Binary  \0", 21) == 0) {
+        u32 version = 0;
+        MemCopy(&version, file + 23, 4);
+        top = Prog__FbxList(arena, file, file + 27, file + data.length, version >= 7500, 0);
+    } else if (StrIndexStr(StrFromTo(data, 0, (i64)Min(data.length, (u64)4096)), S("FBXHeaderExtension"), SSF_None).exists) {
+        Prog__FbxText text = { data.value, data.value + data.length };
+        top = Prog__FbxTextList(arena, &text, 0);
+    } else {
+        return false;
+    }
     Prog__FbxNode *up = Prog__FbxSetting(Prog__FbxChild(top, S("GlobalSettings")), S("UpAxis"));
     mesh->zUp = up && Prog__FbxNumberAt(up, 4) == 2;
     Prog__FbxNode *objects = Prog__FbxChild(top, S("Objects")), *connections = Prog__FbxChild(top, S("Connections"));

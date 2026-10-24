@@ -266,6 +266,29 @@ function void TestModels(void)
         Check(mesh.positions.v[0] == 5 && mesh.positions.v[3] == 6 && mesh.positions.v[7] == 1 && mesh.indices.v[2] == 2);
     }
 
+    // Text FBX: the same mesh and model as the binary one, its arrays over more than one line, with comments, and a value-less node.
+    {
+        String text = S("; FBX 7.4.0 project file\n"
+                        "FBXHeaderExtension:  {\n\tFBXHeaderVersion: 1003\n}\n"
+                        "Objects:  {\n"
+                        "\tGeometry: 10, \"Geometry::g\", \"Mesh\" {\n"
+                        "\t\tVertices: *9 {\n\t\t\ta: 0,0,0,1,0,\n0,0,1,0\n\t\t} \n"
+                        "\t\tPolygonVertexIndex: *3 {\n\t\t\ta: 0,1,-3\n\t\t} \n"
+                        "\t\tGeometryVersion: 124\n"
+                        "\t}\n"
+                        "\tModel: 20, \"Model::m\", \"Mesh\" {\n"
+                        "\t\tProperties70:  {\n"
+                        "\t\t\tP: \"Lcl Translation\", \"Lcl Translation\", \"\", \"A\",5,0,0\n"
+                        "\t\t}\n"
+                        "\t\tShading: T\n"
+                        "\t\tCulling:\n"
+                        "\t}\n"
+                        "}\n"
+                        "Connections:  {\n\t;Model::m, Model::RootNode\n\tC: \"OO\",10,20\n}\n");
+        Check(TestReadModel(&arena, Prog_ModelKind_Fbx, text, &mesh) && mesh.positions.header.count == 9 && mesh.indices.header.count == 3);
+        Check(mesh.positions.v[0] == 5 && mesh.positions.v[3] == 6 && mesh.positions.v[7] == 1 && mesh.indices.v[2] == 2);
+    }
+
     // The thumbnail drawing fills the middle and leaves the corners clear; a triangle naming a vertex that is not there is left out.
     {
         Prog_Mesh square = {0};
