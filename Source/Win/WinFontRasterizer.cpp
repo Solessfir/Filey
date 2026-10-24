@@ -152,8 +152,8 @@ extern "C" WinFontFace *WinFontOpen(const wchar *family, const u8 *data, u64 dat
             FAILED(font->target->SetPixelsPerDip(1.0f)) ||
             FAILED(font->factory->CreateRenderingParams(&defaultParams))) break;
         // ClearType level 0 gives grayscale coverage, identical in every channel; GDI-natural outlines snap stems to the pixel grid, which
-        // gives crisper text at the same advances.
-        if (FAILED(font->factory->CreateCustomRenderingParams(defaultParams->GetGamma(), defaultParams->GetEnhancedContrast(), 0.0f,
+        // gives crisper text. Gamma and contrast are fixed rather than the system's, so that text looks the same on every machine.
+        if (FAILED(font->factory->CreateCustomRenderingParams(1.5f, 1.0f, 0.0f,
                                                               DWRITE_PIXEL_GEOMETRY_FLAT, DWRITE_RENDERING_MODE_GDI_NATURAL, &font->params))) break;
         HDC dc = font->target->GetMemoryDC();
         DIBSECTION dib = {};
@@ -239,8 +239,8 @@ static b32 WinDrawGlyph(WinFontFace *font, IDWriteFontFace *face, f32 emSize, UI
     DWRITE_FONT_METRICS fontMetrics = {};
     DWRITE_GLYPH_METRICS glyphMetrics = {};
     face->GetMetrics(&fontMetrics);
-    face->GetDesignGlyphMetrics(&index, 1, &glyphMetrics, FALSE);
-    // Whole-pixel advances keep text on the pixel grid.
+    face->GetGdiCompatibleGlyphMetrics(emSize, 1.0f, nullptr, TRUE, &index, 1, &glyphMetrics, FALSE);
+    // GDI-natural advances, whole pixels fitted to the size as GDI lays text out, keep text on the pixel grid.
     *glyph = WinRasterGlyph{};
     glyph->advance = (f32)(i32)((f32)glyphMetrics.advanceWidth * emSize / (f32)fontMetrics.designUnitsPerEm + 0.5f);
 
