@@ -352,6 +352,7 @@ int main(void)
     b32 ok = false;
     // The window opens at the size the last run left it at, rather than growing to it once the settings are read, and as they make it look.
     Scratch startup = GetScratch();
+    P_CompleteSearchPath();
     String configDirectory = P_ConfigDirectory(startup.arena);
     // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
     ArrayStr startPaths = P_StartupPaths(startup.arena);

@@ -116,6 +116,9 @@ function ArrayStr P_StartupPaths(Arena *arena);
 // "$HOME", "${HOME}" and a leading "~" on Linux, which takes "%HOME%" too. A Linux name at the very end, which may still be being typed, is
 // left as it is unless `final`. Names without a value stay as they are.
 function String P_ExpandVariables(Arena *arena, String text, b32 final);
+// Adds to the program search path what the user's saved one has and it lacks, as a run started by the shell's own launchers, such as Win+E,
+// can get an older or shortened one, which would leave the tools Filey runs, such as ffmpeg, unfound. Nothing on Linux.
+function void P_CompleteSearchPath(void);
 // Whether the command line has `flag`, such as "--new-window", which P_StartupPaths leaves out.
 function b32 P_StartupFlag(String flag);
 // What follows `prefix`, such as "--tab=", in the argument that starts with it; empty without one.

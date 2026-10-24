@@ -1727,6 +1727,8 @@ function String P_StartupOption(Arena *arena, String prefix)
     return result;
 }
 
+function void P_CompleteSearchPath(void) {}
+
 function ArrayStr P_StartupPaths(Arena *arena)
 {
     // The arguments are null-separated in /proc, which spares the program's entry point from passing them down.

@@ -985,6 +985,57 @@ function String P_StartupOption(Arena *arena, String prefix)
     return result;
 }
 
+// One entry of `list` (separated by ';'), matched as Windows matches paths, without case and with or without a trailing backslash.
+function b32 P__PathListHas(const wchar *list, const wchar *entry, u32 length)
+{
+    while (length && entry[length - 1] == L'\\') --length;
+    for (const wchar *at = list; *at;) {
+        const wchar *end = at;
+        while (*end && *end != L';') ++end;
+        u32 size = (u32)(end - at);
+        while (size && at[size - 1] == L'\\') --size;
+        if (size == length && length && CompareStringOrdinal(at, (i32)size, entry, (i32)length, TRUE) == CSTR_EQUAL) return true;
+        at = *end ? end + 1 : end;
+    }
+    return false;
+}
+
+function void P_CompleteSearchPath(void)
+{
+    Scratch scratch = GetScratch();
+    u32 room = GetEnvironmentVariableW(L"PATH", NULL, 0);
+    u64 capacity = (u64)room + 65536;
+    wchar *path = ArenaPushArray(scratch.arena, capacity, wchar);
+    u32 length = room ? GetEnvironmentVariableW(L"PATH", path, room) : 0;
+    b32 added = false;
+    // The machine's first, as the system puts it before the user's.
+    struct { HKEY root; const wchar *key; } saved[] = {
+        { HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" },
+        { HKEY_CURRENT_USER, L"Environment" },
+    };
+    for (u32 i = 0; i < CArrayCount(saved); ++i) {
+        DWORD size = 0;
+        if (RegGetValueW(saved[i].root, saved[i].key, L"Path", RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, NULL, &size) != ERROR_SUCCESS || !size) continue;
+        wchar *list = ArenaPushArray(scratch.arena, size / sizeof(wchar) + 1, wchar);
+        if (RegGetValueW(saved[i].root, saved[i].key, L"Path", RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, list, &size) != ERROR_SUCCESS) continue;
+        for (const wchar *at = list; *at;) {
+            const wchar *end = at;
+            while (*end && *end != L';') ++end;
+            u32 count = (u32)(end - at);
+            path[length] = 0;
+            if (count && !P__PathListHas(path, at, count) && length + count + 2 < capacity) {
+                if (length && path[length - 1] != L';') path[length++] = L';';
+                for (u32 c = 0; c < count; ++c) path[length++] = at[c];
+                added = true;
+            }
+            at = *end ? end + 1 : end;
+        }
+    }
+    path[length] = 0;
+    if (added) SetEnvironmentVariableW(L"PATH", path);
+    ReleaseScratch(scratch);
+}
+
 function ArrayStr P_StartupPaths(Arena *arena)
 {
     i32 count = 0;
