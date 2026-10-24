@@ -2441,12 +2441,15 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewLineStates = NULL;
     state->previewSyntax = Prog_Syntax_None;
     state->previewLineCount = state->previewRowColumns = 0;
-    Prog__ReleaseTextWindow(&state->textWindowArena, &state->textIndexArena, state->textWindowJob, state->textIndexJob);
-    state->textWindowJob = state->textIndexJob = NULL;
+    Prog__ReleaseTextWindow(&state->textWindowArena, &state->textIndexArena, &state->textFindArena, state->textWindowJob, state->textIndexJob, state->textFindJob);
+    state->textWindowJob = state->textIndexJob = state->textFindJob = NULL;
     state->textIndex = (Prog_TextIndex){0};
-    state->previewWindowed = state->textJump = false;
-    state->previewSize = state->previewOffset = state->previewFirstLine = 0;
-    state->textShift = 0;
+    state->textFind = state->textSaved = (Prog_FoundLines){0};
+    state->textFindAsked = UINT32_MAX;
+    state->previewNumbers = NULL;
+    state->previewWindowed = state->textJump = state->textFound = state->textKeepTop = false;
+    state->previewSize = state->previewOffset = state->previewFirstLine = state->textTopLine = 0;
+    state->textTopPart = 0;
     state->inspectorResetScroll = true;
     if (!want.length) return;
     // A file only in the cloud is not read, which would download it; opening it does.

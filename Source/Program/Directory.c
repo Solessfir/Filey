@@ -2858,6 +2858,79 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = index;
         return;
     }
+    // A big text file's lines the filter `name` keeps, read through once with the highlighter's state at each, up to as much as a window holds.
+    if (input->kind == Prog_JobKind_TextFind) {
+        Prog_FoundLines *found = ArenaPushStruct(&job->arena, Prog_FoundLines);
+        found->version = (u32)input->line;
+        Prog_Syntax syntax = Prog_SyntaxForPath(input->name);
+        String filter = input->newName;
+        struct { ArrayHeader header; u32 *v; } starts = {0};
+        struct { ArrayHeader header; u64 *v; } numbers = {0};
+        struct { ArrayHeader header; u8 *v; } states = {0};
+        StrBuilder text = {0};
+        Scratch scratch = GetScratchEx(&job->arena);
+        Arena carryArena = {0};
+        StrBuilder carry = {0};
+        u64 at = 0, lines = 0;
+        u8 open = 0;
+        b32 failed = false;
+        while (at < input->size && !found->cut && !P_IsCancelled(&job->cancelToken)) {
+            ArenaMark mark = ArenaGetMark(scratch.arena);
+            String chunk = {0};
+            if (!P_ReadFileAt(scratch.arena, input->path, at, Prog_TextStep, &chunk) || !chunk.length) {
+                failed = true;
+                break;
+            }
+            b32 last = at + chunk.length >= input->size;
+            u64 from = 0;
+            for (u64 i = 0; i <= chunk.length && !found->cut; ++i) {
+                b32 end = i == chunk.length;
+                if (!end && chunk.value[i] != '\n') continue;
+                String piece = StrFromTo(chunk, from, (i64)(end ? i : i + 1));
+                // A line that goes on in the next read is put together with it, up to a window's length.
+                if (end && !last) {
+                    if (carry.buffer.length + piece.length < Prog_TextWindow) StrBuildStr(&carryArena, &carry, piece);
+                    break;
+                }
+                if (carry.buffer.length && carry.buffer.length + piece.length < Prog_TextWindow) StrBuildStr(&carryArena, &carry, piece);
+                String line = carry.buffer.length ? carry.buffer : piece;
+                from = i + 1;
+                if (!line.length) break;
+                String bare = line;
+                if (bare.length && bare.value[bare.length - 1] == '\n') --bare.length;
+                if (bare.length && bare.value[bare.length - 1] == '\r') --bare.length;
+                if (Prog_FilterMatch(bare, filter, NULL)) {
+                    if (text.buffer.length + line.length + 1 >= Prog_TextWindow) {
+                        found->cut = true;
+                        break;
+                    }
+                    ArrayPush(&job->arena, starts, (u32)text.buffer.length);
+                    ArrayPush(&job->arena, numbers, lines);
+                    ArrayPush(&job->arena, states, open);
+                    StrBuildStr(&job->arena, &text, line);
+                    if (line.value[line.length - 1] != '\n') StrBuildChar(&job->arena, &text, '\n');
+                }
+                if (syntax) open = Prog_SyntaxLine(syntax, bare, open, NULL);
+                carry = (StrBuilder){0};
+                ArenaClear(&carryArena);
+                ++lines;
+                if (end) break;
+            }
+            at += chunk.length;
+            ArenaRestore(mark);
+        }
+        ArrayPush(&job->arena, starts, (u32)text.buffer.length);
+        found->text = text.buffer;
+        found->lines = starts.v;
+        found->numbers = numbers.v;
+        found->states = syntax ? states.v : NULL;
+        found->count = (u32)numbers.header.count;
+        found->done = !failed && !P_IsCancelled(&job->cancelToken);
+        ArenaRelease(&carryArena);
+        ReleaseScratch(scratch);
+        job->result = found;
+        return;
+    }
     if (input->kind == Prog_JobKind_Preview) {
         // A 3D model's picture, else text where the start of the file reads as text, else the system's picture of it.
         // With the inspector set to hex, every file's bytes.
@@ -3473,6 +3546,40 @@ function void Prog__RequestTextIndex(Prog_State *state)
     P_JobSubmit(job);
 }
 
+// Looks through the whole of the big text file the inspector shows a window of, in a job, for the lines its filter keeps.
+function void Prog_RequestTextFind(Prog_State *state)
+{
+    if (state->textFindJob) P_RequestCancel(&state->textFindJob->cancelToken);
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_TextFind;
+    input->panel = Prog__PanelId(state);
+    input->path = StrCopy(&job->arena, state->textReadPath);
+    input->name = StrCopy(&job->arena, state->previewPath);
+    input->newName = StrCopy(&job->arena, Prog_EditText(&state->inspectorFilter));
+    input->size = state->previewSize;
+    input->line = state->inspectorFilter.version;
+    job->input = input;
+    state->textFindJob = job;
+    state->textFindAsked = state->inspectorFilter.version;
+    P_JobSubmit(job);
+}
+
+// Puts a big file's window back in place of the lines its filter found, which stay to be shown again for the same filter.
+function void Prog_ShowTextWindow(Prog_State *state)
+{
+    if (!state->textFound) return;
+    state->previewText = state->textSaved.text;
+    state->previewLines = state->textSaved.lines;
+    state->previewLineStates = state->textSaved.states;
+    state->previewLineCount = state->textSaved.count;
+    state->previewNumbers = NULL;
+    state->previewKept = state->previewRows = NULL;
+    state->previewRowColumns = 0;
+    state->previewAnchor = state->previewCaret = 0;
+    state->textFound = false;
+}
+
 // Reads the big text file's window from `offset`, the line numbered `line`, which starts inside `open`, unless one is on its way already
 // or it is the window shown; `jump` starts the view at its top.
 function void Prog_RequestTextWindow(Prog_State *state, u64 offset, u64 line, u8 open, b32 jump)
@@ -3977,7 +4084,7 @@ function void Prog_InspectFolder(Prog_State *state, String path)
 function b32 Prog__TakeNumber(String *text, u64 *value);
 function String Prog__ApplyWindowLine(String text);
 function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob);
-function void Prog__ReleaseTextWindow(Arena *window, Arena *index, P_Job *windowJob, P_Job *indexJob);
+function void Prog__ReleaseTextWindow(Arena *window, Arena *index, Arena *find, P_Job *windowJob, P_Job *indexJob, P_Job *findJob);
 function void Prog__ApplyFolderView(Prog_State *state, String path);
 function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view);
 
@@ -5177,7 +5284,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->errorArena);
     ArenaRelease(&state->pickArena);
     Prog__ReleasePreview(&state->previewArena, state->previewTexture, &state->model, &state->pdf, state->previewJob, state->hexPageJob);
-    Prog__ReleaseTextWindow(&state->textWindowArena, &state->textIndexArena, state->textWindowJob, state->textIndexJob);
+    Prog__ReleaseTextWindow(&state->textWindowArena, &state->textIndexArena, &state->textFindArena, state->textWindowJob, state->textIndexJob, state->textFindJob);
     for (u32 i = 0; i < state->tabCount; ++i) {
         if (i != state->activeTab) Prog__ReleaseTab(&state->tabs[i]);
     }
@@ -6316,12 +6423,14 @@ function void Prog__DropModel(Prog_ModelView *model)
 
 // Lets go of an inspector's preview: its jobs, its textures, its model's mesh and its arena.
 // A big text file's window and line count, and their jobs.
-function void Prog__ReleaseTextWindow(Arena *window, Arena *index, P_Job *windowJob, P_Job *indexJob)
+function void Prog__ReleaseTextWindow(Arena *window, Arena *index, Arena *find, P_Job *windowJob, P_Job *indexJob, P_Job *findJob)
 {
     if (windowJob) P_RequestCancel(&windowJob->cancelToken);
     if (indexJob) P_RequestCancel(&indexJob->cancelToken);
+    if (findJob) P_RequestCancel(&findJob->cancelToken);
     ArenaRelease(window);
     ArenaRelease(index);
+    ArenaRelease(find);
 }
 
 function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_ModelView *model, Prog_PdfView *pdf, P_Job *job, P_Job *hexJob)
@@ -6339,7 +6448,7 @@ function void Prog__ReleasePreview(Arena *arena, R_TextureHandle texture, Prog_M
 function void Prog__ReleaseTab(Prog_Tab *tab)
 {
     Prog__ReleasePreview(&tab->previewArena, tab->previewTexture, &tab->model, &tab->pdf, tab->previewJob, tab->hexPageJob);
-    Prog__ReleaseTextWindow(&tab->textWindowArena, &tab->textIndexArena, tab->textWindowJob, tab->textIndexJob);
+    Prog__ReleaseTextWindow(&tab->textWindowArena, &tab->textIndexArena, &tab->textFindArena, tab->textWindowJob, tab->textIndexJob, tab->textFindJob);
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
     ArenaRelease(&tab->treeArena);
@@ -7253,11 +7362,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             if (state->textWindowJob == job) state->textWindowJob = NULL;
             const Prog_Preview *window = job->result;
             if (window && window->text.length && state->previewWindowed && StrIsEqual(input->path, state->textReadPath) && !P_IsCancelled(&job->cancelToken)) {
+                // The lines the filter found are worked out again over the window when shown.
+                Prog_ShowTextWindow(state);
                 ArenaRelease(&state->textWindowArena);
                 state->textWindowArena = job->arena;
                 job->arena = (Arena){0};
                 if (state->textJump) state->inspectorResetScroll = true;
-                else state->textShift += (f32)((f64)state->previewFirstLine - (f64)input->line);
+                else state->textKeepTop = true;
                 state->textJump = false;
                 state->previewText = window->text;
                 state->previewLines = window->lines;
@@ -7270,6 +7381,18 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->previewAnchor = state->previewCaret = 0;
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_TextFind) {
+            // Only the latest, which the view shows in place of the window while its filter stays as it was.
+            const Prog_FoundLines *found = job->result;
+            if (state->textFindJob == job && found && found->done && state->previewWindowed && StrIsEqual(input->path, state->textReadPath)) {
+                Prog_ShowTextWindow(state);
+                ArenaRelease(&state->textFindArena);
+                state->textFindArena = job->arena;
+                job->arena = (Arena){0};
+                state->textFind = *found;
+                changed = true;
+            }
+            if (state->textFindJob == job) state->textFindJob = NULL;
         } else if (input->kind == Prog_JobKind_TextIndex) {
             if (state->textIndexJob == job) state->textIndexJob = NULL;
             const Prog_TextIndex *index = job->result;

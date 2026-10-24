@@ -1986,6 +1986,19 @@ function void TestTextIndex(TestFileFixture *fixture)
     }
     // The third step starts at line 52429, before the comment; the fourth at 78644, inside it.
     Check(index->count == 4 && !index->states[2] && index->states[3]);
+    // Its filter finds the lines it keeps through the whole file, numbered, with where the highlighter is at each.
+    String needles[] = { S("comment"), S("ends") };
+    u64 numbers[] = { 70000, 90000 };
+    for (u32 n = 0; n < CArrayCount(needles); ++n) {
+        MemCopy(state.inspectorFilter.text, needles[n].value, needles[n].length);
+        state.inspectorFilter.length = (u32)needles[n].length;
+        ++state.inspectorFilter.version;
+        Prog_RequestTextFind(&state);
+        for (u64 start = PlatformNowMicroseconds(); state.textFindJob && PlatformNowMicroseconds() - start < Millions(20); P__TestPause()) Prog_TakeCompletions(&state);
+        const Prog_FoundLines *found = &state.textFind;
+        Check(found->done && found->version == state.inspectorFilter.version && found->count == 1 && !found->cut && found->numbers[0] == numbers[n]);
+        Check(found->count == 1 && found->lines[1] == 40 && found->text.length == 40 && (found->states[0] != 0) == (n == 1));
+    }
     Prog_Release(&state);
     Check(P__TestRemovePath(fixture, S("big.c"), false));
     ArenaRelease(&arena);

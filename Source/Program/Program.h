@@ -290,6 +290,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_HexFind,     // the first place from `offset` on, round to it again, where the bytes `name` are in the file `path`
     Prog_JobKind_TextWindow,  // a big text file's window: from `offset`, the line numbered `line`, which starts inside highlighter state `open`
     Prog_JobKind_TextIndex,   // a big text file's lines, counted in steps
+    Prog_JobKind_TextFind,    // a big text file's lines the filter `name` keeps, for its version `line`
     Prog_JobKind_PdfPage,
     Prog_JobKind_Git,
     Prog_JobKind_Repos,
@@ -544,6 +545,18 @@ typedef struct Prog_TextIndex {
     u64 count, lines;
     b32 done;
 } Prog_TextIndex;
+
+// Lines of text, `count` of them, each starting at its place in `lines` and the last ending at `lines[count]`, with what the highlighter is
+// inside of at each start. A big file's lines its filter keeps, found through the whole file, have their numbers in it, from 0; those for
+// the filter's version `version`, all of them unless `cut`, when they would have been more than a window holds.
+typedef struct Prog_FoundLines {
+    String text;
+    u32 *lines;
+    u8 *states;
+    u64 *numbers;
+    u32 count, version;
+    b32 cut, done;
+} Prog_FoundLines;
 // The largest file inside an archive that is taken out to be previewed.
 #define Prog_ArchivePreviewBytes (UINT64_C(256) << 20)
 // A file shown as hex is read a page at a time as its rows come into sight, into Prog_HexSlots pages kept at once. The view holds up to
@@ -1299,8 +1312,12 @@ typedef struct Prog_PdfView {
 //     picked for its version previewKeptVersion
 //   previewWindowed: previewText is the window of a text file too big to hold, previewSize bytes, read from textReadPath: its bytes from
 //     previewOffset, the lines from previewFirstLine, in textWindowArena; textWindowJob reads the next window, from textWindowFrom, and
-//     textShift is the rows the view moves by once it is in place, so that the same line stays at the top, or with textJump it starts at its
-//     top, gone to from the scroll bar; textIndex, from textIndexJob, in textIndexArena, counts the whole file's lines
+//     with textKeepTop, once it is in place, the same line stays at the top, or with textJump it starts at its top, gone to from the scroll
+//     bar; textIndex, from textIndexJob, in textIndexArena, counts the whole file's lines; textTopLine and
+//     textTopPart: the line at the view's top and how far into it, which a new window keeps there, its rows wrapped or not
+//   textFind: the lines the filter keeps out of the whole of a big file, from textFindJob, asked for the filter's version textFindAsked, in
+//     textFindArena; textFound: they show in place of the window, kept meanwhile in textSaved and textSavedScroll, and previewNumbers is
+//     their lines' numbers
 #define Prog_PreviewFields(X) \
     X(b32, inspectorDetails) X(b32, inspectorDetailsFolded) X(b32, previewShown) X(Arena, previewArena) X(String, previewPath) X(P_Job *, previewJob) X(String, previewText) X(String, previewMedia) X(f64, previewSeconds) X(R_TextureHandle, previewTexture) \
     X(Prog_ModelView, model) X(Prog_PdfView, pdf) \
@@ -1316,7 +1333,9 @@ typedef struct Prog_PdfView {
     X(b32, inspectorResetScroll) X(Prog_TextEdit, inspectorFilter) X(b32, inspectorFiltering) X(u32 *, previewKept) X(u32, previewKeptCount) \
     X(u32, previewKeptVersion) X(Prog_TorrentInfo, torrent) X(b8 *, torrentSkip) X(u64 *, torrentDone) X(b32, torrentRead) \
     X(b32, previewWindowed) X(u64, previewSize) X(u64, previewOffset) X(u64, previewFirstLine) X(String, textReadPath) X(Arena, textWindowArena) \
-    X(P_Job *, textWindowJob) X(u64, textWindowFrom) X(f32, textShift) X(b32, textJump) X(Prog_TextIndex, textIndex) X(P_Job *, textIndexJob) X(Arena, textIndexArena)
+    X(P_Job *, textWindowJob) X(u64, textWindowFrom) X(b32, textKeepTop) X(b32, textJump) X(Prog_TextIndex, textIndex) X(P_Job *, textIndexJob) X(Arena, textIndexArena) \
+    X(u64, textTopLine) X(f32, textTopPart) X(Prog_FoundLines, textFind) X(P_Job *, textFindJob) X(u32, textFindAsked) X(Arena, textFindArena) X(b32, textFound) \
+    X(Prog_FoundLines, textSaved) X(f32, textSavedScroll) X(u64 *, previewNumbers)
 
 // The Prog_State fields each tab has its own of.
 // The shown tab's live in Prog_State; switching swaps them with the tab's slot, so a tab keeps its listing, selection, filter, scroll and view:
