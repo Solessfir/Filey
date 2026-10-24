@@ -5062,6 +5062,8 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
 // One location under a section title: its folder icon, or a drive glyph, and its name.
 // Drives show how full they are under the name, and bookmarks get a remove button while hovered.
 // A row of the sidebar's `group`; a `faded` one, hidden, is dimmed as the list dims hidden items.
+function void Prog__MarkedText(String text, const u8 *marks, const R_Font *font, f32 height, R_Color color);
+
 function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, String name, String path, const P_Place *drive, b32 faded, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -5150,8 +5152,10 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         } else {
             Prog__Icon(drive ? Icon_HardDrive : StrIsEqual(path, Prog_ThisPC) ? Icon_Monitor : Icon_Folder, slot, m->row, faded ? theme->iconDisabled : theme->icon, 0, m);
         }
-        // Folders and drives have the folders' color, This PC the text's.
+        // Folders and drives have the folders' color, This PC the text's; what the sidebar's filter found is in the match color.
         R_Color color = hot ? theme->contentHover : faded && !current ? theme->textDim : StrIsEqual(path, Prog_ThisPC) ? theme->text : theme->folder;
+        u8 *marks = state->sidebarFilter.length ? ArenaPushArray(&state->frameArena, name.length + 1, u8) : NULL;
+        if (marks && !Prog_FilterMatch(name, Prog_EditText(&state->sidebarFilter), marks)) marks = NULL;
         if (drive && drive->totalBytes) {
             // The name sits a little high to leave room for the bar under it.
             UI_SetNextPrefWidth(UI_Flex());
@@ -5163,10 +5167,10 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
                 f32 used = floorf(width * (f32)(drive->totalBytes - Min(drive->freeBytes, drive->totalBytes)) / (f32)drive->totalBytes);
                 f32 top = floorf((m->row - m->line - bar * 2) * 0.5f);
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
+                UI_SetNextPrefWidth(UI_Percent(1));
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
-                UI_SetNextColors((UI_Colors){ .text = color });
-                UI_SetNextText(name);
-                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
+                UI_Block *named = UI_AddBlock(UI_Flag_Floating);
+                UI_Parent(named) Prog__MarkedText(name, marks, m->font, m->line, color);
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, top + m->line + bar });
                 UI_SetNextPrefWidth(UI_Pixels(width));
                 UI_SetNextPrefHeight(UI_Pixels(bar));
@@ -5179,7 +5183,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
         } else {
-            Prog__Label(name, UI_Flex(), m->row, 0, color, 0);
+            Prog__MarkedText(name, marks, m->font, m->row, color);
         }
         // A bookmark's x removes it, as a folder's in a group of the user's does; a place's eye hides it, or shows it again while hidden ones show.
         if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places || (u32)group >= Prog_Group_Count) && hot && !state->sidebarDrag) {
