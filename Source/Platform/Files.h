@@ -106,6 +106,8 @@ function b32 P_IsVirtualFolder(String path);
 function String P_ComputerIconPath(void);
 // When `path` was created, in seconds since the Unix epoch; 0 when the file system does not say.
 function i64 P_FileCreatedTime(String path);
+// When the item at `path` last changed, in seconds since the Unix epoch; 0 when it is not there.
+function i64 P_FileModifiedTime(String path);
 // Lexically normalized absolute path with '/' separators; empty means failure.
 function String P_AbsolutePath(Arena *arena, String path);
 // The paths the app was started with as arguments, made absolute.

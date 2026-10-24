@@ -2347,6 +2347,9 @@ function void Prog__DirectoryJob(P_Job *job)
             result->packed[result->count++] = (const u8 *)text.value + at + 5;
             at += 7 + length;
         }
+        // Whole and written by a walk that ended less than a day ago, it serves as it is.
+        i64 age = P_NowUnix() - P_FileModifiedTime(input->name);
+        result->fresh = result->count == count && age >= 0 && age < Prog_IndexFreshSeconds;
         return;
     }
     if (input->kind == Prog_JobKind_IndexFinish) {
@@ -6787,7 +6790,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
     for (u32 i = 0; i < state->panelCount; ++i) {
         if (i != state->currentPanel && state->panels[i].directoryJob) walking |= ((Prog_JobInput *)state->panels[i].directoryJob->input)->expanded;
     }
-    if (state->indexStarted && !state->indexDone && !state->indexJob && !walking) {
+    if (state->indexStarted && !state->indexDone && !state->indexJob && !state->indexLoadJob && !walking) {
         // The next folders to list, past the files among them.
         u32 batch[4096];
         u64 batchCount = 0, at = state->indexAt;
@@ -7270,6 +7273,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_IndexRelease(saved);
                 *saved = (Prog_Index){ .arena = job->arena, .names = result->packed, .parents = result->parents, .flags = (u8 *)result->flags, .count = result->count };
                 job->arena = (Arena){0};
+                // A recent one is the index, with no walk.
+                if (result->fresh) state->indexDone = state->indexKept = true;
                 changed = true;
             }
         } else if (input->kind == Prog_JobKind_GoTo) {

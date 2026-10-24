@@ -696,6 +696,16 @@ function i64 P_FileCreatedTime(String path)
     return found ? (i64)info.stx_btime.tv_sec : 0;
 }
 
+function i64 P_FileModifiedTime(String path)
+{
+    Scratch scratch = GetScratch();
+    char *name = P__FilePathCString(scratch.arena, path);
+    struct stat info;
+    b32 found = name && stat(name, &info) == 0;
+    ReleaseScratch(scratch);
+    return found ? (i64)info.st_mtime : 0;
+}
+
 function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals, ArrayStr *subfolders)
 {
     Scratch scratch = GetScratchEx(arena);

@@ -1049,6 +1049,7 @@ typedef struct Prog_Index {
 typedef struct Prog_Indexed {
     String *names;
     const u8 **packed;  // IndexLoad: the names, in the file read
+    b32 fresh;          // IndexLoad: the file was written less than Prog_IndexFreshSeconds ago
     u32 *parents;
     b8 *flags;
     u64 count;
@@ -1959,6 +1960,7 @@ typedef struct Prog_State {
     // A name edited in its sidebar row, which the Save Layout box's state carries: nameFor is 1 for the group of the user's nameGroup, and
     // 2 for the folder namePath, row nameIndex of sidebar group nameGroup; the press before it began, and whether its box was built.
     f32 inspectorShare;       // the inspector's share of its panel, 0 for half
+    b32 indexKept;            // the saved index was recent enough to serve as the index, so the drives were not walked
     b32 longPaths;            // the system lets programs use paths longer than 260 characters, as last read
     b32 longPathsSetting;     // and a job is asking it to change that
     u8 nameFor;
@@ -2323,6 +2325,9 @@ function u32 Prog_TabMatches(const Prog_State *state, u32 *out);
 // The index is kept between runs in the settings folder: the magic, then for every entry its parent's entry (u32), its flags (u8), its name's
 // length (u16) and the name.
 #define Prog_IndexFile      S("Index.bin")
+// How long an index saved by a finished walk serves as it is before another walk of the drives starts, as one an administrator's run
+// read from the drives' file tables is worth keeping.
+#define Prog_IndexFreshSeconds (24 * 60 * 60)
 #define Prog_IndexFileMagic S("Filey index 1\n")
 // The searched index's entry `entry` as a whole path, in `arena`.
 function String Prog_IndexPath(Arena *arena, const Prog_Index *index, u32 entry);

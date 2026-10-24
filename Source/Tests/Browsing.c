@@ -3456,7 +3456,8 @@ function void TestTabs(TestFileFixture *fixture)
     load.input = &loadInput;
     Prog__DirectoryJob(&load);
     const Prog_Indexed *loaded = load.result;
-    Check(loaded && loaded->count == state.index.count);
+    // Just written whole, it serves as the index without another walk.
+    Check(loaded && loaded->count == state.index.count && loaded->fresh);
     for (u64 i = 0; loaded && i < loaded->count; ++i) {
         Check(StrIsEqual(Prog__PackedName(loaded->packed[i]), Prog_IndexName(&state.index, i)) && loaded->parents[i] == state.index.parents[i] &&
               (u8)loaded->flags[i] == state.index.flags[i]);

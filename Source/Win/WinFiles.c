@@ -591,6 +591,18 @@ function i64 P_FileCreatedTime(String path)
     return (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600);
 }
 
+function i64 P_FileModifiedTime(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
+    WIN32_FILE_ATTRIBUTE_DATA data = {0};
+    b32 found = wide && GetFileAttributesExW(wide, GetFileExInfoStandard, &data);
+    ReleaseScratch(scratch);
+    if (!found) return 0;
+    u64 time = ((u64)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+    return (i64)(time / UINT64_C(10000000)) - INT64_C(11644473600);
+}
+
 function String P_NativePath(Arena *arena, String path)
 {
     String result = StrCopy(arena, path);
