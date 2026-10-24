@@ -2418,6 +2418,7 @@ function void Prog__UpdatePreview(Prog_State *state)
     state->previewPixels = NULL;
     // A new model starts from the view the fixed previews had: turned 30 degrees and tipped 20.
     state->model.yaw = 0.5235988f, state->model.pitch = 0.3490659f, state->model.zoom = 1;
+    state->model.shownZoom = 0;
     state->previewFolder = folder || archive;
     state->previewHex = state->previewArchive = state->previewArchiveCounted = state->previewDocument = false;
     state->hexPages = state->hexSlots = NULL;

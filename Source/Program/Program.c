@@ -11084,6 +11084,14 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
     }
     i32 notches = Prog__WheelNotches(view);
     if (notches) state->model.zoom = MinF32(MaxF32(state->model.zoom * powf(1.15f, (f32)notches), 0.2f), 20.0f);
+    // What is shown eases to the turn and zoom asked for, as the RAD Debugger's views do, the zoom by its ratio; a new model starts there.
+    if (state->model.shownZoom <= 0) {
+        state->model.shownYaw = state->model.yaw, state->model.shownPitch = state->model.pitch, state->model.shownZoom = state->model.zoom;
+    } else {
+        state->model.shownYaw = UI_Approach(state->model.shownYaw, state->model.yaw, 0.0005f);
+        state->model.shownPitch = UI_Approach(state->model.shownPitch, state->model.pitch, 0.0005f);
+        state->model.shownZoom = expf(UI_Approach(logf(state->model.shownZoom), logf(state->model.zoom), 0.0005f));
+    }
     i32 width = (i32)(view->rect.x1 - view->rect.x0), tall = (i32)(view->rect.y1 - view->rect.y0);
     // A view new this frame has no size yet.
     if (width <= 0 || tall <= 0) {
@@ -11096,12 +11104,12 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
         state->model.textureWidth = width, state->model.textureHeight = tall;
         state->model.stale = true;
     }
-    f32 now[3] = { state->model.yaw, state->model.pitch, state->model.zoom };
+    f32 now[3] = { state->model.shownYaw, state->model.shownPitch, state->model.shownZoom };
     if (state->model.stale || MemCompare(now, state->model.drawn, sizeof(now))) {
         // Centered, turned about Y, tipped about X, and scaled so that its bounds fill 88% of the shorter side; depth is not zoomed, so that
         // it stays within the view space's -1 to 1.
-        f32 cy = cosf(state->model.yaw), sy = sinf(state->model.yaw), cp = cosf(state->model.pitch), sp = sinf(state->model.pitch);
-        f32 fit = 0.88f / state->model.radius, s = fit * state->model.zoom;
+        f32 cy = cosf(now[0]), sy = sinf(now[0]), cp = cosf(now[1]), sp = sinf(now[1]);
+        f32 fit = 0.88f / state->model.radius, s = fit * now[2];
         f32 r[3][3] = { { cy, 0, -sy }, { -sp * sy, cp, -sp * cy }, { cp * sy, sp, cp * cy } };
         f32 rows[3][4];
         for (u32 i = 0; i < 3; ++i) {

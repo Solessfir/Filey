@@ -1245,7 +1245,8 @@ typedef struct Prog_ModelView {
     f32 center[3], radius;
     b32 zUp;
     f32 turn[3][3];
-    f32 yaw, pitch, zoom;
+    f32 yaw, pitch, zoom;                 // the turn and zoom asked for
+    f32 shownYaw, shownPitch, shownZoom;  // and those shown, easing to them
     UI_Vec2 dragFrom;
     R_TextureHandle texture;
     i32 textureWidth, textureHeight;
