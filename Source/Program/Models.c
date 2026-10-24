@@ -1240,11 +1240,22 @@ function void Prog__GltfMesh(Arena *arena, const Prog__Gltf *gltf, const Prog__J
             look.blend = true;
         }
         Prog__MeshLook(arena, out, &look);
-        String set = StrFormat(arena, "TEXCOORD_%u", (u32)Prog__JsonNumber(Prog__JsonGet(info, S("texCoord")), 0));
+        // The picture's place on its coordinates, as KHR_texture_transform moves, turns and scales it: offset * rotation * scale, which may
+        // take another set of coordinates.
+        const Prog__Json *transform = Prog__JsonGet(Prog__JsonGet(info, S("extensions")), S("KHR_texture_transform"));
+        f64 texCoord = Prog__JsonNumber(Prog__JsonGet(transform, S("texCoord")), Prog__JsonNumber(Prog__JsonGet(info, S("texCoord")), 0));
+        f32 offset[2] = { (f32)Prog__JsonNumber(Prog__JsonAt(Prog__JsonGet(transform, S("offset")), 0), 0), (f32)Prog__JsonNumber(Prog__JsonAt(Prog__JsonGet(transform, S("offset")), 1), 0) };
+        f32 scale[2] = { (f32)Prog__JsonNumber(Prog__JsonAt(Prog__JsonGet(transform, S("scale")), 0), 1), (f32)Prog__JsonNumber(Prog__JsonAt(Prog__JsonGet(transform, S("scale")), 1), 1) };
+        f32 turn = (f32)Prog__JsonNumber(Prog__JsonGet(transform, S("rotation")), 0), c = cosf(turn), s = sinf(turn);
+        String set = StrFormat(arena, "TEXCOORD_%u", (u32)texCoord);
         u64 n = 0;
         if (image != UINT32_MAX && Prog__GltfAccessor(gltf, Prog__JsonGet(attributes, set), &type, &components, &bytes, &n, &stride) && components == 2) {
             f32 *uvs = Prog__MeshUvs(arena, out) + base * 2;
-            for (u64 k = 0; k < Min(n, count); ++k) uvs[k * 2] = Prog__GltfComponent(bytes + k * stride, type, 0), uvs[k * 2 + 1] = Prog__GltfComponent(bytes + k * stride, type, 1);
+            for (u64 k = 0; k < Min(n, count); ++k) {
+                f32 u = Prog__GltfComponent(bytes + k * stride, type, 0) * scale[0], v = Prog__GltfComponent(bytes + k * stride, type, 1) * scale[1];
+                uvs[k * 2] = c * u + s * v + offset[0];
+                uvs[k * 2 + 1] = -s * u + c * v + offset[1];
+            }
         }
         // Its vertices' colors, linear as glTF keeps them.
         if (Prog__GltfAccessor(gltf, Prog__JsonGet(attributes, S("COLOR_0")), &type, &components, &bytes, &n, &stride) && (components == 3 || components == 4)) {

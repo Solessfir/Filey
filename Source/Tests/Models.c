@@ -248,7 +248,7 @@ function void TestModels(void)
         // Its material's base color, linear, and picture, from a data URI, and its vertices' colors and texture coordinates.
         {
             String painted = S("{\"asset\":{\"version\":\"2.0\"},\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"COLOR_0\":2,\"TEXCOORD_0\":3},\"indices\":1,\"material\":0}]}],"
-                               "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.5,1,1,1],\"baseColorTexture\":{\"index\":0}}}],\"textures\":[{\"source\":0}],"
+                               "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.5,1,1,1],\"baseColorTexture\":{\"index\":0,\"extensions\":{\"KHR_texture_transform\":{\"offset\":[0.5,0],\"scale\":[2,2]}}}}}],\"textures\":[{\"source\":0}],"
                                "\"images\":[{\"uri\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==\"}],"
                                "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6},{\"buffer\":0,\"byteOffset\":44,\"byteLength\":36},"
                                "{\"buffer\":0,\"byteOffset\":80,\"byteLength\":24}],"
@@ -259,7 +259,7 @@ function void TestModels(void)
             P_CancelToken token = {0};
             Check(Prog_ReadModel(&arena, Prog_ModelKind_Gltf, S("/model.gltf"), painted, &token, &textured) && textured.parts.header.count == 1 && textured.images.header.count == 1);
             Check(textured.parts.v[0].color == 0xFFFFFFBCu && textured.parts.v[0].image == 0 && textured.images.v[0].width == 1 && textured.images.v[0].pixels[0] == 0xFF00FF00u);
-            Check(textured.colors.header.count == 3 && textured.colors.v[0] == 0xFF0000FFu && textured.colors.v[2] == 0xFFFF0000u && textured.uvs.v[2] == 1 && textured.uvs.v[5] == 1);
+            Check(textured.colors.header.count == 3 && textured.colors.v[0] == 0xFF0000FFu && textured.colors.v[2] == 0xFFFF0000u && textured.uvs.v[0] == 0.5f && textured.uvs.v[2] == 2.5f && textured.uvs.v[5] == 2);
             Prog_ModelShape shape;
             Check(Prog__ModelShape(&arena, &textured, &shape) && shape.partCount == 1 && shape.parts[0].image == 0 && shape.imageCount == 1 && shape.images[0].pixels[0] == 0xFF00FF00u);
             // Without the pictures asked for, it keeps its color alone.
