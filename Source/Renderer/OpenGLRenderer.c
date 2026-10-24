@@ -78,7 +78,7 @@ typedef i64       GLsizeiptr;
     X(void,            Clear,                   GLbitfield mask) \
     X(void,            ReadPixels,              GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels) \
     X(const GLubyte *, GetString,               GLenum name) \
-    X(void,            Enable,                  GLenum cap) \
+    X(void,            Enable,                  GLenum cap)     X(void,            DepthMask,               GLboolean flag) \
     X(void,            BlendFuncSeparate,       GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) \
     X(void,            Scissor,                 GLint x, GLint y, GLsizei width, GLsizei height) \
     X(void,            GenTextures,             GLsizei n, GLuint *textures) \
@@ -142,7 +142,8 @@ typedef struct GL_Instance {
     R_Color color;
     f32     radius;
     f32     thickness;  // 0 fills; otherwise an inner outline this wide
-    f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA; 3 draws its premultiplied RGBA, as copied from the frame
+    f32     textured;   // 1 multiplies alpha by the texture's red channel; 2 multiplies by its RGBA; 3 draws its premultiplied RGBA, as copied from the frame;
+                        // 4 multiplies by its RGBA, which is premultiplied, as a model's drawing is
     f32     softness;   // 0 has a sharp edge; otherwise a fill fades in from it over this width
     f32     shape;      // R_Shape flags, and GL_ShapeLine: a line between the points in `uv`, `radius` from its middle to its edge
 } GL_Instance;
@@ -206,7 +207,8 @@ typedef struct GL_State {
     b32              inSource;
     // Meshes are drawn into a texture through a multisampled color and depth target, made at the largest size asked for so far.
     GLuint           meshProgram;
-    GLint            meshViewLocation, meshScaleLocation, meshColorLocation, meshTexturedLocation;
+    GLint            meshViewLocation, meshScaleLocation, meshColorLocation, meshTexturedLocation, meshBlendLocation;
+    b32              blending;  // a mesh's see-through parts are being drawn
     GLuint           meshFramebuffer, meshColor, meshDepth;
     i32              meshWidth, meshHeight;
 } GL_State;
@@ -252,18 +254,21 @@ global const char *GL_MeshFragmentShader =
     "uniform vec4 uColor;\n"
     "uniform sampler2D uImage;\n"
     "uniform int uTextured;\n"
+    "uniform int uBlend;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));\n"
     "    if (n.z < 0.0) n = -n;\n"
     "    float light = max(dot(n, vec3(-0.398, 0.597, 0.697)), 0.0);\n"
     "    vec3 base = uColor.rgb * vColor.rgb;\n"
+    "    float alpha = uBlend != 0 ? uColor.a * vColor.a : 1.0;\n"
     "    if (uTextured != 0) {\n"
     "        vec4 picture = texture(uImage, vUv);\n"
-    "        if (picture.a < 0.5) discard;\n"
+    "        if (uBlend == 0 && picture.a < 0.5) discard;\n"
     "        base *= picture.rgb;\n"
+    "        if (uBlend != 0) alpha *= picture.a;\n"
     "    }\n"
-    "    fragColor = vec4(base * (0.22 + 0.78 * light), 1.0);\n"
+    "    fragColor = vec4(base * (0.22 + 0.78 * light) * alpha, alpha);\n"
     "}\n";
 
 global GL_State GL;
@@ -334,12 +339,15 @@ global const char GL_FragmentShader[] =
     "    if (vStyle.y > 0.0) {\n"
     "        alpha *= clamp(0.5 + distance + vStyle.y, 0.0, 1.0);\n"
     "    }\n"
-    "    if (vStyle.z > 2.5) {\n"
+    "    if (vStyle.z > 2.5 && vStyle.z < 3.5) {\n"
     "        fragColor = texture(uTexture, vUV) * (vColor.a * alpha);\n"
     "        return;\n"
     "    }\n"
     "    vec4 color = vColor;\n"
-    "    if (vStyle.z > 1.5) {\n"
+    "    if (vStyle.z > 3.5) {\n"
+    "        vec4 picture = texture(uTexture, vUV);\n"
+    "        color *= vec4(picture.rgb / max(picture.a, 0.004), picture.a);\n"
+    "    } else if (vStyle.z > 1.5) {\n"
     "        color *= texture(uTexture, vUV);\n"
     "    } else if (vStyle.z > 0.0) {\n"
     "        alpha *= texture(uTexture, vUV).r;\n"
@@ -389,6 +397,15 @@ function GLuint GL__TextureRefFromHandle(R_TextureHandle handle)
     GLuint result = 0;
     MemCopy(&result, &handle, sizeof(result));
     return result;
+}
+
+// A mark above the texture's name, which it never reaches.
+#define GL__TexturePremultiplied (UINT64_C(1) << 40)
+
+function R_TextureHandle R_TexturePremultiplied(R_TextureHandle texture)
+{
+    if (texture.u64[0]) texture.u64[0] |= GL__TexturePremultiplied;
+    return texture;
 }
 
 function GLuint GL__CompileShader(GLenum type, const char *source)
@@ -478,6 +495,7 @@ function b32 R_Init(void)
     GL.meshScaleLocation = GL.GetUniformLocation(GL.meshProgram, "uScale");
     GL.meshColorLocation = GL.GetUniformLocation(GL.meshProgram, "uColor");
     GL.meshTexturedLocation = GL.GetUniformLocation(GL.meshProgram, "uTextured");
+    GL.meshBlendLocation = GL.GetUniformLocation(GL.meshProgram, "uBlend");
     GL.GenFramebuffers(1, &GL.meshFramebuffer);
 
     GL.GenVertexArrays(1, &GL.vertexArray);
@@ -616,12 +634,22 @@ function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width,
     f32 shorter = (f32)Min(width, height);
     GL.Uniform4f(GL.meshScaleLocation, shorter / (f32)width, shorter / (f32)height, 0, 0);
     GL.BindVertexArray(mesh.vertexArray);
-    for (u32 i = 0; i < partCount; ++i) {
-        const R_MeshPart *part = &parts[i];
-        if (part->first >= (u64)mesh.count || !part->count) continue;
+    // The parts that hide what is behind them first, then the see-through ones over them, which leave the depth as it was, premultiplied
+    // into what is drawn already; they are not sorted among themselves.
+    for (u32 i = 0; i < partCount * 2; ++i) {
+        const R_MeshPart *part = &parts[i % partCount];
+        b32 blend = i >= partCount;
+        if (part->first >= (u64)mesh.count || !part->count || (b32)(part->blend != 0) != blend) continue;
+        if (blend && !GL.blending) {
+            GL.Enable(GL_BLEND);
+            GL.BlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            GL.DepthMask(0);
+            GL.blending = true;
+        }
         GLuint texture = GL__TextureRefFromHandle(part->texture);
         GL.Uniform4f(GL.meshColorLocation, part->color.r, part->color.g, part->color.b, part->color.a);
         GL.Uniform1i(GL.meshTexturedLocation, texture != 0);
+        GL.Uniform1i(GL.meshBlendLocation, blend);
         // A model's picture repeats and is smoothed both ways, without the sharpening a still picture gets, which would shimmer as it turns.
         if (texture) {
             GL.BindTexture(GL_TEXTURE_2D, texture);
@@ -631,6 +659,11 @@ function void R_MeshDraw(R_MeshHandle handle, R_TextureHandle target, i32 width,
             GL.TexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, 0.0f);
         }
         GL.DrawElements(GL_TRIANGLES, (GLsizei)Min(part->count, (u64)mesh.count - part->first), GL_UNSIGNED_INT, (const void *)(part->first * 4));
+    }
+    if (GL.blending) {
+        GL.DepthMask(1);
+        GL.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        GL.blending = false;
     }
     // Resolved into the target texture through the blur's framebuffer, which is free between frames.
     GL.BindFramebuffer(GL_READ_FRAMEBUFFER, GL.meshFramebuffer);
@@ -877,7 +910,8 @@ function void R_DrawTexturedRect(R_Rect rect, R_Rect uv, R_TextureHandle texture
 
 function void R_DrawImage(R_Rect rect, R_Rect uv, R_TextureHandle texture, R_Color tint)
 {
-    GL__PushInstance((GL_Instance){ .rect = rect, .uv = uv, .color = tint, .textured = 2.0f }, GL__TextureRefFromHandle(texture));
+    f32 kind = texture.u64[0] & GL__TexturePremultiplied ? 4.0f : 2.0f;
+    GL__PushInstance((GL_Instance){ .rect = rect, .uv = uv, .color = tint, .textured = kind }, GL__TextureRefFromHandle(texture));
 }
 
 function void R_PushClip(R_Rect rect)

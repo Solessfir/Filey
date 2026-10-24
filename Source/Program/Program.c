@@ -11165,7 +11165,7 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
     }
     if (width != state->model.textureWidth || tall != state->model.textureHeight) {
         R_TextureRelease(state->model.texture);
-        state->model.texture = R_TextureCreateRGBA(width, tall, NULL);
+        state->model.texture = R_TexturePremultiplied(R_TextureCreateRGBA(width, tall, NULL));
         state->model.textureWidth = width, state->model.textureHeight = tall;
         state->model.stale = true;
     }

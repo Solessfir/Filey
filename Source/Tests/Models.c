@@ -149,6 +149,7 @@ function void TestModels(void)
 {
     Arena arena = {0};
     Prog_Mesh mesh = {0};
+
     // OBJ: a quad and a triangle given from the end, with texture and normal indices; a vertex with another texture coordinate, or none,
     // is a vertex of its own.
     String obj = S("# test\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nvt 0 0.25\nf 1/1/1 2/1/1 3/1/1 4/1/1\nf -4 -3 -1\n");
@@ -220,6 +221,13 @@ function void TestModels(void)
                                 "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIAAAA=");
         Check(TestReadModel(&arena, Prog_ModelKind_Gltf, gltf, &mesh) && mesh.positions.header.count == 9 && mesh.indices.header.count == 3);
         Check(mesh.positions.v[0] == 1 && mesh.positions.v[3] == 2 && mesh.positions.v[7] == 1 && mesh.indices.v[2] == 2);
+        // A blended material is see-through by its base color's alpha.
+        String blended = StrFormat(&arena, "{\"asset\":{\"version\":\"2.0\"},\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}],"
+                                   "\"materials\":[{\"alphaMode\":\"BLEND\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,0,0,0.5]}}],"
+                                   "\"bufferViews\":[{\"buffer\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],"
+                                   "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],"
+                                   "\"buffers\":[{\"byteLength\":44,\"uri\":\"data:application/octet-stream;base64,%s\"}]}", "AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIAAAA=");
+        Check(TestReadModel(&arena, Prog_ModelKind_Gltf, blended, &mesh) && mesh.parts.header.count == 1 && mesh.parts.v[0].blend && mesh.parts.v[0].color == 0x800000FFu);
         String json = StrFormat(&arena, "%s\"buffers\":[{\"byteLength\":44}]}", scene);
         TestBytes bytes = {0};
         f32 positions[9] = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };

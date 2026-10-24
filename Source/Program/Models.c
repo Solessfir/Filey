@@ -100,6 +100,23 @@ function void Prog__MeshPart(Arena *arena, Prog_Mesh *mesh, u32 color, u32 image
     ArrayPush(arena, mesh->parts, ((Prog_MeshPart){ .first = first, .color = color, .image = image, .bare = bare }));
 }
 
+// Starts a part in the look `look`, see-through as it is.
+function void Prog__MeshLook(Arena *arena, Prog_Mesh *mesh, const Prog_MeshPart *look)
+{
+    Prog__MeshPart(arena, mesh, look->color, look->image, look->bare);
+    mesh->parts.v[mesh->parts.header.count - 1].blend = look->blend;
+}
+
+// A look's color made see-through by `alpha`, from 0, clear, to 1, solid, which leaves it as it was.
+function void Prog__MeshAlpha(Prog_MeshPart *look, f32 alpha)
+{
+    if (!(alpha < 0.999f)) return;
+    u32 a = (u32)((alpha <= 0 ? 0 : alpha) * 255 + 0.5f) << 24;
+    look->color = look->color ? (look->color & 0x00FFFFFFu) | a : 0x00FFFFFFu | a;
+    if (look->bare) look->bare = (look->bare & 0x00FFFFFFu) | a;
+    look->blend = true;
+}
+
 // Linear 0 to 1 as an sRGB byte, as the colors are kept.
 function u32 Prog__SrgbByte(f32 linear)
 {
@@ -320,7 +337,7 @@ function void Prog__CornersAdd(Prog__Corners *corners, Prog__MeshCorner key, u32
     corners->first[key.point] = (u32)at;
 }
 
-typedef struct Prog__ObjMaterial { String name; u32 color, image; } Prog__ObjMaterial;
+typedef struct Prog__ObjMaterial { String name; u32 color, image; f32 alpha; } Prog__ObjMaterial;
 typedef struct Prog__ArrayObjMaterial { ArrayHeader header; Prog__ObjMaterial *v; } Prog__ArrayObjMaterial;
 
 // The next word on the line at *at, spaces and tabs between words.
@@ -357,12 +374,15 @@ function void Prog__ReadMtl(Arena *arena, Prog_Mesh *mesh, String name, Prog__Ar
     while (p < end) {
         String word = Prog__Word(&p, end);
         if (StrIsEqual(word, S("newmtl"))) {
-            ArrayPush(arena, *materials, ((Prog__ObjMaterial){ .name = Prog__LineRest(&p, end), .image = UINT32_MAX }));
+            ArrayPush(arena, *materials, ((Prog__ObjMaterial){ .name = Prog__LineRest(&p, end), .image = UINT32_MAX, .alpha = 1 }));
             material = &materials->v[materials->header.count - 1];
         } else if (material && StrIsEqual(word, S("Kd"))) {
             f64 rgb[3] = { 1, 1, 1 };
             for (u32 k = 0; k < 3; ++k) Prog__Number(&p, end, &rgb[k]);
             material->color = Prog__LinearColor((f32)rgb[0], (f32)rgb[1], (f32)rgb[2], 1);
+        } else if (material && (StrIsEqual(word, S("d")) || StrIsEqual(word, S("Tr")))) {
+            f64 value = 1;
+            if (Prog__Number(&p, end, &value)) material->alpha = (f32)(word.length == 1 ? value : 1 - value);
         } else if (material && StrIsEqual(word, S("map_Kd"))) {
             // Options such as "-s 1 1 1" come before the file, which is the rest of the line after them.
             String rest = Prog__LineRest(&p, end);
@@ -545,7 +565,10 @@ function b32 Prog__ReadObj(Arena *arena, String data, const P_CancelToken *cance
                         const Prog__ObjMaterial *material = NULL;
                         for (u64 k = 0; k < materials.header.count && !material; ++k) if (StrIsEqual(materials.v[k].name, line->rest)) material = &materials.v[k];
                         // A picture is drawn as it is, as Blender reads it; its Kd is left out.
-                        Prog__MeshPart(arena, mesh, material && material->image == UINT32_MAX ? material->color : 0, material ? material->image : UINT32_MAX, material ? material->color : 0);
+                        Prog_MeshPart look = { .color = material && material->image == UINT32_MAX ? material->color : 0, .image = material ? material->image : UINT32_MAX,
+                                               .bare = material ? material->color : 0 };
+                        if (material) Prog__MeshAlpha(&look, material->alpha);
+                        Prog__MeshLook(arena, mesh, &look);
                     }
                 }
                 if (f == chunk->faces.header.count) break;
@@ -1203,12 +1226,20 @@ function void Prog__GltfMesh(Arena *arena, const Prog__Gltf *gltf, const Prog__J
         const Prog__Json *glossy = Prog__JsonGet(Prog__JsonGet(material, S("extensions")), S("KHR_materials_pbrSpecularGlossiness"));
         if (glossy && !pbr) factor = Prog__JsonGet(glossy, S("diffuseFactor")), info = Prog__JsonGet(glossy, S("diffuseTexture"));
         u32 color = 0, image = UINT32_MAX;
+        b32 blended = false;
         if (material) {
             color = Prog__LinearColor((f32)Prog__JsonNumber(Prog__JsonAt(factor, 0), 1), (f32)Prog__JsonNumber(Prog__JsonAt(factor, 1), 1),
                                       (f32)Prog__JsonNumber(Prog__JsonAt(factor, 2), 1), 1);
             if (info) image = Prog__GltfImage(arena, gltf, info, out);
+            const Prog__Json *mode = Prog__JsonGet(material, S("alphaMode"));
+            blended = mode && mode->kind == '"' && StrIsEqual(mode->text, S("BLEND"));
         }
-        Prog__MeshPart(arena, out, color, image, 0);
+        Prog_MeshPart look = { .color = color, .image = image };
+        if (blended) {
+            Prog__MeshAlpha(&look, (f32)Prog__JsonNumber(Prog__JsonAt(factor, 3), 1));
+            look.blend = true;
+        }
+        Prog__MeshLook(arena, out, &look);
         String set = StrFormat(arena, "TEXCOORD_%u", (u32)Prog__JsonNumber(Prog__JsonGet(info, S("texCoord")), 0));
         u64 n = 0;
         if (image != UINT32_MAX && Prog__GltfAccessor(gltf, Prog__JsonGet(attributes, set), &type, &components, &bytes, &n, &stride) && components == 2) {
@@ -1640,7 +1671,8 @@ function void Prog__FbxGeometry(Arena *arena, const Prog__FbxNode *geometry, con
     }
     Prog__Corners made = Prog__CornersMake(scratch.arena, count, corners);
     for (u64 part = 0; part < Max(materialCount, (u64)1); ++part) {
-        Prog__MeshPart(arena, mesh, materialCount ? materials[part].color : 0, materialCount ? materials[part].image : UINT32_MAX, materialCount ? materials[part].bare : 0);
+        Prog_MeshPart none = { .image = UINT32_MAX };
+        Prog__MeshLook(arena, mesh, materialCount ? &materials[part] : &none);
         for (u64 f = 0; f < polygonCount; ++f) {
             if (partOf[f] != part) continue;
             u32 first = 0, previous = 0, at = 0;
@@ -1951,6 +1983,8 @@ function b32 Prog__ReadFbx(Arena *arena, String data, const P_CancelToken *cance
         if (Prog__FbxSetting(materialNodes.v[i], S("DiffuseColor"))) Prog__FbxVector(materialNodes.v[i], S("DiffuseColor"), rgb);
         else Prog__FbxVector(materialNodes.v[i], S("Diffuse"), rgb);
         looks[i] = (Prog_MeshPart){ .color = Prog__LinearColor(rgb[0], rgb[1], rgb[2], 1), .image = UINT32_MAX };
+        Prog__FbxNode *opacity = Prog__FbxSetting(materialNodes.v[i], S("Opacity")), *transparency = Prog__FbxSetting(materialNodes.v[i], S("TransparencyFactor"));
+        if (opacity || transparency) Prog__MeshAlpha(&looks[i], opacity ? (f32)Prog__FbxNumberAt(opacity, 4) : 1 - (f32)Prog__FbxNumberAt(transparency, 4));
         if (diffuse[i] == UINT64_MAX) continue;
         const Prog__FbxNode *texture = textures.v[diffuse[i]], *clip = video[diffuse[i]] != UINT64_MAX ? videos.v[video[diffuse[i]]] : NULL;
         String relative = Prog__FbxStringAt(Prog__FbxChild(texture->first, S("RelativeFilename")), 0), absolute = Prog__FbxStringAt(Prog__FbxChild(texture->first, S("FileName")), 0);
@@ -2388,6 +2422,18 @@ function Prog_MeshPart Prog__BlendLook(Arena *arena, const Prog__Blend *blend, c
     const Prog__BlendBlock *value = rgbaType != UINT32_MAX ? Prog__BlendAt(blend, tree, Prog__BlendPointer(blend, socketType, socket->data, socket->length, S("default_value"))) : NULL;
     f32 rgba[4];
     if (value && Prog__BlendFloats(blend, rgbaType, value->data, value->length, S("value"), rgba, 4)) result.color = Prog__LinearColor(rgba[0], rgba[1], rgba[2], 1);
+    // Principled's Alpha, the socket after its Base Color's among its inputs, left unlinked.
+    u32 floatType = Prog__BlendStruct(blend, S("bNodeSocketValueFloat"));
+    f32 alpha = 1;
+    steps = 0;
+    for (const Prog__BlendBlock *input = socket; input && floatType != UINT32_MAX && steps < 256; ++steps) {
+        if (StrIsEqual(Prog__BlendText(blend, socketType, input->data, input->length, S("identifier")), S("Alpha"))) {
+            const Prog__BlendBlock *number = Prog__BlendAt(blend, tree, Prog__BlendPointer(blend, socketType, input->data, input->length, S("default_value")));
+            if (number) Prog__BlendFloats(blend, floatType, number->data, number->length, S("value"), &alpha, 1);
+            break;
+        }
+        input = Prog__BlendAt(blend, tree, Prog__BlendPointer(blend, socketType, input->data, input->length, S("next")));
+    }
     steps = 0;
     for (const Prog__BlendBlock *link = Prog__BlendAt(blend, tree, Prog__BlendPointer(blend, treeType, tree->data, tree->length, S("links"))); link && steps < 4096;
          link = Prog__BlendAt(blend, tree, Prog__BlendPointer(blend, linkType, link->data, link->length, S("next"))), ++steps) {
@@ -2398,6 +2444,7 @@ function Prog_MeshPart Prog__BlendLook(Arena *arena, const Prog__Blend *blend, c
         if (result.image != UINT32_MAX) result.bare = result.color, result.color = 0;
         break;
     }
+    Prog__MeshAlpha(&result, alpha);
     return result;
 }
 
@@ -2460,7 +2507,8 @@ function void Prog__BlendMesh(Arena *arena, const Prog__Blend *blend, const Prog
         if (!colorBytes || (domain != Prog__BlendOnCorner && domain != Prog__BlendOnPoint)) colors = NULL;
         Prog__Corners made = Prog__CornersMake(scratch.arena, (u64)vertices, (u64)corners);
         for (u32 look = 0; look < Max(lookCount, 1u); ++look) {
-            Prog__MeshPart(arena, out, lookCount ? looks[look].color : 0, lookCount ? looks[look].image : UINT32_MAX, lookCount ? looks[look].bare : 0);
+            Prog_MeshPart none = { .image = UINT32_MAX };
+            Prog__MeshLook(arena, out, lookCount ? &looks[look] : &none);
             for (i64 f = 0; f < faces; ++f) {
                 i32 index = materialIndex ? (i32)Prog__Read32(materialIndex->data + f * 4) : 0;
                 if ((u32)Min(Max(index, 0), (i32)Max(lookCount, 1u) - 1) != look) continue;
@@ -2950,6 +2998,24 @@ function f32 *Prog__UsdFloats(Arena *arena, const Prog__Usd *usd, u64 rep, u32 w
     return result;
 }
 
+// A float or double value, which the file inlines as a float's bits where it can; `fallback` for another.
+function f32 Prog__UsdScalar(const Prog__Usd *usd, u64 rep, f32 fallback)
+{
+    u32 type = Prog__UsdType(rep);
+    if (Prog__UsdArray(rep) || (type != 8 && type != 9)) return fallback;
+    if (Prog__UsdInlined(rep)) {
+        u32 bits = (u32)Prog__UsdPayload(rep);
+        f32 value;
+        MemCopy(&value, &bits, 4);
+        return value;
+    }
+    u64 at = Prog__UsdPayload(rep);
+    if (at + 8 > usd->file.length) return fallback;
+    f64 value;
+    MemCopy(&value, usd->file.value + at, 8);
+    return (f32)value;
+}
+
 // The text of a token, asset path or string value; empty for another.
 function String Prog__UsdText(const Prog__Usd *usd, u64 rep)
 {
@@ -3060,6 +3126,8 @@ function Prog_MeshPart Prog__UsdLook(Arena *arena, const Prog__Usd *usd, const P
     f32 *rgb = diffuse ? Prog__UsdVec3(arena, usd, Prog__UsdField(usd, *diffuse, S("default")), &n) : NULL;
     if (rgb && result.image == UINT32_MAX) result.color = Prog__LinearColor(rgb[0], rgb[1], rgb[2], 1);
     else if (rgb) result.bare = Prog__LinearColor(rgb[0], rgb[1], rgb[2], 1);
+    const u32 *opacity = Prog__UsdProperty(usd, properties, shader, S("inputs:opacity"));
+    if (opacity) Prog__MeshAlpha(&result, Prog__UsdScalar(usd, Prog__UsdField(usd, *opacity, S("default")), 1));
     return result;
 }
 
@@ -3312,6 +3380,12 @@ function u64 Prog__UsdTextValue(Prog__UsdLayer *t, String type)
         }
         return Prog__UsdRep(15, 0, 0, at);
     }
+    // A single number of a float type, inlined as the file inlines it.
+    if (!array && width == 1 && numbers.header.count == 1 && (StrIsEqual(type, S("float")) || StrIsEqual(type, S("double")) || StrIsEqual(type, S("half")))) {
+        u32 bits;
+        MemCopy(&bits, &numbers.v[0], 4);
+        return Prog__UsdRep(8, 0, 1, bits);
+    }
     // Tuples of two, three or four floats: vec2f, vec3f and vec4f, single or arrays.
     if (width < 2 || width > 4 || !count) return 0;
     u32 kind = width == 2 ? 20 : width == 3 ? 24 : 28;
@@ -3546,7 +3620,7 @@ function b32 Prog__UsdMeshes(Arena *arena, Prog__Usd *usd, String zip, const P_C
         u64 *starts = ArenaPushArrayNoZero(scratch.arena, Max(faceCount, (u64)1), u64);
         for (u64 f = 0, first = 0; f < faceCount; first += (u64)Max(counts[f], 0), ++f) starts[f] = first;
         for (u32 look = 0; look < lookCount; ++look) {
-            Prog__MeshPart(arena, mesh, looks[look].color, looks[look].image, looks[look].bare);
+            Prog__MeshLook(arena, mesh, &looks[look]);
             for (u64 f = 0; f < faceCount; ++f) {
                 if (lookOf[f] != look) continue;
                 u64 first = starts[f], end = Min(first + (u64)Max(counts[f], 0), cornerCount);
@@ -3783,7 +3857,16 @@ function Prog_MeshPart Prog__DaeLook(Arena *arena, const Prog__Dae *dae, Prog__X
     if (color) {
         u64 n = 0;
         f32 *rgba = Prog__XmlNumbers(arena, color->text, 4, &n);
-        if (n >= 3) result.color = Prog__LinearColor(rgba[0], rgba[1], rgba[2], n >= 4 ? rgba[3] : 1) | 0xFF000000u;
+        if (n >= 3) result.color = Prog__LinearColor(rgba[0], rgba[1], rgba[2], 1);
+    }
+    // A transparent color's alpha by the transparency, as the default A_ONE mode has it.
+    Prog__Xml *transparent = Prog__XmlChild(shading, S("transparent")), *amount = Prog__XmlChild(Prog__XmlChild(shading, S("transparency")), S("float"));
+    if (transparent && amount && !StrIsEqual(Prog__XmlValue(transparent, S("opaque")), S("RGB_ZERO"))) {
+        u64 n = 0, m = 0;
+        f32 *rgba = Prog__XmlNumbers(arena, Prog__XmlChild(transparent, S("color")) ? Prog__XmlChild(transparent, S("color"))->text : (String){0}, 4, &n);
+        f32 *factor = Prog__XmlNumbers(arena, amount->text, 1, &m);
+        f32 alpha = (n >= 4 ? rgba[3] : 1) * (m ? factor[0] : 1);
+        if (n >= 4 || m) Prog__MeshAlpha(&result, alpha);
     }
     if (texture) {
         // The sampler's source names the surface, whose init_from names the image; Collada 1.5 and some exporters name the image at once.
@@ -3851,7 +3934,7 @@ function void Prog__DaePrimitive(Arena *arena, const Prog__Dae *dae, const Prog_
     if (!colors || colorWidth < 3) colorAt = UINT32_MAX;
     f32 *at = ArenaPushArrayNoZero(scratch.arena, Max(pointCount, (u64)1) * 3, f32);
     for (u64 v = 0; v < pointCount; ++v) Prog__MeshPoint(at + v * 3, place, points[v * pointWidth], points[v * pointWidth + 1], points[v * pointWidth + 2]);
-    Prog__MeshPart(arena, mesh, look.color, look.image, look.bare);
+    Prog__MeshLook(arena, mesh, &look);
     b32 polylist = Prog__XmlIs(primitive, S("polylist"));
     u64 sizeCount = 0;
     f32 *sizes = polylist ? Prog__XmlNumbers(scratch.arena, Prog__XmlChild(primitive, S("vcount")) ? Prog__XmlChild(primitive, S("vcount"))->text : (String){0}, UINT32_MAX, &sizeCount) : NULL;
@@ -4194,6 +4277,7 @@ function u32 Prog__3dsColor(const u8 *file, u64 from, u64 to)
 function void Prog__3dsReadMaterial(Arena *arena, const u8 *file, u64 from, u64 to, Prog_Mesh *mesh, Prog__3dsMaterials *materials)
 {
     Prog__3dsMaterial material = { .look = { .image = UINT32_MAX } };
+    f32 transparency = 0;
     u32 id = 0;
     u64 start, stop;
     for (u64 at = from; Prog__3dsChunk(file, &at, to, &id, &start, &stop);) {
@@ -4202,6 +4286,13 @@ function void Prog__3dsReadMaterial(Arena *arena, const u8 *file, u64 from, u64 
             material.name = Prog__3dsName(file, &p, stop);
         } else if (id == 0xA020) {
             material.look.color = Prog__3dsColor(file, start, stop);
+        } else if (id == 0xA050) {
+            u32 inner = 0;
+            u64 a, b;
+            for (u64 p = start; Prog__3dsChunk(file, &p, stop, &inner, &a, &b);) {
+                if (inner == 0x0030 && b - a >= 2) transparency = (f32)((u32)file[a] | (u32)file[a + 1] << 8) / 100;
+                if (inner == 0x0031 && b - a >= 4) MemCopy(&transparency, file + a, 4);
+            }
         } else if (id == 0xA200) {
             u32 inner = 0;
             u64 a, b;
@@ -4215,6 +4306,7 @@ function void Prog__3dsReadMaterial(Arena *arena, const u8 *file, u64 from, u64 
     }
     material.look.bare = material.look.color;
     if (material.look.image != UINT32_MAX) material.look.color = 0;
+    Prog__MeshAlpha(&material.look, 1 - transparency);
     ArrayPush(arena, *materials, material);
 }
 
@@ -4255,7 +4347,7 @@ function void Prog__3dsMesh(Arena *arena, const u8 *file, u64 from, u64 to, cons
         q += 2;
         Prog_MeshPart look = { .image = UINT32_MAX };
         for (u64 m = 0; m < materials->header.count; ++m) if (StrIsEqual(materials->v[m].name, name)) look = materials->v[m].look;
-        Prog__MeshPart(arena, mesh, look.color, look.image, look.bare);
+        Prog__MeshLook(arena, mesh, &look);
         for (u32 k = 0; k < count && q + 2 <= stop; ++k, q += 2) {
             u32 face = (u32)file[q] | (u32)file[q + 1] << 8;
             if (face >= faceCount || drawn[face]) continue;
@@ -4664,7 +4756,7 @@ function b32 Prog__ModelShape(Arena *arena, const Prog_Mesh *mesh, Prog_ModelSha
             u32 color = from ? (image == UINT32_MAX && from->image != UINT32_MAX && from->bare ? from->bare : from->color) : 0;
             b32 own = color || image != UINT32_MAX;
             unset = own ? 0xFFFFFFFFu : Prog_ModelGray;
-            parts[made++] = (Prog_MeshPart){ .first = kept * 3, .color = color ? color : 0xFFFFFFFFu, .image = image };
+            parts[made++] = (Prog_MeshPart){ .first = kept * 3, .color = color ? color : 0xFFFFFFFFu, .image = image, .blend = from && from->blend };
         }
         const u32 *at = mesh->indices.v + t * 3;
         if (at[0] >= vertices || at[1] >= vertices || at[2] >= vertices || !valid[at[0]] || !valid[at[1]] || !valid[at[2]]) continue;

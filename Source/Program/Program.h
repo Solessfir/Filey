@@ -653,8 +653,9 @@ typedef enum Prog_Token {
 // unless that is UINT32_MAX. A reader gives only `first`, each run ending where the next starts, and a color of 0 for the default.
 typedef struct Prog_MeshPart {
     u64 first, count;
-    u32 color, image;
-    u32 bare;  // while read, the color for when its picture does not decode, 0 for `color`
+    u32 color, image;  // the color's alpha is how much it hides what is behind it, with `blend`
+    u32 bare;          // while read, the color for when its picture does not decode, 0 for `color`
+    b32 blend;         // see-through by the color's, the vertices' and the picture's alphas, rather than solid with the picture's cut out
 } Prog_MeshPart;
 
 // A 3D model's mesh as the GPU draws it: positions, Y up, each vertex's texture coordinate, from a picture's top left, and straight RGBA

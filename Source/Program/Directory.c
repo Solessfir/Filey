@@ -7223,8 +7223,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     for (u32 i = 0; i < shape->partCount; ++i) {
                         const Prog_MeshPart *part = &shape->parts[i];
                         u32 c = part->color;
-                        state->model.parts[i] = (R_MeshPart){ .first = part->first, .count = part->count,
-                                                              .color = { (f32)(c & 0xFF) / 255, (f32)((c >> 8) & 0xFF) / 255, (f32)((c >> 16) & 0xFF) / 255, 1 } };
+                        state->model.parts[i] = (R_MeshPart){ .first = part->first, .count = part->count, .blend = part->blend,
+                                                              .color = { (f32)(c & 0xFF) / 255, (f32)((c >> 8) & 0xFF) / 255, (f32)((c >> 16) & 0xFF) / 255,
+                                                                         part->blend ? (f32)(c >> 24) / 255 : 1 } };
                         if (part->image < shape->imageCount) state->model.parts[i].texture = state->model.images[part->image];
                     }
                     MemCopy(state->model.center, preview->model.center, sizeof(state->model.center));
