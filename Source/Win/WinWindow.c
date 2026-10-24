@@ -159,8 +159,9 @@ function HWND Win__OtherWindowAt(POINT pointer)
 
 global HWND WinHoverTarget;
 
-function void PlatformDragHover(b32 active)
+function void PlatformDragHover(b32 active, String tab)
 {
+    (void)tab;
     POINT pointer = {0};
     HWND target = active && Win__PointerPos(&pointer) ? Win__OtherWindowAt(pointer) : NULL;
     if (WinHoverTarget && WinHoverTarget != target) PostMessageW(WinHoverTarget, WinTabHoverMessage, 0, 0);

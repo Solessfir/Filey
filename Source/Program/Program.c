@@ -12840,7 +12840,18 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
         u64 under = Prog__FocusOwner(state, state->pointerPanel);
         if (under != Prog__FocusOwner(state, state->panels[state->activePanel].id)) Prog_QueueCommand(state, Prog_CommandKind_PanelHover, 0, 0, 0)->panel = under;
     }
-    PlatformDragHover(state->tabDrag && !UI__Contains(view, UI->mouse));
+    // The dragged tab's path and traits, for the window it may be dropped on to open.
+    b32 outside = state->tabDrag && !UI__Contains(view, UI->mouse);
+    String dragged = {0};
+    u32 draggedFrom = outside ? Prog_PanelIndex(state, state->tabDrop.fromPanel) : UINT32_MAX;
+    if (draggedFrom != UINT32_MAX) {
+        Prog__UsePanel(state, draggedFrom);
+        if (state->tabDrop.fromSlot < state->tabCount) {
+            dragged = StrFormat(&state->frameArena, "%S\t%S", Prog_TabPath(state, state->tabDrop.fromSlot), Prog__TabTraits(state, state->tabDrop.fromSlot));
+        }
+        Prog__UsePanel(state, state->activePanel);
+    }
+    PlatformDragHover(outside, dragged);
     if (state->tabDrag) {
         if (!UI__Contains(view, UI->mouse)) state->tabDrop.kind = Prog_TabDrop_Window;
         state->tabDropOther = state->tabDrop.kind == Prog_TabDrop_Window && PlatformOtherWindowAtPointer(S(""));

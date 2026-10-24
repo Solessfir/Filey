@@ -4,6 +4,7 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <linux/input-event-codes.h>
@@ -53,6 +54,21 @@ typedef struct LinuxWindowState {
     struct wl_data_source *source;
     // A drag that Filey started; its own drops read the list from here instead of through a pipe this thread would have to fill.
     struct wl_data_source *dragSource;
+    // A tab dragged out of the window: the drag the compositor runs for it, and its icon, the program's picture of the tab in a buffer of
+    // its own, which the compositor moves with the pointer.
+    struct wl_data_source *tabSource;
+    struct wl_surface *tabIcon;
+    struct wp_viewport *tabViewport;
+    struct wl_buffer *tabBuffer;
+    u32 *tabPixels;
+    i32 tabWidth, tabHeight;
+    b32 tabShown;
+    Arena tabArena;
+    String tabText;      // the tab's path and traits, which the window it is dropped on reads
+    b32 tabTargeted;     // another window takes it where it is
+    b32 tabTaken;        // another window took it
+    b32 newOfferTab;     // the offer being made is another window's tab
+    b32 foreignTab;      // the drag over the window is another window's tab
     Arena dragArena;
     String dragList;
     String dragFolder;
@@ -271,6 +287,8 @@ function void KeyboardEnter(void *data, struct wl_keyboard *keyboard, u32 serial
 function void KeyboardLeave(void *data, struct wl_keyboard *keyboard, u32 serial, struct wl_surface *surface)
 {
     Wl.repeating = false;
+    // Compositors such as Hyprland take the keyboard away while a tab's drag runs, which would end the drag the window still holds.
+    if (Wl.tabSource) return;
     PlatformEvent *event = PlatformPushEvent(PlatformEventKind_FocusChanged);
     event->focused = false;
 }
@@ -509,6 +527,9 @@ global const char *const LinuxTextMimes[] = { "text/plain;charset=utf-8", "UTF8_
 // File lists, preferred first: GNOME's says whether the files were cut.
 global const char *const LinuxFileMimes[] = { "x-special/gnome-copied-files", "text/uri-list" };
 
+// What a tab dragged out of the window is offered as, which only Filey's windows take: its path and traits, a tab apart.
+global const char LinuxTabMime[] = "application/x-filey-tab";
+
 function void DataOfferOffer(void *data, struct wl_data_offer *offer, const char *mime)
 {
     if (offer != Wl.newOffer) return;
@@ -516,6 +537,7 @@ function void DataOfferOffer(void *data, struct wl_data_offer *offer, const char
         if (strcmp(mime, LinuxFileMimes[i]) == 0 && (!Wl.newOfferFiles || i == 0)) Wl.newOfferFiles = LinuxFileMimes[i];
     }
     if (strcmp(mime, "text/uri-list") == 0) Wl.newOfferUris = true;
+    if (strcmp(mime, LinuxTabMime) == 0) Wl.newOfferTab = true;
     for (u32 i = 0; i < CArrayCount(LinuxTextMimes); ++i) {
         if (strcmp(mime, LinuxTextMimes[i]) != 0) continue;
         // Keeps the most preferred type offered.
@@ -545,7 +567,23 @@ function void DataDeviceDataOffer(void *data, struct wl_data_device *device, str
     Wl.newOfferMime = NULL;
     Wl.newOfferFiles = NULL;
     Wl.newOfferUris = false;
+    Wl.newOfferTab = false;
     wl_data_offer_add_listener(offer, &DataOfferListener, NULL);
+}
+
+function void LinuxEndTabDrag(b32 release);
+
+// Another window's tab over this one, as a TabHover event, which makes room for it; it is taken, to open here.
+function void LinuxTabHover(b32 over, wl_fixed_t x, wl_fixed_t y)
+{
+    PlatformEvent *event = PlatformPushEvent(PlatformEventKind_TabHover);
+    event->focused = (b8)(over != 0);
+    event->x = over ? (f32)(wl_fixed_to_double(x) * Wl.scale) : 0;
+    event->y = over ? (f32)(wl_fixed_to_double(y) * Wl.scale) : 0;
+    if (over && Wl.dragOffer) {
+        wl_data_offer_accept(Wl.dragOffer, Wl.dragSerial, LinuxTabMime);
+        if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_set_actions(Wl.dragOffer, WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE, WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE);
+    }
 }
 
 // Pointer events stop while a drag is over the window, so drag motion moves the program's pointer to keep the folder under it highlighted.
@@ -582,12 +620,33 @@ function void DataDeviceEnter(void *data, struct wl_data_device *device, u32 ser
     Wl.dragSerial = serial;
     Wl.dragAction = 0;
     Wl.dragFiles = offer && offer == Wl.newOffer ? (Wl.newOfferUris ? "text/uri-list" : Wl.newOfferFiles) : NULL;
+    // The window's own tab, back over it, is no file drop; its moves reach the program as the pointer's, and it is taken, to be let go here.
+    Wl.foreignTab = !Wl.tabSource && offer && offer == Wl.newOffer && Wl.newOfferTab;
+    if ((Wl.tabSource || Wl.foreignTab) && offer) {
+        P__drop.pending = false;
+        wl_data_offer_accept(offer, serial, LinuxTabMime);
+        if (wl_data_offer_get_version(offer) >= 3) wl_data_offer_set_actions(offer, WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE, WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE);
+        if (Wl.foreignTab) LinuxTabHover(true, x, y);
+        else LinuxDragPointer(x, y);
+        return;
+    }
     LinuxDragPointer(x, y);
     LinuxAcceptDrag();
 }
 
 function void DataDeviceLeave(void *data, struct wl_data_device *device)
 {
+    if (Wl.foreignTab) {
+        LinuxTabHover(false, 0, 0);
+        Wl.foreignTab = false;
+    }
+    // A tab's drag that leaves the window is outside it until it comes back, where a drop opens a window of its own.
+    if (Wl.tabSource) {
+        Wl.pointerX = Wl.pointerY = -1;
+        PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseMove);
+        event->x = event->y = -1;
+        event->mods = Wl.mods;
+    }
     if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
     Wl.dragOffer = NULL;
     P__drop.pending = false;
@@ -596,7 +655,12 @@ function void DataDeviceLeave(void *data, struct wl_data_device *device)
 
 function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 time, wl_fixed_t x, wl_fixed_t y)
 {
+    if (Wl.foreignTab) {
+        LinuxTabHover(true, x, y);
+        return;
+    }
     LinuxDragPointer(x, y);
+    if (Wl.tabSource) return;
     // The folder under the pointer changes as it moves, so whether a drop is welcome does too.
     LinuxAcceptDrag();
 }
@@ -620,6 +684,24 @@ function b32 LinuxOwnDropMoves(String target)
 
 function void DataDeviceDrop(void *data, struct wl_data_device *device)
 {
+    // Another window's tab opens here, where the hover made room for it, and that window lets it go.
+    if (Wl.foreignTab && Wl.dragOffer) {
+        Scratch scratch = GetScratch();
+        String tab = LinuxReceive(scratch.arena, Wl.dragOffer, LinuxTabMime);
+        if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
+        if (tab.length) PlatformPushEventText(PlatformEventKind_OpenPaths, tab);
+        ReleaseScratch(scratch);
+        Wl.foreignTab = false;
+        if (Wl.dragOffer) wl_data_offer_destroy(Wl.dragOffer);
+        Wl.dragOffer = NULL;
+        return;
+    }
+    if (Wl.tabSource && Wl.dragOffer) {
+        if (wl_data_offer_get_version(Wl.dragOffer) >= 3) wl_data_offer_finish(Wl.dragOffer);
+        LinuxEndTabDrag(true);
+        DataDeviceLeave(data, device);
+        return;
+    }
     if (Wl.dragOffer && Wl.dragFiles && P__drop.takesFolders) {
         Scratch scratch = GetScratch();
         String list = Wl.dragSource ? Wl.dragList : LinuxReceive(scratch.arena, Wl.dragOffer, Wl.dragFiles);
@@ -663,12 +745,18 @@ global const struct wl_data_device_listener DataDeviceListener = {
     .selection = DataDeviceSelection,
 };
 
-function void DataSourceTarget(void *data, struct wl_data_source *source, const char *mime) {}
+// Whether the window under a tab's drag takes it, which outside this window is another of the program's windows.
+function void DataSourceTarget(void *data, struct wl_data_source *source, const char *mime)
+{
+    if (source == Wl.tabSource) Wl.tabTargeted = mime != NULL;
+}
 
 function void DataSourceSend(void *data, struct wl_data_source *source, const char *mime, i32 fd)
 {
     String text = {0};
-    if (source == Wl.dragSource) {
+    if (source == Wl.tabSource) {
+        text = Wl.tabText;
+    } else if (source == Wl.dragSource) {
         text = Wl.dragList;
     } else {
         for (u32 i = 0; i < Wl.clipboardCount; ++i) {
@@ -694,6 +782,11 @@ function void LinuxEndDrag(struct wl_data_source *source)
 
 function void DataSourceCancelled(void *data, struct wl_data_source *source)
 {
+    // A tab let go where nothing took it, outside every window, is let go there.
+    if (source == Wl.tabSource) {
+        LinuxEndTabDrag(true);
+        return;
+    }
     if (source == Wl.dragSource) {
         LinuxEndDrag(source);
         return;
@@ -712,6 +805,12 @@ function void DataSourceDropPerformed(void *data, struct wl_data_source *source)
 function void DataSourceFinished(void *data, struct wl_data_source *source)
 {
     if (source == Wl.dragSource) LinuxEndDrag(source);
+    // Taken by another window, which opened it; the release the compositor kept ends the drag here, outside.
+    if (source == Wl.tabSource) {
+        Wl.tabTaken = true;
+        Wl.pointerX = Wl.pointerY = -1;
+        LinuxEndTabDrag(true);
+    }
 }
 function void DataSourceAction(void *data, struct wl_data_source *source, u32 action) {}
 
@@ -1178,22 +1277,99 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
     return !handed;
 }
 
-// Wayland places no window at the pointer for a client.
+// Ends a tab's drag, pushing the release the compositor kept while it ran when `release`, where the pointer was last seen.
+function void LinuxEndTabDrag(b32 release)
+{
+    if (!Wl.tabSource) return;
+    wl_data_source_destroy(Wl.tabSource);
+    Wl.tabSource = NULL;
+    if (Wl.tabViewport) wp_viewport_destroy(Wl.tabViewport);
+    if (Wl.tabIcon) wl_surface_destroy(Wl.tabIcon);
+    if (Wl.tabBuffer) wl_buffer_destroy(Wl.tabBuffer);
+    if (Wl.tabPixels) munmap(Wl.tabPixels, (size_t)Wl.tabWidth * (size_t)Wl.tabHeight * 4);
+    Wl.tabViewport = NULL, Wl.tabIcon = NULL, Wl.tabBuffer = NULL, Wl.tabPixels = NULL, Wl.tabShown = false;
+    if (release) {
+        PlatformEvent *event = PlatformPushEvent(PlatformEventKind_MouseUp);
+        event->button = MouseButton_Left;
+        event->x = Wl.pointerX;
+        event->y = Wl.pointerY;
+        event->mods = Wl.mods;
+    }
+}
+
+// Wayland places no window at the pointer for a client, so the tab is the icon of a drag the compositor runs, which moves it over every
+// window; the first picture starts the drag, as the pointer leaves the window with the button held. The picture, in the window's pixels,
+// keeps its logical size, and the pointer stays at (`hotX`, `hotY`) in it. Back over the window the icon hides, as the window draws the tab.
+// ponytail: another Filey window does not take the tab, so a drop on it opens a new window; offer it the tab's path to move it there.
 function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY)
 {
-    (void)bgra, (void)width, (void)height, (void)hotX, (void)hotY;
+    if (!bgra) {
+        if (Wl.tabIcon && Wl.tabShown) {
+            wl_surface_attach(Wl.tabIcon, NULL, 0, 0);
+            wl_surface_commit(Wl.tabIcon);
+            Wl.tabShown = false;
+        }
+        return;
+    }
+    LinuxEnsureDataDevice();
+    if (!Wl.tabSource && Wl.dataDevice && Wl.pointerSerial) {
+        Wl.tabSource = wl_data_device_manager_create_data_source(Wl.dataManager);
+        wl_data_source_add_listener(Wl.tabSource, &DataSourceListener, NULL);
+        wl_data_source_offer(Wl.tabSource, LinuxTabMime);
+        Wl.tabTargeted = Wl.tabTaken = false;
+        if (wl_data_source_get_version(Wl.tabSource) >= 3) wl_data_source_set_actions(Wl.tabSource, WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE);
+        Wl.tabIcon = wl_compositor_create_surface(Wl.compositor);
+        if (Wl.viewporter) Wl.tabViewport = wp_viewporter_get_viewport(Wl.viewporter, Wl.tabIcon);
+        // The pixels live in shared memory the compositor reads; a picture of another size later is left out rather than reallocated.
+        i32 fd = memfd_create("filey-tab", MFD_CLOEXEC);
+        u64 bytes = (u64)width * (u64)height * 4;
+        void *memory = fd >= 0 && ftruncate(fd, (off_t)bytes) == 0 ? mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) : MAP_FAILED;
+        if (memory != MAP_FAILED) {
+            struct wl_shm_pool *pool = wl_shm_create_pool(Wl.shm, fd, (i32)bytes);
+            Wl.tabBuffer = wl_shm_pool_create_buffer(pool, 0, width, height, width * 4, WL_SHM_FORMAT_ARGB8888);
+            wl_shm_pool_destroy(pool);
+            Wl.tabPixels = memory, Wl.tabWidth = width, Wl.tabHeight = height;
+        }
+        if (fd >= 0) close(fd);
+        wl_data_device_start_drag(Wl.dataDevice, Wl.tabSource, Wl.surface, Wl.tabIcon, Wl.pointerSerial);
+    }
+    if (!Wl.tabBuffer || width != Wl.tabWidth || height != Wl.tabHeight) return;
+    b32 changed = MemCompare(Wl.tabPixels, bgra, (u64)width * (u64)height * 4) != 0;
+    if (Wl.tabShown && !changed) return;
+    MemCopy(Wl.tabPixels, bgra, (u64)width * (u64)height * 4);
+    i32 logicalWidth = (i32)((f32)width / Wl.scale + 0.5f), logicalHeight = (i32)((f32)height / Wl.scale + 0.5f);
+    i32 dx = -(i32)((f32)hotX / Wl.scale + 0.5f), dy = -(i32)((f32)hotY / Wl.scale + 0.5f);
+    if (Wl.tabViewport) wp_viewport_set_destination(Wl.tabViewport, Max(logicalWidth, 1), Max(logicalHeight, 1));
+    else wl_surface_set_buffer_scale(Wl.tabIcon, Max((i32)(Wl.scale + 0.5f), 1));
+    // The icon's place is given once, as an offset from the pointer, and kept as its picture changes.
+    b32 placed = Wl.tabShown;
+    if (Wl.compositorVersion >= 5) {
+        wl_surface_attach(Wl.tabIcon, Wl.tabBuffer, 0, 0);
+        if (!placed) wl_surface_offset(Wl.tabIcon, dx, dy);
+    } else {
+        wl_surface_attach(Wl.tabIcon, Wl.tabBuffer, placed ? 0 : dx, placed ? 0 : dy);
+    }
+    wl_surface_damage_buffer(Wl.tabIcon, 0, 0, width, height);
+    wl_surface_commit(Wl.tabIcon);
+    Wl.tabShown = true;
+    wl_display_flush(Wl.display);
 }
 
-// Wayland tells a window nothing of the others under the pointer.
-function void PlatformDragHover(b32 active)
+// The window under a tab's drag learns of it from the drag itself; only the tab's text is kept, for it to read once the tab is dropped there.
+function void PlatformDragHover(b32 active, String tab)
 {
-    (void)active;
+    if (!active || StrIsEqual(tab, Wl.tabText)) return;
+    ArenaClear(&Wl.tabArena);
+    Wl.tabText = StrCopy(&Wl.tabArena, tab);
 }
 
+// Whether another window takes the dragged tab where it is, or, asked with the tab's text at its drop, took it.
 function b32 PlatformOtherWindowAtPointer(String paths)
 {
-    (void)paths;
-    return false;
+    if (!paths.length) return Wl.tabSource && Wl.tabTargeted && Wl.pointerX < 0;
+    b32 taken = Wl.tabTaken;
+    Wl.tabTaken = false;
+    return taken;
 }
 
 function void PlatformInstanceRelease(void)

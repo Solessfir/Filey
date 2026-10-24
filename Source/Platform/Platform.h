@@ -219,8 +219,9 @@ function void PlatformInstanceRelease(void);
 // row first, the pointer at (`hotX`, `hotY`) in it; NULL takes it away. Nothing where windows cannot be placed at the pointer, as on Wayland.
 function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY);
 // Tells another of the program's windows under the pointer that a tab dragged from this one is over it, as a TabHover event there, while
-// `active`, and the one it was over that it has left. Nothing where windows cannot see each other.
-function void PlatformDragHover(b32 active);
+// `active`, and the one it was over that it has left. `tab` is the dragged tab's path and traits, a tab apart, which Wayland, where the
+// window it is dropped on reads it from the drag, hands over as an OpenPaths event there.
+function void PlatformDragHover(b32 active, String tab);
 // Whether another of the program's windows is under the pointer, outside this one; with `paths`, a line each, they go to it as an OpenPaths
 // event and it comes forward, and the result says whether it took them. False where windows cannot see each other, as on Wayland.
 function b32  PlatformOtherWindowAtPointer(String paths);
