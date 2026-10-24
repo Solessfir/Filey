@@ -252,6 +252,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Icons,
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
+    Prog_JobKind_Tidy,             // removes the run folders of the runs that are over
     Prog_JobKind_ArchivePassword,  // whether the password `name` opens the archive `path`
     Prog_JobKind_Measure,
     Prog_JobKind_Inspect,

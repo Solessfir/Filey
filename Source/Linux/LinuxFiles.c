@@ -1160,6 +1160,37 @@ function u32 P__RemoveAt(i32 directory, const char *name)
     return error ? error : unlinkat(directory, name, AT_REMOVEDIR) == 0 ? 0 : (u32)errno;
 }
 
+function void P__RemoveStaleRunFolders(String root, u32 own)
+{
+    Scratch scratch = GetScratch();
+    char *native = P__FilePathCString(scratch.arena, root);
+    DIR *stream = native ? opendir(native) : NULL;
+    for (struct dirent *entry; stream && (entry = readdir(stream));) {
+        // Only a folder named by a process's number, whose process is gone.
+        const char *name = entry->d_name;
+        u64 id = 0;
+        b32 numbered = name[0] != 0;
+        for (const char *c = name; numbered && *c; ++c) {
+            numbered = *c >= '0' && *c <= '9' && id < INT32_MAX;
+            id = id * 10 + (u64)(*c - '0');
+        }
+        struct stat info;
+        b32 folder = numbered && fstatat(dirfd(stream), name, &info, AT_SYMLINK_NOFOLLOW) == 0 && S_ISDIR(info.st_mode);
+        if (folder && id <= INT32_MAX && (u32)id != own && kill((pid_t)id, 0) != 0 && errno == ESRCH) P__RemoveAt(dirfd(stream), name);
+    }
+    if (stream) closedir(stream);
+    ReleaseScratch(scratch);
+}
+
+function void P_RemoveStaleRunFolders(void)
+{
+    Scratch scratch = GetScratch();
+    String run = P_RunFolder(scratch.arena);
+    Index slash = StrIndexChar(run, '/', SSF_SearchBackwards);
+    if (run.length && slash.exists) P__RemoveStaleRunFolders(StrFromTo(run, 0, (i64)slash.value), (u32)getpid());
+    ReleaseScratch(scratch);
+}
+
 // Splits a path into its folder and last component, ignoring trailing slashes.
 function void P__SplitPath(String path, String *parent, String *leaf)
 {

@@ -466,6 +466,7 @@ int main(void)
     loop.state.ui.doubleClickMicroseconds = doubleClick.intervalMicroseconds;
     loop.state.ui.doubleClickDistance = doubleClick.distance;
     loop.state.warmMenus = true;
+    Prog_TidyRunFolders(&loop.state);
     PlatformSetModalFrameCallback(Prog__Frame, &loop);
     while (loop.running) {
         PlatformEventList events = {0};

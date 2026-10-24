@@ -2734,6 +2734,10 @@ function void Prog__DirectoryJob(P_Job *job)
         ProfileScope("WarmMenu") P_ContextMenuWarm(input->path, input->name);
         return;
     }
+    if (input->kind == Prog_JobKind_Tidy) {
+        P_RemoveStaleRunFolders();
+        return;
+    }
     if (input->kind == Prog_JobKind_ArchivePassword) {
         b32 *opens = ArenaPushStruct(&job->arena, b32);
         *opens = P_ArchiveCheckPassword(input->path, input->name, &job->cancelToken);
@@ -3035,6 +3039,17 @@ function void Prog_RequestGitStatus(Prog_State *state, String folder)
     input->path = StrCopy(&job->arena, folder);
     job->input = input;
     state->gitJob = job;
+    P_JobSubmit(job);
+}
+
+// Removes, in a job, what the runs that are over left in their run folders: the files taken out of archives to be opened or previewed,
+// which another program may have had open while they ran. The app's start does it, not every state, so that the tests leave them be.
+function void Prog_TidyRunFolders(Prog_State *state)
+{
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Tidy;
+    job->input = input;
     P_JobSubmit(job);
 }
 
@@ -6559,7 +6574,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -7137,7 +7152,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog__SaveList(state, files[slot], slot == 1 ? state->recents : slot == 2 ? state->folderViews : slot == 3 ? state->menuPins : slot == 4 ? state->quickCommands : slot == 5 ? state->mutedNotices
                                                  : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : slot == 8 ? state->torrents : state->bookmarks);
             }
-        } else if (input->kind == Prog_JobKind_WarmMenu) {
+        } else if (input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy) {
         } else if (input->kind == Prog_JobKind_ArchivePassword) {
             // A password that opens it is kept for the archive, and what failed for the want of it is tried again; a wrong one is selected
             // to type over.

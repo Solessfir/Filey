@@ -80,6 +80,10 @@ function b32 P_DragArchiveItems(String archive, String inner, const String *name
 function b32 P_IsDirectory(String path);
 // A folder of this run's own under the system's temporary folder, for files taken out of archives, created when missing; empty when it cannot be.
 function String P_RunFolder(Arena *arena);
+// Removes the run folders of the runs that are over, beside this one's, with what was taken out of archives into them; one whose process
+// still runs, or may, as one of another user's, stays. P__RemoveStaleRunFolders does it in the folder `root` that holds them, but for `own`.
+function void P_RemoveStaleRunFolders(void);
+function void P__RemoveStaleRunFolders(String root, u32 own);
 
 typedef struct P_DirectoryTotals {
     u64 folders;

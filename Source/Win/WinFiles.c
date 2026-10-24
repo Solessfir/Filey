@@ -1101,6 +1101,80 @@ function String P_RunFolder(Arena *arena)
     return P_IsDirectory(folder) ? folder : (String){0};
 }
 
+// Removes `path` with everything in it, read-only files too; links and junctions are removed, never followed. What will not go, as a file
+// another program has open, stays for the next try.
+function void P__RemoveTree(String path)
+{
+    Scratch scratch = GetScratch();
+    wchar *pattern = P__FileExtendedPath(scratch.arena, StrFormat(scratch.arena, "%S/*", path));
+    WIN32_FIND_DATAW found;
+    HANDLE find = pattern ? FindFirstFileExW(pattern, FindExInfoBasic, &found, FindExSearchNameMatch, NULL, 0) : INVALID_HANDLE_VALUE;
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            const wchar *name = found.cFileName;
+            if (name[0] == L'.' && (!name[1] || (name[1] == L'.' && !name[2]))) continue;
+            String child = StrFormat(scratch.arena, "%S/%S", path, P__FileStringWide(scratch.arena, name, lstrlenW(name)));
+            b32 folder = (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0, link = (found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+            wchar *wide = P__FileExtendedPath(scratch.arena, child);
+            if (folder && !link) {
+                P__RemoveTree(child);
+            } else if (wide) {
+                SetFileAttributesW(wide, FILE_ATTRIBUTE_NORMAL);
+                if (folder) RemoveDirectoryW(wide);
+                else DeleteFileW(wide);
+            }
+        } while (FindNextFileW(find, &found));
+        FindClose(find);
+    }
+    wchar *own = P__FileExtendedPath(scratch.arena, path);
+    if (own) RemoveDirectoryW(own);
+    ReleaseScratch(scratch);
+}
+
+// Whether process `id` may still run: one that cannot be looked at, as another user's, may.
+function b32 P__ProcessRunning(u32 id)
+{
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, id);
+    if (!process) return GetLastError() != ERROR_INVALID_PARAMETER;
+    DWORD code = 0;
+    b32 result = !GetExitCodeProcess(process, &code) || code == STILL_ACTIVE;
+    CloseHandle(process);
+    return result;
+}
+
+function void P__RemoveStaleRunFolders(String root, u32 own)
+{
+    Scratch scratch = GetScratch();
+    wchar *pattern = P__FileExtendedPath(scratch.arena, StrFormat(scratch.arena, "%S/*", root));
+    WIN32_FIND_DATAW found;
+    HANDLE find = pattern ? FindFirstFileExW(pattern, FindExInfoBasic, &found, FindExSearchNameMatch, NULL, 0) : INVALID_HANDLE_VALUE;
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            // Only a folder named by a process's number.
+            u64 id = 0;
+            b32 numbered = found.cFileName[0] != 0 && (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
+            for (const wchar *c = found.cFileName; numbered && *c; ++c) {
+                numbered = *c >= L'0' && *c <= L'9' && id < UINT32_MAX;
+                id = id * 10 + (u64)(*c - L'0');
+            }
+            if (numbered && id <= UINT32_MAX && (u32)id != own && !P__ProcessRunning((u32)id)) {
+                P__RemoveTree(StrFormat(scratch.arena, "%S/%S", root, P__FileStringWide(scratch.arena, found.cFileName, lstrlenW(found.cFileName))));
+            }
+        } while (FindNextFileW(find, &found));
+        FindClose(find);
+    }
+    ReleaseScratch(scratch);
+}
+
+function void P_RemoveStaleRunFolders(void)
+{
+    Scratch scratch = GetScratch();
+    String run = P_RunFolder(scratch.arena);
+    Index slash = StrIndexChar(run, '/', SSF_SearchBackwards);
+    if (run.length && slash.exists) P__RemoveStaleRunFolders(StrFromTo(run, 0, (i64)slash.value), (u32)GetCurrentProcessId());
+    ReleaseScratch(scratch);
+}
+
 function b32 P_PathExists(String path)
 {
     Scratch scratch = GetScratch();

@@ -1865,6 +1865,29 @@ function void TestGitFetchLimit(TestFileFixture *fixture)
     Prog_Release(&state);
 }
 
+// Run folders of runs that are over go, with what is in them; this run's own and folders of other names stay.
+// Here in a folder of the test's own rather than the real one beside the run folder.
+function void TestStaleRunFolders(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String root = Prog_JoinPath(&arena, fixture->path, S("Runs")), made = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Runs"), true, &made).code);
+    // A number no process has, odd as no Windows process's is and past where Linux numbers them, one taken for this run's, and a folder of
+    // another name.
+    String gone = S("2000000001"), own = S("123"), other = S("keep");
+    String names[] = { gone, own, other };
+    for (u32 i = 0; i < CArrayCount(names); ++i) {
+        Check(!P_CreateItem(&arena, root, names[i], true, &made).code);
+        String folder = Prog_JoinPath(&arena, root, names[i]);
+        Check(!P_CreateItem(&arena, folder, S("inner"), true, &made).code);
+        Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, folder, S("inner/copy.txt")), S("taken out")).code);
+    }
+    P__RemoveStaleRunFolders(root, 123);
+    Check(!P_PathExists(Prog_JoinPath(&arena, root, gone)) && P_PathExists(Prog_JoinPath(&arena, root, own)) && P_PathExists(Prog_JoinPath(&arena, root, other)));
+    Check(!P_DeleteItems(&arena, &root, 1, false, NULL).code);
+    ArenaRelease(&arena);
+}
+
 // A big text file's lines counted in steps: each step's first line, its number and the highlighter's state there, across a block comment
 // that spans a step's start; and a window's lines from a state.
 function void TestTextIndex(TestFileFixture *fixture)
@@ -4366,6 +4389,7 @@ function void TestBrowsing(void)
         TestGitFetchLimit(&fixture);
         TestRepoCommits(&fixture);
         TestTextIndex(&fixture);
+        TestStaleRunFolders(&fixture);
         TestSchemeFiles(&fixture);
         TestStartupWindowColor(&fixture);
     TestPasteLinkAndQuick(&fixture);
