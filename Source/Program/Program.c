@@ -10276,26 +10276,28 @@ function void Prog__TabGhost(Prog_State *state, f32 scale, const Prog_Metrics *m
             }
             Prog__Label(Prog_PathName(state, path), UI_Flex(), height, 0, theme->text, 0);
         }
-        if (outside) return;
-        UI_SetNextPrefWidth(UI_Pixels(width));
-        UI_SetNextPrefHeight(UI_Pixels(m->row));
-        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-        UI_SetNextCornerRadius(radius);
-        UI_SetNextShape(R_Shape_SquareTopLeft | R_Shape_SquareTopRight);
-        UI_SetNextBorderThickness(m->separator);
-        UI_SetNextColors((UI_Colors){ .background = foot, .border = theme->tabBorder });
-        UI_Block *footer = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
-        UI_Parent(footer) {
-            Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
-            Prog__Label(action, UI_TextContent(), m->row, 0, theme->text, 0);
-            if (!copy) {
-                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->row));
-                Prog__Chip(key, m->row, false, false, m);
-                Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->row));
-                Prog__Label(hint, UI_TextContent(), m->row, 0, theme->text, 0);
+        // Outside the window only the tab shows, with nothing to say where it goes.
+        if (!outside) {
+            UI_SetNextPrefWidth(UI_Pixels(width));
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_SetNextCornerRadius(radius);
+            UI_SetNextShape(R_Shape_SquareTopLeft | R_Shape_SquareTopRight);
+            UI_SetNextBorderThickness(m->separator);
+            UI_SetNextColors((UI_Colors){ .background = foot, .border = theme->tabBorder });
+            UI_Block *footer = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder);
+            UI_Parent(footer) {
+                Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
+                Prog__Label(action, UI_TextContent(), m->row, 0, theme->text, 0);
+                if (!copy) {
+                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->row));
+                    Prog__Chip(key, m->row, false, false, m);
+                    Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(m->row));
+                    Prog__Label(hint, UI_TextContent(), m->row, 0, theme->text, 0);
+                }
+                Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
             }
-            Prog__Spacer(UI_Flex(), UI_Pixels(m->row));
         }
     }
 }
