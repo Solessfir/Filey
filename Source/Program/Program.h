@@ -1611,6 +1611,7 @@ typedef struct Prog_State {
     Prog_Inspected tip;
     String tooltipDetail;     // a line over the command, such as the folder a history button goes to
     b32 tooltipDescribes;     // that line says what the button does, and the command's hotkeys stay
+    String tooltipChip;       // a key that does the same, in a chip after a tip's last line of words
     String tooltipPath;       // a sidebar folder, whose tip shows what it holds instead
     f32 menuRight;            // when nonzero, the right edge the top level lines up with
     // Drag and drop.

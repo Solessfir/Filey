@@ -2186,6 +2186,7 @@ function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String
     if (kind == Prog_CommandKind_Up) to = Prog_UpPath(state->directory.path);
     state->tooltipDetail = to.length ? P_NativePath(&state->frameArena, to) : (String){0};
     state->tooltipDescribes = false;
+    state->tooltipChip = (String){0};
 }
 
 // Gives the tip of the button just added, when it is under the pointer, `words` over its command `kind`, a line each; with kind None only the words.
@@ -2204,6 +2205,14 @@ function void Prog__PopupTooltip(Prog_State *state, String words)
     Prog__DescribeTooltip(state, Prog_CommandKind_None, words);
     UI_Block *button = UI->parent->last;
     if (button && state->tooltipKey == button->key) state->tooltipAbove = true;
+}
+
+// The same with `key`, which does what the button does, in a chip after the words.
+function void Prog__PopupTooltipKey(Prog_State *state, String words, String key)
+{
+    Prog__PopupTooltip(state, words);
+    UI_Block *button = UI->parent->last;
+    if (button && state->tooltipKey == button->key) state->tooltipChip = key;
 }
 
 // The Type column header's button for the Types popup: a funnel, solid while some types are picked.
@@ -6712,7 +6721,9 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     String lead = Tr("Cmd:");
     f32 width = plain ? 0 : R_TextWidth(m->font, lead) + gap + R_TextWidth(m->font, label);
     for (u32 i = 0; i < hotkeyCount; ++i) width += chipGap + MaxF32(R_TextWidth(m->detail, hotkeys[i]) + 2 * floorf(4.8f * s + 0.5f), floorf(30.4f * s + 0.5f));
-    for (u64 i = 0; i < lines.header.count; ++i) width = MaxF32(width, R_TextWidth(m->font, lines.v[i]));
+    String chip = lines.header.count ? state->tooltipChip : (String){0};
+    f32 chipWidth = chip.length ? chipGap + MaxF32(R_TextWidth(m->detail, chip) + 2 * floorf(4.8f * s + 0.5f), floorf(30.4f * s + 0.5f)) : 0;
+    for (u64 i = 0; i < lines.header.count; ++i) width = MaxF32(width, R_TextWidth(m->font, lines.v[i]) + (i + 1 == lines.header.count ? chipWidth : 0));
     width += 2 * pad;
     R_Rect view = UI->root->rect, button = state->tooltipRect;
     // Centered under the button and kept a little inside the window.
@@ -6735,7 +6746,21 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextColors((UI_Colors){ .background = theme->menu, .border = theme->tabBorder });
     UI_Block *tip = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_DrawBorder);
     UI_Parent(tip) {
-        for (u64 i = 0; i < lines.header.count; ++i) Prog__Label(lines.v[i], UI_TextContent(), pitch, 0, theme->text, 0.5f);
+        for (u64 i = 0; i < lines.header.count; ++i) {
+            if (i + 1 < lines.header.count || !chip.length) {
+                Prog__Label(lines.v[i], UI_TextContent(), pitch, 0, theme->text, 0.5f);
+                continue;
+            }
+            UI_SetNextPrefWidth(UI_Pixels(R_TextWidth(m->font, lines.v[i]) + chipWidth));
+            UI_SetNextPrefHeight(UI_Pixels(pitch));
+            UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+            UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+            UI_Parent(UI_AddBlock(0)) {
+                Prog__Label(lines.v[i], UI_TextContent(), pitch, 0, theme->text, 0);
+                Prog__Spacer(UI_Pixels(chipGap), UI_Pixels(pitch));
+                Prog__Chip(chip, pitch, false, false, m);
+            }
+        }
         if (!plain) {
             UI_SetNextPrefWidth(UI_Fill());
             UI_SetNextPrefHeight(UI_Pixels(commandRow));
@@ -7413,7 +7438,7 @@ function void Prog__OptionControl(Prog_State *state, Prog_Option option, const P
         UI_Interaction restore = Prog__TextButton(StrFormat(frame, "OptionRestore/%u", (u32)option), Icon_RotateCcwSquare, m->icons, UI_Pixels(floorf(28.8f * s + 0.5f)),
                                                   height, 0, theme->icon, theme->text, theme->iconDisabled, true, m);
         if (restore.clicked) Prog_QueueCommand(state, Prog_CommandKind_OptionRestore, (u64)option, 0, restore.clickOrder);
-        Prog__PopupTooltip(state, Tr("Restore default setting (Backspace)."));
+        Prog__PopupTooltipKey(state, Tr("Restore default setting"), NoTr("Backspace"));
         Prog__Spacer(UI_Pixels(floorf(6.4f * s + 0.5f)), UI_Pixels(height));
     }
     switch (desc->control) {

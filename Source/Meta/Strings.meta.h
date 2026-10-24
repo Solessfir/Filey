@@ -307,7 +307,7 @@ global const char *const Prog_Strings[] = {
     "Type In Filter",
     "Trigger Hotkey",
     "Select Typed Item",
-    "Restore default setting (Backspace).",
+    "Restore default setting",
     "Not a number or a sum that makes one.",
     "%u muted",
     "Filter %u types...",
