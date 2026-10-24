@@ -72,6 +72,8 @@ typedef struct R_MeshHandle { u64 u64[2]; } R_MeshHandle;
 function R_MeshHandle R_MeshCreate(const f32 *positions, const f32 *uvs, const u32 *colors, u32 vertexCount, const u32 *indices, u64 indexCount);
 // A {0} handle is ignored.
 function void R_MeshRelease(R_MeshHandle mesh);
+// Writes `count` of `mesh`'s indices from the `first`, as a part's triangles put in another order.
+function void R_MeshIndices(R_MeshHandle mesh, u64 first, const u32 *indices, u64 count);
 // A run of a mesh's indices, `count` from `first`, drawn in `color` times its vertices' colors and, unless {0}, `texture`'s picture, whose
 // pixels with less than half their alpha are left out; with `blend`, see-through by their alphas instead, after the parts without.
 typedef struct R_MeshPart {

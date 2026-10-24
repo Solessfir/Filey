@@ -11130,6 +11130,49 @@ function void Prog__ModelAxes(Prog_State *state, f32 width, f32 height, const f3
     }
 }
 
+// The model's parts to draw, with the see-through ones from the farthest to the nearest as `toward`, the view's depth row, sees them:
+// each one's triangles written in that order over its indices, and the parts themselves in the order of their triangles' average depth.
+function const R_MeshPart *Prog__ModelOrder(Prog_State *state, const f32 toward[4])
+{
+    Prog_ModelView *model = &state->model;
+    if (!model->seeTriangles) return model->parts;
+    Arena *frame = &state->frameArena;
+    R_MeshPart *parts = ArenaPushArrayNoZero(frame, model->partCount, R_MeshPart);
+    MemCopy(parts, model->parts, model->partCount * sizeof(R_MeshPart));
+    f32 *depth = ArenaPushArrayNoZero(frame, model->partCount, f32);
+    u32 *sorted = ArenaPushArrayNoZero(frame, model->seeTriangles * 3, u32);
+    for (u32 i = 0, at = 0; i < model->partCount; ++i) {
+        u64 count = model->parts[i].count / 3;
+        depth[i] = 0;
+        if (!model->parts[i].blend || !count) continue;
+        Scratch scratch = GetScratchEx(frame);
+        f32 *keys = ArenaPushArrayNoZero(scratch.arena, count, f32);
+        u32 *order = ArenaPushArrayNoZero(scratch.arena, count, u32);
+        for (u64 t = 0; t < count; ++t) {
+            const f32 *middle = model->seeMiddles + (u64)(at + t) * 3;
+            keys[t] = toward[0] * middle[0] + toward[1] * middle[1] + toward[2] * middle[2];
+            depth[i] += keys[t] / (f32)count;
+            order[t] = (u32)t;
+        }
+        Prog_SortByKey(scratch.arena, keys, order, count);
+        u32 *out = sorted + (u64)at * 3;
+        for (u64 t = 0; t < count; ++t) MemCopy(out + t * 3, model->seeIndices + (u64)(at + order[t]) * 3, 12);
+        R_MeshIndices(model->mesh, model->parts[i].first, out, count * 3);
+        ReleaseScratch(scratch);
+        at += (u32)count;
+    }
+    // The see-through parts among themselves, farthest first, in the places they had in the list; the solid ones stay.
+    u32 *see = ArenaPushArrayNoZero(frame, model->partCount, u32);
+    f32 *keys = ArenaPushArrayNoZero(frame, model->partCount, f32);
+    u32 seeCount = 0;
+    for (u32 i = 0; i < model->partCount; ++i) if (model->parts[i].blend) keys[i] = depth[i], see[seeCount++] = i;
+    u32 *places = ArenaPushArrayNoZero(frame, Max(seeCount, 1u), u32);
+    MemCopy(places, see, seeCount * 4);
+    Prog_SortByKey(frame, keys, see, seeCount);
+    for (u32 k = 0; k < seeCount; ++k) parts[places[k]] = model->parts[see[k]];
+    return parts;
+}
+
 // A 3D model on the GPU, `height` tall above its details: dragging turns it about its up axis and tips it toward the view, the wheel zooms,
 // and a double click puts it back as it first showed. It is drawn into a texture of the view's size whenever the view or the size changes.
 function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Metrics *m)
@@ -11184,7 +11227,7 @@ function void Prog__InspectorModel(Prog_State *state, f32 height, const Prog_Met
         }
         f32 matrix[16] = { rows[0][0], rows[1][0], rows[2][0], 0, rows[0][1], rows[1][1], rows[2][1], 0, rows[0][2], rows[1][2], rows[2][2], 0, rows[0][3], rows[1][3], rows[2][3], 1 };
         MemCopy(state->model.turn, r, sizeof(r));
-        R_MeshDraw(state->model.mesh, state->model.texture, width, tall, matrix, state->model.parts, state->model.partCount);
+        R_MeshDraw(state->model.mesh, state->model.texture, width, tall, matrix, Prog__ModelOrder(state, rows[2]), state->model.partCount);
         MemCopy(state->model.drawn, now, sizeof(now));
         state->model.stale = false;
     }

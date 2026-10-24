@@ -6458,6 +6458,9 @@ function void Prog__DropModel(Prog_ModelView *model)
     model->images = NULL;
     model->parts = NULL;
     model->imageCount = model->partCount = 0;
+    model->seeIndices = NULL;
+    model->seeMiddles = NULL;
+    model->seeTriangles = 0;
 }
 
 // Lets go of an inspector's preview: its jobs, its textures, its model's mesh and its arena.
@@ -7220,6 +7223,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     }
                     state->model.parts = ArenaPushArray(&state->previewArena, Max(shape->partCount, 1u), R_MeshPart);
                     state->model.partCount = shape->partCount;
+                    state->model.seeTriangles = 0;
                     for (u32 i = 0; i < shape->partCount; ++i) {
                         const Prog_MeshPart *part = &shape->parts[i];
                         u32 c = part->color;
@@ -7227,6 +7231,22 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                                                               .color = { (f32)(c & 0xFF) / 255, (f32)((c >> 8) & 0xFF) / 255, (f32)((c >> 16) & 0xFF) / 255,
                                                                          part->blend ? (f32)(c >> 24) / 255 : 1 } };
                         if (part->image < shape->imageCount) state->model.parts[i].texture = state->model.images[part->image];
+                        if (part->blend) state->model.seeTriangles += part->count / 3;
+                    }
+                    // The see-through triangles as they came, to be put in order from the farthest as the view turns.
+                    state->model.seeIndices = ArenaPushArrayNoZero(&state->previewArena, Max(state->model.seeTriangles, (u64)1) * 3, u32);
+                    state->model.seeMiddles = ArenaPushArrayNoZero(&state->previewArena, Max(state->model.seeTriangles, (u64)1) * 3, f32);
+                    for (u32 i = 0, at = 0; i < shape->partCount; ++i) {
+                        const Prog_MeshPart *part = &shape->parts[i];
+                        if (!part->blend) continue;
+                        for (u64 t = 0; t < part->count / 3; ++t, ++at) {
+                            const u32 *corner = shape->indices + part->first + t * 3;
+                            MemCopy(state->model.seeIndices + (u64)at * 3, corner, 12);
+                            for (u32 k = 0; k < 3; ++k) {
+                                state->model.seeMiddles[(u64)at * 3 + k] = (shape->positions[(u64)corner[0] * 3 + k] + shape->positions[(u64)corner[1] * 3 + k] +
+                                                                            shape->positions[(u64)corner[2] * 3 + k]) / 3;
+                            }
+                        }
                     }
                     MemCopy(state->model.center, preview->model.center, sizeof(state->model.center));
                     state->model.radius = preview->model.radius;

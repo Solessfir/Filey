@@ -4605,6 +4605,37 @@ function u32 Prog__PaintAt(const Prog__Paint *paint, f32 l0, f32 l1, f32 l2)
     return result;
 }
 
+// `order`'s `count` indices sorted by their `keys`, from the least: a radix sort of the floats' bits, turned to order as their values do.
+function void Prog_SortByKey(Arena *arena, const f32 *keys, u32 *order, u64 count)
+{
+    if (count < 2) return;
+    Scratch scratch = GetScratchEx(arena);
+    u32 *bits = ArenaPushArrayNoZero(scratch.arena, count, u32), *otherBits = ArenaPushArrayNoZero(scratch.arena, count, u32);
+    u32 *otherOrder = ArenaPushArrayNoZero(scratch.arena, count, u32), *from = order, *to = otherOrder;
+    for (u64 i = 0; i < count; ++i) {
+        u32 b;
+        MemCopy(&b, &keys[order[i]], 4);
+        bits[i] = b & 0x80000000u ? ~b : b | 0x80000000u;
+    }
+    for (u32 shift = 0; shift < 32; shift += 8) {
+        u64 counts[257] = {0};
+        for (u64 i = 0; i < count; ++i) ++counts[((bits[i] >> shift) & 0xFF) + 1];
+        for (u32 k = 1; k < 257; ++k) counts[k] += counts[k - 1];
+        for (u64 i = 0; i < count; ++i) {
+            u64 at = counts[(bits[i] >> shift) & 0xFF]++;
+            otherBits[at] = bits[i];
+            to[at] = from[i];
+        }
+        u32 *swap = bits;
+        bits = otherBits, otherBits = swap;
+        swap = from;
+        from = to, to = swap;
+    }
+    // Four passes leave them where they started.
+    if (from != order) MemCopy(order, from, count * 4);
+    ReleaseScratch(scratch);
+}
+
 // A sample's straight color `*shade` and alpha `*alpha` with `color` over them, by its alpha.
 function void Prog__PaintOver(u32 *shade, u8 *alpha, u32 color)
 {
@@ -4664,17 +4695,33 @@ function u32 *Prog_DrawMesh(Arena *arena, const Prog_ModelShape *shape, i32 size
         const f32 lx = -0.398f, ly = 0.597f, lz = 0.697f;
         b32 cancelled = false;
         const u32 *indices = shape->indices;
-        // The solid parts first, then the see-through ones over them, which leave the depth as it was.
-        b32 seeThrough = false;
-        for (u32 i = 0; i < shape->partCount; ++i) seeThrough |= shape->parts[i].blend;
-        for (u32 pass = 0; pass < (seeThrough ? 2u : 1u) && !cancelled; ++pass)
-        for (u64 t = 0, part = 0; t < triangles; ++t) {
-            if ((t & 0x3FFF) == 0x3FFF && P_IsCancelled(cancel)) {
+        // The solid parts first, then the see-through ones over them, from the farthest triangle to the nearest, which leave the depth as
+        // it was.
+        u32 *partOf = shape->partCount ? ArenaPushArrayNoZero(scratch.arena, triangles, u32) : NULL;
+        u64 seeCount = 0;
+        for (u64 t = 0, part = 0; partOf && t < triangles; ++t) {
+            while (part + 1 < shape->partCount && shape->parts[part + 1].first <= t * 3) ++part;
+            partOf[t] = (u32)part;
+            seeCount += shape->parts[part].blend ? 1 : 0;
+        }
+        u32 *order = seeCount ? ArenaPushArrayNoZero(scratch.arena, seeCount, u32) : NULL;
+        f32 *keys = seeCount ? ArenaPushArrayNoZero(scratch.arena, triangles, f32) : NULL;
+        for (u64 t = 0, n = 0; order && t < triangles; ++t) {
+            if (!shape->parts[partOf[t]].blend) continue;
+            const u32 *at = indices + t * 3;
+            keys[t] = at[0] < vertices && at[1] < vertices && at[2] < vertices ? view[(u64)at[0] * 3 + 2] + view[(u64)at[1] * 3 + 2] + view[(u64)at[2] * 3 + 2] : 0;
+            order[n++] = (u32)t;
+        }
+        if (order) Prog_SortByKey(scratch.arena, keys, order, seeCount);
+        for (u32 pass = 0; pass < (seeCount ? 2u : 1u) && !cancelled; ++pass)
+        for (u64 k = 0; k < (pass ? seeCount : triangles); ++k) {
+            if ((k & 0x3FFF) == 0x3FFF && P_IsCancelled(cancel)) {
                 cancelled = true;
                 break;
             }
-            while (part + 1 < shape->partCount && shape->parts[part + 1].first <= t * 3) ++part;
-            b32 blended = shape->partCount && shape->parts[part].blend;
+            u64 t = pass ? order[k] : k;
+            u32 part = partOf ? partOf[t] : 0;
+            b32 blended = partOf && shape->parts[part].blend;
             if (blended != (pass == 1)) continue;
             u32 ia = indices[t * 3], ib = indices[t * 3 + 1], ic = indices[t * 3 + 2];
             const f32 *a = view + (u64)ia * 3, *b = view + (u64)ib * 3, *c = view + (u64)ic * 3;

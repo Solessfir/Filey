@@ -596,6 +596,15 @@ function R_MeshHandle R_MeshCreate(const f32 *positions, const f32 *uvs, const u
     return (R_MeshHandle){ { (u64)made.vertexArray | (u64)made.positions << 32, (u64)made.indices | (u64)(u32)made.count << 32 } };
 }
 
+function void R_MeshIndices(R_MeshHandle handle, u64 first, const u32 *indices, u64 count)
+{
+    GL_Mesh mesh = GL__MeshFromHandle(handle);
+    if (!mesh.vertexArray || first + count > (u64)mesh.count || !count) return;
+    GL.BindVertexArray(mesh.vertexArray);
+    GL.BufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)(first * 4), (GLsizeiptr)(count * 4), indices);
+    GL.BindVertexArray(GL.vertexArray);
+}
+
 function void R_MeshRelease(R_MeshHandle handle)
 {
     GL_Mesh mesh = GL__MeshFromHandle(handle);

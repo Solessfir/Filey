@@ -1263,6 +1263,10 @@ typedef struct Prog_ModelView {
     R_MeshHandle mesh;
     R_MeshPart *parts;
     u32 partCount;
+    // The see-through parts' triangles, in the parts' order, and each one's middle, put in order from the farthest each time it is drawn.
+    u32 *seeIndices;
+    f32 *seeMiddles;
+    u64 seeTriangles;
     R_TextureHandle *images;
     u32 imageCount;
     f32 center[3], radius;

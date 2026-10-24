@@ -525,6 +525,23 @@ function void TestModels(void)
         }
         Check(pixels && alone && over && solid);
     }
+    // Sorting by depth: floats of either sign in their order; the inspector's see-through parts from the farthest along the view, in the
+    // places see-through parts had, and the solid one where it was.
+    {
+        f32 keys[5] = { 2.5f, -1, 0, -7.25f, 1e9f };
+        u32 order[5] = { 0, 1, 2, 3, 4 };
+        Prog_SortByKey(&arena, keys, order, 5);
+        Check(order[0] == 3 && order[1] == 1 && order[2] == 2 && order[3] == 0 && order[4] == 4);
+        Prog_State *state = ArenaPushStruct(&arena, Prog_State);
+        R_MeshPart parts[3] = { { .first = 0, .count = 3, .blend = true }, { .first = 3, .count = 3 }, { .first = 6, .count = 3, .blend = true } };
+        u32 indices[6] = { 0, 1, 2, 6, 7, 8 };
+        f32 middles[6] = { 0, 0, 5, 0, 0, -5 };
+        state->model = (Prog_ModelView){ .parts = parts, .partCount = 3, .seeIndices = indices, .seeMiddles = middles, .seeTriangles = 2 };
+        f32 toward[4] = { 0, 0, 1, 0 };
+        const R_MeshPart *drawn = Prog__ModelOrder(state, toward);
+        Check(drawn[0].first == 6 && drawn[1].first == 3 && !drawn[1].blend && drawn[2].first == 0);
+        ArenaRelease(&state->frameArena);
+    }
     // The mesh for the GPU: a triangle naming a vertex that is not there is left out, Z up turns Y up, and its bounds' center and radius.
     {
         Prog_Mesh square = { .zUp = true };
