@@ -758,7 +758,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->archiveLevel = 9;
     state->videoCodec = 0;
     state->videoQuality = 20;
-    state->downloadAudio = state->deleteFinishedTorrents = false;
+    state->downloadAudio = state->downloadPlaylist = state->deleteFinishedTorrents = false;
     state->audioVolume = 100;
     state->noticeLevel = Prog_NoticeKind_Info;
     state->noticesInSidebar = true;
@@ -856,6 +856,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             for (u32 i = 0; i < CArrayCount(Prog_OptionVideoCodecs); ++i) if (Prog__EqualFolded(value, Prog_OptionVideoCodecs[i])) state->videoCodec = (u8)i;
         } else if (StrIsEqual(name, S("download.audio"))) {
             state->downloadAudio = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("download.playlist"))) {
+            state->downloadPlaylist = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("torrents.delete"))) {
             state->deleteFinishedTorrents = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("audio.volume"))) {
@@ -1043,6 +1045,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
     StrBuildStr(arena, &text, S("\n# What Compress Video encodes to (hevc, h264 or av1), on the graphics card when it can, and its constant quality, from 0 (best,\n"
                                 "# largest) to 51; 18 to 23 keeps a video looking as it did.\n# video.codec = hevc\n# video.quality = 20\n"
                                 "\n# Whether a web address pasted into a folder, downloaded with yt-dlp, comes down as its sound alone, as MP3.\n# download.audio = false\n"
+                                "\n# Whether the address of a video in a playlist downloads the whole playlist rather than the video alone.\n# download.playlist = false\n"
                                 "\n# Whether a torrent downloaded whole, every file in it, sends its .torrent file to the bin.\n# torrents.delete = false\n"
                                 "\n# How loud the inspector plays audio files, from 0 to 100.\n# audio.volume = 100\n"));
     StrBuildStr(arena, &text, StrFormat(arena, "\n# The language of Filey's text by its name: English, a built-in one, or a custom <name>.lang file in this folder.\n"
@@ -1163,6 +1166,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                    Prog_OptionControl_Slider, 0, 51, NULL, 0, SInit("video.quality") },
     [Prog_Option_DownloadAudio] = { TrInit("Download Audio Only"), TrInit("A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3."),
                                     Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("download.audio") },
+    [Prog_Option_DownloadPlaylist] = { TrInit("Download Playlists"), TrInit("The web address of a video in a playlist downloads every video of the playlist, rather than that one alone."),
+                                       Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("download.playlist") },
     [Prog_Option_DeleteFinishedTorrents] = { TrInit("Delete Finished Torrents"), TrInit("Sends a .torrent file to the Recycle Bin once every file in it has downloaded."),
                                              Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("torrents.delete") },
     [Prog_Option_AudioVolume] = { TrInit("Audio Volume"), TrInit("How loud the inspector plays audio files."), Prog_OptionControl_Slider, 0, 100, NULL, 0, SInit("audio.volume") },
@@ -1311,6 +1316,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_VideoCodec: return state->videoCodec;
         case Prog_Option_VideoQuality: return state->videoQuality;
         case Prog_Option_DownloadAudio: return state->downloadAudio;
+        case Prog_Option_DownloadPlaylist: return state->downloadPlaylist;
         case Prog_Option_DeleteFinishedTorrents: return state->deleteFinishedTorrents;
         case Prog_Option_AudioVolume: return state->audioVolume;
         case Prog_Option_StoreRecents: return state->storeRecents;

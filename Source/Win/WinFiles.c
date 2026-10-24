@@ -1184,6 +1184,17 @@ function b32 P_PathExists(String path)
     return result;
 }
 
+function b32 P_FileSize(String path, u64 *size)
+{
+    Scratch scratch = GetScratch();
+    wchar *wide = P__FileExtendedPath(scratch.arena, path);
+    WIN32_FILE_ATTRIBUTE_DATA data = {0};
+    b32 result = wide && GetFileAttributesExW(wide, GetFileExInfoStandard, &data) && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+    *size = result ? ((u64)data.nFileSizeHigh << 32) | data.nFileSizeLow : 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function void P_Sleep(u32 milliseconds)
 {
     Sleep(milliseconds);

@@ -433,6 +433,7 @@ typedef struct Prog_JobInput {
     u8 archiveLevel;  // how hard what goes into an archive is compressed, 0 to 9
     u8 videoCodec, videoQuality;  // what a video is compressed to
     b32 downloadAudio;            // a download is the sound alone
+    b32 downloadPlaylist;         // a video's address in a playlist downloads the whole playlist
     const atomic_uint *volume;    // what audio plays at, 0 to 100, read as it plays
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
@@ -761,6 +762,7 @@ enum { Prog_MaxNotices = 5 };
 typedef struct Prog_Transferred {
     P_FileError error;  // first, as for the other file operations' results
     ArrayStr placed;
+    u64 sizeBefore, sizeAfter;  // the compressed videos' bytes before and after
 } Prog_Transferred;
 
 typedef struct Prog_Created {
@@ -865,6 +867,7 @@ typedef enum Prog_Option {
     Prog_Option_VideoCodec,
     Prog_Option_VideoQuality,
     Prog_Option_DownloadAudio,
+    Prog_Option_DownloadPlaylist,
     Prog_Option_DeleteFinishedTorrents,
     Prog_Option_AudioVolume,
     Prog_Option_Notices,
@@ -1721,6 +1724,7 @@ typedef struct Prog_State {
     u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
     u8 videoQuality;  // its constant quality, 0 (best) to 51
     b32 downloadAudio;  // downloads by URL take the sound alone, as MP3
+    b32 downloadPlaylist;  // the address of a video in a playlist downloads all of the playlist
     b32 deleteFinishedTorrents;  // a torrent downloaded whole sends its .torrent to the bin
     u8 audioVolume;     // how loud the inspector plays audio, 0 to 100
     u8 noticeLevel;  // the least Prog_NoticeKind shown, Prog_NoticeKind_Count for none
@@ -2109,7 +2113,7 @@ function u64 Prog_TorrentWaiting(const Prog_State *state, String path);
 function void Prog_GitPull(Prog_State *state);
 function b32 Prog_PlayAudio(Arena *arena, String path, u64 start, const atomic_uint *volume, P_Progress *progress, const P_CancelToken *cancel);
 function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, const String *paths, u64 count, String directory, b32 flag, String name, Prog_TransferOp op);
-function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
+function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, b32 playlist, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed);
 function P_FileError Prog_CompressVideo(Arena *arena, String path, u32 codec, u32 quality, u64 base, P_Progress *progress, const P_CancelToken *cancel, String *output);
 function String Prog__NameStem(String name);
 function String Prog__FreeName(Arena *arena, String directory, String stem, String extension);

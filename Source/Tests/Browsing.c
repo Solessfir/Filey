@@ -494,13 +494,19 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
             Prog__EncodingOutput(&encoding, S("00000\r\nspeed= 2.5x\nNo such filter\n"));
             Check(atomic_load(&progress.doneBytes) == 5500 && StrIsEqual(Prog__TransferName(&quiet.frameArena, &progress), S("clip.mkv \u00B7 2.5x")));
             Check(StrIsEqual(StrMake(encoding.message, encoding.messageLength), S("No such filter")));
-            // yt-dlp's marked lines: the title, how far a part is with its name holding spaces, the finished file and errors; only web addresses
-            // are downloaded.
+            // yt-dlp's marked lines: a playlist's count, the title, how far a part is with its name holding spaces, the finished files and
+            // errors; only web addresses are downloaded.
             P_Progress fetched = {0};
-            Prog__Fetch fetch = { .progress = &fetched };
-            Prog__FetchOutput(&fetch, S("FILEYTITLE Me at the zoo\nFILEY 1024 NA 4096 2048.5 3 Me at the zoo.f1.mp4.part\n[info] noise\nERROR: Gone\nFILEYDONE C:/v/Me.mp4\n"));
+            Arena fetchArena = {0};
+            ArrayStr fetchedFiles = {0};
+            Prog__Fetch fetch = { .progress = &fetched, .arena = &fetchArena, .placed = &fetchedFiles };
+            Prog__FetchOutput(&fetch, S("FILEYITEM 3\nFILEYTITLE Me at the zoo\nFILEY 1024 NA 4096 2048.5 3 Me at the zoo.f1.mp4.part\n[info] noise\nERROR: Gone\n"));
             Check(atomic_load(&fetched.totalBytes) == 4096 && atomic_load(&fetched.doneBytes) == 1024 && StrIsEqual(StrMake(fetch.part, fetch.partLength), S("Me at the zoo.f1.mp4.part")));
-            Check(StrIsEqual(StrMake(fetch.done, fetch.doneLength), S("C:/v/Me.mp4")) && StrIsEqual(StrMake(fetch.message, fetch.messageLength), S("Gone")));
+            Check(atomic_load(&fetched.totalItems) == 3 && StrIsEqual(StrMake(fetch.message, fetch.messageLength), S("Gone")));
+            Prog__FetchOutput(&fetch, S("FILEYDONE C:/v/Me.mp4\nFILEYITEM NA\nFILEYDONE C:/v/Next.mp4\n"));
+            Check(fetchedFiles.header.count == 2 && StrIsEqual(fetchedFiles.v[0], S("C:/v/Me.mp4")) && StrIsEqual(fetchedFiles.v[1], S("C:/v/Next.mp4")));
+            Check(atomic_load(&fetched.doneItems) == 2 && atomic_load(&fetched.totalItems) == 3 && !fetch.partLength);
+            ArenaRelease(&fetchArena);
             // aria2c's readout, rewritten in place with carriage returns, its finished path and errors; torrents by link or name.
             P_Progress seeded = {0};
             Prog__Torrent torrent = { .progress = &seeded, .name = S("bbb") };
@@ -1254,6 +1260,8 @@ function void TestFileIcons(TestFileFixture *fixture)
     Check(P__TestRemovePath(fixture, S(".git/HEAD"), false) && P__TestRemovePath(fixture, S(".git"), true));
     String part = {0};
     Check(P_ReadFileAt(&arena, plain, 1, 8, &part) && StrIsEqual(part, S("\x02")));
+    u64 plainSize = 0;
+    Check(P_FileSize(plain, &plainSize) && plainSize == 2 && !P_FileSize(fixture->path, &plainSize) && !P_FileSize(Prog_JoinPath(&arena, fixture->path, S("missing.bin")), &plainSize));
     // An archive lists its folders and files with their paths inside it; one made by Python's zipfile, a folder "docs" holding "a.txt".
     local_persist const char zipped[] = "\x50\x4b\x03\x04\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x64\x6f\x63\x73\x2f\x50\x4b\x03\x04\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\xac\x2a\x93\xd8\x02\x00\x00\x00\x02\x00\x00\x00\x0a\x00\x00\x00\x64\x6f\x63\x73\x2f\x61\x2e\x74\x78\x74\x68\x69\x50\x4b\x01\x02\x14\x00\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\xfd\x41\x00\x00\x00\x00\x64\x6f\x63\x73\x2f\x50\x4b\x01\x02\x14\x00\x14\x00\x00\x00\x00\x00\x9a\x0d\x50\x5d\xac\x2a\x93\xd8\x02\x00\x00\x00\x02\x00\x00\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x01\x23\x00\x00\x00\x64\x6f\x63\x73\x2f\x61\x2e\x74\x78\x74\x50\x4b\x05\x06\x00\x00\x00\x00\x02\x00\x02\x00\x6b\x00\x00\x00\x4d\x00\x00\x00\x00\x00";
     String archive = Prog_JoinPath(&arena, fixture->path, S("pack.zip"));

@@ -2465,6 +2465,7 @@ function Prog_Transfer *Prog__FileJobOp(Prog_State *state, Prog_JobKind kind, co
     input->videoCodec = state->videoCodec;
     input->videoQuality = state->videoQuality;
     input->downloadAudio = state->downloadAudio;
+    input->downloadPlaylist = state->downloadPlaylist;
     input->path = StrCopy(&job->arena, directory);
     input->paths = ArenaPushArray(&job->arena, Max(count, (u64)1), String);
     for (u64 i = 0; i < count; ++i) input->paths[i] = StrCopy(&job->arena, paths[i]);

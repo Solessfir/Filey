@@ -2184,6 +2184,17 @@ function b32 P_PathExists(String path)
     return result;
 }
 
+function b32 P_FileSize(String path, u64 *size)
+{
+    Scratch scratch = GetScratch();
+    char *native = P__FilePathCString(scratch.arena, path);
+    struct stat info;
+    b32 result = native && stat(native, &info) == 0 && S_ISREG(info.st_mode);
+    *size = result ? (u64)info.st_size : 0;
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function void P_Sleep(u32 milliseconds)
 {
     struct timespec wait = { .tv_sec = milliseconds / 1000, .tv_nsec = (long)(milliseconds % 1000) * 1000000 };

@@ -341,18 +341,19 @@ function String Prog__MediaClock(Arena *arena, u64 seconds)
     return hours ? StrFormat(arena, "%u:%02u:%02u", (u32)hours, (u32)(seconds / 60 % 60), (u32)(seconds % 60)) : StrFormat(arena, "%u:%02u", (u32)(seconds / 60), (u32)(seconds % 60));
 }
 
-// What yt-dlp writes as it downloads, through the lines its templates mark: the title, how far each part is with its speed and time left
-// and where it is written, the finished file, and its errors.
+// What yt-dlp writes as it downloads, through the lines its templates mark: the title and a playlist's count, how far each part is with
+// its speed and time left and where it is written, the finished files, and its errors.
 typedef struct Prog__Fetch {
     P_Progress *progress;
+    Arena *arena;         // where the finished files' paths go
+    ArrayStr *placed;
+    u64 placedBefore;     // how many of `placed` were there before
     char pending[2048];
     u64 pendingLength;
     char title[256];
     u64 titleLength;
     char part[512];       // the part being written, removed when the download stops short
     u64 partLength;
-    char done[1024];      // the finished file
-    u64 doneLength;
     char message[256];
     u64 messageLength;
 } Prog__Fetch;
@@ -371,7 +372,13 @@ function void Prog__FetchLine(Prog__Fetch *fetch, String line)
         Prog__FetchKeep(fetch->title, sizeof(fetch->title), &fetch->titleLength, StrFrom(line, 11));
         if (fetch->progress) P_ProgressName(fetch->progress, StrMake(fetch->title, fetch->titleLength));
     } else if (line.length > 10 && StrIsEqual(StrFromTo(line, 0, 10), S("FILEYDONE "))) {
-        Prog__FetchKeep(fetch->done, sizeof(fetch->done), &fetch->doneLength, StrFrom(line, 10));
+        ArrayPush(fetch->arena, *fetch->placed, StrCopy(fetch->arena, StrFrom(line, 10)));
+        fetch->partLength = 0;
+        if (fetch->progress) atomic_store(&fetch->progress->doneItems, fetch->placed->header.count - fetch->placedBefore);
+    } else if (line.length > 10 && StrIsEqual(StrFromTo(line, 0, 10), S("FILEYITEM "))) {
+        // A playlist's video count, "NA" for a video alone.
+        u64 count = (u64)Prog__MediaNumber(StrFrom(line, 10));
+        if (fetch->progress && count > 1) atomic_store(&fetch->progress->totalItems, count);
     } else if (line.length > 6 && StrIsEqual(StrFromTo(line, 0, 6), S("FILEY "))) {
         // Downloaded, total, estimated total, speed and seconds left, "NA" for those not known yet, then the part's name, which may hold spaces.
         String fields[5] = {0}, rest = StrFrom(line, 6);
@@ -421,15 +428,17 @@ function b32 Prog_IsWebUrl(String text)
 }
 
 // Downloads the video at the web address `url` into `folder` with yt-dlp, at its best quality as MP4, or with `audio` its sound alone as MP3,
-// named after its title. The finished file goes into `placed`; a cancel or a failure leaves no part behind.
-function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
+// named after its title; with `playlist`, the address of a video in a playlist downloads all of it, as a playlist's own address always does.
+// The finished files go into `placed`; a video that fails is passed over, a cancel or a failure leaves no part behind, and it fails only when
+// nothing came down.
+function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b32 audio, b32 playlist, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
 {
     Scratch scratch = GetScratchEx(arena);
     String arguments[32];
     u32 count = 0;
 #define Prog__Argument(text) (arguments[count++] = (text))
     Prog__Argument(S("yt-dlp")), Prog__Argument(S("--encoding")), Prog__Argument(S("utf-8")), Prog__Argument(S("--newline")), Prog__Argument(S("--no-colors"));
-    Prog__Argument(S("--no-playlist")), Prog__Argument(S("--progress")), Prog__Argument(S("--no-simulate"));
+    Prog__Argument(playlist ? S("--yes-playlist") : S("--no-playlist")), Prog__Argument(S("--progress")), Prog__Argument(S("--no-simulate"));
     if (audio) {
         Prog__Argument(S("-f")), Prog__Argument(S("ba/b")), Prog__Argument(S("-x")), Prog__Argument(S("--audio-format")), Prog__Argument(S("mp3"));
         Prog__Argument(S("--audio-quality")), Prog__Argument(S("0"));
@@ -438,26 +447,28 @@ function P_FileError Prog_DownloadUrl(Arena *arena, String url, String folder, b
     }
     Prog__Argument(S("--progress-template"));
     Prog__Argument(S("download:FILEY %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s %(progress.tmpfilename)s"));
+    Prog__Argument(S("--print")), Prog__Argument(S("before_dl:FILEYITEM %(playlist_count)s"));
     Prog__Argument(S("--print")), Prog__Argument(S("before_dl:FILEYTITLE %(title)s"));
     Prog__Argument(S("--print")), Prog__Argument(S("after_move:FILEYDONE %(filepath)s"));
     Prog__Argument(S("-o")), Prog__Argument(S("%(title)s.%(ext)s")), Prog__Argument(S("--")), Prog__Argument(url);
 #undef Prog__Argument
     Prog__Fetch *fetch = ArenaPushStruct(scratch.arena, Prog__Fetch);
     fetch->progress = progress;
+    fetch->arena = arena;
+    fetch->placed = placed;
+    fetch->placedBefore = placed->header.count;
     if (progress) {
         atomic_store(&progress->totalItems, 1);
         P_ProgressName(progress, url);
     }
-    b32 done = P_RunCommandStream(folder, arguments, count, true, Prog__FetchOutput, fetch, cancel, progress);
+    P_RunCommandStream(folder, arguments, count, true, Prog__FetchOutput, fetch, cancel, progress);
+    // The part of a video that stopped short is removed; a finished one's is gone by then.
+    if (fetch->partLength) {
+        String part = Prog_JoinPath(scratch.arena, folder, StrMake(fetch->part, fetch->partLength));
+        if (P_PathExists(part)) P_DeleteItems(scratch.arena, &part, 1, false, NULL);
+    }
     P_FileError result = {0};
-    if (done && fetch->doneLength) {
-        ArrayPush(arena, *placed, StrCopy(arena, StrMake(fetch->done, fetch->doneLength)));
-        if (progress) atomic_store(&progress->doneItems, 1);
-    } else {
-        if (fetch->partLength) {
-            String part = Prog_JoinPath(scratch.arena, folder, StrMake(fetch->part, fetch->partLength));
-            if (P_PathExists(part)) P_DeleteItems(scratch.arena, &part, 1, false, NULL);
-        }
+    if (placed->header.count == fetch->placedBefore) {
         String message = fetch->messageLength ? StrCopy(arena, StrMake(fetch->message, fetch->messageLength)) : TrMark("yt-dlp is not installed, or found nothing to download there");
         result = (P_FileError){ .code = 1, .message = message };
     }

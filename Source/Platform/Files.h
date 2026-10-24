@@ -370,6 +370,8 @@ function b32 P_RealPath(Arena *arena, String path, String *real);
 function void P_Sleep(u32 milliseconds);
 // Waits up to `milliseconds` until nothing is left at any of `paths`, as after the shell started moving them; false when something still is.
 function b32 P_WaitGone(const String *paths, u64 count, u32 milliseconds);
+// The size in bytes of the file at `path`; false when there is none.
+function b32 P_FileSize(String path, u64 *size);
 // Up to `limit` bytes of `path` from `offset` on; fewer past its end.
 function b32 P_ReadFileAt(Arena *arena, String path, u64 offset, u64 limit, String *contents);
 // Replaces the file with `contents` in one step, so that a crash leaves the old or the new file and never half of one.

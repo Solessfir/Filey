@@ -3249,3 +3249,15 @@ Hide UI
 
 Hide the sidebar, the toolbars and the status bars, or show them again.
 = Скрыть боковую панель, панели инструментов и строки состояния или показать их снова.
+
+Download Playlists
+= Скачивать плейлисты
+
+The web address of a video in a playlist downloads every video of the playlist, rather than that one alone.
+= Веб-адрес видео из плейлиста скачивает все видео плейлиста, а не только это.
+
+%S became %S, %u%% of the size.
+= %S стало %S, %u%% от размера.
+
+Compressed
+= Видео сжато

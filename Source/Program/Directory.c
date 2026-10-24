@@ -1162,7 +1162,7 @@ function P_FileError Prog__TransferOp(Arena *arena, const Prog_JobInput *input, 
     }
     if (input->transferOp == Prog_TransferOp_Torrent) return Prog_DownloadTorrent(arena, input->paths[0], input->path, input->name, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_TorrentFetch) return Prog_FetchTorrent(arena, input->paths[0], input->path, input->progress, cancel, placed);
-    if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->progress, cancel, placed);
+    if (input->transferOp == Prog_TransferOp_Download) return Prog_DownloadUrl(arena, input->paths[0], input->path, input->downloadAudio, input->downloadPlaylist, input->progress, cancel, placed);
     if (input->transferOp == Prog_TransferOp_Pack) {
         String archive = Prog_JoinPath(arena, input->path, input->name);
         result = P_AddToArchive(arena, archive, (String){0}, input->paths, input->pathCount, input->archiveLevel, input->progress, cancel);
@@ -2391,6 +2391,14 @@ function void Prog__DirectoryJob(P_Job *job)
         if (P_IsCancelled(&job->cancelToken)) {
         } else if (input->kind == Prog_JobKind_Transfer) {
             ProfileScope("TransferItems") *error = Prog__Transfer(&job->arena, input, &result->placed, &job->cancelToken);
+            // Compressed videos are measured for the notice of how much smaller they came out.
+            for (u64 i = 0; input->transferOp == Prog_TransferOp_CompressVideo && i < result->placed.header.count && i < input->pathCount; ++i) {
+                u64 before = 0, after = 0;
+                if (P_FileSize(input->paths[i], &before) && P_FileSize(result->placed.v[i], &after)) {
+                    result->sizeBefore += before;
+                    result->sizeAfter += after;
+                }
+            }
         } else if (input->kind == Prog_JobKind_Delete) {
             ProfileScope("DeleteItems") *error = P_DeleteItems(&job->arena, input->paths, input->pathCount, input->confirm, &job->cancelToken);
         } else if (input->kind == Prog_JobKind_EmptyTrash) {
@@ -7063,6 +7071,13 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 // The new item is selected once the listing shows it, and a new file or folder renamed.
                 String name = Prog__ListedName(&state->frameArena, state, input->path, ((Prog_Created *)job->result)->name);
                 if (name.length && Prog_SelectNext(state, name)) state->selectRename = input->kind == Prog_JobKind_Create;
+            }
+            if (!error.code && input->transferOp == Prog_TransferOp_CompressVideo && job->result && ((const Prog_Transferred *)job->result)->sizeBefore) {
+                const Prog_Transferred *compressed = job->result;
+                u32 percent = (u32)((compressed->sizeAfter * 100 + compressed->sizeBefore / 2) / compressed->sizeBefore);
+                Prog_Notify(state, Prog_NoticeKind_Info, S("video.compressed"), Tr("Compressed"),
+                            StrFormat(&state->frameArena, TrF("%S became %S, %u%% of the size."), Prog_FormatSize(&state->frameArena, compressed->sizeBefore),
+                                      Prog_FormatSize(&state->frameArena, compressed->sizeAfter), percent));
             }
             // A torrent's files are read once more when its download is over, to show what it left.
             if (input->transferOp == Prog_TransferOp_Torrent && StrIsEqual(state->previewPath, input->paths[0])) state->torrentRead = false;
