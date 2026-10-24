@@ -2839,10 +2839,9 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
         UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(1.6f * scale + 0.5f), 0, 0 });
         UI_Block *plusBox = UI_AddBlock(0);
         UI_Parent(plusBox) {
-            // An even margin around it in the box keeps it, and the bars in it, on whole pixels.
-            f32 lift = floorf(1.6f * scale + 0.5f), addWidth = floorf(plus * 0.8f), addHeight = floorf(plus * 0.75f);
+            // Down to the strip's line, as the window buttons; an even margin either side keeps it, and the bars in it, on whole pixels.
+            f32 lift = floorf(1.6f * scale + 0.5f), addWidth = floorf(plus * 0.8f), addHeight = height - lift;
             addWidth -= fmodf(plus - addWidth, 2);
-            addHeight -= fmodf(height - lift - addHeight, 2);
             UI_Interaction add = Prog__TextButton(S("TabNew"), S(""), m->icons, UI_Pixels(addWidth), addHeight, 0, Prog__CaptionInk(theme), theme->text, theme->iconDisabled,
                                                   state->tabCount < Prog_MaxTabs, m);
             if (add.clicked) Prog_QueueCommand(state, Prog_CommandKind_TabNew, 0, 0, add.clickOrder);
@@ -2858,17 +2857,18 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                 Prog__IconRect(x + across, y + across + weight, weight, across, button->props.colors.text, 0, 0);
             }
         }
-        // The tab list, left of the window buttons; in the title bar it fills the strip under its border as they do.
+        // The tab list, left of the window buttons; in the title bar level with the tabs and the plus, in a box of their height.
         b32 maximized = PlatformWindowIsMaximized();
         UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap - floorf((maximized ? 2.4f : 4.8f) * scale + 0.5f),
-                                            caption ? -top : -floorf(0.8f * scale + 0.5f) });
+                                            caption ? 0 : -floorf(0.8f * scale + 0.5f) });
         UI_SetNextPrefWidth(UI_Pixels(button));
-        UI_SetNextPrefHeight(UI_Pixels(caption ? bar - m->separator : height));
+        UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
+        if (caption) UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(1.6f * scale + 0.5f), 0, 0 });
         UI_Block *listBox = UI_AddBlock(UI_Flag_Floating);
         UI_Parent(listBox) {
-            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, caption ? bar - m->separator : floorf(26.4f * scale + 0.5f), m);
+            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, caption ? height - floorf(1.6f * scale + 0.5f) : floorf(26.4f * scale + 0.5f), m);
             if (state->currentPanel == state->activePanel) state->tabListRect = listBox->last->rect;
         }
         // The window buttons fill the strip's full height at its right end.

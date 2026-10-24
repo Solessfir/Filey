@@ -1,9 +1,5 @@
 # TODO
 
-## Look
-
-- Low priority: in the title bar the new tab plus sits level with the tabs, which hang below the strip's middle, while the tab list's chevron and the window buttons are centered on the whole strip, about 5 pixels higher. Likely fix: the chevron level with the tabs too, in a tab-sized box, as Windows Terminal and Chrome pair them.
-
 ## Missing
 
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
