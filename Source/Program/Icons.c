@@ -487,8 +487,8 @@ function void Prog__ReplaceIcon(const Prog_IconAtlas *atlas, Prog_Icon *icon, co
     Prog__MeasurePicture(icon, pixels, atlas->size);
 }
 
-// Places `icon`, of `map`, in the next cell of its full atlas or else in the cell of the loaded icon of `map` drawn longest ago, before
-// frame `since`, which is dropped, to be asked for again when it is drawn; false when every one was drawn since, which leaves `icon` where it was. Placed, `icon` can move in `map`.
+// Places `icon`, of `map`, in the next cell of its full atlas or else in the cell of the loaded icon of `map` drawn longest ago, before frame `since`, which is dropped, to be asked for again when it is drawn; false when every one was drawn since, which leaves `icon` where it was.
+// Placed, `icon` can move in `map`.
 function b32 Prog__PlaceOrEvict(Prog_IconAtlas *atlas, Prog_IconMap *map, Prog_Icon *icon, const u32 *pixels, u64 since)
 {
     if (Prog__PlaceIcon(atlas, icon, pixels)) return true;

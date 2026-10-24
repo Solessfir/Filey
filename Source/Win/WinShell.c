@@ -159,8 +159,8 @@ function IShellFolder *P__ShellFolder(String path)
     return result;
 }
 
-// A shell object (`iid`) for `names` inside `folder`, the folder at `directory`, such as their context menu or data object. A device's
-// folder, which knows its items by ids rather than by their names, has them from their paths.
+// A shell object (`iid`) for `names` inside `folder`, the folder at `directory`, such as their context menu or data object.
+// A device's folder, which knows its items by ids rather than by their names, has them from their paths.
 function b32 P__ShellChildren(IShellFolder *folder, String directory, const String *names, u64 count, const IID *iid, void **object)
 {
     Scratch scratch = GetScratch();
@@ -1431,9 +1431,9 @@ function IShellItem *P__DeviceItem(String path)
     return item;
 }
 
-// Lists the device folder `path`, or This PC's devices, remembering what each item's path stands for; with `files`, their details too, and
-// with `types` the kind of each, as "Mobile Phone". The drives in This PC, which have paths of their own, are left out. False when the
-// folder could not be read, with `error` set.
+// Lists the device folder `path`, or This PC's devices, remembering what each item's path stands for; with `files`, their details too, and with `types` the kind of each, as "Mobile Phone".
+// The drives in This PC, which have paths of their own, are left out.
+// False when the folder could not be read, with `error` set.
 function b32 P__ListDevice(Arena *arena, String path, const P_CancelToken *cancel, P_FileArray *files, ArrayStr *types, u32 *error)
 {
     b32 com = SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
@@ -1549,8 +1549,7 @@ function PIDLIST_ABSOLUTE P__DeviceIdList(String path, b32 *folder)
     return NULL;
 }
 
-// The path Filey names the shell item `item` by: its file's, or a device's item's under This PC, by the names of the items it is in; empty
-// for any other item.
+// The path Filey names the shell item `item` by: its file's, or a device's item's under This PC, by the names of the items it is in; empty for any other item.
 function String P__ShellItemPath(Arena *arena, IShellItem *item)
 {
     String result = {0};

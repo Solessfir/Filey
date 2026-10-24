@@ -1531,10 +1531,9 @@ typedef struct Prog_State {
     f32 iconScale;                       // the display scale iconSize was reached at
     // A fixed page count (8192 icons at 16 px); once it is full, a new icon takes the cell of the one drawn longest ago.
     Prog_IconAtlas iconAtlas;
-    // Thumbnails for the icon views, keyed by P_FileThumbnailKey, loaded at the tier of sizes at or above what the zoom draws and scaled down
-    // to it, so that most zoom steps load nothing. Each tier in use has a slot of its own, so that panels zoomed apart keep theirs; a new
-    // tier takes the slot drawn from longest ago, and until its thumbnails come another slot's are drawn. A full atlas gives a new thumbnail
-    // the cell of the one drawn longest ago, and drops its slot's thumbnails only when every one was drawn in the last frame.
+    // Thumbnails for the icon views, keyed by P_FileThumbnailKey, loaded at the tier of sizes at or above what the zoom draws and scaled down to it, so that most zoom steps load nothing.
+    // Each tier in use has a slot of its own, so that panels zoomed apart keep theirs; a new tier takes the slot drawn from longest ago, and until its thumbnails come another slot's are drawn.
+    // A full atlas gives a new thumbnail the cell of the one drawn longest ago, and drops its slot's thumbnails only when every one was drawn in the last frame.
     Prog_ThumbnailSlot thumbnailSlots[Prog_ThumbnailSlots];
     // The tab list's folder pictures, at their one size.
     Arena folderPictureArena;

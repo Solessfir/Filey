@@ -10117,8 +10117,7 @@ function void Prog__DropZones(Prog_State *state, R_Rect panel, f32 top, const Pr
         { { cx - wide * 0.5f, top, cx + wide * 0.5f, top + low }, 2, false, 0, Prog_TabDrop_Top },
         { { cx - wide * 0.5f, height - low - gap, cx + wide * 0.5f, height - gap }, 2, false, 1, Prog_TabDrop_Bottom },
     };
-    // The part of the panel the tab would take, washed under the zones while the pointer is over one: the body's half or all of it, and but
-    // for the bottom half a tab's height of the strip above it, shaped as a tab.
+    // The part of the panel the tab would take, washed under the zones while the pointer is over one: the body's half or all of it, and but for the bottom half a tab's height of the strip above it, shaped as a tab.
     for (u32 i = 0; i < CArrayCount(zones); ++i) {
         R_Rect box = zones[i].box;
         if ((own && zones[i].drop == Prog_TabDrop_Into) || !UI__Contains((R_Rect){ panel.x0 + box.x0, panel.y0 + box.y0, panel.x0 + box.x1, panel.y0 + box.y1 }, UI->mouse)) continue;

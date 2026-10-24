@@ -9,9 +9,9 @@
 #include <winioctl.h>
 #pragma pop_macro("function")
 
-// Phones, cameras and other devices that the shell shows under This PC have no file paths. Filey names them and what is on them by the
-// names shown, under the folder that lists the drives, as "This PC/Phone/Internal storage/DCIM". The file APIs cannot reach them, so
-// these have no Win32 form; the shell reaches them by their item id lists, learned as their folders are listed.
+// Phones, cameras and other devices that the shell shows under This PC have no file paths.
+// Filey names them and what is on them by the names shown, under the folder that lists the drives, as "This PC/Phone/Internal storage/DCIM".
+// The file APIs cannot reach them, so these have no Win32 form; the shell reaches them by their item id lists, learned as their folders are listed.
 function b32 P__IsDevicePath(String path)
 {
     return path.length > 8 && MemCompare(path.value, "This PC/", 8) == 0;
@@ -490,8 +490,7 @@ global const CLSID P__CLSID_FileOperation = { 0x3AD05575, 0x8857, 0x4850, { 0x92
 global const IID P__IID_IFileOperation   = { 0x947AAB5F, 0x0A5C, 0x4C13, { 0xB4, 0xD6, 0x4B, 0xF7, 0x83, 0x6F, 0xC9, 0xF8 } };
 global const IID P__IID_IShellItem       = { 0x43826D1E, 0xE718, 0x42EE, { 0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE } };
 
-// Renames the device item `path` to `name`, or with `create` makes the item `name` in the device folder `path`, a folder or an empty file,
-// through the shell's file operation; the error, or 0.
+// Renames the device item `path` to `name`, or with `create` makes the item `name` in the device folder `path`, a folder or an empty file, through the shell's file operation; the error, or 0.
 function u32 P__DeviceChange(String path, String name, b32 create, b32 folder)
 {
     HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -551,9 +550,8 @@ typedef struct P__Watch {
 
 function b32 P__ListDevice(Arena *arena, String path, const P_CancelToken *cancel, P_FileArray *files, ArrayStr *types, u32 *error);
 
-// A device sends no notices of its changes, so its folder is listed again in turn, and a change in what it holds, or its going, wakes the
-// program. The next listing waits four times as long as the last one took, and at least two seconds, so that a large folder on a slow
-// phone is not listed without end.
+// A device sends no notices of its changes, so its folder is listed again in turn, and a change in what it holds, or its going, wakes the program.
+// The next listing waits four times as long as the last one took, and at least two seconds, so that a large folder on a slow phone is not listed without end.
 function DWORD WINAPI P__DeviceWatchThread(void *user)
 {
     P__Watch *watch = user;
@@ -799,8 +797,7 @@ function String P__PlacedPath(Arena *arena, String directory, String path)
 // Set by WinWindow.c; dialogs that verbs open are owned by it.
 global HWND P__shellOwner;
 
-// The same through the shell's file operation on the items, for a copy, move or delete with a device's items in it, which have no paths
-// for the string form to name.
+// The same through the shell's file operation on the items, for a copy, move or delete with a device's items in it, which have no paths for the string form to name.
 function P_FileError P__ShellItemOperation(Arena *arena, u32 operation, const String *paths, u64 count, String directory, u16 flags, HWND owner, String *placed)
 {
     HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
