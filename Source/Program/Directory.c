@@ -2909,6 +2909,10 @@ function void Prog__DirectoryJob(P_Job *job)
         P_RemoveStaleRunFolders();
         return;
     }
+    if (input->kind == Prog_JobKind_LongPaths) {
+        P_SetLongPaths(input->confirm);
+        return;
+    }
     if (input->kind == Prog_JobKind_ArchivePassword) {
         b32 *opens = ArenaPushStruct(&job->arena, b32);
         *opens = P_ArchiveCheckPassword(input->path, input->name, &job->cancelToken);
@@ -3227,6 +3231,19 @@ function void Prog_TidyRunFolders(Prog_State *state)
     Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
     input->kind = Prog_JobKind_Tidy;
     job->input = input;
+    P_JobSubmit(job);
+}
+
+// Asks the system, in a job as it waits for the administrator's consent, to let programs use long paths or not.
+function void Prog_SetLongPaths(Prog_State *state, b32 on)
+{
+    if (state->longPathsSetting || on == state->longPaths) return;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_LongPaths;
+    input->confirm = on;
+    job->input = input;
+    state->longPathsSetting = true;
     P_JobSubmit(job);
 }
 
@@ -4831,6 +4848,7 @@ function b32 Prog_GroupOpen(const Prog_State *state, Prog_Group group)
 
 function b32 Prog_Init(Prog_State *state, String path, P_JobWakeCallback *wake, void *user)
 {
+    state->longPaths = P_LongPathsEnabled();
     if (!P_JobsInit(&state->jobs, &state->jobsArena, 0, wake, user)) {
         ArenaRelease(&state->jobsArena);
         return false;
@@ -6798,7 +6816,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -7390,6 +7408,9 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                                                  : slot == 6 ? state->menuHidden : slot == 7 ? state->menuOrder : slot == 8 ? state->torrents : state->bookmarks);
             }
         } else if (input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy) {
+        } else if (input->kind == Prog_JobKind_LongPaths) {
+            state->longPaths = P_LongPathsEnabled();
+            state->longPathsSetting = false;
         } else if (input->kind == Prog_JobKind_ArchivePassword) {
             // A password that opens it is kept for the archive, and what failed for the want of it is tried again; a wrong one is selected
             // to type over.

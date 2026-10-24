@@ -262,6 +262,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
     Prog_JobKind_Tidy,             // removes the run folders of the runs that are over
+    Prog_JobKind_LongPaths,        // sets the system's long path support, `confirm` saying on or off
     Prog_JobKind_ArchivePassword,  // whether the password `name` opens the archive `path`
     Prog_JobKind_Measure,
     Prog_JobKind_Inspect,
@@ -858,6 +859,7 @@ typedef enum Prog_Option {
     Prog_Option_ShowFileExtension,
     Prog_Option_ShowHiddenFiles,
     Prog_Option_ShowSystemFiles,
+    Prog_Option_LongPaths,
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
     Prog_Option_ShowCheckboxes,
@@ -1949,6 +1951,8 @@ typedef struct Prog_State {
     u32 userGroupDropIn, userGroupDropShownIn;
     // A name edited in its sidebar row, which the Save Layout box's state carries: nameFor is 1 for the group of the user's nameGroup, and
     // 2 for the folder namePath, row nameIndex of sidebar group nameGroup; the press before it began, and whether its box was built.
+    b32 longPaths;            // the system lets programs use paths longer than 260 characters, as last read
+    b32 longPathsSetting;     // and a job is asking it to change that
     u8 nameFor;
     u32 nameGroup;
     u64 nameIndex;

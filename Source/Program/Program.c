@@ -1147,6 +1147,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
     [Prog_Option_ShowHiddenFiles] = { TrInit("Show Hidden Files"), TrInit("Toggle the visibility of hidden and dot files (e.g., .gitignore, .config)."), Prog_OptionControl_Switch, 0, 1,
                                       Prog_OptionSwitch, 2, SInit("files.hidden") },
     [Prog_Option_ShowSystemFiles] = { TrInit("Show System Files"), TrInit("Toggle the visibility of system files."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("files.system") },
+    [Prog_Option_LongPaths] = { TrInit("Long Paths Support"), TrInit("Enable support for paths longer than 260 characters in every program (admin access required to change)."),
+                                Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, {0} },
     [Prog_Option_ShortenedPaths] = { TrInit("Display Compact Paths"), TrInit("Trim paths from the first recognized folder."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("paths.short") },
     [Prog_Option_Breadcrumbs] = { TrInit("Display Path Breadcrumbs"), TrInit("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
@@ -1246,6 +1248,7 @@ function b32 Prog_OptionApplies(Prog_Option option)
     if (option == Prog_Option_WindowOpacity) return !PlatformHasBackdrops();
     if (option == Prog_Option_VSync) return PlatformHasVSync();
     if (option == Prog_Option_ShowSystemFiles) return P_HasSystemFiles();
+    if (option == Prog_Option_LongPaths) return P_HasPathLimit();
     // Torrents download with aria2c, looked for once a run.
     if (option == Prog_Option_DeleteFinishedTorrents) {
         local_persist i32 aria = -1;
@@ -1307,6 +1310,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_ShowFileExtension: return !state->hideExtensions;
         case Prog_Option_ShowHiddenFiles: return state->showHidden;
         case Prog_Option_ShowSystemFiles: return state->showSystem;
+        case Prog_Option_LongPaths: return state->longPaths;
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
@@ -1809,6 +1813,11 @@ function void Prog_SetOptionText(Prog_State *state, Prog_Option option, String t
 function void Prog_SetOption(Prog_State *state, Prog_Option option, i32 value)
 {
     if (option >= Prog_Option_Count) return;
+    // The system's, not Settings.conf's.
+    if (option == Prog_Option_LongPaths) {
+        Prog_SetLongPaths(state, value != 0);
+        return;
+    }
     const Prog_OptionDesc *desc = &Prog_Options[option];
     Scratch scratch = GetScratch();
     u32 choiceCount = 0;
@@ -1869,7 +1878,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
 // Whether `option` is at its default; the colors, which follow the scheme, and the muted notices always are.
 function b32 Prog_OptionIsDefault(const Prog_State *state, Prog_Option option)
 {
-    if (option >= Prog_Option_Count) return true;
+    if (option >= Prog_Option_Count || option == Prog_Option_LongPaths) return true;
     switch (Prog_Options[option].control) {
         case Prog_OptionControl_Font: return !(option == Prog_Option_InspectorFont ? state->inspectorFont : state->font).length;
         case Prog_OptionControl_Switch: case Prog_OptionControl_Stepper: case Prog_OptionControl_Slider: case Prog_OptionControl_Choice:

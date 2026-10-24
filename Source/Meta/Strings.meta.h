@@ -115,6 +115,8 @@ global const char *const Prog_Strings[] = {
     "Toggle the visibility of hidden and dot files (e.g., .gitignore, .config).",
     "Show System Files",
     "Toggle the visibility of system files.",
+    "Long Paths Support",
+    "Enable support for paths longer than 260 characters in every program (admin access required to change).",
     "Display Compact Paths",
     "Trim paths from the first recognized folder.",
     "Display Path Breadcrumbs",

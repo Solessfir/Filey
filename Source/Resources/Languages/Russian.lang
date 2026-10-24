@@ -3249,3 +3249,9 @@ The web address of a video in a playlist downloads every video of the playlist, 
 
 Compressed
 = Видео сжато
+
+Long Paths Support
+= Поддержка длинных путей
+
+Enable support for paths longer than 260 characters in every program (admin access required to change).
+= Включить поддержку путей длиннее 260 символов во всех программах (для изменения нужны права администратора).

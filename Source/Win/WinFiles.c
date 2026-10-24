@@ -777,6 +777,28 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 // Only with a window to own its dialog, so that the headless tests confirm as other platforms do.
 function b32 P_DeleteAsks(void) { return P__shellOwner != NULL; }
 function b32 P_HasSystemFiles(void) { return true; }
+
+function b32 P_HasPathLimit(void) { return true; }
+
+function b32 P_LongPathsEnabled(void)
+{
+    DWORD value = 0, size = sizeof(value);
+    return RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\FileSystem", L"LongPathsEnabled", RRF_RT_REG_DWORD, NULL, &value, &size) == ERROR_SUCCESS && value;
+}
+
+// Through reg.exe run as an administrator, which Windows asks the user to allow.
+function b32 P_SetLongPaths(b32 on)
+{
+    SHELLEXECUTEINFOW info = {
+        .cbSize = sizeof(info), .fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI, .lpVerb = L"runas", .lpFile = L"reg.exe", .nShow = SW_HIDE,
+        .lpParameters = on ? L"add HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem /v LongPathsEnabled /t REG_DWORD /d 1 /f"
+                           : L"add HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem /v LongPathsEnabled /t REG_DWORD /d 0 /f",
+    };
+    if (!ShellExecuteExW(&info) || !info.hProcess) return false;
+    WaitForSingleObject(info.hProcess, 60000);
+    CloseHandle(info.hProcess);
+    return P_LongPathsEnabled() == (on != 0);
+}
 function String P_TrashName(void) { return S("Recycle Bin"); }
 
 function String P_SystemLanguage(Arena *arena)

@@ -1470,6 +1470,9 @@ function P_FileError P_EmptyTrash(Arena *arena, b32 confirm)
 function b32 P_EmptyTrashAsks(void) { return false; }
 function b32 P_DeleteAsks(void) { return false; }
 function b32 P_HasSystemFiles(void) { return false; }
+function b32 P_HasPathLimit(void) { return false; }
+function b32 P_LongPathsEnabled(void) { return true; }
+function b32 P_SetLongPaths(b32 on) { return on; }
 function String P_TrashName(void) { return S("Trash"); }
 
 function String P_SystemLanguage(Arena *arena)

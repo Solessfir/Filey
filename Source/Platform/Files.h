@@ -290,6 +290,14 @@ function P_FileError P_DeleteItems(Arena *arena, const String *paths, u64 count,
 function b32 P_DeleteAsks(void);
 // Whether files can be marked as the system's own, as P_File.system says on Windows, which showing or hiding them needs.
 function b32 P_HasSystemFiles(void);
+// Whether the system limits the programs that do not ask past it to paths of 260 characters, as Windows does unless its LongPathsEnabled
+// is set; Filey's own paths go past it either way.
+function b32 P_HasPathLimit(void);
+// Whether programs may use paths longer than 260 characters: Windows' LongPathsEnabled.
+function b32 P_LongPathsEnabled(void);
+// Sets LongPathsEnabled, which asks for an administrator's consent, and waits until that is done, so a job calls it; false when it was
+// not set, as when the consent was refused.
+function b32 P_SetLongPaths(b32 on);
 // What the system calls its bin: "Recycle Bin" on Windows, "Trash" on Linux.
 function String P_TrashName(void);
 // The two-letter code of the language the user's system shows its text in, as "ru"; empty when it says none.
