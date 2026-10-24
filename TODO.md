@@ -3,7 +3,7 @@
 ## Missing
 
 - Virtual folders: Control Panel and the other shell namespaces (the Recycle Bin is listed), and MTP devices (phones, cameras).
-- 3D models: text USD (`.usda`), text FBX, a .blend's modifiers, and Collada, 3DS and 3MF. Colors not read: PLY's per-face `texcoord` lists, a .blend's object-linked materials, glTF's `KHR_texture_transform`, and transparency other than a picture's cut-out alpha; Blender 3.4 to 4.x files are untested and earlier ones get no colors.
+- 3D models: a .blend's modifiers, and text FBX 6's older layout. Blender 3.4 to 4.x files are untested and earlier ones get no colors; see-through parts are drawn unsorted among themselves.
 - Low priority: faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
 
