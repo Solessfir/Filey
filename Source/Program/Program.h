@@ -528,6 +528,8 @@ typedef struct Prog_Transfer {
 // A text file is held whole up to Prog_TextWindow; a bigger one shows that much of itself at a time, its window, which moves along as the
 // view does, and its lines are counted once in steps of Prog_TextStep for the numbers and the scroll bar of the whole file.
 #define Prog_TextWindow (16 << 20)
+// The folder dropdown command's target for This PC's crumb, which comes before a drive's.
+#define Prog_ThisPCCrumb UINT64_MAX
 #define Prog_TextStep (1 << 20)
 
 // A big text file's lines in steps of Prog_TextStep bytes: where the first line starting in each step starts, its number, and what the

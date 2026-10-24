@@ -3050,12 +3050,18 @@ function b32 Prog_InspectorSelection(const Prog_State *state, Arena *arena, Stri
 }
 
 // The folder dropdown's rows the search finds, by their places in its listing, in its order.
+// What a folder dropdown's item is shown and found by: its name, a drive's the one the system gives it.
+function String Prog_FilesItemName(const Prog_Entry *entry)
+{
+    return entry->label.length ? entry->label : entry->file.name;
+}
+
 function u32 Prog_FilesMatches(const Prog_State *state, u32 *out)
 {
     String typed = Prog_EditText(&state->filesSearch);
     u32 count = 0;
     for (u64 i = 0; i < state->filesCount && i < UINT32_MAX; ++i) {
-        if (!typed.length || Prog_FuzzyScore(state->filesItems[i].file.name, (String){0}, typed, NULL, NULL) > 0) out[count++] = (u32)i;
+        if (!typed.length || Prog_FuzzyScore(Prog_FilesItemName(&state->filesItems[i]), (String){0}, typed, NULL, NULL) > 0) out[count++] = (u32)i;
     }
     return count;
 }
@@ -3074,15 +3080,15 @@ function String Prog__CrumbFolder(String path, u64 end)
     return folder.length == 2 && folder.value[1] == ':' ? StrFromTo(path, 0, 3) : folder;
 }
 
-// Opens the dropdown of crumb `at` of the `count` ending at `ends` in `path`, listing its folder in a job, with the next crumb's folder marked.
-function void Prog__OpenFilesPopup(Prog_State *state, String path, const u64 *ends, u32 count, u32 at)
+// Opens the folder dropdown of `folder`, listing it in a job, with its item `child` marked.
+function void Prog__OpenFilesFolder(Prog_State *state, String folder, String child)
 {
     Prog_CloseMenu(state);
     state->typesOpen = false;
     Prog__CloseFilesPopup(state);
     ArenaClear(&state->filesArena);
-    state->filesFolder = StrCopy(&state->filesArena, Prog__CrumbFolder(path, ends[at]));
-    state->filesChild = at + 1 < count ? StrCopy(&state->filesArena, StrFromTo(path, ends[at] + 1, (i64)ends[at + 1])) : (String){0};
+    state->filesFolder = StrCopy(&state->filesArena, folder);
+    state->filesChild = StrCopy(&state->filesArena, child);
     state->filesOpen = true;
     state->filesListed = false;
     state->filesItems = NULL;
@@ -3101,6 +3107,12 @@ function void Prog__OpenFilesPopup(Prog_State *state, String path, const u64 *en
     job->input = input;
     state->filesJob = job;
     P_JobSubmit(job);
+}
+
+// Opens the dropdown of crumb `at` of the `count` ending at `ends` in `path`, with the next crumb's folder marked.
+function void Prog__OpenFilesPopup(Prog_State *state, String path, const u64 *ends, u32 count, u32 at)
+{
+    Prog__OpenFilesFolder(state, Prog__CrumbFolder(path, ends[at]), at + 1 < count ? StrFromTo(path, ends[at] + 1, (i64)ends[at + 1]) : (String){0});
 }
 
 // Shows `folder` with `item` in it selected, when there is one: in the tab of a panel that shows it, the active ones first, or else in the
@@ -4599,6 +4611,20 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 u64 shownEnd, ends[128];
                 u32 count = state->loading ? 0 : Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends)), open = UINT32_MAX, want = UINT32_MAX;
                 for (u32 i = 0; state->filesOpen && i < count; ++i) if (StrIsEqual(Prog__CrumbFolder(path, ends[i]), state->filesFolder)) open = i;
+                // This PC's, before a drive's crumbs, lists the drives with the one shown marked; the crumbs' Prev and Next reach it too.
+                b32 drive = false, thisOpen = state->filesOpen && StrIsEqual(state->filesFolder, Prog_ThisPC);
+                if (count) Prog__CrumbStart(state, path, &drive);
+                b32 toThisPC = (command->kind == Prog_CommandKind_FilesPopupOpen && command->target == Prog_ThisPCCrumb) ||
+                               (command->kind == Prog_CommandKind_FilesPopupPrev && drive && open == 0);
+                if (toThisPC) {
+                    if (thisOpen) Prog__CloseFilesPopup(state);
+                    else if (drive) Prog__OpenFilesFolder(state, Prog_ThisPC, Prog__CrumbFolder(path, ends[0]));
+                    break;
+                }
+                if (command->kind == Prog_CommandKind_FilesPopupNext && thisOpen && count) {
+                    Prog__OpenFilesPopup(state, path, ends, count, 0);
+                    break;
+                }
                 if (command->kind == Prog_CommandKind_FilesPopupOpen) {
                     // Its hotkey, or a click on the separator after the open crumb, closes it again.
                     for (u32 i = 0; i < count && want == UINT32_MAX; ++i) if (ends[i] == (command->target ? command->target : shownEnd)) want = i;
@@ -4768,7 +4794,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
         String path;
         u64 shownEnd, ends[128];
         u32 count = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends));
+        // This PC's crumb is there before a drive's.
         b32 there = false;
+        if (count && StrIsEqual(state->filesFolder, Prog_ThisPC)) Prog__CrumbStart(state, path, &there);
         for (u32 i = 0; i < count && !there; ++i) there = StrIsEqual(Prog__CrumbFolder(path, ends[i]), state->filesFolder);
         if (!there) Prog__CloseFilesPopup(state);
     }

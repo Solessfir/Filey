@@ -2240,8 +2240,18 @@ function void Prog__DirectoryJob(P_Job *job)
         return;
     }
     if (input->kind == Prog_JobKind_FilesList) {
-        // What the list would show of it, sorted as a list by name sorts it, folders first.
+        // What the list would show of it, sorted as a list by name sorts it, folders first; This PC's drives in the system's order.
         Prog_FilesListed *result = ArenaPushStruct(&job->arena, Prog_FilesListed);
+        if (StrIsEqual(input->path, Prog_ThisPC)) {
+            P_ArrayPlace drives = P_Drives(&job->arena);
+            result->items = ArenaPushArray(&job->arena, Max(drives.header.count, (u64)1), Prog_Entry);
+            for (u64 i = 0; i < drives.header.count; ++i) {
+                result->items[i] = (Prog_Entry){ .file = { .name = drives.v[i].path, .kind = P_FileKind_Directory }, .drive = true, .label = drives.v[i].name };
+            }
+            result->count = drives.header.count;
+            job->result = result;
+            return;
+        }
         String archive = {0}, inner = {0};
         P_DirectoryResult listing = Prog_InArchive(input->path, &archive, &inner) ? P_EnumerateArchive(&job->arena, archive, inner, &job->cancelToken)
                                                                                  : P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);

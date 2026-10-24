@@ -2939,11 +2939,31 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     u64 start = Prog__CrumbStart(state, path, &drive);
     // The slot of the chevron between two crumbs.
     f32 chevron = floorf(m->line * 1.6f - 4.0f * m->scale);
-    if (drive || thisPC) {
+    // This PC before a drive's crumbs, whose dropdown, from the separator after it, lists the drives; while open, it is lit with the
+    // separator turned down in it.
+    b32 thisOpen = drive && state->filesOpen && StrIsEqual(state->filesFolder, Prog_ThisPC);
+    if (thisOpen) {
+        String name = Tr("This PC");
+        UI_SetNextPrefWidth(UI_Pixels(m->gap * 0.5f + R_TextWidth(m->font, name) + chevron));
+        UI_SetNextPrefHeight(UI_Pixels(m->bar * 0.75f));
+        UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+        UI_SetNextChildrenPadding((UI_Padding){ m->gap * 0.5f, 0, 0, 0 });
+        UI_SetNextCornerRadius(floorf(6.4f * m->scale + 0.5f));
+        UI_SetNextColors((UI_Colors){ .background = theme->selection });
+        UI_Block *lit = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Crumb/ThisPC")), UI_Flag_DrawBackground);
+        UI_Parent(lit) {
+            Prog__Label(name, UI_TextContent(), m->bar * 0.75f, 0, theme->text, 0);
+            Prog__SmallIcon(Icon_ChevronDown, chevron, m->bar * 0.75f, theme->text, 0.5f, m);
+        }
+        state->filesAnchor = lit->rect;
+    } else if (drive || thisPC) {
         UI_Interaction button = Prog__TextButton(S("Crumb/ThisPC"), Tr("This PC"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
                                                  thisPC ? theme->text : theme->textDim, !thisPC, m);
         if (button.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(button), 0, 0, button.clickOrder);
         if (UI->hotKey == UI_KeyFromStr(0, S("Crumb/ThisPC"))) hovered = 0;
+    }
+    if (drive || thisPC) {
         drive = drive || (thisPC && path.length);
     } else if (start == 1) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
@@ -2961,8 +2981,10 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
                                                             m->iconsSmall, UI_Pixels(chevron), m->bar * 0.75f, 0, theme->textDim, theme->text,
                                                             theme->textDim, true, m);
                 if (separator.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupOpen, 0, 0, separator.clickOrder)->target = at - 1;
-            } else if (drive && at == start) {
-                Prog__SmallIcon(Icon_ChevronRight, chevron, Prog__StripHeight(m), theme->textDim, 0.5f, m);
+            } else if (drive && at == start && !thisOpen) {
+                UI_Interaction separator = Prog__TextButton(S("CrumbSeparator/ThisPC"), Icon_ChevronRight, m->iconsSmall, UI_Pixels(chevron), m->bar * 0.75f, 0, theme->textDim, theme->text,
+                                                            theme->textDim, true, m);
+                if (separator.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupOpen, 0, 0, separator.clickOrder)->target = Prog_ThisPCCrumb;
             }
             if (drive && at == 0) segment = Prog__DriveName(state, path);
             else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
@@ -7417,7 +7439,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
     if (state->filesHighlight >= count) state->filesHighlight = count ? count - 1 : 0;
     if (state->filesListed && state->filesWidest <= 0) {
         state->filesWidest = 1;
-        for (u64 i = 0; i < state->filesCount; ++i) state->filesWidest = MaxF32(state->filesWidest, R_TextWidth(m->font, state->filesItems[i].file.name));
+        for (u64 i = 0; i < state->filesCount; ++i) state->filesWidest = MaxF32(state->filesWidest, R_TextWidth(m->font, Prog_FilesItemName(&state->filesItems[i])));
     }
     f32 pad = floorf(6.4f * s + 0.5f), fieldHeight = floorf(32.0f * s + 0.5f), pitch = floorf(25.6f * s + 0.5f), line = MaxF32(1, floorf(1.6f * s + 0.5f));
     f32 radius = floorf(8.0f * s + 0.5f), above = floorf(2.4f * s + 0.5f), iconSize = (f32)state->iconSize;
@@ -7518,14 +7540,15 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextPrefHeight(UI_Pixels(pitch - line));
                     if (icon) UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ iconSize, iconSize }, (R_Color){ 1, 1, 1, 1 });
                     UI_AddBlock(icon ? UI_Flag_DrawImage : 0);
-                    u8 *marks = typed.length ? ArenaPushArray(frame, entry->file.name.length + 1, u8) : NULL;
-                    if (marks) Prog_FuzzyScore(entry->file.name, (String){0}, typed, marks, NULL);
+                    String shownName = Prog_FilesItemName(entry);
+                    u8 *marks = typed.length ? ArenaPushArray(frame, shownName.length + 1, u8) : NULL;
+                    if (marks) Prog_FuzzyScore(shownName, (String){0}, typed, marks, NULL);
                     UI_SetNextPrefWidth(UI_Flex());
                     UI_SetNextPrefHeight(UI_Pixels(pitch - line));
                     UI_SetNextChildrenLayout(UI_Layout_Vertical);
                     UI_SetNextChildrenPadding((UI_Padding){ 0, floorf((pitch - line - m->line) * 0.5f), 0, 0 });
                     UI_Block *name = UI_AddBlock(UI_Flag_Clip);
-                    UI_Parent(name) Prog__MarkedText(entry->file.name, marks, m->font, m->line, theme->text);
+                    UI_Parent(name) Prog__MarkedText(shownName, marks, m->font, m->line, theme->text);
                     if (state->filesChild.length && StrIsEqual(entry->file.name, state->filesChild)) Prog__Icon(Icon_ArrowLeft, 0, pitch - line, theme->text, 0.5f, m);
                 }
             }
