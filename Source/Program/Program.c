@@ -7,11 +7,35 @@
 #include "Meta/Strings.meta.h"
 
 // The languages built into Filey: their names as they call themselves, and their text, as a language file has it.
+global const u8 Prog__GermanLanguage[] = {
+#embed "../Resources/Languages/German.lang"
+};
+global const u8 Prog__SpanishLanguage[] = {
+#embed "../Resources/Languages/Spanish.lang"
+};
+global const u8 Prog__FrenchLanguage[] = {
+#embed "../Resources/Languages/French.lang"
+};
+global const u8 Prog__PolishLanguage[] = {
+#embed "../Resources/Languages/Polish.lang"
+};
+global const u8 Prog__PortugueseLanguage[] = {
+#embed "../Resources/Languages/Portuguese.lang"
+};
 global const u8 Prog__RussianLanguage[] = {
 #embed "../Resources/Languages/Russian.lang"
 };
+global const u8 Prog__ChineseLanguage[] = {
+#embed "../Resources/Languages/Chinese.lang"
+};
 global const struct { String name; String code; const u8 *text; u64 size; } Prog_BuiltInLanguages[] = {
+    { NoTrInit("Deutsch"), SInit("de"), Prog__GermanLanguage, sizeof(Prog__GermanLanguage) },
+    { SInit("Espa\u00F1ol"), SInit("es"), Prog__SpanishLanguage, sizeof(Prog__SpanishLanguage) },
+    { SInit("Fran\u00E7ais"), SInit("fr"), Prog__FrenchLanguage, sizeof(Prog__FrenchLanguage) },
+    { NoTrInit("Polski"), SInit("pl"), Prog__PolishLanguage, sizeof(Prog__PolishLanguage) },
+    { SInit("Portugu\u00EAs"), SInit("pt"), Prog__PortugueseLanguage, sizeof(Prog__PortugueseLanguage) },
     { SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"), SInit("ru"), Prog__RussianLanguage, sizeof(Prog__RussianLanguage) },
+    { SInit("\u7B80\u4F53\u4E2D\u6587"), SInit("zh"), Prog__ChineseLanguage, sizeof(Prog__ChineseLanguage) },
 };
 
 // The built-in language the system shows its text in, which is the one chosen until the settings choose another; English for none.
@@ -1102,7 +1126,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
 // The options of the Options popup, in its order.
 global const String Prog_OptionSwitch[] = { SInit("false"), SInit("true") };
 // English, then the built-in languages; the custom ones follow.
-global const String Prog_OptionLanguages[] = { NoTrInit("English"), SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439") };
+global const String Prog_OptionLanguages[] = { NoTrInit("English"), NoTrInit("Deutsch"), SInit("Espa\u00F1ol"), SInit("Fran\u00E7ais"), NoTrInit("Polski"), SInit("Portugu\u00EAs"), SInit("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"), SInit("\u7B80\u4F53\u4E2D\u6587") };
 global const String Prog_OptionCorners[] = { SInit("square"), SInit("round") };
 global const String Prog_OptionLayouts[] = { SInit("auto"), SInit("right"), SInit("below") };
 global const String Prog_OptionThumbnails[] = { SInit("never"), SInit("local"), SInit("always") };

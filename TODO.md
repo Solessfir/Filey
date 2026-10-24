@@ -4,7 +4,7 @@
 
 - Virtual folders: Network (the computers and shares on the network), then Control Panel and the other shell namespaces (the Recycle Bin and phones are listed). Phones on Linux through GVFS are untested with a device.
 - Low priority: faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
-- Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
+- Languages: the Chinese, French, German, Polish, Portuguese and Spanish translations want a native speaker's review.
 
 ## From the RAD Debugger
 

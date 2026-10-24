@@ -19,7 +19,7 @@
 - **Phones and cameras**: browse a phone or camera connected by USB, under This PC on Windows and through GVFS on Linux, and copy, move, rename and delete on it as in any folder, which updates as the phone changes.
 - **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
 - **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, light and dark following the system, and a transparent glass look in any of them.
-- **Languages**: English and Russian, plus your own through a translation file.
+- **Languages**: English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, plus your own through a translation file.
 
 ## Optional tools
 

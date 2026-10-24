@@ -1,0 +1,3300 @@
+# Filey language: 简体中文
+# Each entry is Filey's English text on one line and its translation on the next, after "= ".
+
+Language
+= 语言
+
+The language of Filey's text. Create Custom Language starts a translation of your own, as a file to fill in.
+= Filey 界面的语言。“创建自定义语言”会生成一个待填写的文件，用于开始你自己的翻译。
+
+Font
+= 字体
+
+The system-installed font name that is applied to the entire UI.
+= 应用于整个界面的系统已安装字体。
+
+Inspector Font
+= 检查器字体
+
+The system-installed font used when previewing text contents in the inspector.
+= 在检查器中预览文本内容时使用的系统已安装字体。
+
+Font Size
+= 字号
+
+Determines the scale of the whole UI.
+= 决定整个界面的缩放比例。
+
+Inspector Font Size
+= 检查器字号
+
+Specifies the font size used to display text contents in the inspector.
+= 指定检查器显示文本内容时使用的字号。
+
+Border Size
+= 边框粗细
+
+Thickness of the lines between areas and of the outlines of panels, tabs and popups.
+= 区域之间的分隔线以及窗格、标签页和弹出窗口轮廓的粗细。
+
+Spacing
+= 间距
+
+Defines the space between items in a list.
+= 定义列表中各项之间的间距。
+
+Animations
+= 动画
+
+Applies animations to new popups, view scrolling, text cursor, etc.
+= 为新弹出窗口、视图滚动、文本光标等应用动画。
+
+Round Corners
+= 圆角
+
+Applies rounding to the corners of UI elements such as popups, buttons, and selections.
+= 为弹出窗口、按钮和选区等界面元素的角应用圆角。
+
+Inline Submenus
+= 内联子菜单
+
+Opens a menu's submenus inside it, under their item, rather than beside it.
+= 在菜单内部、其所属项下方打开子菜单，而不是在旁边打开。
+
+System Light / Dark Scheme
+= 跟随系统浅色/深色方案
+
+Automatically adapt between light and dark color schemes based on system settings.
+= 根据系统设置自动在浅色和深色配色方案之间切换。
+
+Color Scheme
+= 配色方案
+
+Applies a color palette to all UI elements.
+= 为所有界面元素应用一套调色板。
+
+Light Color Scheme
+= 浅色配色方案
+
+Color theme applied when the system uses bright colors.
+= 系统使用浅色时应用的配色方案。
+
+Dark Color Scheme
+= 深色配色方案
+
+Color theme applied when the system uses dark colors.
+= 系统使用深色时应用的配色方案。
+
+Exposes the individual components of the selected color scheme.
+= 显示所选配色方案的各个组成颜色。
+
+Clear
+= 窗口底色
+
+Background color visible only between panel borders.
+= 仅在窗格边框之间可见的背景色。
+
+Caption
+= 标题栏
+
+Background color for caption bar.
+= 标题栏的背景色。
+
+Background
+= 背景
+
+Background color for panels and windows.
+= 窗格和窗口的背景色。
+
+Surface
+= 表面
+
+Background color for popups, sidebar, and floating regions like the footer.
+= 弹出窗口、侧边栏以及底栏等浮动区域的背景色。
+
+Foreground
+= 前景
+
+Background color for scrollbar, dropdowns and other buttons.
+= 滚动条、下拉列表和其他按钮的背景色。
+
+Inner
+= 输入框
+
+Background color for text field.
+= 文本框的背景色。
+
+Border
+= 边框
+
+Border color for panels, windows, and popups.
+= 窗格、窗口和弹出窗口的边框颜色。
+
+Outline
+= 轮廓
+
+Outline color for UI elements like buttons and toggles.
+= 按钮和开关等界面元素的轮廓颜色。
+
+Separator
+= 分隔线
+
+Color for line separators between item rows.
+= 项目行之间分隔线的颜色。
+
+Alternating Row
+= 交替行
+
+Background color for alternating rows in lists and columns.
+= 列表和分栏中交替行的背景色。
+
+Icon
+= 图标
+
+Color of all non-system icons in the UI.
+= 界面中所有非系统图标的颜色。
+
+Text
+= 文本
+
+Color of primary UI text.
+= 界面主要文本的颜色。
+
+Secondary
+= 次要
+
+Color for secondary text.
+= 次要文本的颜色。
+
+Group
+= 分组
+
+Color for sections that can be opened or closed.
+= 可展开或折叠的部分的颜色。
+
+File
+= 文件
+
+Text color for file items.
+= 文件项的文本颜色。
+
+Folder
+= 文件夹
+
+Text color for folder items.
+= 文件夹项的文本颜色。
+
+Warning
+= 警告
+
+Background color for buttons requiring extra attention.
+= 需要特别注意的按钮的背景色。
+
+Progress
+= 进度
+
+Fill color for slider and toggle.
+= 滑块和开关的填充色。
+
+Selection
+= 选中
+
+Background color of selected items.
+= 选中项的背景色。
+
+Rect selection
+= 框选
+
+Color of the rectangle when selecting multiple items in a panel.
+= 在窗格中选择多个项目时选框的颜色。
+
+Match
+= 匹配
+
+Color for matching letters in filtered text.
+= 筛选文本中匹配字母的颜色。
+
+Hidden Opacity
+= 隐藏项不透明度
+
+Controls the opacity of hidden/system files using the brightness value.
+= 通过亮度值控制隐藏文件和系统文件的不透明度。
+
+Hover Opacity
+= 悬停不透明度
+
+Blends the selection with the background when hovering using the brightness value.
+= 悬停时按亮度值将选中色与背景混合。
+
+Disabled Opacity
+= 禁用项不透明度
+
+Controls the opacity of disabled items using the brightness value.
+= 通过亮度值控制禁用项的不透明度。
+
+Content Hover
+= 悬停内容
+
+Color of the content when items are hovered.
+= 鼠标悬停在项目上时内容的颜色。
+
+Content Selection
+= 选中内容
+
+Color of the content when items are selected.
+= 项目被选中时内容的颜色。
+
+Content Disabled Selection
+= 禁用选中内容
+
+Color of the content when items are both disabled and selected.
+= 项目既被禁用又被选中时内容的颜色。
+
+Outline Hover
+= 悬停轮廓
+
+Color of the outlines when items are hovered.
+= 鼠标悬停在项目上时轮廓的颜色。
+
+Outline Selection
+= 选中轮廓
+
+Color of the outlines when items are selected.
+= 项目被选中时轮廓的颜色。
+
+Outline Disabled Selection
+= 禁用选中轮廓
+
+Color of the outlines when items are both disabled and selected.
+= 项目既被禁用又被选中时轮廓的颜色。
+
+Match Hover
+= 悬停匹配
+
+Color for matching letters in filtered text when items are hovered.
+= 鼠标悬停在项目上时筛选文本中匹配字母的颜色。
+
+Match Selection
+= 选中匹配
+
+Color for matching letters in filtered text when items are selected.
+= 项目被选中时筛选文本中匹配字母的颜色。
+
+Match Disabled Selection
+= 禁用选中匹配
+
+Color for matching letters in filtered text when items are both disabled and selected.
+= 项目既被禁用又被选中时筛选文本中匹配字母的颜色。
+
+Alternating Row Colors
+= 交替行颜色
+
+Applies alternating row colors to improve readability and distinguish adjacent rows.
+= 使用交替的行颜色，提高可读性并区分相邻行。
+
+Inactive Panel Contents Opacity
+= 非活动窗格内容不透明度
+
+Applies dimming to inactive panel contents to make the active panel stand out.
+= 调暗非活动窗格的内容，使活动窗格更醒目。
+
+Show File Extension
+= 显示文件扩展名
+
+Toggle the visibility of file extensions.
+= 切换文件扩展名的显示。
+
+Show Hidden Files
+= 显示隐藏的文件
+
+Toggle the visibility of hidden and dot files (e.g., .gitignore, .config).
+= 切换隐藏文件和点文件（如 .gitignore、.config）的显示。
+
+Show System Files
+= 显示系统文件
+
+Toggle the visibility of system files.
+= 切换系统文件的显示。
+
+Display Compact Paths
+= 显示紧凑路径
+
+Trim paths from the first recognized folder.
+= 从第一个可识别的文件夹开始截短路径。
+
+Display Path Breadcrumbs
+= 显示路径导航痕迹
+
+Show previously visited subfolders in the address bar.
+= 在地址栏中显示之前访问过的子文件夹。
+
+Show Selection Boxes
+= 显示项目复选框
+
+Toggle visibility of checkboxes when selecting multiple items in a panel.
+= 切换在窗格中选择多个项目时复选框的显示。
+
+Confirm Emptying Recycle Bin
+= 清空回收站前确认
+
+Ask before permanently deleting everything in the Recycle Bin.
+= 永久删除回收站中的所有内容前先询问。
+
+Compression Level
+= 压缩级别
+
+How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest.
+= Filey 创建或添加内容的压缩文件的压缩强度：0 为仅存储，9 为体积最小、速度最慢。
+
+Notifications
+= 通知
+
+Which notices show in the window's corner: all, warnings and errors, errors only, or none.
+= 在窗口角落显示哪些通知：全部、警告和错误、仅错误，或不显示。
+
+Muted Notifications
+= 已静音的通知
+
+Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again.
+= 通过铃铛按钮静音的通知类型，保存在 MutedNotices.conf 中；可在列表中重新显示其中任意一项。
+
+Notifications In Sidebar
+= 在侧边栏中显示通知
+
+Shows notices and the progress of copies, downloads and other work at the bottom of the sidebar, rather than in a panel's corner.
+= 在侧边栏底部而不是窗格角落显示通知以及复制、下载和其他任务的进度。
+
+Store Recents
+= 保存最近使用
+
+Determines how recently accessed files are stored.
+= 决定如何保存最近访问的文件。
+
+Highlight Recents
+= 突出显示最近使用
+
+Mark recently accessed files and directories.
+= 标记最近访问的文件和文件夹。
+
+Sort Recents On Top
+= 最近使用置顶
+
+Sort recently accessed files and directories to the top.
+= 将最近访问的文件和文件夹排在最前。
+
+Load Thumbnails
+= 加载缩略图
+
+Criteria for loading thumbnails of listed directories.
+= 加载所列文件夹中缩略图的条件。
+
+Calculate Folder Sizes
+= 计算文件夹大小
+
+Calculates folder sizes by scanning their contents.
+= 通过扫描内容计算文件夹大小。
+
+SSDs
+= SSD
+
+Calculate folder sizes on local SSD drives.
+= 计算本地 SSD 上的文件夹大小。
+
+HDDs
+= HDD
+
+Calculate folder sizes on local HDD drives.
+= 计算本地机械硬盘上的文件夹大小。
+
+Network Locations
+= 网络位置
+
+Calculate folder sizes on network drives and shared locations.
+= 计算网络驱动器和共享位置上的文件夹大小。
+
+Act On Press
+= 按下时执行
+
+Whether interactions register on mouse press or release.
+= 操作在按下鼠标按键时还是松开时生效。
+
+Single-click To Open
+= 单击打开
+
+Open items with a single click.
+= 单击即可打开项目。
+
+Folders Only
+= 仅文件夹
+
+Single click applies to folders only.
+= 单击打开仅适用于文件夹。
+
+Point To Select
+= 指向即选择
+
+Select items by hovering over them.
+= 将鼠标悬停在项目上即可选择。
+
+Point To Focus Panel
+= 指向即聚焦窗格
+
+Give the keyboard to the panel the pointer moves over.
+= 将键盘焦点交给鼠标指针所在的窗格。
+
+Underline On Point
+= 指向时加下划线
+
+Underlines items only when pointing at them.
+= 仅在指向项目时为其加下划线。
+
+Double-click To Parent
+= 双击返回上一级
+
+Go to parent folder by double clicking background.
+= 双击空白处转到上一级文件夹。
+
+Scroll Beyond Last Item
+= 滚动超过最后一项
+
+Allows scrolling past the last item for extra space.
+= 允许滚动到最后一项之后，留出额外空间。
+
+Reverse Scroll Direction
+= 反转滚动方向
+
+Reverses the scroll direction in scrollable views.
+= 反转可滚动视图中的滚动方向。
+
+Character Key Action
+= 字符键操作
+
+Determines the action when you press raw character keys without modifiers.
+= 决定不带修饰键直接按下字符键时执行的操作。
+
+Inspector Layout
+= 检查器布局
+
+Default layout for opening the new inspector.
+= 打开新检查器时的默认布局。
+
+Highlight Code
+= 代码高亮
+
+Color keywords, strings, comments and numbers of code in the inspector.
+= 在检查器中为代码的关键字、字符串、注释和数字着色。
+
+Load On Startup
+= 启动时加载
+
+Previous session, location, or custom layout to load on startup.
+= 启动时加载的内容：上次会话、某个位置或自定义布局。
+
+New Tab Show
+= 新标签页显示
+
+Location to open in a new tab.
+= 在新标签页中打开的位置。
+
+Open In One Window
+= 在同一窗口中打开
+
+Starting Filey or opening a folder from elsewhere uses the open window, in a new tab.
+= 启动 Filey 或从其他地方打开文件夹时，在已打开的窗口中以新标签页打开。
+
+VSync
+= 垂直同步
+
+Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag.
+= 在快速移动鼠标等高负载活动期间降低硬件负担，代价是轻微的输入延迟。
+
+Transparency
+= 透明效果
+
+Shows what is behind the window through it, blurred.
+= 透过窗口以模糊效果显示其后方的内容。
+
+Window Opacity
+= 窗口不透明度
+
+How much the window's color covers what is behind it.
+= 窗口颜色对其后方内容的遮盖程度。
+
+Popup Blur
+= 弹出窗口模糊
+
+How far menus and popups blur what is under them.
+= 菜单和弹出窗口对其下方内容的模糊程度。
+
+Popup Opacity
+= 弹出窗口不透明度
+
+How much the color of menus and popups covers the blur under them.
+= 菜单和弹出窗口的颜色对其下方模糊效果的遮盖程度。
+
+Backdrop
+= 背景材质
+
+What Windows draws behind the transparent window.
+= Windows 在透明窗口后方绘制的内容。
+
+Select a system command...
+= 选择系统命令...
+
+Edit menu: hide items and change their order
+= 编辑菜单：隐藏项目并更改其顺序
+
+Square
+= 直角
+
+Round
+= 圆角
+
+Auto
+= 自动
+
+Never
+= 从不
+
+Always
+= 始终
+
+Default
+= 默认
+
+Acrylic
+= 亚克力
+
+Mica
+= 云母
+
+Tabbed
+= 标签式
+
+None
+= 无
+
+Persistent
+= 永久
+
+Session
+= 本次会话
+
+Root
+= 此电脑
+
+Home
+= 主文件夹
+
+Current
+= 当前文件夹
+
+All
+= 全部
+
+Local Disks
+= 本地磁盘
+
+%S px
+= %S 像素
+
+Horizontal
+= 水平
+
+Vertical
+= 垂直
+
+Last Session
+= 上次会话
+
+Warnings And Errors
+= 警告和错误
+
+Errors Only
+= 仅错误
+
+Type In Filter
+= 输入到筛选
+
+Trigger Hotkey
+= 触发快捷键
+
+Select Typed Item
+= 选择输入的项目
+
+Restore default setting
+= 还原默认设置
+
+Not a number or a sum that makes one.
+= 不是数字，也不是能算出数字的算式。
+
+%u muted
+= 已静音 %u 项
+
+Select an option...
+= 选择选项...
+
+Select a command...
+= 选择命令...
+
+Edit Menu
+= 编辑菜单
+
+Reset
+= 重置
+
+Bring back the system's own order and every item
+= 恢复系统自身的顺序和所有项目
+
+Done
+= 完成
+
+Hidden · %u
+= 已隐藏 · %u
+
+A crash report was saved. Report on GitHub opens a new issue and copies the report: paste it into the issue (Ctrl+V) before submitting.
+= 已保存崩溃报告。“在 GitHub 上报告”会新建一个 issue 并复制报告：提交前请将报告粘贴到 issue 中（Ctrl+V）。
+
+A crash report was saved. Report on GitHub opens a new issue with the report filled in, to look over before submitting.
+= 已保存崩溃报告。“在 GitHub 上报告”会新建一个已填好报告的 issue，请在提交前检查。
+
+Filey closed unexpectedly
+= Filey 意外关闭
+
+Report on GitHub
+= 在 GitHub 上报告
+
+Custom language ready
+= 自定义语言已就绪
+
+Open %S in a text editor and write the translations; each save shows at once.
+= 在文本编辑器中打开 %S 并写入翻译；每次保存后都会立即生效。
+
+Couldn't save the color schemes
+= 无法保存配色方案
+
+Panel Menu
+= 窗格菜单
+
+Main Menu
+= 主菜单
+
+History
+= 历史记录
+
+View
+= 查看
+
+This PC
+= 此电脑
+
+Folder view settings saved and applied.\nIcons, sort, folders first, list columns.
+= 已保存并应用文件夹视图设置。\n图标、排序、文件夹优先、列表列。
+
+No folder view settings saved.\nUsing panel's view settings.
+= 未保存文件夹视图设置。\n正在使用窗格的视图设置。
+
+This path is bookmarked.
+= 此路径已加入书签。
+
+This path is not bookmarked.
+= 此路径未加入书签。
+
+Switch branch.
+= 切换分支。
+
+Name
+= 名称
+
+Type
+= 类型
+
+Date Modified
+= 修改日期
+
+Folders
+= 文件夹
+
+Files
+= 文件
+
+Size
+= 大小
+
+Date Created
+= 创建日期
+
+Date Accessed
+= 访问日期
+
+Folder Usage
+= 文件夹占比
+
+Volume Usage
+= 磁盘占比
+
+All items are currently hidden by view settings.
+= 所有项目当前都被视图设置隐藏。
+
+This folder is empty.
+= 此文件夹为空。
+
+Loading %S...
+= 正在加载 %S...
+
+Folders first, then files.
+= 先文件夹，后文件。
+
+Files first, then folders.
+= 先文件，后文件夹。
+
+Folders and files mixed.
+= 文件夹和文件混排。
+
+Filter...
+= 筛选...
+
+Recents
+= 最近使用
+
+Bookmarks
+= 书签
+
+Storage
+= 存储
+
+Places
+= 位置
+
+Conflicts with commands:
+= 与以下命令冲突：
+
+Delete hotkey.
+= 删除快捷键。
+
+Mouse hotkeys cannot be changed.
+= 无法更改鼠标快捷键。
+
+Character Key Action not set to Trigger Hotkey.
+= “字符键操作”未设为“触发快捷键”。
+
+Press to set or remove hotkey.
+= 按下以设置或移除快捷键。
+
+Delete assigned hotkey?
+= 删除已分配的快捷键？
+
+Cancel
+= 取消
+
+Delete
+= 删除
+
+Created:
+= 创建时间：
+
+Subfolders:
+= 子文件夹：
+
+Subfiles:
+= 文件数：
+
+Size:
+= 大小：
+
+Cmd:
+= 命令：
+
+Open In New Tab
+= 在新标签页中打开
+
+Search %u tabs...
+= 搜索 %u 个标签页...
+
+Open or expand a folder...
+= 打开或展开文件夹...
+
+navigate
+= 导航
+
+next folder
+= 下一个文件夹
+
+open
+= 打开
+
+expand
+= 展开
+
+all drives
+= 所有驱动器
+
+in panel
+= 在窗格中
+
+dismiss
+= 关闭
+
+places only
+= 仅位置
+
+Filter %u types...
+= 筛选 %u 种类型...
+
+Toggle All
+= 全部勾选
+
+Untoggle All
+= 全部取消勾选
+
+Filter %S files...
+= 筛选 %S 文件...
+
+Zoom
+= 缩放
+
+Select a layout...
+= 选择布局...
+
+No layout has that name
+= 没有该名称的布局
+
+No layouts saved yet; Save Layout keeps one
+= 尚未保存布局；“保存布局”可保存一个
+
+Delete layout.
+= 删除布局。
+
+to navigate
+= 导航
+
+to use
+= 使用
+
+to dismiss
+= 关闭
+
+Search fonts...
+= 搜索字体...
+
+Listing the installed fonts...
+= 正在列出已安装的字体...
+
+No font has that name
+= 没有该名称的字体
+
+Switch branch...
+= 切换分支...
+
+Listing the branches...
+= 正在列出分支...
+
+No branch has that name
+= 没有该名称的分支
+
+Restore all
+= 全部还原
+
+Remove from the muted ones, which shows it again.
+= 从已静音中移除，使其重新显示。
+
+Create an editable copy of this color scheme.
+= 创建此配色方案的可编辑副本。
+
+Delete color scheme.
+= 删除配色方案。
+
+Ok
+= 确定
+
+Save layout
+= 保存布局
+
+Type a new or existing layout name to update...
+= 输入新的布局名称，或输入现有布局名称以更新...
+
+Save
+= 保存
+
+Update
+= 更新
+
+Delete the custom color scheme "%S"?
+= 删除自定义配色方案“%S”？
+
+Delete the layout "%S"?
+= 删除布局“%S”？
+
+Overwrite the existing layout "%S"?
+= 覆盖现有布局“%S”？
+
+Switch
+= 切换
+
+Overwrite
+= 覆盖
+
+Toggle Extra Details
+= 切换更多详细信息
+
+Remove from Quick.
+= 从快速命令中移除。
+
+Add to Quick.
+= 添加到快速命令。
+
+Restore default hotkeys.
+= 还原默认快捷键。
+
+Assign new hotkey.
+= 分配新快捷键。
+
+Don't show this again.
+= 不再显示。
+
+Copy the message.
+= 复制消息。
+
+Extracting %S to open it
+= 正在解压 %S 以打开
+
+"%S" is already in %S
+= “%S”已存在于 %S 中
+
+Replace
+= 替换
+
+Keep Both
+= 保留两者
+
+Skip
+= 跳过
+
+For all: on
+= 全部应用：开
+
+For all: off
+= 全部应用：关
+
+Paused at %u%%
+= 已暂停于 %u%%
+
+Permanently delete everything in the %S?
+= 永久删除%S中的所有内容？
+
+Permanently delete "%S"?
+= 永久删除“%S”？
+
+This cannot be undone.
+= 此操作无法撤消。
+
+Copy to that window
+= 复制到该窗口
+
+Move to that window
+= 移动到该窗口
+
+Copy to a new window
+= 复制到新窗口
+
+Move to a new window
+= 移动到新窗口
+
+Copy
+= 复制
+
+Move
+= 移动
+
+to copy
+= 复制
+
+Path
+= 路径
+
+Subfolders
+= 子文件夹
+
+Subfiles
+= 包含文件
+
+Created
+= 创建时间
+
+Modified
+= 修改时间
+
+Permissions
+= 权限
+
+The owner may read
+= 所有者可读取
+
+The owner may write
+= 所有者可写入
+
+The owner may run
+= 所有者可运行
+
+The group may read
+= 组可读取
+
+The group may write
+= 组可写入
+
+The group may run
+= 组可运行
+
+Others may read
+= 其他人可读取
+
+Others may write
+= 其他人可写入
+
+Others may run
+= 其他人可运行
+
+(%u%% smaller)
+= （缩小 %u%%）
+
+(no smaller)
+= （未缩小）
+
+Loading...
+= 正在加载...
+
+Auto positions the inspector to the right or below based on available space.
+= 根据可用空间自动将检查器放在右侧或下方。
+
+Forces the inspector to the right.
+= 始终将检查器放在右侧。
+
+Forces the inspector below.
+= 始终将检查器放在下方。
+
+Display image scaled to fit within the viewport.
+= 缩放图像以适应视口。
+
+Display image at its original source size, no scaling.
+= 按原始尺寸显示图像，不缩放。
+
+Display image with a custom scale adjustment.
+= 按自定义比例显示图像。
+
+Counting...
+= 正在统计...
+
+Nothing to preview
+= 没有可预览的内容
+
+Extracting it from the archive to preview, %u%%
+= 正在从压缩文件中解压以预览，%u%%
+
+Filter %u lines...
+= 筛选 %u 行...
+
+Archive
+= 压缩文件
+
+Installed version
+= 已安装版本
+
+A different version
+= 其他版本
+
+unknown
+= 未知
+
+is installed.
+= 已安装。
+
+Standalone version
+= 便携版
+
+The same version is already installed at:
+= 相同版本已安装在：
+
+Installed Path:
+= 安装路径：
+
+Install Path:
+= 安装路径：
+
+Desktop shortcut:
+= 桌面快捷方式：
+
+Add to PATH:
+= 添加到 PATH：
+
+Set as default:
+= 设为默认：
+
+Creates a shortcut on the desktop for quick access to Filey.
+= 在桌面上创建快捷方式，以便快速打开 Filey。
+
+Allows Filey to be launched from the command line using Filey.exe.
+= 允许在命令行中通过 Filey.exe 启动 Filey。
+
+Opens folders with Filey and assigns it to the Win+E shortcut.
+= 使用 Filey 打开文件夹，并将其分配给 Win+E 快捷键。
+
+All options can be enabled or disabled after install.
+= 所有选项都可在安装后启用或禁用。
+
+Install
+= 安装
+
+Modify
+= 修改
+
+Install & Replace
+= 安装并替换
+
+This will install version %s on your PC.
+= 这将在你的电脑上安装版本 %s。
+
+This will apply modifications to the existing installation.
+= 这将对现有安装应用修改。
+
+This will overwrite the existing version %S with version %s.
+= 现有版本 %S 将被版本 %s 覆盖。
+
+Back
+= 返回
+
+Press A Key
+= 请按一个键
+
+Duplicate Tab To New Window
+= 将标签页复制到新窗口
+
+Shift Column Left
+= 左移列
+
+Shift Column Right
+= 右移列
+
+Size Column To Fit
+= 调整列宽以适合
+
+Close Column
+= 关闭列
+
+Restore Default Columns
+= 还原默认列
+
+Total Items
+= 项目总数
+
+Git
+= Git
+
+Extract Here
+= 解压到此处
+
+Extract to "%S"
+= 解压到“%S”
+
+Add to "%S.zip"
+= 添加到“%S.zip”
+
+Add to "%S.7z"
+= 添加到“%S.7z”
+
+Restore
+= 还原
+
+Restore all items
+= 还原所有项目
+
+%S failed
+= %S失败
+
+This file is only in the cloud. Open it to download it, and preview it after.
+= 此文件仅在云端。打开它即可下载，之后便可预览。
+
+New folder
+= 新建文件夹
+
+New file
+= 新建文件
+
+Couldn't open a new window
+= 无法打开新窗口
+
+Empty %S
+= 清空%S
+
+Install failed
+= 安装失败
+
+Uninstall failed
+= 卸载失败
+
+Couldn't open the issue page
+= 无法打开 issue 页面
+
+Couldn't change permissions
+= 无法更改权限
+
+Couldn't open the console
+= 无法打开控制台
+
+Nothing to undo or redo
+= 没有可撤消或重做的操作
+
+Paste shortcut failed
+= 粘贴快捷方式失败
+
+Cannot resolve the initial directory
+= 无法确定初始文件夹
+
+Nothing to redo
+= 没有可重做的操作
+
+Nothing to undo
+= 没有可撤消的操作
+
+Couldn't save the layouts
+= 无法保存布局
+
+Couldn't switch to "%S"
+= 无法切换到“%S”
+
+Couldn't open "%S"
+= 无法打开“%S”
+
+Couldn't rename "%S" to "%S"
+= 无法将“%S”重命名为“%S”
+
+Trash failed
+= 移到回收站失败
+
+Delete failed
+= 删除失败
+
+Create failed
+= 创建失败
+
+Restore failed
+= 还原失败
+
+Move failed
+= 移动失败
+
+Copy failed
+= 复制失败
+
+Redo failed
+= 重做失败
+
+Undo failed
+= 撤消失败
+
+Couldn't save "%S"
+= 无法保存“%S”
+
+Open
+= 打开
+
+Open the focused file or folder.
+= 打开当前聚焦的文件或文件夹。
+
+Refresh
+= 刷新
+
+Reload the current folder.
+= 重新加载当前文件夹。
+
+Go Back
+= 后退
+
+Go to the previous folder in the history.
+= 转到历史记录中的上一个文件夹。
+
+Go Forward
+= 前进
+
+Go to the next folder in the history.
+= 转到历史记录中的下一个文件夹。
+
+Go Up
+= 向上
+
+Go to the parent folder.
+= 转到上一级文件夹。
+
+Toggle Hidden Files
+= 切换隐藏的文件
+
+Show or hide hidden files and folders.
+= 显示或隐藏隐藏的文件和文件夹。
+
+Select All
+= 全选
+
+Select every item in the current folder.
+= 选择当前文件夹中的所有项目。
+
+Select Previous
+= 选择上一项
+
+Select the previous item in the list.
+= 选择列表中的上一项。
+
+Select Next
+= 选择下一项
+
+Select the next item in the list.
+= 选择列表中的下一项。
+
+Select Left
+= 选择左侧项
+
+Select the item to the left.
+= 选择左侧的项目。
+
+Select Right
+= 选择右侧项
+
+Select the item to the right.
+= 选择右侧的项目。
+
+Select First
+= 选择第一项
+
+Select the first item in the list.
+= 选择列表中的第一项。
+
+Select Last
+= 选择最后一项
+
+Select the last item in the list.
+= 选择列表中的最后一项。
+
+Scroll Select Up
+= 向上翻页并选择
+
+Scroll up by a page and select an item.
+= 向上滚动一页并选择一个项目。
+
+Scroll Select Down
+= 向下翻页并选择
+
+Scroll down by a page and select an item.
+= 向下滚动一页并选择一个项目。
+
+Move File Cursor To Previous
+= 文件光标移到上一项
+
+Move the file cursor to the previous item.
+= 将文件光标移到上一项。
+
+Move File Cursor To Next
+= 文件光标移到下一项
+
+Move the file cursor to the next item.
+= 将文件光标移到下一项。
+
+Move File Cursor Left
+= 文件光标左移
+
+Move the file cursor to the left item.
+= 将文件光标移到左侧的项目。
+
+Move File Cursor Right
+= 文件光标右移
+
+Move the file cursor to the right item.
+= 将文件光标移到右侧的项目。
+
+Extend Select Previous
+= 扩展选择到上一项
+
+Extend the selection to the previous item.
+= 将选择范围扩展到上一项。
+
+Extend Select Next
+= 扩展选择到下一项
+
+Extend the selection to the next item.
+= 将选择范围扩展到下一项。
+
+Extend Select Left
+= 向左扩展选择
+
+Extend the selection to the left item.
+= 将选择范围扩展到左侧的项目。
+
+Extend Select Right
+= 向右扩展选择
+
+Extend the selection to the right item.
+= 将选择范围扩展到右侧的项目。
+
+Extend Select First
+= 扩展选择到第一项
+
+Extend the selection to the first item.
+= 将选择范围扩展到第一项。
+
+Extend Select Last
+= 扩展选择到最后一项
+
+Extend the selection to the last item.
+= 将选择范围扩展到最后一项。
+
+Scroll Extend Select Up
+= 向上翻页并扩展选择
+
+Scroll up by a page and extend the selection.
+= 向上滚动一页并扩展选择范围。
+
+Scroll Extend Select Down
+= 向下翻页并扩展选择
+
+Scroll down by a page and extend the selection.
+= 向下滚动一页并扩展选择范围。
+
+Center Camera
+= 居中视图
+
+Center the camera on the current selection.
+= 将视图居中到当前选择。
+
+Context Menu
+= 上下文菜单
+
+Open the system context menu on the selection or the folder background.
+= 在所选项目或文件夹空白处打开系统上下文菜单。
+
+Rename
+= 重命名
+
+Rename the focused item in place.
+= 就地重命名当前聚焦的项目。
+
+Filter
+= 筛选
+
+Start filtering the current folder's contents.
+= 开始筛选当前文件夹的内容。
+
+Insert Incremental ID
+= 插入递增编号
+
+Insert an incremental ID at the text caret.
+= 在文本光标处插入递增编号。
+
+Insert Current Date
+= 插入当前日期
+
+Insert the current date at the text caret.
+= 在文本光标处插入当前日期。
+
+Insert File Create Date
+= 插入文件创建日期
+
+Insert the file's creation date at the text caret.
+= 在文本光标处插入文件的创建日期。
+
+Insert File Last Modified Date
+= 插入文件修改日期
+
+Insert the file's last modified date at the text caret.
+= 在文本光标处插入文件的上次修改日期。
+
+Rename Previous File
+= 重命名上一个文件
+
+Apply rename to the current selection and jump to the previous file.
+= 对当前所选项目应用重命名，并跳到上一个文件。
+
+Rename Next File
+= 重命名下一个文件
+
+Apply rename to the current selection and jump to the next file.
+= 对当前所选项目应用重命名，并跳到下一个文件。
+
+Move Left
+= 左移
+
+Move the text caret left.
+= 将文本光标左移。
+
+Extend Left
+= 向左扩展
+
+Extend the selection left from the text caret.
+= 从文本光标处向左扩展选择范围。
+
+Move Right
+= 右移
+
+Move the text caret right.
+= 将文本光标右移。
+
+Extend Right
+= 向右扩展
+
+Extend the selection right from the text caret.
+= 从文本光标处向右扩展选择范围。
+
+Move Left By Word
+= 左移一个单词
+
+Move the text caret left by a word.
+= 将文本光标左移一个单词。
+
+Extend Left By Word
+= 向左扩展一个单词
+
+Extend the selection left by a word from the text caret.
+= 从文本光标处向左将选择范围扩展一个单词。
+
+Move Right By Word
+= 右移一个单词
+
+Move the text caret right by a word.
+= 将文本光标右移一个单词。
+
+Extend Right By Word
+= 向右扩展一个单词
+
+Extend the selection right by a word from the text caret.
+= 从文本光标处向右将选择范围扩展一个单词。
+
+Move Home
+= 移到行首
+
+Move the text caret to the start of the line.
+= 将文本光标移到行首。
+
+Extend Home
+= 扩展到行首
+
+Extend the selection to the start of the line from the text caret.
+= 从文本光标处将选择范围扩展到行首。
+
+Move End
+= 移到行尾
+
+Move the text caret to the end of the line.
+= 将文本光标移到行尾。
+
+Extend End
+= 扩展到行尾
+
+Extend the selection to the end of the line from the text caret.
+= 从文本光标处将选择范围扩展到行尾。
+
+Delete Left
+= 向左删除
+
+Delete the character to the left of the text caret.
+= 删除文本光标左侧的字符。
+
+Delete Left By Word
+= 向左删除一个单词
+
+Delete the word to the left of the text caret.
+= 删除文本光标左侧的单词。
+
+Delete Right
+= 向右删除
+
+Delete the character to the right of the text caret.
+= 删除文本光标右侧的字符。
+
+Delete Right By Word
+= 向右删除一个单词
+
+Delete the word to the right of the text caret.
+= 删除文本光标右侧的单词。
+
+Select all text.
+= 选择所有文本。
+
+Copy the selected text.
+= 复制所选文本。
+
+Cut
+= 剪切
+
+Cut the selected text.
+= 剪切所选文本。
+
+Paste
+= 粘贴
+
+Paste the clipboard contents.
+= 粘贴剪贴板中的内容。
+
+Uppercase
+= 大写
+
+Convert the selected text to uppercase.
+= 将所选文本转换为大写。
+
+Lowercase
+= 小写
+
+Convert the selected text to lowercase.
+= 将所选文本转换为小写。
+
+Autocomplete
+= 自动补全
+
+Autocomplete file names or paths, and toggle groups where possible.
+= 自动补全文件名或路径，并在可能时展开或折叠分组。
+
+Undo
+= 撤消
+
+Undo the last text-based action.
+= 撤消上一个文本操作。
+
+Redo
+= 重做
+
+Redo the last text-based action.
+= 重做上一个文本操作。
+
+Delete Left Part
+= 删除左侧部分
+
+Delete back from the text caret to the previous space, slash or dot.
+= 从文本光标处向前删除到上一个空格、斜杠或点。
+
+Delete To Start
+= 删除到行首
+
+Delete from the text caret to the start of the line.
+= 删除从文本光标到行首的内容。
+
+Delete To End
+= 删除到行尾
+
+Delete from the text caret to the end of the line.
+= 删除从文本光标到行尾的内容。
+
+Swap Characters
+= 交换字符
+
+Swap the two characters at the text caret.
+= 交换文本光标处的两个字符。
+
+Swap Words
+= 交换单词
+
+Swap the words before and after the text caret.
+= 交换文本光标前后的单词。
+
+Uppercase Word
+= 单词转大写
+
+Uppercase the rest of the word at the text caret.
+= 将文本光标处单词的其余部分转为大写。
+
+Lowercase Word
+= 单词转小写
+
+Lowercase the rest of the word at the text caret.
+= 将文本光标处单词的其余部分转为小写。
+
+Capitalize Word
+= 单词首字母大写
+
+Capitalize the rest of the word at the text caret.
+= 将文本光标处单词的其余部分首字母大写。
+
+Expanded Search
+= 扩展搜索
+
+Start searching through all subfiles and subfolders.
+= 开始在所有子文件和子文件夹中搜索。
+
+Toggle File Cursor Selection
+= 切换文件光标处的选择
+
+Toggle selection for the file or folder at the file cursor position without affecting other selections.
+= 切换文件光标处文件或文件夹的选择状态，不影响其他已选项目。
+
+Open In Right Split
+= 在右侧拆分中打开
+
+Open selected folders in the new panels to the right. For files, opens containing folders.
+= 在右侧的新窗格中打开所选文件夹。对于文件，则打开其所在的文件夹。
+
+Open In Bottom Split
+= 在底部拆分中打开
+
+Open selected folders in the new panels to the bottom. For files, opens containing folders.
+= 在下方的新窗格中打开所选文件夹。对于文件，则打开其所在的文件夹。
+
+Copy Files To Previous Panel
+= 复制文件到上一个窗格
+
+Copy selected files to the previous neighbor panel.
+= 将所选文件复制到相邻的上一个窗格。
+
+Copy Files To Next Panel
+= 复制文件到下一个窗格
+
+Copy selected files to the next neighbor panel.
+= 将所选文件复制到相邻的下一个窗格。
+
+Move Files To Previous Panel
+= 移动文件到上一个窗格
+
+Move selected files to the previous neighbor panel.
+= 将所选文件移动到相邻的上一个窗格。
+
+Move Files To Next Panel
+= 移动文件到下一个窗格
+
+Move selected files to the next neighbor panel.
+= 将所选文件移动到相邻的下一个窗格。
+
+Open Containing Path
+= 打开所在位置
+
+Open the target file or folder's real location in its containing folder.
+= 在所在文件夹中打开目标文件或文件夹的实际位置。
+
+Open Containing Path In Tab
+= 在标签页中打开所在位置
+
+Open the target file or folder's real location in its containing folder in a new tab.
+= 在新标签页中，于所在文件夹中打开目标文件或文件夹的实际位置。
+
+Open Relative Path
+= 打开相对路径
+
+Open selected file from flattened hierarchy in its parent folder.
+= 在上级文件夹中打开展平层级中的所选文件。
+
+Open Relative Path In Tab
+= 在标签页中打开相对路径
+
+Open selected file from flattened hierarchy in its parent folder in a new tab.
+= 在新标签页中，于上级文件夹中打开展平层级中的所选文件。
+
+Inspect
+= 属性
+
+Open system properties window for the selected files.
+= 打开所选文件的系统属性窗口。
+
+Refresh Folder Stats
+= 刷新文件夹统计
+
+Refresh total child size and item count for the selected folders.
+= 刷新所选文件夹的内容总大小和项目数。
+
+Toggle Expand Folder
+= 切换展开文件夹
+
+Recursively flatten all subfiles and subfolders into a single file listing.
+= 将所有子文件和子文件夹递归展平为单个文件列表。
+
+Apply Filter to Folder
+= 对文件夹应用筛选
+
+Keep the filter and give the keyboard back to the list.
+= 保留筛选，并将键盘焦点交还给列表。
+
+Remove Filter
+= 移除筛选
+
+Show every item again.
+= 重新显示所有项目。
+
+Pin Filter
+= 固定筛选
+
+Retain the filter on folder change.
+= 切换文件夹时保留筛选。
+
+Open Types Dropdown
+= 打开类型下拉列表
+
+Open the dropdown to toggle visibility for specific file types.
+= 打开下拉列表以切换特定文件类型的显示。
+
+Open Folder Dropdown
+= 打开文件夹下拉列表
+
+Open folder dropdown from the path header.
+= 从路径栏打开文件夹下拉列表。
+
+Open Left Folder Dropdown
+= 打开左侧文件夹下拉列表
+
+Open the folder dropdown for the parent directory to the left of the current one.
+= 为当前文件夹左侧的上级文件夹打开文件夹下拉列表。
+
+Open Right Folder Dropdown
+= 打开右侧文件夹下拉列表
+
+Open the folder dropdown for the next child directory to the right of the current one.
+= 为当前文件夹右侧的下一个子文件夹打开文件夹下拉列表。
+
+Show Folders
+= 显示文件夹
+
+List or hide the folder's subfolders.
+= 列出或隐藏文件夹的子文件夹。
+
+Show Files
+= 显示文件
+
+List or hide the folder's files.
+= 列出或隐藏文件夹中的文件。
+
+Copy selected files in the folder, placing them in the system clipboard.
+= 复制文件夹中的所选文件，并将其放入系统剪贴板。
+
+Cut selected files in the folder, placing them in the system clipboard.
+= 剪切文件夹中的所选文件，并将其放入系统剪贴板。
+
+Paste files from the system clipboard into the current folder.
+= 将系统剪贴板中的文件粘贴到当前文件夹。
+
+Trash
+= 移到回收站
+
+Move selected files into the Trash or Recycle Bin.
+= 将所选文件移到回收站。
+
+Permanently delete selected files!
+= 永久删除所选文件！
+
+Duplicate
+= 创建副本
+
+Duplicate selected files into the same folder.
+= 在同一文件夹中创建所选文件的副本。
+
+Add To ZIP
+= 添加到 ZIP
+
+Pack the selected items into a new zip archive beside them.
+= 将所选项目打包为旁边的新 zip 压缩文件。
+
+Add To 7z
+= 添加到 7z
+
+Pack the selected items into a new 7z archive beside them.
+= 将所选项目打包为旁边的新 7z 压缩文件。
+
+Take everything out of the selected archive into the folder it is in.
+= 将所选压缩文件中的全部内容解压到其所在的文件夹。
+
+Extract To Folder
+= 解压到文件夹
+
+Take everything out of the selected archive into a new folder named after it.
+= 将所选压缩文件中的全部内容解压到以其命名的新文件夹。
+
+Copy As Path
+= 复制为路径
+
+Copy selected file paths to the clipboard, or the folder's path when nothing is selected.
+= 将所选文件的路径复制到剪贴板；未选择任何项目时复制文件夹的路径。
+
+Copy As Path (Smart)
+= 复制为路径（智能）
+
+Copy selected file paths to the clipboard, adding quotes only when needed.
+= 将所选文件的路径复制到剪贴板，仅在需要时添加引号。
+
+Copy Version
+= 复制版本号
+
+Copy Filey's version to the clipboard, as for a bug report.
+= 将 Filey 的版本号复制到剪贴板，例如用于错误报告。
+
+Paste Shortcut
+= 粘贴快捷方式
+
+Paste files as shortcuts from the system clipboard into the current folder.
+= 将系统剪贴板中的文件以快捷方式形式粘贴到当前文件夹。
+
+Create Folder
+= 新建文件夹
+
+Create an empty folder in the current folder and enter rename mode.
+= 在当前文件夹中新建空文件夹并进入重命名模式。
+
+Create File
+= 新建文件
+
+Create a file in the current folder and enter rename mode.
+= 在当前文件夹中新建文件并进入重命名模式。
+
+Open In Tab
+= 在标签页中打开
+
+Open selected folders in new tabs. For files, opens containing folders.
+= 在新标签页中打开所选文件夹。对于文件，则打开其所在的文件夹。
+
+Open In New Window
+= 在新窗口中打开
+
+Open selected folders in new windows. For files, opens containing folders.
+= 在新窗口中打开所选文件夹。对于文件，则打开其所在的文件夹。
+
+Open New Tab
+= 新建标签页
+
+Open a new tab in the current folder.
+= 在当前文件夹中新建标签页。
+
+Duplicate Tab
+= 复制标签页
+
+Duplicate the current tab in the same folder.
+= 在同一文件夹中复制当前标签页。
+
+Shift Tab Left
+= 左移标签页
+
+Shift the current tab to the left.
+= 将当前标签页向左移动。
+
+Shift Tab Right
+= 右移标签页
+
+Shift the current tab to the right.
+= 将当前标签页向右移动。
+
+Close Tab
+= 关闭标签页
+
+Close the current tab.
+= 关闭当前标签页。
+
+Close Other Tabs
+= 关闭其他标签页
+
+Close all tabs except the currently selected one.
+= 关闭除当前所选标签页外的所有标签页。
+
+Close Left Tabs
+= 关闭左侧标签页
+
+Close all tabs to the left of the currently selected tab.
+= 关闭当前所选标签页左侧的所有标签页。
+
+Close Right Tabs
+= 关闭右侧标签页
+
+Close all tabs to the right of the currently selected tab.
+= 关闭当前所选标签页右侧的所有标签页。
+
+Close All Tabs
+= 关闭所有标签页
+
+Close the panel and all open tabs in it.
+= 关闭窗格及其中所有打开的标签页。
+
+Tab Menu
+= 标签页菜单
+
+Open dropdown menu for the selected tab.
+= 打开所选标签页的下拉菜单。
+
+Reopen Closed Tab
+= 重新打开已关闭的标签页
+
+Reopen the last closed tab from the list of previously closed tabs.
+= 从之前关闭的标签页列表中重新打开最后关闭的标签页。
+
+Select Next Tab
+= 下一个标签页
+
+Select the next tab if it exists.
+= 选择下一个标签页（如果存在）。
+
+Select Previous Tab
+= 上一个标签页
+
+Select the previous tab if it exists.
+= 选择上一个标签页（如果存在）。
+
+Select 1st Tab
+= 第 1 个标签页
+
+Select the 1st tab.
+= 选择第 1 个标签页。
+
+Select 2nd Tab
+= 第 2 个标签页
+
+Select the 2nd tab if it exists.
+= 选择第 2 个标签页（如果存在）。
+
+Select 3rd Tab
+= 第 3 个标签页
+
+Select the 3rd tab if it exists.
+= 选择第 3 个标签页（如果存在）。
+
+Select 4th Tab
+= 第 4 个标签页
+
+Select the 4th tab if it exists.
+= 选择第 4 个标签页（如果存在）。
+
+Select 5th Tab
+= 第 5 个标签页
+
+Select the 5th tab if it exists.
+= 选择第 5 个标签页（如果存在）。
+
+Select 6th Tab
+= 第 6 个标签页
+
+Select the 6th tab if it exists.
+= 选择第 6 个标签页（如果存在）。
+
+Select 7th Tab
+= 第 7 个标签页
+
+Select the 7th tab if it exists.
+= 选择第 7 个标签页（如果存在）。
+
+Select 8th Tab
+= 第 8 个标签页
+
+Select the 8th tab if it exists.
+= 选择第 8 个标签页（如果存在）。
+
+Select Last Tab
+= 最后一个标签页
+
+Select the last tab.
+= 选择最后一个标签页。
+
+Toggle Quick Access
+= 切换快速访问
+
+Toggle the Quick Access sidebar.
+= 显示或隐藏快速访问侧边栏。
+
+Filter Quick Access
+= 筛选快速访问
+
+Start filtering items in the Quick Access sidebar.
+= 开始筛选快速访问侧边栏中的项目。
+
+Toggle Folder Bookmark
+= 切换文件夹书签
+
+Toggle storing the currently open file path in the bookmarked section.
+= 将当前打开的路径加入书签部分或从中移除。
+
+Toggle Folder View
+= 切换文件夹视图
+
+Toggle preserving folder view settings: icons, sort order, folders first, and list columns.
+= 切换是否保留文件夹视图设置：图标、排序方式、文件夹优先和列表列。
+
+Toggle Highlight Recents
+= 切换突出显示最近使用
+
+Toggle marking recently accessed files and directories.
+= 切换是否标记最近访问的文件和文件夹。
+
+Toggle Sort Recents
+= 切换最近使用置顶
+
+Toggle sorting of recently accessed files and directories to the top.
+= 切换是否将最近访问的文件和文件夹排在最前。
+
+Cycle Folders Sort Order
+= 循环切换文件夹排序
+
+Cycle how folders and files are sorted: folders first, files first or mixed together.
+= 循环切换文件夹和文件的排序方式：文件夹优先、文件优先或混排。
+
+Size All Columns To Fit
+= 调整所有列宽以适合
+
+Size all header columns to fit their contents.
+= 调整所有标题列的宽度以适合其内容。
+
+Increase Font Size
+= 增大字号
+
+Increase the main font size and scale up the whole UI.
+= 增大主字号并放大整个界面。
+
+Decrease Font Size
+= 减小字号
+
+Decrease the main font size and scale down the whole UI.
+= 减小主字号并缩小整个界面。
+
+Reset Font Size
+= 重置字号
+
+Reset the main font size and restore the original UI scale.
+= 重置主字号并恢复界面的原始缩放比例。
+
+Increase Spacing
+= 增大间距
+
+Increase the space between items in a list.
+= 增大列表中各项之间的间距。
+
+Decrease Spacing
+= 减小间距
+
+Decrease the space between items in a list.
+= 减小列表中各项之间的间距。
+
+Toggle File Extension
+= 切换文件扩展名
+
+Show or hide the extensions of file names.
+= 显示或隐藏文件名的扩展名。
+
+Toggle System Files
+= 切换系统文件
+
+Show or hide system files.
+= 显示或隐藏系统文件。
+
+Clear Folders Views
+= 清除文件夹视图
+
+Clear view settings for all folders.
+= 清除所有文件夹的视图设置。
+
+Clear Bookmarks
+= 清除书签
+
+Clear all bookmarked file paths.
+= 清除所有加入书签的路径。
+
+Clear Recents
+= 清除最近使用
+
+Clear all recently visited or opened file paths.
+= 清除所有最近访问或打开的路径。
+
+Minimize Window
+= 最小化窗口
+
+Minimize the currently opened window.
+= 最小化当前打开的窗口。
+
+Toggle Fullscreen
+= 切换全屏
+
+Toggle fullscreen mode, maximizing or restoring the current window.
+= 切换全屏模式，最大化或还原当前窗口。
+
+Open Console
+= 打开控制台
+
+Open the OS native console on the currently opened file path.
+= 在当前打开的路径中打开系统自带的控制台。
+
+Close Window
+= 关闭窗口
+
+Close the window and quit Filey.
+= 关闭窗口并退出 Filey。
+
+Toggle Inspector
+= 切换检查器
+
+Toggle inspector in currently active panel.
+= 在当前活动窗格中显示或隐藏检查器。
+
+Restore selected files into their original location. Applicable in Recycle Bin.
+= 将所选文件还原到其原始位置。适用于回收站。
+
+Restore Trash Items
+= 还原回收站项目
+
+Restore all files from the Recycle Bin into their original locations.
+= 将回收站中的所有文件还原到其原始位置。
+
+Empty Recycle Bin
+= 清空回收站
+
+Permanently delete everything in the Recycle Bin.
+= 永久删除回收站中的所有内容。
+
+Reverse the last rename, new item, copy or move.
+= 撤消上一次重命名、新建、复制或移动。
+
+Make the last rename or move that Undo reversed again.
+= 再次执行被“撤消”撤回的上一次重命名或移动。
+
+Options
+= 选项
+
+Open the options popup to customize the application behavior.
+= 打开选项弹出窗口以自定义应用程序行为。
+
+Create Custom Language
+= 创建自定义语言
+
+Write a language file of every text Filey shows, with the shown language's translations, to translate in an editor; it is chosen at once.
+= 写入一个包含 Filey 所有显示文本及当前语言翻译的语言文件，以便在编辑器中翻译；该语言会立即被选用。
+
+Edit Settings File
+= 编辑设置文件
+
+Open the settings file, whose saved changes apply at once.
+= 打开设置文件，保存的更改会立即生效。
+
+Edit Path
+= 编辑路径
+
+Type a path to go to, starting from the current folder's.
+= 从当前文件夹的路径开始，输入要转到的路径。
+
+Go To
+= 转到
+
+Open a recent folder, or type a path and expand its folders.
+= 打开最近使用的文件夹，或输入路径并展开其中的文件夹。
+
+GoTo Move Back
+= 转到：后退
+
+Navigate to the previous path in the undo stack.
+= 导航到撤消栈中的上一个路径。
+
+GoTo Move Forward
+= 转到：前进
+
+Navigate to the next path in the undo stack.
+= 导航到撤消栈中的下一个路径。
+
+GoTo Move Up
+= 转到：向上
+
+Navigate to the parent file path in GoTo.
+= 在“转到”中导航到上一级路径。
+
+GoTo Select In Panel
+= 转到：在窗格中选择
+
+Select the current file in GoTo in the background panel and close the GoTo window.
+= 在后方的窗格中选择“转到”中的当前文件，并关闭“转到”窗口。
+
+Quick Commands
+= 快速命令
+
+Open a popup that hosts all bookmarked commands from the command palette.
+= 打开一个弹出窗口，其中包含命令面板中所有加星标的命令。
+
+Command Palette
+= 命令面板
+
+Find and run any command by name.
+= 按名称查找并运行任意命令。
+
+Search Tabs
+= 搜索标签页
+
+Find an open tab by its folder's name or path.
+= 按文件夹名称或路径查找已打开的标签页。
+
+Menu
+= 菜单
+
+Open the top left main menu.
+= 打开左上角的主菜单。
+
+New Window
+= 新建窗口
+
+Open the current folder in a new window.
+= 在新窗口中打开当前文件夹。
+
+Split Right
+= 向右拆分
+
+Split current panel to the right.
+= 将当前窗格向右拆分。
+
+Split Bottom
+= 向下拆分
+
+Split current panel to the bottom.
+= 将当前窗格向下拆分。
+
+Toggle Panel Zoom
+= 切换窗格最大化
+
+Zoom the panel to fill the window, or unzoom it if already zoomed.
+= 将窗格放大至填满窗口；若已放大则还原。
+
+Even Panel Siblings
+= 均分同级窗格
+
+Even viewport size of all panels in the current panels layout group.
+= 均分当前窗格布局组中所有窗格的大小。
+
+Even All Panels
+= 均分所有窗格
+
+Even viewport size of all panels.
+= 均分所有窗格的大小。
+
+Next Panel
+= 下一个窗格
+
+Move to the next panel.
+= 转到下一个窗格。
+
+Previous Panel
+= 上一个窗格
+
+Move to the previous panel.
+= 转到上一个窗格。
+
+Focus Left Panel
+= 聚焦左侧窗格
+
+Move the keyboard to the panel on the left.
+= 将键盘焦点移到左侧的窗格。
+
+Focus Right Panel
+= 聚焦右侧窗格
+
+Move the keyboard to the panel on the right.
+= 将键盘焦点移到右侧的窗格。
+
+Focus Upper Panel
+= 聚焦上方窗格
+
+Move the keyboard to the panel above.
+= 将键盘焦点移到上方的窗格。
+
+Focus Lower Panel
+= 聚焦下方窗格
+
+Move the keyboard to the panel below.
+= 将键盘焦点移到下方的窗格。
+
+Zoom In
+= 放大
+
+Show the files larger, one view step at a time.
+= 以较大尺寸显示文件，每次一级视图。
+
+Zoom Out
+= 缩小
+
+Show the files smaller, one view step at a time.
+= 以较小尺寸显示文件，每次一级视图。
+
+View Details
+= 详细信息
+
+Display files with detailed information and metadata.
+= 显示文件及其详细信息和元数据。
+
+View List
+= 列表
+
+Display files as a simple list with just icons and names.
+= 以仅含图标和名称的简单列表显示文件。
+
+View Columns
+= 多列
+
+Arrange files in multiple columns for easy scanning.
+= 将文件排成多列，便于浏览。
+
+View Medium Icons
+= 中图标
+
+Display files as medium-sized icons for balanced detail.
+= 以中等大小的图标显示文件，兼顾细节。
+
+View Large Icons
+= 大图标
+
+Show files as large icons for easier recognition.
+= 以大图标显示文件，便于识别。
+
+View XL Icons
+= 超大图标
+
+Show files with extra large icons for high visibility.
+= 以超大图标显示文件，更加醒目。
+
+Toggle Miller Columns
+= 切换米勒列
+
+Toggle columns of the parent folders on the left and of the focused folder's contents on the right.
+= 切换左侧上级文件夹列和右侧当前聚焦文件夹内容列的显示。
+
+Save Layout
+= 保存布局
+
+Save the current window layout: window dimensions, panels, sidebar, etc.
+= 保存当前窗口布局：窗口尺寸、窗格、侧边栏等。
+
+Load Layout
+= 加载布局
+
+Load layout and apply it to the current window.
+= 加载布局并将其应用到当前窗口。
+
+Open File Explorer
+= 打开文件资源管理器
+
+Open the OS native file explorer on the currently opened file path.
+= 在当前打开的路径中打开系统自带的文件管理器。
+
+Filey Setup
+= Filey 安装程序
+
+Install or uninstall Filey, with options to create Desktop and Start menu shortcuts and add it to the PATH.
+= 安装或卸载 Filey，可选择创建桌面和“开始”菜单快捷方式并将其添加到 PATH。
+
+Restore Muted Notifications
+= 恢复已静音的通知
+
+Show the kinds of notice muted with their bell again.
+= 重新显示通过铃铛按钮静音的通知类型。
+
+Sort By Name
+= 按名称排序
+
+Sort folder contents by name, treating neighbor digits as numbers.
+= 按名称对文件夹内容排序，将连续的数字视为数值。
+
+Sort By Size
+= 按大小排序
+
+Sort folder contents by size, using the size of the children contents for folders.
+= 按大小对文件夹内容排序，文件夹使用其内容的大小。
+
+Sort By Date Created
+= 按创建日期排序
+
+Sort folder contents by file creation date.
+= 按文件创建日期对文件夹内容排序。
+
+Sort By Date Modified
+= 按修改日期排序
+
+Sort folder contents by file last modified date.
+= 按文件上次修改日期对文件夹内容排序。
+
+Sort By Date Accessed
+= 按访问日期排序
+
+Sort folder contents by file last access date.
+= 按文件上次访问日期对文件夹内容排序。
+
+Sort By Total Items
+= 按项目总数排序
+
+Sort folder contents by children item count.
+= 按包含的项目数对文件夹内容排序。
+
+Sort By Type
+= 按类型排序
+
+Sort folder contents by file type.
+= 按文件类型对文件夹内容排序。
+
+Toggle Inspector Details
+= 切换检查器详细信息
+
+Toggle display of extra file metadata details in the inspector.
+= 切换在检查器中显示额外的文件元数据详细信息。
+
+Toggle Inspector Layout
+= 切换检查器布局
+
+Toggle inspector layout between horizontal and vertical.
+= 在水平和垂直之间切换检查器布局。
+
+Filter Inspector Content
+= 筛选检查器内容
+
+Start filtering contents in the inspector. Applicable to text and folder previews.
+= 开始筛选检查器中的内容。适用于文本和文件夹预览。
+
+Toggle Inspector Image Grid
+= 切换检查器图像网格
+
+Toggle display of image grid to better differentiate background from the image contents.
+= 切换图像网格的显示，以便更好地区分背景和图像内容。
+
+Toggle Inspector Image Minimap
+= 切换检查器图像小地图
+
+Toggle display of minimap when an image is being zoomed.
+= 切换缩放图像时小地图的显示。
+
+Toggle Inspector Image Scale
+= 切换检查器图像缩放
+
+Toggle inspector image scale between fit to viewport and original source size.
+= 在适应视口和原始尺寸之间切换检查器图像的缩放。
+
+Scale Up Inspector Image
+= 放大检查器图像
+
+Scale Down Inspector Image
+= 缩小检查器图像
+
+Increase Contents Size
+= 增大内容尺寸
+
+Increase contents size in the inspector; font size for text, zoom for images, etc.
+= 增大检查器中内容的尺寸：文本增大字号，图像放大等。
+
+Decrease Inspector Contents Size
+= 减小检查器内容尺寸
+
+Decrease contents size in the inspector; font size for text, zoom for images, etc.
+= 减小检查器中内容的尺寸：文本减小字号，图像缩小等。
+
+Toggle Inspector Word Wrap
+= 切换检查器自动换行
+
+Toggle word wrap option of the previewed text in the inspector.
+= 切换检查器中预览文本的自动换行。
+
+Toggle Inspector Line Numbers
+= 切换检查器行号
+
+Toggle display of line numbers for the previewed text in the inspector.
+= 切换检查器中预览文本行号的显示。
+
+Toggle Inspector Hex View
+= 切换检查器十六进制视图
+
+Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.
+= 在检查器中以十六进制显示任意文件的字节，或按原样显示文本和图片文件。
+
+Toggle Inspector Whitespace
+= 切换检查器空白字符
+
+Toggle display of whitespace in the previewed text in the inspector.
+= 切换检查器中预览文本空白字符的显示。
+
+# Counted texts: one form for every count.
+
+Filter %u files...
+= 筛选 %u 个文件...
+
+%u changes not committed. Switch to "%S" and take them along?
+= 有 %u 处更改尚未提交。是否切换到“%S”并带上这些更改？
+
+Moving %u items to %S
+= 正在将 %u 个项目移动到 %S
+
+Copying %u items to %S
+= 正在将 %u 个项目复制到 %S
+
+Permanently delete %u items?
+= 永久删除 %u 个项目？
+
+Over %S items, packed to %S
+= 超过 %S 个项目，压缩为 %S
+
+%S folders
+= %S 个文件夹
+
+%S files, %S, packed to %S
+= %S 个文件，%S，压缩为 %S
+
+Details
+= 详细信息
+
+List
+= 列表
+
+Columns
+= 多列
+
+M Icons
+= 中图标
+
+L Icons
+= 大图标
+
+XL Icons
+= 超大图标
+
+Quick
+= 快速
+
+Folder
+= 文件夹
+
+Sort
+= 排序
+
+Inspector
+= 检查器
+
+Panels
+= 窗格
+
+Tabs
+= 标签页
+
+Misc
+= 其他
+
+Text
+= 文本
+
+Scroll
+= 滚动
+
+No archive to take out
+= 没有可解压的压缩文件
+
+No temporary folder to take the items out into
+= 没有可用于解压项目的临时文件夹
+
+They are no longer in the bin
+= 它们已不在回收站中
+
+Folder link
+= 文件夹链接
+
+Link
+= 链接
+
+%u folders
+= %u 个文件夹
+
+%u files
+= %u 个文件
+
+%S free of %S (%S)
+= %S 可用，共 %S（%S）
+
+%S free of %S
+= %S 可用，共 %S
+
+%S color
+= %S颜色
+
+%S of %S
+= %S / %S
+
+%u of %u
+= %u / %u
+
+%u pages
+= %u 页
+
+# Units of size and count, and a number with tenths, whose translation shows the decimal mark.
+
+B
+= 字节
+
+kB
+= KB
+
+MB
+= MB
+
+GB
+= GB
+
+TB
+= TB
+
+K
+= K
+
+M
+= M
+
+1.5
+= 1.5
+
+File System
+= 文件系统
+
+Free Space
+= 可用空间
+
+Percent Full
+= 已用百分比
+
+Original Location
+= 原位置
+
+Date Deleted
+= 删除日期
+
+Uninstall
+= 卸载
+
+This will remove the current version from your PC, including its shortcuts, right-click entries, default program registration and PATH changes.
+= 这将从你的电脑中删除当前版本，包括其快捷方式、右键菜单项、默认程序注册和 PATH 更改。
+
+Blank
+= 空白
+
+Video
+= 视频
+
+Audio
+= 音频
+
+Duration
+= 时长
+
+Bitrate
+= 比特率
+
+Video Codec
+= 视频编解码器
+
+What Compress Video encodes to, on the graphics card when it has an encoder for it: NVENC, AMF or Quick Sync.
+= “压缩视频”编码到的格式；显卡有相应编码器时在显卡上编码：NVENC、AMF 或 Quick Sync。
+
+Video Quality
+= 视频质量
+
+The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does.
+= “压缩视频”保持的恒定质量：数值越低，质量越好、文件越大；18 到 23 看起来与原视频相同。
+
+Compress Video
+= 压缩视频
+
+Encode the selected videos again, smaller, on the graphics card when it can, each beside itself.
+= 重新编码所选视频以缩小体积，可行时使用显卡，每个结果都放在原视频旁边。
+
+Compress video failed
+= 压缩视频失败
+
+Compressing %u videos
+= 正在压缩 %u 个视频
+
+FFmpeg is not installed, or could not read the video
+= 未安装 FFmpeg，或无法读取该视频
+
+Download failed
+= 下载失败
+
+Downloading into %S
+= 正在下载到 %S
+
+Download Audio Only
+= 仅下载音频
+
+A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3.
+= 粘贴到文件夹中的网址会通过 yt-dlp 下载；此选项仅下载其音频，保存为 MP3。
+
+yt-dlp is not installed, or found nothing to download there
+= 未安装 yt-dlp，或在该网址中找不到可下载的内容
+
+Magnet link
+= 磁力链接
+
+aria2c is not installed, or could not download the torrent
+= 未安装 aria2c，或无法下载该种子
+
+aria2c is not installed, or could not fetch the torrent
+= 未安装 aria2c，或无法获取该种子
+
+Starting...
+= 正在启动...
+
+Download Torrent
+= 下载种子
+
+Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents.
+= 使用 aria2c 将所选 .torrent 文件的内容下载到其旁边；未设置打开种子的程序时，打开种子也会这样做。
+
+Play Audio
+= 播放音频
+
+Play the audio file shown in the inspector, or pause it.
+= 播放或暂停检查器中显示的音频文件。
+
+Compress Video encodes to HEVC (H.265): small files that most players play.
+= “压缩视频”编码为 HEVC（H.265）：文件小，大多数播放器都能播放。
+
+Compress Video encodes to H.264: larger, but plays everywhere.
+= “压缩视频”编码为 H.264：文件较大，但随处都能播放。
+
+Compress Video encodes to AV1: the smallest, for newer players and graphics cards.
+= “压缩视频”编码为 AV1：文件最小，适用于较新的播放器和显卡。
+
+Compress Video's quality: lower is better and larger; 18 to 23 looks as the original does.
+= “压缩视频”的质量：数值越低，质量越好、文件越大；18 到 23 看起来与原视频相同。
+
+Q %u
+= 质量 %u
+
+Go on with the download.
+= 继续下载。
+
+Pause the download.
+= 暂停下载。
+
+Stop the download; downloading it again goes on from here.
+= 停止下载；再次下载时会从此处继续。
+
+Git Pull
+= Git Pull
+
+Bring the shown folder's repository up to its remote, only where that moves it forward, without merging.
+= 将当前文件夹的仓库更新到其远程版本，仅在可以快进时进行，不合并。
+
+Couldn't pull
+= 无法拉取
+
+git could not pull
+= git 无法拉取
+
+Fetch Repositories
+= 获取仓库更新
+
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
+= 不时获取当前文件夹的 git 仓库更新（最多每五分钟一次），以统计待拉取的提交；需要登录的仓库不会被获取。
+
+Too many transfers at once
+= 同时进行的传输过多
+
+Wait for one of them to finish, or stop one.
+= 请等待其中一个完成，或停止其中一个。
+
+Don't download it after all.
+= 不下载了。
+
+and %u more
+= 及另外 %u 项
+
+Waiting for a free slot
+= 正在等待空闲位置
+
+%u torrents waiting to start
+= %u 个种子正在等待开始
+
+Audio Volume
+= 音量
+
+How loud the inspector plays audio files.
+= 检查器播放音频文件时的音量。
+
+Mute Audio
+= 静音
+
+Turn the inspector's sound off, or on again.
+= 关闭或重新打开检查器的声音。
+
+Context menu:
+= 上下文菜单：
+
+Adds Filey to Explorer's right-click menus: Show in Filey on files, Open in Filey on folders and Open Filey here inside one.
+= 将 Filey 添加到文件资源管理器的右键菜单：文件上的“在 Filey 中显示”、文件夹上的“在 Filey 中打开”，以及文件夹内的“在此处打开 Filey”。
+
+Show in Filey
+= 在 Filey 中显示
+
+Open in Filey
+= 在 Filey 中打开
+
+Open Filey here
+= 在此处打开 Filey
+
+Delete Finished Torrents
+= 删除已完成的种子
+
+Sends a .torrent file to the Recycle Bin once every file in it has downloaded.
+= 种子中的所有文件下载完成后，将 .torrent 文件移到回收站。
+
+Toggle Tree View
+= 切换树状视图
+
+Toggle unfolding folders in place in the list, their items indented under them.
+= 切换在列表中就地展开文件夹，其中的项目缩进显示在下方。
+
+No Grouping
+= 不分组
+
+List the items without group headings.
+= 不带分组标题列出项目。
+
+Group By Type
+= 按类型分组
+
+Group the items under headings by their type.
+= 按类型将项目分组到标题下。
+
+Group By Date Modified
+= 按修改日期分组
+
+Group the items under headings by when they last changed: today, yesterday, earlier this week and so on.
+= 按上次更改时间将项目分组到标题下：今天、昨天、本周早些时候等。
+
+Group By Size
+= 按大小分组
+
+Group the items under headings by size, from empty to gigantic, the folders apart.
+= 按大小将项目分组到标题下，从空到巨大，文件夹单独分组。
+
+Today
+= 今天
+
+Yesterday
+= 昨天
+
+Earlier this week
+= 本周早些时候
+
+Last week
+= 上周
+
+Earlier this month
+= 本月早些时候
+
+Last month
+= 上个月
+
+Earlier this year
+= 今年早些时候
+
+A long time ago
+= 很久以前
+
+Empty
+= 空
+
+Tiny (under 16 kB)
+= 极小（16 KB 以下）
+
+Small (16 kB to 1 MB)
+= 小（16 KB 至 1 MB）
+
+Medium (1 to 128 MB)
+= 中（1 至 128 MB）
+
+Large (128 MB to 1 GB)
+= 大（128 MB 至 1 GB）
+
+Huge (1 to 4 GB)
+= 特大（1 至 4 GB）
+
+Gigantic (over 4 GB)
+= 巨大（4 GB 以上）
+
+Update Check
+= 检查更新
+
+Asks GitHub once a day whether a newer Filey is out, and offers to update to it.
+= 每天询问一次 GitHub 是否有更新版本的 Filey，并提供更新。
+
+Update to Filey %S
+= 更新到 Filey %S
+
+There is no folder to download into.
+= 没有可下载到的文件夹。
+
+The download failed.
+= 下载失败。
+
+The download holds no Filey for this system.
+= 下载的内容中没有适用于此系统的 Filey。
+
+Downloading Filey %S...
+= 正在下载 Filey %S...
+
+Couldn't start the new Filey
+= 无法启动新版 Filey
+
+Filey %S is out
+= Filey %S 已发布
+
+Update downloads it and starts Filey again in it, with the panels and tabs as they are.
+= “更新”会下载新版本并用它重新启动 Filey，窗格和标签页保持原样。
+
+Its page has the downloads.
+= 可在其页面上下载。
+
+Open Page
+= 打开页面
+
+Filey is up to date
+= Filey 已是最新版本
+
+%S is the latest version.
+= %S 是最新版本。
+
+Couldn't check for updates
+= 无法检查更新
+
+GitHub did not answer, or curl is missing.
+= GitHub 没有响应，或缺少 curl。
+
+Couldn't update Filey
+= 无法更新 Filey
+
+Check For Updates
+= 检查更新
+
+Ask GitHub whether a newer Filey is out, and offer to update to it.
+= 询问 GitHub 是否有更新版本的 Filey，并提供更新。
+
+Update Filey
+= 更新 Filey
+
+Download the newer Filey and start again in it, with the panels and tabs as they are.
+= 下载新版 Filey 并用它重新启动，窗格和标签页保持原样。
+
+Open in New Tab
+= 在新标签页中打开
+
+Open in New Window
+= 在新窗口中打开
+
+Open in Right Split
+= 在右侧拆分中打开
+
+Open in Bottom Split
+= 在底部拆分中打开
+
+Copy Path
+= 复制路径
+
+Compact Path
+= 紧凑路径
+
+Path Breadcrumbs
+= 路径导航痕迹
+
+Path Options
+= 路径选项
+
+Open the path bar's menu: open the folder elsewhere, edit or copy its path, and how the path shows.
+= 打开路径栏菜单：在别处打开文件夹、编辑或复制其路径，以及设置路径的显示方式。
+
+Toggle Compact Path
+= 切换紧凑路径
+
+Show paths from the first recognized folder, as Pictures, or whole from the drive.
+= 从第一个可识别的文件夹（如“图片”）开始显示路径，或从驱动器开始显示完整路径。
+
+Toggle Path Breadcrumbs
+= 切换路径导航痕迹
+
+Show or hide the subfolders visited past the shown folder in the path bar.
+= 在路径栏中显示或隐藏在当前文件夹之后访问过的子文件夹。
+
+Toggle Palette Details
+= 切换命令面板详细信息
+
+Show or hide the descriptions under the commands in the palette.
+= 显示或隐藏命令面板中命令下方的说明。
+
+Show Hidden Places
+= 显示隐藏的位置
+
+Toggle Hidden Places
+= 切换隐藏的位置
+
+Show the places hidden from the sidebar too, faded, to show them again.
+= 同时以淡化方式显示从侧边栏中隐藏的位置，以便重新显示它们。
+
+Restore Places
+= 还原位置
+
+Show every place again, in the order they come in.
+= 按原有顺序重新显示所有位置。
+
+Restore Groups Order
+= 还原分组顺序
+
+Put the sidebar's groups back in their default order.
+= 将侧边栏的分组恢复为默认顺序。
+
+Drag folders here
+= 将文件夹拖到此处
+
+New group
+= 新建分组
+
+Rename Group
+= 重命名分组
+
+Delete Group
+= 删除分组
+
+New Group
+= 新建分组
+
+Add to %S
+= 添加到“%S”
+
+New Sidebar Group
+= 新建侧边栏分组
+
+Make a group of your own in the sidebar, to drag folders into.
+= 在侧边栏中创建自己的分组，以便将文件夹拖入其中。
+
+Password for %S
+= %S 的密码
+
+Type the archive's password...
+= 输入压缩文件的密码...
+
+That password does not open it.
+= 该密码无法打开它。
+
+Select bytes to read them as numbers
+= 选择字节以将其读取为数字
+
+Find bytes or text...
+= 查找字节或文本...
+
+Not found
+= 未找到
+
+Nothing in it matches "%S".
+= 其中没有与“%S”匹配的内容。
+
+Sort By Date Deleted
+= 按删除日期排序
+
+Sort the Recycle Bin by when its items were deleted.
+= 按项目的删除时间对回收站排序。
+
+Sort By Original Location
+= 按原位置排序
+
+Sort the Recycle Bin by the folders its items were deleted from.
+= 按项目被删除前所在的文件夹对回收站排序。
+
+Sort By Free Space
+= 按可用空间排序
+
+Sort the drives by the space they have left.
+= 按剩余空间对驱动器排序。
+
+Sort By Percent Full
+= 按已用百分比排序
+
+Sort the drives by how full they are.
+= 按已用程度对驱动器排序。
+
+Sort By File System
+= 按文件系统排序
+
+Sort the drives by their file system.
+= 按文件系统对驱动器排序。
+
+Code Keyword
+= 代码关键字
+
+Color of keywords and keys in the inspector's code.
+= 检查器代码中关键字和键的颜色。
+
+Code String
+= 代码字符串
+
+Color of strings and quoted text in the inspector's code.
+= 检查器代码中字符串和引号内文本的颜色。
+
+Code Number
+= 代码数字
+
+Color of numbers and variables in the inspector's code.
+= 检查器代码中数字和变量的颜色。
+
+Code Heading
+= 代码标题
+
+Color of headings, sections and tags in the inspector's text.
+= 检查器文本中标题、节和标记的颜色。
+
+Swap Panels
+= 交换窗格
+
+Swap the current panel with what is beside it in its split.
+= 将当前窗格与其拆分中相邻的内容交换。
+
+Reset Panel Layout
+= 重置窗格布局
+
+Close every panel but the current one; Reopen Closed Tab brings their tabs back.
+= 关闭除当前窗格外的所有窗格；“重新打开已关闭的标签页”可恢复其中的标签页。
+
+Hide UI
+= 隐藏界面
+
+Hide the sidebar, the toolbars and the status bars, or show them again.
+= 隐藏或重新显示侧边栏、工具栏和状态栏。
+
+Download Playlists
+= 下载播放列表
+
+The web address of a video in a playlist downloads every video of the playlist, rather than that one alone.
+= 播放列表中某个视频的网址会下载整个播放列表的所有视频，而不仅仅是该视频。
+
+%S became %S, %u%% of the size.
+= %S 变为 %S，为原大小的 %u%%。
+
+Compressed
+= 已压缩
+
+Long Paths Support
+= 长路径支持
+
+Enable support for paths longer than 260 characters in every program (admin access required to change).
+= 在所有程序中启用对超过 260 个字符的路径的支持（更改需要管理员权限）。
+
+Increase Quick Access Size
+= 加宽快速访问
+
+Make the sidebar wider.
+= 加宽侧边栏。
+
+Decrease Quick Access Size
+= 收窄快速访问
+
+Make the sidebar narrower.
+= 收窄侧边栏。
+
+Increase Panel Size
+= 增大窗格
+
+Give the current panel more of its split.
+= 让当前窗格在其拆分中占据更多空间。
+
+Decrease Panel Size
+= 减小窗格
+
+Give the current panel less of its split.
+= 让当前窗格在其拆分中占据更少空间。
+
+Increase Inspector Size
+= 增大检查器
+
+Give the inspector more of its panel.
+= 让检查器在其窗格中占据更多空间。
+
+Decrease Inspector Size
+= 减小检查器
+
+Give the inspector less of its panel.
+= 让检查器在其窗格中占据更少空间。
+
+Items cannot be added to an archive inside another
+= 无法将项目添加到嵌套在另一个压缩文件中的压缩文件

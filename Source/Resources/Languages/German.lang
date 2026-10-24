@@ -1,0 +1,3300 @@
+# Filey language: Deutsch
+# Each entry is Filey's English text on one line and its translation on the next, after "= ".
+
+Language
+= Sprache
+
+The language of Filey's text. Create Custom Language starts a translation of your own, as a file to fill in.
+= Die Sprache der Texte in Filey. „Eigene Sprache erstellen“ beginnt eine eigene Übersetzung als Datei zum Ausfüllen.
+
+Font
+= Schriftart
+
+The system-installed font name that is applied to the entire UI.
+= Die im System installierte Schriftart für die gesamte Oberfläche.
+
+Inspector Font
+= Schriftart des Inspektors
+
+The system-installed font used when previewing text contents in the inspector.
+= Die im System installierte Schriftart für die Textvorschau im Inspektor.
+
+Font Size
+= Schriftgröße
+
+Determines the scale of the whole UI.
+= Bestimmt die Skalierung der gesamten Oberfläche.
+
+Inspector Font Size
+= Schriftgröße des Inspektors
+
+Specifies the font size used to display text contents in the inspector.
+= Legt die Schriftgröße fest, mit der der Inspektor Text anzeigt.
+
+Border Size
+= Rahmenstärke
+
+Thickness of the lines between areas and of the outlines of panels, tabs and popups.
+= Stärke der Linien zwischen Bereichen und der Umrisse von Bereichen, Tabs und Popups.
+
+Spacing
+= Abstand
+
+Defines the space between items in a list.
+= Legt den Abstand zwischen den Elementen einer Liste fest.
+
+Animations
+= Animationen
+
+Applies animations to new popups, view scrolling, text cursor, etc.
+= Animiert neue Popups, das Scrollen von Ansichten, den Textcursor usw.
+
+Round Corners
+= Abgerundete Ecken
+
+Applies rounding to the corners of UI elements such as popups, buttons, and selections.
+= Rundet die Ecken von Oberflächenelementen wie Popups, Schaltflächen und Auswahlen ab.
+
+Inline Submenus
+= Eingebettete Untermenüs
+
+Opens a menu's submenus inside it, under their item, rather than beside it.
+= Öffnet die Untermenüs eines Menüs darin, unter ihrem Eintrag, statt daneben.
+
+System Light / Dark Scheme
+= Helles / dunkles Schema des Systems
+
+Automatically adapt between light and dark color schemes based on system settings.
+= Wechselt anhand der Systemeinstellungen automatisch zwischen hellem und dunklem Farbschema.
+
+Color Scheme
+= Farbschema
+
+Applies a color palette to all UI elements.
+= Wendet eine Farbpalette auf alle Oberflächenelemente an.
+
+Light Color Scheme
+= Helles Farbschema
+
+Color theme applied when the system uses bright colors.
+= Farbschema, wenn das System helle Farben verwendet.
+
+Dark Color Scheme
+= Dunkles Farbschema
+
+Color theme applied when the system uses dark colors.
+= Farbschema, wenn das System dunkle Farben verwendet.
+
+Exposes the individual components of the selected color scheme.
+= Zeigt die einzelnen Farben des gewählten Farbschemas.
+
+Clear
+= Fensterhintergrund
+
+Background color visible only between panel borders.
+= Hintergrundfarbe, die nur zwischen den Bereichsrändern sichtbar ist.
+
+Caption
+= Titelleiste
+
+Background color for caption bar.
+= Hintergrundfarbe der Titelleiste.
+
+Background
+= Hintergrund
+
+Background color for panels and windows.
+= Hintergrundfarbe von Bereichen und Fenstern.
+
+Surface
+= Oberfläche
+
+Background color for popups, sidebar, and floating regions like the footer.
+= Hintergrundfarbe von Popups, der Seitenleiste und schwebenden Flächen wie der Fußzeile.
+
+Foreground
+= Vordergrund
+
+Background color for scrollbar, dropdowns and other buttons.
+= Hintergrundfarbe von Bildlaufleisten, Auswahllisten und anderen Schaltflächen.
+
+Inner
+= Eingabefeld
+
+Background color for text field.
+= Hintergrundfarbe von Textfeldern.
+
+Border
+= Rand
+
+Border color for panels, windows, and popups.
+= Randfarbe von Bereichen, Fenstern und Popups.
+
+Outline
+= Umriss
+
+Outline color for UI elements like buttons and toggles.
+= Umrissfarbe von Elementen wie Schaltflächen und Schaltern.
+
+Separator
+= Trennlinie
+
+Color for line separators between item rows.
+= Farbe der Trennlinien zwischen den Zeilen.
+
+Alternating Row
+= Wechselnde Zeile
+
+Background color for alternating rows in lists and columns.
+= Hintergrundfarbe abwechselnder Zeilen in Listen und Spalten.
+
+Icon
+= Symbol
+
+Color of all non-system icons in the UI.
+= Farbe aller Symbole der Oberfläche, die nicht vom System stammen.
+
+Text
+= Text
+
+Color of primary UI text.
+= Farbe des Haupttexts der Oberfläche.
+
+Secondary
+= Sekundär
+
+Color for secondary text.
+= Farbe für sekundären Text.
+
+Group
+= Gruppe
+
+Color for sections that can be opened or closed.
+= Farbe von Abschnitten, die sich auf- und zuklappen lassen.
+
+File
+= Datei
+
+Text color for file items.
+= Textfarbe von Dateien.
+
+Folder
+= Ordner
+
+Text color for folder items.
+= Textfarbe von Ordnern.
+
+Warning
+= Warnung
+
+Background color for buttons requiring extra attention.
+= Hintergrundfarbe von Schaltflächen, die besondere Aufmerksamkeit erfordern.
+
+Progress
+= Fortschritt
+
+Fill color for slider and toggle.
+= Füllfarbe von Schiebereglern und Schaltern.
+
+Selection
+= Auswahl
+
+Background color of selected items.
+= Hintergrundfarbe ausgewählter Elemente.
+
+Rect selection
+= Auswahlrechteck
+
+Color of the rectangle when selecting multiple items in a panel.
+= Farbe des Rechtecks beim Auswählen mehrerer Elemente in einem Bereich.
+
+Match
+= Treffer
+
+Color for matching letters in filtered text.
+= Farbe der passenden Buchstaben in gefiltertem Text.
+
+Hidden Opacity
+= Deckkraft versteckter Dateien
+
+Controls the opacity of hidden/system files using the brightness value.
+= Steuert über den Helligkeitswert die Deckkraft versteckter und Systemdateien.
+
+Hover Opacity
+= Deckkraft beim Zeigen
+
+Blends the selection with the background when hovering using the brightness value.
+= Mischt beim Zeigen die Auswahl über den Helligkeitswert mit dem Hintergrund.
+
+Disabled Opacity
+= Deckkraft deaktivierter Elemente
+
+Controls the opacity of disabled items using the brightness value.
+= Steuert über den Helligkeitswert die Deckkraft deaktivierter Elemente.
+
+Content Hover
+= Inhalt beim Zeigen
+
+Color of the content when items are hovered.
+= Farbe des Inhalts von Elementen unter dem Zeiger.
+
+Content Selection
+= Inhalt der Auswahl
+
+Color of the content when items are selected.
+= Farbe des Inhalts ausgewählter Elemente.
+
+Content Disabled Selection
+= Inhalt deaktivierter Auswahl
+
+Color of the content when items are both disabled and selected.
+= Farbe des Inhalts von Elementen, die deaktiviert und ausgewählt sind.
+
+Outline Hover
+= Umriss beim Zeigen
+
+Color of the outlines when items are hovered.
+= Farbe der Umrisse von Elementen unter dem Zeiger.
+
+Outline Selection
+= Umriss der Auswahl
+
+Color of the outlines when items are selected.
+= Farbe der Umrisse ausgewählter Elemente.
+
+Outline Disabled Selection
+= Umriss deaktivierter Auswahl
+
+Color of the outlines when items are both disabled and selected.
+= Farbe der Umrisse von Elementen, die deaktiviert und ausgewählt sind.
+
+Match Hover
+= Treffer beim Zeigen
+
+Color for matching letters in filtered text when items are hovered.
+= Farbe der passenden Buchstaben bei Elementen unter dem Zeiger.
+
+Match Selection
+= Treffer in der Auswahl
+
+Color for matching letters in filtered text when items are selected.
+= Farbe der passenden Buchstaben bei ausgewählten Elementen.
+
+Match Disabled Selection
+= Treffer in deaktivierter Auswahl
+
+Color for matching letters in filtered text when items are both disabled and selected.
+= Farbe der passenden Buchstaben bei Elementen, die deaktiviert und ausgewählt sind.
+
+Alternating Row Colors
+= Wechselnde Zeilenfarben
+
+Applies alternating row colors to improve readability and distinguish adjacent rows.
+= Färbt Zeilen abwechselnd, damit sie leichter zu lesen und zu unterscheiden sind.
+
+Inactive Panel Contents Opacity
+= Deckkraft inaktiver Bereiche
+
+Applies dimming to inactive panel contents to make the active panel stand out.
+= Dimmt den Inhalt inaktiver Bereiche, damit der aktive Bereich hervorsticht.
+
+Show File Extension
+= Dateierweiterungen anzeigen
+
+Toggle the visibility of file extensions.
+= Blendet Dateierweiterungen ein oder aus.
+
+Show Hidden Files
+= Versteckte Dateien anzeigen
+
+Toggle the visibility of hidden and dot files (e.g., .gitignore, .config).
+= Blendet versteckte Dateien und Punktdateien (z. B. .gitignore, .config) ein oder aus.
+
+Show System Files
+= Systemdateien anzeigen
+
+Toggle the visibility of system files.
+= Blendet Systemdateien ein oder aus.
+
+Display Compact Paths
+= Kurze Pfade
+
+Trim paths from the first recognized folder.
+= Kürzt Pfade ab dem ersten bekannten Ordner.
+
+Display Path Breadcrumbs
+= Pfadverlauf anzeigen
+
+Show previously visited subfolders in the address bar.
+= Zeigt zuvor besuchte Unterordner in der Adressleiste.
+
+Show Selection Boxes
+= Auswahlkästchen anzeigen
+
+Toggle visibility of checkboxes when selecting multiple items in a panel.
+= Zeigt Kontrollkästchen beim Auswählen mehrerer Elemente in einem Bereich.
+
+Confirm Emptying Recycle Bin
+= Leeren des Papierkorbs bestätigen
+
+Ask before permanently deleting everything in the Recycle Bin.
+= Fragt nach, bevor alles im Papierkorb endgültig gelöscht wird.
+
+Compression Level
+= Komprimierungsstufe
+
+How hard archives Filey makes or adds to are compressed: 0 stores, 9 is smallest and slowest.
+= Wie stark Archive komprimiert werden, die Filey erstellt oder ergänzt: 0 speichert nur, 9 ist am kleinsten und langsamsten.
+
+Notifications
+= Benachrichtigungen
+
+Which notices show in the window's corner: all, warnings and errors, errors only, or none.
+= Welche Hinweise in der Fensterecke erscheinen: alle, Warnungen und Fehler, nur Fehler oder keine.
+
+Muted Notifications
+= Stummgeschaltete Benachrichtigungen
+
+Kinds of notice muted with their bell, kept in MutedNotices.conf; the list shows any of them again.
+= Arten von Hinweisen, die mit ihrer Glocke stummgeschaltet wurden, gespeichert in MutedNotices.conf; über die Liste lassen sie sich wieder anzeigen.
+
+Notifications In Sidebar
+= Benachrichtigungen in der Seitenleiste
+
+Shows notices and the progress of copies, downloads and other work at the bottom of the sidebar, rather than in a panel's corner.
+= Zeigt Hinweise und den Fortschritt von Kopiervorgängen, Downloads und anderen Aufgaben unten in der Seitenleiste statt in der Ecke eines Bereichs.
+
+Store Recents
+= Zuletzt verwendete speichern
+
+Determines how recently accessed files are stored.
+= Bestimmt, wie zuletzt verwendete Dateien gespeichert werden.
+
+Highlight Recents
+= Zuletzt verwendete markieren
+
+Mark recently accessed files and directories.
+= Markiert zuletzt verwendete Dateien und Ordner.
+
+Sort Recents On Top
+= Zuletzt verwendete oben
+
+Sort recently accessed files and directories to the top.
+= Sortiert zuletzt verwendete Dateien und Ordner nach oben.
+
+Load Thumbnails
+= Miniaturansichten laden
+
+Criteria for loading thumbnails of listed directories.
+= Wann Miniaturansichten in Ordnern geladen werden.
+
+Calculate Folder Sizes
+= Ordnergrößen berechnen
+
+Calculates folder sizes by scanning their contents.
+= Berechnet Ordnergrößen, indem ihr Inhalt durchsucht wird.
+
+SSDs
+= SSDs
+
+Calculate folder sizes on local SSD drives.
+= Ordnergrößen auf lokalen SSDs berechnen.
+
+HDDs
+= HDDs
+
+Calculate folder sizes on local HDD drives.
+= Ordnergrößen auf lokalen Festplatten berechnen.
+
+Network Locations
+= Netzwerkadressen
+
+Calculate folder sizes on network drives and shared locations.
+= Ordnergrößen auf Netzlaufwerken und freigegebenen Orten berechnen.
+
+Act On Press
+= Beim Drücken auslösen
+
+Whether interactions register on mouse press or release.
+= Ob Aktionen beim Drücken oder beim Loslassen der Maustaste ausgelöst werden.
+
+Single-click To Open
+= Mit einfachem Klick öffnen
+
+Open items with a single click.
+= Öffnet Elemente mit einem einfachen Klick.
+
+Folders Only
+= Nur Ordner
+
+Single click applies to folders only.
+= Der einfache Klick gilt nur für Ordner.
+
+Point To Select
+= Auswählen durch Zeigen
+
+Select items by hovering over them.
+= Wählt Elemente aus, wenn der Zeiger darauf ruht.
+
+Point To Focus Panel
+= Bereich durch Zeigen fokussieren
+
+Give the keyboard to the panel the pointer moves over.
+= Gibt die Tastatur an den Bereich, über den sich der Zeiger bewegt.
+
+Underline On Point
+= Beim Zeigen unterstreichen
+
+Underlines items only when pointing at them.
+= Unterstreicht Elemente nur, wenn auf sie gezeigt wird.
+
+Double-click To Parent
+= Doppelklick zum übergeordneten Ordner
+
+Go to parent folder by double clicking background.
+= Ein Doppelklick auf den Hintergrund wechselt zum übergeordneten Ordner.
+
+Scroll Beyond Last Item
+= Über letztes Element hinaus scrollen
+
+Allows scrolling past the last item for extra space.
+= Erlaubt, für zusätzlichen Platz über das letzte Element hinaus zu scrollen.
+
+Reverse Scroll Direction
+= Scrollrichtung umkehren
+
+Reverses the scroll direction in scrollable views.
+= Kehrt die Scrollrichtung in scrollbaren Ansichten um.
+
+Character Key Action
+= Aktion der Buchstabentasten
+
+Determines the action when you press raw character keys without modifiers.
+= Bestimmt, was das Drücken von Buchstabentasten ohne Zusatztasten bewirkt.
+
+Inspector Layout
+= Anordnung des Inspektors
+
+Default layout for opening the new inspector.
+= Standardanordnung, in der sich ein neuer Inspektor öffnet.
+
+Highlight Code
+= Code hervorheben
+
+Color keywords, strings, comments and numbers of code in the inspector.
+= Färbt im Inspektor Schlüsselwörter, Zeichenketten, Kommentare und Zahlen im Code.
+
+Load On Startup
+= Beim Start laden
+
+Previous session, location, or custom layout to load on startup.
+= Vorherige Sitzung, Ort oder eigenes Layout, das beim Start geladen wird.
+
+New Tab Show
+= Neuer Tab zeigt
+
+Location to open in a new tab.
+= Ort, der in einem neuen Tab geöffnet wird.
+
+Open In One Window
+= In einem Fenster öffnen
+
+Starting Filey or opening a folder from elsewhere uses the open window, in a new tab.
+= Ein Start von Filey oder ein von außen geöffneter Ordner nutzt das offene Fenster, in einem neuen Tab.
+
+VSync
+= VSync
+
+Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag.
+= Senkt die Hardwarelast bei hoher Aktivität, etwa schnellen Mausbewegungen. Das kostet eine leichte Eingabeverzögerung.
+
+Transparency
+= Transparenz
+
+Shows what is behind the window through it, blurred.
+= Zeigt verschwommen, was sich hinter dem Fenster befindet.
+
+Window Opacity
+= Deckkraft des Fensters
+
+How much the window's color covers what is behind it.
+= Wie stark die Farbe des Fensters verdeckt, was dahinter liegt.
+
+Popup Blur
+= Unschärfe der Popups
+
+How far menus and popups blur what is under them.
+= Wie stark Menüs und Popups verwischen, was unter ihnen liegt.
+
+Popup Opacity
+= Deckkraft der Popups
+
+How much the color of menus and popups covers the blur under them.
+= Wie stark die Farbe von Menüs und Popups die Unschärfe darunter verdeckt.
+
+Backdrop
+= Hintergrundmaterial
+
+What Windows draws behind the transparent window.
+= Was Windows hinter das transparente Fenster zeichnet.
+
+Select a system command...
+= Systembefehl auswählen...
+
+Edit menu: hide items and change their order
+= Menü bearbeiten: Einträge ausblenden und ihre Reihenfolge ändern
+
+Square
+= Eckig
+
+Round
+= Rund
+
+Auto
+= Automatisch
+
+Never
+= Nie
+
+Always
+= Immer
+
+Default
+= Standard
+
+Acrylic
+= Acryl
+
+Mica
+= Mica
+
+Tabbed
+= Mit Tabs
+
+None
+= Keine
+
+Persistent
+= Dauerhaft
+
+Session
+= Sitzung
+
+Root
+= Dieser PC
+
+Home
+= Basisordner
+
+Current
+= Aktueller Ordner
+
+All
+= Alle
+
+Local Disks
+= Lokale Datenträger
+
+%S px
+= %S px
+
+Horizontal
+= Horizontal
+
+Vertical
+= Vertikal
+
+Last Session
+= Letzte Sitzung
+
+Warnings And Errors
+= Warnungen und Fehler
+
+Errors Only
+= Nur Fehler
+
+Type In Filter
+= In Filter tippen
+
+Trigger Hotkey
+= Tastenkürzel auslösen
+
+Select Typed Item
+= Getipptes Element auswählen
+
+Restore default setting
+= Standardeinstellung wiederherstellen
+
+Not a number or a sum that makes one.
+= Keine Zahl und keine Rechnung, die eine ergibt.
+
+%u muted
+= %u stummgeschaltet
+
+Select an option...
+= Option auswählen...
+
+Select a command...
+= Befehl auswählen...
+
+Edit Menu
+= Menü bearbeiten
+
+Reset
+= Zurücksetzen
+
+Bring back the system's own order and every item
+= Die Reihenfolge des Systems und alle Einträge wiederherstellen
+
+Done
+= Fertig
+
+Hidden · %u
+= Ausgeblendet · %u
+
+A crash report was saved. Report on GitHub opens a new issue and copies the report: paste it into the issue (Ctrl+V) before submitting.
+= Ein Absturzbericht wurde gespeichert. „Auf GitHub melden“ öffnet ein neues Issue und kopiert den Bericht: Fügen Sie ihn vor dem Absenden in das Issue ein (Ctrl+V).
+
+A crash report was saved. Report on GitHub opens a new issue with the report filled in, to look over before submitting.
+= Ein Absturzbericht wurde gespeichert. „Auf GitHub melden“ öffnet ein neues Issue mit eingefügtem Bericht, den Sie vor dem Absenden prüfen können.
+
+Filey closed unexpectedly
+= Filey wurde unerwartet beendet
+
+Report on GitHub
+= Auf GitHub melden
+
+Custom language ready
+= Eigene Sprache bereit
+
+Open %S in a text editor and write the translations; each save shows at once.
+= Öffnen Sie %S in einem Texteditor und schreiben Sie die Übersetzungen; jedes Speichern ist sofort sichtbar.
+
+Couldn't save the color schemes
+= Die Farbschemas konnten nicht gespeichert werden
+
+Panel Menu
+= Bereichsmenü
+
+Main Menu
+= Hauptmenü
+
+History
+= Verlauf
+
+View
+= Ansicht
+
+This PC
+= Dieser PC
+
+Folder view settings saved and applied.\nIcons, sort, folders first, list columns.
+= Ordneransicht gespeichert und angewendet.\nSymbole, Sortierung, Ordner zuerst, Listenspalten.
+
+No folder view settings saved.\nUsing panel's view settings.
+= Keine Ordneransicht gespeichert.\nDie Ansicht des Bereichs wird verwendet.
+
+This path is bookmarked.
+= Dieser Pfad ist ein Lesezeichen.
+
+This path is not bookmarked.
+= Dieser Pfad ist kein Lesezeichen.
+
+Switch branch.
+= Branch wechseln.
+
+Name
+= Name
+
+Type
+= Typ
+
+Date Modified
+= Änderungsdatum
+
+Folders
+= Ordner
+
+Files
+= Dateien
+
+Size
+= Größe
+
+Date Created
+= Erstelldatum
+
+Date Accessed
+= Zugriffsdatum
+
+Folder Usage
+= Ordneranteil
+
+Volume Usage
+= Laufwerksanteil
+
+All items are currently hidden by view settings.
+= Alle Elemente sind durch die Ansichtseinstellungen ausgeblendet.
+
+This folder is empty.
+= Dieser Ordner ist leer.
+
+Loading %S...
+= %S wird geladen...
+
+Folders first, then files.
+= Erst Ordner, dann Dateien.
+
+Files first, then folders.
+= Erst Dateien, dann Ordner.
+
+Folders and files mixed.
+= Ordner und Dateien gemischt.
+
+Filter...
+= Filter...
+
+Recents
+= Zuletzt verwendet
+
+Bookmarks
+= Lesezeichen
+
+Storage
+= Speicher
+
+Places
+= Orte
+
+Conflicts with commands:
+= Kollidiert mit Befehlen:
+
+Delete hotkey.
+= Tastenkürzel löschen.
+
+Mouse hotkeys cannot be changed.
+= Maus-Tastenkürzel können nicht geändert werden.
+
+Character Key Action not set to Trigger Hotkey.
+= „Aktion der Buchstabentasten“ ist nicht auf „Tastenkürzel auslösen“ gestellt.
+
+Press to set or remove hotkey.
+= Drücken, um ein Tastenkürzel festzulegen oder zu entfernen.
+
+Delete assigned hotkey?
+= Zugewiesenes Tastenkürzel löschen?
+
+Cancel
+= Abbrechen
+
+Delete
+= Löschen
+
+Created:
+= Erstellt:
+
+Subfolders:
+= Unterordner:
+
+Subfiles:
+= Enthaltene Dateien:
+
+Size:
+= Größe:
+
+Cmd:
+= Befehl:
+
+Open In New Tab
+= In neuem Tab öffnen
+
+Search %u tabs...
+= %u Tabs durchsuchen...
+
+Open or expand a folder...
+= Ordner öffnen oder aufklappen...
+
+navigate
+= navigieren
+
+next folder
+= nächster Ordner
+
+open
+= öffnen
+
+expand
+= aufklappen
+
+all drives
+= alle Laufwerke
+
+in panel
+= im Bereich
+
+dismiss
+= schließen
+
+places only
+= nur Orte
+
+Filter %u types...
+= %u Typen filtern...
+
+Toggle All
+= Alle aktivieren
+
+Untoggle All
+= Alle deaktivieren
+
+Filter %S files...
+= %S-Dateien filtern...
+
+Zoom
+= Zoom
+
+Select a layout...
+= Layout auswählen...
+
+No layout has that name
+= Kein Layout hat diesen Namen
+
+No layouts saved yet; Save Layout keeps one
+= Noch keine Layouts gespeichert; „Layout speichern“ legt eines an
+
+Delete layout.
+= Layout löschen.
+
+to navigate
+= navigieren
+
+to use
+= verwenden
+
+to dismiss
+= schließen
+
+Search fonts...
+= Schriftarten durchsuchen...
+
+Listing the installed fonts...
+= Installierte Schriftarten werden aufgelistet...
+
+No font has that name
+= Keine Schriftart hat diesen Namen
+
+Switch branch...
+= Branch wechseln...
+
+Listing the branches...
+= Branches werden aufgelistet...
+
+No branch has that name
+= Kein Branch hat diesen Namen
+
+Restore all
+= Alle wiederherstellen
+
+Remove from the muted ones, which shows it again.
+= Aus den stummgeschalteten entfernen, damit es wieder angezeigt wird.
+
+Create an editable copy of this color scheme.
+= Eine bearbeitbare Kopie dieses Farbschemas erstellen.
+
+Delete color scheme.
+= Farbschema löschen.
+
+Ok
+= OK
+
+Save layout
+= Layout speichern
+
+Type a new or existing layout name to update...
+= Neuen Layoutnamen oder den eines vorhandenen zum Aktualisieren eingeben...
+
+Save
+= Speichern
+
+Update
+= Aktualisieren
+
+Delete the custom color scheme "%S"?
+= Das eigene Farbschema „%S“ löschen?
+
+Delete the layout "%S"?
+= Das Layout „%S“ löschen?
+
+Overwrite the existing layout "%S"?
+= Das vorhandene Layout „%S“ überschreiben?
+
+Switch
+= Wechseln
+
+Overwrite
+= Überschreiben
+
+Toggle Extra Details
+= Weitere Details ein/aus
+
+Remove from Quick.
+= Aus Schnellbefehlen entfernen.
+
+Add to Quick.
+= Zu Schnellbefehlen hinzufügen.
+
+Restore default hotkeys.
+= Standard-Tastenkürzel wiederherstellen.
+
+Assign new hotkey.
+= Neues Tastenkürzel zuweisen.
+
+Don't show this again.
+= Nicht mehr anzeigen.
+
+Copy the message.
+= Die Meldung kopieren.
+
+Extracting %S to open it
+= %S wird zum Öffnen entpackt
+
+"%S" is already in %S
+= „%S“ ist bereits in %S
+
+Replace
+= Ersetzen
+
+Keep Both
+= Beide behalten
+
+Skip
+= Überspringen
+
+For all: on
+= Für alle: an
+
+For all: off
+= Für alle: aus
+
+Paused at %u%%
+= Angehalten bei %u%%
+
+Permanently delete everything in the %S?
+= Alles im %S endgültig löschen?
+
+Permanently delete "%S"?
+= „%S“ endgültig löschen?
+
+This cannot be undone.
+= Dies kann nicht rückgängig gemacht werden.
+
+Copy to that window
+= In dieses Fenster kopieren
+
+Move to that window
+= In dieses Fenster verschieben
+
+Copy to a new window
+= In ein neues Fenster kopieren
+
+Move to a new window
+= In ein neues Fenster verschieben
+
+Copy
+= Kopieren
+
+Move
+= Verschieben
+
+to copy
+= kopieren
+
+Path
+= Pfad
+
+Subfolders
+= Unterordner
+
+Subfiles
+= Enthaltene Dateien
+
+Created
+= Erstellt
+
+Modified
+= Geändert
+
+Permissions
+= Berechtigungen
+
+The owner may read
+= Der Besitzer darf lesen
+
+The owner may write
+= Der Besitzer darf schreiben
+
+The owner may run
+= Der Besitzer darf ausführen
+
+The group may read
+= Die Gruppe darf lesen
+
+The group may write
+= Die Gruppe darf schreiben
+
+The group may run
+= Die Gruppe darf ausführen
+
+Others may read
+= Andere dürfen lesen
+
+Others may write
+= Andere dürfen schreiben
+
+Others may run
+= Andere dürfen ausführen
+
+(%u%% smaller)
+= (%u%% kleiner)
+
+(no smaller)
+= (nicht kleiner)
+
+Loading...
+= Wird geladen...
+
+Auto positions the inspector to the right or below based on available space.
+= „Automatisch“ platziert den Inspektor je nach verfügbarem Platz rechts oder unten.
+
+Forces the inspector to the right.
+= Den Inspektor immer rechts anzeigen.
+
+Forces the inspector below.
+= Den Inspektor immer unten anzeigen.
+
+Display image scaled to fit within the viewport.
+= Bild auf die Ansichtsfläche eingepasst anzeigen.
+
+Display image at its original source size, no scaling.
+= Bild in Originalgröße anzeigen, ohne Skalierung.
+
+Display image with a custom scale adjustment.
+= Bild mit eigener Skalierung anzeigen.
+
+Counting...
+= Wird gezählt...
+
+Nothing to preview
+= Keine Vorschau verfügbar
+
+Extracting it from the archive to preview, %u%%
+= Wird für die Vorschau aus dem Archiv entpackt, %u%%
+
+Filter %u lines...
+= %u Zeilen filtern...
+
+Archive
+= Archiv
+
+Installed version
+= Installierte Version
+
+A different version
+= Eine andere Version
+
+unknown
+= unbekannt
+
+is installed.
+= ist installiert.
+
+Standalone version
+= Portable Version
+
+The same version is already installed at:
+= Dieselbe Version ist bereits installiert unter:
+
+Installed Path:
+= Installationspfad:
+
+Install Path:
+= Installationspfad:
+
+Desktop shortcut:
+= Desktopverknüpfung:
+
+Add to PATH:
+= Zu PATH hinzufügen:
+
+Set as default:
+= Als Standard festlegen:
+
+Creates a shortcut on the desktop for quick access to Filey.
+= Erstellt eine Verknüpfung auf dem Desktop für schnellen Zugriff auf Filey.
+
+Allows Filey to be launched from the command line using Filey.exe.
+= Ermöglicht, Filey über die Befehlszeile mit Filey.exe zu starten.
+
+Opens folders with Filey and assigns it to the Win+E shortcut.
+= Öffnet Ordner mit Filey und weist ihm das Tastenkürzel Win+E zu.
+
+All options can be enabled or disabled after install.
+= Alle Optionen lassen sich nach der Installation ein- oder ausschalten.
+
+Install
+= Installieren
+
+Modify
+= Ändern
+
+Install & Replace
+= Installieren und ersetzen
+
+This will install version %s on your PC.
+= Version %s wird auf Ihrem PC installiert.
+
+This will apply modifications to the existing installation.
+= Die Änderungen werden auf die vorhandene Installation angewendet.
+
+This will overwrite the existing version %S with version %s.
+= Die vorhandene Version %S wird durch Version %s ersetzt.
+
+Back
+= Zurück
+
+Press A Key
+= Taste drücken
+
+Duplicate Tab To New Window
+= Tab in neuem Fenster duplizieren
+
+Shift Column Left
+= Spalte nach links
+
+Shift Column Right
+= Spalte nach rechts
+
+Size Column To Fit
+= Spaltenbreite anpassen
+
+Close Column
+= Spalte schließen
+
+Restore Default Columns
+= Standardspalten wiederherstellen
+
+Total Items
+= Elemente gesamt
+
+Git
+= Git
+
+Extract Here
+= Hier entpacken
+
+Extract to "%S"
+= Nach „%S“ entpacken
+
+Add to "%S.zip"
+= Zu „%S.zip“ hinzufügen
+
+Add to "%S.7z"
+= Zu „%S.7z“ hinzufügen
+
+Restore
+= Wiederherstellen
+
+Restore all items
+= Alle Elemente wiederherstellen
+
+%S failed
+= %S fehlgeschlagen
+
+This file is only in the cloud. Open it to download it, and preview it after.
+= Diese Datei liegt nur in der Cloud. Öffnen Sie sie, um sie herunterzuladen; danach gibt es eine Vorschau.
+
+New folder
+= Neuer Ordner
+
+New file
+= Neue Datei
+
+Couldn't open a new window
+= Neues Fenster konnte nicht geöffnet werden
+
+Empty %S
+= %S leeren
+
+Install failed
+= Installation fehlgeschlagen
+
+Uninstall failed
+= Deinstallation fehlgeschlagen
+
+Couldn't open the issue page
+= Die Issue-Seite konnte nicht geöffnet werden
+
+Couldn't change permissions
+= Berechtigungen konnten nicht geändert werden
+
+Couldn't open the console
+= Die Konsole konnte nicht geöffnet werden
+
+Nothing to undo or redo
+= Nichts zum Rückgängigmachen oder Wiederholen
+
+Paste shortcut failed
+= Verknüpfung einfügen fehlgeschlagen
+
+Cannot resolve the initial directory
+= Der Startordner kann nicht ermittelt werden
+
+Nothing to redo
+= Nichts zum Wiederholen
+
+Nothing to undo
+= Nichts zum Rückgängigmachen
+
+Couldn't save the layouts
+= Die Layouts konnten nicht gespeichert werden
+
+Couldn't switch to "%S"
+= Wechsel zu „%S“ nicht möglich
+
+Couldn't open "%S"
+= „%S“ konnte nicht geöffnet werden
+
+Couldn't rename "%S" to "%S"
+= „%S“ konnte nicht in „%S“ umbenannt werden
+
+Trash failed
+= Verschieben in den Papierkorb fehlgeschlagen
+
+Delete failed
+= Löschen fehlgeschlagen
+
+Create failed
+= Erstellen fehlgeschlagen
+
+Restore failed
+= Wiederherstellen fehlgeschlagen
+
+Move failed
+= Verschieben fehlgeschlagen
+
+Copy failed
+= Kopieren fehlgeschlagen
+
+Redo failed
+= Wiederholen fehlgeschlagen
+
+Undo failed
+= Rückgängigmachen fehlgeschlagen
+
+Couldn't save "%S"
+= „%S“ konnte nicht gespeichert werden
+
+Open
+= Öffnen
+
+Open the focused file or folder.
+= Die fokussierte Datei oder den Ordner öffnen.
+
+Refresh
+= Aktualisieren
+
+Reload the current folder.
+= Den aktuellen Ordner neu laden.
+
+Go Back
+= Zurück
+
+Go to the previous folder in the history.
+= Zum vorherigen Ordner im Verlauf wechseln.
+
+Go Forward
+= Vorwärts
+
+Go to the next folder in the history.
+= Zum nächsten Ordner im Verlauf wechseln.
+
+Go Up
+= Nach oben
+
+Go to the parent folder.
+= Zum übergeordneten Ordner wechseln.
+
+Toggle Hidden Files
+= Versteckte Dateien ein/aus
+
+Show or hide hidden files and folders.
+= Versteckte Dateien und Ordner ein- oder ausblenden.
+
+Select All
+= Alles auswählen
+
+Select every item in the current folder.
+= Alle Elemente im aktuellen Ordner auswählen.
+
+Select Previous
+= Vorheriges auswählen
+
+Select the previous item in the list.
+= Das vorherige Element der Liste auswählen.
+
+Select Next
+= Nächstes auswählen
+
+Select the next item in the list.
+= Das nächste Element der Liste auswählen.
+
+Select Left
+= Links auswählen
+
+Select the item to the left.
+= Das Element links auswählen.
+
+Select Right
+= Rechts auswählen
+
+Select the item to the right.
+= Das Element rechts auswählen.
+
+Select First
+= Erstes auswählen
+
+Select the first item in the list.
+= Das erste Element der Liste auswählen.
+
+Select Last
+= Letztes auswählen
+
+Select the last item in the list.
+= Das letzte Element der Liste auswählen.
+
+Scroll Select Up
+= Seite nach oben auswählen
+
+Scroll up by a page and select an item.
+= Eine Seite nach oben scrollen und ein Element auswählen.
+
+Scroll Select Down
+= Seite nach unten auswählen
+
+Scroll down by a page and select an item.
+= Eine Seite nach unten scrollen und ein Element auswählen.
+
+Move File Cursor To Previous
+= Dateicursor zum vorherigen
+
+Move the file cursor to the previous item.
+= Den Dateicursor zum vorherigen Element bewegen.
+
+Move File Cursor To Next
+= Dateicursor zum nächsten
+
+Move the file cursor to the next item.
+= Den Dateicursor zum nächsten Element bewegen.
+
+Move File Cursor Left
+= Dateicursor nach links
+
+Move the file cursor to the left item.
+= Den Dateicursor zum Element links bewegen.
+
+Move File Cursor Right
+= Dateicursor nach rechts
+
+Move the file cursor to the right item.
+= Den Dateicursor zum Element rechts bewegen.
+
+Extend Select Previous
+= Auswahl nach oben erweitern
+
+Extend the selection to the previous item.
+= Die Auswahl bis zum vorherigen Element erweitern.
+
+Extend Select Next
+= Auswahl nach unten erweitern
+
+Extend the selection to the next item.
+= Die Auswahl bis zum nächsten Element erweitern.
+
+Extend Select Left
+= Auswahl nach links erweitern
+
+Extend the selection to the left item.
+= Die Auswahl bis zum Element links erweitern.
+
+Extend Select Right
+= Auswahl nach rechts erweitern
+
+Extend the selection to the right item.
+= Die Auswahl bis zum Element rechts erweitern.
+
+Extend Select First
+= Auswahl bis zum ersten erweitern
+
+Extend the selection to the first item.
+= Die Auswahl bis zum ersten Element erweitern.
+
+Extend Select Last
+= Auswahl bis zum letzten erweitern
+
+Extend the selection to the last item.
+= Die Auswahl bis zum letzten Element erweitern.
+
+Scroll Extend Select Up
+= Auswahl seitenweise nach oben erweitern
+
+Scroll up by a page and extend the selection.
+= Eine Seite nach oben scrollen und die Auswahl erweitern.
+
+Scroll Extend Select Down
+= Auswahl seitenweise nach unten erweitern
+
+Scroll down by a page and extend the selection.
+= Eine Seite nach unten scrollen und die Auswahl erweitern.
+
+Center Camera
+= Ansicht zentrieren
+
+Center the camera on the current selection.
+= Die Ansicht auf die aktuelle Auswahl zentrieren.
+
+Context Menu
+= Kontextmenü
+
+Open the system context menu on the selection or the folder background.
+= Das Kontextmenü des Systems für die Auswahl oder den Ordnerhintergrund öffnen.
+
+Rename
+= Umbenennen
+
+Rename the focused item in place.
+= Das fokussierte Element direkt umbenennen.
+
+Filter
+= Filter
+
+Start filtering the current folder's contents.
+= Den Inhalt des aktuellen Ordners filtern.
+
+Insert Incremental ID
+= Laufende Nummer einfügen
+
+Insert an incremental ID at the text caret.
+= Eine laufende Nummer am Cursor einfügen.
+
+Insert Current Date
+= Aktuelles Datum einfügen
+
+Insert the current date at the text caret.
+= Das aktuelle Datum am Cursor einfügen.
+
+Insert File Create Date
+= Erstelldatum einfügen
+
+Insert the file's creation date at the text caret.
+= Das Erstelldatum der Datei am Cursor einfügen.
+
+Insert File Last Modified Date
+= Änderungsdatum einfügen
+
+Insert the file's last modified date at the text caret.
+= Das letzte Änderungsdatum der Datei am Cursor einfügen.
+
+Rename Previous File
+= Vorherige Datei umbenennen
+
+Apply rename to the current selection and jump to the previous file.
+= Die Umbenennung übernehmen und zur vorherigen Datei springen.
+
+Rename Next File
+= Nächste Datei umbenennen
+
+Apply rename to the current selection and jump to the next file.
+= Die Umbenennung übernehmen und zur nächsten Datei springen.
+
+Move Left
+= Nach links
+
+Move the text caret left.
+= Den Cursor nach links bewegen.
+
+Extend Left
+= Nach links markieren
+
+Extend the selection left from the text caret.
+= Die Markierung vom Cursor nach links erweitern.
+
+Move Right
+= Nach rechts
+
+Move the text caret right.
+= Den Cursor nach rechts bewegen.
+
+Extend Right
+= Nach rechts markieren
+
+Extend the selection right from the text caret.
+= Die Markierung vom Cursor nach rechts erweitern.
+
+Move Left By Word
+= Ein Wort nach links
+
+Move the text caret left by a word.
+= Den Cursor um ein Wort nach links bewegen.
+
+Extend Left By Word
+= Wort links markieren
+
+Extend the selection left by a word from the text caret.
+= Die Markierung vom Cursor um ein Wort nach links erweitern.
+
+Move Right By Word
+= Ein Wort nach rechts
+
+Move the text caret right by a word.
+= Den Cursor um ein Wort nach rechts bewegen.
+
+Extend Right By Word
+= Wort rechts markieren
+
+Extend the selection right by a word from the text caret.
+= Die Markierung vom Cursor um ein Wort nach rechts erweitern.
+
+Move Home
+= Zum Anfang
+
+Move the text caret to the start of the line.
+= Den Cursor an den Zeilenanfang bewegen.
+
+Extend Home
+= Bis zum Anfang markieren
+
+Extend the selection to the start of the line from the text caret.
+= Die Markierung vom Cursor bis zum Zeilenanfang erweitern.
+
+Move End
+= Zum Ende
+
+Move the text caret to the end of the line.
+= Den Cursor an das Zeilenende bewegen.
+
+Extend End
+= Bis zum Ende markieren
+
+Extend the selection to the end of the line from the text caret.
+= Die Markierung vom Cursor bis zum Zeilenende erweitern.
+
+Delete Left
+= Links löschen
+
+Delete the character to the left of the text caret.
+= Das Zeichen links vom Cursor löschen.
+
+Delete Left By Word
+= Wort links löschen
+
+Delete the word to the left of the text caret.
+= Das Wort links vom Cursor löschen.
+
+Delete Right
+= Rechts löschen
+
+Delete the character to the right of the text caret.
+= Das Zeichen rechts vom Cursor löschen.
+
+Delete Right By Word
+= Wort rechts löschen
+
+Delete the word to the right of the text caret.
+= Das Wort rechts vom Cursor löschen.
+
+Select all text.
+= Den gesamten Text markieren.
+
+Copy the selected text.
+= Den markierten Text kopieren.
+
+Cut
+= Ausschneiden
+
+Cut the selected text.
+= Den markierten Text ausschneiden.
+
+Paste
+= Einfügen
+
+Paste the clipboard contents.
+= Den Inhalt der Zwischenablage einfügen.
+
+Uppercase
+= Großbuchstaben
+
+Convert the selected text to uppercase.
+= Den markierten Text in Großbuchstaben umwandeln.
+
+Lowercase
+= Kleinbuchstaben
+
+Convert the selected text to lowercase.
+= Den markierten Text in Kleinbuchstaben umwandeln.
+
+Autocomplete
+= Autovervollständigen
+
+Autocomplete file names or paths, and toggle groups where possible.
+= Dateinamen oder Pfade vervollständigen und, wo möglich, Gruppen auf- oder zuklappen.
+
+Undo
+= Rückgängig
+
+Undo the last text-based action.
+= Die letzte Textaktion rückgängig machen.
+
+Redo
+= Wiederholen
+
+Redo the last text-based action.
+= Die letzte Textaktion wiederholen.
+
+Delete Left Part
+= Linken Teil löschen
+
+Delete back from the text caret to the previous space, slash or dot.
+= Vom Cursor rückwärts bis zum vorherigen Leerzeichen, Schrägstrich oder Punkt löschen.
+
+Delete To Start
+= Bis zum Anfang löschen
+
+Delete from the text caret to the start of the line.
+= Vom Cursor bis zum Zeilenanfang löschen.
+
+Delete To End
+= Bis zum Ende löschen
+
+Delete from the text caret to the end of the line.
+= Vom Cursor bis zum Zeilenende löschen.
+
+Swap Characters
+= Zeichen vertauschen
+
+Swap the two characters at the text caret.
+= Die beiden Zeichen am Cursor vertauschen.
+
+Swap Words
+= Wörter vertauschen
+
+Swap the words before and after the text caret.
+= Die Wörter vor und nach dem Cursor vertauschen.
+
+Uppercase Word
+= Wort in Großbuchstaben
+
+Uppercase the rest of the word at the text caret.
+= Den Rest des Worts am Cursor in Großbuchstaben setzen.
+
+Lowercase Word
+= Wort in Kleinbuchstaben
+
+Lowercase the rest of the word at the text caret.
+= Den Rest des Worts am Cursor in Kleinbuchstaben setzen.
+
+Capitalize Word
+= Wort großschreiben
+
+Capitalize the rest of the word at the text caret.
+= Den Rest des Worts am Cursor mit großem Anfangsbuchstaben schreiben.
+
+Expanded Search
+= Erweiterte Suche
+
+Start searching through all subfiles and subfolders.
+= In allen enthaltenen Dateien und Unterordnern suchen.
+
+Toggle File Cursor Selection
+= Auswahl am Dateicursor umschalten
+
+Toggle selection for the file or folder at the file cursor position without affecting other selections.
+= Die Auswahl der Datei oder des Ordners am Dateicursor umschalten, ohne andere Auswahlen zu ändern.
+
+Open In Right Split
+= Rechts geteilt öffnen
+
+Open selected folders in the new panels to the right. For files, opens containing folders.
+= Ausgewählte Ordner in neuen Bereichen rechts öffnen. Bei Dateien werden die übergeordneten Ordner geöffnet.
+
+Open In Bottom Split
+= Unten geteilt öffnen
+
+Open selected folders in the new panels to the bottom. For files, opens containing folders.
+= Ausgewählte Ordner in neuen Bereichen unten öffnen. Bei Dateien werden die übergeordneten Ordner geöffnet.
+
+Copy Files To Previous Panel
+= In vorherigen Bereich kopieren
+
+Copy selected files to the previous neighbor panel.
+= Ausgewählte Dateien in den vorherigen benachbarten Bereich kopieren.
+
+Copy Files To Next Panel
+= In nächsten Bereich kopieren
+
+Copy selected files to the next neighbor panel.
+= Ausgewählte Dateien in den nächsten benachbarten Bereich kopieren.
+
+Move Files To Previous Panel
+= In vorherigen Bereich verschieben
+
+Move selected files to the previous neighbor panel.
+= Ausgewählte Dateien in den vorherigen benachbarten Bereich verschieben.
+
+Move Files To Next Panel
+= In nächsten Bereich verschieben
+
+Move selected files to the next neighbor panel.
+= Ausgewählte Dateien in den nächsten benachbarten Bereich verschieben.
+
+Open Containing Path
+= Speicherort öffnen
+
+Open the target file or folder's real location in its containing folder.
+= Den tatsächlichen Speicherort der Zieldatei oder des Zielordners im übergeordneten Ordner öffnen.
+
+Open Containing Path In Tab
+= Speicherort in Tab öffnen
+
+Open the target file or folder's real location in its containing folder in a new tab.
+= Den tatsächlichen Speicherort der Zieldatei oder des Zielordners in einem neuen Tab öffnen.
+
+Open Relative Path
+= Relativen Pfad öffnen
+
+Open selected file from flattened hierarchy in its parent folder.
+= Die ausgewählte Datei aus der flachen Liste in ihrem übergeordneten Ordner öffnen.
+
+Open Relative Path In Tab
+= Relativen Pfad in Tab öffnen
+
+Open selected file from flattened hierarchy in its parent folder in a new tab.
+= Die ausgewählte Datei aus der flachen Liste in ihrem übergeordneten Ordner in einem neuen Tab öffnen.
+
+Inspect
+= Eigenschaften
+
+Open system properties window for the selected files.
+= Das Eigenschaftenfenster des Systems für die ausgewählten Dateien öffnen.
+
+Refresh Folder Stats
+= Ordnerwerte aktualisieren
+
+Refresh total child size and item count for the selected folders.
+= Gesamtgröße und Elementanzahl der ausgewählten Ordner neu berechnen.
+
+Toggle Expand Folder
+= Ordner aufklappen ein/aus
+
+Recursively flatten all subfiles and subfolders into a single file listing.
+= Alle enthaltenen Dateien und Unterordner rekursiv in einer einzigen Liste zeigen.
+
+Apply Filter to Folder
+= Filter anwenden
+
+Keep the filter and give the keyboard back to the list.
+= Den Filter behalten und die Tastatur an die Liste zurückgeben.
+
+Remove Filter
+= Filter entfernen
+
+Show every item again.
+= Wieder alle Elemente anzeigen.
+
+Pin Filter
+= Filter anheften
+
+Retain the filter on folder change.
+= Den Filter beim Ordnerwechsel beibehalten.
+
+Open Types Dropdown
+= Typenliste öffnen
+
+Open the dropdown to toggle visibility for specific file types.
+= Die Liste öffnen, um einzelne Dateitypen ein- oder auszublenden.
+
+Open Folder Dropdown
+= Ordnerliste öffnen
+
+Open folder dropdown from the path header.
+= Die Ordnerliste aus der Pfadleiste öffnen.
+
+Open Left Folder Dropdown
+= Linke Ordnerliste öffnen
+
+Open the folder dropdown for the parent directory to the left of the current one.
+= Die Ordnerliste des übergeordneten Ordners links vom aktuellen öffnen.
+
+Open Right Folder Dropdown
+= Rechte Ordnerliste öffnen
+
+Open the folder dropdown for the next child directory to the right of the current one.
+= Die Ordnerliste des nächsten Unterordners rechts vom aktuellen öffnen.
+
+Show Folders
+= Ordner anzeigen
+
+List or hide the folder's subfolders.
+= Die Unterordner des Ordners anzeigen oder ausblenden.
+
+Show Files
+= Dateien anzeigen
+
+List or hide the folder's files.
+= Die Dateien des Ordners anzeigen oder ausblenden.
+
+Copy selected files in the folder, placing them in the system clipboard.
+= Ausgewählte Dateien des Ordners in die Zwischenablage des Systems kopieren.
+
+Cut selected files in the folder, placing them in the system clipboard.
+= Ausgewählte Dateien des Ordners in die Zwischenablage des Systems ausschneiden.
+
+Paste files from the system clipboard into the current folder.
+= Dateien aus der Zwischenablage des Systems in den aktuellen Ordner einfügen.
+
+Trash
+= In den Papierkorb
+
+Move selected files into the Trash or Recycle Bin.
+= Ausgewählte Dateien in den Papierkorb verschieben.
+
+Permanently delete selected files!
+= Ausgewählte Dateien endgültig löschen!
+
+Duplicate
+= Duplizieren
+
+Duplicate selected files into the same folder.
+= Ausgewählte Dateien im selben Ordner duplizieren.
+
+Add To ZIP
+= Zu ZIP hinzufügen
+
+Pack the selected items into a new zip archive beside them.
+= Die ausgewählten Elemente in ein neues ZIP-Archiv daneben packen.
+
+Add To 7z
+= Zu 7z hinzufügen
+
+Pack the selected items into a new 7z archive beside them.
+= Die ausgewählten Elemente in ein neues 7z-Archiv daneben packen.
+
+Take everything out of the selected archive into the folder it is in.
+= Alles aus dem ausgewählten Archiv in den Ordner entpacken, in dem es liegt.
+
+Extract To Folder
+= In Ordner entpacken
+
+Take everything out of the selected archive into a new folder named after it.
+= Alles aus dem ausgewählten Archiv in einen neuen, gleichnamigen Ordner entpacken.
+
+Copy As Path
+= Als Pfad kopieren
+
+Copy selected file paths to the clipboard, or the folder's path when nothing is selected.
+= Die Pfade der ausgewählten Dateien in die Zwischenablage kopieren, ohne Auswahl den Pfad des Ordners.
+
+Copy As Path (Smart)
+= Als Pfad kopieren (smart)
+
+Copy selected file paths to the clipboard, adding quotes only when needed.
+= Die Pfade der ausgewählten Dateien in die Zwischenablage kopieren, mit Anführungszeichen nur bei Bedarf.
+
+Copy Version
+= Version kopieren
+
+Copy Filey's version to the clipboard, as for a bug report.
+= Die Version von Filey in die Zwischenablage kopieren, etwa für einen Fehlerbericht.
+
+Paste Shortcut
+= Verknüpfung einfügen
+
+Paste files as shortcuts from the system clipboard into the current folder.
+= Dateien aus der Zwischenablage des Systems als Verknüpfungen in den aktuellen Ordner einfügen.
+
+Create Folder
+= Ordner erstellen
+
+Create an empty folder in the current folder and enter rename mode.
+= Einen leeren Ordner im aktuellen Ordner erstellen und umbenennen.
+
+Create File
+= Datei erstellen
+
+Create a file in the current folder and enter rename mode.
+= Eine Datei im aktuellen Ordner erstellen und umbenennen.
+
+Open In Tab
+= In Tab öffnen
+
+Open selected folders in new tabs. For files, opens containing folders.
+= Ausgewählte Ordner in neuen Tabs öffnen. Bei Dateien werden die übergeordneten Ordner geöffnet.
+
+Open In New Window
+= In neuem Fenster öffnen
+
+Open selected folders in new windows. For files, opens containing folders.
+= Ausgewählte Ordner in neuen Fenstern öffnen. Bei Dateien werden die übergeordneten Ordner geöffnet.
+
+Open New Tab
+= Neuer Tab
+
+Open a new tab in the current folder.
+= Einen neuen Tab im aktuellen Ordner öffnen.
+
+Duplicate Tab
+= Tab duplizieren
+
+Duplicate the current tab in the same folder.
+= Den aktuellen Tab im selben Ordner duplizieren.
+
+Shift Tab Left
+= Tab nach links
+
+Shift the current tab to the left.
+= Den aktuellen Tab nach links verschieben.
+
+Shift Tab Right
+= Tab nach rechts
+
+Shift the current tab to the right.
+= Den aktuellen Tab nach rechts verschieben.
+
+Close Tab
+= Tab schließen
+
+Close the current tab.
+= Den aktuellen Tab schließen.
+
+Close Other Tabs
+= Andere Tabs schließen
+
+Close all tabs except the currently selected one.
+= Alle Tabs außer dem aktuellen schließen.
+
+Close Left Tabs
+= Tabs links schließen
+
+Close all tabs to the left of the currently selected tab.
+= Alle Tabs links vom aktuellen schließen.
+
+Close Right Tabs
+= Tabs rechts schließen
+
+Close all tabs to the right of the currently selected tab.
+= Alle Tabs rechts vom aktuellen schließen.
+
+Close All Tabs
+= Alle Tabs schließen
+
+Close the panel and all open tabs in it.
+= Den Bereich und alle darin geöffneten Tabs schließen.
+
+Tab Menu
+= Tabmenü
+
+Open dropdown menu for the selected tab.
+= Das Menü des ausgewählten Tabs öffnen.
+
+Reopen Closed Tab
+= Geschlossenen Tab öffnen
+
+Reopen the last closed tab from the list of previously closed tabs.
+= Den zuletzt geschlossenen Tab wieder öffnen.
+
+Select Next Tab
+= Nächster Tab
+
+Select the next tab if it exists.
+= Zum nächsten Tab wechseln, falls vorhanden.
+
+Select Previous Tab
+= Vorheriger Tab
+
+Select the previous tab if it exists.
+= Zum vorherigen Tab wechseln, falls vorhanden.
+
+Select 1st Tab
+= Tab 1
+
+Select the 1st tab.
+= Zum 1. Tab wechseln.
+
+Select 2nd Tab
+= Tab 2
+
+Select the 2nd tab if it exists.
+= Zum 2. Tab wechseln, falls vorhanden.
+
+Select 3rd Tab
+= Tab 3
+
+Select the 3rd tab if it exists.
+= Zum 3. Tab wechseln, falls vorhanden.
+
+Select 4th Tab
+= Tab 4
+
+Select the 4th tab if it exists.
+= Zum 4. Tab wechseln, falls vorhanden.
+
+Select 5th Tab
+= Tab 5
+
+Select the 5th tab if it exists.
+= Zum 5. Tab wechseln, falls vorhanden.
+
+Select 6th Tab
+= Tab 6
+
+Select the 6th tab if it exists.
+= Zum 6. Tab wechseln, falls vorhanden.
+
+Select 7th Tab
+= Tab 7
+
+Select the 7th tab if it exists.
+= Zum 7. Tab wechseln, falls vorhanden.
+
+Select 8th Tab
+= Tab 8
+
+Select the 8th tab if it exists.
+= Zum 8. Tab wechseln, falls vorhanden.
+
+Select Last Tab
+= Letzter Tab
+
+Select the last tab.
+= Zum letzten Tab wechseln.
+
+Toggle Quick Access
+= Schnellzugriff ein/aus
+
+Toggle the Quick Access sidebar.
+= Die Seitenleiste „Schnellzugriff“ ein- oder ausblenden.
+
+Filter Quick Access
+= Schnellzugriff filtern
+
+Start filtering items in the Quick Access sidebar.
+= Die Elemente der Seitenleiste „Schnellzugriff“ filtern.
+
+Toggle Folder Bookmark
+= Lesezeichen ein/aus
+
+Toggle storing the currently open file path in the bookmarked section.
+= Den aktuell geöffneten Pfad zu den Lesezeichen hinzufügen oder daraus entfernen.
+
+Toggle Folder View
+= Ordneransicht merken ein/aus
+
+Toggle preserving folder view settings: icons, sort order, folders first, and list columns.
+= Ansichtseinstellungen des Ordners merken: Symbole, Sortierung, Ordner zuerst und Listenspalten.
+
+Toggle Highlight Recents
+= Zuletzt verwendete markieren ein/aus
+
+Toggle marking recently accessed files and directories.
+= Das Markieren zuletzt verwendeter Dateien und Ordner ein- oder ausschalten.
+
+Toggle Sort Recents
+= Zuletzt verwendete oben ein/aus
+
+Toggle sorting of recently accessed files and directories to the top.
+= Das Sortieren zuletzt verwendeter Dateien und Ordner nach oben ein- oder ausschalten.
+
+Cycle Folders Sort Order
+= Ordnerreihenfolge wechseln
+
+Cycle how folders and files are sorted: folders first, files first or mixed together.
+= Durchschalten, wie Ordner und Dateien sortiert werden: Ordner zuerst, Dateien zuerst oder gemischt.
+
+Size All Columns To Fit
+= Alle Spaltenbreiten anpassen
+
+Size all header columns to fit their contents.
+= Die Breite aller Spalten an ihren Inhalt anpassen.
+
+Increase Font Size
+= Schrift vergrößern
+
+Increase the main font size and scale up the whole UI.
+= Die Hauptschrift vergrößern und die gesamte Oberfläche hochskalieren.
+
+Decrease Font Size
+= Schrift verkleinern
+
+Decrease the main font size and scale down the whole UI.
+= Die Hauptschrift verkleinern und die gesamte Oberfläche herunterskalieren.
+
+Reset Font Size
+= Schriftgröße zurücksetzen
+
+Reset the main font size and restore the original UI scale.
+= Die Hauptschriftgröße zurücksetzen und die ursprüngliche Skalierung wiederherstellen.
+
+Increase Spacing
+= Abstand vergrößern
+
+Increase the space between items in a list.
+= Den Abstand zwischen den Elementen einer Liste vergrößern.
+
+Decrease Spacing
+= Abstand verkleinern
+
+Decrease the space between items in a list.
+= Den Abstand zwischen den Elementen einer Liste verkleinern.
+
+Toggle File Extension
+= Dateierweiterungen ein/aus
+
+Show or hide the extensions of file names.
+= Die Erweiterungen von Dateinamen ein- oder ausblenden.
+
+Toggle System Files
+= Systemdateien ein/aus
+
+Show or hide system files.
+= Systemdateien ein- oder ausblenden.
+
+Clear Folders Views
+= Ordneransichten löschen
+
+Clear view settings for all folders.
+= Die Ansichtseinstellungen aller Ordner löschen.
+
+Clear Bookmarks
+= Lesezeichen löschen
+
+Clear all bookmarked file paths.
+= Alle Lesezeichen löschen.
+
+Clear Recents
+= Zuletzt verwendete löschen
+
+Clear all recently visited or opened file paths.
+= Alle zuletzt besuchten oder geöffneten Pfade löschen.
+
+Minimize Window
+= Fenster minimieren
+
+Minimize the currently opened window.
+= Das aktuelle Fenster minimieren.
+
+Toggle Fullscreen
+= Fenster maximieren ein/aus
+
+Toggle fullscreen mode, maximizing or restoring the current window.
+= Das aktuelle Fenster maximieren oder wiederherstellen.
+
+Open Console
+= Konsole öffnen
+
+Open the OS native console on the currently opened file path.
+= Die Konsole des Systems im aktuellen Ordner öffnen.
+
+Close Window
+= Fenster schließen
+
+Close the window and quit Filey.
+= Das Fenster schließen und Filey beenden.
+
+Toggle Inspector
+= Inspektor ein/aus
+
+Toggle inspector in currently active panel.
+= Den Inspektor im aktiven Bereich ein- oder ausblenden.
+
+Restore selected files into their original location. Applicable in Recycle Bin.
+= Ausgewählte Dateien an ihrem ursprünglichen Ort wiederherstellen. Gilt im Papierkorb.
+
+Restore Trash Items
+= Papierkorb wiederherstellen
+
+Restore all files from the Recycle Bin into their original locations.
+= Alle Dateien aus dem Papierkorb an ihren ursprünglichen Orten wiederherstellen.
+
+Empty Recycle Bin
+= Papierkorb leeren
+
+Permanently delete everything in the Recycle Bin.
+= Alles im Papierkorb endgültig löschen.
+
+Reverse the last rename, new item, copy or move.
+= Das letzte Umbenennen, Erstellen, Kopieren oder Verschieben rückgängig machen.
+
+Make the last rename or move that Undo reversed again.
+= Das letzte von „Rückgängig“ zurückgenommene Umbenennen oder Verschieben erneut ausführen.
+
+Options
+= Optionen
+
+Open the options popup to customize the application behavior.
+= Die Optionen öffnen, um das Verhalten der Anwendung anzupassen.
+
+Create Custom Language
+= Eigene Sprache erstellen
+
+Write a language file of every text Filey shows, with the shown language's translations, to translate in an editor; it is chosen at once.
+= Eine Sprachdatei mit allen Texten von Filey und den Übersetzungen der aktuellen Sprache schreiben, um sie in einem Editor zu übersetzen; sie wird sofort ausgewählt.
+
+Edit Settings File
+= Einstellungsdatei bearbeiten
+
+Open the settings file, whose saved changes apply at once.
+= Die Einstellungsdatei öffnen; gespeicherte Änderungen gelten sofort.
+
+Edit Path
+= Pfad bearbeiten
+
+Type a path to go to, starting from the current folder's.
+= Einen Zielpfad eingeben, ausgehend vom Pfad des aktuellen Ordners.
+
+Go To
+= Gehe zu
+
+Open a recent folder, or type a path and expand its folders.
+= Einen zuletzt verwendeten Ordner öffnen oder einen Pfad eingeben und seine Ordner aufklappen.
+
+GoTo Move Back
+= Gehe zu: zurück
+
+Navigate to the previous path in the undo stack.
+= Zum vorherigen Pfad im Verlauf wechseln.
+
+GoTo Move Forward
+= Gehe zu: vorwärts
+
+Navigate to the next path in the undo stack.
+= Zum nächsten Pfad im Verlauf wechseln.
+
+GoTo Move Up
+= Gehe zu: nach oben
+
+Navigate to the parent file path in GoTo.
+= In „Gehe zu“ zum übergeordneten Pfad wechseln.
+
+GoTo Select In Panel
+= Gehe zu: im Bereich auswählen
+
+Select the current file in GoTo in the background panel and close the GoTo window.
+= Die aktuelle Datei aus „Gehe zu“ im Bereich dahinter auswählen und „Gehe zu“ schließen.
+
+Quick Commands
+= Schnellbefehle
+
+Open a popup that hosts all bookmarked commands from the command palette.
+= Ein Popup mit allen markierten Befehlen aus der Befehlspalette öffnen.
+
+Command Palette
+= Befehlspalette
+
+Find and run any command by name.
+= Einen beliebigen Befehl nach Namen suchen und ausführen.
+
+Search Tabs
+= Tabs durchsuchen
+
+Find an open tab by its folder's name or path.
+= Einen offenen Tab nach Name oder Pfad seines Ordners suchen.
+
+Menu
+= Menü
+
+Open the top left main menu.
+= Das Hauptmenü oben links öffnen.
+
+New Window
+= Neues Fenster
+
+Open the current folder in a new window.
+= Den aktuellen Ordner in einem neuen Fenster öffnen.
+
+Split Right
+= Rechts teilen
+
+Split current panel to the right.
+= Den aktuellen Bereich nach rechts teilen.
+
+Split Bottom
+= Unten teilen
+
+Split current panel to the bottom.
+= Den aktuellen Bereich nach unten teilen.
+
+Toggle Panel Zoom
+= Bereich maximieren ein/aus
+
+Zoom the panel to fill the window, or unzoom it if already zoomed.
+= Den Bereich auf das ganze Fenster vergrößern oder wieder verkleinern.
+
+Even Panel Siblings
+= Nachbarbereiche angleichen
+
+Even viewport size of all panels in the current panels layout group.
+= Die Größe aller Bereiche in der aktuellen Gruppe angleichen.
+
+Even All Panels
+= Alle Bereiche angleichen
+
+Even viewport size of all panels.
+= Die Größe aller Bereiche angleichen.
+
+Next Panel
+= Nächster Bereich
+
+Move to the next panel.
+= Zum nächsten Bereich wechseln.
+
+Previous Panel
+= Vorheriger Bereich
+
+Move to the previous panel.
+= Zum vorherigen Bereich wechseln.
+
+Focus Left Panel
+= Linker Bereich
+
+Move the keyboard to the panel on the left.
+= Die Tastatur an den Bereich links geben.
+
+Focus Right Panel
+= Rechter Bereich
+
+Move the keyboard to the panel on the right.
+= Die Tastatur an den Bereich rechts geben.
+
+Focus Upper Panel
+= Oberer Bereich
+
+Move the keyboard to the panel above.
+= Die Tastatur an den Bereich darüber geben.
+
+Focus Lower Panel
+= Unterer Bereich
+
+Move the keyboard to the panel below.
+= Die Tastatur an den Bereich darunter geben.
+
+Zoom In
+= Vergrößern
+
+Show the files larger, one view step at a time.
+= Die Dateien größer anzeigen, eine Ansichtsstufe nach der anderen.
+
+Zoom Out
+= Verkleinern
+
+Show the files smaller, one view step at a time.
+= Die Dateien kleiner anzeigen, eine Ansichtsstufe nach der anderen.
+
+View Details
+= Details
+
+Display files with detailed information and metadata.
+= Dateien mit ausführlichen Angaben und Metadaten anzeigen.
+
+View List
+= Liste
+
+Display files as a simple list with just icons and names.
+= Dateien als einfache Liste mit Symbolen und Namen anzeigen.
+
+View Columns
+= Spalten
+
+Arrange files in multiple columns for easy scanning.
+= Dateien in mehreren Spalten anordnen, um sie leicht zu überblicken.
+
+View Medium Icons
+= Mittelgroße Symbole
+
+Display files as medium-sized icons for balanced detail.
+= Dateien als mittelgroße Symbole anzeigen.
+
+View Large Icons
+= Große Symbole
+
+Show files as large icons for easier recognition.
+= Dateien als große Symbole anzeigen, damit sie leichter zu erkennen sind.
+
+View XL Icons
+= Extra große Symbole
+
+Show files with extra large icons for high visibility.
+= Dateien als extra große Symbole anzeigen, gut sichtbar.
+
+Toggle Miller Columns
+= Miller-Spalten ein/aus
+
+Toggle columns of the parent folders on the left and of the focused folder's contents on the right.
+= Spalten der übergeordneten Ordner links und des Inhalts des fokussierten Ordners rechts ein- oder ausblenden.
+
+Save Layout
+= Layout speichern
+
+Save the current window layout: window dimensions, panels, sidebar, etc.
+= Das aktuelle Fensterlayout speichern: Fenstergröße, Bereiche, Seitenleiste usw.
+
+Load Layout
+= Layout laden
+
+Load layout and apply it to the current window.
+= Ein Layout laden und auf das aktuelle Fenster anwenden.
+
+Open File Explorer
+= Explorer öffnen
+
+Open the OS native file explorer on the currently opened file path.
+= Den Dateimanager des Systems im aktuellen Ordner öffnen.
+
+Filey Setup
+= Filey-Setup
+
+Install or uninstall Filey, with options to create Desktop and Start menu shortcuts and add it to the PATH.
+= Filey installieren oder deinstallieren, mit Optionen für Verknüpfungen auf dem Desktop und im Startmenü und für den Eintrag in PATH.
+
+Restore Muted Notifications
+= Stummgeschaltete Benachrichtigungen zurückholen
+
+Show the kinds of notice muted with their bell again.
+= Die mit ihrer Glocke stummgeschalteten Arten von Hinweisen wieder anzeigen.
+
+Sort By Name
+= Nach Name sortieren
+
+Sort folder contents by name, treating neighbor digits as numbers.
+= Den Ordnerinhalt nach Name sortieren, aufeinanderfolgende Ziffern als Zahlen.
+
+Sort By Size
+= Nach Größe sortieren
+
+Sort folder contents by size, using the size of the children contents for folders.
+= Den Ordnerinhalt nach Größe sortieren, bei Ordnern nach der Größe ihres Inhalts.
+
+Sort By Date Created
+= Nach Erstelldatum sortieren
+
+Sort folder contents by file creation date.
+= Den Ordnerinhalt nach dem Erstelldatum sortieren.
+
+Sort By Date Modified
+= Nach Änderungsdatum sortieren
+
+Sort folder contents by file last modified date.
+= Den Ordnerinhalt nach dem letzten Änderungsdatum sortieren.
+
+Sort By Date Accessed
+= Nach Zugriffsdatum sortieren
+
+Sort folder contents by file last access date.
+= Den Ordnerinhalt nach dem letzten Zugriffsdatum sortieren.
+
+Sort By Total Items
+= Nach Elementanzahl sortieren
+
+Sort folder contents by children item count.
+= Den Ordnerinhalt nach der Anzahl enthaltener Elemente sortieren.
+
+Sort By Type
+= Nach Typ sortieren
+
+Sort folder contents by file type.
+= Den Ordnerinhalt nach Dateityp sortieren.
+
+Toggle Inspector Details
+= Inspektor-Details ein/aus
+
+Toggle display of extra file metadata details in the inspector.
+= Zusätzliche Metadaten der Datei im Inspektor ein- oder ausblenden.
+
+Toggle Inspector Layout
+= Inspektor-Anordnung wechseln
+
+Toggle inspector layout between horizontal and vertical.
+= Die Anordnung des Inspektors zwischen horizontal und vertikal wechseln.
+
+Filter Inspector Content
+= Inspektor filtern
+
+Start filtering contents in the inspector. Applicable to text and folder previews.
+= Den Inhalt des Inspektors filtern. Gilt für Text- und Ordnervorschauen.
+
+Toggle Inspector Image Grid
+= Bildraster ein/aus
+
+Toggle display of image grid to better differentiate background from the image contents.
+= Ein Raster ein- oder ausblenden, um den Hintergrund besser vom Bildinhalt zu unterscheiden.
+
+Toggle Inspector Image Minimap
+= Bild-Minikarte ein/aus
+
+Toggle display of minimap when an image is being zoomed.
+= Die Minikarte beim Zoomen eines Bildes ein- oder ausblenden.
+
+Toggle Inspector Image Scale
+= Bildskalierung wechseln
+
+Toggle inspector image scale between fit to viewport and original source size.
+= Die Bildskalierung im Inspektor zwischen eingepasst und Originalgröße wechseln.
+
+Scale Up Inspector Image
+= Bild vergrößern
+
+Scale Down Inspector Image
+= Bild verkleinern
+
+Increase Contents Size
+= Inhalt vergrößern
+
+Increase contents size in the inspector; font size for text, zoom for images, etc.
+= Den Inhalt im Inspektor vergrößern: Schriftgröße bei Text, Zoom bei Bildern usw.
+
+Decrease Inspector Contents Size
+= Inhalt verkleinern
+
+Decrease contents size in the inspector; font size for text, zoom for images, etc.
+= Den Inhalt im Inspektor verkleinern: Schriftgröße bei Text, Zoom bei Bildern usw.
+
+Toggle Inspector Word Wrap
+= Zeilenumbruch ein/aus
+
+Toggle word wrap option of the previewed text in the inspector.
+= Den Zeilenumbruch des Texts im Inspektor ein- oder ausschalten.
+
+Toggle Inspector Line Numbers
+= Zeilennummern ein/aus
+
+Toggle display of line numbers for the previewed text in the inspector.
+= Zeilennummern des Texts im Inspektor ein- oder ausblenden.
+
+Toggle Inspector Hex View
+= Hexansicht ein/aus
+
+Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.
+= Die Bytes einer beliebigen Datei im Inspektor hexadezimal zeigen oder Text und Bilder unverändert.
+
+Toggle Inspector Whitespace
+= Leerzeichen anzeigen ein/aus
+
+Toggle display of whitespace in the previewed text in the inspector.
+= Leerraumzeichen des Texts im Inspektor ein- oder ausblenden.
+
+# Counted texts: the forms for one and for the rest, separated by " | ".
+
+Filter %u files...
+= %u Datei filtern... | %u Dateien filtern...
+
+%u changes not committed. Switch to "%S" and take them along?
+= %u Änderung nicht committet. Zu „%S“ wechseln und sie mitnehmen? | %u Änderungen nicht committet. Zu „%S“ wechseln und sie mitnehmen?
+
+Moving %u items to %S
+= %u Element wird nach %S verschoben | %u Elemente werden nach %S verschoben
+
+Copying %u items to %S
+= %u Element wird nach %S kopiert | %u Elemente werden nach %S kopiert
+
+Permanently delete %u items?
+= %u Element endgültig löschen? | %u Elemente endgültig löschen?
+
+Over %S items, packed to %S
+= Über %S Element, gepackt auf %S | Über %S Elemente, gepackt auf %S
+
+%S folders
+= %S Ordner | %S Ordner
+
+%S files, %S, packed to %S
+= %S Datei, %S, gepackt auf %S | %S Dateien, %S, gepackt auf %S
+
+Details
+= Details
+
+List
+= Liste
+
+Columns
+= Spalten
+
+M Icons
+= Mittel
+
+L Icons
+= Groß
+
+XL Icons
+= Extra groß
+
+Quick
+= Schnell
+
+Folder
+= Ordner
+
+Sort
+= Sortierung
+
+Inspector
+= Inspektor
+
+Panels
+= Bereiche
+
+Tabs
+= Tabs
+
+Misc
+= Sonstiges
+
+Text
+= Text
+
+Scroll
+= Scrollen
+
+No archive to take out
+= Kein Archiv zum Entpacken
+
+No temporary folder to take the items out into
+= Kein temporärer Ordner zum Entpacken der Elemente
+
+They are no longer in the bin
+= Sie sind nicht mehr im Papierkorb
+
+Folder link
+= Ordnerverknüpfung
+
+Link
+= Verknüpfung
+
+%u folders
+= %u Ordner | %u Ordner
+
+%u files
+= %u Datei | %u Dateien
+
+%S free of %S (%S)
+= %S von %S frei (%S)
+
+%S free of %S
+= %S von %S frei
+
+%S color
+= Farbe %S
+
+%S of %S
+= %S von %S
+
+%u of %u
+= %u von %u
+
+%u pages
+= %u Seite | %u Seiten
+
+# Units of size and count, and a number with tenths, whose translation shows the decimal mark.
+
+B
+= B
+
+kB
+= kB
+
+MB
+= MB
+
+GB
+= GB
+
+TB
+= TB
+
+K
+= K
+
+M
+= M
+
+1.5
+= 1,5
+
+File System
+= Dateisystem
+
+Free Space
+= Freier Speicher
+
+Percent Full
+= Belegt in %
+
+Original Location
+= Ursprünglicher Ort
+
+Date Deleted
+= Löschdatum
+
+Uninstall
+= Deinstallieren
+
+This will remove the current version from your PC, including its shortcuts, right-click entries, default program registration and PATH changes.
+= Die aktuelle Version wird von Ihrem PC entfernt, samt Verknüpfungen, Kontextmenüeinträgen, Registrierung als Standardprogramm und PATH-Änderungen.
+
+Blank
+= Leer
+
+Video
+= Video
+
+Audio
+= Audio
+
+Duration
+= Dauer
+
+Bitrate
+= Bitrate
+
+Video Codec
+= Videocodec
+
+What Compress Video encodes to, on the graphics card when it has an encoder for it: NVENC, AMF or Quick Sync.
+= Wohin „Video komprimieren“ kodiert, auf der Grafikkarte, wenn sie einen Encoder dafür hat: NVENC, AMF oder Quick Sync.
+
+Video Quality
+= Videoqualität
+
+The constant quality Compress Video keeps: lower is better and larger; 18 to 23 looks as the original does.
+= Die konstante Qualität von „Video komprimieren“: niedriger ist besser und größer; 18 bis 23 sieht wie das Original aus.
+
+Compress Video
+= Video komprimieren
+
+Encode the selected videos again, smaller, on the graphics card when it can, each beside itself.
+= Die ausgewählten Videos kleiner neu kodieren, wenn möglich auf der Grafikkarte, jedes neben dem Original.
+
+Compress video failed
+= Video komprimieren fehlgeschlagen
+
+Compressing %u videos
+= %u Video wird komprimiert | %u Videos werden komprimiert
+
+FFmpeg is not installed, or could not read the video
+= FFmpeg ist nicht installiert oder konnte das Video nicht lesen
+
+Download failed
+= Download fehlgeschlagen
+
+Downloading into %S
+= Download nach %S
+
+Download Audio Only
+= Nur Audio herunterladen
+
+A web address pasted into a folder is downloaded with yt-dlp; this takes its sound alone, as MP3.
+= Eine in einen Ordner eingefügte Webadresse wird mit yt-dlp heruntergeladen; dies lädt nur den Ton, als MP3.
+
+yt-dlp is not installed, or found nothing to download there
+= yt-dlp ist nicht installiert oder hat dort nichts zum Herunterladen gefunden
+
+Magnet link
+= Magnet-Link
+
+aria2c is not installed, or could not download the torrent
+= aria2c ist nicht installiert oder konnte den Torrent nicht herunterladen
+
+aria2c is not installed, or could not fetch the torrent
+= aria2c ist nicht installiert oder konnte den Torrent nicht abrufen
+
+Starting...
+= Wird gestartet...
+
+Download Torrent
+= Torrent herunterladen
+
+Download the selected .torrent files beside them with aria2c, which opening one does when no program is set to open torrents.
+= Die ausgewählten .torrent-Dateien mit aria2c daneben herunterladen; das passiert auch beim Öffnen, wenn kein Programm für Torrents festgelegt ist.
+
+Play Audio
+= Audio abspielen
+
+Play the audio file shown in the inspector, or pause it.
+= Die im Inspektor gezeigte Audiodatei abspielen oder pausieren.
+
+Compress Video encodes to HEVC (H.265): small files that most players play.
+= „Video komprimieren“ kodiert nach HEVC (H.265): kleine Dateien, die die meisten Player abspielen.
+
+Compress Video encodes to H.264: larger, but plays everywhere.
+= „Video komprimieren“ kodiert nach H.264: größer, aber überall abspielbar.
+
+Compress Video encodes to AV1: the smallest, for newer players and graphics cards.
+= „Video komprimieren“ kodiert nach AV1: am kleinsten, für neuere Player und Grafikkarten.
+
+Compress Video's quality: lower is better and larger; 18 to 23 looks as the original does.
+= Qualität von „Video komprimieren“: niedriger ist besser und größer; 18 bis 23 sieht wie das Original aus.
+
+Q %u
+= Q %u
+
+Go on with the download.
+= Den Download fortsetzen.
+
+Pause the download.
+= Den Download anhalten.
+
+Stop the download; downloading it again goes on from here.
+= Den Download stoppen; ein erneuter Download macht hier weiter.
+
+Git Pull
+= Git Pull
+
+Bring the shown folder's repository up to its remote, only where that moves it forward, without merging.
+= Das Repository des angezeigten Ordners auf den Stand seines Remotes bringen, nur wenn es dabei vorwärts geht, ohne Merge.
+
+Couldn't pull
+= Pull fehlgeschlagen
+
+git could not pull
+= git konnte nicht pullen
+
+Fetch Repositories
+= Repositorys abrufen
+
+Fetch the shown folder's git repository now and then, at most every five minutes, to count its commits to pull; one that needs a sign-in is left alone.
+= Das Git-Repository des angezeigten Ordners ab und zu abrufen, höchstens alle fünf Minuten, um die zu pullenden Commits zu zählen; eines, das eine Anmeldung braucht, bleibt unberührt.
+
+Too many transfers at once
+= Zu viele Übertragungen gleichzeitig
+
+Wait for one of them to finish, or stop one.
+= Warten Sie, bis eine davon fertig ist, oder stoppen Sie eine.
+
+Don't download it after all.
+= Doch nicht herunterladen.
+
+and %u more
+= und %u weitere
+
+Waiting for a free slot
+= Wartet auf einen freien Platz
+
+%u torrents waiting to start
+= %u Torrent wartet auf den Start | %u Torrents warten auf den Start
+
+Audio Volume
+= Lautstärke
+
+How loud the inspector plays audio files.
+= Wie laut der Inspektor Audiodateien abspielt.
+
+Mute Audio
+= Ton aus
+
+Turn the inspector's sound off, or on again.
+= Den Ton des Inspektors aus- oder wieder einschalten.
+
+Context menu:
+= Kontextmenü:
+
+Adds Filey to Explorer's right-click menus: Show in Filey on files, Open in Filey on folders and Open Filey here inside one.
+= Fügt Filey den Kontextmenüs des Explorers hinzu: „In Filey anzeigen“ bei Dateien, „In Filey öffnen“ bei Ordnern und „Filey hier öffnen“ in einem Ordner.
+
+Show in Filey
+= In Filey anzeigen
+
+Open in Filey
+= In Filey öffnen
+
+Open Filey here
+= Filey hier öffnen
+
+Delete Finished Torrents
+= Fertige Torrents löschen
+
+Sends a .torrent file to the Recycle Bin once every file in it has downloaded.
+= Verschiebt eine .torrent-Datei in den Papierkorb, sobald alle ihre Dateien heruntergeladen sind.
+
+Toggle Tree View
+= Baumansicht ein/aus
+
+Toggle unfolding folders in place in the list, their items indented under them.
+= Ordner direkt in der Liste aufklappen, ihre Elemente eingerückt darunter.
+
+No Grouping
+= Keine Gruppierung
+
+List the items without group headings.
+= Die Elemente ohne Gruppenüberschriften auflisten.
+
+Group By Type
+= Nach Typ gruppieren
+
+Group the items under headings by their type.
+= Die Elemente unter Überschriften nach ihrem Typ gruppieren.
+
+Group By Date Modified
+= Nach Änderungsdatum gruppieren
+
+Group the items under headings by when they last changed: today, yesterday, earlier this week and so on.
+= Die Elemente unter Überschriften danach gruppieren, wann sie zuletzt geändert wurden: heute, gestern, Anfang dieser Woche und so weiter.
+
+Group By Size
+= Nach Größe gruppieren
+
+Group the items under headings by size, from empty to gigantic, the folders apart.
+= Die Elemente unter Überschriften nach Größe gruppieren, von leer bis gigantisch, die Ordner getrennt.
+
+Today
+= Heute
+
+Yesterday
+= Gestern
+
+Earlier this week
+= Anfang dieser Woche
+
+Last week
+= Letzte Woche
+
+Earlier this month
+= Anfang dieses Monats
+
+Last month
+= Letzter Monat
+
+Earlier this year
+= Anfang dieses Jahres
+
+A long time ago
+= Vor langer Zeit
+
+Empty
+= Leer
+
+Tiny (under 16 kB)
+= Winzig (unter 16 kB)
+
+Small (16 kB to 1 MB)
+= Klein (16 kB bis 1 MB)
+
+Medium (1 to 128 MB)
+= Mittel (1 bis 128 MB)
+
+Large (128 MB to 1 GB)
+= Groß (128 MB bis 1 GB)
+
+Huge (1 to 4 GB)
+= Riesig (1 bis 4 GB)
+
+Gigantic (over 4 GB)
+= Gigantisch (über 4 GB)
+
+Update Check
+= Nach Updates suchen
+
+Asks GitHub once a day whether a newer Filey is out, and offers to update to it.
+= Fragt einmal täglich bei GitHub, ob eine neuere Version von Filey erschienen ist, und bietet das Update an.
+
+Update to Filey %S
+= Auf Filey %S aktualisieren
+
+There is no folder to download into.
+= Es gibt keinen Ordner für den Download.
+
+The download failed.
+= Der Download ist fehlgeschlagen.
+
+The download holds no Filey for this system.
+= Der Download enthält kein Filey für dieses System.
+
+Downloading Filey %S...
+= Filey %S wird heruntergeladen...
+
+Couldn't start the new Filey
+= Das neue Filey konnte nicht gestartet werden
+
+Filey %S is out
+= Filey %S ist erschienen
+
+Update downloads it and starts Filey again in it, with the panels and tabs as they are.
+= „Aktualisieren“ lädt es herunter und startet Filey darin neu, mit Bereichen und Tabs wie bisher.
+
+Its page has the downloads.
+= Die Downloads stehen auf seiner Seite.
+
+Open Page
+= Seite öffnen
+
+Filey is up to date
+= Filey ist aktuell
+
+%S is the latest version.
+= %S ist die neueste Version.
+
+Couldn't check for updates
+= Suche nach Updates fehlgeschlagen
+
+GitHub did not answer, or curl is missing.
+= GitHub hat nicht geantwortet oder curl fehlt.
+
+Couldn't update Filey
+= Filey konnte nicht aktualisiert werden
+
+Check For Updates
+= Nach Updates suchen
+
+Ask GitHub whether a newer Filey is out, and offer to update to it.
+= Bei GitHub fragen, ob eine neuere Version von Filey erschienen ist, und das Update anbieten.
+
+Update Filey
+= Filey aktualisieren
+
+Download the newer Filey and start again in it, with the panels and tabs as they are.
+= Die neuere Version von Filey herunterladen und darin neu starten, mit Bereichen und Tabs wie bisher.
+
+Open in New Tab
+= In neuem Tab öffnen
+
+Open in New Window
+= In neuem Fenster öffnen
+
+Open in Right Split
+= Rechts geteilt öffnen
+
+Open in Bottom Split
+= Unten geteilt öffnen
+
+Copy Path
+= Pfad kopieren
+
+Compact Path
+= Kurzer Pfad
+
+Path Breadcrumbs
+= Pfadverlauf
+
+Path Options
+= Pfadoptionen
+
+Open the path bar's menu: open the folder elsewhere, edit or copy its path, and how the path shows.
+= Das Menü der Pfadleiste öffnen: den Ordner anderswo öffnen, seinen Pfad bearbeiten oder kopieren und festlegen, wie der Pfad erscheint.
+
+Toggle Compact Path
+= Kurzer Pfad ein/aus
+
+Show paths from the first recognized folder, as Pictures, or whole from the drive.
+= Pfade ab dem ersten bekannten Ordner wie „Bilder“ oder vollständig ab dem Laufwerk anzeigen.
+
+Toggle Path Breadcrumbs
+= Pfadverlauf ein/aus
+
+Show or hide the subfolders visited past the shown folder in the path bar.
+= Die nach dem angezeigten Ordner besuchten Unterordner in der Pfadleiste ein- oder ausblenden.
+
+Toggle Palette Details
+= Palettendetails ein/aus
+
+Show or hide the descriptions under the commands in the palette.
+= Die Beschreibungen unter den Befehlen in der Palette ein- oder ausblenden.
+
+Show Hidden Places
+= Ausgeblendete Orte anzeigen
+
+Toggle Hidden Places
+= Ausgeblendete Orte ein/aus
+
+Show the places hidden from the sidebar too, faded, to show them again.
+= Auch die in der Seitenleiste ausgeblendeten Orte blass anzeigen, um sie wieder einzublenden.
+
+Restore Places
+= Orte wiederherstellen
+
+Show every place again, in the order they come in.
+= Alle Orte wieder anzeigen, in ihrer ursprünglichen Reihenfolge.
+
+Restore Groups Order
+= Gruppenreihenfolge wiederherstellen
+
+Put the sidebar's groups back in their default order.
+= Die Gruppen der Seitenleiste wieder in ihre Standardreihenfolge bringen.
+
+Drag folders here
+= Ordner hierher ziehen
+
+New group
+= Neue Gruppe
+
+Rename Group
+= Gruppe umbenennen
+
+Delete Group
+= Gruppe löschen
+
+New Group
+= Neue Gruppe
+
+Add to %S
+= Zu %S hinzufügen
+
+New Sidebar Group
+= Neue Seitenleistengruppe
+
+Make a group of your own in the sidebar, to drag folders into.
+= Eine eigene Gruppe in der Seitenleiste anlegen, in die sich Ordner ziehen lassen.
+
+Password for %S
+= Passwort für %S
+
+Type the archive's password...
+= Passwort des Archivs eingeben...
+
+That password does not open it.
+= Dieses Passwort öffnet es nicht.
+
+Select bytes to read them as numbers
+= Bytes markieren, um sie als Zahlen zu lesen
+
+Find bytes or text...
+= Bytes oder Text suchen...
+
+Not found
+= Nicht gefunden
+
+Nothing in it matches "%S".
+= Nichts darin passt zu „%S“.
+
+Sort By Date Deleted
+= Nach Löschdatum sortieren
+
+Sort the Recycle Bin by when its items were deleted.
+= Den Papierkorb danach sortieren, wann seine Elemente gelöscht wurden.
+
+Sort By Original Location
+= Nach ursprünglichem Ort sortieren
+
+Sort the Recycle Bin by the folders its items were deleted from.
+= Den Papierkorb nach den Ordnern sortieren, aus denen seine Elemente gelöscht wurden.
+
+Sort By Free Space
+= Nach freiem Speicher sortieren
+
+Sort the drives by the space they have left.
+= Die Laufwerke nach ihrem verbleibenden Speicher sortieren.
+
+Sort By Percent Full
+= Nach Belegung sortieren
+
+Sort the drives by how full they are.
+= Die Laufwerke danach sortieren, wie voll sie sind.
+
+Sort By File System
+= Nach Dateisystem sortieren
+
+Sort the drives by their file system.
+= Die Laufwerke nach ihrem Dateisystem sortieren.
+
+Code Keyword
+= Code: Schlüsselwort
+
+Color of keywords and keys in the inspector's code.
+= Farbe von Schlüsselwörtern und Schlüsseln im Code des Inspektors.
+
+Code String
+= Code: Zeichenkette
+
+Color of strings and quoted text in the inspector's code.
+= Farbe von Zeichenketten und Text in Anführungszeichen im Code des Inspektors.
+
+Code Number
+= Code: Zahl
+
+Color of numbers and variables in the inspector's code.
+= Farbe von Zahlen und Variablen im Code des Inspektors.
+
+Code Heading
+= Code: Überschrift
+
+Color of headings, sections and tags in the inspector's text.
+= Farbe von Überschriften, Abschnitten und Tags im Text des Inspektors.
+
+Swap Panels
+= Bereiche tauschen
+
+Swap the current panel with what is beside it in its split.
+= Den aktuellen Bereich mit dem tauschen, was in seiner Teilung daneben liegt.
+
+Reset Panel Layout
+= Bereichslayout zurücksetzen
+
+Close every panel but the current one; Reopen Closed Tab brings their tabs back.
+= Alle Bereiche außer dem aktuellen schließen; „Geschlossenen Tab öffnen“ holt ihre Tabs zurück.
+
+Hide UI
+= Oberfläche ausblenden
+
+Hide the sidebar, the toolbars and the status bars, or show them again.
+= Die Seitenleiste, die Symbolleisten und die Statusleisten aus- oder wieder einblenden.
+
+Download Playlists
+= Playlists herunterladen
+
+The web address of a video in a playlist downloads every video of the playlist, rather than that one alone.
+= Die Webadresse eines Videos in einer Playlist lädt alle Videos der Playlist herunter, nicht nur dieses.
+
+%S became %S, %u%% of the size.
+= %S wurde zu %S, %u%% der Größe.
+
+Compressed
+= Komprimiert
+
+Long Paths Support
+= Lange Pfade
+
+Enable support for paths longer than 260 characters in every program (admin access required to change).
+= Unterstützung für Pfade mit mehr als 260 Zeichen in allen Programmen aktivieren (Änderung erfordert Administratorrechte).
+
+Increase Quick Access Size
+= Schnellzugriff verbreitern
+
+Make the sidebar wider.
+= Die Seitenleiste breiter machen.
+
+Decrease Quick Access Size
+= Schnellzugriff verschmälern
+
+Make the sidebar narrower.
+= Die Seitenleiste schmaler machen.
+
+Increase Panel Size
+= Bereich vergrößern
+
+Give the current panel more of its split.
+= Dem aktuellen Bereich mehr Platz in seiner Teilung geben.
+
+Decrease Panel Size
+= Bereich verkleinern
+
+Give the current panel less of its split.
+= Dem aktuellen Bereich weniger Platz in seiner Teilung geben.
+
+Increase Inspector Size
+= Inspektor vergrößern
+
+Give the inspector more of its panel.
+= Dem Inspektor mehr Platz in seinem Bereich geben.
+
+Decrease Inspector Size
+= Inspektor verkleinern
+
+Give the inspector less of its panel.
+= Dem Inspektor weniger Platz in seinem Bereich geben.
+
+Items cannot be added to an archive inside another
+= Elemente können nicht zu einem Archiv in einem anderen Archiv hinzugefügt werden
