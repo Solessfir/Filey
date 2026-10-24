@@ -2,7 +2,6 @@
 
 ## Missing
 
-- Network: the computers and shares on the network as a folder (the Recycle Bin and phones are listed). Phones on Linux through GVFS are untested with a device.
 - Languages: the Chinese, French, German, Polish, Portuguese and Spanish translations want a native speaker's review.
 
 ## Possible features
@@ -14,7 +13,8 @@
 To be checked on Linux:
 
 - Drag and drop from archive managers and browsers, and drops onto executables.
-- Asking a server for its shares (`smbclient -L`, or the gvfs mounts in `$XDG_RUNTIME_DIR/gvfs`); mounted CIFS and NFS shares already show as drives.
+- Asking a server for its shares (`smbclient -L`, or the gvfs mounts in `$XDG_RUNTIME_DIR/gvfs`), then a Network folder of the computers that share (avahi's `_smb._tcp`); mounted CIFS and NFS shares already show as drives.
+- Phones through GVFS, untested with a device.
 - Following the theme's light or dark change while Filey runs (the settings portal's `SettingChanged`), and the portal path on a desktop that has it.
 - An update replaces only the executable, not the desktop entry and icons.
 - A drag from an archive to other apps extracts before it starts.

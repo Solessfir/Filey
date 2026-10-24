@@ -677,6 +677,9 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch)
 // nemo's name for the computer, which P_LoadFileIcon gives the theme's icon of it.
 function String P_ComputerIconPath(void) { return S("computer:///"); }
 
+// ponytail: none until "//server" paths list a server's shares here, through smbclient or GVFS's smb mounts.
+function String P_NetworkFolder(void) { return (String){0}; }
+
 function b32 P_IsVirtualFolder(String path)
 {
     local_persist const char *virtuals[] = { "/proc", "/sys", "/dev", "/run" };

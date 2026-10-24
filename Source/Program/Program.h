@@ -536,6 +536,7 @@ typedef struct Prog_Transfer {
 #define Prog_TextWindow (16 << 20)
 // The folder dropdown command's target for This PC's crumb, which comes before a drive's.
 #define Prog_ThisPCCrumb UINT64_MAX
+#define Prog_NetworkCrumb (UINT64_MAX - 1)
 #define Prog_TextStep (1 << 20)
 
 // A big text file's lines in steps of Prog_TextStep bytes: where the first line starting in each step starts, its number, and what the

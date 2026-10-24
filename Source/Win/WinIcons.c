@@ -61,8 +61,12 @@ function String P_FileTypeKey(Arena *arena, String path, P_FileKind kind)
 
 function String P_FileIconKey(Arena *arena, String path, P_FileKind kind)
 {
-    // Each drive has its own icon (system, removable, optical, network).
+    // Each drive has its own icon (system, removable, optical, network), and so does a computer on the network and a folder it shares.
     if (kind == P_FileKind_Drive) return StrCopy(arena, path);
+    if (kind == P_FileKind_Directory && path.length > 2 && path.value[0] == '/' && path.value[1] == '/' && path.value[2] != '?') {
+        Index slash = StrIndexChar(StrFrom(path, 2), '/', SSF_None);
+        if (!slash.exists || !StrIndexChar(StrFrom(path, 2 + slash.value + 1), '/', SSF_None).exists) return StrCopy(arena, path);
+    }
     String result = P_FileTypeKey(arena, path, kind);
     for (u64 i = 0; result.value[0] == '.' && i < CArrayCount(P__IconPerPathExtensions); ++i) {
         if (StrIsEqual(StrFrom(result, 1), P__IconPerPathExtensions[i])) return StrCopy(arena, path);
@@ -169,6 +173,8 @@ function b32 P__IconPixels(Arena *arena, HICON icon, P_Image *image)
 function b32 P_LoadFileIcon(Arena *arena, String path, P_FileKind kind, i32 size, f32 scale, b32 exact, P_Image *image)
 {
     (void)scale;
+    // The Network folder's own icon, by its class id.
+    if (StrIsEqual(path, P_NetworkFolder())) path = S("::{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}");
     Scratch scratch = GetScratchEx(arena);
     // Type-keyed icons come from the name and attributes alone, so the shell does not open the file.
     // Shared generic keys use a neutral name, since the first file to request one decides it for all.

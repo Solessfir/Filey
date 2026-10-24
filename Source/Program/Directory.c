@@ -3,8 +3,9 @@
 
 function String Prog_JoinPath(Arena *arena, String path, String name)
 {
-    // This PC's and the Recycle Bin's items are named by their whole paths.
+    // This PC's and the Recycle Bin's items are named by their whole paths, and the Network's computers by their servers'.
     if (StrIsEqual(path, Prog_ThisPC) || P_IsTrashFolder(path)) return StrCopy(arena, name);
+    if (path.length && StrIsEqual(path, P_NetworkFolder())) return StrFormat(arena, "//%S", name);
     return StrFormat(arena, "%S%s%S", path, path.length && path.value[path.length - 1] == '/' ? "" : "/", name);
 }
 
@@ -799,15 +800,18 @@ function String Prog_PathServer(String path)
     return slash.exists ? StrFromTo(path, 0, (i64)slash.value + 2) : path;
 }
 
-// Where Up goes from `path`: its parent, the server from a share's root, This PC from a drive's or a server's root, and nowhere from This PC.
+// Where Up goes from `path`: its parent, the server from a share's root, the Network from a server, where there is one, and This PC from it
+// or from a drive's root, and nowhere from This PC.
 function String Prog_UpPath(String path)
 {
     if (StrIsEqual(path, Prog_ThisPC)) return (String){0};
+    String network = P_NetworkFolder();
+    if (network.length && StrIsEqual(path, network)) return Prog_ThisPC;
     String server = Prog_PathServer(path), trimmed = path;
     while (trimmed.length > server.length && trimmed.value[trimmed.length - 1] == '/') --trimmed.length;
     if (server.length && trimmed.length > server.length && !StrIndexChar(StrFrom(trimmed, server.length + 1), '/', SSF_None).exists) return server;
     String parent = Prog_ParentPath(path);
-    if (!parent.length || StrIsEqual(parent, path)) return path.length ? Prog_ThisPC : (String){0};
+    if (!parent.length || StrIsEqual(parent, path)) return !path.length ? (String){0} : server.length && network.length ? network : Prog_ThisPC;
     return parent;
 }
 
@@ -6533,6 +6537,8 @@ function const P_Place *Prog_PathDrive(const Prog_State *state, String path)
 // What a tab calls `path`: a drive's root by the drive's name, as "DVD RW Drive (E:)", and other folders by their own.
 function String Prog_PathName(const Prog_State *state, String path)
 {
+    if (StrIsEqual(path, Prog_ThisPC)) return Tr("This PC");
+    if (path.length && StrIsEqual(path, P_NetworkFolder())) return Tr("Network");
     for (u64 i = 0; P_IsTrashFolder(path) && i < state->places.header.count; ++i) {
         if (P_IsTrashFolder(state->places.v[i].path)) return state->places.v[i].name;
     }
@@ -7751,9 +7757,10 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 ArenaRelease(&state->placesArena);
                 state->placesArena = job->arena;
                 job->arena = (Arena){0};
-                // This PC leads the places.
+                // This PC leads the places, and the Network follows it.
                 state->places = (P_ArrayPlace){0};
                 ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = Prog_ThisPC, .path = Prog_ThisPC }));
+                if (P_NetworkFolder().length) ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = P_NetworkFolder(), .path = P_NetworkFolder() }));
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
                 Prog__OrderPlaces(state);
                 state->drives = result->drives;

@@ -214,6 +214,7 @@ global const char *const Prog_Strings[] = {
     "History",
     "View",
     "This PC",
+    "Network",
     "Folder view settings saved and applied.\nIcons, sort, folders first, list columns.",
     "No folder view settings saved.\nUsing panel's view settings.",
     "This path is bookmarked.",

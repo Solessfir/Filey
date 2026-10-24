@@ -1428,6 +1428,7 @@ function String Prog__CrumbTarget(Prog_State *state, u64 row)
     String trail = state->noTrail ? (String){0} : Prog_TrailText(state);
     String path = trail.length ? trail : state->directory.path;
     if (row == 0) return Prog_ThisPC;
+    if (row == Prog_NetworkCrumb) return P_NetworkFolder();
     if (row > path.length) return (String){0};
     // A drive prefix needs its slash: "C:" is the drive's current directory, "C:/" its root.
     return StrFromTo(path, 0, (i64)(path.value[row - 1] == ':' ? row + 1 : row));

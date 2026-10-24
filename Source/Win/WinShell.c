@@ -1097,7 +1097,7 @@ function String P__KnownFolder(Arena *arena, const GUID *id)
 function P_DriveKind P_PathDriveKind(String path)
 {
     // A device answers slowly, as a network share does.
-    if (P__IsDevicePath(path)) return P_DriveKind_Network;
+    if (P__IsDevicePath(path) || P__IsNetworkPath(path)) return P_DriveKind_Network;
     if (path.length >= 2 && path.value[0] == '/' && path.value[1] == '/') return P_DriveKind_Network;
     if (path.length < 2 || path.value[1] != ':') return P_DriveKind_SolidState;
     wchar root[] = { (wchar)path.value[0], L':', L'\\', 0 }, volume[] = { L'\\', L'\\', L'.', L'\\', (wchar)path.value[0], L':', 0 };
@@ -1608,6 +1608,72 @@ function IDataObject *P__ShellDataObject(const String *paths, u64 count)
     if (folder) folder->lpVtbl->Release(folder);
     ReleaseScratch(scratch);
     return data;
+}
+
+// The computers the shell's Network folder has found this run, by name. Its search takes half a minute to end, with the items coming as they
+// are found, so it runs on a thread of its own, one at a time, and what it finds is kept for the next listing.
+global SRWLOCK P__networkLock = SRWLOCK_INIT;
+global Arena P__networkArena;
+global ArrayStr P__networkFound;
+global atomic_bool P__networkSearching;
+
+function DWORD WINAPI P__NetworkSearchThread(void *unused)
+{
+    (void)unused;
+    b32 com = SUCCEEDED(CoInitializeEx(NULL, COINIT_MULTITHREADED));
+    IShellItem *network = NULL;
+    IEnumShellItems *items = NULL;
+    if (SUCCEEDED(SHCreateItemFromParsingName(L"::{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}", NULL, &P__IID_IShellItem, (void **)&network)) &&
+        SUCCEEDED(network->lpVtbl->BindToHandler(network, NULL, &P__BHID_EnumItems, &P__IID_IEnumShellItems, (void **)&items))) {
+        IShellItem *child = NULL;
+        while (items->lpVtbl->Next(items, 1, &child, NULL) == S_OK) {
+            // A computer that shares folders is "\\NAME"; the other items, as televisions and routers, are no folders to open.
+            wchar *parsing = NULL;
+            if (SUCCEEDED(child->lpVtbl->GetDisplayName(child, SIGDN_DESKTOPABSOLUTEPARSING, &parsing)) && parsing && parsing[0] == L'\\' && parsing[1] == L'\\' &&
+                parsing[2] && !wcschr(parsing + 2, L'\\')) {
+                AcquireSRWLockExclusive(&P__networkLock);
+                String name = P__FileStringWide(&P__networkArena, parsing + 2, lstrlenW(parsing + 2));
+                b32 known = false;
+                for (u64 i = 0; i < P__networkFound.header.count && !known; ++i) known = P__PathWithin(P__networkFound.v[i], name) && P__PathWithin(name, P__networkFound.v[i]);
+                if (!known) ArrayPush(&P__networkArena, P__networkFound, name);
+                ReleaseSRWLockExclusive(&P__networkLock);
+            }
+            if (parsing) CoTaskMemFree(parsing);
+            child->lpVtbl->Release(child);
+        }
+        items->lpVtbl->Release(items);
+    }
+    if (network) network->lpVtbl->Release(network);
+    if (com) CoUninitialize();
+    atomic_store(&P__networkSearching, false);
+    return 0;
+}
+
+// This computer, which the Network folder may leave out, and the others found so far; a search started for the listing gets a few seconds
+// to find them first.
+function P_DirectoryResult P__EnumerateNetwork(Arena *arena, const P_CancelToken *cancel)
+{
+    P_DirectoryResult result = {0};
+    b32 started = false;
+    if (!atomic_exchange(&P__networkSearching, true)) {
+        HANDLE thread = CreateThread(NULL, 0, P__NetworkSearchThread, NULL, 0, NULL);
+        if (thread) CloseHandle(thread), started = true;
+        else atomic_store(&P__networkSearching, false);
+    }
+    for (u32 waited = 0; started && waited < 3000 && atomic_load(&P__networkSearching) && !P_IsCancelled(cancel); waited += 100) Sleep(100);
+    wchar self[MAX_COMPUTERNAME_LENGTH + 1] = {0};
+    DWORD selfLength = CArrayCount(self);
+    String own = GetComputerNameW(self, &selfLength) && selfLength ? P__FileStringWide(arena, self, (i32)selfLength) : (String){0};
+    if (own.length) ArrayPush(arena, result.files, ((P_File){ .name = own, .kind = P_FileKind_Directory }));
+    AcquireSRWLockShared(&P__networkLock);
+    for (u64 i = 0; i < P__networkFound.header.count; ++i) {
+        String name = P__networkFound.v[i];
+        if (own.length && P__PathWithin(own, name) && P__PathWithin(name, own)) continue;
+        ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, name), .kind = P_FileKind_Directory }));
+    }
+    ReleaseSRWLockShared(&P__networkLock);
+    result.cancelled = P_IsCancelled(cancel);
+    return result;
 }
 
 function P_DirectoryResult P__EnumerateDevice(Arena *arena, String path, const P_CancelToken *cancel)

@@ -897,7 +897,11 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(StrIsEqual(Prog_PathServer(S("//nas/media/films")), S("//nas")) && StrIsEqual(Prog_PathServer(S("//nas")), S("//nas")));
         Check(!Prog_PathServer(S("//?/UNC/nas/media")).length && !Prog_PathServer(S("C:/nas")).length && !Prog_PathServer(S("/home")).length);
         Check(StrIsEqual(Prog_UpPath(S("//nas/media/films")), S("//nas/media/")) && StrIsEqual(Prog_UpPath(S("//nas/media/")), S("//nas")));
-        Check(StrIsEqual(Prog_UpPath(S("//nas/media")), S("//nas")) && StrIsEqual(Prog_UpPath(S("//nas")), Prog_ThisPC));
+        Check(StrIsEqual(Prog_UpPath(S("//nas/media")), S("//nas")));
+        // A server goes up to the Network where there is one, whose computers open as servers, and the Network to This PC.
+        String network = P_NetworkFolder();
+        Check(StrIsEqual(Prog_UpPath(S("//nas")), network.length ? network : Prog_ThisPC));
+        if (network.length) Check(StrIsEqual(Prog_UpPath(network), Prog_ThisPC) && StrIsEqual(Prog_JoinPath(&state.frameArena, network, S("NAS")), S("//NAS")));
         // A server's shares leave out the hidden ones, as C$, whether or not this one answers.
         {
             P_ArrayPlace shares = P_ServerShares(&kept, S("//localhost"), NULL);

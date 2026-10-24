@@ -3084,6 +3084,15 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         if (button.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(button), 0, 0, button.clickOrder);
         if (UI->hotKey == UI_KeyFromStr(0, S("Crumb/ThisPC"))) hovered = 0;
     }
+    // A server's crumbs follow the Network's, where there is one, which goes to it.
+    b32 server = Prog_PathServer(path).length && P_NetworkFolder().length;
+    if (server) {
+        UI_Interaction button = Prog__TextButton(S("Crumb/Network"), Tr("Network"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
+                                                 theme->textDim, true, m);
+        if (button.clicked) Prog_QueueCommand(state, Prog__CrumbCommand(button), Prog_NetworkCrumb, 0, button.clickOrder);
+        Prog__SmallIcon(Icon_ChevronRight, chevron, m->bar * 0.75f, theme->textDim, 0.5f, m);
+        start = 2;
+    }
     if (drive || thisPC) {
         drive = drive || (thisPC && path.length);
     } else if (start == 1) {
@@ -3108,6 +3117,7 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
                 if (separator.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupOpen, 0, 0, separator.clickOrder)->target = Prog_ThisPCCrumb;
             }
             if (drive && at == 0) segment = Prog__DriveName(state, path);
+            else if (StrIsEqual(StrFromTo(path, 0, (i64)end), P_NetworkFolder())) segment = Tr("Network");
             else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
             // A walk through the whole tree is marked after the folder walked.
             if (current && state->expanded) segment = StrFormat(&state->frameArena, "%S [...]", segment);
@@ -5730,7 +5740,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                             const P_Place *place = &state->places.v[i];
                             b32 hidden = Prog_PlaceHidden(state, place->path);
                             if ((hidden && !state->placesShowHidden) || !Prog__SidebarFinds(state, place->name)) continue;
-                            Prog__SidebarItem(state, Prog_Group_Places, i, place->name, place->path, NULL, hidden, m);
+                            b32 named = StrIsEqual(place->path, Prog_ThisPC) || StrIsEqual(place->path, P_NetworkFolder());
+                            Prog__SidebarItem(state, Prog_Group_Places, i, named ? Prog_PathName(state, place->path) : place->name, place->path, NULL, hidden, m);
                             R_Rect row = body->last->rect;
                             zone = zone.y1 > zone.y0 ? (R_Rect){ zone.x0, zone.y0, zone.x1, row.y1 } : row;
                             if (before == count && UI->mouse.y < (row.y0 + row.y1) * 0.5f) {

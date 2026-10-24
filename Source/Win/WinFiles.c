@@ -17,13 +17,23 @@ function b32 P__IsDevicePath(String path)
     return path.length > 8 && MemCompare(path.value, "This PC/", 8) == 0;
 }
 
+function String P_NetworkFolder(void) { return S("Network"); }
+
+// The Network folder, or a path under it, which only a mistake would make, as a new folder there.
+function b32 P__IsNetworkPath(String path)
+{
+    return path.length >= 7 && MemCompare(path.value, "Network", 7) == 0 && (path.length == 7 || path.value[7] == '/');
+}
+
+function P_DirectoryResult P__EnumerateNetwork(Arena *arena, const P_CancelToken *cancel);
+
 // The shell's item id list of the device path `path`, for ILFree, or NULL when it is not there; `folder` says whether it is a folder.
 function PIDLIST_ABSOLUTE P__DeviceIdList(String path, b32 *folder);
 function P_DirectoryResult P__EnumerateDevice(Arena *arena, String path, const P_CancelToken *cancel);
 
 function wchar *P__FilePathWide(Arena *arena, String path)
 {
-    if (P__IsDevicePath(path)) {
+    if (P__IsDevicePath(path) || P__IsNetworkPath(path)) {
         SetLastError(ERROR_PATH_NOT_FOUND);
         return NULL;
     }
@@ -223,8 +233,8 @@ function void P__ArchiveRemove(String path)
 
 function String P_AbsolutePath(Arena *arena, String path)
 {
-    if (P__IsDevicePath(path)) {
-        while (path.length > 8 && path.value[path.length - 1] == '/') --path.length;
+    if (P__IsDevicePath(path) || P__IsNetworkPath(path)) {
+        while (path.length > 7 && path.value[path.length - 1] == '/') --path.length;
         return StrCopy(arena, path);
     }
     Scratch scratch = GetScratchEx(arena);
@@ -383,6 +393,7 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
         return result;
     }
     if (P__IsDevicePath(path)) return P__EnumerateDevice(arena, path, cancel);
+    if (StrIsEqual(path, P_NetworkFolder())) return P__EnumerateNetwork(arena, cancel);
     ArenaMark mark = ArenaGetMark(arena);
     Scratch scratch = GetScratchEx(arena);
     wchar *directory = P__FileExtendedPath(scratch.arena, path);
@@ -394,7 +405,7 @@ function P_DirectoryResult P_EnumerateDirectory(Arena *arena, String path, const
     if (P__ServerRoot(path, &server)) {
         ArrayStr shares = P__ShareNames(scratch.arena, server, cancel, &error);
         for (u64 i = 0; i < shares.header.count; ++i) {
-            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, shares.v[i]), .kind = P_FileKind_Directory, .metadataValid = true }));
+            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, shares.v[i]), .kind = P_FileKind_Directory }));
         }
         directory = NULL;
     }
@@ -1477,6 +1488,7 @@ function b32 P_IsDirectory(String path)
         ILFree(list);
         return list && folder;
     }
+    if (P__IsNetworkPath(path)) return StrIsEqual(path, P_NetworkFolder());
     Scratch scratch = GetScratch();
     wchar *wide = P__FileExtendedPath(scratch.arena, path);
     DWORD attributes = wide ? GetFileAttributesW(wide) : INVALID_FILE_ATTRIBUTES;
@@ -1580,6 +1592,7 @@ function b32 P_PathExists(String path)
         ILFree(list);
         return list != NULL;
     }
+    if (P__IsNetworkPath(path)) return StrIsEqual(path, P_NetworkFolder());
     Scratch scratch = GetScratch();
     wchar *wide = P__FileExtendedPath(scratch.arena, path);
     b32 result = wide && GetFileAttributesW(wide) != INVALID_FILE_ATTRIBUTES;

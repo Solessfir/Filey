@@ -107,6 +107,10 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
 function b32 P_IsVirtualFolder(String path);
 // What P_LoadFileIcon takes for the icon of the computer, which lists the drives; empty where there is none to load.
 function String P_ComputerIconPath(void);
+// The folder that lists the computers on the network, as P_EnumerateDirectory lists it: a folder each, named by the computer, as "NAS" for
+// "//NAS", this computer among them. It is no folder on disk, so it has no Win32 form. Empty where Filey lists none, as on Linux, whose
+// servers have no paths of their own yet.
+function String P_NetworkFolder(void);
 // When `path` was created, in seconds since the Unix epoch; 0 when the file system does not say.
 function i64 P_FileCreatedTime(String path);
 // When the item at `path` last changed, in seconds since the Unix epoch; 0 when it is not there.
