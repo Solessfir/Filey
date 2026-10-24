@@ -6979,8 +6979,14 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
     f32 room = view.y1 - view.y0 - top - bottom - field - 2 * line - footer - 2 * pad;
     // As the palette, the box reaches down to the bottom margin with the row after those that fit cut off.
     u32 visible = (u32)MaxF32(floorf((room + line) / row), 1.0f);
-    // A section folding or unfolding eases, while the list does not scroll: its items, those it had for one folding up, show in a clip
-    // `easeShown` tall, and the box grows or shrinks with it.
+    // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top, unless the wheel scrolled it.
+    if (!state->paletteWheeled && highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
+    if (!state->paletteWheeled && highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
+    state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
+    u32 first = state->gotoScroll, shown = Min(rowCount - first, visible + 1);
+    // A section folding or unfolding eases while its title is in sight: its items, those it had for one folding up, show in a clip
+    // `easeShown` tall, the rows after it move with it, and a box that does not fill its room grows or shrinks with it. The rows the list
+    // scrolls by are the ones it has once the section is done.
     u32 easeFrom = UINT32_MAX, easeTo = 0;
     f32 easeShown = 0, easeFull = 0;
     Prog_GoToItem *ghosts = NULL;
@@ -7014,7 +7020,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             } else {
                 while (end < rowCount && rows[end].item >= 0) ++end;
             }
-            if (rowCount > visible || end == title + 1) {
+            if (title < first || title >= first + visible || end == title + 1) {
                 state->gotoEaseStart = 0;
                 if (state->gotoEaseFolding) rowCount -= end - title - 1;
             } else {
@@ -7024,14 +7030,10 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 easeTo = end;
                 easeFull = (f32)(end - title - 1) * row - (end == rowCount ? line : 0);
                 easeShown = floorf(easeFull * (state->gotoEaseFolding ? 1 - eased : eased) + 0.5f);
+                shown = Min(rowCount - first, visible + 1 + (end - title - 1));
             }
         }
     }
-    // The list scrolls only as far as keeps the highlight in sight, with the title above it at the top, unless the wheel scrolled it.
-    if (!state->paletteWheeled && highlightRow < state->gotoScroll + 1) state->gotoScroll = highlightRow ? highlightRow - (sections && rows[highlightRow - 1].item < 0 ? 1 : 0) : 0;
-    if (!state->paletteWheeled && highlightRow >= state->gotoScroll + visible) state->gotoScroll = highlightRow - visible + 1;
-    state->gotoScroll = rowCount > visible ? Min(state->gotoScroll, rowCount - visible) : 0;
-    u32 first = state->gotoScroll, shown = Min(rowCount - first, visible + 1);
     // It opens a tenth smaller and grows into place, easing with a 31 ms time constant, while it fades in from nothing.
     f32 reveal = 1;
     if (UI->animate) {
@@ -7120,7 +7122,10 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         // Room on the right for the scroll bar while there is one.
-        f32 bar = floorf(6.4f * s + 0.5f), gutter = rowCount > visible ? floorf(19.2f * s + 0.5f) : floorf(6.4f * s + 0.5f);
+        // A section easing counts for as much as it shows, so that the scroll bar comes and goes with it.
+        f32 rowsShown = (f32)rowCount - (easeFull - easeShown) / row;
+        b32 scrolls = rowsShown > (f32)visible + 0.01f;
+        f32 bar = floorf(6.4f * s + 0.5f), gutter = scrolls ? floorf(19.2f * s + 0.5f) : floorf(6.4f * s + 0.5f);
         UI_SetNextChildrenPadding((UI_Padding){ pad, pad, gutter, pad });
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         UI_Parent(list) {
@@ -7226,10 +7231,10 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
                 if (r + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
             }
             if (outside) UI_PopParent(outside);
-            if (rowCount > visible) {
+            if (scrolls) {
                 // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them.
-                f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / (f32)rowCount), row);
-                f32 offset = floorf((track - thumb) * (f32)first / (f32)(rowCount - visible));
+                f32 track = listHeight - 2 * pad, thumb = MaxF32(floorf(track * (f32)visible / rowsShown), row);
+                f32 offset = floorf((track - thumb) * MinF32(1, (f32)first / (rowsShown - (f32)visible)));
                 UI_SetNextFloatingOffset((UI_Vec2){ width - pad - gutter + floorf((gutter - bar) * 0.5f), offset });
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(thumb));
