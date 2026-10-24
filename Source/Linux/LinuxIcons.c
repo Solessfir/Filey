@@ -1185,15 +1185,15 @@ function String P__MimeComment(Arena *arena, String mime)
         String xml = P__ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/mime/%S.xml", icons->dataDirs.v[d], mime));
         Index open = {0};
         u64 start = 0;
-        if (language.length) {
-            String exact = StrFormat(scratch.arena, "<comment xml:lang=\"%S\">", language), region = StrFormat(scratch.arena, "<comment xml:lang=\"%S_", language);
-            open = StrIndexStr(xml, exact, SSF_None);
-            if (open.exists) start = open.value + exact.length;
-            else if ((open = StrIndexStr(xml, region, SSF_None)).exists) {
-                Index end = StrIndexChar(StrFrom(xml, open.value), '>', SSF_None);
-                open.exists = end.exists;
-                start = open.value + end.value + 1;
-            }
+        // The language alone, then with a region, as "pt_BR" or, in newer databases, "pt-BR"; Chinese is Filey's simplified Chinese,
+        // "zh-Hans-CN" or, in older databases, "zh_CN", never the traditional one.
+        b32 chinese = StrIsEqual(language, S("zh"));
+        String tags[] = { S("\""), chinese ? S("-Hans") : S("_"), chinese ? S("_CN\"") : S("-") };
+        for (u32 t = 0; language.length && t < CArrayCount(tags) && !open.exists; ++t) {
+            open = StrIndexStr(xml, StrFormat(scratch.arena, "<comment xml:lang=\"%S%S", language, tags[t]), SSF_None);
+            Index end = open.exists ? StrIndexChar(StrFrom(xml, open.value), '>', SSF_None) : (Index){0};
+            open.exists = end.exists;
+            start = open.value + end.value + 1;
         }
         if (!open.exists && (open = StrIndexStr(xml, S("<comment>"), SSF_None)).exists) start = open.value + 9;
         Index close = open.exists ? StrIndexStr(StrFrom(xml, start), S("</comment>"), SSF_None) : (Index){0};
