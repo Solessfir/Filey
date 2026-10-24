@@ -4141,6 +4141,167 @@ function b32 Prog__Read3mf(Arena *arena, String data, const P_CancelToken *cance
 }
 
 // -----------------------------------------------------------------------------
+// 3DS: chunks, each an id and its length with its header, nested. The editor's objects hold triangle meshes, their points already where
+// they go, Z up, with a texture coordinate a point and their faces' material groups, whose materials have a diffuse color and a texture
+// map's file.
+
+typedef struct Prog__3dsMaterial { String name; Prog_MeshPart look; } Prog__3dsMaterial;
+typedef struct Prog__3dsMaterials { ArrayHeader header; Prog__3dsMaterial *v; } Prog__3dsMaterials;
+
+// The chunk at `*at` within `end`: its id and where its contents start and end; false where none fits.
+function b32 Prog__3dsChunk(const u8 *file, u64 *at, u64 end, u32 *id, u64 *from, u64 *to)
+{
+    if (*at + 6 > end) return false;
+    u32 length = Prog__Read32(file + *at + 2);
+    if (length < 6 || length > end - *at) return false;
+    *id = (u32)file[*at] | (u32)file[*at + 1] << 8;
+    *from = *at + 6;
+    *to = *at + length;
+    *at = *to;
+    return true;
+}
+
+// A string ended by a zero, from `*at`, which moves past it.
+function String Prog__3dsName(const u8 *file, u64 *at, u64 end)
+{
+    u64 from = *at;
+    while (*at < end && file[*at]) ++*at;
+    String result = StrMake((const char *)file + from, *at - from);
+    if (*at < end) ++*at;
+    return result;
+}
+
+// A color chunk's color among a material's: bytes or floats, as written.
+function u32 Prog__3dsColor(const u8 *file, u64 from, u64 to)
+{
+    u32 id = 0, result = 0;
+    u64 start, stop;
+    for (u64 at = from; Prog__3dsChunk(file, &at, to, &id, &start, &stop);) {
+        if ((id == 0x0011 || id == 0x0012) && stop - start >= 3) {
+            return file[start] | (u32)file[start + 1] << 8 | (u32)file[start + 2] << 16 | 0xFF000000u;
+        }
+        if ((id == 0x0010 || id == 0x0013) && stop - start >= 12) {
+            f32 rgb[3];
+            MemCopy(rgb, file + start, 12);
+            u32 bytes[3];
+            for (u32 k = 0; k < 3; ++k) bytes[k] = (u32)((rgb[k] <= 0 ? 0 : rgb[k] >= 1 ? 1 : rgb[k]) * 255 + 0.5f);
+            result = bytes[0] | bytes[1] << 8 | bytes[2] << 16 | 0xFF000000u;
+        }
+    }
+    return result;
+}
+
+function void Prog__3dsReadMaterial(Arena *arena, const u8 *file, u64 from, u64 to, Prog_Mesh *mesh, Prog__3dsMaterials *materials)
+{
+    Prog__3dsMaterial material = { .look = { .image = UINT32_MAX } };
+    u32 id = 0;
+    u64 start, stop;
+    for (u64 at = from; Prog__3dsChunk(file, &at, to, &id, &start, &stop);) {
+        if (id == 0xA000) {
+            u64 p = start;
+            material.name = Prog__3dsName(file, &p, stop);
+        } else if (id == 0xA020) {
+            material.look.color = Prog__3dsColor(file, start, stop);
+        } else if (id == 0xA200) {
+            u32 inner = 0;
+            u64 a, b;
+            for (u64 p = start; Prog__3dsChunk(file, &p, stop, &inner, &a, &b);) {
+                if (inner != 0xA300) continue;
+                u64 q = a;
+                String name = Prog__3dsName(file, &q, b);
+                if (name.length) material.look.image = Prog__MeshImage(arena, mesh, name, (String){0});
+            }
+        }
+    }
+    material.look.bare = material.look.color;
+    if (material.look.image != UINT32_MAX) material.look.color = 0;
+    ArrayPush(arena, *materials, material);
+}
+
+// A triangle mesh: its points and texture coordinates, then its faces, each material group's in its look and those in none after.
+function void Prog__3dsMesh(Arena *arena, const u8 *file, u64 from, u64 to, const Prog__3dsMaterials *materials, Prog_Mesh *mesh)
+{
+    Scratch scratch = GetScratchEx(arena);
+    const u8 *points = NULL, *uvs = NULL, *faces = NULL;
+    u32 pointCount = 0, uvCount = 0, faceCount = 0;
+    u64 facesEnd = 0;
+    u32 id = 0;
+    u64 start, stop;
+    for (u64 at = from; Prog__3dsChunk(file, &at, to, &id, &start, &stop);) {
+        u32 count = stop - start >= 2 ? (u32)file[start] | (u32)file[start + 1] << 8 : 0;
+        if (id == 0x4110 && (u64)count * 12 <= stop - start - 2) points = file + start + 2, pointCount = count;
+        else if (id == 0x4140 && (u64)count * 8 <= stop - start - 2) uvs = file + start + 2, uvCount = count;
+        else if (id == 0x4120 && (u64)count * 8 <= stop - start - 2) faces = file + start + 2, faceCount = count, facesEnd = stop;
+    }
+    if (!points || !faces || mesh->positions.header.count / 3 + pointCount >= UINT32_MAX) {
+        ReleaseScratch(scratch);
+        return;
+    }
+    u32 base = (u32)(mesh->positions.header.count / 3);
+    f32 *at = ArrayAdd(arena, mesh->positions, (u64)pointCount * 3);
+    MemCopy(at, points, (u64)pointCount * 12);
+    if (uvs && uvCount == pointCount) {
+        f32 *t = Prog__MeshUvs(arena, mesh) + (u64)base * 2;
+        MemCopy(t, uvs, (u64)pointCount * 8);
+        for (u32 i = 0; i < pointCount; ++i) t[i * 2 + 1] = 1 - t[i * 2 + 1];
+    }
+    b8 *drawn = ArenaPushArray(scratch.arena, Max(faceCount, 1u), b8);
+    u64 groups = (u64)(faces - file) + (u64)faceCount * 8;
+    for (u64 p = groups; Prog__3dsChunk(file, &p, facesEnd, &id, &start, &stop);) {
+        if (id != 0x4130) continue;
+        u64 q = start;
+        String name = Prog__3dsName(file, &q, stop);
+        u32 count = q + 2 <= stop ? (u32)file[q] | (u32)file[q + 1] << 8 : 0;
+        q += 2;
+        Prog_MeshPart look = { .image = UINT32_MAX };
+        for (u64 m = 0; m < materials->header.count; ++m) if (StrIsEqual(materials->v[m].name, name)) look = materials->v[m].look;
+        Prog__MeshPart(arena, mesh, look.color, look.image, look.bare);
+        for (u32 k = 0; k < count && q + 2 <= stop; ++k, q += 2) {
+            u32 face = (u32)file[q] | (u32)file[q + 1] << 8;
+            if (face >= faceCount || drawn[face]) continue;
+            const u8 *f = faces + (u64)face * 8;
+            u32 a = (u32)f[0] | (u32)f[1] << 8, b = (u32)f[2] | (u32)f[3] << 8, c = (u32)f[4] | (u32)f[5] << 8;
+            Prog__MeshTriangle(arena, mesh, base + a, base + b, base + c);
+            drawn[face] = true;
+        }
+    }
+    Prog__MeshPart(arena, mesh, 0, UINT32_MAX, 0);
+    for (u32 face = 0; face < faceCount; ++face) {
+        if (drawn[face]) continue;
+        const u8 *f = faces + (u64)face * 8;
+        Prog__MeshTriangle(arena, mesh, base + ((u32)f[0] | (u32)f[1] << 8), base + ((u32)f[2] | (u32)f[3] << 8), base + ((u32)f[4] | (u32)f[5] << 8));
+    }
+    ReleaseScratch(scratch);
+}
+
+function b32 Prog__Read3ds(Arena *arena, String data, const P_CancelToken *cancel, Prog_Mesh *mesh)
+{
+    const u8 *file = (const u8 *)data.value;
+    u32 id = 0;
+    u64 start, stop, top = 0;
+    if (!Prog__3dsChunk(file, &top, data.length, &id, &start, &stop) || id != 0x4D4D) return false;
+    mesh->zUp = true;
+    Prog__3dsMaterials materials = {0};
+    u64 editorFrom = 0, editorTo = 0;
+    for (u64 at = start; Prog__3dsChunk(file, &at, stop, &id, &editorFrom, &editorTo);) {
+        if (id != 0x3D3D) continue;
+        // The materials first, as the objects may come before them.
+        u32 inner = 0;
+        u64 a, b;
+        for (u64 p = editorFrom; Prog__3dsChunk(file, &p, editorTo, &inner, &a, &b);) if (inner == 0xAFFF) Prog__3dsReadMaterial(arena, file, a, b, mesh, &materials);
+        for (u64 p = editorFrom; Prog__3dsChunk(file, &p, editorTo, &inner, &a, &b) && !P_IsCancelled(cancel);) {
+            if (inner != 0x4000) continue;
+            u64 q = a;
+            Prog__3dsName(file, &q, b);
+            u32 kind = 0;
+            u64 c, d;
+            for (u64 r = q; Prog__3dsChunk(file, &r, b, &kind, &c, &d);) if (kind == 0x4100) Prog__3dsMesh(arena, file, c, d, &materials, mesh);
+        }
+    }
+    return mesh->indices.header.count > 0;
+}
+
+// -----------------------------------------------------------------------------
 
 typedef enum Prog_ModelKind {
     Prog_ModelKind_None,
@@ -4157,12 +4318,13 @@ typedef enum Prog_ModelKind {
     Prog_ModelKind_Usda,
     Prog_ModelKind_Dae,
     Prog_ModelKind_3mf,
+    Prog_ModelKind_3ds,
     Prog_ModelKind_Count,
 } Prog_ModelKind;
 
 function Prog_ModelKind Prog_ModelKindOf(String path)
 {
-    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda"), SInit(".dae"), SInit(".3mf") };
+    local_persist const String extensions[Prog_ModelKind_Count] = { {0}, SInit(".obj"), SInit(".stl"), SInit(".ply"), SInit(".gltf"), SInit(".glb"), SInit(".fbx"), SInit(".blend"), SInit(".usd"), SInit(".usdc"), SInit(".usdz"), SInit(".usda"), SInit(".dae"), SInit(".3mf"), SInit(".3ds") };
     // Blender's backups, "scene.blend1" and on, are .blend files too.
     String backup = path;
     while (backup.length > 6 && backup.value[backup.length - 1] >= '0' && backup.value[backup.length - 1] <= '9') --backup.length;
@@ -4193,6 +4355,7 @@ function b32 Prog__ReadModelKind(Arena *arena, Prog_ModelKind kind, String path,
         case Prog_ModelKind_Usdz: return Prog__ReadUsd(arena, path, data, cancel, mesh);
         case Prog_ModelKind_Dae: return Prog__ReadCollada(arena, data, cancel, mesh);
         case Prog_ModelKind_3mf: return Prog__Read3mf(arena, data, cancel, mesh);
+        case Prog_ModelKind_3ds: return Prog__Read3ds(arena, data, cancel, mesh);
         default: return false;
     }
 }

@@ -89,6 +89,21 @@ function void TestFbxArray(TestBytes *bytes, u8 type, u32 count, u32 encoding, c
     TestPut(bytes, data, length);
 }
 
+// A 3DS chunk's id and room for its length, which Test3dsEnd fills in once its contents are written.
+function u64 Test3dsBegin(TestBytes *bytes, u16 id)
+{
+    u64 at = bytes->length;
+    TestPut(bytes, &id, 2);
+    TestPutU32(bytes, 0);
+    return at;
+}
+
+function void Test3dsEnd(TestBytes *bytes, u64 at)
+{
+    u32 length = (u32)(bytes->length - at);
+    MemCopy(bytes->data + at + 2, &length, 4);
+}
+
 // A zip of `count` files stored as they are, as a .3mf package can be.
 function void TestZip(TestBytes *bytes, const String *names, const String *contents, u32 count)
 {
@@ -384,6 +399,50 @@ function void TestModels(void)
         Check(TestReadModel(&arena, Prog_ModelKind_3mf, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.zUp && mesh.indices.header.count == 6);
         Check(mesh.positions.header.count == 18 && mesh.positions.v[0] == 5 && mesh.positions.v[2] == 7 && mesh.positions.v[3] == 6);
         Check(mesh.colors.header.count == 6 && mesh.colors.v[0] == 0xFF0000FFu && mesh.colors.v[3] == 0xFF00FF00u && Prog_ModelKindOf(S("print.3MF")) == Prog_ModelKind_3mf);
+    }
+
+    // 3DS: two triangles of one object, the second in a material's red by its face group and the first in none, and their texture
+    // coordinates flipped to start at the top.
+    {
+        TestBytes bytes = {0};
+        u64 main = Test3dsBegin(&bytes, 0x4D4D), editor = Test3dsBegin(&bytes, 0x3D3D);
+        u64 object = Test3dsBegin(&bytes, 0x4000);
+        TestPut(&bytes, "box", 4);
+        u64 shape = Test3dsBegin(&bytes, 0x4100), points = Test3dsBegin(&bytes, 0x4110);
+        u16 four = 4, two = 2, one = 1;
+        f32 xyz[12] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 }, uv[8] = { 0, 0, 1, 0, 1, 1, 0, 1 };
+        TestPut(&bytes, &four, 2);
+        TestPut(&bytes, xyz, sizeof(xyz));
+        Test3dsEnd(&bytes, points);
+        u64 coordinates = Test3dsBegin(&bytes, 0x4140);
+        TestPut(&bytes, &four, 2);
+        TestPut(&bytes, uv, sizeof(uv));
+        Test3dsEnd(&bytes, coordinates);
+        u64 faces = Test3dsBegin(&bytes, 0x4120);
+        u16 list[8] = { 0, 1, 2, 7, 0, 2, 3, 7 };
+        TestPut(&bytes, &two, 2);
+        TestPut(&bytes, list, sizeof(list));
+        u64 group = Test3dsBegin(&bytes, 0x4130);
+        TestPut(&bytes, "red", 4);
+        TestPut(&bytes, &one, 2);
+        TestPut(&bytes, &one, 2);
+        Test3dsEnd(&bytes, group);
+        Test3dsEnd(&bytes, faces);
+        Test3dsEnd(&bytes, shape);
+        Test3dsEnd(&bytes, object);
+        u64 material = Test3dsBegin(&bytes, 0xAFFF), named = Test3dsBegin(&bytes, 0xA000);
+        TestPut(&bytes, "red", 4);
+        Test3dsEnd(&bytes, named);
+        u64 diffuse = Test3dsBegin(&bytes, 0xA020), color = Test3dsBegin(&bytes, 0x0011);
+        TestPut(&bytes, "\xFF\0\0", 3);
+        Test3dsEnd(&bytes, color);
+        Test3dsEnd(&bytes, diffuse);
+        Test3dsEnd(&bytes, material);
+        Test3dsEnd(&bytes, editor);
+        Test3dsEnd(&bytes, main);
+        Check(TestReadModel(&arena, Prog_ModelKind_3ds, StrMake((const char *)bytes.data, bytes.length), &mesh) && mesh.zUp && mesh.positions.header.count == 12);
+        Check(mesh.indices.header.count == 6 && mesh.indices.v[0] == 0 && mesh.indices.v[2] == 3 && mesh.indices.v[5] == 2 && mesh.parts.header.count == 2 && mesh.parts.v[0].color == 0xFF0000FFu);
+        Check(!mesh.parts.v[1].color && mesh.parts.v[1].first == 3 && mesh.uvs.v[1] == 1 && mesh.uvs.v[5] == 0 && Prog_ModelKindOf(S("old.3DS")) == Prog_ModelKind_3ds);
     }
 
     // Text FBX: the same mesh and model as the binary one, its arrays over more than one line, with comments, and a value-less node.
