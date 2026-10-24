@@ -1578,6 +1578,7 @@ typedef struct Prog_State {
     R_Rect zoomBox;           // the popup in the last layout
     b32 hasHoverRow;
     u64 hoverSpacePanel;      // the panel whose list's empty space is under the pointer in the last build, 0 for none
+    String hoverMenuPath;     // the sidebar place or Miller column item under the pointer in the last build, in frameArena
     // Inline rename of the entry named renameFrom.
     b32 renaming;
     u8 renameFrom[1024];

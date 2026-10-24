@@ -1684,12 +1684,34 @@ function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item)
     state->menu.rootCount += 1;
 }
 
-// The menu a right-click would open now is built ahead of time, where the platform does that, so that it opens at once: the hovered
-// row's, with the rest of the selection when it is in it, the folder's own over the list's empty space, else what the keyboard's menu acts
-// on, as Prog__OpenMenu picks them. Big selections, a menu open and folders inside archives are left out.
+// The folder and the name a menu of the item at `path` itself is opened with, rather than one of the list's selection: a drive's root is
+// named by its own path, as it has no folder above it, and This PC is the system's computer item; false where it has none.
+function b32 Prog__PathMenuArgs(String path, String *folder, String *name)
+{
+    String parent = Prog_ParentPath(path);
+    b32 root = StrIsEqual(parent, path) || !parent.length;
+    *name = root ? path : Prog__FolderName(path);
+    if (StrIsEqual(path, Prog_ThisPC)) {
+        *name = P_ComputerIconPath();
+        root = true;
+    }
+    *folder = root ? (String){0} : parent;
+    return name->length != 0;
+}
+
+// The menu a right-click would open now is built ahead of time, where the platform does that, so that it opens at once: a sidebar place's
+// or a Miller column item's under the pointer; the hovered row's, with the rest of the selection when it is in it; the folder's own over
+// the list's empty space; else what the keyboard's menu acts on, as Prog__OpenMenu picks them. Big selections, a menu open and folders
+// inside archives are left out.
 function void Prog_PrepareMenu(Prog_State *state)
 {
-    if (state->menuOpen || state->loading || state->setupOpen || state->directory.archive || !state->directory.path.length) return;
+    if (state->menuOpen || state->setupOpen) return;
+    String folder = {0}, name = {0};
+    if (state->hoverMenuPath.length) {
+        if (Prog__PathMenuArgs(state->hoverMenuPath, &folder, &name)) P_ContextMenuPrepare(folder, &name, 1);
+        return;
+    }
+    if (state->loading || state->directory.archive || !state->directory.path.length) return;
     enum { most = 64 };
     u64 rows[most], count = 0;
     b32 hovered = state->hasHoverRow && state->hoverPanel == state->panels[state->activePanel].id && state->hoverRow < state->directory.count;
@@ -1704,7 +1726,7 @@ function void Prog_PrepareMenu(Prog_State *state)
         rows[count++] = state->focusedRow;
     }
     String names[most];
-    String folder = Prog__RowsFolder(state, &state->frameArena, rows, &count, names);
+    folder = Prog__RowsFolder(state, &state->frameArena, rows, &count, names);
     P_ContextMenuPrepare(folder, names, count);
 }
 
@@ -3429,20 +3451,12 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_CloseMenu(state);
                 state->menuTarget = StrCopy(&state->menuArena, path);
                 state->menuMiller = (b8)miller;
-                // A drive's root has no folder path above it, so it is named by its own path.
-                String parent = Prog_ParentPath(path), name = Prog__FolderName(path);
-                b32 root = StrIsEqual(parent, path) || !parent.length;
-                if (root) name = path;
-                // This PC is the system's computer item, where it has one.
-                if (StrIsEqual(path, Prog_ThisPC)) {
-                    name = P_ComputerIconPath();
-                    root = true;
-                    if (!name.length) {
-                        Prog_CloseMenu(state);
-                        break;
-                    }
+                String folder = {0}, name = {0};
+                if (!Prog__PathMenuArgs(path, &folder, &name)) {
+                    Prog_CloseMenu(state);
+                    break;
                 }
-                state->menuOpen = P_ContextMenuOpen(&state->menuArena, root ? (String){0} : parent, &name, 1, &state->menu);
+                state->menuOpen = P_ContextMenuOpen(&state->menuArena, folder, &name, 1, &state->menu);
                 if (!state->menuOpen) {
                     Prog_CloseMenu(state);
                     break;

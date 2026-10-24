@@ -5066,6 +5066,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     UI_SetNextColors((UI_Colors){ .background = theme->selection });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_RightMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    if (UI->hotKey == key && path.length) state->hoverMenuPath = path;
     // Under a drag the middle of a row takes it into its folder, lit; a bookmark's edges put it between the bookmarks instead.
     if (P_DropPending() && path.length && !StrIsEqual(path, Prog_ThisPC) && UI__Contains(row->rect, UI->mouse)) {
         f32 edge = group == Prog_Group_Bookmarks || (u32)group >= Prog_Group_Count ? (row->rect.y1 - row->rect.y0) * 0.25f : 0;
@@ -11609,6 +11610,7 @@ function void Prog__MillerColumnUI(Prog_State *state, Prog_MillerColumn *column,
                 state->dragRequested = true;
             }
             if (press.pressed && press.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_MillerMenu, row, 0, press.pressOrder)->target = slot;
+            if (hot) state->hoverMenuPath = path;
             // Under a drag, a folder takes it in, lit, as the list's folders do.
             b32 dropping = folder && P_DropPending() && UI__Contains(line->rect, UI->mouse);
             if (dropping) state->dropPlace = StrCopy(&state->dropPlaceArena, path);
@@ -12116,6 +12118,7 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     state->foreignOver = false;
     state->hasHoverRow = false;
     state->hoverSpacePanel = 0;
+    state->hoverMenuPath = (String){0};
     state->tooltipKey = 0;
     state->tooltipAbove = false;
     state->tooltipPath = (String){0};

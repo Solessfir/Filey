@@ -23,7 +23,6 @@
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
 - Big text files: the inspector holds 16 MB of one at a time; its filter looks only through the lines held, and its lines are not wrapped.
 - Updates: the Apps & features entry keeps the version Filey Setup wrote.
-- Context menus: the sidebar's places are built when right-clicked, not ahead as the list's hovered or keyboard item is.
 
 ## From the RAD Debugger
 
