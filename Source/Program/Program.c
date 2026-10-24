@@ -2425,10 +2425,11 @@ typedef enum Prog_WindowButton {
     Prog_WindowButton_Close,
 } Prog_WindowButton;
 
-// A window button at the strip's right end, washed under the pointer like the other buttons and as round as the tab list's beside it,
-// the close button in the danger color.
+// A window button at the strip's right end, taking presses over its full height and washed under the pointer like the other buttons, in a
+// box `washHeight` tall from `washTop`, as round as the tab list's beside it; the close button in the danger color.
 // The glyphs are thin shapes the size of the system's caption glyphs, which the icon font's strokes are too heavy for; only the close cross comes from the font.
-function void Prog__WindowButton(Prog_State *state, String identity, Prog_WindowButton kind, Prog_CommandKind command, f32 width, f32 height, f32 scale, const Prog_Metrics *m)
+function void Prog__WindowButton(Prog_State *state, String identity, Prog_WindowButton kind, Prog_CommandKind command, f32 width, f32 height, f32 washTop, f32 washHeight,
+                                 f32 scale, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     UI_Key key = UI_KeyFromStr(0, identity);
@@ -2439,24 +2440,33 @@ function void Prog__WindowButton(Prog_State *state, String identity, Prog_Window
     R_Color ink = hot ? theme->text : Prog__CaptionInk(theme);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-    UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-    UI_SetNextCornerRadius(floorf(5.6f * scale + 0.5f));
-    UI_SetNextColors((UI_Colors){ .background = background, .text = ink });
-    if (close) {
-        UI_SetNextFont(m->icons);
-        UI_SetNextText(Icon_X);
-    }
-    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | (close ? UI_Flag_DrawText : 0) | (hot ? UI_Flag_DrawBackground : 0));
+    UI_Block *button = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable);
     UI_Interaction interaction = UI_InteractionFromBlock(button);
     if (interaction.clicked) Prog_QueueCommand(state, command, 0, 0, interaction.clickOrder);
+    // Apart from its neighbors' washes by a gap.
+    f32 inset = floorf(2.4f * scale + 0.5f);
+    width -= inset * 2;
+    height = washHeight;
+    UI_Block *face = NULL;
+    UI_Parent(button) {
+        UI_SetNextFloatingOffset((UI_Vec2){ inset, washTop });
+        UI_SetNextPrefWidth(UI_Pixels(width));
+        UI_SetNextPrefHeight(UI_Pixels(height));
+        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+        UI_SetNextCornerRadius(floorf(5.6f * scale + 0.5f));
+        UI_SetNextColors((UI_Colors){ .background = background, .text = ink });
+        if (close) {
+            UI_SetNextFont(m->icons);
+            UI_SetNextText(Icon_X);
+        }
+        face = UI_AddBlock(UI_Flag_Floating | (close ? UI_Flag_DrawText : 0) | (hot ? UI_Flag_DrawBackground : 0));
+    }
     // The glyphs sit in the middle of the button's wash, their boxes on whole pixels. Their strokes are a little over a pixel at 100%,
     // and smoothed where they end between pixels.
     f32 glyph = floorf(9.6f * scale + 0.5f);
     f32 stroke = 1.2f * scale;
     f32 gx = ceilf((width - glyph) * 0.5f), gy = floorf((height - glyph) * 0.5f);
-    UI_Parent(button) {
+    UI_Parent(face) {
         if (kind == Prog_WindowButton_Minimize) {
             UI_SetNextFloatingOffset((UI_Vec2){ gx, (height - stroke) * 0.5f });
             UI_SetNextPrefWidth(UI_Pixels(glyph));
@@ -2831,16 +2841,17 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
             Prog__StripLine(leadWidth + shownX + tabWidth + (rightFlare ? flare - overlap : 0), width, lineY, m);
         }
         Prog__Spacer(UI_Pixels(floorf(4.0f * scale + 0.5f)), UI_Pixels(height));
-        // Level with the tabs' middle, which the rounding of its half height would leave a pixel above.
+        // The buttons' washes past the tabs are a tab's close button's height and level with it, clear of the strip's line.
+        f32 wash = floorf(23.2f * scale + 0.5f), washGap = floorf((height - wash) * 0.5f + 0.5f), washTop = top + washGap;
         UI_SetNextPrefWidth(UI_Pixels(plus));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
-        UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(1.6f * scale + 0.5f), 0, 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0 });
+        UI_SetNextChildrenPadding((UI_Padding){ 0, washGap, 0, 0 });
         UI_Block *plusBox = UI_AddBlock(0);
         UI_Parent(plusBox) {
-            // Down to the strip's line, as the window buttons; an even margin either side keeps it, and the bars in it, on whole pixels.
-            f32 lift = floorf(1.6f * scale + 0.5f), addWidth = floorf(plus * 0.8f), addHeight = height - lift;
+            // As tall as a tab's close button and level with it; an even margin either side keeps it, and the bars in it, on whole pixels.
+            f32 addWidth = floorf(plus * 0.8f), addHeight = wash;
             addWidth -= fmodf(plus - addWidth, 2);
             UI_Interaction add = Prog__TextButton(S("TabNew"), S(""), m->icons, UI_Pixels(addWidth), addHeight, 0, Prog__CaptionInk(theme), theme->text, theme->iconDisabled,
                                                   state->tabCount < Prog_MaxTabs, m);
@@ -2857,32 +2868,36 @@ function void Prog__TabStrip(Prog_State *state, f32 width, b32 caption, b32 lead
                 Prog__IconRect(x + across, y + across + weight, weight, across, button->props.colors.text, 0, 0);
             }
         }
-        // The tab list, left of the window buttons; in the title bar level with the tabs and the plus, in a box of their height.
+        // The tab list, left of the window buttons; in the title bar level with the tabs and the plus, as tall as the plus.
         b32 maximized = PlatformWindowIsMaximized();
         UI_SetNextFloatingOffset((UI_Vec2){ width - (controls ? controlWidth * 3 : 0) - button - m->gap - floorf((maximized ? 2.4f : 4.8f) * scale + 0.5f),
                                             caption ? 0 : -floorf(0.8f * scale + 0.5f) });
         UI_SetNextPrefWidth(UI_Pixels(button));
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, 0.5f });
-        if (caption) UI_SetNextChildrenPadding((UI_Padding){ 0, floorf(1.6f * scale + 0.5f), 0, 0 });
+        UI_SetNextChildrenAlignment((UI_Vec2){ 0.5f, caption ? 0 : 0.5f });
+        if (caption) UI_SetNextChildrenPadding((UI_Padding){ 0, washGap, 0, 0 });
         UI_Block *listBox = UI_AddBlock(UI_Flag_Floating);
         UI_Parent(listBox) {
-            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, caption ? height - floorf(1.6f * scale + 0.5f) : floorf(26.4f * scale + 0.5f), m);
+            Prog__MenuButton(state, S("TabList"), Icon_ChevronDown, Prog_CommandKind_TabList, true, caption ? wash : floorf(26.4f * scale + 0.5f), m);
             if (state->currentPanel == state->activePanel) state->tabListRect = listBox->last->rect;
         }
-        // The window buttons fill the strip's full height at its right end.
+        // The window buttons take presses over the strip's full height at its right end, washed as the plus is.
         if (controls) {
             UI_SetNextFloatingOffset((UI_Vec2){ width - controlWidth * 3, -top });
             UI_SetNextPrefWidth(UI_Pixels(controlWidth * 3));
             UI_SetNextPrefHeight(UI_Pixels(bar - m->separator));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
             UI_Block *buttons = UI_AddBlock(UI_Flag_Floating);
+            // Their washes end level with the others' and reach up as close to the top as they stay from the line.
+            f32 below = bar - m->separator - washTop - wash;
+            washTop = below;
+            wash = bar - m->separator - below * 2;
             UI_Parent(buttons) {
                 Prog_WindowButton maximize = PlatformWindowIsMaximized() ? Prog_WindowButton_Restore : Prog_WindowButton_Maximize;
-                Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, bar - m->separator, scale, m);
-                Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, bar - m->separator, scale, m);
-                Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, bar - m->separator, scale, m);
+                Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, bar - m->separator, washTop, wash, scale, m);
+                Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, bar - m->separator, washTop, wash, scale, m);
+                Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, bar - m->separator, washTop, wash, scale, m);
             }
         }
     }
@@ -12320,7 +12335,9 @@ function void Prog__SetupWindowButtons(Prog_State *state, f32 scale, const Prog_
 {
     if (!PlatformWindowHasButtons()) return;
     R_Rect view = UI->root->rect;
-    f32 controlWidth = floorf(40.8f * scale + 0.5f), height = Prog__TitleStripHeight(m) - m->separator;
+    f32 controlWidth = floorf(40.8f * scale + 0.5f), height = Prog__TitleStripHeight(m) - m->separator, wash = floorf(23.2f * scale + 0.5f);
+    f32 washTop = floorf((height - wash) * 0.5f + 0.5f);
+    wash = height - washTop * 2;
     UI_SetNextFloatingOffset((UI_Vec2){ view.x1 - view.x0 - controlWidth * 3, 0 });
     UI_SetNextPrefWidth(UI_Pixels(controlWidth * 3));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -12328,9 +12345,9 @@ function void Prog__SetupWindowButtons(Prog_State *state, f32 scale, const Prog_
     UI_Block *buttons = UI_AddBlock(UI_Flag_Floating);
     UI_Parent(buttons) {
         Prog_WindowButton maximize = PlatformWindowIsMaximized() ? Prog_WindowButton_Restore : Prog_WindowButton_Maximize;
-        Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, height, scale, m);
-        Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, height, scale, m);
-        Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, height, scale, m);
+        Prog__WindowButton(state, S("WindowMinimize"), Prog_WindowButton_Minimize, Prog_CommandKind_WindowMinimize, controlWidth, height, washTop, wash, scale, m);
+        Prog__WindowButton(state, S("WindowMaximize"), maximize, Prog_CommandKind_WindowToggleMaximize, controlWidth, height, washTop, wash, scale, m);
+        Prog__WindowButton(state, S("WindowClose"), Prog_WindowButton_Close, Prog_CommandKind_WindowClose, controlWidth, height, washTop, wash, scale, m);
     }
 }
 
