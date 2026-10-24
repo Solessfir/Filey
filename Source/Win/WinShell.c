@@ -1790,6 +1790,21 @@ function u32 P__SetUninstallEntry(Arena *arena, const P__InstallPaths *paths, b3
     return error;
 }
 
+function void P_RefreshInstallEntry(void)
+{
+    Scratch scratch = GetScratch();
+    P__InstallPaths paths = P__InstallPathsGet(scratch.arena);
+    wchar saved[64] = {0};
+    DWORD size = sizeof(saved);
+    LSTATUS status = paths.executable && P__SamePathWide(paths.running, paths.executable)
+                   ? RegGetValueW(HKEY_CURRENT_USER, P__UninstallKey, L"DisplayVersion", RRF_RT_REG_SZ, NULL, saved, &size) : ERROR_FILE_NOT_FOUND;
+    if (status == ERROR_SUCCESS || status == ERROR_MORE_DATA) {
+        wchar *version = P__FilePathWide(scratch.arena, P__FileVersion(scratch.arena, paths.executable));
+        if (status != ERROR_SUCCESS || (version && lstrcmpW(version, saved))) P__SetUninstallEntry(scratch.arena, &paths, true);
+    }
+    ReleaseScratch(scratch);
+}
+
 // `"<executable>" "%1"`, the command the shell starts Filey with for a folder.
 function wchar *P__OpenCommand(Arena *arena, const wchar *executable)
 {

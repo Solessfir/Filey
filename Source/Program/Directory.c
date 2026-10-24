@@ -3129,6 +3129,7 @@ function void Prog__DirectoryJob(P_Job *job)
     }
     if (input->kind == Prog_JobKind_Tidy) {
         P_RemoveStaleRunFolders();
+        P_RefreshInstallEntry();
         return;
     }
     if (input->kind == Prog_JobKind_LongPaths) {

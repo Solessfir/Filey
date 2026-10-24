@@ -7,7 +7,6 @@
 - Archives: encrypted 7z and RAR archives, which libarchive cannot decrypt, and an archive inside an archive opens in its program.
 - Low priority: faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
 - Languages: more built-in ones; counted forms by a rule a language names, for those such as Polish and Arabic that two or three forms do not cover; the build's check for untranslated text misses single words.
-- Updates: the Apps & features entry keeps the version Filey Setup wrote.
 
 ## From the RAD Debugger
 

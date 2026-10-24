@@ -261,7 +261,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Icons,
     Prog_JobKind_Rename,
     Prog_JobKind_WarmMenu,
-    Prog_JobKind_Tidy,             // removes the run folders of the runs that are over
+    Prog_JobKind_Tidy,             // removes the run folders of the runs that are over, and brings the installed apps' entry up to date
     Prog_JobKind_LongPaths,        // sets the system's long path support, `confirm` saying on or off
     Prog_JobKind_ArchivePassword,  // whether the password `name` opens the archive `path`
     Prog_JobKind_Measure,

@@ -1195,6 +1195,8 @@ function void P__RemoveStaleRunFolders(String root, u32 own)
     ReleaseScratch(scratch);
 }
 
+function void P_RefreshInstallEntry(void) {}
+
 function void P_RemoveStaleRunFolders(void)
 {
     Scratch scratch = GetScratch();
