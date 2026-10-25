@@ -1960,21 +1960,23 @@ function P_ArrayPlace P_ServerShares(Arena *arena, String server, const P_Cancel
 function b32 P_RunCommand(Arena *arena, String directory, const String *arguments, u32 count, u32 timeoutMilliseconds, String *output, b32 errors);
 
 // Mounts the phones and cameras GVFS knows of and asks a file manager to mount, as Nautilus and Nemo do; GNOME's shell does it itself,
-// but other desktops leave them unmounted, and so missing from GVFS's folder. The mounting runs on its own, as a phone may first ask
-// to be let in, and each is tried again only after half a minute.
-// Returns the names GVFS shows them by, as "SAMSUNG Android", a line each after their address's host, a tab apart.
+// but other desktops leave them unmounted, and so missing from GVFS's folder. `gio` takes half a second to answer, so this runs on a thread
+// of its own, one at a time, which the drive listing does not wait for; the mounting runs on its own too, as a phone may first ask to be
+// let in, and each is tried again only after half a minute.
 // ponytail: one `gio mount -li` each drive refresh; watch the volume monitor over D-Bus if that shows in profiles.
-function String P__MountDevices(Arena *scratch)
+global atomic_bool P__mountingDevices;
+
+function void *P__MountDevices(void *unused)
 {
+    (void)unused;
     local_persist struct { char root[256]; u64 tried; } attempts[8];
+    Scratch scratch = GetScratch();
     u32 error = 0;
-    char *gio = P__FindExecutable(scratch, S("gio"), &error);
+    char *gio = P__FindExecutable(scratch.arena, S("gio"), &error);
     String output = {0};
     String list[] = { S("gio"), S("mount"), S("-li") };
-    StrBuilder names = {0};
-    if (!gio || !P_RunCommand(scratch, S("/"), list, CArrayCount(list), 2000, &output, false)) return (String){0};
     // Each line indented under the volume or drive it is of; a field is "name=value".
-    ArrayStr lines = StrSplit(scratch, output, '\n');
+    ArrayStr lines = gio && P_RunCommand(scratch.arena, S("/"), list, CArrayCount(list), 2000, &output, false) ? StrSplit(scratch.arena, output, '\n') : (ArrayStr){0};
     for (u64 i = 0; i < lines.header.count; ++i) {
         String *line = &lines.v[i];
         while (line->length && (line->value[0] == ' ' || line->value[0] == '\t')) *line = StrFrom(*line, 1);
@@ -1991,12 +1993,6 @@ function String P__MountDevices(Arena *scratch)
             if (StrIsEqual(field, S("should_automount=1"))) automount = true;
         }
         b32 device = StrIsEqual(StrFromTo(root, 0, 6), S("mtp://")) || StrIsEqual(StrFromTo(root, 0, 10), S("gphoto2://"));
-        Index colon = StrIndexStr(lines.v[i], S("): "), SSF_None), scheme = StrIndexStr(root, S("://"), SSF_None);
-        if (device && colon.exists && scheme.exists) {
-            String host = StrFrom(root, scheme.value + 3);
-            while (host.length && host.value[host.length - 1] == '/') --host.length;
-            StrBuildStr(scratch, &names, StrFormat(scratch, "%S\t%S\n", host, StrFrom(lines.v[i], colon.value + 3)));
-        }
         if (!device || !automount || mounted || root.length >= sizeof(attempts[0].root)) continue;
         u64 now = PlatformNowMicroseconds(), slot = 0;
         for (u64 a = 0; a < CArrayCount(attempts); ++a) {
@@ -2010,7 +2006,32 @@ function String P__MountDevices(Arena *scratch)
         char *args[] = { gio, "mount", attempts[slot].root, NULL };
         P__Spawn(gio, args, NULL);
     }
-    return names.buffer;
+    ReleaseScratch(scratch);
+    atomic_store(&P__mountingDevices, false);
+    return NULL;
+}
+
+// The name GVFS shows a phone or camera by, as "SAMSUNG Android": its USB model, from udev's record of the device whose serial is
+// `serial`, the host in its GVFS folder's name; empty when none has it.
+function String P__UsbModel(Arena *arena, String serial)
+{
+    String result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    P_DirectoryResult devices = P_EnumerateDirectory(scratch.arena, S("/sys/bus/usb/devices"), NULL);
+    for (u64 i = 0; i < devices.files.header.count && !result.length; ++i) {
+        String number = {0}, record = {0};
+        if (!P_ReadFile(scratch.arena, StrFormat(scratch.arena, "/sys/bus/usb/devices/%S/dev", devices.files.v[i].name), &number)) continue;
+        while (number.length && (number.value[number.length - 1] == '\n')) --number.length;
+        if (!P_ReadFile(scratch.arena, StrFormat(scratch.arena, "/run/udev/data/c%S", number), &record)) continue;
+        if (!StrIndexStr(record, StrFormat(scratch.arena, "E:ID_SERIAL=%S\n", serial), SSF_None).exists) continue;
+        Index model = StrIndexStr(record, S("E:ID_MODEL="), SSF_IndexPlusOne);
+        if (!model.exists) continue;
+        String rest = StrFrom(record, model.value);
+        result = StrCopy(arena, StrFromTo(rest, 0, (i64)StrIndexChar(rest, '\n', SSF_CountOnFail).value));
+        for (u64 c = 0; c < result.length; ++c) if (result.value[c] == '_') ((char *)result.value)[c] = ' ';
+    }
+    ReleaseScratch(scratch);
+    return result;
 }
 
 function P_ArrayPlace P_Drives(Arena *arena)
@@ -2018,7 +2039,11 @@ function P_ArrayPlace P_Drives(Arena *arena)
     // Phones and cameras after the disks, as they are in GVFS's one mount, made as the session starts, though they come later.
     P_ArrayPlace result = {0}, devices = {0};
     Scratch scratch = GetScratchEx(arena);
-    String deviceNames = P__MountDevices(scratch.arena);
+    if (!atomic_exchange(&P__mountingDevices, true)) {
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, P__MountDevices, NULL) == 0) pthread_detach(thread);
+        else atomic_store(&P__mountingDevices, false);
+    }
     String mounts = {0};
     P_ReadFile(scratch.arena, S("/proc/self/mounts"), &mounts);
     ArrayStr lines = StrSplit(scratch.arena, mounts, '\n');
@@ -2043,13 +2068,8 @@ function P_ArrayPlace P_Drives(Arena *arena)
                 b32 phone = StrIsEqual(StrFromTo(name, 0, 4), S("mtp:")), camera = StrIsEqual(StrFromTo(name, 0, 8), S("gphoto2:"));
                 if (!phone && !camera) continue;
                 Index host = StrIndexStr(name, S("host="), SSF_IndexPlusOne);
-                String address = host.exists ? StrFrom(name, host.value) : name, shown = {0};
                 // By the name GVFS shows, else by its address, its underscores spaces.
-                ArrayStr known = StrSplit(scratch.arena, deviceNames, '\n');
-                for (u64 k = 0; k < known.header.count && !shown.length; ++k) {
-                    Index tab = StrIndexChar(known.v[k], '\t', SSF_None);
-                    if (tab.exists && StrIsEqual(StrFromTo(known.v[k], 0, (i64)tab.value), address)) shown = StrCopy(arena, StrFrom(known.v[k], tab.value + 1));
-                }
+                String address = host.exists ? StrFrom(name, host.value) : name, shown = P__UsbModel(arena, address);
                 if (!shown.length) {
                     shown = StrCopy(arena, address);
                     for (u64 c = 0; c < shown.length; ++c) if (shown.value[c] == '_') ((char *)shown.value)[c] = ' ';
