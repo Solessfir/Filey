@@ -3177,6 +3177,13 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
 
 function R_Color Prog__GitInk(Prog_GitMark mark);
 
+// `color` softened toward the secondary text, as the git status's counts take it beside the plain branch name.
+function R_Color Prog__Muted(R_Color color)
+{
+    R_Color dim = Prog_CurrentTheme()->textDim;
+    return (R_Color){ color.r + (dim.r - color.r) * 0.45f, color.g + (dim.g - color.g) * 0.45f, color.b + (dim.b - color.b) * 0.45f, color.a };
+}
+
 // The branch of the git repository the shown folder is in, in the path's font: the commits to push and to pull beside it, then the changes
 // not yet committed by kind, each in the color its files take in the list.
 function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
@@ -3226,13 +3233,13 @@ function void Prog__GitStatus(Prog_State *state, const Prog_Metrics *m)
         for (u32 side = 0; side < 2; ++side) {
             if (!counts[side].length) continue;
             Prog__Spacer(UI_Pixels(gap), UI_Pixels(inner));
-            Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, inner, theme->textMatch, 0.5f, m);
-            Prog__Label(counts[side], UI_TextContent(), inner, 0, theme->textMatch, 0);
+            Prog__SmallIcon(side ? Icon_ArrowDown : Icon_ArrowUp, 0, inner, Prog__Muted(theme->codeHeading), 0.5f, m);
+            Prog__Label(counts[side], UI_TextContent(), inner, 0, Prog__Muted(theme->codeHeading), 0);
         }
         for (u32 mark = Prog_GitMark_Untracked; mark < Prog_GitMark_Count; ++mark) {
             if (!changes[mark].length) continue;
             Prog__Spacer(UI_Pixels(gap), UI_Pixels(inner));
-            Prog__Label(changes[mark], UI_TextContent(), inner, 0, Prog__GitInk((Prog_GitMark)mark), 0);
+            Prog__Label(changes[mark], UI_TextContent(), inner, 0, Prog__Muted(Prog__GitInk((Prog_GitMark)mark)), 0);
         }
     }
     // Commits to pull are pulled by the button beside it, as git can without merging.
