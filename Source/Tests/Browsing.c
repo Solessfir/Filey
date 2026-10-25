@@ -1947,6 +1947,15 @@ function void TestSchemeFiles(TestFileFixture *fixture)
 
 // The window opens as its settings make it look: in the default scheme's color without any, their scheme's, a custom one's by its file, or
 // their own color.window, which a theme line after it replaces; or see-through over the backdrop they choose.
+// The scheme the system's mode brings while no theme line chooses one: a build machine can be in light mode.
+function Prog_Theme TestSystemTheme(void)
+{
+    if (P_PrefersDarkColors()) return Prog_ThemeCustom;
+    u32 groups[Prog_ColorGroupCount];
+    Prog__BuiltInScheme(S("light"), groups);
+    return Prog__ThemeFromScheme(groups);
+}
+
 function u32 TestStartupColor(String folder)
 {
     PlatformWindowDesc desc = {0};
@@ -1958,7 +1967,7 @@ function void TestStartupWindowColor(TestFileFixture *fixture)
 {
     Arena arena = {0};
     String settings = Prog_JoinPath(&arena, fixture->path, S("Settings.conf"));
-    Check(TestStartupColor(fixture->path) == Prog_SchemeColors[0][0]);
+    Check(TestStartupColor(fixture->path) == Prog_SchemeColors[P_PrefersDarkColors() ? 0 : Prog_LightScheme][0]);
     Check(!P_WriteFile(&arena, settings, S("theme = filey-dark\n")).code && TestStartupColor(fixture->path) == 0x191919);
     Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, fixture->path, S("Night.scheme")), S("Clear = #0a0b0c\r\n")).code);
     Check(!P_WriteFile(&arena, settings, S("theme = night\n")).code && TestStartupColor(fixture->path) == 0x0A0B0C);
@@ -2451,6 +2460,8 @@ function void TestMeasure(TestFileFixture *fixture)
 
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    // A build machine's disk can report as spinning, where folders go unmeasured by default.
+    state.folderSizesSpinning = true;
     if (state.jobs.initialized) {
         Check(TestWaitDirectory(&state));
         for (u64 start = PlatformNowMicroseconds(); state.measureJob && PlatformNowMicroseconds() - start < Millions(5);) {
@@ -3789,6 +3800,8 @@ function void TestPanels(TestFileFixture *fixture)
 {
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    // A build machine's disk can report as spinning, where folders go unmeasured by default.
+    state.folderSizesSpinning = true;
     if (!state.jobs.initialized) return;
     Check(TestWaitDirectory(&state));
     u64 first = state.panels[0].id;
@@ -4092,7 +4105,7 @@ function void TestSettings(void)
     Check(state.uiScale > 1.24f && state.uiScale < 1.26f);
     Check(Prog_ThemeGlassUser.menu.b > 0.18f && Prog_ThemeGlassUser.menu.a > 0.5f && Prog_ThemeGlassUser.menu.a < 0.51f && Prog_GlassBlur == 12.5f);
     Check(Prog_ThemeGlassUser.window.a == Prog_DefaultGlassOpacity && state.glassBackdrop == PlatformBackdrop_Mica);
-    Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == Prog_ThemeCustom.text.r);
+    Check(Prog_ThemeUser.accent.r == 1 && Prog_ThemeUser.accent.b == 0 && Prog_ThemeUser.text.r == TestSystemTheme().text.r);
     // An option that narrows the one above it shows only while that one is on.
     {
         Prog_State options = {0};
@@ -4232,7 +4245,7 @@ function void TestSettings(void)
     Check(StrIsEqual(Prog_HotkeyText(&arena, &state, Prog_CommandKind_SplitRight), S("Ctrl+Alt+R")));
     Check(Prog_SettingsTemplate(&arena, &state).length > 0);
     Prog_ApplySettings(&state, (String){0});
-    Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == Prog_ThemeCustom.accent.r && Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_F5, 0));
+    Check(state.uiScale == 1 && Prog_ThemeUser.accent.r == TestSystemTheme().accent.r && Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_F5, 0));
     // The mouse's side buttons go back and forward.
     hotkey = Prog_FindHotkey(&state, Prog_HotkeyScope_Browser, Key_None, Key_MouseX1, 0);
     Check(hotkey && hotkey->command == Prog_CommandKind_Back);
