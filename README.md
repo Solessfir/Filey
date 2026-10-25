@@ -16,10 +16,11 @@
 - **Go To and the command palette**: jump to recent, bookmarked or typed paths, and run any command by name. Every hotkey can be changed.
 - **Inspector**: previews text with syntax highlighting and line numbers, images, PDFs, 3D models (OBJ, STL, PLY, glTF, FBX, .blend, USD, Collada, 3DS, 3MF), see-through where their materials are, Word and Excel text, archives, and any file as hex.
 - **Archives as folders**: browse zip, 7z, rar, tar and cab files, archives inside archives too, and drag, copy and paste in and out of them. An encrypted archive asks for its password; encrypted 7z and RAR ones open with [7-Zip](https://www.7-zip.org) installed.
-- **Network**: the computers on your network that share folders, under Network on Windows, and their shares.
-- **Phones and cameras**: browse a phone or camera connected by USB, under This PC on Windows and through GVFS on Linux, and copy, move, rename and delete on it as in any folder, which updates as the phone changes.
+- **Network**: the computers on your network that share folders, under Network on Windows, and their shares. On Linux, **Connect to Server** opens `sftp://`, `smb://`, `ftp://` and WebDAV addresses through GVFS, asking for a password when the server wants one, and lists them under Storage until you disconnect.
+- **Phones and cameras**: browse a phone or camera connected by USB, under This PC on Windows and through GVFS on Linux (with `gvfs-mtp`), and copy, move, rename and delete on it as in any folder, which updates as the phone changes. On Linux, Filey mounts them as they connect, and Eject in the right-click menu takes them and USB drives away.
 - **Git**: the branch, the commits to push and pull, the changed files colored in the list, branch switching and a safe pull that only fast-forwards.
-- **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, light and dark following the system, and a transparent glass look in any of them.
+- **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, starting from the system's light or dark mode until you pick one, and a transparent glass look in any of them.
+- **Linux desktop**: the file manager other programs open for Show in Folder, New from your Templates folder, Set as Default in Open With, your Nemo actions and scripts in the right-click menu, and Open as Root.
 - **Languages**: English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, plus your own through a translation file.
 
 ## Optional tools
