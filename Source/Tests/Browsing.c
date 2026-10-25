@@ -4075,6 +4075,8 @@ function void TestPanels(TestFileFixture *fixture)
         Prog__SetList(&state.treeArena, &state.treeOpen, unfolded, CArrayCount(unfolded));
         // And the inspector, open in the shown tab and not in the other.
         state.previewShown = true;
+        // A last tab closed above would have taken the window, which a test goes on past.
+        state.closedLastTab = false;
         String text = Prog_SessionText(&sessionArena, &state);
         Prog_State restored = {0};
         Check(Prog_Init(&restored, fixture->path, NULL, NULL));

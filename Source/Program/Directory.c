@@ -6184,7 +6184,9 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
         StrBuildStr(arena, &text, StrFormat(arena, "inspector %u %u %u %u %u %S\n", numbers[p], inspector.zoom, (u32)inspector.sort, inspector.descending ? 1u : 0u,
                                             (u32)inspector.folders, Prog_ColumnsText(arena, inspector.columns)));
         for (u32 t = 0; t < state->tabCount; ++t) {
-            StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", numbers[p], Prog_TabPath(state, t)));
+            // The last tab closed comes back as a new tab would open.
+            String path = state->closedLastTab ? Prog_NewTabPath(state, arena, Prog_TabPath(state, t)) : Prog_TabPath(state, t);
+            StrBuildStr(arena, &text, StrFormat(arena, "tab %u %S\n", numbers[p], path));
             // Its filter and what it hides, which the tab opens with again.
             b32 shown = t == state->activeTab;
             const Prog_TextEdit *filter = shown ? &state->filter : &state->tabs[t].filter;
@@ -6206,7 +6208,8 @@ function String Prog_SessionText(Arena *arena, Prog_State *state)
             u32 groupBy = own ? (shown ? state->ownSettings : state->tabs[t].ownSettings).groupBy : shown ? state->groupBy : state->tabs[t].groupBy;
             if (groupBy) StrBuildStr(arena, &text, StrFormat(arena, "group %u %u\n", numbers[p], groupBy));
             // Its inspector, open in this tab alone.
-            if (shown ? state->previewShown : state->tabs[t].previewShown) StrBuildStr(arena, &text, StrFormat(arena, "inspect %u\n", numbers[p]));
+            // The last tab closed comes back without its inspector, which was of its folder.
+            if (!state->closedLastTab && (shown ? state->previewShown : state->tabs[t].previewShown)) StrBuildStr(arena, &text, StrFormat(arena, "inspect %u\n", numbers[p]));
         }
     }
     Prog__UsePanel(state, active);
@@ -6857,15 +6860,24 @@ function void Prog_SelectTab(Prog_State *state, u32 index)
     }
 }
 
+// The panels of the layout, leaving out the ones an inspector lists a folder in.
+function u32 Prog_LayoutPanels(const Prog_State *state)
+{
+    u32 result = 0;
+    for (u32 i = 0; i < state->panelCount; ++i) result += state->panels[i].inspectorOf == 0;
+    return result;
+}
+
 function void Prog_CloseTab(Prog_State *state, u32 index)
 {
     Prog__EnsureTab(state);
     // A panel's only tab closes the panel, and the last panel's last tab the window.
-    if (index < state->tabCount && state->tabCount == 1 && state->panelCount <= 1) {
+    if (index < state->tabCount && state->tabCount == 1 && Prog_LayoutPanels(state) <= 1) {
+        state->closedLastTab = true;
         PlatformWindowClose();
         return;
     }
-    if (index < state->tabCount && state->tabCount == 1 && state->panelCount > 1) {
+    if (index < state->tabCount && state->tabCount == 1) {
         String path = Prog_TabPath(state, index);
         if (path.length) ArrayPush(&state->closedArena, state->closedTabs, StrCopy(&state->closedArena, path));
         Prog_ClosePanel(state, state->currentPanel);

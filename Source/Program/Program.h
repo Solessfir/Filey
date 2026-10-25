@@ -1518,6 +1518,7 @@ typedef struct Prog_State {
     Prog_TabDropTarget tabDropped;  // the drop that TabDrop carries out
     Arena closedArena;        // paths of closed tabs, for Reopen Closed Tab
     ArrayStr closedTabs;
+    b8 closedLastTab;  // the window closes with its last tab, which the session saves as a new tab, as the settings open one
     // File icons, keyed by P_FileIconKey.
     // The map and keys live in iconArena; atlas pages survive resets and are reused.
     Arena iconArena;
@@ -2343,6 +2344,7 @@ function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current)
 function const P_Place *Prog_PathDrive(const Prog_State *state, String path);
 function String Prog_PathName(const Prog_State *state, String path);
 function void Prog_SelectTab(Prog_State *state, u32 index);
+function u32 Prog_LayoutPanels(const Prog_State *state);
 function void Prog_CloseTab(Prog_State *state, u32 index);
 function void Prog_MoveTab(Prog_State *state, u32 from, u32 to);
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size);

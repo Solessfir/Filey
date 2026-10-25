@@ -3350,7 +3350,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_TabClose: Prog_CloseTab(state, state->activeTab); break;
             // The panel goes with all its tabs, which Reopen Closed Tab brings back; the last panel takes the window with it.
             case Prog_CommandKind_TabCloseAll: {
-                if (state->panelCount <= 1) {
+                if (Prog_LayoutPanels(state) <= 1) {
                     PlatformWindowClose();
                     break;
                 }
