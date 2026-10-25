@@ -811,7 +811,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_PanelInspectorIncreaseViewport: case Prog_CommandKind_PanelInspectorDecreaseViewport: return state->previewShown;
         case Prog_CommandKind_QuickAccessIncreaseViewport: case Prog_CommandKind_QuickAccessDecreaseViewport: return !state->sidebarHidden && !state->uiHidden;
         case Prog_CommandKind_FilesPopupPrev: case Prog_CommandKind_FilesPopupNext: return state->filesOpen;
-        case Prog_CommandKind_Back: return state->historyAt > 0;
+        case Prog_CommandKind_Back: return Prog_BackPath(state).length != 0;
         case Prog_CommandKind_Forward: return state->historyAt + 1 < state->history.header.count;
         case Prog_CommandKind_Up: return Prog_UpPath(state->directory.path).length != 0;
         case Prog_CommandKind_Undo: return state->undo.header.count != 0;
@@ -3606,7 +3606,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog_Reload(state);
             } break;
             case Prog_CommandKind_Back: {
-                if (state->historyAt > 0) Prog_RequestDirectory(state, state->history.v[state->historyAt - 1], false, state->historyAt - 1);
+                Prog_GoBack(state);
             } break;
             case Prog_CommandKind_Forward: {
                 if (state->historyAt + 1 < state->history.header.count) Prog_RequestDirectory(state, state->history.v[state->historyAt + 1], false, state->historyAt + 1);

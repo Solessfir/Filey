@@ -2317,6 +2317,8 @@ function void Prog__ReleaseTab(Prog_Tab *tab);
 function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, b32 before, String path);
 function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
 function String Prog_UpPath(String path);
+function String Prog_BackPath(const Prog_State *state);
+function void Prog_GoBack(Prog_State *state);
 function String Prog_TrailText(const Prog_State *state);
 function b32 Prog_MeasuresFolders(const Prog_State *state);
 function b32 Prog_ReadyToShow(const Prog_State *state);

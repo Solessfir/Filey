@@ -2233,7 +2233,7 @@ function void Prog__NoteTooltip(Prog_State *state, Prog_CommandKind kind, String
     state->tooltipLabel = label;
     // The history buttons say where they go.
     String to = {0};
-    if (kind == Prog_CommandKind_Back && state->historyAt > 0) to = state->history.v[state->historyAt - 1];
+    if (kind == Prog_CommandKind_Back) to = Prog_BackPath(state);
     if (kind == Prog_CommandKind_Forward && state->historyAt + 1 < state->history.header.count) to = state->history.v[state->historyAt + 1];
     if (kind == Prog_CommandKind_Up) to = Prog_UpPath(state->directory.path);
     state->tooltipDetail = to.length ? P_NativePath(&state->frameArena, to) : (String){0};
@@ -3261,7 +3261,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
     UI_Parent(toolbar) {
         Prog__Spacer(UI_Pixels(floorf(4.8f * m->scale + 0.5f)), UI_Pixels(bar));
         String up = Prog_UpPath(state->directory.path);
-        Prog__ToolbarButton(state, NoTr("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, state->historyAt > 0, m);
+        Prog__ToolbarButton(state, NoTr("Back"), Icon_ArrowLeft, Prog_CommandKind_Back, Prog_BackPath(state).length != 0, m);
         Prog__ToolbarButton(state, NoTr("Forward"), Icon_ArrowRight, Prog_CommandKind_Forward, state->historyAt + 1 < state->history.header.count, m);
         Prog__ToolbarButton(state, S("Up"), Icon_ArrowUp, Prog_CommandKind_Up, up.length != 0, m);
         Prog__MenuButton(state, S("HistoryMenu"), Icon_ChevronDown, Prog_CommandKind_HistoryMenu, state->history.header.count > 1, 0, m);

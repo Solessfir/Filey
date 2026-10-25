@@ -815,6 +815,27 @@ function String Prog_UpPath(String path)
     return parent;
 }
 
+// Where Back goes: the folder before in the history, or with none, the one Up goes to.
+function String Prog_BackPath(const Prog_State *state)
+{
+    return state->historyAt > 0 ? state->history.v[state->historyAt - 1] : Prog_UpPath(state->directory.path);
+}
+
+// Back to the folder before in the history; with none, the folder above goes in before this one, so that Forward comes back.
+function void Prog_GoBack(Prog_State *state)
+{
+    if (state->historyAt > 0) {
+        Prog_RequestDirectory(state, state->history.v[state->historyAt - 1], false, state->historyAt - 1);
+        return;
+    }
+    String up = Prog_UpPath(state->directory.path);
+    if (!up.length) return;
+    if (!state->history.header.count) ArrayPush(&state->historyArena, state->history, StrCopy(&state->historyArena, state->directory.path));
+    ArrayInsert(&state->historyArena, state->history, 0, StrCopy(&state->historyArena, up));
+    state->historyAt = 1;
+    Prog_RequestDirectory(state, up, false, 0);
+}
+
 function String Prog_ParentPath(String path)
 {
     u64 root = 1;

@@ -932,6 +932,22 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
     }
+    // Back with no folder before goes up, and Forward comes back.
+    {
+        ArrayStr history = state.history;
+        u64 historyAt = state.historyAt;
+        state.history = (ArrayStr){0};
+        ArrayPush(&state.historyArena, state.history, StrCopy(&state.historyArena, state.directory.path));
+        state.historyAt = 0;
+        String parent = Prog_UpPath(state.directory.path);
+        Check(StrIsEqual(Prog_BackPath(&state), parent));
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, parent) && state.historyAt == 0 && state.history.header.count == 2);
+        TestBrowsingCommand(&state, Prog_CommandKind_Forward, 0);
+        Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
+        state.history = history;
+        state.historyAt = historyAt;
+    }
     // A recently visited folder is marked, and sorted before the rest when asked.
     {
         state.showRecents = state.sortRecents = true;
@@ -1669,11 +1685,15 @@ function void TestRename(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_EditText(&state.rename), S("txt")));
     TestRenameKey(&state, Key_Escape, 0);
     Check(!state.renaming && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX);
-    // The mouse's back button cancels it too, on its way back.
+    // The mouse's back button cancels it too, on its way back, which with no folder before goes up.
     Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));
     TestRenameType(&state, S("gone"));
+    String renamedIn = StrCopy(&arena, state.directory.path);
     TestRenameKey(&state, Key_MouseX1, 0);
-    Check(!state.renaming && TestWaitDirectory(&state) && TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX && TestEntryIndex(&state, S("gone.txt")) == UINT64_MAX);
+    Check(!state.renaming && TestWaitDirectory(&state) && !StrIsEqual(state.directory.path, renamedIn));
+    TestBrowsingCommand(&state, Prog_CommandKind_Forward, 0);
+    Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, renamedIn));
+    Check(TestEntryIndex(&state, S("plain.txt")) != UINT64_MAX && TestEntryIndex(&state, S("gone.txt")) == UINT64_MAX);
 
     // Enter renames on a job, then the new name is selected.
     Prog_BeginRename(&state, TestEntryIndex(&state, S("plain.txt")));
