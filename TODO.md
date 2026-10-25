@@ -19,6 +19,7 @@ To be checked on Linux:
 - Following the theme's light or dark change while Filey runs (the settings portal's `SettingChanged`), and the portal path on a desktop that has it.
 - An update replaces only the executable, not the desktop entry and icons.
 - A drag from an archive to other apps extracts before it starts.
+- AppImages in the inspector rather than as a binary. A type 2 AppImage is an ELF launcher with a SquashFS image after it, at the offset the ELF header gives, and libarchive does not read SquashFS. With squashfs-tools installed, `unsquashfs -o <offset> -l` lists the files and `-o <offset> -cat` reads one: the inspector would show the app's name, version and icon from its `.desktop` entry, with a count of its files, and could also open the image as a folder, as an archive is. Never run the AppImage itself (`--appimage-extract`), which runs its code.
 
 ## Not planned
 
