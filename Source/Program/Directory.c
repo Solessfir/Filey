@@ -5084,6 +5084,28 @@ function b32 Prog_PlaceHidden(const Prog_State *state, String path)
 }
 
 // Puts the places in the order they were moved to; those it does not name, as a folder new to them, follow in the order they came.
+// Orders `drives` as they were first listed in, those new to it last in the system's order, so that one connected later comes last.
+function void Prog__OrderDrives(Prog_State *state, P_ArrayPlace *drives)
+{
+    u64 count = drives->header.count;
+    u64 *ranks = ArenaPushArray(&state->frameArena, Max(count, (u64)1), u64);
+    for (u64 i = 0; i < count; ++i) {
+        u64 rank = 0;
+        while (rank < state->drivesSeen.header.count && !StrIsEqual(state->drivesSeen.v[rank], drives->v[i].path)) ++rank;
+        if (rank == state->drivesSeen.header.count) ArrayPush(&state->drivesSeenArena, state->drivesSeen, StrCopy(&state->drivesSeenArena, drives->v[i].path));
+        ranks[i] = rank;
+    }
+    // ponytail: insertion sort, for the handful of drives there are.
+    for (u64 i = 1; i < count; ++i) {
+        for (u64 j = i; j > 0 && ranks[j - 1] > ranks[j]; --j) {
+            P_Place place = drives->v[j];
+            drives->v[j] = drives->v[j - 1], drives->v[j - 1] = place;
+            u64 rank = ranks[j];
+            ranks[j] = ranks[j - 1], ranks[j - 1] = rank;
+        }
+    }
+}
+
 function void Prog__OrderPlaces(Prog_State *state)
 {
     u64 count = state->places.header.count, at = 0;
@@ -7763,6 +7785,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 if (P_NetworkFolder().length) ArrayPush(&state->placesArena, state->places, ((P_Place){ .name = P_NetworkFolder(), .path = P_NetworkFolder() }));
                 for (u64 i = 0; i < result->places.header.count; ++i) ArrayPush(&state->placesArena, state->places, result->places.v[i]);
                 Prog__OrderPlaces(state);
+                Prog__OrderDrives(state, &result->drives);
                 state->drives = result->drives;
                 state->pathRoots = result->roots;
                 state->searchPlaces = result->searched;
@@ -8351,6 +8374,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->closedArena);
     ArenaRelease(&state->confirmArena);
     ArenaRelease(&state->placesArena);
+    ArenaRelease(&state->drivesSeenArena);
     ArenaRelease(&state->sharesArena);
     ArenaRelease(&state->placesHiddenArena);
     ArenaRelease(&state->placesOrderArena);

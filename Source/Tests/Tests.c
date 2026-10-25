@@ -775,6 +775,7 @@ int main(void)
     TestHotkeyDispatch();
     TestProgramVirtualRows();
     TestThumbnailSlots();
+    TestDriveOrder();
     TestJobs();
     TestLanes();
     TestBrowsing();

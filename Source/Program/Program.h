@@ -2053,7 +2053,9 @@ typedef struct Prog_State {
     b32 drivesChanged;        // the system told of a drive or medium coming or going, which the places are listed again for
     Arena placesArena;        // the latest places listing
     P_ArrayPlace places;
-    P_ArrayPlace drives;
+    P_ArrayPlace drives;      // in the order they were first listed in, so that a drive connected later comes last
+    Arena drivesSeenArena;
+    ArrayStr drivesSeen;      // every drive's path, in the order it was first listed in
     ArrayStr pathRoots;       // folders that breadcrumbs start from, for folders inside them
     ArrayStr searchPlaces;    // the folders Go To searches besides the places shown, from P_SearchPlaces
     ArrayStr missingBookmarks;  // bookmarks whose folders were gone at the last listing, which the sidebar fades

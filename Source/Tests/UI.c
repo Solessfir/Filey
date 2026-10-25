@@ -735,6 +735,26 @@ function void TestGoToScore(void)
     Check(Prog_EntryScore(S("abc/zzz.txt"), S("abc"), marks) == 413 && marks[0] && marks[2] && !marks[3] && !marks[4]);
 }
 
+// Drives keep the order they were first listed in, and one connected later comes last whatever its place in the system's list.
+function void TestDriveOrder(void)
+{
+    Prog_State state = {0};
+    Arena arena = {0};
+    P_ArrayPlace drives = {0};
+    ArrayPush(&arena, drives, ((P_Place){ .path = S("/") }));
+    ArrayPush(&arena, drives, ((P_Place){ .path = S("/run/media/disk") }));
+    Prog__OrderDrives(&state, &drives);
+    P_ArrayPlace later = {0};
+    ArrayPush(&arena, later, ((P_Place){ .path = S("/") }));
+    ArrayPush(&arena, later, ((P_Place){ .path = S("/run/media/stick") }));
+    ArrayPush(&arena, later, ((P_Place){ .path = S("/run/media/disk") }));
+    Prog__OrderDrives(&state, &later);
+    Check(StrIsEqual(later.v[0].path, S("/")) && StrIsEqual(later.v[1].path, S("/run/media/disk")) && StrIsEqual(later.v[2].path, S("/run/media/stick")));
+    ArenaRelease(&state.drivesSeenArena);
+    ArenaRelease(&state.frameArena);
+    ArenaRelease(&arena);
+}
+
 // Panels zoomed to different tiers keep each tier's thumbnails, frame after frame, rather than taking one slot from each other.
 function void TestThumbnailSlots(void)
 {

@@ -2015,7 +2015,8 @@ function String P__MountDevices(Arena *scratch)
 
 function P_ArrayPlace P_Drives(Arena *arena)
 {
-    P_ArrayPlace result = {0};
+    // Phones and cameras after the disks, as they are in GVFS's one mount, made as the session starts, though they come later.
+    P_ArrayPlace result = {0}, devices = {0};
     Scratch scratch = GetScratchEx(arena);
     String deviceNames = P__MountDevices(scratch.arena);
     String mounts = {0};
@@ -2053,7 +2054,7 @@ function P_ArrayPlace P_Drives(Arena *arena)
                     shown = StrCopy(arena, address);
                     for (u64 c = 0; c < shown.length; ++c) if (shown.value[c] == '_') ((char *)shown.value)[c] = ' ';
                 }
-                ArrayPush(arena, result, ((P_Place){ .name = shown, .path = StrFormat(arena, "%S/%S", path, name), .type = phone ? S("Mobile Phone") : S("Camera"), .device = true }));
+                ArrayPush(arena, devices, ((P_Place){ .name = shown, .path = StrFormat(arena, "%S/%S", path, name), .type = phone ? S("Mobile Phone") : S("Camera"), .device = true }));
             }
             continue;
         }
@@ -2086,6 +2087,7 @@ function P_ArrayPlace P_Drives(Arena *arena)
         for (u64 j = 0; j < result.header.count; ++j) shared |= i != j && StrIsEqual(result.v[i].name, result.v[j].name);
         if (shared && result.v[i].totalBytes) result.v[i].name = StrFormat(arena, "%S (%S)", result.v[i].name, P__ShortSize(scratch.arena, result.v[i].totalBytes));
     }
+    for (u64 i = 0; i < devices.header.count; ++i) ArrayPush(arena, result, devices.v[i]);
     ReleaseScratch(scratch);
     return result;
 }
