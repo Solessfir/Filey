@@ -3974,8 +3974,8 @@ function R_Color Prog__ItemInk(const Prog_State *state, const Prog_Entry *entry,
     if (!name || Prog__EntryFaded(entry) || Prog__EntryCut(state, entry)) return theme->textDim;
     Prog_GitMark mark = state->git.marks.header.count ? (Prog_GitMark)MapsGet(state->git.marks, u8, entry->file.name) : Prog_GitMark_None;
     if (mark) return Prog__GitInk(mark);
-    // A file anyone may run, where the system says, in the accent, as terminals color them.
-    if (entry->file.kind == P_FileKind_File && (entry->file.mode & 0111)) return theme->accent;
+    // A file anyone may run, where the system says, in the scheme's green, its code strings' color, as terminals color them.
+    if (entry->file.kind == P_FileKind_File && (entry->file.mode & 0111)) return theme->codeString;
     return entry->file.kind == P_FileKind_Directory ? theme->folder : theme->file;
 }
 
