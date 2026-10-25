@@ -10940,6 +10940,51 @@ function void Prog__RoundDashedOutline(f32 x, f32 y, f32 width, f32 height, f32 
     }
 }
 
+// The item's permissions where the system has them, as the inspector's toolbar shows them: their letters, owner's, group's and others',
+// each turned on and off by a click.
+function void Prog__PermissionChips(Prog_State *state, const Prog_Entry *entry, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    f32 s = m->scale;
+    u16 mode = entry->file.mode;
+    state->permissionsPath = Prog_JoinPath(frame, state->directory.path, entry->file.name);
+    local_persist const char letters[3] = { 'r', 'w', 'x' };
+    f32 cell = floorf(14.4f * s + 0.5f), apart = floorf(6.4f * s + 0.5f), gap = MaxF32(1, floorf(1.6f * s + 0.5f));
+    UI_SetNextPrefWidth(UI_Pixels(9 * cell + 2 * apart + 6 * gap));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+    UI_Parent(UI_AddBlock(0)) {
+        for (u32 bit = 0; bit < 9; ++bit) {
+            if (bit && bit % 3 == 0) Prog__Spacer(UI_Pixels(apart), UI_Pixels(height));
+            else if (bit) Prog__Spacer(UI_Pixels(gap), UI_Pixels(height));
+            u16 flag = (u16)(0400 >> bit);
+            b32 on = (mode & flag) != 0;
+            UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Permission/%u", bit));
+            b32 hot = UI->hotKey == key;
+            UI_SetNextPrefWidth(UI_Pixels(cell));
+            UI_SetNextPrefHeight(UI_Pixels(cell));
+            UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextFont(m->detail);
+            // As ls and eza color them: read in yellow, write in red and run in green, the scheme's own.
+            R_Color ink = bit % 3 == 0 ? theme->codeNumber : bit % 3 == 1 ? theme->danger : theme->codeString;
+            UI_SetNextColors((UI_Colors){ .background = hot ? theme->hover : theme->track, .text = on ? ink : theme->textDim });
+            UI_SetNextText(on ? StrMake(&letters[bit % 3], 1) : S("-"));
+            UI_Block *letter = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
+            UI_Interaction toggle = UI_InteractionFromBlock(letter);
+            if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_PermissionsSet, 0, 0, toggle.clickOrder)->target = (u64)(mode ^ flag);
+            local_persist const String tips[9] = {
+                TrInit("The owner may read"), TrInit("The owner may write"), TrInit("The owner may run"),
+                TrInit("The group may read"), TrInit("The group may write"), TrInit("The group may run"),
+                TrInit("Others may read"), TrInit("Others may write"), TrInit("Others may run"),
+            };
+            if (hot) Prog__PopupTooltip(state, Prog_Tr(tips[bit]));
+        }
+    }
+}
+
 // The card of the item's details, at the inspector's top right: its name with buttons to fold and close the card, then what it is.
 // The card of the inspected item's details at the pane's top right, reaching left as far as the toolbar's controls let it, at `room` from
 // the pane's left, up to a width that holds most paths.
@@ -10974,11 +11019,8 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
         Index tab = StrIndexChar(line, '\t', SSF_None);
         if (tab.exists) labels[count] = Prog_Tr(StrFromTo(line, 0, (i64)tab.value)), values[count++] = StrFrom(line, tab.value + 1);
     }
-    // Where the system has permissions, a row of their letters, owner's, group's and others', each turned on and off by a click.
-    u16 mode = entry->file.mode;
-    if (mode) state->permissionsPath = Prog_JoinPath(frame, state->directory.path, entry->file.name);
     // Folding eases it shut to its title and open again, as the sidebar's groups do; the card clips what does not fit.
-    f32 body = m->separator + (f32)(count + (mode ? 1 : 0)) * row + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
+    f32 body = m->separator + (f32)count * row + top + bottom, folded = state->inspectorDetailsFolded ? 0.0f : 1.0f;
     f32 open = UI_Animate(UI_KeyFromStr(0, S("InspectorDetailsOpen")), folded, folded);
     f32 height = head + floorf(body * open + 0.5f);
     UI_SetNextFloatingOffset((UI_Vec2){ paneWidth - width - margin, floorf(4.8f * s + 0.5f) });
@@ -11015,41 +11057,6 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                     f32 room = width - left - right - m->gap - R_TextWidth(m->detail, labels[i]);
                     UI_SetNextFont(m->detail);
                     Prog__Label(Prog__Ellipsize(frame, m->detail, values[i], room), UI_Flex(), row, 0, theme->textDim, 1);
-                }
-            }
-            if (mode) {
-                UI_SetNextChildrenPadding((UI_Padding){ left, 0, right, 0 });
-                UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
-                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
-                UI_Parent(line) {
-                    UI_SetNextFont(m->detail);
-                    Prog__Label(Tr("Permissions"), UI_TextContent(), row, 0, theme->text, 0);
-                    Prog__Spacer(UI_Flex(), UI_Pixels(row));
-                    local_persist const char letters[3] = { 'r', 'w', 'x' };
-                    f32 cell = floorf(14.4f * s + 0.5f), apart = floorf(6.4f * s + 0.5f);
-                    for (u32 bit = 0; bit < 9; ++bit) {
-                        if (bit && bit % 3 == 0) Prog__Spacer(UI_Pixels(apart), UI_Pixels(row));
-                        u16 flag = (u16)(0400 >> bit);
-                        b32 on = (mode & flag) != 0;
-                        UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Permission/%u", bit));
-                        b32 hot = UI->hotKey == key;
-                        UI_SetNextPrefWidth(UI_Pixels(cell));
-                        UI_SetNextPrefHeight(UI_Pixels(cell));
-                        UI_SetNextCornerRadius(floorf(3.2f * s + 0.5f));
-                        UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
-                        UI_SetNextFont(m->detail);
-                        UI_SetNextColors((UI_Colors){ .background = on ? theme->selection : theme->track, .text = on ? theme->contentSelection : hot ? theme->text : theme->textDim });
-                        UI_SetNextText(on ? StrMake(&letters[bit % 3], 1) : S("-"));
-                        UI_Block *letter = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawText | UI_Flag_LeftMouseClickable);
-                        UI_Interaction toggle = UI_InteractionFromBlock(letter);
-                        if (toggle.clicked) Prog_QueueCommand(state, Prog_CommandKind_PermissionsSet, 0, 0, toggle.clickOrder)->target = (u64)(mode ^ flag);
-                        local_persist const String tips[9] = {
-                            TrInit("The owner may read"), TrInit("The owner may write"), TrInit("The owner may run"),
-                            TrInit("The group may read"), TrInit("The group may write"), TrInit("The group may run"),
-                            TrInit("Others may read"), TrInit("Others may write"), TrInit("Others may run"),
-                        };
-                        if (hot) Prog__PopupTooltip(state, Prog_Tr(tips[bit]));
-                    }
                 }
             }
         }
@@ -12013,6 +12020,13 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                     Prog__FolderButtons(state, floorf(10.4f * s + 0.5f), m);
                     Prog__LeaveInspectorPanel(state, owner);
                 }
+            }
+            // The item's permissions, where the system has them, after a line.
+            if (entry && entry->file.mode) {
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+                Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+                Prog__PermissionChips(state, entry, bar, m);
             }
             // Where the controls end, which the card of the details reaches to.
             UI_SetNextPrefWidth(UI_Flex());
