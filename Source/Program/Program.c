@@ -8061,7 +8061,10 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 s = m->scale;
     f32 header = floorf(28.0f * s + 0.5f);
-    f32 width = floorf(166.4f * s + 0.5f), height = floorf(237.6f * s + 0.5f) + header, radius = floorf(8.0f * s + 0.5f);
+    // It opens as the menus do, growing up from its button while it fades in, and fades out as it closes.
+    UI_Key revealKey = UI_KeyFromStr(0, S("ZoomPopupReveal"));
+    f32 grow = Prog__PopupGrow(revealKey);
+    f32 width = floorf(166.4f * s * grow + 0.5f), height = floorf((237.6f * s + header) * grow + 0.5f), radius = floorf(8.0f * s + 0.5f);
     f32 x = anchor.x1 - width, y = anchor.y0 - floorf(1.6f * s + 0.5f) - height;
     // The gap down to the button counts as the popup, so that the pointer can cross it.
     state->zoomBox = (R_Rect){ x, y, x + width, anchor.y0 };
@@ -8069,7 +8072,7 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
     f32 pitch = floorf(20.0f * s + 0.5f), bottomRow = height - floorf(21.6f * s + 0.5f), topRow = header + floorf(20.0f * s + 0.5f);
     f32 iconsRow = bottomRow - 3 * pitch;
     #define Prog__ZoomY(fraction) ((fraction) <= 0.3f ? bottomRow - (fraction) * 10 * pitch : iconsRow - ((fraction) - 0.3f) / 0.7f * (iconsRow - topRow))
-    f32 opacity = wanted ? MaxF32(shown, 0.3f) : shown;
+    f32 opacity = wanted ? Prog__FadeIn(revealKey) : shown;
     Prog__DropShadow(x, y, width, height, radius, opacity, m);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
@@ -8136,9 +8139,9 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         // The slider: a slim track from XL Icons down to Details, filled below a small knob.
         f32 track = MaxF32(2, floorf(3.2f * s + 0.5f)), knob = floorf(11.2f * s + 0.5f), grab = floorf(20.0f * s + 0.5f);
         f32 trackX = width - floorf(14.4f * s + 0.5f) - track, trackTop = topRow + floorf(1.6f * s + 0.5f), trackBottom = bottomRow - floorf(0.8f * s + 0.5f);
-        // The knob eases to a new zoom; it starts where the zoom is when the popup shows.
-        f32 target = Prog__ZoomY(Prog__ZoomFraction(state->zoom));
-        f32 thumb = floorf(UI_Animate(UI_KeyFromStr(0, S("ZoomPopupThumb")), target, target) + 0.5f);
+        // The knob eases to a new zoom; it starts where the zoom is when the popup shows, and keeps to its place as the box grows open.
+        f32 fraction = Prog__ZoomFraction(state->zoom);
+        f32 thumb = floorf(Prog__ZoomY(UI_Animate(UI_KeyFromStr(0, S("ZoomPopupThumb")), fraction, fraction)) + 0.5f);
         // Pressing or dragging along the slider, wider than the track, sets the icon size it points at, or the nearest view below M Icons.
         UI_SetNextPrefWidth(UI_Pixels(grab));
         UI_SetNextPrefHeight(UI_Pixels(trackBottom - trackTop + knob));
