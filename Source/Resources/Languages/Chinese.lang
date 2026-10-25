@@ -454,6 +454,12 @@ Double-click To Parent
 Go to parent folder by double clicking background.
 = 双击空白处转到上一级文件夹。
 
+Slow Click To Rename
+= 慢速单击重命名
+
+Rename the selected item by clicking its name again after a pause.
+= 停顿后再次单击所选项目的名称即可重命名。
+
 Scroll Beyond Last Item
 = 滚动超过最后一项
 

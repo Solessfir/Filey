@@ -180,6 +180,8 @@ global const char *const Prog_Strings[] = {
     "Underlines items only when pointing at them.",
     "Double-click To Parent",
     "Go to parent folder by double clicking background.",
+    "Slow Click To Rename",
+    "Rename the selected item by clicking its name again after a pause.",
     "Scroll Beyond Last Item",
     "Allows scrolling past the last item for extra space.",
     "Reverse Scroll Direction",

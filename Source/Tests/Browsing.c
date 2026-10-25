@@ -4202,9 +4202,9 @@ function void TestSettings(void)
         Prog_EndHexEdit(&look, true);
         Check(look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x12AB34 && StrIndexStr(look.schemeTexts.v[1], S("#12AB34"), SSF_None).exists);
         // The pointer's options and their defaults.
-        Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll));
-        Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\n"));
-        Check(look.actOnRelease && look.singleClick && look.underlineAlways && look.noOverscroll && look.reverseScroll && look.doubleClickToParent && !look.hoverToSelect);
+        Check(Prog_OptionValue(&look, Prog_Option_ActOnPress) && Prog_OptionValue(&look, Prog_Option_UnderlineOnHover) && Prog_OptionValue(&look, Prog_Option_Overscroll) && Prog_OptionValue(&look, Prog_Option_ClickToRename));
+        Prog_ApplySettings(&look, S("click.onPress = off\nclick.single = on\nhover.underline = off\nscroll.over = off\nscroll.reverse = on\nclick.doubleToParent = on\nclick.rename = off\n"));
+        Check(look.actOnRelease && look.singleClick && look.underlineAlways && look.noOverscroll && look.reverseScroll && look.doubleClickToParent && look.noClickRename && !Prog_OptionValue(&look, Prog_Option_ClickToRename) && !look.hoverToSelect);
         // Emptying the bin asks first unless turned off.
         Check(Prog_OptionValue(&look, Prog_Option_ConfirmEmptyTrash));
         Prog_ApplySettings(&look, S("trash.confirm = off\n"));

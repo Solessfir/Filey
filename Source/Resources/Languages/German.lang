@@ -454,6 +454,12 @@ Double-click To Parent
 Go to parent folder by double clicking background.
 = Ein Doppelklick auf den Hintergrund wechselt zum übergeordneten Ordner.
 
+Slow Click To Rename
+= Langsamer Klick zum Umbenennen
+
+Rename the selected item by clicking its name again after a pause.
+= Ein erneuter Klick auf den Namen des ausgewählten Elements nach einer Pause benennt es um.
+
 Scroll Beyond Last Item
 = Über letztes Element hinaus scrollen
 

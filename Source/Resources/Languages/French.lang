@@ -455,6 +455,12 @@ Double-click To Parent
 Go to parent folder by double clicking background.
 = Remonte au dossier parent par un double-clic sur le fond.
 
+Slow Click To Rename
+= Clic lent pour renommer
+
+Rename the selected item by clicking its name again after a pause.
+= Renomme l’élément sélectionné en cliquant à nouveau sur son nom après une pause.
+
 Scroll Beyond Last Item
 = Défiler après le dernier élément
 

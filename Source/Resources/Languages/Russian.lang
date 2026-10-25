@@ -454,6 +454,12 @@ Double-click To Parent
 Go to parent folder by double clicking background.
 = Двойной щелчок по пустому месту переходит в родительскую папку.
 
+Slow Click To Rename
+= Медленный щелчок — переименование
+
+Rename the selected item by clicking its name again after a pause.
+= Повторный щелчок по имени выбранного элемента после паузы переименовывает его.
+
 Scroll Beyond Last Item
 = Прокрутка за последний элемент
 

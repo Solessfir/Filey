@@ -454,6 +454,12 @@ Double-click To Parent
 Go to parent folder by double clicking background.
 = Va a la carpeta principal al hacer doble clic en el fondo.
 
+Slow Click To Rename
+= Clic lento para renombrar
+
+Rename the selected item by clicking its name again after a pause.
+= Renombra el elemento seleccionado haciendo clic de nuevo en su nombre tras una pausa.
+
 Scroll Beyond Last Item
 = Desplazar tras el último elemento
 

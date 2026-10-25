@@ -911,6 +911,7 @@ typedef enum Prog_Option {
     Prog_Option_HoverToFocus,
     Prog_Option_UnderlineOnHover,
     Prog_Option_DoubleClickToParent,
+    Prog_Option_ClickToRename,
     Prog_Option_Overscroll,
     Prog_Option_ReverseScroll,
     Prog_Option_CharacterKeyAction,
@@ -1726,6 +1727,7 @@ typedef struct Prog_State {
     b32 clickToFocus;         // a panel takes the keyboard on a click only, not under a moving pointer
     b32 underlineAlways;      // in single-click mode, every name is underlined, not only the pointed one
     b32 doubleClickToParent;
+    b32 noClickRename;        // a slow second click on a name does not rename it
     b32 noOverscroll;
     b32 reverseScroll;
     // What the lists show: names without their extensions, and the system's own files; settingHidden is what Settings.conf last set the

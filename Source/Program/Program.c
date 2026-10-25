@@ -800,7 +800,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->inactiveShift = 0;
     state->actOnRelease = state->singleClick = state->singleClickFoldersOnly = state->hoverToSelect = false;
     state->clickToFocus = true;
-    state->underlineAlways = state->doubleClickToParent = state->noOverscroll = state->reverseScroll = false;
+    state->underlineAlways = state->doubleClickToParent = state->noClickRename = state->noOverscroll = state->reverseScroll = false;
     state->characterKeys = Prog_CharacterKeys_TypeInFilter;
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
@@ -973,6 +973,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->underlineAlways = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("click.doubleToParent"))) {
             state->doubleClickToParent = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("click.rename"))) {
+            state->noClickRename = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("scroll.over"))) {
             state->noOverscroll = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("scroll.reverse"))) {
@@ -1061,10 +1063,10 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The thickness of the outlines, in pixels: 1, 1.5, 2, 2.5 or 3; the lines between areas take the nearest whole pixels.\n# borders = 1\n\n"
                                 "# The pointer: select on press or release, open with one click (folders only), select by hovering,\n"
                                 "# give the keyboard to the panel it moves over, underline only the pointed name in single-click mode,\n"
-                                "# go up with a double click on the background, scroll past the last item, and turn the wheel around.\n"
+                                "# go up with a double click on the background, rename the selected item with a slow second click on its name, scroll past the last item, and turn the wheel around.\n"
                                 "# click.onPress = true\n# click.single = false\n# click.singleFoldersOnly = false\n# hover.select = false\n# hover.focus = false\n"
                                 "# hover.underline = true\n"
-                                "# click.doubleToParent = false\n# scroll.over = true\n# scroll.reverse = false\n\n"
+                                "# click.doubleToParent = false\n# click.rename = true\n# scroll.over = true\n# scroll.reverse = false\n\n"
                                 "# What a letter or other character key does in the lists, without modifiers but Shift: type into the filter (filter),\n"
                                 "# run its hotkey, such as J to go down (hotkey), or select the item whose name starts with what is typed (select).\n"
                                 "# keys.character = filter\n\n"
@@ -1272,6 +1274,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                        Prog_OptionSwitch, 2, SInit("hover.underline") },
     [Prog_Option_DoubleClickToParent] = { TrInit("Double-click To Parent"), TrInit("Go to parent folder by double clicking background."), Prog_OptionControl_Switch, 0, 1,
                                           Prog_OptionSwitch, 2, SInit("click.doubleToParent") },
+    [Prog_Option_ClickToRename] = { TrInit("Slow Click To Rename"), TrInit("Rename the selected item by clicking its name again after a pause."), Prog_OptionControl_Switch, 0, 1,
+                                    Prog_OptionSwitch, 2, SInit("click.rename") },
     [Prog_Option_Overscroll] = { TrInit("Scroll Beyond Last Item"), TrInit("Allows scrolling past the last item for extra space."), Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("scroll.over") },
     [Prog_Option_ReverseScroll] = { TrInit("Reverse Scroll Direction"), TrInit("Reverses the scroll direction in scrollable views."), Prog_OptionControl_Switch, 0, 1,
                                     Prog_OptionSwitch, 2, SInit("scroll.reverse") },
@@ -1419,6 +1423,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_HoverToFocus: return !state->clickToFocus;
         case Prog_Option_UnderlineOnHover: return !state->underlineAlways;
         case Prog_Option_DoubleClickToParent: return state->doubleClickToParent;
+        case Prog_Option_ClickToRename: return !state->noClickRename;
         case Prog_Option_Overscroll: return !state->noOverscroll;
         case Prog_Option_ReverseScroll: return state->reverseScroll;
         case Prog_Option_CharacterKeyAction: return state->characterKeys;
@@ -1932,7 +1937,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_LoadThumbnails: case Prog_Option_Animations: case Prog_Option_RoundCorners: case Prog_Option_ShowFileExtension: case Prog_Option_SystemScheme:
         case Prog_Option_ShortenedPaths: case Prog_Option_Breadcrumbs: case Prog_Option_ConfirmEmptyTrash: case Prog_Option_SingleWindow:
         case Prog_Option_VSync: case Prog_Option_HighlightCode: case Prog_Option_CalcFolderSizes: case Prog_Option_CalcFolderSizesSSD:
-        case Prog_Option_ActOnPress: case Prog_Option_UnderlineOnHover: case Prog_Option_Overscroll: return 1;
+        case Prog_Option_ActOnPress: case Prog_Option_UnderlineOnHover: case Prog_Option_ClickToRename: case Prog_Option_Overscroll: return 1;
         default: return 0;
     }
 }
@@ -4152,7 +4157,7 @@ function b32 Prog__ItemInput(Prog_State *state, u64 index, UI_Block *block, UI_K
     // A plain click on the name of the item that alone is selected and focused renames it once the double-click time passes without another
     // press, as in Explorer; a drag or a double click does not.
     if (interaction.pressed) {
-        b32 slow = interaction.button == MouseButton_Left && interaction.pressCount == 1 && !interaction.mods && onName && !renaming && !state->singleClick &&
+        b32 slow = interaction.button == MouseButton_Left && interaction.pressCount == 1 && !interaction.mods && onName && !renaming && !state->singleClick && !state->noClickRename &&
                    entry->selected && state->selectedCount == 1 && state->hasFocus && state->focusedRow == index;
         state->listSlowRow = slow ? index + 1 : 0;
     }
@@ -5341,6 +5346,7 @@ function void Prog__SidebarNameBox(Prog_State *state, f32 height, const Prog_Met
 // A slow second click's rename of `group`'s row `index`, which starts once the double-click time passes without another press.
 function void Prog__AskSidebarRename(Prog_State *state, Prog_Group group, u64 index)
 {
+    if (state->noClickRename) return;
     state->sidebarRenameGroup = (u32)group + 1;
     state->sidebarRenameIndex = index;
     state->sidebarRenameAt = UI->nowMicroseconds + (UI->doubleClickMicroseconds ? UI->doubleClickMicroseconds : UINT64_C(500000));
