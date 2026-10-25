@@ -2218,21 +2218,21 @@ function i32 Prog__WheelNotches(const UI_Block *block)
     return notches ? notches : UI->wheel.y > 0 ? 1 : -1;
 }
 
-// How far a popup has faded in under `key`: evenly over 110 ms.
+// How far a popup has faded in under `key`: evenly over 85 ms.
 function f32 Prog__FadeIn(UI_Key key)
 {
     if (!UI->animate) return 1;
-    f32 shown = MinF32(1, (f32)UI_TimeSince(key) / 110000.0f);
+    f32 shown = MinF32(1, (f32)UI_TimeSince(key) / 85000.0f);
     if (shown < 1) UI_KeepAnimating();
     return shown;
 }
 
-// How far a popup that opened as `key` was first used has grown into place, from 0 to 1, easing with a 24 ms time constant.
+// How far a popup that opened as `key` was first used has grown into place, from 0 to 1, easing with an 18 ms time constant.
 // Menus, context menus and Go To all open so: a tenth smaller, growing into place while they fade in.
 function f32 Prog__PopupReveal(UI_Key key)
 {
     if (!UI->animate) return 1;
-    f32 reveal = 1 - expf(-(f32)UI_TimeSince(key) / 24000.0f);
+    f32 reveal = 1 - expf(-(f32)UI_TimeSince(key) / 18000.0f);
     if (reveal >= 0.995f) return 1;
     UI_KeepAnimating();
     return reveal;
