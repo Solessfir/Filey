@@ -17,7 +17,7 @@
 #
 # COMPARE_REFERENCE names the reference executable and COMPARE_REFERENCE_STATE its settings files, ';' separated, which are copied before every
 # run and put back after it. COMPARE_OUT is the output folder (%TEMP%/filey-compare); Filey's settings live in its Config folder, which starts
-# with "theme = fullmoon". COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window, and COMPARE_MAXIMIZED=1 maximizes it.
+# with "theme = filey-dark", so that the system's light mode stays out. COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window, and COMPARE_MAXIMIZED=1 maximizes it.
 # COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times; =frames also saves each change.
 import ctypes, ctypes.wintypes as wt, os, re, shutil, subprocess, sys, time
 from PIL import Image, ImageChops
@@ -231,7 +231,7 @@ def fixture():
     config = os.path.join(OUT, 'Config'); os.makedirs(config, exist_ok=True)
     settings = os.path.join(config, 'Settings.conf')
     if not os.path.exists(settings):
-        with open(settings, 'w') as f: f.write('theme = fullmoon\n')
+        with open(settings, 'w') as f: f.write('theme = filey-dark\n')
     return root, config
 
 def steps(app, text, side, name, tags):

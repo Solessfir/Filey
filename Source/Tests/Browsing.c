@@ -4130,12 +4130,9 @@ function void TestSettings(void)
         // "light" is the light scheme, Catppuccin Latte.
         Check(Prog_OptionValue(&look, Prog_Option_InactiveOpacity) == 85 && look.scheme == Prog_LightScheme && (u32)(Prog_ThemeUser.background.r * 255 + 0.5f) == 0xEF &&
               look.schemeGroups[Prog_Option_ColorText - Prog_Option_ColorClear] == 0x4C4F69);
-        // The default theme is the one its colors make. The full moon scheme, which the choices leave out, shows the default among them, and its
-        // popups and disabled icons come from its surface, background, icon and disabled colors.
+        // The default theme is the one its colors make.
         Prog_Theme made = Prog__ThemeFromScheme(Prog_SchemeColors[0]);
         Check(!MemCompare(&Prog_ThemeCustom, &made, sizeof(made)));
-        Prog_ApplySettings(&look, S("theme.system = off\ntheme = FullMoon\n"));
-        Check(look.scheme == 0 && Prog_ThemeUser.menu.r == Prog_ThemeUser.panel.r && (u32)(Prog_ThemeUser.iconDisabled.b * 255 + 0.5f) == 0x49 && (u32)(Prog_ThemeUser.textHeading.r * 255 + 0.5f) == 0xA2);
         // A custom scheme by its name, its colors over the default scheme's, among the choices after the built-in ones; a fork of it is named
         // as the first free custom one and shows in its place by name, and the picker changes its colors.
         Prog_SetScheme(&look, S("Mine"), S("Background = #102030\nnonsense = #ffffff\n"), false);
@@ -4148,9 +4145,9 @@ function void TestSettings(void)
               StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_LightScheme, S("catppuccin-latte")), S("Catppuccin Latte")) &&
               StrIsEqual(Prog__OptionName(&look.frameArena, Prog_Option_ColorScheme, S("Mine")), S("Mine")));
         Check(schemeChoices == Prog_BuiltInSchemes + 1 && Prog_ForkScheme(&look, Prog_BuiltInSchemes, Prog_Option_ColorScheme) && look.schemeNames.header.count == 2);
-        Check(StrIsEqual(look.schemeNames.v[0], S("Custom 1")) && look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f);
+        Check(StrIsEqual(look.schemeNames.v[0], S("Custom1")) && look.scheme == Prog_BuiltInSchemes && Prog_ThemeUser.background.b > 0.18f);
         // A fork of a built-in scheme takes the next number.
-        Check(Prog_ForkScheme(&look, 0, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[1], S("Custom 2")) && StrIsEqual(look.schemeNames.v[2], S("Mine")));
+        Check(Prog_ForkScheme(&look, 0, Prog_Option_ColorScheme) && StrIsEqual(look.schemeNames.v[1], S("Custom2")) && StrIsEqual(look.schemeNames.v[2], S("Mine")));
         Check(look.schemeGroups[Prog_Option_ColorBackground - Prog_Option_ColorClear] == 0x191919);
         look.colorPicking = true;
         look.colorOption = Prog_Option_ColorBackground;

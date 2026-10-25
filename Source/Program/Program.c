@@ -421,8 +421,6 @@ global const u32 Prog_SchemeColors[Prog_BuiltInSchemes][Prog_ColorGroupCount] = 
     { 0x1E2227, 0x21252B, 0x282C34, 0x21252B, 0x31353F, 0x282C34, 0x31353F, 0x31353F, 0x1E2227, 0x2A2E36, 0x9DA5B4, 0xD7DAE0, 0x7F848E, 0xABB2BF, 0xD7DAE0, 0xD7DAE0, 0xE06C75, 0x61AFEF, 0x364D63, 0x61AFEF, 0x56B6C2, 0x595959, 0x595959, 0x595959, 0xD7DAE0, 0xD7DAE0, 0xABAFB5, 0x5C6370, 0x9DA5B4, 0x4B5263, 0x56B6C2, 0x56B6C2, 0x488D97, 0xC678DD, 0x98C379, 0xD19A66, 0x61AFEF },
 };
 
-// The reference's dark scheme, for side-by-side checks with the Compare tool; settings name it fullmoon, and the choices leave it out.
-global const u32 Prog_SchemeFullMoon[Prog_ColorGroupCount] = { 0x151515, 0x272A2B, 0x191B1C, 0x1F2223, 0x383C3D, 0x1B1B1C, 0x343A3B, 0x464A4D, 0x202324, 0x1D1F21, 0x9A9C9D, 0xDDDEE0, 0x6B7078, 0x9A9C9D, 0xDDDEE0, 0xDDDEE0, 0xFF6666, 0x0079A6, 0x0079A6, 0x00ADEE, 0x00ADEE, 0x4D4D4D, 0x595959, 0x595959, 0xDDDEE0, 0xDDDEE0, 0xA4A5A6, 0x757C80, 0xA5AEB3, 0x464A4D, 0x00B9FF, 0x00AAFF, 0x44B8E3, 0xC678DD, 0x98C379, 0xD19A66, 0x61AFEF };
 
 function R_Color Prog__HexColor(u32 hex) { return (R_Color){ (f32)((hex >> 16) & 255) / 255.0f, (f32)((hex >> 8) & 255) / 255.0f, (f32)(hex & 255) / 255.0f, 1 }; }
 
@@ -590,15 +588,11 @@ global const char *const Prog_ColorGroupNames[Prog_ColorGroupCount] = {
     "CodeKeyword", "CodeString", "CodeNumber", "CodeHeading",
 };
 
-// Gives `groups` the colors of the built-in scheme named `name`, or the default scheme's for an unknown one; "light" is the light one. Returns its place among the built-in schemes, UINT32_MAX for an unknown name and 0 for fullmoon, which the choices leave out.
+// Gives `groups` the colors of the built-in scheme named `name`, or the default scheme's for an unknown one; "light" is the light one. Returns its place among the built-in schemes and UINT32_MAX for an unknown name.
 function u32 Prog__BuiltInScheme(String name, u32 *groups)
 {
     MemCopy(groups, Prog_SchemeColors[0], sizeof(Prog_SchemeColors[0]));
     if (Prog__EqualFolded(name, S("light"))) name = Prog_OptionSchemes[Prog_LightScheme];
-    if (Prog__EqualFolded(name, S("fullmoon"))) {
-        MemCopy(groups, Prog_SchemeFullMoon, sizeof(Prog_SchemeFullMoon));
-        return 0;
-    }
     for (u32 i = 0; i < CArrayCount(Prog_OptionSchemes); ++i) {
         if (!Prog__EqualFolded(name, Prog_OptionSchemes[i])) continue;
         MemCopy(groups, Prog_SchemeColors[i], sizeof(Prog_SchemeColors[i]));
@@ -629,7 +623,7 @@ function void Prog__ReadSchemeText(String text, u32 *groups)
 }
 
 // Gives `groups` the colors of the scheme named `name`: a built-in one, or a custom one's over the default scheme's.
-// Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name, as for fullmoon.
+// Returns its place among the built-in schemes and then the custom ones, 0 for an unknown name.
 function u8 Prog__UseScheme(const Prog_State *state, String name, u32 *groups)
 {
     u32 builtIn = Prog__BuiltInScheme(name, groups);
@@ -744,7 +738,7 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
 //   scale = 1.25                  the UI's size beyond the display's own scale
-//   theme = nord                  a built-in scheme, under the colors below; fullmoon is the reference's, for side-by-side checks
+//   theme = nord                  a built-in scheme, under the colors below
 //   animations = false            menus, scrolling and the caret change at once
 //   color.<theme field> = #rrggbb[aa]
 //   glass.window = #rrggbbaa      the transparent theme's tint over what is behind the window, the scheme's window color without it
@@ -1596,7 +1590,7 @@ function b32 Prog_ForkScheme(Prog_State *state, u32 scheme, Prog_Option option)
     Scratch scratch = GetScratch();
     String name = {0};
     for (u32 n = 1; n < 1000 && !name.length; ++n) {
-        String candidate = StrFormat(scratch.arena, NoTrF("Custom %u"), n);
+        String candidate = StrFormat(scratch.arena, NoTrF("Custom%u"), n);
         b32 taken = false;
         for (u64 i = 0; i < state->schemeNames.header.count && !taken; ++i) taken = Prog__EqualFolded(state->schemeNames.v[i], candidate);
         if (!taken) name = candidate;
