@@ -470,6 +470,7 @@ global const char *const Prog_Strings[] = {
     "Trash",
     "Paste",
     "New",
+    "Eject",
     "Press A Key",
     "Duplicate Tab To New Window",
     "Update to Filey %S",

@@ -438,7 +438,62 @@ typedef struct P__MenuData {
     u64 count;
     P__App **apps;     // the application an Open With item starts
     b8 *terminal;      // Open in Terminal items
+    String eject;      // where Eject takes the drive the menu is for from, as GIO names it; empty when it cannot be ejected
+    u32 ejectItem;     // the Eject item's index, past the items when there is none
 } P__MenuData;
+
+// Where GIO ejects the drive whose folder is `path` from: a disk's mount under /run/media or /media, and a phone's or camera's GVFS
+// address, as "mtp://SAMSUNG_SAMSUNG_Android_RFCX10M60QT/"; empty for a folder that is not such a drive's own.
+function String P__EjectTarget(Arena *arena, String path)
+{
+    while (path.length > 1 && path.value[path.length - 1] == '/') --path.length;
+    Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
+    String name = slash.exists ? StrFrom(path, slash.value + 1) : path, parent = slash.exists ? StrFromTo(path, 0, (i64)slash.value) : (String){0};
+    Index host = StrIndexStr(name, S(":host="), SSF_None);
+    if (host.exists && StrIsEqual(StrFrom(parent, parent.length - 5), S("/gvfs"))) {
+        return StrFormat(arena, "%S://%S/", StrFromTo(name, 0, (i64)host.value), StrFrom(name, host.value + 6));
+    }
+    b32 removable = StrIsEqual(StrFromTo(path, 0, 11), S("/run/media/")) || StrIsEqual(StrFromTo(path, 0, 7), S("/media/"));
+    if (!removable) return (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    String mounts = {0}, result = {0};
+    P_ReadFile(scratch.arena, S("/proc/self/mounts"), &mounts);
+    ArrayStr lines = StrSplit(scratch.arena, mounts, '\n');
+    // Only one on removable hardware, as Windows offers it: on USB, or marked removable, never an internal disk mounted there too.
+    for (u64 i = 0; i < lines.header.count && !result.length; ++i) {
+        ArrayStr fields = StrSplit(scratch.arena, lines.v[i], ' ');
+        if (fields.header.count < 2 || !StrIsEqual(P__MountPoint(scratch.arena, fields.v[1]), path)) continue;
+        String device = fields.v[0];
+        if (!StrIsEqual(StrFromTo(device, 0, 5), S("/dev/"))) continue;
+        char *block = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "/sys/class/block/%S", StrFrom(device, 5)));
+        char real[PATH_MAX];
+        if (!block || !realpath(block, real)) continue;
+        String hardware = StrFromCStr(real), disk = hardware, removable = {0};
+        // The partition's disk holds the flag.
+        Index up = StrIndexChar(hardware, '/', SSF_SearchBackwards);
+        if (up.exists && P_ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/partition", hardware), &removable)) disk = StrFromTo(hardware, 0, (i64)up.value);
+        removable = (String){0};
+        P_ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/removable", disk), &removable);
+        if (StrIndexStr(hardware, S("/usb"), SSF_None).exists || (removable.length && removable.value[0] == '1')) result = StrCopy(arena, path);
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// Ejects `target` with GIO on a thread of its own, as a disk may take a while to write out what it holds before it goes.
+// ponytail: a failure, as of a drive still in use, only reaches stderr; report it as a notice through the program if it happens in practice.
+function void *P__EjectThread(void *user)
+{
+    char *target = user;
+    Scratch scratch = GetScratch();
+    String arguments[] = { S("gio"), S("mount"), S("-e"), StrFromCStr(target) }, output = {0};
+    if (!P_RunCommand(scratch.arena, S("/"), arguments, CArrayCount(arguments), 60000, &output, true)) {
+        fprintf(stderr, "Filey: ejecting %s failed: %.*s\n", target, (i32)output.length, output.value);
+    }
+    ReleaseScratch(scratch);
+    free(target);
+    return NULL;
+}
 
 // Every item is something Filey carries out itself: Open and Rename by their verbs, Open With and Open in Terminal through P_ContextMenuInvoke, the rest by their actions.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
@@ -471,6 +526,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     b32 inTrash = P_IsTrashFolder(directory) ||
                   (slash.exists && StrIsEqual(StrFrom(directory, slash.value + 1), S("files")) && P_IsTrashFolder(StrFromTo(directory, 0, (i64)slash.value)));
     b32 oneFolder = count == 1 && P__IsDirectory(scratch.arena, data->paths[0]);
+    data->eject = count == 1 ? P__EjectTarget(arena, data->paths[0]) : (String){0};
     P__App *apps[MaxApps];
     u64 appCount = count && !trash && !inTrash ? P__AppsFor(&P__apps, P__MimeForName(names[0], oneFolder), false, apps, MaxApps) : 0;
     const char *run[2] = {0};
@@ -500,6 +556,12 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         if (count == 1) items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Rename"), .verb = S("rename") };
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Trash"), .verb = S("delete"), .action = P_MenuAction_Trash };
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Delete"), .action = P_MenuAction_Delete };
+        // A removable drive's own folder, or a phone's, can be ejected, as Windows' menus offer.
+        if (data->eject.length) {
+            items[itemCount++] = separator;
+            data->ejectItem = itemCount;
+            items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Eject"), .verb = S("eject") };
+        }
     } else if (!count && !inTrash) {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
@@ -521,6 +583,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
             items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("openwith"), .isDefault = i == 0 };
         }
     }
+    if (!data->eject.length) data->ejectItem = itemCount;
     menu->items = ArenaPushArray(arena, itemCount, P_MenuItem);
     data->apps = ArenaPushArray(arena, itemCount, P__App *);
     data->terminal = ArenaPushArray(arena, itemCount, b8);
@@ -558,6 +621,13 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
     u32 index = id - 1;
     if (!data || !id || index >= menu->count) return P__FileError(arena, EINVAL);
     if (data->terminal[index]) return P__OpenTerminal(arena, data->paths[0]);
+    if (index == data->ejectItem) {
+        char *target = strndup(data->eject.value, data->eject.length);
+        pthread_t thread;
+        if (target && pthread_create(&thread, NULL, P__EjectThread, target) == 0) pthread_detach(thread);
+        else free(target);
+        return (P_FileError){0};
+    }
     if (data->apps[index]) return P__LaunchApp(arena, data->apps[index], data->paths, data->count, data->directory);
     return P__FileError(arena, ENOTSUP);
 }

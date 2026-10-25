@@ -1962,14 +1962,16 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
 // Mounts the phones and cameras GVFS knows of and asks a file manager to mount, as Nautilus and Nemo do; GNOME's shell does it itself,
 // but other desktops leave them unmounted, and so missing from GVFS's folder. `gio` takes half a second to answer, so this runs on a thread
 // of its own, one at a time, which the drive listing does not wait for; the mounting runs on its own too, as a phone may first ask to be
-// let in, and each is tried again only after half a minute.
+// let in, and each is tried again only after half a minute until it first mounts. Once it has been mounted it is left alone, so that one
+// ejected stays so, until it is gone from GVFS's list, as when it is unplugged, and comes again.
 // ponytail: one `gio mount -li` each drive refresh; watch the volume monitor over D-Bus if that shows in profiles.
 global atomic_bool P__mountingDevices;
 
 function void *P__MountDevices(void *unused)
 {
     (void)unused;
-    local_persist struct { char root[256]; u64 tried; } attempts[8];
+    local_persist struct { char root[256]; u64 tried; b32 mounted, seen; } attempts[8];
+    for (u64 a = 0; a < CArrayCount(attempts); ++a) attempts[a].seen = false;
     Scratch scratch = GetScratch();
     u32 error = 0;
     char *gio = P__FindExecutable(scratch.arena, S("gio"), &error);
@@ -1993,19 +1995,27 @@ function void *P__MountDevices(void *unused)
             if (StrIsEqual(field, S("should_automount=1"))) automount = true;
         }
         b32 device = StrIsEqual(StrFromTo(root, 0, 6), S("mtp://")) || StrIsEqual(StrFromTo(root, 0, 10), S("gphoto2://"));
-        if (!device || !automount || mounted || root.length >= sizeof(attempts[0].root)) continue;
+        if (!device || !automount || root.length >= sizeof(attempts[0].root)) continue;
         u64 now = PlatformNowMicroseconds(), slot = 0;
-        for (u64 a = 0; a < CArrayCount(attempts); ++a) {
-            if (StrIsEqual(StrFromCStr(attempts[a].root), root)) { slot = a; break; }
-            if (attempts[a].tried < attempts[slot].tried) slot = a;
+        b32 known = false;
+        for (u64 a = 0; a < CArrayCount(attempts) && !known; ++a) {
+            if (StrIsEqual(StrFromCStr(attempts[a].root), root)) slot = a, known = true;
+            else if (attempts[a].tried < attempts[slot].tried) slot = a;
         }
-        if (StrIsEqual(StrFromCStr(attempts[slot].root), root) && now - attempts[slot].tried < Millions(30)) continue;
-        MemCopy(attempts[slot].root, root.value, root.length);
-        attempts[slot].root[root.length] = 0;
+        if (!known) {
+            MemCopy(attempts[slot].root, root.value, root.length);
+            attempts[slot].root[root.length] = 0;
+            attempts[slot].tried = 0, attempts[slot].mounted = false;
+        }
+        attempts[slot].seen = true;
+        attempts[slot].mounted |= mounted;
+        if (mounted || attempts[slot].mounted || (attempts[slot].tried && now - attempts[slot].tried < Millions(30))) continue;
         attempts[slot].tried = now;
         char *args[] = { gio, "mount", attempts[slot].root, NULL };
         P__Spawn(gio, args, NULL);
     }
+    // One gone from the list starts over when it comes again.
+    for (u64 a = 0; a < CArrayCount(attempts) && lines.header.count; ++a) if (!attempts[a].seen) attempts[a].root[0] = 0;
     ReleaseScratch(scratch);
     atomic_store(&P__mountingDevices, false);
     return NULL;

@@ -4417,6 +4417,13 @@ function String TestWaitText(Arena *arena, TestFileFixture *fixture, String rela
 // Desktop entries, mimeapps.list and launching, against entries, a terminal and an opener made in the fixture.
 function void TestApps(TestFileFixture *fixture)
 {
+    // A phone's GVFS folder is ejected by its address, and a folder that is no drive's own has no Eject.
+    {
+        Arena ejects = {0};
+        Check(StrIsEqual(P__EjectTarget(&ejects, S("/run/user/1000/gvfs/mtp:host=SAMSUNG_Android_R58N")), S("mtp://SAMSUNG_Android_R58N/")));
+        Check(!P__EjectTarget(&ejects, fixture->path).length && !P__EjectTarget(&ejects, S("/")).length);
+        ArenaRelease(&ejects);
+    }
     Arena arena = {0};
     String root = Prog_JoinPath(&arena, fixture->path, S("Apps"));
     Check(P__TestMakeDirectory(fixture, S("Apps")));
