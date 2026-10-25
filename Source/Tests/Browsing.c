@@ -4370,6 +4370,8 @@ function void TestSidebar(TestFileFixture *fixture)
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
     if (state.jobs.initialized) {
         Prog_LoadSettings(&state, config, config);
+        // No asking GitHub for releases from a test.
+        state.checkUpdates = false;
         Check(TestWaitDirectory(&state));
         // A first run starts with the user's folders bookmarked.
         u64 seeded = state.bookmarks.header.count;
@@ -4392,6 +4394,7 @@ function void TestSidebar(TestFileFixture *fixture)
         state = (Prog_State){0};
         Check(Prog_Init(&state, fixture->path, NULL, NULL));
         Prog_LoadSettings(&state, config, config);
+        state.checkUpdates = false;
         Check(state.bookmarks.header.count == seeded + 1 && Prog_IsBookmarked(&state, fixture->path));
         // Opened as often, the later ranks first.
         Check(state.recents.header.count == 2 && StrIsEqual(state.recents.v[0], fixture->path) && TestEndsWith(state.recents.v[1], S("/Empty")));
