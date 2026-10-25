@@ -4417,6 +4417,22 @@ function String TestWaitText(Arena *arena, TestFileFixture *fixture, String rela
 // Desktop entries, mimeapps.list and launching, against entries, a terminal and an opener made in the fixture.
 function void TestApps(TestFileFixture *fixture)
 {
+    // Set as Default writes the type's line in the user's mimeapps.list, replacing the one it had and keeping the rest.
+    {
+        Arena defaults = {0};
+        String configHome = StrCopy(&defaults, StrFromCStr(getenv("XDG_CONFIG_HOME") ? getenv("XDG_CONFIG_HOME") : ""));
+        setenv("XDG_CONFIG_HOME", P__FilePathCString(&defaults, fixture->path), 1);
+        String list = Prog_JoinPath(&defaults, fixture->path, S("mimeapps.list")), contents = {0};
+        Check(!P_WriteFile(&defaults, list, S("[Added Associations]\ntext/plain=a.desktop;\n\n[Default Applications]\nimage/png=viewer.desktop;\ntext/plain=old.desktop;\n")).code);
+        Check(!P__SetDefaultApp(&defaults, S("text/plain"), S("new.desktop")).code && !P__SetDefaultApp(&defaults, S("text/x-c"), S("code.desktop")).code);
+        Check(P_ReadFile(&defaults, list, &contents) && StrIsEqual(contents, S("[Added Associations]\ntext/plain=a.desktop;\n\n[Default Applications]\nimage/png=viewer.desktop;\ntext/plain=new.desktop;\ntext/x-c=code.desktop;\n")));
+        if (configHome.length) setenv("XDG_CONFIG_HOME", P__FilePathCString(&defaults, configHome), 1);
+        else unsetenv("XDG_CONFIG_HOME");
+        P_CancelToken token = {0};
+        Check(!P_DeleteItems(&defaults, &list, 1, false, &token).code);
+        P__chosenDefaultCount = 0;
+        ArenaRelease(&defaults);
+    }
     // The New menu offers the templates folder's files, and one chosen is copied in under a free name.
     {
         Arena templates = {0};

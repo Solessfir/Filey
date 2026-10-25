@@ -117,11 +117,65 @@ function i32 P__CompareFolded(String a, String b)
     return a.length == b.length ? 0 : a.length < b.length ? -1 : 1;
 }
 
+// The defaults chosen while Filey runs, which mimeapps.list, read once, does not hold yet: an application's desktop file ID for each type.
+// ponytail: a fixed table under a lock; the newest choice for a type replaces the last.
+global struct { char mime[128]; char id[256]; } P__chosenDefaults[32];
+global u32 P__chosenDefaultCount;
+global pthread_mutex_t P__chosenDefaultsLock = PTHREAD_MUTEX_INITIALIZER;
+
+// Makes `id` the default application for `mime`, in the user's mimeapps.list, which other programs follow too, and at once for this run.
+// The line for the type in its Default Applications section is replaced, or added, and the rest of the file is kept as it was.
+function P_FileError P__SetDefaultApp(Arena *arena, String mime, String id)
+{
+    pthread_mutex_lock(&P__chosenDefaultsLock);
+    u32 slot = P__chosenDefaultCount < CArrayCount(P__chosenDefaults) ? P__chosenDefaultCount++ : CArrayCount(P__chosenDefaults) - 1;
+    snprintf(P__chosenDefaults[slot].mime, sizeof(P__chosenDefaults[slot].mime), "%.*s", (i32)mime.length, mime.value);
+    snprintf(P__chosenDefaults[slot].id, sizeof(P__chosenDefaults[slot].id), "%.*s", (i32)id.length, id.value);
+    pthread_mutex_unlock(&P__chosenDefaultsLock);
+    Scratch scratch = GetScratchEx(arena);
+    const char *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    String path = config && config[0] == '/' ? StrFormat(scratch.arena, "%s/mimeapps.list", config) : StrFormat(scratch.arena, "%s/.config/mimeapps.list", home ? home : "");
+    String text = {0}, entry = StrFormat(scratch.arena, "%S=%S;", mime, id), key = StrFormat(scratch.arena, "%S=", mime);
+    P_ReadFile(scratch.arena, path, &text);
+    StrBuilder out = {0};
+    b32 inDefaults = false, placed = false;
+    // Line by line, empty ones too, so that the file keeps its look.
+    for (u64 at = 0; at < text.length;) {
+        u64 end = at;
+        while (end < text.length && text.value[end] != '\n') ++end;
+        String line = StrFromTo(text, at, (i64)end);
+        at = end + 1;
+        if (line.length && line.value[0] == '[') {
+            // The section ends: the type's line goes at its end when it had none.
+            if (inDefaults && !placed) StrBuildStr(scratch.arena, &out, StrFormat(scratch.arena, "%S\n", entry)), placed = true;
+            inDefaults = StrIsEqual(P__Trim(line), S("[Default Applications]"));
+        } else if (inDefaults && line.length >= key.length && StrIsEqual(StrFromTo(line, 0, (i64)key.length), key)) {
+            if (!placed) StrBuildStr(scratch.arena, &out, StrFormat(scratch.arena, "%S\n", entry)), placed = true;
+            continue;
+        }
+        StrBuildStr(scratch.arena, &out, StrFormat(scratch.arena, "%S\n", line));
+    }
+    if (inDefaults && !placed) StrBuildStr(scratch.arena, &out, StrFormat(scratch.arena, "%S\n", entry)), placed = true;
+    if (!placed) StrBuildStr(scratch.arena, &out, StrFormat(scratch.arena, "%s[Default Applications]\n%S\n", out.buffer.length ? "\n" : "", entry));
+    P_FileError result = P_WriteFile(arena, path, out.buffer);
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // Applications for `mime`, best first: the default, the associations the user added, then every other entry that lists the type, by name,
 // unless `chosenOnly` keeps just those that mimeapps.list chooses.
 function u64 P__AppsFor(const P__AppData *data, String mime, b32 chosenOnly, P__App **out, u64 capacity)
 {
     u64 count = 0;
+    // A default chosen in this run first.
+    pthread_mutex_lock(&P__chosenDefaultsLock);
+    for (u32 i = P__chosenDefaultCount; i > 0 && !count && capacity; --i) {
+        if (!StrIsEqual(StrFromCStr(P__chosenDefaults[i - 1].mime), mime)) continue;
+        P__App *chosen = P__FindApp(data, StrFromCStr(P__chosenDefaults[i - 1].id));
+        if (chosen) out[count++] = chosen;
+        break;
+    }
+    pthread_mutex_unlock(&P__chosenDefaultsLock);
     Scratch scratch = GetScratch();
     StrBuilder removed = {0};
     for (u64 i = 0; i < data->associations.header.count; ++i) {
@@ -439,6 +493,8 @@ typedef struct P__MenuData {
     P__App **apps;     // the application an Open With item starts
     b8 *terminal;      // Open in Terminal items
     String *templates; // the template file a New item copies, by item; empty for the rest
+    String mime;       // the type the first item is of, which Set as Default chooses for
+    b8 *setDefault;    // Set as Default items, whose application becomes the type's default
     String eject;      // where Eject takes the drive the menu is for from, as GIO names it; empty when it cannot be ejected
     u32 ejectItem;     // the Eject item's index, past the items when there is none
 } P__MenuData;
@@ -509,10 +565,11 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     // The computer is an icon here, not an item with a menu of its own.
     if (count == 1 && StrIsEqual(names[0], P_ComputerIconPath())) return false;
     pthread_once(&P__appsOnce, P__LoadGlobalApps);
-    enum { MaxApps = 16, MaxItems = 24 + MaxApps };
+    enum { MaxApps = 16, MaxItems = 26 + 2 * MaxApps };
     P_MenuItem items[MaxItems];
     P__App *itemApps[MaxItems] = {0};
     String templateFor[MaxItems] = {0};
+    b8 itemDefault[MaxItems] = {0};
     b8 itemTerminal[MaxItems] = {0};
     u32 itemCount = 0;
     P_MenuItem separator = { .separator = true };
@@ -607,11 +664,22 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         items[rootCount - 1].childCount = itemCount - rootCount;
     }
     if (openWith != UINT32_MAX) {
+        // The applications, then Set as Default with them again, which makes the one chosen open the type from then on.
         items[openWith].firstChild = itemCount;
-        items[openWith].childCount = (u32)appCount;
+        items[openWith].childCount = (u32)appCount + 2;
         for (u64 i = 0; i < appCount; ++i) {
             itemApps[itemCount] = apps[i];
             items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("openwith"), .isDefault = i == 0 };
+        }
+        items[itemCount++] = separator;
+        u32 setDefault = itemCount;
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Set as Default") };
+        items[setDefault].firstChild = itemCount;
+        items[setDefault].childCount = (u32)appCount;
+        for (u64 i = 0; i < appCount; ++i) {
+            itemApps[itemCount] = apps[i];
+            itemDefault[itemCount] = true;
+            items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("setdefault"), .isDefault = i == 0 };
         }
     }
     if (!data->eject.length) data->ejectItem = itemCount;
@@ -619,12 +687,19 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     data->apps = ArenaPushArray(arena, itemCount, P__App *);
     data->terminal = ArenaPushArray(arena, itemCount, b8);
     data->templates = ArenaPushArray(arena, itemCount, String);
+    data->setDefault = ArenaPushArray(arena, itemCount, b8);
+    if (count && appCount) {
+        Scratch types = GetScratchEx(arena);
+        data->mime = StrCopy(arena, P__MimeForName(names[0], P__IsDirectory(types.arena, data->paths[0])));
+        ReleaseScratch(types);
+    }
     for (u32 i = 0; i < itemCount; ++i) {
         menu->items[i] = items[i];
         if (!items[i].separator) menu->items[i].id = i + 1;
         data->apps[i] = itemApps[i];
         data->terminal[i] = itemTerminal[i];
         data->templates[i] = templateFor[i];
+        data->setDefault[i] = itemDefault[i];
     }
     menu->count = itemCount;
     menu->rootCount = rootCount;
@@ -666,6 +741,7 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
         else free(target);
         return (P_FileError){0};
     }
+    if (data->setDefault[index] && data->apps[index]) return P__SetDefaultApp(arena, data->mime, data->apps[index]->id);
     if (data->apps[index]) return P__LaunchApp(arena, data->apps[index], data->paths, data->count, data->directory);
     return P__FileError(arena, ENOTSUP);
 }
