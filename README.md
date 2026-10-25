@@ -67,22 +67,22 @@ Filey asks GitHub once a day whether a newer release is out (with `curl`, which 
 
 ### Colors from your wallpaper
 
-Filey takes its colors from your wallpaper through [Matugen](https://github.com/InioX/matugen). Each custom color scheme is a `<name>.scheme` file in `~/.config/filey`, so Matugen can render one, a new one or one you made in Options. Get the template:
+Filey takes its colors from your wallpaper through [Matugen](https://github.com/InioX/matugen). In Options, duplicate any color scheme: the copy is a custom scheme, `Custom1.scheme` in `~/.config/filey`, and is chosen at once. Get the template:
 
 ```sh
 mkdir -p ~/.config/matugen/templates
 curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/Source/Resources/filey-matugen.conf -o ~/.config/matugen/templates/filey.conf
 ```
 
-Add it to `~/.config/matugen/config.toml`:
+Then point Matugen at that scheme in `~/.config/matugen/config.toml`:
 
 ```toml
 [templates.filey]
 input_path = '~/.config/matugen/templates/filey.conf'
-output_path = '~/.config/filey/Wallpaper.scheme'
+output_path = '~/.config/filey/Custom1.scheme'
 ```
 
-Then choose **Wallpaper** as the color scheme in Options, or set `theme = wallpaper` in `Settings.conf`. Each time Matugen runs, Filey takes the new colors at once.
+Each time Matugen runs, Filey takes the new colors at once.
 
 ## Build
 
