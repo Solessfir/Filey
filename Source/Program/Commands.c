@@ -2961,7 +2961,6 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
                 state->pathFlashTime = PlatformNowMicroseconds();
             }
         } break;
-        case Prog_CommandKind_CopyVersion: PlatformClipboardSetText(S(FILEY_VERSION)); break;
         case Prog_CommandKind_CopyAsPathSmart: {
             String *shown = paths;
             u64 shownCount = count;
@@ -4814,6 +4813,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__GoToOpen(state, item);
             } break;
             case Prog_CommandKind_FilesPopupClose: Prog__CloseFilesPopup(state); break;
+            case Prog_CommandKind_CopyVersion: PlatformClipboardSetText(S(FILEY_VERSION)); break;
             case Prog_CommandKind_ToggleFolders:
             case Prog_CommandKind_ToggleFiles: {
                 if (command->kind == Prog_CommandKind_ToggleFolders) state->hideFolders = !state->hideFolders;
