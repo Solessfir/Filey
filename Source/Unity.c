@@ -379,11 +379,15 @@ int main(void)
     if (P_StartupFlag(S("--inspect"))) ArrayPush(startup.arena, handed, S("--inspect"));
     b32 flagged = handed.header.count != 0;
     for (u64 i = 0; flagged && i < startPaths.header.count; ++i) ArrayPush(startup.arena, handed, startPaths.v[i]);
-    if (!separateWindow && !Prog_SeparateInstances(configDirectory) && !PlatformInstanceClaim(configDirectory, flagged ? handed : startPaths)) {
+    b32 single = !separateWindow && !Prog_SeparateInstances(configDirectory);
+    if (single && !PlatformInstanceClaim(configDirectory, flagged ? handed : startPaths)) {
         ReleaseScratch(startup);
         return 0;
     }
-    if (flagged) startPaths = (ArrayStr){0};
+    // The main window keeps one session: folders it starts with open as new tabs among the last run's, rather than in place of them.
+    b32 merged = single && !flagged && startPaths.header.count;
+    for (u64 i = 0; merged && i < startPaths.header.count; ++i) ArrayPush(startup.arena, handed, startPaths.v[i]);
+    if (flagged || merged) startPaths = (ArrayStr){0};
     PlatformWindowDesc window = { .title = S("Filey"), .width = 1280, .height = 800 };
     Prog_StartupWindow(configDirectory, &window);
     Prog_SessionWindow(configDirectory, &window);
@@ -413,6 +417,7 @@ int main(void)
 #endif
     }
     loop.state.separateWindow = separateWindow;
+    loop.state.leavesSession = uninstall;
     if (ok && picked.length) Prog_SelectNext(&loop.state, picked);
     // After the settings, so that these tabs start with their choices.
     for (u64 i = 1; ok && i < startPaths.header.count; ++i) {
@@ -422,8 +427,11 @@ int main(void)
     }
     if (ok && uninstall) Prog__OpenSetup(&loop.state);
     // Without folders to open, the last run's panels and tabs come back, or the place the settings start from.
-    if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
-    if (ok && flagged) {
+    // A start set to a place rather than the last session, or with none saved yet, shows the folders alone, the first in the shown tab.
+    b32 session = loop.state.startup == Prog_Startup_LastSession && P_PathExists(Prog_JoinPath(startup.arena, configDirectory, S("Session.conf")));
+    if (merged && !session && !loop.state.startupLayoutLength) ArrayInsert(startup.arena, handed, 0, S("--replace"));
+    else if (ok && !startPaths.header.count) Prog_StartUp(&loop.state);
+    if (ok && (flagged || merged)) {
         StrBuilder text = {0};
         for (u64 i = 0; i < handed.header.count; ++i) StrBuildStr(startup.arena, &text, StrFormat(startup.arena, i ? "\n%S" : "%S", handed.v[i]));
         Prog_OpenPaths(&loop.state, text.buffer);

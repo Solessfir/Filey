@@ -1751,7 +1751,8 @@ typedef struct Prog_State {
     P_Job *gitPullJob;
     u64 gitPullHash;          // and of the one being pulled
     b32 separateInstances;    // each run of the program opens a window of its own, rather than a tab in the one already open
-    b32 separateWindow;       // started as a window of its own beside that one, which keeps the session
+    b32 separateWindow;       // started as a window of its own beside that one
+    b32 leavesSession;        // the Setup window for uninstalling, which saves no session on exit
     b32 tabDropOther;         // a dragged tab is over another of the program's windows, which letting go hands it to
     UI_Block *tabGhost;       // the dragged tab, while the pointer is outside the window, for the frame to draw on its own and show at it
     UI_Vec2 tabGhostHot;      // where the pointer is in it

@@ -8364,8 +8364,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 function void Prog_Release(Prog_State *state)
 {
     Prog_CloseMenu(state);
-    // The session is written while the panels still hold it; a window started beside the main one leaves it to that one.
-    if (state->configDirectory.length && state->panelCount && !state->separateWindow) {
+    // The session is written while the panels still hold it, by whichever window closes last, so that one is the next run's.
+    if (state->configDirectory.length && state->panelCount && !state->leavesSession) {
         Scratch scratch = GetScratch();
         P_WriteFile(scratch.arena, Prog_JoinPath(scratch.arena, state->configDirectory, Prog_SessionFile), Prog_LayoutText(scratch.arena, state));
         ReleaseScratch(scratch);
