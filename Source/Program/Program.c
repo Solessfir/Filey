@@ -3170,8 +3170,9 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     b32 kept = Prog_FolderView(state, path, &view);
     // A little narrower than the other toolbar buttons and further apart.
     f32 width = floorf(25.6f * m->scale + 0.5f), height = Prog__ToolbarButtonHeight(m);
+    // A kept view's lock is colored as a bookmarked folder's bookmark, so that it tells apart from an open one at a glance.
     UI_Interaction lock = Prog__TextButton(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,
-                                           theme->icon, theme->text, theme->iconDisabled, path.length != 0, m);
+                                           kept ? theme->textMatch : theme->icon, kept ? theme->textMatch : theme->text, theme->iconDisabled, path.length != 0, m);
     if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_FolderViewToggle, kept ? Tr("Folder view settings saved and applied.\nIcons, sort, folders first, list columns.")
                                                                                         : Tr("No folder view settings saved.\nUsing panel's view settings."));
     if (lock.clicked) Prog_QueueCommand(state, Prog_CommandKind_FolderViewToggle, 0, 0, lock.clickOrder);
