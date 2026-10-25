@@ -784,6 +784,7 @@ function b32 Prog_SeparateInstances(String configDirectory)
 function void Prog_ApplySettings(Prog_State *state, String text)
 {
     Prog_ThemeUser = Prog_ThemeCustom;
+    b8 colorGiven[CArrayCount(Prog_ThemeColors)] = {0};
     MemCopy(state->schemeGroups, Prog_SchemeColors[0], sizeof(state->schemeGroups));
     state->scheme = 0;
     state->lightScheme = Prog_LightScheme;
@@ -998,7 +999,10 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         } else if (name.length > 6 && StrIsEqual(StrFromTo(name, 0, 6), S("color."))) {
             String field = StrFrom(name, 6);
             for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
-                if (StrIsEqual(field, StrFromCStr(Prog_ThemeColors[i].name)) && Prog__ParseColor(value, &color)) *(R_Color *)((u8 *)&Prog_ThemeUser + Prog_ThemeColors[i].offset) = color;
+                if (StrIsEqual(field, StrFromCStr(Prog_ThemeColors[i].name)) && Prog__ParseColor(value, &color)) {
+                    *(R_Color *)((u8 *)&Prog_ThemeUser + Prog_ThemeColors[i].offset) = color;
+                    colorGiven[i] = true;
+                }
             }
         } else if (name.length > 7 && StrIsEqual(StrFromTo(name, 0, 7), S("hotkey."))) {
             String command = StrFrom(name, 7);
@@ -1023,7 +1027,12 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->systemDark = !state->systemScheme || P_PrefersDarkColors();
     if (!state->systemDark) {
         Prog__UseScheme(state, state->lightSchemeName.length ? StrMake(state->lightSchemeName.text, state->lightSchemeName.length) : S("light"), state->schemeGroups);
+        // The settings' own colors stay over the light scheme's.
+        Prog_Theme given = Prog_ThemeUser;
         Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
+        for (u64 i = 0; i < CArrayCount(Prog_ThemeColors); ++i) {
+            if (colorGiven[i]) *(R_Color *)((u8 *)&Prog_ThemeUser + Prog_ThemeColors[i].offset) = *(R_Color *)((u8 *)&given + Prog_ThemeColors[i].offset);
+        }
     }
     // The inspector's text size and layout change with the file, and keep what its controls set otherwise.
     if (inspectorFontSize != state->settingInspectorFontSize) state->inspectorFontSize = state->settingInspectorFontSize = inspectorFontSize;
