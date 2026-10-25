@@ -4813,7 +4813,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__GoToOpen(state, item);
             } break;
             case Prog_CommandKind_FilesPopupClose: Prog__CloseFilesPopup(state); break;
-            case Prog_CommandKind_CopyVersion: PlatformClipboardSetText(S(FILEY_VERSION)); break;
+            case Prog_CommandKind_CopyVersion: {
+                PlatformClipboardSetText(S(FILEY_VERSION));
+                Prog_Notify(state, Prog_NoticeKind_Info, S("version.copied"), Tr("Version copied"), StrFormat(&state->frameArena, TrF("%S is on the clipboard."), S(FILEY_VERSION)));
+            } break;
             case Prog_CommandKind_ToggleFolders:
             case Prog_CommandKind_ToggleFiles: {
                 if (command->kind == Prog_CommandKind_ToggleFolders) state->hideFolders = !state->hideFolders;

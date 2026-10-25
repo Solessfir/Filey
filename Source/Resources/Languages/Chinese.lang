@@ -3334,3 +3334,9 @@ Scripts
 
 Open as Root
 = 以管理员身份打开
+
+Version copied
+= 已复制版本
+
+%S is on the clipboard.
+= %S 已复制到剪贴板。

@@ -525,6 +525,8 @@ global const char *const Prog_Strings[] = {
     "Couldn't open the issue page",
     "Couldn't change permissions",
     "Couldn't open the console",
+    "Version copied",
+    "%S is on the clipboard.",
     "B",
     "kB",
     "MB",
