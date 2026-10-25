@@ -1982,6 +1982,15 @@ function b32 P_RunCommand(Arena *arena, String directory, const String *argument
 // ponytail: one `gio mount -li` each drive refresh; watch the volume monitor over D-Bus if that shows in profiles.
 global atomic_bool P__mountingDevices;
 
+// The disks' partitions udisks offers but nothing mounted, as a second system's, which the drives list to be mounted when opened, as nemo
+// does; mounting an internal disk asks for an administrator's password, so none is mounted unasked. The last `gio` scan's, under the lock.
+typedef struct P__Volume { char name[128], device[64], uuid[64]; } P__Volume;
+global pthread_mutex_t P__volumesLock = PTHREAD_MUTEX_INITIALIZER;
+global P__Volume P__volumes[8];
+global u32 P__volumeCount;
+// Set as the scan finds them changed, for the window to list the drives again.
+global atomic_bool P__drivesChanged;
+
 function void *P__MountDevices(void *unused)
 {
     (void)unused;
@@ -1998,16 +2007,28 @@ function void *P__MountDevices(void *unused)
         String *line = &lines.v[i];
         while (line->length && (line->value[0] == ' ' || line->value[0] == '\t')) *line = StrFrom(*line, 1);
     }
+    P__Volume volumes[CArrayCount(P__volumes)];
+    u32 volumeCount = 0;
     for (u64 i = 0; i < lines.header.count; ++i) {
         if (!StrIsEqual(StrFromTo(lines.v[i], 0, 7), S("Volume("))) continue;
-        String root = {0};
-        b32 automount = false, mounted = false;
+        String root = {0}, unixDevice = {0}, uuid = {0}, title = StrFrom(lines.v[i], StrIndexStr(lines.v[i], S("): "), SSF_IndexPlusOne).value);
+        b32 automount = false, mounted = false, mountable = false;
         for (u64 j = i + 1; j < lines.header.count; ++j) {
             String field = lines.v[j];
             if (StrIsEqual(StrFromTo(field, 0, 7), S("Volume(")) || StrIsEqual(StrFromTo(field, 0, 6), S("Drive("))) break;
             if (StrIsEqual(StrFromTo(field, 0, 6), S("Mount("))) mounted = true;
             if (StrIsEqual(StrFromTo(field, 0, 16), S("activation_root="))) root = StrFrom(field, 16);
             if (StrIsEqual(field, S("should_automount=1"))) automount = true;
+            if (StrIsEqual(field, S("can_mount=1"))) mountable = true;
+            if (StrIsEqual(StrFromTo(field, 0, 5), S("uuid="))) uuid = StrFrom(field, 5);
+            if (StrIsEqual(StrFromTo(field, 0, 19), S("unix-device: '/dev/"))) unixDevice = StrFromTo(field, 14, (i64)field.length - 1);
+        }
+        if (unixDevice.length && mountable && !mounted && volumeCount < CArrayCount(volumes) && unixDevice.length < sizeof(volumes[0].device)) {
+            P__Volume *volume = &volumes[volumeCount++];
+            *volume = (P__Volume){0};
+            MemCopy(volume->device, unixDevice.value, unixDevice.length);
+            MemCopy(volume->name, title.value, Min(title.length, (u64)sizeof(volume->name) - 1));
+            MemCopy(volume->uuid, uuid.value, Min(uuid.length, (u64)sizeof(volume->uuid) - 1));
         }
         b32 device = StrIsEqual(StrFromTo(root, 0, 6), S("mtp://")) || StrIsEqual(StrFromTo(root, 0, 10), S("gphoto2://"));
         if (!device || !automount || root.length >= sizeof(attempts[0].root)) continue;
@@ -2028,6 +2049,17 @@ function void *P__MountDevices(void *unused)
         attempts[slot].tried = now;
         char *args[] = { gio, "mount", attempts[slot].root, NULL };
         P__Spawn(gio, args, NULL);
+    }
+    if (gio && lines.header.count) {
+        pthread_mutex_lock(&P__volumesLock);
+        b32 changed = volumeCount != P__volumeCount || MemCompare(P__volumes, volumes, volumeCount * sizeof(volumes[0])) != 0;
+        MemCopy(P__volumes, volumes, volumeCount * sizeof(volumes[0]));
+        P__volumeCount = volumeCount;
+        pthread_mutex_unlock(&P__volumesLock);
+        if (changed) {
+            atomic_store(&P__drivesChanged, true);
+            P_WakeWindow();
+        }
     }
     // One gone from the list starts over when it comes again.
     for (u64 a = 0; a < CArrayCount(attempts) && lines.header.count; ++a) if (!attempts[a].seen) attempts[a].root[0] = 0;
@@ -2068,6 +2100,21 @@ function P_FileError P_MountRemote(Arena *arena, String address, String password
 {
     *folder = (String){0};
     Scratch scratch = GetScratchEx(arena);
+    // A partition by its device, which udisks mounts under /run/media, asking through the desktop's polkit agent where it must.
+    if (StrIsEqual(StrFromTo(address, 0, 5), S("/dev/"))) {
+        String device[] = { S("gio"), S("mount"), S("-d"), address }, output = {0}, mounts = {0};
+        P_RunCommand(scratch.arena, S("/"), device, CArrayCount(device), 120000, &output, true);
+        P_ReadFile(scratch.arena, S("/proc/self/mounts"), &mounts);
+        ArrayStr lines = StrSplit(scratch.arena, mounts, '\n');
+        for (u64 i = 0; i < lines.header.count && !folder->length; ++i) {
+            ArrayStr fields = StrSplit(scratch.arena, lines.v[i], ' ');
+            if (fields.header.count >= 2 && StrIsEqual(fields.v[0], address)) *folder = P__MountPoint(arena, fields.v[1]);
+        }
+        while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == ' ')) --output.length;
+        P_FileError result = folder->length ? (P_FileError){0} : (P_FileError){ .code = EIO, .message = StrCopy(arena, output.length ? output : S("The drive could not be mounted")) };
+        ReleaseScratch(scratch);
+        return result;
+    }
     String mount[] = { S("gio"), S("mount"), address }, info[] = { S("gio"), S("info"), address }, output = {0}, details = {0};
     String answers = S("\n\n\n\n");
     if (password.length) {
@@ -2190,6 +2237,19 @@ function P_ArrayPlace P_Drives(Arena *arena)
         for (u64 j = 0; j < result.header.count; ++j) shared |= i != j && StrIsEqual(result.v[i].name, result.v[j].name);
         if (shared && result.v[i].totalBytes) result.v[i].name = StrFormat(arena, "%S (%S)", result.v[i].name, P__ShortSize(scratch.arena, result.v[i].totalBytes));
     }
+    // The partitions not mounted after the mounted disks, by their device, which opening mounts.
+    pthread_mutex_lock(&P__volumesLock);
+    for (u32 i = 0; i < P__volumeCount; ++i) {
+        String device = StrFromCStr(P__volumes[i].device);
+        b32 seen = false;
+        for (u64 j = 0; j < lines.header.count && !seen; ++j) seen = StrIsEqual(StrFromTo(lines.v[j], 0, (i64)device.length + 1), StrFormat(scratch.arena, "%S ", device));
+        if (seen) continue;
+        // As a mounted one without a label goes: by its disk's model, else as GVFS calls it, as "4.0 TB Volume".
+        String model = P__DiskModel(scratch.arena, device);
+        ArrayPush(arena, result, ((P_Place){ .name = StrCopy(arena, model.length ? model : StrFromCStr(P__volumes[i].name)), .path = StrCopy(arena, device), .type = S("Local Disk"),
+                                             .id = StrCopy(arena, StrFromCStr(P__volumes[i].uuid)) }));
+    }
+    pthread_mutex_unlock(&P__volumesLock);
     for (u64 i = 0; i < devices.header.count; ++i) ArrayPush(arena, result, devices.v[i]);
     ReleaseScratch(scratch);
     return result;

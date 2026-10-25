@@ -3339,3 +3339,6 @@ Version copied
 
 %S is on the clipboard.
 = %S в буфере обмена.
+
+Couldn't mount %S
+= Не удалось подключить %S

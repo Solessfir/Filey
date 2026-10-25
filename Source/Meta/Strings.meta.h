@@ -590,6 +590,7 @@ global const char *const Prog_Strings[] = {
     "%S became %S, %u%% of the size.",
     "Redo failed",
     "Undo failed",
+    "Couldn't mount %S",
     "Couldn't connect to %S",
     "Filey %S is out",
     "Update downloads it and starts Filey again in it, with the panels and tabs as they are.",

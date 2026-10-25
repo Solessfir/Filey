@@ -3340,3 +3340,6 @@ Version copied
 
 %S is on the clipboard.
 = %S 已复制到剪贴板。
+
+Couldn't mount %S
+= 无法挂载 %S

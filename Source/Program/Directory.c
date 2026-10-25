@@ -4212,6 +4212,18 @@ function String Prog__ListedName(Arena *arena, const Prog_State *state, String f
 
 function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHistory, u64 historyAt)
 {
+    // A partition not mounted is listed by its device, and opening it mounts it, then goes to where it was mounted.
+    if (P_MountsRemote() && StrIsEqual(StrFromTo(path, 0, 5), S("/dev/"))) {
+        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+        input->kind = Prog_JobKind_Mount;
+        input->panel = Prog__PanelId(state);
+        input->generation = state->generation;
+        input->name = StrCopy(&job->arena, path);
+        job->input = input;
+        P_JobSubmit(job);
+        return;
+    }
     Prog__FollowTrail(state, path);
     // Going to a folder that holds the shown one, by Up, Back or the path, selects the folder it came from; This PC
     // selects the drive.
@@ -7751,7 +7763,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
             } else if (mounted && mounted->error.code) {
                 if (asked) Prog_ClosePassword(state);
-                Prog_Notify(state, Prog_NoticeKind_Error, S("mount.failed"), StrFormat(&state->frameArena, TrF("Couldn't connect to %S"), input->name), mounted->error.message);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("mount.failed"), StrFormat(&state->frameArena, StrIsEqual(StrFromTo(input->name, 0, 5), S("/dev/")) ? TrF("Couldn't mount %S") : TrF("Couldn't connect to %S"), input->name), mounted->error.message);
             } else if (mounted) {
                 if (asked) Prog_ClosePassword(state);
                 Prog_RequestDirectory(state, mounted->name, true, 0);

@@ -3340,3 +3340,6 @@ Version copied
 
 %S is on the clipboard.
 = %S ist in der Zwischenablage.
+
+Couldn't mount %S
+= %S konnte nicht eingehängt werden

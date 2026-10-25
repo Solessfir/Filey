@@ -1206,6 +1206,7 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
             u64 count;
             while (read(Wl.wakeFd, &count, sizeof(count)) < 0 && errno == EINTR) {}
             woken = true;
+            if (atomic_exchange(&P__drivesChanged, false)) PlatformPushEvent(PlatformEventKind_DrivesChanged);
         }
         if (fds[2].revents & POLLIN) {
             LinuxTakeInstanceMessage();
