@@ -27,6 +27,7 @@ function String Prog_CommandTooltip(Prog_CommandKind kind) { return Prog__Comman
 function b32 Prog_CommandApplies(Prog_CommandKind kind)
 {
     if (kind == Prog_CommandKind_SetupOpen) return P_CanInstall();
+    if (kind == Prog_CommandKind_ConnectToServer) return P_MountsRemote();
     return kind != Prog_CommandKind_ToggleSystemFiles || P_HasSystemFiles();
 }
 
@@ -158,7 +159,7 @@ function P_ContextMenu Prog__ShapeMenu(Prog_State *state, P_ContextMenu base)
 // The system's menu items that are Filey's own, as Linux's are, in the language shown; these are their English texts, for the language files.
 global const String Prog__OwnMenuWords[] = { TrInit("Open"), TrInit("Open With"), TrInit("Open in Terminal"), TrInit("Cut"), TrInit("Copy"), TrInit("Duplicate"),
                                              TrInit("Copy As Path"), TrInit("Rename"), TrInit("Trash"), TrInit("Delete"), TrInit("Paste"), TrInit("New"),
-                                             TrInit("Folder"), TrInit("File"), TrInit("Eject") };
+                                             TrInit("Folder"), TrInit("File"), TrInit("Eject"), TrInit("Disconnect") };
 
 function void Prog__TranslateOwnItems(Prog_State *state)
 {
@@ -698,7 +699,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_OpenRelativePath, Prog_CommandKind_OpenRelativePathInTab,
     Prog_CommandKind_CalcDirsContents, Prog_CommandKind_CreateFile, Prog_CommandKind_CreateFolder, Prog_CommandKind_ToggleFolders, Prog_CommandKind_ToggleFiles,
     Prog_CommandKind_TypesPopupOpen, Prog_CommandKind_FilesPopupOpen, Prog_CommandKind_FilesPopupPrev, Prog_CommandKind_FilesPopupNext,
-    Prog_CommandKind_EditPath, Prog_CommandKind_PathMenu, Prog_CommandKind_ToggleCompactPath, Prog_CommandKind_ToggleBreadcrumbs, Prog_CommandKind_StartFilter, Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
+    Prog_CommandKind_EditPath, Prog_CommandKind_ConnectToServer, Prog_CommandKind_PathMenu, Prog_CommandKind_ToggleCompactPath, Prog_CommandKind_ToggleBreadcrumbs, Prog_CommandKind_StartFilter, Prog_CommandKind_ToggleExpandFolder, Prog_CommandKind_StartExpandedSearch, Prog_CommandKind_ApplyFilter, Prog_CommandKind_RemoveFilter,
     Prog_CommandKind_ToggleFilterPin, Prog_CommandKind_Refresh, Prog_CommandKind_Back, Prog_CommandKind_Forward, Prog_CommandKind_Up,
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
@@ -1760,7 +1761,7 @@ function void Prog_ClosePassword(Prog_State *state)
     ArenaClear(&state->passwordArena);
     state->passwordArchive = (String){0};
     state->password = state->passwordShown = (Prog_TextEdit){0};
-    state->passwordWrong = state->passwordTrying = false;
+    state->passwordWrong = state->passwordTrying = state->passwordServer = false;
 }
 
 function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
@@ -3886,6 +3887,19 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->passwordTrying || !state->password.length) break;
                 P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
                 Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                // A server's is tried by connecting with it.
+                if (state->passwordServer) {
+                    input->kind = Prog_JobKind_Mount;
+                    input->panel = Prog__PanelId(state);
+                    input->generation = state->generation;
+                    input->name = StrCopy(&job->arena, state->passwordArchive);
+                    input->password = StrCopy(&job->arena, Prog_EditText(&state->password));
+                    job->input = input;
+                    P_JobSubmit(job);
+                    state->passwordTrying = true;
+                    state->passwordWrong = false;
+                    break;
+                }
                 input->kind = Prog_JobKind_ArchivePassword;
                 input->path = StrCopy(&job->arena, state->passwordArchive);
                 input->name = StrCopy(&job->arena, Prog_EditText(&state->password));
@@ -4431,9 +4445,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->paletteWheeled = false;
             } break;
             case Prog_CommandKind_GoTo:
+            case Prog_CommandKind_ConnectToServer:
             case Prog_CommandKind_EditPath: {
                 Prog_CloseMenu(state);
-                b32 edit = command->kind == Prog_CommandKind_EditPath;
+                b32 edit = command->kind == Prog_CommandKind_EditPath || command->kind == Prog_CommandKind_ConnectToServer;
                 if (!edit) Prog_CheckRecents(state);
                 state->gotoDrives = false;
                 state->paletteOpen = edit || !(state->paletteOpen && state->paletteMode == Prog_PaletteMode_GoTo);
@@ -4444,7 +4459,11 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 ArenaClear(&state->gotoHistoryArena);
                 state->gotoHistory = (ArrayStr){0};
                 state->gotoHistoryAt = 0;
-                if (edit && state->directory.path.length) {
+                // A server's address to finish, which Go To connects to.
+                if (command->kind == Prog_CommandKind_ConnectToServer) {
+                    Prog__GoToSetText(state, NoTr("sftp://"), false);
+                    state->paletteHighlight = UINT32_MAX;
+                } else if (edit && state->directory.path.length) {
                     Prog__GoToSetText(state, P_NativePath(&state->frameArena, Prog_JoinPath(&state->frameArena, state->directory.path, S(""))), false);
                     state->palette.anchor = 0;
                     state->paletteHighlight = UINT32_MAX;
@@ -4493,6 +4512,21 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (state->paletteMode == Prog_PaletteMode_GoTo) {
                     u32 count;
                     String folder;
+                    // A server's address, as "sftp://host", is connected to first.
+                    String typed = Prog_EditText(&state->palette);
+                    Index scheme = StrIndexStr(typed, S("://"), SSF_None);
+                    if (P_MountsRemote() && scheme.exists && scheme.value > 1 && !StrIsEqual(StrFromTo(typed, 0, (i64)scheme.value), S("file"))) {
+                        state->paletteOpen = false;
+                        P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+                        Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+                        input->kind = Prog_JobKind_Mount;
+                        input->panel = Prog__PanelId(state);
+                        input->generation = state->generation;
+                        input->name = StrCopy(&job->arena, typed);
+                        job->input = input;
+                        P_JobSubmit(job);
+                        break;
+                    }
                     Prog_GoToItem *found = Prog_GoToMatches(state, &count, &folder);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     // With nothing found, the text itself is the place to go.

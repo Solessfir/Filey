@@ -9090,7 +9090,7 @@ function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
     UI_Block *panel = UI_AddBlockFromKey(UI_KeyFromStr(0, S("Password")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip | UI_Flag_LeftMouseClickable);
     UI_Parent(panel) {
         UI_Block *title = Prog__Box(UI_Flex(), UI_Pixels(head), UI_Layout_Horizontal, theme->menu, 0);
-        UI_Parent(title) Prog__Label(StrFormat(&state->frameArena, TrF("Password for %S"), Prog__FolderName(state->passwordArchive)), UI_Flex(), head, 0, theme->text, 0.5f);
+        UI_Parent(title) Prog__Label(StrFormat(&state->frameArena, TrF("Password for %S"), state->passwordServer ? state->passwordArchive : Prog__FolderName(state->passwordArchive)), UI_Flex(), head, 0, theme->text, 0.5f);
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, floorf(8.8f * s + 0.5f), 0 });
         UI_Block *box = Prog__Box(UI_Flex(), UI_Pixels(field), UI_Layout_Horizontal, theme->inner, UI_Flag_Clip);
@@ -9100,7 +9100,7 @@ function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, textTop });
                 UI_SetNextPrefHeight(UI_Pixels(m->line));
                 UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                UI_SetNextText(Tr("Type the archive's password..."));
+                UI_SetNextText(state->passwordServer ? Tr("Type the server's password...") : Tr("Type the archive's password..."));
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
             }
             Prog__EditContents(shown, 0, textTop, !state->passwordTrying, m);
@@ -9108,7 +9108,7 @@ function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
         if (note > 0) {
             UI_SetNextChildrenPadding((UI_Padding){ floorf(8.8f * s + 0.5f), 0, 0, 0 });
             UI_Block *wrong = Prog__Box(UI_Flex(), UI_Pixels(note), UI_Layout_Horizontal, theme->inner, 0);
-            UI_Parent(wrong) Prog__Label(Tr("That password does not open it."), UI_Flex(), note, 0, theme->danger, 0);
+            UI_Parent(wrong) Prog__Label(state->passwordServer ? Tr("The server did not accept that password.") : Tr("That password does not open it."), UI_Flex(), note, 0, theme->danger, 0);
         }
         Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
         UI_SetNextChildrenPadding((UI_Padding){ 0, 0, floorf(11.2f * s + 0.5f), 0 });

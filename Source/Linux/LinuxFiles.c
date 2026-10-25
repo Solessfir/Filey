@@ -2059,6 +2059,48 @@ function String P__UsbModel(Arena *arena, String serial)
     return result;
 }
 
+// GVFS mounts the server, and `gio info` tells the folder it is reached at. Without a password its questions are answered empty, so that it
+// gives up rather than waits; with one they are answered in the order it asks them: the user, the address's or else the login's, unless
+// the address names one, the domain for a Windows share, left as it offers, and the password.
+function b32 P_MountsRemote(void) { return true; }
+
+function P_FileError P_MountRemote(Arena *arena, String address, String password, String *folder)
+{
+    *folder = (String){0};
+    Scratch scratch = GetScratchEx(arena);
+    String mount[] = { S("gio"), S("mount"), address }, info[] = { S("gio"), S("info"), address }, output = {0}, details = {0};
+    String answers = S("\n\n\n\n");
+    if (password.length) {
+        Index scheme = StrIndexStr(address, S("://"), SSF_None);
+        String rest = scheme.exists ? StrFrom(address, scheme.value + 3) : address;
+        String authority = StrFromTo(rest, 0, (i64)StrIndexChar(rest, '/', SSF_CountOnFail).value);
+        b32 named = StrIndexChar(authority, '@', SSF_None).exists, windows = StrIsEqual(StrFromTo(address, 0, 6), S("smb://"));
+        const char *login = getenv("USER");
+        StrBuilder lines = {0};
+        if (!named) StrBuildStr(scratch.arena, &lines, StrFormat(scratch.arena, "%s\n", login ? login : ""));
+        if (windows) StrBuildChar(scratch.arena, &lines, '\n');
+        StrBuildStr(scratch.arena, &lines, StrFormat(scratch.arena, "%S\n", password));
+        answers = lines.buffer;
+    }
+    // One already mounted fails here and is found below.
+    P_RunCommandInput(scratch.arena, S("/"), mount, CArrayCount(mount), answers, 60000, &output, NULL);
+    P_FileError result = {0};
+    if (P_RunCommand(scratch.arena, S("/"), info, CArrayCount(info), 10000, &details, false)) {
+        Index at = StrIndexStr(details, S("local path: "), SSF_IndexPlusOne);
+        if (at.exists) {
+            String rest = StrFrom(details, at.value);
+            *folder = StrCopy(arena, StrFromTo(rest, 0, (i64)StrIndexChar(rest, '\n', SSF_CountOnFail).value));
+        }
+    }
+    if (!folder->length) {
+        while (output.length && (output.value[output.length - 1] == '\n' || output.value[output.length - 1] == ' ')) --output.length;
+        b32 asked = StrIndexStr(output, S("Password"), SSF_None).exists || StrIndexStr(output, S("Authentication"), SSF_None).exists;
+        result = (P_FileError){ .code = asked ? P_MountNeedsPassword : EIO, .message = StrCopy(arena, output.length ? output : S("The server could not be reached")) };
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 function P_ArrayPlace P_Drives(Arena *arena)
 {
     // Phones and cameras after the disks, as they are in GVFS's one mount, made as the session starts, though they come later.
@@ -2091,7 +2133,23 @@ function P_ArrayPlace P_Drives(Arena *arena)
             for (u64 j = 0; j < listing.files.header.count; ++j) {
                 String name = listing.files.v[j].name;
                 b32 phone = StrIsEqual(StrFromTo(name, 0, 4), S("mtp:")), camera = StrIsEqual(StrFromTo(name, 0, 8), S("gphoto2:"));
-                if (!phone && !camera) continue;
+                // A server connected to, as "sftp:host=example.org,user=me" or "smb-share:server=nas,share=media": its share on its host.
+                if (!phone && !camera) {
+                    Index colon = StrIndexChar(name, ':', SSF_None);
+                    if (!colon.exists) continue;
+                    String fields = StrFrom(name, colon.value + 1), server = {0}, share = {0};
+                    ArrayStr parts = StrSplit(scratch.arena, fields, ',');
+                    for (u64 p = 0; p < parts.header.count; ++p) {
+                        if (StrIsEqual(StrFromTo(parts.v[p], 0, 5), S("host="))) server = StrFrom(parts.v[p], 5);
+                        if (StrIsEqual(StrFromTo(parts.v[p], 0, 7), S("server="))) server = StrFrom(parts.v[p], 7);
+                        if (StrIsEqual(StrFromTo(parts.v[p], 0, 6), S("share="))) share = StrFrom(parts.v[p], 6);
+                    }
+                    if (!server.length) continue;
+                    String shown = share.length ? StrFormat(arena, "%S (%S)", share, server) : StrCopy(arena, server);
+                    ArrayPush(arena, devices, ((P_Place){ .name = shown, .path = StrFormat(arena, "%S/%S", path, name), .type = S("Network Drive"),
+                                                    .remote = share.length ? StrFormat(arena, "//%S/%S", server, share) : StrFormat(arena, "//%S", server) }));
+                    continue;
+                }
                 Index host = StrIndexStr(name, S("host="), SSF_IndexPlusOne);
                 // By the name GVFS shows, else by its address, its underscores spaces.
                 String address = host.exists ? StrFrom(name, host.value) : name, shown = P__UsbModel(arena, address);

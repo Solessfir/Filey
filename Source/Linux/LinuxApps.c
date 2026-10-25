@@ -450,9 +450,12 @@ function String P__EjectTarget(Arena *arena, String path)
     while (path.length > 1 && path.value[path.length - 1] == '/') --path.length;
     Index slash = StrIndexChar(path, '/', SSF_SearchBackwards);
     String name = slash.exists ? StrFrom(path, slash.value + 1) : path, parent = slash.exists ? StrFromTo(path, 0, (i64)slash.value) : (String){0};
-    Index host = StrIndexStr(name, S(":host="), SSF_None);
-    if (host.exists && StrIsEqual(StrFrom(parent, parent.length - 5), S("/gvfs"))) {
-        return StrFormat(arena, "%S://%S/", StrFromTo(name, 0, (i64)host.value), StrFrom(name, host.value + 6));
+    // In GVFS's folder, a phone or camera by its address, and a server connected to by its folder, which GIO knows it by too.
+    if (StrIsEqual(StrFrom(parent, parent.length - 5), S("/gvfs"))) {
+        Index host = StrIndexStr(name, S(":host="), SSF_None);
+        b32 device = StrIsEqual(StrFromTo(name, 0, 4), S("mtp:")) || StrIsEqual(StrFromTo(name, 0, 8), S("gphoto2:"));
+        if (device && host.exists) return StrFormat(arena, "%S://%S/", StrFromTo(name, 0, (i64)host.value), StrFrom(name, host.value + 6));
+        return StrIndexChar(name, ':', SSF_None).exists ? StrCopy(arena, path) : (String){0};
     }
     b32 removable = StrIsEqual(StrFromTo(path, 0, 11), S("/run/media/")) || StrIsEqual(StrFromTo(path, 0, 7), S("/media/"));
     if (!removable) return (String){0};
@@ -487,8 +490,11 @@ function void *P__EjectThread(void *user)
 {
     char *target = user;
     Scratch scratch = GetScratch();
+    // A server's mount cannot be ejected, only unmounted.
     String arguments[] = { S("gio"), S("mount"), S("-e"), StrFromCStr(target) }, output = {0};
-    if (!P_RunCommand(scratch.arena, S("/"), arguments, CArrayCount(arguments), 60000, &output, true)) {
+    b32 done = P_RunCommand(scratch.arena, S("/"), arguments, CArrayCount(arguments), 60000, &output, true);
+    arguments[2] = S("-u");
+    if (!done && !P_RunCommand(scratch.arena, S("/"), arguments, CArrayCount(arguments), 60000, &output, true)) {
         fprintf(stderr, "Filey: ejecting %s failed: %.*s\n", target, (i32)output.length, output.value);
     }
     ReleaseScratch(scratch);
@@ -562,7 +568,8 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         if (data->eject.length) {
             items[itemCount++] = separator;
             data->ejectItem = itemCount;
-            items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Eject"), .verb = S("eject") };
+            b32 server = StrIsEqual(data->eject, data->paths[0]) && StrIndexStr(data->eject, S("/gvfs/"), SSF_None).exists;
+            items[itemCount++] = (P_MenuItem){ .own = true, .label = server ? S("Disconnect") : S("Eject"), .verb = S("eject") };
         }
     } else if (!count && !inTrash) {
         items[itemCount++] = separator;

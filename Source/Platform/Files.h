@@ -205,6 +205,13 @@ function void P_DirectoryWatchStop(P_DirectoryWatch *watch);
 // Never replaces an existing item, and refuses names that are empty, "." or "..", or contain a path separator.
 // May touch a slow disk, so run it in a job.
 function P_FileError P_RenamePath(Arena *arena, String directory, String from, String to);
+// Connects to the server at `address`, as "sftp://host/path" or "smb://server/share", with `password` when not empty, and gives in
+// `folder` the local folder it is reached at, as GVFS mounts it on Linux; a server that wants a password not given fails with
+// P_MountNeedsPassword. Windows reaches its servers by their \\server\share paths instead, so it fails there. Slow, so run it in a job.
+enum { P_MountNeedsPassword = 0x7F000001 };
+// Whether P_MountRemote connects to servers here, as on Linux.
+function b32 P_MountsRemote(void);
+function P_FileError P_MountRemote(Arena *arena, String address, String password, String *folder);
 // Gives the item at `path` the permission bits `mode`, as P_File's are; where the system has none, as on Windows, it fails.
 function P_FileError P_SetMode(Arena *arena, String path, u16 mode);
 

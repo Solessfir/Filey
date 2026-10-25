@@ -2541,6 +2541,12 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    if (input->kind == Prog_JobKind_Mount) {
+        Prog_Created *result = ArenaPushStruct(&job->arena, Prog_Created);
+        result->error = P_MountRemote(&job->arena, input->name, input->password, &result->name);
+        job->result = result;
+        return;
+    }
     if (input->kind == Prog_JobKind_Reveal) {
         String *real = ArenaPushStruct(&job->arena, String);
         if (!P_RealPath(&job->arena, input->path, real)) *real = input->path;
@@ -7706,6 +7712,31 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 state->gotoListed = true;
                 changed = true;
             }
+        } else if (input->kind == Prog_JobKind_Mount) {
+            const Prog_Created *mounted = job->result;
+            b32 asked = state->passwordServer && StrIsEqual(state->passwordArchive, input->name);
+            if (asked) state->passwordTrying = false;
+            // A server that wants a password asks for it in the archives' box, and says so when the one given was wrong.
+            if (mounted && mounted->error.code == P_MountNeedsPassword) {
+                if (asked) {
+                    state->passwordWrong = true;
+                    state->password.anchor = 0, state->password.cursor = state->password.length;
+                } else if (!state->passwordArchive.length) {
+                    ArenaClear(&state->passwordArena);
+                    state->passwordArchive = StrCopy(&state->passwordArena, input->name);
+                    state->password = (Prog_TextEdit){0};
+                    state->passwordWrong = false;
+                    state->passwordServer = true;
+                }
+            } else if (mounted && mounted->error.code) {
+                if (asked) Prog_ClosePassword(state);
+                Prog_Notify(state, Prog_NoticeKind_Error, S("mount.failed"), StrFormat(&state->frameArena, TrF("Couldn't connect to %S"), input->name), mounted->error.message);
+            } else if (mounted) {
+                if (asked) Prog_ClosePassword(state);
+                Prog_RequestDirectory(state, mounted->name, true, 0);
+                state->drivesChanged = true;
+            }
+            changed = true;
         } else if (input->kind == Prog_JobKind_Reveal) {
             if (job->result && input->generation == state->generation) Prog_ShowInFolder(state, *(String *)job->result, input->inTab);
             changed = true;

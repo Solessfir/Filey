@@ -1450,6 +1450,12 @@ command OptionRestore {
 command ZoomSet {
 }
 
+command ConnectToServer {
+    label   = "Connect to Server^sftp,ssh,smb,samba,ftp,webdav,network,remote,share,mount"
+    tooltip = "Connect to a server by its address, as sftp://host or smb://server/share, and open it."
+    repeat  = "false"
+}
+
 // Go To with the shown folder's path in its box, selected, over what is in the folder, none of it highlighted.
 command EditPath {
     label   = "Edit Path^location,address,path,type"

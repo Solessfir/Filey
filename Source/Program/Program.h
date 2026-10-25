@@ -304,6 +304,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Reveal,
     Prog_JobKind_Fonts,
     Prog_JobKind_Play,         // plays the audio file `path` from `offset` milliseconds in
+    Prog_JobKind_Mount,        // connects to the server at `name`, whose folder the panel then shows
     Prog_JobKind_TorrentProgress,  // how far the torrent's files `paths`, `sizes` long, are, by aria2c's control file `path`, for the inspector showing `name`
     Prog_JobKind_Count,
 } Prog_JobKind;
@@ -441,6 +442,7 @@ typedef struct Prog_JobInput {
     const atomic_uint *volume;    // what audio plays at, 0 to 100, read as it plays
     u64 panel;  // the panel that asked, whose results these are; 0 for work of the whole window
     String path;
+    String password;  // a server's, which a mount tries
     u64 generation;
     enum8(Prog_Sort) sort;
     b32 descending;
@@ -2031,6 +2033,7 @@ typedef struct Prog_State {
     String passwordArchive;
     Prog_TextEdit password, passwordShown;
     b8 passwordWrong, passwordTrying;
+    b8 passwordServer;        // passwordArchive is a server's address, which the password connects to
     u64 passwordDismissed;
     // The places hidden from the sidebar and the order they were put in, by path, saved as PlacesHidden.conf and PlacesOrder.conf;
     // placesShowHidden shows the hidden ones too, faded, to show them again. sidebarDrag is one more than the row a drag moves among the places
