@@ -2238,6 +2238,9 @@ function f32 Prog__PopupReveal(UI_Key key)
     return reveal;
 }
 
+// The size a popup opening as `key` takes of its own, as it grows from a tenth smaller into place.
+function f32 Prog__PopupGrow(UI_Key key) { return 0.9f + 0.1f * Prog__PopupReveal(key); }
+
 // How far from its place a slide starts at most, whatever the distance.
 function f32 Prog__SlideCap(const Prog_Metrics *m) { return floorf(30.0f * m->scale + 0.5f); }
 
@@ -6889,6 +6892,9 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, line = m->separator, stroke = m->stroke;
     f32 field = floorf(32.0f * s + 0.5f), rowHeight = floorf(42.4f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
     f32 iconSlot = floorf(28.8f * s + 0.5f), lead = floorf(13.6f * s + 0.5f), textGap = floorf(14.4f * s + 0.5f), trail = floorf(8.0f * s + 0.5f);
+    // It opens as the menus do, growing into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("TabSearchReveal")));
+    rowHeight = floorf(rowHeight * grow + 0.5f);
     R_Rect button = state->tabListRect;
     f32 top = button.y1 + floorf(4.0f * s + 0.5f);
     f32 room = view.y1 - top - field - line - 2 * pad - m->gap;
@@ -6904,7 +6910,7 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
         textWidth = MaxF32(textWidth, MaxF32(R_TextWidth(m->font, Prog_PathName(state, path)), R_TextWidth(m->detail, Prog__CrumbPath(state, path))));
     }
     // No narrower than this for a short name.
-    f32 width = floorf(MinF32(MaxF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, 187.2f * s), view.x1 - view.x0 - 2 * m->gap));
+    f32 width = floorf(MinF32(MaxF32(inset + lead + iconSlot + textGap + textWidth + trail + inset, 187.2f * s), view.x1 - view.x0 - 2 * m->gap) * grow);
     f32 height = field + line + 2 * pad + (f32)shown * rowHeight;
     f32 x = floorf(MaxF32(view.x0 + m->gap, button.x1 - width));
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("TabSearchReveal"))) * state->paletteFade;
@@ -7191,8 +7197,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             }
         }
     }
-    f32 reveal = Prog__PopupReveal(UI_KeyFromStr(0, S("GoToReveal")));
-    f32 grow = 0.9f + 0.1f * reveal;
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("GoToReveal")));
     row = floorf(row * grow + 0.5f);
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f);
@@ -7780,6 +7785,9 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
     for (u32 t = 0; t < state->typeCount; ++t) toggled += Prog_TypeShown(&state->types, state->typeNames[t]) && state->types.length;
     if (state->typesHighlight >= count) state->typesHighlight = count ? count - 1 : 0;
     f32 width = floorf(270.4f * s + 0.5f), pad = floorf(6.4f * s + 0.5f), fieldHeight = floorf(32.0f * s + 0.5f), pitch = floorf(25.6f * s + 0.5f);
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("TypesPopupReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("TypesPopupReveal")));
+    pitch = floorf(pitch * grow + 0.5f);
     f32 line = MaxF32(1, floorf(0.8f * s + 0.5f)), radius = floorf(8.0f * s + 0.5f), button = floorf(28.0f * s + 0.5f);
     u32 visible = Min(Max(count, 1u), 12u);
     f32 above = floorf(3.2f * s + 0.5f), listHeight = (f32)visible * pitch, height = fieldHeight + line + listHeight + above + pad;
@@ -7787,7 +7795,8 @@ function void Prog__TypesPopup(Prog_State *state, const Prog_Metrics *m)
     R_Rect anchor = state->typesAnchor;
     f32 x = anchor.x1 > anchor.x0 ? anchor.x0 : floorf((view.x0 + view.x1 - width) * 0.5f), y = anchor.y1 > anchor.y0 ? anchor.y1 + floorf(3.2f * s + 0.5f) : view.y0 + m->bar * 2;
     x = MaxF32(view.x0, MinF32(x, view.x1 - width - pad)), y = MinF32(y, view.y1 - height - pad);
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
@@ -7911,6 +7920,9 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
         for (u64 i = 0; i < state->filesCount; ++i) state->filesWidest = MaxF32(state->filesWidest, R_TextWidth(m->font, Prog_FilesItemName(&state->filesItems[i])));
     }
     f32 pad = floorf(6.4f * s + 0.5f), fieldHeight = floorf(32.0f * s + 0.5f), pitch = floorf(25.6f * s + 0.5f), line = MaxF32(1, floorf(1.6f * s + 0.5f));
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("FilesPopupReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("FilesPopupReveal")));
+    pitch = floorf(pitch * grow + 0.5f);
     f32 radius = floorf(8.0f * s + 0.5f), above = floorf(2.4f * s + 0.5f), iconSize = (f32)state->iconSize;
     // Under its crumb; before the first layout has placed the crumb, under the top of the window.
     R_Rect anchor = state->filesAnchor;
@@ -7919,7 +7931,8 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
     x = MaxF32(view.x0, MinF32(x, view.x1 - width - pad));
     u32 fits = (u32)MaxF32(1, floorf((view.y1 - pad - y - fieldHeight - line - above - pad) / pitch)), visible = Min(Max(count, 1u), fits);
     f32 listHeight = (f32)visible * pitch, height = fieldHeight + line + above + listHeight + pad;
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
@@ -8186,7 +8199,10 @@ function void Prog__LayoutsPicker(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, line = m->separator;
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line;
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f);
-    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
+    // It opens as the menus do, growing into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("PaletteReveal")));
+    row = floorf(row * grow + 0.5f);
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
     f32 listHeight = (f32)Max(count, 1u) * row - line + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
@@ -8341,6 +8357,9 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
     f32 field = floorf(28.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line, radius = floorf(6.4f * s + 0.5f), gap = floorf(0.8f * s + 0.5f);
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("FontsReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("FontsReveal")));
+    row = floorf(row * grow + 0.5f);
     // Under its button, or where it was last seen while it is out of sight, as for a frame where its row is not built.
     UI_Block *button = UI__Find(UI_KeyFromStr(0, StrFormat(frame, "OptionFont/%u", (u32)state->fontOption)));
     if (button && button->rect.x1 > button->rect.x0) state->fontAnchor = button->rect;
@@ -8361,7 +8380,8 @@ function void Prog__FontsDropdown(Prog_State *state, const Prog_Metrics *m)
     f32 previewPixels = floorf(12.0f * s + 0.5f);
     u32 budget = 4;
     state->fontPreviewsShown = true;
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
@@ -8485,6 +8505,9 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
     state->branchesHighlight = count ? Min(state->branchesHighlight, count - 1) : 0;
     f32 s = m->scale, line = m->separator, pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f);
     f32 field = floorf(28.0f * s + 0.5f), row = floorf(24.0f * s + 0.5f) + line, radius = floorf(6.4f * s + 0.5f), gap = floorf(0.8f * s + 0.5f);
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("BranchesReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("BranchesReveal")));
+    row = floorf(row * grow + 0.5f);
     f32 width = MaxF32(anchor.x1 - anchor.x0, floorf(240.0f * s + 0.5f));
     f32 x = UI__Clamp(anchor.x1 - view.x0 - width, 0, MaxF32(0, view.x1 - view.x0 - width));
     u32 visible = (u32)UI__Clamp(floorf((view.y1 - anchor.y1 - gap - field - line - 2 * pad + line) / row), 1, 12);
@@ -8493,7 +8516,8 @@ function void Prog__BranchesDropdown(Prog_State *state, const Prog_Metrics *m)
     state->branchesScroll = count > visible ? Min(state->branchesScroll, count - visible) : 0;
     u32 first = state->branchesScroll, shown = Min(count - Min(first, count), visible);
     f32 listHeight = (f32)Max(shown, 1u) * row - line + 2 * pad, height = field + line + listHeight, y = anchor.y1 - view.y0 + gap;
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
@@ -8579,6 +8603,9 @@ function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
     // Taller than the choices' rows, so that an x's hover keeps clear of the line under it.
     f32 s = m->scale, row = floorf(30.4f * s + 0.5f), pad = floorf(6.0f * s + 0.5f), inset = floorf(6.4f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f));
     f32 slot = floorf(24.8f * s + 0.5f), lead = floorf(14.4f * s + 0.5f) - inset, radius = floorf(6.4f * s + 0.5f);
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("MutedReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("MutedReveal")));
+    row = floorf(row * grow + 0.5f);
     f32 width = floorf(240.0f * s + 0.5f);
     for (u64 i = 0; i < count; ++i) width = MaxF32(width, 2 * inset + lead + R_TextWidth(m->font, Prog_NoticeKindName(frame, state->mutedNotices.v[i])) + slot + inset);
     f32 height = 2 * pad + (f32)(count + 1) * row + line;
@@ -8589,7 +8616,8 @@ function void Prog__MutedDropdown(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
     UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("MutedCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_MutedNoticesOpen, 0, 0, outside.pressOrder);
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
@@ -8659,6 +8687,9 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
     f32 slot = floorf(24.8f * s + 0.5f), ring = floorf(1.6f * s + 0.5f), line = MaxF32(1, floorf(0.8f * s + 0.5f)), parting = floorf(1.6f * s + 0.5f);
     f32 lead = floorf((schemes ? 16.0f : 14.4f) * s + 0.5f) - inset, trail = floorf(10.0f * s + 0.5f) + circle + floorf(7.2f * s + 0.5f);
     b32 parted = schemes && count > Prog_BuiltInSchemes;
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("SchemesReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("SchemesReveal")));
+    row = floorf(row * grow + 0.5f);
     // The schemes' is as wide as their names and buttons need; another a little wider than its button, or than its longest name.
     f32 width = floorf(205.6f * s + 0.5f);
     if (!schemes) {
@@ -8674,7 +8705,8 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
     UI_Interaction outside = UI_InteractionFromBlock(UI_AddBlockFromKey(UI_KeyFromStr(0, S("SchemesCatcher")), UI_Flag_Floating | UI_Flag_MouseClickable | UI_Flag_TakesWheel));
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_SchemesOpen, (u64)option, 0, outside.pressOrder);
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
@@ -8780,6 +8812,8 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, line = m->stroke;
     // A good deal smaller than the reference's 588 by 396, which is big for picking one color.
     f32 width = floorf(440.0f * s + 0.5f), height = floorf(320.0f * s + 0.5f), radius = floorf(6.4f * s + 0.5f), bevel = floorf(4.0f * s + 0.5f);
+    // It fades in as the menus do.
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("ColorPickerReveal")));
     f32 head = floorf(26.4f * s + 0.5f), pad = floorf(8.0f * s + 0.5f), gap = floorf(8.0f * s + 0.5f), strip = floorf(18.0f * s + 0.5f);
     f32 apart = floorf(8.0f * s + 0.5f), column = floorf(140.0f * s + 0.5f), box = floorf(24.0f * s + 0.5f), rowGap = floorf(5.6f * s + 0.5f);
     f32 below = floorf(8.0f * s + 0.5f), label = floorf(18.4f * s + 0.5f), field = floorf(48.0f * s + 0.5f), slash = floorf(22.4f * s + 0.5f);
@@ -8817,7 +8851,8 @@ function void Prog__ColorPicker(Prog_State *state, const Prog_Metrics *m)
         }
         ReleaseScratch(scratch);
     }
-    Prog__DropShadow(x, y, width, height, radius, 1, m);
+    Prog__DropShadow(x, y, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x, y });
@@ -9003,7 +9038,10 @@ function void Prog__LayoutSaveBox(Prog_State *state, const Prog_Metrics *m)
     if (outside.pressed) Prog_QueueCommand(state, Prog_CommandKind_LayoutSaveButton, 2, 0, outside.pressOrder);
     f32 s = m->scale, line = m->separator;
     f32 head = floorf(32.0f * s + 0.5f), field = floorf(36.8f * s + 0.5f), band = floorf(43.2f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
-    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, floorf(32.8f * s + 0.5f), s)), height = head + line + field + line + band;
+    // It opens as the menus do, growing into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("LayoutSaveReveal")));
+    head = floorf(head * grow + 0.5f), field = floorf(field * grow + 0.5f), band = floorf(band * grow + 0.5f);
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, floorf(32.8f * s + 0.5f), s) * grow), height = head + line + field + line + band;
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f), top = 2 * m->bar + floorf(11.2f * s + 0.5f);
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("LayoutSaveReveal")));
     Prog__DropShadow(x, top, width, height, radius, opacity, m);
@@ -9074,7 +9112,10 @@ function void Prog__PasswordBox(Prog_State *state, const Prog_Metrics *m)
     f32 s = m->scale, line = m->separator;
     f32 head = floorf(32.0f * s + 0.5f), field = floorf(36.8f * s + 0.5f), band = floorf(43.2f * s + 0.5f), radius = floorf(8.0f * s + 0.5f);
     f32 note = state->passwordWrong ? m->row : 0;
-    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * m->inset, 400.0f * s)), height = head + line + field + note + line + band;
+    // It opens as the menus do, growing into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("PasswordReveal")));
+    head = floorf(head * grow + 0.5f), field = floorf(field * grow + 0.5f), band = floorf(band * grow + 0.5f);
+    f32 width = floorf(MinF32(view.x1 - view.x0 - 2 * m->inset, 400.0f * s) * grow), height = head + line + field + note + line + band;
     f32 x = floorf((view.x1 - view.x0 - width) * 0.5f), top = 2 * m->bar + floorf(11.2f * s + 0.5f);
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PasswordReveal")));
     Prog__DropShadow(x, top, width, height, radius, opacity, m);
@@ -9269,6 +9310,9 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     f32 row = floorf((state->paletteCompact ? 24.0f : 40.8f) * s + 0.5f) + line;
     // A font taller than the reference's grows the rows rather than cutting off the description under the label.
     if (!state->paletteCompact) row = MaxF32(row, floorf(4.8f * s + 0.5f) + m->line + floorf(2.4f * s + 0.5f) + m->detail->lineHeight + line);
+    // It opens as the menus do, growing into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("PaletteReveal")));
+    row = floorf(row * grow + 0.5f);
     f32 top = 2 * m->bar + floorf(11.2f * s + 0.5f), margin = floorf(32.8f * s + 0.5f), bottom = floorf(60.0f * s + 0.5f);
     // The box reaches down to the bottom margin, with as many rows as fit and the next one cut off under them, with lines between them.
     // The list scrolls only as far as keeps the highlight wholly in sight, unless the wheel scrolled it.
@@ -9281,10 +9325,9 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     f32 scrolled = count > visible ? UI_Animate(UI_KeyFromStr(0, S("PaletteScroll")), (f32)state->paletteScroll, (f32)state->paletteScroll) : 0;
     u32 first = Min((u32)scrolled, count ? count - 1 : 0), shown = Min(count - first, visible + 2);
     f32 lag = (scrolled - (f32)first) * row;
-    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s));
+    f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
     f32 listHeight = MinF32((f32)Min(count - state->paletteScroll, visible + 1) * row - line, room) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
-    // It fades in as the menus do.
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
     f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
     Prog__DropShadow(x, top, width, height, radius, opacity, m);
@@ -9977,6 +10020,9 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
         widest = MaxF32(widest, R_TextWidth(m->font, label));
     }
     f32 pad = floorf(6.4f * s + 0.5f), head = floorf(35.2f * s + 0.5f), row = floorf(24.0f * s + 0.5f), grip = floorf(20.8f * s + 0.5f), radius = floorf(10.0f * s + 0.5f);
+    // It opens as the menus do, fading in while its rows spread into place.
+    f32 grow = Prog__PopupGrow(UI_KeyFromStr(0, S("MenuEditorReveal"))), opacity = Prog__FadeIn(UI_KeyFromStr(0, S("MenuEditorReveal")));
+    row = floorf(row * grow + 0.5f);
     f32 button = Prog__ToolbarButtonHeight(m), title = floorf(24.0f * s + 0.5f), chevron = floorf(16.0f * s + 0.5f);
     f32 width = MaxF32(state->menuEditAt.x1 - state->menuEditAt.x0, widest + grip + chevron + button + 4 * pad + m->gap);
     width = floorf(MinF32(MaxF32(width, 260.0f * s), view.x1 - view.x0 - 2 * pad));
@@ -9988,7 +10034,8 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
     f32 gutter = scrolls ? Prog__ScrollGutter(m) : 0;
     f32 height = head + m->separator + bodyHeight;
     f32 x = floorf(MaxF32(view.x0, MinF32(state->menuEditAt.x0, view.x1 - width))), y = floorf(MaxF32(view.y0, MinF32(state->menuEditAt.y0, view.y1 - height)));
-    Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, 1, m);
+    Prog__DropShadow(x - view.x0, y - view.y0, width, height, radius, opacity, m);
+    UI_SetNextOpacity(opacity);
     UI_SetNextPrefWidth(UI_Pixels(width));
     UI_SetNextPrefHeight(UI_Pixels(height));
     UI_SetNextFloatingOffset((UI_Vec2){ x - view.x0, y - view.y0 });
