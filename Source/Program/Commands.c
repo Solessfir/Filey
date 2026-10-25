@@ -2407,6 +2407,8 @@ function void Prog__UpdatePreview(Prog_State *state)
         stamp = archive ? entry->file.size ^ (u64)entry->file.modifiedTimeUnix : 0;
     }
     if (StrIsEqual(want, state->previewPath)) {
+        // A folder whose list went with the inspector closing is listed again as it opens.
+        if (state->previewFolder && want.length && Prog_InspectorPanel(state, state->panels[state->currentPanel].id, false) == UINT32_MAX) Prog_ListInInspector(state, want);
         // An archive that changed, as when files are dropped into it, is counted again; its list stays where it is and its old totals show
         // until the new ones come.
         if (!archive || stamp == state->previewStamp) return;

@@ -3900,6 +3900,16 @@ function void TestPanels(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
         Prog_ProcessCommands(&state);
         Check(Prog_InspectorPanel(&state, owner, false) == UINT32_MAX && state.panels[state.activePanel].id == owner && !state.previewShown);
+        // Shown again on the same folder, it lists it again.
+        TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+        Prog_ProcessCommands(&state);
+        inner = Prog_InspectorPanel(&state, owner, false);
+        start = PlatformNowMicroseconds();
+        while (inner != UINT32_MAX && state.panels[inner].directoryJob && PlatformNowMicroseconds() - start < Millions(5)) {
+            P__TestPause();
+            Prog_TakeCompletions(&state);
+        }
+        Check(state.previewShown && inner != UINT32_MAX && TestEndsWith(state.panels[inner].directory.path, S("/Folder2")));
     }
     // A name to select waits for its own panel's next listing, which an inspector's folder list listed first leaves alone.
     {
