@@ -2218,13 +2218,24 @@ function i32 Prog__WheelNotches(const UI_Block *block)
     return notches ? notches : UI->wheel.y > 0 ? 1 : -1;
 }
 
-// How far a popup has faded in under `key`: evenly over 135 ms.
+// How far a popup has faded in under `key`: evenly over 110 ms.
 function f32 Prog__FadeIn(UI_Key key)
 {
     if (!UI->animate) return 1;
-    f32 shown = MinF32(1, (f32)UI_TimeSince(key) / 135000.0f);
+    f32 shown = MinF32(1, (f32)UI_TimeSince(key) / 110000.0f);
     if (shown < 1) UI_KeepAnimating();
     return shown;
+}
+
+// How far a popup that opened as `key` was first used has grown into place, from 0 to 1, easing with a 24 ms time constant.
+// Menus, context menus and Go To all open so: a tenth smaller, growing into place while they fade in.
+function f32 Prog__PopupReveal(UI_Key key)
+{
+    if (!UI->animate) return 1;
+    f32 reveal = 1 - expf(-(f32)UI_TimeSince(key) / 24000.0f);
+    if (reveal >= 0.995f) return 1;
+    UI_KeepAnimating();
+    return reveal;
 }
 
 // How far from its place a slide starts at most, whatever the distance.
@@ -6373,10 +6384,9 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
     if (y + height > view.y1) y = view.y1 - height;
     x = floorf(MaxF32(view.x0, x));
     y = floorf(MaxF32(view.y0, y));
-    // A new panel of Filey's own fades in while its rows spread from a little closer together to their place; a system menu shows at once.
+    // A new panel fades in while its rows spread from a little closer together to their place.
     UI_Key revealKey = UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuReveal/%u/%u", level, place.first));
-    b32 own = state->menuCommands != NULL;
-    f32 reveal = own ? UI_Animate(revealKey, 1, 0) : 1;
+    f32 reveal = Prog__PopupReveal(revealKey);
     itemHeight *= 0.9f + 0.1f * reveal;
     height = 2 * pad + searchHeight;
     for (u32 i = 0; i < shown; ++i) height += Prog_MenuItemAt(state, visible[i])->separator ? separatorHeight : itemHeight;
@@ -6392,7 +6402,7 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         y = state->menuTop;
         height = floorf(MinF32(UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "MenuHeight/%u", state->menuSerial)), height, height), view.y1 - y) + 0.5f);
     }
-    f32 opacity = own ? Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade"))) : 1;
+    f32 opacity = Prog__FadeIn(UI_KeyFromStr(revealKey, S("Fade")));
 
     f32 radius = floorf(10.0f * m->scale + 0.5f);
     b32 joinRight = opened && fabsf(x - parent.x1) < 0.5f;
@@ -7181,13 +7191,7 @@ function void Prog__GoTo(Prog_State *state, const Prog_Metrics *m)
             }
         }
     }
-    // It opens a tenth smaller and grows into place, easing with a 31 ms time constant, while it fades in from nothing.
-    f32 reveal = 1;
-    if (UI->animate) {
-        reveal = 1 - expf(-(f32)UI_TimeSince(UI_KeyFromStr(0, S("GoToReveal"))) / 31000.0f);
-        if (reveal < 0.995f) UI_KeepAnimating();
-        else reveal = 1;
-    }
+    f32 reveal = Prog__PopupReveal(UI_KeyFromStr(0, S("GoToReveal")));
     f32 grow = 0.9f + 0.1f * reveal;
     row = floorf(row * grow + 0.5f);
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
