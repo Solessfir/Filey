@@ -42,7 +42,7 @@ Download `Filey-<version>-windows-x64.zip` from [Releases](https://github.com/So
 
 ### Linux
 
-Installs the latest release for your user (`~/.local/bin`, with a desktop entry and icons). It needs Wayland, `freetype2` and `fontconfig`, and `libarchive` for archives.
+Installs the latest release for your user (`~/.local/bin`, with a desktop entry and icons), and makes it the file manager other programs open for Show in Folder. It needs Wayland, `freetype2` and `fontconfig`, and `libarchive` for archives.
 
 ```sh
 curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/install.sh | bash -s install

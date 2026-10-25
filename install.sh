@@ -33,6 +33,11 @@ install_filey() {
     install -Dm755 "$content/filey" "$BIN_DIR/filey"
     mkdir -p "$APPS_DIR"
     sed "s|^Exec=filey|Exec=$BIN_DIR/filey|" "$content/filey.desktop" > "$APPS_DIR/filey.desktop"
+    # D-Bus starts Filey for other programs' Show in Folder, ahead of the system's file manager.
+    if [ -f "$content/filey.FileManager1.service" ]; then
+        mkdir -p "$DATA_DIR/dbus-1/services"
+        sed "s|^Exec=filey|Exec=$BIN_DIR/filey|" "$content/filey.FileManager1.service" > "$DATA_DIR/dbus-1/services/filey.FileManager1.service"
+    fi
     install -Dm644 "$content/Filey.svg" "$ICONS_DIR/scalable/apps/filey.svg"
     install -Dm644 "$content/filey-symbolic.svg" "$ICONS_DIR/symbolic/apps/filey-symbolic.svg"
     for png in "$content"/icons/filey-*.png; do
@@ -47,6 +52,7 @@ install_filey() {
 
 uninstall_filey() {
     rm -f "$BIN_DIR/filey" "$APPS_DIR/filey.desktop" "$ICONS_DIR/scalable/apps/filey.svg" "$ICONS_DIR/symbolic/apps/filey-symbolic.svg"
+    rm -f "$DATA_DIR/dbus-1/services/filey.FileManager1.service"
     rm -f "$ICONS_DIR"/*/apps/filey.png
     refresh
     echo "Removed Filey. Its settings in ~/.config/filey and cache in ~/.cache/filey are kept; delete them to remove everything."

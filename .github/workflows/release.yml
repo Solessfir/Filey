@@ -50,7 +50,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           folder="filey-$version"
           mkdir -p "$folder/icons"
-          cp Bin/release/filey Source/Resources/filey.desktop Source/Resources/Filey.svg Source/Resources/filey-symbolic.svg "$folder/"
+          cp Bin/release/filey Source/Resources/filey.desktop Source/Resources/filey.FileManager1.service Source/Resources/Filey.svg Source/Resources/filey-symbolic.svg "$folder/"
           cp Source/Resources/Icons/filey-*.png "$folder/icons/"
           tar -czf "filey-$version-linux-x64.tar.gz" "$folder"
       - uses: actions/upload-artifact@v4

@@ -6705,13 +6705,15 @@ function void Prog_OpenPaths(Prog_State *state, String text)
     if (into != UINT32_MAX) Prog__ActivatePanel(state, into);
     Prog__UsePanel(state, state->activePanel);
     ArrayStr lines = StrSplit(&state->frameArena, text, '\n');
-    b32 replace = false, inspect = false, kept = false;
+    b32 replace = false, inspect = false, kept = false, select = false;
     u32 splitKind = Prog_SplitKind_None;
     for (u64 i = 0; i < lines.header.count; ++i) {
         String line = lines.v[i];
         if (line.length > 2 && line.value[0] == '-' && line.value[1] == '-') {
             replace |= StrIsEqual(line, S("--replace"));
             inspect |= StrIsEqual(line, S("--inspect"));
+            // The items that follow shown selected in their folders, folders too, as a file manager's ShowItems asks.
+            select |= StrIsEqual(line, S("--select"));
             if (StrIsEqual(line, S("--split")) || StrIsEqual(line, S("--split=right"))) splitKind = Prog_SplitKind_Horizontal;
             if (StrIsEqual(line, S("--split=bottom"))) splitKind = Prog_SplitKind_Vertical;
             continue;
@@ -6720,7 +6722,7 @@ function void Prog_OpenPaths(Prog_State *state, String text)
         String path = split.exists ? StrFromTo(line, 0, (i64)split.value) : line;
         if (!path.length) continue;
         u32 count = state->tabCount;
-        b32 file = !split.exists && P_PathExists(path) && !P_IsDirectory(path);
+        b32 file = !split.exists && P_PathExists(path) && (select || !P_IsDirectory(path));
         if (splitKind != Prog_SplitKind_None || replace) {
             String folder = file ? Prog_ParentPath(path) : path;
             if (splitKind != Prog_SplitKind_None) Prog_SplitPanel(state, state->activePanel, (Prog_SplitKind)splitKind, false, folder);

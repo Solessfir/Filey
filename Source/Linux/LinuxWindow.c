@@ -1244,6 +1244,135 @@ function b32 LinuxInstanceAddress(String key, struct sockaddr_un *address, sockl
     return length > 0;
 }
 
+// The freedesktop file manager service, which other programs ask to show a file or a folder, as a browser's Show in Folder does. The window
+// that keeps the run's instance socket claims its name on the session bus through libdbus, loaded at run time, and a thread of its own
+// answers its calls by handing their paths over that socket, as a later run does: ShowItems and ShowItemProperties select each item in its
+// folder, the latter with the inspector, and ShowFolders opens each folder.
+// ponytail: only the first window's run answers, and only when no other file manager holds the name; installing a D-Bus service file would
+// start Filey for it too.
+typedef struct LinuxBus {
+    void *(*get)(i32 type, void *error);
+    i32 (*requestName)(void *connection, const char *name, u32 flags, void *error);
+    i32 (*readWrite)(void *connection, i32 timeout);
+    void *(*pop)(void *connection);
+    i32 (*isCall)(void *message, const char *interface, const char *method);
+    i32 (*iterInit)(void *message, void *iter);
+    i32 (*argType)(void *iter);
+    void (*recurse)(void *iter, void *sub);
+    void (*basic)(void *iter, void *value);
+    i32 (*next)(void *iter);
+    void *(*newReturn)(void *message);
+    i32 (*appendArgs)(void *message, i32 type, ...);
+    i32 (*send)(void *connection, void *message, u32 *serial);
+    void (*unref)(void *message);
+    void (*errorInit)(void *error);
+    struct sockaddr_un address;
+    socklen_t size;
+} LinuxBus;
+
+global LinuxBus LinuxBus_;
+
+// Hands `text` (an activation token, then a path a line) to this run's window over its instance socket.
+function void LinuxBusHand(String text)
+{
+    i32 fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return;
+    if (connect(fd, (struct sockaddr *)&LinuxBus_.address, LinuxBus_.size) == 0) {
+        for (u64 at = 0; at < text.length;) {
+            ssize_t wrote = write(fd, text.value + at, text.length - at);
+            if (wrote < 0 && errno == EINTR) continue;
+            if (wrote <= 0) break;
+            at += (u64)wrote;
+        }
+    }
+    close(fd);
+}
+
+function void *LinuxBusThread(void *unused)
+{
+    (void)unused;
+    LinuxBus *bus = &LinuxBus_;
+    // DBusError's and DBusMessageIter's storage, larger than either; they are filled by the library.
+    alignas(8) u8 error[64], iter[128], items[128];
+    bus->errorInit(error);
+    void *connection = bus->get(0, error);
+    // DBUS_NAME_FLAG_DO_NOT_QUEUE, and 1 for DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER: another file manager may hold the name.
+    if (!connection || bus->requestName(connection, "org.freedesktop.FileManager1", 4, error) != 1) return NULL;
+    local_persist const char introspection[] =
+        "<node><interface name=\"org.freedesktop.FileManager1\">"
+        "<method name=\"ShowFolders\"><arg type=\"as\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/></method>"
+        "<method name=\"ShowItems\"><arg type=\"as\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/></method>"
+        "<method name=\"ShowItemProperties\"><arg type=\"as\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/></method>"
+        "</interface></node>";
+    while (bus->readWrite(connection, -1)) {
+        for (void *message; (message = bus->pop(connection)) != NULL; bus->unref(message)) {
+            const char *interface = "org.freedesktop.FileManager1";
+            b32 folders = bus->isCall(message, interface, "ShowFolders"), show = bus->isCall(message, interface, "ShowItems");
+            b32 properties = bus->isCall(message, interface, "ShowItemProperties");
+            b32 introspect = bus->isCall(message, "org.freedesktop.DBus.Introspectable", "Introspect");
+            if (!folders && !show && !properties && !introspect) continue;
+            void *reply = bus->newReturn(message);
+            if (introspect) {
+                const char *xml = introspection;
+                // DBUS_TYPE_STRING, then DBUS_TYPE_INVALID ending the arguments.
+                if (reply) bus->appendArgs(reply, 's', &xml, 0);
+            } else {
+                // The URIs, then the startup id, which raises the window as an activation token does.
+                Scratch scratch = GetScratch();
+                StrBuilder text = {0}, lines = {0};
+                if (bus->iterInit(message, iter) && bus->argType(iter) == 'a') {
+                    bus->recurse(iter, items);
+                    for (; bus->argType(items) == 's'; bus->next(items)) {
+                        const char *uri = NULL;
+                        bus->basic(items, &uri);
+                        String path = uri ? P__FilePathFromUri(scratch.arena, StrFromCStr(uri)) : (String){0};
+                        if (!path.length && uri && uri[0] == '/') path = StrFromCStr(uri);
+                        if (path.length) StrBuildStr(scratch.arena, &lines, StrFormat(scratch.arena, "\n%S", path));
+                    }
+                    const char *startup = NULL;
+                    if (bus->next(iter) && bus->argType(iter) == 's') bus->basic(iter, &startup);
+                    if (startup) StrBuildStr(scratch.arena, &text, StrFromCStr(startup));
+                }
+                if (lines.buffer.length) {
+                    if (!folders) StrBuildStr(scratch.arena, &text, S("\n--select"));
+                    if (properties) StrBuildStr(scratch.arena, &text, S("\n--inspect"));
+                    StrBuildStr(scratch.arena, &text, lines.buffer);
+                    LinuxBusHand(text.buffer);
+                }
+                ReleaseScratch(scratch);
+            }
+            if (reply) {
+                bus->send(connection, reply, NULL);
+                bus->unref(reply);
+            }
+        }
+    }
+    return NULL;
+}
+
+// Claims the file manager service for this run's window, whose instance socket is at `address`, when libdbus is there.
+function void LinuxBusStart(struct sockaddr_un address, socklen_t size)
+{
+    void *library = dlopen("libdbus-1.so.3", RTLD_NOW | RTLD_LOCAL);
+    if (!library) return;
+    LinuxBus *bus = &LinuxBus_;
+    struct { void **slot; const char *name; } symbols[] = {
+        { (void **)&bus->get, "dbus_bus_get" }, { (void **)&bus->requestName, "dbus_bus_request_name" },
+        { (void **)&bus->readWrite, "dbus_connection_read_write" }, { (void **)&bus->pop, "dbus_connection_pop_message" },
+        { (void **)&bus->isCall, "dbus_message_is_method_call" }, { (void **)&bus->iterInit, "dbus_message_iter_init" },
+        { (void **)&bus->argType, "dbus_message_iter_get_arg_type" }, { (void **)&bus->recurse, "dbus_message_iter_recurse" },
+        { (void **)&bus->basic, "dbus_message_iter_get_basic" }, { (void **)&bus->next, "dbus_message_iter_next" },
+        { (void **)&bus->newReturn, "dbus_message_new_method_return" }, { (void **)&bus->appendArgs, "dbus_message_append_args" },
+        { (void **)&bus->send, "dbus_connection_send" }, { (void **)&bus->unref, "dbus_message_unref" }, { (void **)&bus->errorInit, "dbus_error_init" },
+    };
+    for (u32 i = 0; i < CArrayCount(symbols); ++i) {
+        if (!(*symbols[i].slot = dlsym(library, symbols[i].name))) return;
+    }
+    bus->address = address, bus->size = size;
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, LinuxBusThread, NULL) == 0) pthread_detach(thread);
+}
+
 function b32 PlatformInstanceClaim(String key, ArrayStr paths)
 {
     struct sockaddr_un address;
@@ -1252,6 +1381,7 @@ function b32 PlatformInstanceClaim(String key, ArrayStr paths)
     if (fd < 0) return true;
     if (bind(fd, (struct sockaddr *)&address, size) == 0 && listen(fd, 8) == 0) {
         Wl.instanceFd = fd;
+        LinuxBusStart(address, size);
         return true;
     }
     b32 handed = false;
@@ -1300,7 +1430,6 @@ function void LinuxEndTabDrag(b32 release)
 // Wayland places no window at the pointer for a client, so the tab is the icon of a drag the compositor runs, which moves it over every
 // window; the first picture starts the drag, as the pointer leaves the window with the button held. The picture, in the window's pixels,
 // keeps its logical size, and the pointer stays at (`hotX`, `hotY`) in it. Back over the window the icon hides, as the window draws the tab.
-// ponytail: another Filey window does not take the tab, so a drop on it opens a new window; offer it the tab's path to move it there.
 function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY)
 {
     if (!bgra) {

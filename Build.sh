@@ -80,6 +80,9 @@ if [ "$install" = 1 ]; then
     install -Dm755 "$out/filey" "$bin/filey"
     mkdir -p "$data/applications"
     sed "s|^Exec=filey|Exec=$bin/filey|" "$resources/filey.desktop" > "$data/applications/filey.desktop"
+    # D-Bus starts Filey for other programs' Show in Folder, ahead of the system's file manager.
+    mkdir -p "$data/dbus-1/services"
+    sed "s|^Exec=filey|Exec=$bin/filey|" "$resources/filey.FileManager1.service" > "$data/dbus-1/services/filey.FileManager1.service"
     install -Dm644 "$resources/Filey.svg" "$data/icons/hicolor/scalable/apps/filey.svg"
     install -Dm644 "$resources/filey-symbolic.svg" "$data/icons/hicolor/symbolic/apps/filey-symbolic.svg"
     for png in "$resources"/Icons/filey-*.png; do
