@@ -13,7 +13,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # #embed needs Clang 19 or later, newer than the runner may have.
       - name: Install LLVM
         run: choco upgrade llvm -y --no-progress
@@ -28,7 +28,7 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
           Compress-Archive -Path Bin/release/Filey.exe -DestinationPath "Filey-$version-windows-x64.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: Filey-*-windows-x64.zip
@@ -36,7 +36,7 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Ubuntu's own Clang is 18, older than #embed needs.
       - name: Install Clang and the libraries
         run: |
@@ -53,7 +53,7 @@ jobs:
           cp Bin/release/filey Source/Resources/filey.desktop Source/Resources/filey.FileManager1.service Source/Resources/Filey.svg Source/Resources/filey-symbolic.svg "$folder/"
           cp Source/Resources/Icons/filey-*.png "$folder/icons/"
           tar -czf "filey-$version-linux-x64.tar.gz" "$folder"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: filey-*-linux-x64.tar.gz
@@ -62,10 +62,10 @@ jobs:
     needs: [windows, linux]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             Filey-*-windows-x64.zip
