@@ -4417,6 +4417,33 @@ function String TestWaitText(Arena *arena, TestFileFixture *fixture, String rela
 // Desktop entries, mimeapps.list and launching, against entries, a terminal and an opener made in the fixture.
 function void TestApps(TestFileFixture *fixture)
 {
+    // The New menu offers the templates folder's files, and one chosen is copied in under a free name.
+    {
+        Arena templates = {0};
+        String created = {0};
+        Check(!P_CreateItem(&templates, fixture->path, S("Templates"), true, &created).code && !P_CreateItem(&templates, fixture->path, S("Fresh"), true, &created).code);
+        Check(!P_WriteFile(&templates, Prog_JoinPath(&templates, fixture->path, S("Templates/Note.txt")), S("template text")).code);
+        String home = StrCopy(&templates, StrFromCStr(getenv("HOME"))), configHome = StrCopy(&templates, StrFromCStr(getenv("XDG_CONFIG_HOME") ? getenv("XDG_CONFIG_HOME") : ""));
+        setenv("HOME", P__FilePathCString(&templates, fixture->path), 1);
+        unsetenv("XDG_CONFIG_HOME");
+        String fresh = Prog_JoinPath(&templates, fixture->path, S("Fresh"));
+        for (u32 round = 0; round < 2; ++round) {
+            P_ContextMenu menu = {0};
+            Check(P_ContextMenuOpen(&templates, fresh, NULL, 0, &menu));
+            u32 note = 0;
+            for (u32 i = 0; i < menu.count; ++i) if (StrIsEqual(menu.items[i].label, S("Note")) && StrIsEqual(menu.items[i].verb, S("template"))) note = menu.items[i].id;
+            Check(note && !P_ContextMenuInvoke(&templates, &menu, note).code);
+            P_ContextMenuClose(&menu);
+        }
+        setenv("HOME", P__FilePathCString(&templates, home), 1);
+        if (configHome.length) setenv("XDG_CONFIG_HOME", P__FilePathCString(&templates, configHome), 1);
+        String contents = {0};
+        Check(P_ReadFile(&templates, Prog_JoinPath(&templates, fresh, S("Note.txt")), &contents) && StrIsEqual(contents, S("template text")));
+        Check(TestListing(&templates, fixture, S("Fresh")).header.count == 2);
+        TestRemoveTree(&templates, fixture, S("Templates"));
+        TestRemoveTree(&templates, fixture, S("Fresh"));
+        ArenaRelease(&templates);
+    }
     // A phone's GVFS folder is ejected by its address, and a folder that is no drive's own has no Eject.
     {
         Arena ejects = {0};

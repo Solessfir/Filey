@@ -1762,7 +1762,36 @@ function b32 P__IsDirectory(Arena *scratch, String path)
     return native && stat(native, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
-// The folders of user-dirs.dirs ("XDG_DOWNLOAD_DIR="$HOME/Downloads""), and the usual names when it does not set them.
+// The folder user-dirs.dirs names by `key` ("XDG_DOWNLOAD_DIR="$HOME/Downloads""), or `name` in the home when it does not set it.
+function String P__UserDir(Arena *arena, String home, const char *key, const char *name)
+{
+    Scratch scratch = GetScratchEx(arena);
+    const char *config = getenv("XDG_CONFIG_HOME");
+    String settings = {0}, path = StrFormat(scratch.arena, "%S/%s", home, name), prefix = StrFormat(scratch.arena, "XDG_%s_DIR=\"", key);
+    P_ReadFile(scratch.arena, config && config[0] == '/' ? StrFormat(scratch.arena, "%s/user-dirs.dirs", config) : StrFormat(scratch.arena, "%S/.config/user-dirs.dirs", home), &settings);
+    ArrayStr lines = StrSplit(scratch.arena, settings, '\n');
+    for (u64 j = 0; j < lines.header.count; ++j) {
+        String line = lines.v[j];
+        if (line.length <= prefix.length || !StrIsEqual(StrFromTo(line, 0, (i64)prefix.length), prefix)) continue;
+        String value = StrFrom(line, prefix.length);
+        Index quote = StrIndexChar(value, '"', SSF_None);
+        if (quote.exists) value = StrFromTo(value, 0, (i64)quote.value);
+        if (value.length >= 5 && StrIsEqual(StrFromTo(value, 0, 5), S("$HOME"))) path = StrFormat(scratch.arena, "%S%S", home, StrFrom(value, 5));
+        else if (value.length && value.value[0] == '/') path = value;
+    }
+    String result = P_AbsolutePath(arena, path);
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// The folder whose files the New menu offers to start from, as Nemo's does: the user's templates folder.
+function String P__TemplatesDir(Arena *arena)
+{
+    const char *home = getenv("HOME");
+    return home && home[0] == '/' ? P__UserDir(arena, P_AbsolutePath(arena, StrFromCStr(home)), "TEMPLATES", "Templates") : (String){0};
+}
+
+// The folders of user-dirs.dirs, and the usual names when it does not set them.
 function P_ArrayPlace P_UserPlaces(Arena *arena)
 {
     P_ArrayPlace result = {0};
@@ -1778,22 +1807,8 @@ function P_ArrayPlace P_UserPlaces(Arena *arena)
     };
     Scratch scratch = GetScratchEx(arena);
     const char *config = getenv("XDG_CONFIG_HOME");
-    String settings = {0};
-    P_ReadFile(scratch.arena, config && config[0] == '/' ? StrFormat(scratch.arena, "%s/user-dirs.dirs", config) : StrFormat(scratch.arena, "%S/.config/user-dirs.dirs", home), &settings);
-    ArrayStr lines = StrSplit(scratch.arena, settings, '\n');
     for (u32 i = 0; i < CArrayCount(folders); ++i) {
-        String path = StrFormat(scratch.arena, "%S/%s", home, folders[i].name);
-        String key = StrFormat(scratch.arena, "XDG_%s_DIR=\"", folders[i].key);
-        for (u64 j = 0; j < lines.header.count; ++j) {
-            String line = lines.v[j];
-            if (line.length <= key.length || !StrIsEqual(StrFromTo(line, 0, (i64)key.length), key)) continue;
-            String value = StrFrom(line, key.length);
-            Index quote = StrIndexChar(value, '"', SSF_None);
-            if (quote.exists) value = StrFromTo(value, 0, (i64)quote.value);
-            if (value.length >= 5 && StrIsEqual(StrFromTo(value, 0, 5), S("$HOME"))) path = StrFormat(scratch.arena, "%S%S", home, StrFrom(value, 5));
-            else if (value.length && value.value[0] == '/') path = value;
-        }
-        path = P_AbsolutePath(arena, path);
+        String path = P__UserDir(arena, home, folders[i].key, folders[i].name);
         // Folders the user turned off point at the home itself.
         if (path.length && !StrIsEqual(path, home) && P__IsDirectory(scratch.arena, path)) {
             ArrayPush(arena, result, ((P_Place){ .name = StrFromCStr(folders[i].name), .path = path }));

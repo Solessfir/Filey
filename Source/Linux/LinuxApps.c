@@ -438,6 +438,7 @@ typedef struct P__MenuData {
     u64 count;
     P__App **apps;     // the application an Open With item starts
     b8 *terminal;      // Open in Terminal items
+    String *templates; // the template file a New item copies, by item; empty for the rest
     String eject;      // where Eject takes the drive the menu is for from, as GIO names it; empty when it cannot be ejected
     u32 ejectItem;     // the Eject item's index, past the items when there is none
 } P__MenuData;
@@ -505,6 +506,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     enum { MaxApps = 16, MaxItems = 24 + MaxApps };
     P_MenuItem items[MaxItems];
     P__App *itemApps[MaxItems] = {0};
+    String templateFor[MaxItems] = {0};
     b8 itemTerminal[MaxItems] = {0};
     u32 itemCount = 0;
     P_MenuItem separator = { .separator = true };
@@ -566,14 +568,36 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
         items[itemCount++] = separator;
-        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("New") };
+        items[itemCount++] = (P_MenuItem){ .own = true, .label = S("New"), .verb = S("new") };
     }
     u32 rootCount = itemCount;
     if (!count && !inTrash) {
         items[rootCount - 1].firstChild = rootCount;
-        items[rootCount - 1].childCount = 2;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Folder"), .action = P_MenuAction_NewFolder };
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("File"), .action = P_MenuAction_NewFile };
+        // Then a copy of each file in the templates folder, by its name without the extension, as Nemo offers them.
+        Scratch scratch = GetScratchEx(arena);
+        String folder = P__TemplatesDir(scratch.arena);
+        P_DirectoryResult listing = folder.length ? P_EnumerateDirectory(scratch.arena, folder, NULL) : (P_DirectoryResult){0};
+        u32 first = itemCount;
+        for (u64 i = 0; i < listing.files.header.count && itemCount < MaxItems - 1; ++i) {
+            const P_File *file = &listing.files.v[i];
+            if (file->kind != P_FileKind_File || file->hidden || (file->name.length && file->name.value[0] == '.')) continue;
+            if (itemCount == first) items[itemCount++] = separator;
+            Index dot = StrIndexChar(file->name, '.', SSF_SearchBackwards);
+            String label = dot.exists && dot.value ? StrFromTo(file->name, 0, (i64)dot.value) : file->name;
+            templateFor[itemCount] = StrFormat(arena, "%S/%S", folder, file->name);
+            items[itemCount++] = (P_MenuItem){ .label = StrCopy(arena, label), .verb = S("template") };
+        }
+        // In the order of their names.
+        for (u32 i = first + 2; i < itemCount; ++i) {
+            for (u32 j = i; j > first + 1 && P__CompareFolded(items[j - 1].label, items[j].label) > 0; --j) {
+                P_MenuItem item = items[j]; items[j] = items[j - 1]; items[j - 1] = item;
+                String path = templateFor[j]; templateFor[j] = templateFor[j - 1]; templateFor[j - 1] = path;
+            }
+        }
+        ReleaseScratch(scratch);
+        items[rootCount - 1].childCount = itemCount - rootCount;
     }
     if (openWith != UINT32_MAX) {
         items[openWith].firstChild = itemCount;
@@ -587,11 +611,13 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     menu->items = ArenaPushArray(arena, itemCount, P_MenuItem);
     data->apps = ArenaPushArray(arena, itemCount, P__App *);
     data->terminal = ArenaPushArray(arena, itemCount, b8);
+    data->templates = ArenaPushArray(arena, itemCount, String);
     for (u32 i = 0; i < itemCount; ++i) {
         menu->items[i] = items[i];
         if (!items[i].separator) menu->items[i].id = i + 1;
         data->apps[i] = itemApps[i];
         data->terminal[i] = itemTerminal[i];
+        data->templates[i] = templateFor[i];
     }
     menu->count = itemCount;
     menu->rootCount = rootCount;
@@ -621,6 +647,11 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
     u32 index = id - 1;
     if (!data || !id || index >= menu->count) return P__FileError(arena, EINVAL);
     if (data->terminal[index]) return P__OpenTerminal(arena, data->paths[0]);
+    // A template is copied in under a free name, which the program then renames, as a new file.
+    if (data->templates[index].length) {
+        P_CancelToken token = {0};
+        return P_TransferItems(arena, &data->templates[index], 1, data->directory, false, NULL, NULL, &token);
+    }
     if (index == data->ejectItem) {
         char *target = strndup(data->eject.value, data->eject.length);
         pthread_t thread;
