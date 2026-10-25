@@ -476,6 +476,7 @@ global const char *const Prog_Strings[] = {
     "Disconnect",
     "Set as Default",
     "Scripts",
+    "Open as Root",
     "Press A Key",
     "Duplicate Tab To New Window",
     "Update to Filey %S",

@@ -498,6 +498,7 @@ typedef struct P__MenuData {
     String *commands;  // a Nemo action's shell command, by item; empty for the rest
     b8 *inTerminal;    // and whether it runs in a terminal
     String *scripts;   // a Nemo script, by item, run on the items
+    u32 rootItem;      // Open as Root's index, past the items when there is none
     String eject;      // where Eject takes the drive the menu is for from, as GIO names it; empty when it cannot be ejected
     u32 ejectItem;     // the Eject item's index, past the items when there is none
 } P__MenuData;
@@ -740,6 +741,17 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         itemTerminal[itemCount] = true;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Open in Terminal"), .verb = S("openterminal") };
     }
+    // A folder, or the one shown, in a window of Filey's own run as root, as Nemo offers, where pkexec is there to ask for the password.
+    data->rootItem = UINT32_MAX;
+    if (!trash && !inTrash && (!count || oneFolder) && geteuid() != 0) {
+        Scratch probe = GetScratchEx(arena);
+        u32 error = 0;
+        if (P__FindExecutable(probe.arena, S("pkexec"), &error)) {
+            data->rootItem = itemCount;
+            items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Open as Root"), .verb = S("openroot") };
+        }
+        ReleaseScratch(probe);
+    }
     if (count && !trash && !inTrash) {
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Cut"), .verb = S("cut"), .action = P_MenuAction_Cut };
@@ -930,6 +942,26 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
     u32 index = id - 1;
     if (!data || !id || index >= menu->count) return P__FileError(arena, EINVAL);
     if (data->terminal[index]) return P__OpenTerminal(arena, data->paths[0]);
+    // pkexec gives root a clean environment, so the window's own session comes with it: Wayland's socket, the runtime folder it is in, and X's.
+    if (index == data->rootItem) {
+        Scratch scratch = GetScratchEx(arena);
+        u32 error = 0;
+        char *pkexec = P__FindExecutable(scratch.arena, S("pkexec"), &error);
+        String self = P_ExecutablePath(scratch.arena);
+        const char *names[] = { "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DISPLAY", "XAUTHORITY" };
+        char *args[16] = { pkexec, "env" };
+        u32 argc = 2;
+        for (u32 i = 0; i < CArrayCount(names); ++i) {
+            const char *value = getenv(names[i]);
+            if (value) args[argc++] = P__FilePathCString(scratch.arena, StrFormat(scratch.arena, "%s=%s", names[i], value));
+        }
+        args[argc++] = P__FilePathCString(scratch.arena, self);
+        args[argc++] = "--new-window";
+        args[argc++] = P__FilePathCString(scratch.arena, data->paths[0]);
+        error = pkexec && self.length ? P__Spawn(pkexec, args, NULL) : ENOENT;
+        ReleaseScratch(scratch);
+        return error ? P__FileError(arena, error) : (P_FileError){0};
+    }
     // A template is copied in under a free name, which the program then renames, as a new file.
     if (data->templates[index].length) {
         P_CancelToken token = {0};
