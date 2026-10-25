@@ -4417,6 +4417,47 @@ function String TestWaitText(Arena *arena, TestFileFixture *fixture, String rela
 // Desktop entries, mimeapps.list and launching, against entries, a terminal and an opener made in the fixture.
 function void TestApps(TestFileFixture *fixture)
 {
+    // Nemo's actions show where they apply and run their command; those with Conditions, inactive or for other types do not show, and the
+    // scripts folder's programs run on the items with Nemo's variables.
+    {
+        Arena extras = {0};
+        String data = Prog_JoinPath(&extras, fixture->path, S("ExtrasData")), actions = Prog_JoinPath(&extras, data, S("nemo/actions"));
+        String scripts = Prog_JoinPath(&extras, data, S("nemo/scripts")), work = Prog_JoinPath(&extras, fixture->path, S("Extras"));
+        String created = {0};
+        Check(!P_CreateItem(&extras, fixture->path, S("ExtrasData"), true, &created).code && !P_CreateItem(&extras, fixture->path, S("Extras"), true, &created).code);
+        Check(!P_CreateItem(&extras, data, S("nemo"), true, &created).code && !P_CreateItem(&extras, Prog_JoinPath(&extras, data, S("nemo")), S("actions"), true, &created).code);
+        Check(!P_CreateItem(&extras, Prog_JoinPath(&extras, data, S("nemo")), S("scripts"), true, &created).code);
+        Check(!P_WriteFile(&extras, Prog_JoinPath(&extras, actions, S("a.nemo_action")), S("[Nemo Action]\nName=Mark %f\nExec=touch %P/marked\nSelection=s\nExtensions=txt;\n")).code);
+        Check(!P_WriteFile(&extras, Prog_JoinPath(&extras, actions, S("b.nemo_action")), S("[Nemo Action]\nName=Cinnamon\nExec=true\nSelection=s\nExtensions=any;\nConditions=desktop;\n")).code);
+        Check(!P_WriteFile(&extras, Prog_JoinPath(&extras, actions, S("c.nemo_action")), S("[Nemo Action]\nName=Off\nExec=true\nSelection=s\nExtensions=any;\nActive=false\n")).code);
+        Check(!P_WriteFile(&extras, Prog_JoinPath(&extras, actions, S("d.nemo_action")), S("[Nemo Action]\nName=Pictures\nExec=true\nSelection=s\nExtensions=png;\n")).code);
+        String script = Prog_JoinPath(&extras, scripts, S("record"));
+        Check(!P_WriteFile(&extras, script, S("#!/bin/sh\nprintf '%s' \"$NEMO_SCRIPT_SELECTED_FILE_PATHS\" > recorded\n")).code && !P_SetMode(&extras, script, 0755).code);
+        Check(!P_WriteFile(&extras, Prog_JoinPath(&extras, work, S("note.txt")), S("x")).code);
+        String dataHome = StrCopy(&extras, StrFromCStr(getenv("XDG_DATA_HOME") ? getenv("XDG_DATA_HOME") : ""));
+        setenv("XDG_DATA_HOME", P__FilePathCString(&extras, data), 1);
+        String names[] = { S("note.txt") };
+        P_ContextMenu menu = {0};
+        Check(P_ContextMenuOpen(&extras, work, names, 1, &menu));
+        u32 mark = 0, record = 0, others = 0;
+        for (u32 i = 0; i < menu.count; ++i) {
+            if (StrIsEqual(menu.items[i].label, S("Mark note.txt"))) mark = menu.items[i].id;
+            if (StrIsEqual(menu.items[i].label, S("record"))) record = menu.items[i].id;
+            others += StrIsEqual(menu.items[i].label, S("Cinnamon")) || StrIsEqual(menu.items[i].label, S("Off")) || StrIsEqual(menu.items[i].label, S("Pictures"));
+        }
+        Check(mark && record && !others);
+        Check(mark && !P_ContextMenuInvoke(&extras, &menu, mark).code && record && !P_ContextMenuInvoke(&extras, &menu, record).code);
+        P_ContextMenuClose(&menu);
+        if (dataHome.length) setenv("XDG_DATA_HOME", P__FilePathCString(&extras, dataHome), 1);
+        else unsetenv("XDG_DATA_HOME");
+        String recorded = {0};
+        for (u64 start = PlatformNowMicroseconds(); !(TestHasFile(&extras, fixture, S("Extras"), S("marked")) && P_ReadFile(&extras, Prog_JoinPath(&extras, work, S("recorded")), &recorded) && recorded.length) &&
+                                                    PlatformNowMicroseconds() - start < Millions(5);) P__TestPause();
+        Check(TestHasFile(&extras, fixture, S("Extras"), S("marked")) && StrIsEqual(recorded, StrFormat(&extras, "%S\n", Prog_JoinPath(&extras, work, S("note.txt")))));
+        TestRemoveTree(&extras, fixture, S("ExtrasData"));
+        TestRemoveTree(&extras, fixture, S("Extras"));
+        ArenaRelease(&extras);
+    }
     // Set as Default writes the type's line in the user's mimeapps.list, replacing the one it had and keeping the rest.
     {
         Arena defaults = {0};

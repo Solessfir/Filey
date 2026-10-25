@@ -495,6 +495,9 @@ typedef struct P__MenuData {
     String *templates; // the template file a New item copies, by item; empty for the rest
     String mime;       // the type the first item is of, which Set as Default chooses for
     b8 *setDefault;    // Set as Default items, whose application becomes the type's default
+    String *commands;  // a Nemo action's shell command, by item; empty for the rest
+    b8 *inTerminal;    // and whether it runs in a terminal
+    String *scripts;   // a Nemo script, by item, run on the items
     String eject;      // where Eject takes the drive the menu is for from, as GIO names it; empty when it cannot be ejected
     u32 ejectItem;     // the Eject item's index, past the items when there is none
 } P__MenuData;
@@ -558,6 +561,131 @@ function void *P__EjectThread(void *user)
     return NULL;
 }
 
+// Whether `name` (a program, or a path) is a program that runs.
+function b32 P__HasProgram(Arena *arena, String name)
+{
+    u32 error = 0;
+    return P__FindExecutable(arena, name, &error) != NULL;
+}
+
+// `text` in single quotes for the shell, its own single quotes escaped.
+function String P__ShellQuote(Arena *arena, String text)
+{
+    StrBuilder out = {0};
+    StrBuildChar(arena, &out, '\'');
+    for (u64 i = 0; i < text.length; ++i) {
+        if (text.value[i] == '\'') StrBuildStr(arena, &out, S("'\\''"));
+        else StrBuildChar(arena, &out, text.value[i]);
+    }
+    StrBuildChar(arena, &out, '\'');
+    return out.buffer;
+}
+
+// A Nemo action that applies to `paths` (`count` of them, or none for the folder's background) inside `directory`: its name and the shell
+// command its Exec line makes, by the action file format Nemo documents. Actions with Conditions are left out, as those Nemo ships need
+// Cinnamon's desktop or its D-Bus services, and so are those whose Dependencies are not met.
+// ponytail: Files, Locations, UriScheme, Quote, EscapeSpaces and the %D and %X tokens are not read; Name[xx] follows only the language code.
+typedef struct P__Action { String name; String command; b32 terminal; } P__Action;
+
+function b32 P__ReadAction(Arena *arena, String file, String folder, String directory, const String *paths, u64 count, String language, P__Action *action)
+{
+    Scratch scratch = GetScratchEx(arena);
+    P__StrMap ini = P__IniParse(scratch.arena, P__ReadFile(scratch.arena, file));
+    String section = S("Nemo Action"), exec = P__IniGet(ini, section, S("Exec"));
+    String name = language.length ? P__IniGet(ini, section, StrFormat(scratch.arena, "Name[%S]", language)) : (String){0};
+    if (!name.length) name = P__IniGet(ini, section, S("Name"));
+    b32 usable = exec.length && name.length && !StrIsEqual(P__Lower(scratch.arena, P__IniGet(ini, section, S("Active"))), S("false")) &&
+             !P__IniGet(ini, section, S("Conditions")).length;
+    // Which selections: one (s), several (m), any, none (the background), notnone, or an exact count.
+    String selection = P__Lower(scratch.arena, P__IniGet(ini, section, S("Selection")));
+    if (!selection.length) selection = S("s");
+    if (StrIsEqual(selection, S("s"))) usable &= count == 1;
+    else if (StrIsEqual(selection, S("m"))) usable &= count > 1;
+    else if (StrIsEqual(selection, S("none"))) usable &= count == 0;
+    else if (StrIsEqual(selection, S("notnone"))) usable &= count > 0;
+    else if (!StrIsEqual(selection, S("any"))) usable &= count == (u64)P__ParseI32(selection, -1);
+    // The programs it needs, and those it must not find, as "!gedit".
+    ArrayStr needs = StrSplit(scratch.arena, P__IniGet(ini, section, S("Dependencies")), ';');
+    for (u64 i = 0; i < needs.header.count && usable; ++i) {
+        String need = P__Trim(needs.v[i]);
+        if (!need.length) continue;
+        b32 absent = need.value[0] == '!';
+        usable = P__HasProgram(scratch.arena, absent ? StrFrom(need, 1) : need) != absent;
+    }
+    // Each selected item matches its extensions (any, dir, nodirs, none, or names such as "jpg") or its MIME types (as "image/*").
+    ArrayStr extensions = StrSplit(scratch.arena, P__Lower(scratch.arena, P__IniGet(ini, section, S("Extensions"))), ';');
+    ArrayStr types = StrSplit(scratch.arena, P__IniGet(ini, section, S("Mimetypes")), ';');
+    for (u64 i = 0; i < count && usable && (extensions.header.count || types.header.count); ++i) {
+        b32 folder = P__IsDirectory(scratch.arena, paths[i]), matches = false;
+        String leaf = StrFrom(paths[i], StrIndexChar(paths[i], '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
+        String extension = {0};
+        Index dot = StrIndexChar(leaf, '.', SSF_SearchBackwards);
+        if (dot.exists && dot.value) extension = P__Lower(scratch.arena, StrFrom(leaf, dot.value + 1));
+        for (u64 e = 0; e < extensions.header.count && !matches; ++e) {
+            String want = P__Trim(extensions.v[e]);
+            matches = StrIsEqual(want, S("any")) || (StrIsEqual(want, S("dir")) && folder) || (StrIsEqual(want, S("nodirs")) && !folder) ||
+                      (StrIsEqual(want, S("none")) && !folder && !extension.length) || (want.length && !folder && StrIsEqual(want, extension));
+        }
+        String mime = P__MimeForName(leaf, folder);
+        for (u64 t = 0; t < types.header.count && !matches; ++t) {
+            String want = P__Trim(types.v[t]);
+            u64 star = want.length && want.value[want.length - 1] == '*' ? want.length - 1 : want.length;
+            matches = want.length && (star < want.length ? mime.length >= star && StrIsEqual(StrFromTo(mime, 0, (i64)star), StrFromTo(want, 0, (i64)star)) : StrIsEqual(want, mime));
+        }
+        usable = matches;
+    }
+    if (!usable) {
+        ReleaseScratch(scratch);
+        return false;
+    }
+    // The tokens: the paths and the URIs of the selection, the folder, the first item's name and that name without its extension.
+    String separator = P__IniGet(ini, section, S("Separator"));
+    if (!separator.length) separator = S(" ");
+    StrBuilder pathList = {0}, uriList = {0};
+    for (u64 i = 0; i < count; ++i) {
+        if (i) StrBuildStr(scratch.arena, &pathList, separator), StrBuildStr(scratch.arena, &uriList, separator);
+        StrBuildStr(scratch.arena, &pathList, P__ShellQuote(scratch.arena, paths[i]));
+        StrBuildStr(scratch.arena, &uriList, P__ShellQuote(scratch.arena, P__FileUri(scratch.arena, paths[i])));
+    }
+    String first = count ? StrFrom(paths[0], StrIndexChar(paths[0], '/', SSF_SearchBackwards | SSF_IndexPlusOne).value) : (String){0};
+    Index firstDot = StrIndexChar(first, '.', SSF_SearchBackwards);
+    String stem = firstDot.exists && firstDot.value ? StrFromTo(first, 0, (i64)firstDot.value) : first;
+    String parentName = StrFrom(directory, StrIndexChar(directory, '/', SSF_SearchBackwards | SSF_IndexPlusOne).value);
+    for (u32 part = 0; part < 2; ++part) {
+        String text = part ? exec : name;
+        // A script beside the action, as "<convert.sh %F>", runs from the actions folder.
+        if (part && text.length > 2 && text.value[0] == '<') {
+            Index close = StrIndexChar(text, '>', SSF_None);
+            String inside = close.exists ? StrFromTo(text, 1, (i64)close.value) : StrFrom(text, 1);
+            text = StrFormat(scratch.arena, "%S/%S", folder, inside);
+        }
+        StrBuilder out = {0};
+        for (u64 at = 0; at < text.length; ++at) {
+            char c = text.value[at], code = at + 1 < text.length ? text.value[at + 1] : 0;
+            if (c != '%' || !code) { StrBuildChar(scratch.arena, &out, c); continue; }
+            ++at;
+            // In the name the values go in as they are; in the command each is quoted for the shell, unless the line quotes it itself.
+            b32 quoted = at >= 2 && (text.value[at - 2] == '"' || text.value[at - 2] == '\'');
+            b32 plain = !part || quoted;
+            switch (code) {
+                case 'F': StrBuildStr(scratch.arena, &out, plain && count ? paths[0] : pathList.buffer); break;
+                case 'U': StrBuildStr(scratch.arena, &out, plain && count ? P__FileUri(scratch.arena, paths[0]) : uriList.buffer); break;
+                case 'P': StrBuildStr(scratch.arena, &out, plain ? directory : P__ShellQuote(scratch.arena, directory)); break;
+                case 'f': case 'N': StrBuildStr(scratch.arena, &out, plain ? first : P__ShellQuote(scratch.arena, first)); break;
+                case 'p': StrBuildStr(scratch.arena, &out, plain ? parentName : P__ShellQuote(scratch.arena, parentName)); break;
+                case 'e': StrBuildStr(scratch.arena, &out, plain ? stem : P__ShellQuote(scratch.arena, stem)); break;
+                case '%': StrBuildChar(scratch.arena, &out, '%'); break;
+                default: break;
+            }
+        }
+        if (part) action->command = StrCopy(arena, out.buffer);
+        else action->name = StrCopy(arena, out.buffer);
+    }
+    action->terminal = StrIsEqual(P__Lower(scratch.arena, P__IniGet(ini, section, S("Terminal"))), S("true"));
+    ReleaseScratch(scratch);
+    return true;
+}
+
 // Every item is something Filey carries out itself: Open and Rename by their verbs, Open With and Open in Terminal through P_ContextMenuInvoke, the rest by their actions.
 function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *names, u64 count, P_ContextMenu *menu)
 {
@@ -565,11 +693,12 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     // The computer is an icon here, not an item with a menu of its own.
     if (count == 1 && StrIsEqual(names[0], P_ComputerIconPath())) return false;
     pthread_once(&P__appsOnce, P__LoadGlobalApps);
-    enum { MaxApps = 16, MaxItems = 26 + 2 * MaxApps };
+    enum { MaxApps = 16, MaxExtras = 16, MaxItems = 28 + 2 * MaxApps + 2 * MaxExtras };
     P_MenuItem items[MaxItems];
     P__App *itemApps[MaxItems] = {0};
     String templateFor[MaxItems] = {0};
-    b8 itemDefault[MaxItems] = {0};
+    b8 itemDefault[MaxItems] = {0}, itemInTerminal[MaxItems] = {0};
+    String itemCommand[MaxItems] = {0}, itemScript[MaxItems] = {0};
     b8 itemTerminal[MaxItems] = {0};
     u32 itemCount = 0;
     P_MenuItem separator = { .separator = true };
@@ -597,7 +726,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     const char *run[2] = {0};
     b32 terminal = !trash && !inTrash && (!count || oneFolder) && P__FindTerminal(scratch.arena, run) != NULL;
     ReleaseScratch(scratch);
-    u32 openWith = UINT32_MAX;
+    u32 openWith = UINT32_MAX, newItem = UINT32_MAX;
     if (inTrash) {
         if (count) items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Delete"), .action = P_MenuAction_Delete };
     } else if (count) {
@@ -632,11 +761,77 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         items[itemCount++] = separator;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Paste"), .verb = S("paste"), .action = P_MenuAction_Paste };
         items[itemCount++] = separator;
+        newItem = itemCount;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("New"), .verb = S("new") };
     }
+    // The user's Nemo actions and scripts, after the rest, as Nemo shows them: the actions folders' in the order of their file names, the
+    // user's own over the system's of the same name, then the scripts folder's programs in a submenu of their own.
+    u32 scriptsItem = UINT32_MAX;
+    String scriptFiles[MaxExtras];
+    u32 scriptCount = 0;
+    if (!trash && !inTrash && directory.length) {
+        Scratch extras = GetScratchEx(arena);
+        const P__TypeWords *words = atomic_load(&P__typeWords);
+        String language = words ? words->language : (String){0};
+        ArrayStr dataDirs = P__DataDirs(extras.arena);
+        String seen[64];
+        u32 seenCount = 0, actions = 0;
+        b32 separated = false;
+        for (u64 d = 0; d < dataDirs.header.count && actions < MaxExtras; ++d) {
+            String folder = StrFormat(extras.arena, "%S/nemo/actions", dataDirs.v[d]);
+            P_DirectoryResult listing = P_EnumerateDirectory(extras.arena, folder, NULL);
+            String files[64];
+            u32 fileCount = 0;
+            for (u64 i = 0; i < listing.files.header.count && fileCount < CArrayCount(files); ++i) {
+                String name = listing.files.v[i].name, suffix = S(".nemo_action");
+                if (name.length <= suffix.length || !StrIsEqual(StrFrom(name, name.length - suffix.length), suffix)) continue;
+                b32 taken = false;
+                for (u32 k = 0; k < seenCount && !taken; ++k) taken = StrIsEqual(seen[k], name);
+                if (taken) continue;
+                if (seenCount < CArrayCount(seen)) seen[seenCount++] = name;
+                u32 at = fileCount++;
+                while (at > 0 && P__CompareFolded(files[at - 1], name) > 0) files[at] = files[at - 1], --at;
+                files[at] = name;
+            }
+            for (u32 i = 0; i < fileCount && actions < MaxExtras; ++i) {
+                P__Action action = {0};
+                if (!P__ReadAction(arena, StrFormat(extras.arena, "%S/%S", folder, files[i]), folder, data->directory, data->paths, count, language, &action)) continue;
+                if (!separated) items[itemCount++] = separator, separated = true;
+                itemCommand[itemCount] = action.command;
+                itemInTerminal[itemCount] = (b8)action.terminal;
+                items[itemCount++] = (P_MenuItem){ .label = action.name, .verb = S("action") };
+                ++actions;
+            }
+        }
+        // Scripts run on what is selected, so the background has none to run.
+        String scripts = StrFormat(extras.arena, "%S/nemo/scripts", dataDirs.header.count ? dataDirs.v[0] : S(""));
+        P_DirectoryResult listing = count ? P_EnumerateDirectory(extras.arena, scripts, NULL) : (P_DirectoryResult){0};
+        for (u64 i = 0; i < listing.files.header.count && scriptCount < MaxExtras; ++i) {
+            const P_File *file = &listing.files.v[i];
+            String path = StrFormat(extras.arena, "%S/%S", scripts, file->name);
+            if (file->kind != P_FileKind_File || !P__HasProgram(extras.arena, path)) continue;
+            u32 at = scriptCount++;
+            while (at > 0 && P__CompareFolded(scriptFiles[at - 1], path) > 0) scriptFiles[at] = scriptFiles[at - 1], --at;
+            scriptFiles[at] = StrCopy(arena, path);
+        }
+        if (scriptCount) {
+            if (!separated) items[itemCount++] = separator;
+            scriptsItem = itemCount;
+            items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Scripts") };
+        }
+        ReleaseScratch(extras);
+    }
     u32 rootCount = itemCount;
-    if (!count && !inTrash) {
-        items[rootCount - 1].firstChild = rootCount;
+    if (scriptsItem != UINT32_MAX) {
+        items[scriptsItem].firstChild = itemCount;
+        items[scriptsItem].childCount = scriptCount;
+        for (u32 i = 0; i < scriptCount; ++i) {
+            itemScript[itemCount] = scriptFiles[i];
+            items[itemCount++] = (P_MenuItem){ .label = StrFrom(scriptFiles[i], StrIndexChar(scriptFiles[i], '/', SSF_SearchBackwards | SSF_IndexPlusOne).value), .verb = S("script") };
+        }
+    }
+    if (newItem != UINT32_MAX) {
+        items[newItem].firstChild = itemCount;
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("Folder"), .action = P_MenuAction_NewFolder };
         items[itemCount++] = (P_MenuItem){ .own = true, .label = S("File"), .action = P_MenuAction_NewFile };
         // Then a copy of each file in the templates folder, by its name without the extension, as Nemo offers them.
@@ -661,7 +856,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
             }
         }
         ReleaseScratch(scratch);
-        items[rootCount - 1].childCount = itemCount - rootCount;
+        items[newItem].childCount = itemCount - items[newItem].firstChild;
     }
     if (openWith != UINT32_MAX) {
         // The applications, then Set as Default with them again, which makes the one chosen open the type from then on.
@@ -688,6 +883,9 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     data->terminal = ArenaPushArray(arena, itemCount, b8);
     data->templates = ArenaPushArray(arena, itemCount, String);
     data->setDefault = ArenaPushArray(arena, itemCount, b8);
+    data->commands = ArenaPushArray(arena, itemCount, String);
+    data->inTerminal = ArenaPushArray(arena, itemCount, b8);
+    data->scripts = ArenaPushArray(arena, itemCount, String);
     if (count && appCount) {
         Scratch types = GetScratchEx(arena);
         data->mime = StrCopy(arena, P__MimeForName(names[0], P__IsDirectory(types.arena, data->paths[0])));
@@ -700,6 +898,9 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         data->terminal[i] = itemTerminal[i];
         data->templates[i] = templateFor[i];
         data->setDefault[i] = itemDefault[i];
+        data->commands[i] = itemCommand[i];
+        data->inTerminal[i] = itemInTerminal[i];
+        data->scripts[i] = itemScript[i];
     }
     menu->count = itemCount;
     menu->rootCount = rootCount;
@@ -740,6 +941,45 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
         if (target && pthread_create(&thread, NULL, P__EjectThread, target) == 0) pthread_detach(thread);
         else free(target);
         return (P_FileError){0};
+    }
+    // A Nemo action's command runs in the shell, in the folder, or in a terminal when it asks; a script gets the items' names as its
+    // arguments and Nemo's variables for them, as Nemo runs it.
+    if (data->commands[index].length || data->scripts[index].length) {
+        Scratch scratch = GetScratchEx(arena);
+        u32 error = 0;
+        char *folder = P__FilePathCString(scratch.arena, data->directory);
+        if (data->scripts[index].length) {
+            StrBuilder selected = {0}, uris = {0};
+            char **args = ArenaPushArray(scratch.arena, data->count + 2, char *);
+            args[0] = P__FilePathCString(scratch.arena, data->scripts[index]);
+            for (u64 i = 0; i < data->count; ++i) {
+                StrBuildStr(scratch.arena, &selected, StrFormat(scratch.arena, "%S\n", data->paths[i]));
+                StrBuildStr(scratch.arena, &uris, StrFormat(scratch.arena, "%S\n", P__FileUri(scratch.arena, data->paths[i])));
+                args[i + 1] = P__FilePathCString(scratch.arena, StrFrom(data->paths[i], StrIndexChar(data->paths[i], '/', SSF_SearchBackwards | SSF_IndexPlusOne).value));
+            }
+            // The child takes the environment as it is when it starts.
+            setenv("NEMO_SCRIPT_SELECTED_FILE_PATHS", P__FilePathCString(scratch.arena, selected.buffer), 1);
+            setenv("NEMO_SCRIPT_SELECTED_URIS", P__FilePathCString(scratch.arena, uris.buffer), 1);
+            setenv("NEMO_SCRIPT_CURRENT_URI", P__FilePathCString(scratch.arena, P__FileUri(scratch.arena, data->directory)), 1);
+            error = P__Spawn(args[0], args, folder);
+            unsetenv("NEMO_SCRIPT_SELECTED_FILE_PATHS");
+            unsetenv("NEMO_SCRIPT_SELECTED_URIS");
+            unsetenv("NEMO_SCRIPT_CURRENT_URI");
+        } else {
+            const char *run[2] = {0};
+            char *terminal = data->inTerminal[index] ? P__FindTerminal(scratch.arena, run) : NULL;
+            char *shell = "/bin/sh", *command = P__FilePathCString(scratch.arena, data->commands[index]);
+            char *args[8] = {0};
+            u32 argc = 0;
+            if (terminal) {
+                args[argc++] = terminal;
+                for (u32 i = 0; i < 2 && run[i]; ++i) args[argc++] = (char *)run[i];
+            }
+            args[argc++] = shell, args[argc++] = "-c", args[argc++] = command;
+            error = P__Spawn(args[0], args, folder);
+        }
+        ReleaseScratch(scratch);
+        return error ? P__FileError(arena, error) : (P_FileError){0};
     }
     if (data->setDefault[index] && data->apps[index]) return P__SetDefaultApp(arena, data->mime, data->apps[index]->id);
     if (data->apps[index]) return P__LaunchApp(arena, data->apps[index], data->paths, data->count, data->directory);
