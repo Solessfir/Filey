@@ -52,9 +52,12 @@ rem EXTRA_CFLAGS passes ad-hoc defines such as -DLOG_EVENTS.
 set CFLAGS=%CFLAGS% %EXTRA_CFLAGS%
 rem FILEY_VERSION, such as 1.2.3 for a release, is the version the app and its executable's details show. Without it, git describes the
 rem build: the last v tag and the commits since it, or 0.1.0 and the commit while there is no tag, and 0.1.0 alone outside a repository.
-if not defined FILEY_VERSION for /f "delims=" %%v in ('git -C "%ROOT%." describe --tags --always --dirty 2^>nul') do set "FILEY_DESCRIBE=%%v"
-if not defined FILEY_VERSION if defined FILEY_DESCRIBE if "%FILEY_DESCRIBE:~0,1%"=="v" set "FILEY_VERSION=%FILEY_DESCRIBE:~1%"
-if not defined FILEY_VERSION if defined FILEY_DESCRIBE set "FILEY_VERSION=0.1.0+%FILEY_DESCRIBE%"
+rem A substring of an undefined variable breaks the line it is on, so those lines are reached only once git has named the build.
+if defined FILEY_VERSION goto :version_ready
+for /f "delims=" %%v in ('git -C "%ROOT%." describe --tags --always --dirty 2^>nul') do set "FILEY_DESCRIBE=%%v"
+if not defined FILEY_DESCRIBE goto :version_ready
+if "%FILEY_DESCRIBE:~0,1%"=="v" (set "FILEY_VERSION=%FILEY_DESCRIBE:~1%") else set "FILEY_VERSION=0.1.0+%FILEY_DESCRIBE%"
+:version_ready
 set RCFLAGS=
 if defined FILEY_VERSION (
     set CFLAGS=%CFLAGS% -DFILEY_VERSION=\"%FILEY_VERSION%\"
