@@ -939,7 +939,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         state.history = (ArrayStr){0};
         ArrayPush(&state.historyArena, state.history, StrCopy(&state.historyArena, state.directory.path));
         state.historyAt = 0;
-        String parent = Prog_UpPath(state.directory.path);
+        String parent = StrCopy(&state.historyArena, Prog_UpPath(state.directory.path));
         Check(StrIsEqual(Prog_BackPath(&state), parent));
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, parent) && state.historyAt == 0 && state.history.header.count == 2);
