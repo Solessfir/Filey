@@ -687,9 +687,8 @@ function void Prog_StartupWindow(String configDirectory, PlatformWindowDesc *des
         while (name.length && name.value[name.length - 1] == ' ') --name.length;
         while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
         // A theme line replaces the colors set before it.
-        if (StrIsEqual(name, S("theme"))) theme = value, own = false;
+        if (StrIsEqual(name, S("theme"))) theme = value, own = false, system = false;
         else if (StrIsEqual(name, S("theme.light"))) light = value;
-        else if (StrIsEqual(name, S("theme.system"))) system = Prog__SettingOn(value);
         else if (StrIsEqual(name, S("transparent"))) transparent = Prog__SettingOn(value);
         else if (StrIsEqual(name, S("glass.window")) && Prog__ParseColor(value, &color)) glass = color, glassOwn = true;
         else if (StrIsEqual(name, S("glass.backdrop"))) {
@@ -869,13 +868,13 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             Prog_ThemeUser = Prog__ThemeFromScheme(state->schemeGroups);
             state->schemeName.length = (u32)Min(value.length, (u64)sizeof(state->schemeName.text));
             MemCopy(state->schemeName.text, value.value, state->schemeName.length);
+            // One chosen is kept, whatever the system's mode.
+            state->systemScheme = false;
         } else if (StrIsEqual(name, S("theme.light"))) {
             u32 unused[Prog_ColorGroupCount];
             state->lightScheme = Prog__UseScheme(state, value, unused);
             state->lightSchemeName.length = (u32)Min(value.length, (u64)sizeof(state->lightSchemeName.text));
             MemCopy(state->lightSchemeName.text, value.value, state->lightSchemeName.length);
-        } else if (StrIsEqual(name, S("theme.system"))) {
-            state->systemScheme = Prog__EqualFolded(value, S("on")) || Prog__EqualFolded(value, S("true")) || StrIsEqual(value, S("1"));
         } else if (StrIsEqual(name, S("borders"))) {
             // In half pixels from 1 to 3; anything else is 1.
             f32 halves = floorf(number * 2 + 0.5f);
@@ -1020,7 +1019,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
         }
     }
     ReleaseScratch(scratch);
-    // The system's light mode brings the light scheme, its dark mode the one chosen.
+    // Until a scheme is chosen, the system's light mode brings the light one, and its dark mode the default dark one.
     state->systemDark = !state->systemScheme || P_PrefersDarkColors();
     if (!state->systemDark) {
         Prog__UseScheme(state, state->lightSchemeName.length ? StrMake(state->lightSchemeName.text, state->lightSchemeName.length) : S("light"), state->schemeGroups);
@@ -1053,7 +1052,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# The size of everything, beyond the display's own scale.\n# scale = 1\n\n"
                                 "# A scheme by its name: filey-dark, catppuccin-frappe, catppuccin-latte, nord, gruvbox, tokyo-night, one-dark\n"
                                 "# or a custom one; colors set before this line are replaced.\n# theme = filey-dark\n"
-                                "# With theme.system on, the system's light mode brings theme.light instead.\n# theme.system = true\n# theme.light = catppuccin-latte\n\n"
+                                "# Without a theme line, the system's light mode brings theme.light, and its dark mode filey-dark.\n# theme.light = catppuccin-latte\n\n"
                                 "# How the lists look: the space between items from 0 to 13, the corners, every other row tinted,\n"
                                 "# and how much of inactive panels shows, from 0 to 100.\n# spacing = 4\n# corners = round\n# rows.alternate = false\n# inactive.opacity = 60\n\n"
                                 "# The thickness of the outlines, in pixels: 1, 1.5, 2, 2.5 or 3; the lines between areas take the nearest whole pixels.\n# borders = 1\n\n"
@@ -1333,9 +1332,8 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
     u32 count = 0;
     for (u32 i = 0; i < Prog_Option_Count; ++i) {
         if (!Prog_OptionApplies((Prog_Option)i)) continue;
-        // With the system's choice, a scheme for each of its modes.
-        if (i == Prog_Option_ColorScheme && state->systemScheme) continue;
-        if ((i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) && !state->systemScheme) continue;
+        // One scheme to choose, which starts as the system's mode's.
+        if (i == Prog_Option_SystemScheme || i == Prog_Option_LightScheme || i == Prog_Option_DarkScheme) continue;
         // The options that narrow the one above them only while it is on.
         // That is the see-through window's own, the drives whose folders are measured, and what a single click opens.
         if (i >= Prog_Option_WindowOpacity && i <= Prog_Option_Backdrop && !state->transparent) continue;
@@ -1358,7 +1356,8 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_InspectorFontSize: return (i32)(state->inspectorFontSize ? state->inspectorFontSize : Prog_InspectorFontSize);
         case Prog_Option_InspectorLayout: return state->inspectorLayout;
         case Prog_Option_Animations: return !state->animationsOff;
-        case Prog_Option_ColorScheme: case Prog_Option_DarkScheme: return state->scheme;
+        case Prog_Option_ColorScheme: return Prog_ShownScheme(state, NULL);
+        case Prog_Option_DarkScheme: return state->scheme;
         case Prog_Option_LightScheme: return state->lightScheme;
         case Prog_Option_Spacing: return 4 + state->spacingShift;
         case Prog_Option_Borders: return (i32)state->borderSize;
@@ -1939,6 +1938,8 @@ function i32 Prog__OptionDefault(Prog_Option option)
 function b32 Prog_OptionIsDefault(const Prog_State *state, Prog_Option option)
 {
     if (option >= Prog_Option_Count || option == Prog_Option_LongPaths) return true;
+    // A scheme not chosen yet, which follows the system's mode.
+    if (option == Prog_Option_ColorScheme && state->systemScheme) return true;
     switch (Prog_Options[option].control) {
         case Prog_OptionControl_Font: return !(option == Prog_Option_InspectorFont ? state->inspectorFont : state->font).length;
         case Prog_OptionControl_Switch: case Prog_OptionControl_Stepper: case Prog_OptionControl_Slider: case Prog_OptionControl_Choice:
