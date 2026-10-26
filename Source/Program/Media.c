@@ -588,9 +588,11 @@ function void Prog__TorrentOutput(void *user, String text)
 function P_FileError Prog_DownloadTorrent(Arena *arena, String source, String folder, String selection, P_Progress *progress, const P_CancelToken *cancel, ArrayStr *placed)
 {
     Scratch scratch = GetScratchEx(arena);
-    String arguments[12];
+    String arguments[13];
     u32 count = 0;
     arguments[count++] = S("aria2c");
+    // stderr keeps Linux's stdio buffering from holding progress updates in the pipe.
+    arguments[count++] = S("--stderr=true");
     arguments[count++] = StrFormat(scratch.arena, "--dir=%S", folder);
     arguments[count++] = S("--seed-time=0");
     arguments[count++] = S("--auto-save-interval=5");
@@ -858,7 +860,7 @@ function P_FileError Prog_FetchTorrent(Arena *arena, String source, String folde
 {
     Scratch scratch = GetScratchEx(arena);
     b32 magnet = Prog_IsMagnet(source);
-    String arguments[] = { S("aria2c"), StrFormat(scratch.arena, "--dir=%S", folder), magnet ? S("--bt-metadata-only=true") : S("--follow-torrent=false"), S("--bt-save-metadata=true"),
+    String arguments[] = { S("aria2c"), S("--stderr=true"), StrFormat(scratch.arena, "--dir=%S", folder), magnet ? S("--bt-metadata-only=true") : S("--follow-torrent=false"), S("--bt-save-metadata=true"),
                            S("--summary-interval=0"), S("--console-log-level=notice"), S("--enable-color=false"), S("--show-console-readout=true"), S("--"), source };
     Prog__Torrent *torrent = ArenaPushStruct(scratch.arena, Prog__Torrent);
     torrent->progress = progress;
