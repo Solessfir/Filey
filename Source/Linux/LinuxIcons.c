@@ -492,6 +492,14 @@ function String P__FindIcon(Arena *arena, String name, i32 size, i32 scale)
         }
         if (best.length) return best;
     }
+    // Outside every theme, as some applications install theirs.
+    for (u32 e = 0; e < CArrayCount(extensions); ++e) {
+        Scratch scratch = GetScratchEx(arena);
+        String path = StrFormat(scratch.arena, "/usr/share/pixmaps/%S.%s", name, extensions[e]);
+        b32 found = P__IconUsable(scratch.arena, path);
+        ReleaseScratch(scratch);
+        if (found) return StrFormat(arena, "/usr/share/pixmaps/%S.%s", name, extensions[e]);
+    }
     return (String){0};
 }
 

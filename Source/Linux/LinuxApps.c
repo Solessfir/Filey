@@ -6,6 +6,7 @@ typedef struct P__App {
     String name;
     String exec;
     String mimeTypes;  // ";"-separated, as in the file
+    String icon;       // a theme icon's name, as "org.gnome.TextEditor", or a file's path
     b32 terminal;
     b32 noDisplay;
 } P__App;
@@ -52,6 +53,7 @@ function void P__AddDesktopFiles(P__AppData *data, String folder, String prefix,
             .name = StrCopy(arena, P__IniGet(ini, section, S("Name"))),
             .exec = StrCopy(arena, P__IniGet(ini, section, S("Exec"))),
             .mimeTypes = StrCopy(arena, P__IniGet(ini, section, S("MimeType"))),
+            .icon = StrCopy(arena, P__IniGet(ini, section, S("Icon"))),
             .terminal = StrIsEqual(P__IniGet(ini, section, S("Terminal")), S("true")),
             .noDisplay = StrIsEqual(P__IniGet(ini, section, S("NoDisplay")), S("true")),
         };
@@ -309,13 +311,6 @@ function char *P__FindTerminal(Arena *arena, const char **run)
     return NULL;
 }
 
-function String P__TrimSpaces(String s)
-{
-    while (s.length && (s.value[0] == ' ' || s.value[0] == '\t')) s = StrFrom(s, 1);
-    while (s.length && (s.value[s.length - 1] == ' ' || s.value[s.length - 1] == '\t' || s.value[s.length - 1] == '\r')) --s.length;
-    return s;
-}
-
 // The family a terminal's settings name, by the line that names it: kitty's "font_family X" or "font_family family=\"X\"", foot's
 // "font=X:size=11", alacritty's "family = \"X\"" and ghostty's "font-family = X". The terminal in use is asked first, then the others.
 function String P_TerminalFont(Arena *arena)
@@ -341,12 +336,12 @@ function String P_TerminalFont(Arena *arena)
             ArrayStr lines = StrSplit(scratch.arena, text, '\n');
             String key = StrFromCStr(settings[i].key);
             for (u64 l = 0; l < lines.header.count && !result.length; ++l) {
-                String line = P__TrimSpaces(lines.v[l]);
+                String line = P__Trim(lines.v[l]);
                 if (line.length <= key.length || !StrIsEqual(StrFromTo(line, 0, (i64)key.length), key)) continue;
                 String value = StrFrom(line, key.length);
                 if (value.value[0] != ' ' && value.value[0] != '\t' && value.value[0] != '=') continue;
-                value = P__TrimSpaces(value);
-                if (value.length && value.value[0] == '=') value = P__TrimSpaces(StrFrom(value, 1));
+                value = P__Trim(value);
+                if (value.length && value.value[0] == '=') value = P__Trim(StrFrom(value, 1));
                 Index named = StrIndexStr(value, S("family="), SSF_IndexPlusOne);
                 if (named.exists) value = StrFrom(value, named.value);
                 if (value.length && (value.value[0] == '"' || value.value[0] == '\'')) {
@@ -356,7 +351,7 @@ function String P_TerminalFont(Arena *arena)
                 }
                 // foot's size and other attributes follow a colon, and a fallback font a comma.
                 value = StrFromTo(value, 0, (i64)StrIndexChar(value, ':', SSF_CountOnFail).value);
-                value = P__TrimSpaces(StrFromTo(value, 0, (i64)StrIndexChar(value, ',', SSF_CountOnFail).value));
+                value = P__Trim(StrFromTo(value, 0, (i64)StrIndexChar(value, ',', SSF_CountOnFail).value));
                 // "auto" and "monospace" leave it to the system's matching.
                 if (value.length && !StrIsEqual(value, S("auto")) && !StrIsEqual(value, S("monospace"))) result = StrCopy(arena, value);
             }
@@ -931,9 +926,19 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         // The applications, then Set as Default with them again, which makes the one chosen open the type from then on.
         items[openWith].firstChild = itemCount;
         items[openWith].childCount = (u32)appCount + 2;
+        // Each by its icon from the theme, or the file its entry names, as other file managers show them.
+        P_Image *icons = ArenaPushArray(arena, appCount, P_Image);
+        for (u64 i = 0; i < appCount; ++i) {
+            String name = apps[i]->icon;
+            if (!name.length) continue;
+            Scratch scratch = GetScratchEx(arena);
+            String path = name.value[0] == '/' ? name : P__FindIcon(scratch.arena, name, 32, 1);
+            if (path.length) P__DecodeIcon(arena, path, 32, &icons[i]);
+            ReleaseScratch(scratch);
+        }
         for (u64 i = 0; i < appCount; ++i) {
             itemApps[itemCount] = apps[i];
-            items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("openwith"), .isDefault = i == 0 };
+            items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("openwith"), .isDefault = i == 0, .icon = icons[i] };
         }
         items[itemCount++] = separator;
         u32 setDefault = itemCount;
@@ -943,7 +948,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
         for (u64 i = 0; i < appCount; ++i) {
             itemApps[itemCount] = apps[i];
             itemDefault[itemCount] = true;
-            items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("setdefault"), .isDefault = i == 0 };
+            items[itemCount++] = (P_MenuItem){ .label = apps[i]->name, .verb = S("setdefault"), .isDefault = i == 0, .icon = icons[i] };
         }
     }
     if (!data->eject.length) data->ejectItem = itemCount;
