@@ -119,11 +119,80 @@ function String P__ReadFile(Arena *arena, String path)
 
 // ponytail: nanosvg ignores clip paths, masks and filters, so SVGs using them are skipped and the lookup falls back to other sizes and inherited themes (usually PNG).
 // A fuller SVG renderer would remove the fallback.
+// librsvg, loaded at run time where the desktop has it, as GTK draws icons with it: it draws the clip paths, masks and filters nanosvg
+// leaves out. Its cairo and GObject calls are found through it, as it links them. Without it, nanosvg draws and such icons are skipped.
+typedef struct P__RsvgRect { f64 x, y, width, height; } P__RsvgRect;
+global struct {
+    void *(*newFromData)(const u8 *data, u64 length, void **error);
+    i32 (*renderDocument)(void *handle, void *cairo, const P__RsvgRect *viewport, void **error);
+    void (*unref)(void *object);
+    void (*freeError)(void *error);
+    void *(*surfaceForData)(u8 *pixels, i32 format, i32 width, i32 height, i32 stride);
+    void (*surfaceFlush)(void *surface);
+    void (*surfaceDestroy)(void *surface);
+    void *(*create)(void *surface);
+    void (*destroy)(void *cairo);
+} P__rsvg;
+global pthread_once_t P__rsvgOnce = PTHREAD_ONCE_INIT;
+
+function void P__LoadRsvg(void)
+{
+    void *library = dlopen("librsvg-2.so.2", RTLD_NOW | RTLD_LOCAL);
+    if (!library) return;
+    void **symbols[] = { (void **)&P__rsvg.newFromData, (void **)&P__rsvg.renderDocument, (void **)&P__rsvg.unref, (void **)&P__rsvg.freeError,
+                         (void **)&P__rsvg.surfaceForData, (void **)&P__rsvg.surfaceFlush, (void **)&P__rsvg.surfaceDestroy, (void **)&P__rsvg.create,
+                         (void **)&P__rsvg.destroy };
+    const char *names[] = { "rsvg_handle_new_from_data", "rsvg_handle_render_document", "g_object_unref", "g_error_free", "cairo_image_surface_create_for_data",
+                            "cairo_surface_flush", "cairo_surface_destroy", "cairo_create", "cairo_destroy" };
+    b32 complete = true;
+    for (u32 i = 0; i < CArrayCount(names); ++i) complete &= (*symbols[i] = dlsym(library, names[i])) != NULL;
+    if (!complete) P__rsvg.newFromData = NULL;
+}
+
+function b32 P__RsvgLoaded(void)
+{
+    pthread_once(&P__rsvgOnce, P__LoadRsvg);
+    return P__rsvg.newFromData != NULL;
+}
+
+// `data` drawn into a `size` square, centered, as straight RGBA; false where librsvg is missing or cannot read it.
+function b32 P__RsvgDecode(Arena *arena, String data, i32 size, P_Image *image)
+{
+    if (!P__RsvgLoaded()) return false;
+    void *error = NULL;
+    void *handle = P__rsvg.newFromData((const u8 *)data.value, data.length, &error);
+    if (!handle) {
+        if (error) P__rsvg.freeError(error);
+        return false;
+    }
+    u32 *pixels = ArenaPushArray(arena, (u64)size * (u64)size, u32);
+    // Cairo's ARGB32, premultiplied, which is turned into the straight RGBA the icons are kept in below.
+    void *surface = P__rsvg.surfaceForData((u8 *)pixels, 0, size, size, size * 4);
+    void *cairo = P__rsvg.create(surface);
+    P__RsvgRect viewport = { 0, 0, size, size };
+    b32 result = P__rsvg.renderDocument(handle, cairo, &viewport, &error) != 0;
+    if (error) P__rsvg.freeError(error);
+    P__rsvg.destroy(cairo);
+    P__rsvg.surfaceFlush(surface);
+    P__rsvg.surfaceDestroy(surface);
+    P__rsvg.unref(handle);
+    b32 drawn = false;
+    for (u64 i = 0; i < (u64)size * (u64)size; ++i) {
+        u32 c = pixels[i], a = c >> 24;
+        drawn |= a != 0;
+        u32 r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        if (a && a < 255) r = r * 255 / a, g = g * 255 / a, b = b * 255 / a;
+        pixels[i] = a << 24 | Min(b, 255u) << 16 | Min(g, 255u) << 8 | Min(r, 255u);
+    }
+    if (result && drawn) *image = (P_Image){ .pixels = pixels, .width = size, .height = size };
+    return result && drawn;
+}
+
 function b32 P__IconUsable(Arena *scratch, String path)
 {
     char *cpath = P__FilePathCString(scratch, path);
     if (!cpath || access(cpath, R_OK) != 0) return false;
-    if (!StrIsEqual(StrFrom(path, path.length - 4), S(".svg"))) return true;
+    if (!StrIsEqual(StrFrom(path, path.length - 4), S(".svg")) || P__RsvgLoaded()) return true;
     String text = P__ReadFile(scratch, path);
     return !StrIndexStr(text, S("<clipPath"), SSF_None).exists && !StrIndexStr(text, S("<mask"), SSF_None).exists &&
            !StrIndexStr(text, S("<filter"), SSF_None).exists;
@@ -546,6 +615,8 @@ function b32 P__DecodeIcon(Arena *arena, String path, i32 size, P_Image *image)
     b32 result = false;
     if (data.length && StrIsEqual(StrFrom(path, path.length - 4), S(".png"))) {
         result = P__DecodePng(arena, data, image);
+    } else if (data.length && P__RsvgDecode(arena, data, size, image)) {
+        result = true;
     } else if (data.length) {
         NSVGimage *svg = nsvgParse((char *)data.value, "px", 96.0f);
         if (svg && svg->width > 0 && svg->height > 0) {

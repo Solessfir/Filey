@@ -1213,13 +1213,15 @@ function void TestFileIcons(TestFileFixture *fixture)
     P__IconDir scalable = { .size = 64, .minSize = 32, .maxSize = 512, .scale = 1, .type = P__IconDirType_Scalable };
     Check(P__IconDirDistance(&doubled, 16, 2) == 0 && P__IconDirDistance(&small, 16, 1) == 0 && P__IconDirDistance(&small, 16, 2) == 16);
     Check(P__IconDirDistance(&scalable, 16, 2) < P__IconDirDistance(&mono, 16, 2) && P__IconDirDistance(&mono, 22, 1) == 0);
-    // An SVG that only wraps a PNG draws the PNG, split over lines as Inkscape writes it; one that draws nothing fails.
+    // An SVG that only wraps a PNG draws the PNG, split over lines as Inkscape writes it, at its own size without librsvg, which draws the
+    // whole SVG at the size asked; one that draws nothing fails.
     String wrapped = Prog_JoinPath(&arena, fixture->path, S("wrapped.svg"));
     Check(!P_WriteFile(&arena, wrapped, S("<svg width=\"16\" height=\"16\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">"
                                          "<path d=\"M30 2h4v4h-4z\"/><image width=\"16\" height=\"16\" xlink:href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB\n"
                                          "CAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"/></svg>")).code);
     image = (P_Image){0};
-    Check(P__DecodeIcon(&arena, wrapped, 16, &image) && image.width == 1 && image.height == 1 && (image.pixels[0] >> 24) != 0);
+    i32 side = P__RsvgLoaded() ? 16 : 1;
+    Check(P__DecodeIcon(&arena, wrapped, 16, &image) && image.width == side && image.height == side && (image.pixels[0] >> 24) != 0);
     Check(!P_WriteFile(&arena, wrapped, S("<svg width=\"16\" height=\"16\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M30 2h4v4h-4z\"/></svg>")).code);
     Check(!P__DecodeIcon(&arena, wrapped, 16, &(P_Image){0}));
     Check(P__TestRemovePath(fixture, S("wrapped.svg"), false));
