@@ -3736,7 +3736,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             case Prog_CommandKind_SplitRight:
             case Prog_CommandKind_SplitBottom: {
-                String path = Prog_TabPath(state, state->activeTab);
+                // The new panel's tab opens where a new tab would.
+                String path = Prog_NewTabPath(state, &state->frameArena, Prog_TabPath(state, state->activeTab));
                 Prog_SplitPanel(state, state->activePanel, command->kind == Prog_CommandKind_SplitRight ? Prog_SplitKind_Horizontal : Prog_SplitKind_Vertical, false, path);
             } break;
             case Prog_CommandKind_PanelEvenSiblings: Prog_EvenPanels(state, false); break;

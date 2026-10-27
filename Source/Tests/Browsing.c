@@ -2876,6 +2876,7 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     Check(!TestHasFile(&arena, fixture, S("Commands/New folder"), S("Doomed")) && TestHasFile(&arena, fixture, S("Commands/New folder"), S("a.txt")));
 
     // Ctrl+Space selects the focused item alone, without changing the rest; Ctrl+F6 copies the selection into the next panel's folder.
+    state.newTab = Prog_NewTab_Current;
     TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_Up, 0);
     ArenaClear(&state.frameArena);
@@ -3828,6 +3829,12 @@ function void TestPanels(TestFileFixture *fixture)
     state.folderSizesSpinning = true;
     if (!state.jobs.initialized) return;
     Check(TestWaitDirectory(&state));
+    // A split opens where a new tab would: This PC by default, and here the folder shown.
+    TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
+    Check(state.panelCount == 2 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
+    TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+    Check(state.panelCount == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
+    state.newTab = Prog_NewTab_Current;
     u64 first = state.panels[0].id;
     TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
     Check(state.panelCount == 2 && state.activePanel == 1 && state.currentPanel == 1 && StrIsEqual(state.directory.path, fixture->path));
