@@ -1118,6 +1118,7 @@ function b32 P_SetLongPaths(b32 on)
     return P_LongPathsEnabled() == (on != 0);
 }
 function String P_TrashName(void) { return S("Recycle Bin"); }
+function String P_TerminalFont(Arena *arena) { return (String){0}; }
 
 function String P_SystemLanguage(Arena *arena)
 {

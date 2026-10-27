@@ -114,7 +114,8 @@ function b32 Prog__LoadFonts(Prog_Loop *loop, f32 scale)
     // The families the defaults are drawn in, as the system matches them, for Options to name.
     Scratch scratch = GetScratch();
     Prog_FontName *used[2] = { &loop->state.fontUsed, &loop->state.inspectorFontUsed };
-    String asked[2] = { Prog_DefaultFont, Prog_DefaultInspectorFont };
+    String terminal = P_TerminalFont(scratch.arena);
+    String asked[2] = { Prog_DefaultFont, terminal.length ? terminal : Prog_DefaultInspectorFont };
     for (u32 i = 0; i < 2; ++i) {
         String found = PlatformFontFamilyUsed(scratch.arena, asked[i]);
         used[i]->length = (u32)Min(found.length, sizeof(used[i]->text));
@@ -224,7 +225,10 @@ function void Prog__Frame(void *user, PlatformEventList events)
             if (pixels != loop->monoPixels || monoChanged) {
                 loop->monoPixels = pixels;
                 loop->monoName = *name;
-                String family = name->length ? StrMake(name->text, name->length) : Prog_DefaultInspectorFont;
+                // Without one of the settings' own, the terminal's.
+                Scratch scratch = GetScratch();
+                String terminal = name->length ? (String){0} : P_TerminalFont(scratch.arena);
+                String family = name->length ? StrMake(name->text, name->length) : terminal.length ? terminal : Prog_DefaultInspectorFont;
                 Arena arena = {0};
                 R_Font mono = {0};
                 if (R_FontCreate(&arena, family, pixels, &mono)) {
@@ -235,6 +239,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
                 } else {
                     ArenaRelease(&arena);
                 }
+                ReleaseScratch(scratch);
             }
             state->monoFont = loop->mono.cache ? &loop->mono : NULL;
         }

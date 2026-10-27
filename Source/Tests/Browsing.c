@@ -637,6 +637,30 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
                 if (was) setenv("LANGUAGE", was, 1);
                 else unsetenv("LANGUAGE");
             }
+            // The inspector's font is the terminal's, from its settings: kitty's, quoted or not, and foot's before its size.
+            {
+                const char *was = getenv("XDG_CONFIG_HOME");
+                Arena arena = {0};
+                String config = Prog_JoinPath(&arena, fixture->path, S("TerminalConfig"));
+                setenv("XDG_CONFIG_HOME", P__FilePathCString(&arena, config), 1);
+                Check(P_TerminalFont(&arena).length == 0);
+                Check(mkdir(P__FilePathCString(&arena, config), 0700) == 0 && mkdir(P__FilePathCString(&arena, Prog_JoinPath(&arena, config, S("foot"))), 0700) == 0);
+                Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, config, S("foot/foot.ini")), S("[main]\nfont=Iosevka Term:size=11, Noto Color Emoji\n")).code);
+                Check(StrIsEqual(P_TerminalFont(&arena), S("Iosevka Term")));
+                // foot's without a font gives way to the next terminal's.
+                Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, config, S("foot/foot.ini")), S("[main]\n")).code);
+                Check(mkdir(P__FilePathCString(&arena, Prog_JoinPath(&arena, config, S("kitty"))), 0700) == 0);
+                Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, config, S("kitty/kitty.conf")), S("# font_family Wrong\nfont_family   family=\"Fira Code\" style=Retina\n")).code);
+                Check(StrIsEqual(P_TerminalFont(&arena), S("Fira Code")));
+                Check(!P_WriteFile(&arena, Prog_JoinPath(&arena, config, S("kitty/kitty.conf")), S("font_family JetBrainsMono Nerd Font\n")).code);
+                Check(StrIsEqual(P_TerminalFont(&arena), S("JetBrainsMono Nerd Font")));
+                if (was) setenv("XDG_CONFIG_HOME", was, 1);
+                else unsetenv("XDG_CONFIG_HOME");
+                Check(P__TestRemovePath(fixture, S("TerminalConfig/foot/foot.ini"), false) && P__TestRemovePath(fixture, S("TerminalConfig/kitty/kitty.conf"), false) &&
+                      P__TestRemovePath(fixture, S("TerminalConfig/foot"), true) && P__TestRemovePath(fixture, S("TerminalConfig/kitty"), true) &&
+                      P__TestRemovePath(fixture, S("TerminalConfig"), true));
+                ArenaRelease(&arena);
+            }
 #endif
             Check(Prog_LanguageIsCustom(S("Mine")) && !Prog_LanguageIsCustom(S("english")) && !Prog_LanguageIsCustom((String){0}) && !Prog_LanguageIsCustom(S("Русский")));
             Prog_UseLanguage(&quiet, S("\u0420\u0443\u0441\u0441\u043A\u0438\u0439"));

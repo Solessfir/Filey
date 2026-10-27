@@ -309,6 +309,63 @@ function char *P__FindTerminal(Arena *arena, const char **run)
     return NULL;
 }
 
+function String P__TrimSpaces(String s)
+{
+    while (s.length && (s.value[0] == ' ' || s.value[0] == '\t')) s = StrFrom(s, 1);
+    while (s.length && (s.value[s.length - 1] == ' ' || s.value[s.length - 1] == '\t' || s.value[s.length - 1] == '\r')) --s.length;
+    return s;
+}
+
+// The family a terminal's settings name, by the line that names it: kitty's "font_family X" or "font_family family=\"X\"", foot's
+// "font=X:size=11", alacritty's "family = \"X\"" and ghostty's "font-family = X". The terminal in use is asked first, then the others.
+function String P_TerminalFont(Arena *arena)
+{
+    String result = {0};
+    Scratch scratch = GetScratchEx(arena);
+    const char *home = getenv("HOME"), *config = getenv("XDG_CONFIG_HOME");
+    String folder = config && config[0] == '/' ? StrFromCStr(config) : home && home[0] == '/' ? StrFormat(scratch.arena, "%s/.config", home) : (String){0};
+    local_persist const struct { const char *name, *file, *key; } settings[] = {
+        { "kitty", "kitty/kitty.conf", "font_family" }, { "foot", "foot/foot.ini", "font" },
+        { "alacritty", "alacritty/alacritty.toml", "family" }, { "ghostty", "ghostty/config", "font-family" },
+    };
+    const char *run[2];
+    char *terminal = folder.length ? P__FindTerminal(scratch.arena, run) : NULL;
+    String used = terminal ? StrFromCStr(terminal) : (String){0};
+    Index slash = StrIndexChar(used, '/', SSF_SearchBackwards);
+    if (slash.exists) used = StrFrom(used, slash.value + 1);
+    for (u32 pass = 0; pass < 2 && !result.length; ++pass) {
+        for (u32 i = 0; i < CArrayCount(settings) && !result.length && folder.length; ++i) {
+            if ((pass == 0) != StrIsEqual(used, StrFromCStr(settings[i].name))) continue;
+            String text = {0};
+            if (!P_ReadFile(scratch.arena, StrFormat(scratch.arena, "%S/%s", folder, settings[i].file), &text)) continue;
+            ArrayStr lines = StrSplit(scratch.arena, text, '\n');
+            String key = StrFromCStr(settings[i].key);
+            for (u64 l = 0; l < lines.header.count && !result.length; ++l) {
+                String line = P__TrimSpaces(lines.v[l]);
+                if (line.length <= key.length || !StrIsEqual(StrFromTo(line, 0, (i64)key.length), key)) continue;
+                String value = StrFrom(line, key.length);
+                if (value.value[0] != ' ' && value.value[0] != '\t' && value.value[0] != '=') continue;
+                value = P__TrimSpaces(value);
+                if (value.length && value.value[0] == '=') value = P__TrimSpaces(StrFrom(value, 1));
+                Index named = StrIndexStr(value, S("family="), SSF_IndexPlusOne);
+                if (named.exists) value = StrFrom(value, named.value);
+                if (value.length && (value.value[0] == '"' || value.value[0] == '\'')) {
+                    value = StrFrom(value, 1);
+                    value = StrFromTo(value, 0, (i64)StrIndexChar(value, '"', SSF_CountOnFail).value);
+                    value = StrFromTo(value, 0, (i64)StrIndexChar(value, '\'', SSF_CountOnFail).value);
+                }
+                // foot's size and other attributes follow a colon, and a fallback font a comma.
+                value = StrFromTo(value, 0, (i64)StrIndexChar(value, ':', SSF_CountOnFail).value);
+                value = P__TrimSpaces(StrFromTo(value, 0, (i64)StrIndexChar(value, ',', SSF_CountOnFail).value));
+                // "auto" and "monospace" leave it to the system's matching.
+                if (value.length && !StrIsEqual(value, S("auto")) && !StrIsEqual(value, S("monospace"))) result = StrCopy(arena, value);
+            }
+        }
+    }
+    ReleaseScratch(scratch);
+    return result;
+}
+
 // Starts `app` on `paths`, once per path when its command takes one at a time.
 function P_FileError P__LaunchApp(Arena *arena, const P__App *app, const String *paths, u64 count, String directory)
 {

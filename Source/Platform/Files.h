@@ -339,6 +339,8 @@ function b32 P_SetLongPaths(b32 on);
 function String P_TrashName(void);
 // The two-letter code of the language the user's system shows its text in, as "ru"; empty when it says none.
 function String P_SystemLanguage(Arena *arena);
+// The font family the user's terminal draws its text in, from its settings, as "JetBrainsMono Nerd Font"; empty where none is known.
+function String P_TerminalFont(Arena *arena);
 // `path` with the system's own separators, for showing or copying.
 function String P_NativePath(Arena *arena, String path);
 
