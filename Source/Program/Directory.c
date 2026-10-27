@@ -3283,7 +3283,10 @@ function void Prog__DirectoryJob(P_Job *job)
     // A folder that is gone, deleted or moved away, lists the nearest folder above it that is still there instead: a tab's, one listed again
     // or one gone back or forward to. One newly gone to shows that it is not there, and the panel stays where it was.
     if (result->error.code && !result->cancelled && !result->archive && !input->expanded && !input->addHistory && !P_PathExists(input->path)) {
+        // Not out of the drive it was on, which is gone with it when it was taken away, until the drives are listed again and its tabs go
+        // where a new tab would.
         for (String up = Prog_UpPath(input->path); up.length && !StrIsEqual(up, Prog_ThisPC) && !P_IsCancelled(&job->cancelToken); up = Prog_UpPath(up)) {
+            if (input->driveRoot.length && !Prog__IsUnder(up, input->driveRoot)) break;
             if (!P_IsDirectory(up)) continue;
             listing = P_EnumerateDirectory(&job->arena, up, &job->cancelToken);
             if (listing.errorCode) break;
@@ -4268,6 +4271,13 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     }
     input->addHistory = addHistory;
     input->historyAt = historyAt;
+    // The innermost drive's: the system's root holds them all.
+    for (u64 i = 0; i < state->drives.header.count; ++i) {
+        String root = state->drives.v[i].path;
+        if (root.length > input->driveRoot.length && Prog__IsUnder(path, root) && Prog_UpPath(root).length && !StrIsEqual(Prog_UpPath(root), Prog_ThisPC)) {
+            input->driveRoot = StrCopy(&job->arena, root);
+        }
+    }
     input->passing = state->requestPassing;
     state->requestPassing = false;
     // The recents inside the folder, by name, for the listing to mark and sort first.

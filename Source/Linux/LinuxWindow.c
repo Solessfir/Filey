@@ -144,6 +144,7 @@ typedef struct LinuxWindowState {
     b32 resizePending;
     b32 earlyFrame;
     i32 wakeFd;
+    i32 mountsFd;  // /proc/self/mounts, which signals a priority event as anything is mounted or unmounted
 } LinuxWindowState;
 
 global LinuxWindowState Wl;
@@ -1141,6 +1142,7 @@ function b32 PlatformWindowOpen(PlatformWindowDesc desc)
     if (Wl.wakeFd < 0) {
         return false;
     }
+    Wl.mountsFd = open("/proc/self/mounts", O_RDONLY | O_CLOEXEC);
 
     PlatformEvent *event = PlatformPushEvent(PlatformEventKind_Resized);
     event->width = LinuxPhysical(Wl.width);
@@ -1196,6 +1198,7 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
             { .fd = wl_display_get_fd(Wl.display), .events = POLLIN },
             { .fd = Wl.wakeFd, .events = POLLIN },
             { .fd = Wl.instanceFd > 0 ? Wl.instanceFd : -1, .events = POLLIN },
+            { .fd = Wl.mountsFd > 0 ? Wl.mountsFd : -1, .events = POLLPRI },
         };
         if (poll(fds, CArrayCount(fds), timeout) > 0 && (fds[0].revents & POLLIN)) {
             wl_display_read_events(Wl.display);
@@ -1210,6 +1213,14 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
         }
         if (fds[2].revents & POLLIN) {
             LinuxTakeInstanceMessage();
+            woken = true;
+        }
+        // A drive mounted or taken away; the event stays raised until the table is read again, so it is read through, from the start.
+        if (fds[3].revents & (POLLPRI | POLLERR)) {
+            char table[4096];
+            lseek(Wl.mountsFd, 0, SEEK_SET);
+            while (read(Wl.mountsFd, table, sizeof(table)) > 0) {}
+            PlatformPushEvent(PlatformEventKind_DrivesChanged);
             woken = true;
         }
 
