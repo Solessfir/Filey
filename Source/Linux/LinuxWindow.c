@@ -77,6 +77,11 @@ typedef struct LinuxWindowState {
     PlatformCursor cursor;
     Arena clipboardArena;     // what Filey offers while it owns the selection
     u32 clipboardSequence;    // up one each time Filey offers something and each time another program takes the selection from it
+    // Clipboard managers such as wl-clip-persist take the selection the moment Filey offers it, to keep it once Filey quits. The file
+    // list Filey offered is kept, and the selection counts as taken only once it offers something else, as the next selection checked.
+    Arena handedArena;
+    String handedFiles;
+    struct wl_data_offer *handedChecked;
     const char *clipboardMimes[8];
     String clipboardData[8];
     u32 clipboardCount;
@@ -667,6 +672,7 @@ function void DataDeviceMotion(void *data, struct wl_data_device *device, u32 ti
 }
 
 function String LinuxClipboardReceive(Arena *arena, const char *mime);
+function String LinuxClipboardOwn(const char *mime);
 function String LinuxReceive(Arena *arena, struct wl_data_offer *offer, const char *mime);
 
 // Filey's own drops follow Explorer's keys, which compositors such as Hyprland do not pass on as the drop's action:
@@ -792,7 +798,14 @@ function void DataSourceCancelled(void *data, struct wl_data_source *source)
         LinuxEndDrag(source);
         return;
     }
-    if (source == Wl.source) ++Wl.clipboardSequence;
+    if (source == Wl.source) {
+        String files = LinuxClipboardOwn(LinuxFileMimes[0]);
+        ArenaClear(&Wl.handedArena);
+        Wl.handedFiles = files.length ? StrCopy(&Wl.handedArena, files) : (String){0};
+        // The selection Filey's offer was is not the next one, which may come after this.
+        Wl.handedChecked = Wl.selection;
+        if (!files.length) ++Wl.clipboardSequence;
+    }
     wl_data_source_destroy(source);
     if (source == Wl.source) {
         Wl.source = NULL;
@@ -1677,6 +1690,7 @@ function void LinuxEnsureDataDevice(void)
 function void LinuxClipboardBegin(void)
 {
     ++Wl.clipboardSequence;
+    Wl.handedFiles = (String){0};
     if (Wl.source) wl_data_source_destroy(Wl.source);
     Wl.source = NULL;
     ArenaClear(&Wl.clipboardArena);
@@ -1802,6 +1816,16 @@ function void PlatformClipboardSetFiles(const String *paths, u64 count, b32 cut)
 
 function u32 PlatformClipboardSequence(void)
 {
+    if (Wl.handedFiles.length && !Wl.source && Wl.selection != Wl.handedChecked) {
+        Wl.handedChecked = Wl.selection;
+        Scratch scratch = GetScratch();
+        String offered = Wl.selection && Wl.selectionFiles ? LinuxClipboardReceive(scratch.arena, LinuxFileMimes[0]) : (String){0};
+        if (!StrIsEqual(offered, Wl.handedFiles)) {
+            Wl.handedFiles = (String){0};
+            ++Wl.clipboardSequence;
+        }
+        ReleaseScratch(scratch);
+    }
     return Wl.clipboardSequence;
 }
 
