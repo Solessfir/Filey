@@ -458,6 +458,7 @@ typedef struct Prog_JobInput {
     Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
     u64 historyAt;
+    ArrayStr drivesSeen;  // This PC's: the drives' paths in the order they first came, which it lists them in
     String driveRoot;  // the root of the drive `path` is on, which a gone folder is not left for; empty for the system's root
     b32 passing;  // gone to by Up or a crumb, passing through the folder rather than opening it, which the recents do not count
     // The names of the recents inside `path`, which are marked, and sorted first with sortRecents.
@@ -2322,6 +2323,7 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
 function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make);
 function String Prog_UpPath(String path);
 function b32 Prog__IsUnder(String path, String root);
+function void Prog__SortDrives(Arena *arena, ArrayStr seen, P_ArrayPlace *drives);
 function String Prog_BackPath(const Prog_State *state);
 function void Prog_GoBack(Prog_State *state);
 function String Prog_TrailText(const Prog_State *state);

@@ -750,6 +750,14 @@ function void TestDriveOrder(void)
     ArrayPush(&arena, later, ((P_Place){ .path = S("/run/media/disk") }));
     Prog__OrderDrives(&state, &later);
     Check(StrIsEqual(later.v[0].path, S("/")) && StrIsEqual(later.v[1].path, S("/run/media/disk")) && StrIsEqual(later.v[2].path, S("/run/media/stick")));
+    // This PC's listing sorts by the same order without adding to it, one not seen yet after the rest.
+    P_ArrayPlace listed = {0};
+    ArrayPush(&arena, listed, ((P_Place){ .path = S("/dev/sdc1") }));
+    ArrayPush(&arena, listed, ((P_Place){ .path = S("/run/media/stick") }));
+    ArrayPush(&arena, listed, ((P_Place){ .path = S("/") }));
+    Prog__SortDrives(&arena, state.drivesSeen, &listed);
+    Check(StrIsEqual(listed.v[0].path, S("/")) && StrIsEqual(listed.v[1].path, S("/run/media/stick")) && StrIsEqual(listed.v[2].path, S("/dev/sdc1")));
+    Check(state.drivesSeen.header.count == 3);
     ArenaRelease(&state.drivesSeenArena);
     ArenaRelease(&state.frameArena);
     ArenaRelease(&arena);

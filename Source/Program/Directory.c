@@ -3224,6 +3224,8 @@ function void Prog__DirectoryJob(P_Job *job)
     // This PC lists the drives.
     if (StrIsEqual(input->path, Prog_ThisPC)) {
         P_ArrayPlace drives = P_Drives(&job->arena);
+        // In the order the sidebar has them, of when each first came.
+        Prog__SortDrives(&job->arena, input->drivesSeen, &drives);
         result->entries = ArenaPushArray(&job->arena, Max(drives.header.count, (u64)1), Prog_Entry);
         for (u64 i = 0; i < drives.header.count; ++i) {
             const P_Place *drive = &drives.v[i];
@@ -3237,7 +3239,7 @@ function void Prog__DirectoryJob(P_Job *job)
             entry->measured = true;
         }
         result->totalFolders = result->folderCount = result->count;
-        // In the system's order by name, which their names, as "Local Disk (C:)", do not keep; by size, free space and the like, sorted.
+        // In that order by name, which their names, as "Local Disk (C:)", do not keep; by size, free space and the like, sorted.
         if (input->sort != Prog_Sort_Name) {
             Prog_Entry *buffer = ArenaPushArray(&job->arena, Max(result->count, (u64)1), Prog_Entry);
             Prog_Entry *sorted = Prog__SortEntries(result->entries, buffer, result->count, input->sort, input->descending, Prog_FolderSort_Mixed, &job->cancelToken);
@@ -4278,6 +4280,9 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
             input->driveRoot = StrCopy(&job->arena, root);
         }
     }
+    if (StrIsEqual(path, Prog_ThisPC)) {
+        for (u64 i = 0; i < state->drivesSeen.header.count; ++i) ArrayPush(&job->arena, input->drivesSeen, StrCopy(&job->arena, state->drivesSeen.v[i]));
+    }
     input->passing = state->requestPassing;
     state->requestPassing = false;
     // The recents inside the folder, by name, for the listing to mark and sort first.
@@ -5134,14 +5139,14 @@ function b32 Prog_PlaceHidden(const Prog_State *state, String path)
 
 // Puts the places in the order they were moved to; those it does not name, as a folder new to them, follow in the order they came.
 // Orders `drives` as they were first listed in, those new to it last in the system's order, so that one connected later comes last.
-function void Prog__OrderDrives(Prog_State *state, P_ArrayPlace *drives)
+// `drives` in the order of `seen`, by their paths, with the ones not in it after, as they came.
+function void Prog__SortDrives(Arena *arena, ArrayStr seen, P_ArrayPlace *drives)
 {
     u64 count = drives->header.count;
-    u64 *ranks = ArenaPushArray(&state->frameArena, Max(count, (u64)1), u64);
+    u64 *ranks = ArenaPushArray(arena, Max(count, (u64)1), u64);
     for (u64 i = 0; i < count; ++i) {
         u64 rank = 0;
-        while (rank < state->drivesSeen.header.count && !StrIsEqual(state->drivesSeen.v[rank], drives->v[i].path)) ++rank;
-        if (rank == state->drivesSeen.header.count) ArrayPush(&state->drivesSeenArena, state->drivesSeen, StrCopy(&state->drivesSeenArena, drives->v[i].path));
+        while (rank < seen.header.count && !StrIsEqual(seen.v[rank], drives->v[i].path)) ++rank;
         ranks[i] = rank;
     }
     // ponytail: insertion sort, for the handful of drives there are.
@@ -5153,6 +5158,16 @@ function void Prog__OrderDrives(Prog_State *state, P_ArrayPlace *drives)
             ranks[j] = ranks[j - 1], ranks[j - 1] = rank;
         }
     }
+}
+
+function void Prog__OrderDrives(Prog_State *state, P_ArrayPlace *drives)
+{
+    for (u64 i = 0; i < drives->header.count; ++i) {
+        b32 seen = false;
+        for (u64 k = 0; k < state->drivesSeen.header.count && !seen; ++k) seen = StrIsEqual(state->drivesSeen.v[k], drives->v[i].path);
+        if (!seen) ArrayPush(&state->drivesSeenArena, state->drivesSeen, StrCopy(&state->drivesSeenArena, drives->v[i].path));
+    }
+    Prog__SortDrives(&state->frameArena, state->drivesSeen, drives);
 }
 
 function void Prog__OrderPlaces(Prog_State *state)
