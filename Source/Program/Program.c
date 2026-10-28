@@ -5843,6 +5843,16 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                             slid[n] = UI_Animate(UI_KeyFromStr(0, StrFormat(&state->frameArena, "RecentY/%S", state->recents.v[indices[n]])), placed[n], placed[n]);
                         }
                         Prog__Spacer(UI_Flex(), UI_Pixels((f32)shown * m->row));
+                        // Open with none yet, it says so rather than showing nothing.
+                        if (!shown) {
+                            UI_Block *empty = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
+                            UI_Parent(empty) {
+                                // In line with the folders' names, past where their icons are.
+                                f32 indent = floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f) + (f32)state->iconSize + floorf(7.2f * m->scale + 0.5f);
+                                Prog__Spacer(UI_Pixels(indent), UI_Pixels(m->row));
+                                Prog__Label(Tr("No recent folders yet"), UI_Flex(), m->row, 0, Prog_CurrentTheme()->textDim, 0);
+                            }
+                        }
                         for (u32 pass = 0; pass < 2; ++pass) {
                             for (u32 n = 0; n < shown; ++n) {
                                 // Those rising are drawn last, over the rows they pass.

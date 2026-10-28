@@ -265,6 +265,7 @@ global const char *const Prog_Strings[] = {
     "Folders and files mixed.",
     "Filter...",
     "Recents",
+    "No recent folders yet",
     "Bookmarks",
     "Storage",
     "Places",
