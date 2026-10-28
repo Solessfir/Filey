@@ -1356,6 +1356,14 @@ global const struct { u8 first; String name; } Prog_OptionSections[Prog_OptionSe
 // The row of Options' list that is a section's heading, rather than an option.
 function b32 Prog_OptionHeading(u8 row) { return row >= Prog_Option_Count; }
 
+// The section of the Options `option` is in.
+function u32 Prog_OptionSection(u32 option)
+{
+    u32 result = 0;
+    while (result + 1 < Prog_OptionSectionCount && Prog_OptionSections[result + 1].first <= option) ++result;
+    return result;
+}
+
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
 {
     String typed = Prog_EditText(&state->palette);
@@ -1374,12 +1382,11 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
         if (typed.length && Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) <= 0) continue;
-        // A section's heading goes before the first of its options shown.
-        u32 own = 0;
-        while (own + 1 < Prog_OptionSectionCount && Prog_OptionSections[own + 1].first <= i) ++own;
+        // A section's heading goes before the first of its options shown; a section easing shut lists them until it has.
+        u32 own = Prog_OptionSection(i);
         if (!typed.length && own != section) found[count++] = (u8)(Prog_Option_Count + own);
         section = own;
-        if (!typed.length && (state->optionsFolded & (1u << own))) continue;
+        if (!typed.length && (state->optionsFolded & (1u << own)) && !Prog__PaletteFolding(state, own)) continue;
         found[count++] = (u8)i;
     }
     return count;
@@ -9567,6 +9574,33 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     String typed = Prog_EditText(&state->palette);
     b32 searching = typed.length > 0;
+    // A row's group, and whether it is the group's heading rather than one of its rows.
+#define Prog__RowGroup(i) (options ? (Prog_OptionHeading(found[i]) ? (u32)found[i] - Prog_Option_Count : Prog_OptionSection(found[i])) : (u32)rows[i].group)
+#define Prog__RowHeading(i) (options ? Prog_OptionHeading(found[i]) : rows[i].kind == Prog_CommandKind_None)
+    // A group opened or closed eases its rows into sight or out of it, as a list's groups do: `easeShown` of their height shows, in a clip, and the rows after it move by what is hidden.
+    b32 easing = false;
+    u32 easeRows = 0, easeFirst = UINT32_MAX;
+    f32 easeShown = 0;
+    if (state->paletteEaseStart && !searching) {
+        // Eased in and out, cubic, over 180 ms, which starts and lands softly where a decay would leap off at once.
+        f32 since = (f32)(UI->nowMicroseconds - Min(state->paletteEaseStart, UI->nowMicroseconds)) / 1e6f, t = UI->animate ? MinF32(since / 0.18f, 1) : 1;
+        f32 eased = t < 0.5f ? 4 * t * t * t : 1 - (2 - 2 * t) * (2 - 2 * t) * (2 - 2 * t) * 0.5f;
+        for (u32 i = 0; i < count; ++i) {
+            if (Prog__RowHeading(i) || Prog__RowGroup(i) != state->paletteEaseGroup) continue;
+            if (easeFirst == UINT32_MAX) easeFirst = i;
+            ++easeRows;
+        }
+        // One shut drops its rows once it has, the last frame showing none of them.
+        easing = easeRows > 0;
+        easeShown = state->paletteEaseFolding ? 1 - eased : eased;
+        if (t >= 1) {
+            state->paletteEaseStart = 0;
+            easeShown = state->paletteEaseFolding ? 0 : 1;
+            easing = easing && state->paletteEaseFolding;
+        } else {
+            UI_KeepAnimating();
+        }
+    }
     f32 s = m->scale, line = m->separator;
     f32 field = floorf(39.2f * s + 0.5f), footer = floorf(31.2f * s + 0.5f), pad = floorf(4.0f * s + 0.5f);
     f32 row = floorf((state->paletteCompact ? 24.0f : 40.8f) * s + 0.5f) + line;
@@ -9585,10 +9619,12 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     state->paletteScroll = count > visible ? Min(state->paletteScroll, count - visible) : 0;
     // The rows slide to where the scroll stops rather than jump.
     f32 scrolled = count > visible ? UI_Animate(UI_KeyFromStr(0, S("PaletteScroll")), (f32)state->paletteScroll, (f32)state->paletteScroll) : 0;
-    u32 first = Min((u32)scrolled, count ? count - 1 : 0), shown = Min(count - first, visible + 2);
+    u32 first = Min((u32)scrolled, count ? count - 1 : 0), shown = Min(count - first, visible + 2 + (easing ? easeRows : 0));
     f32 lag = (scrolled - (f32)first) * row;
     f32 width = floorf(Prog__PaletteWidth(view.x1 - view.x0, margin, s) * grow);
-    f32 listHeight = MinF32((f32)Min(count - state->paletteScroll, visible + 1) * row - line, room) + 2 * pad;
+    // Of the easing rows' height, what is hidden, which the box gives up while no rows below fill it.
+    f32 easeBody = (f32)easeRows * row, easeHidden = easing ? floorf(easeBody * (1 - easeShown) + 0.5f) : 0;
+    f32 listHeight = MinF32(MinF32((f32)(count - state->paletteScroll) * row - easeHidden, (f32)(visible + 1) * row) - line, room) + 2 * pad;
     f32 height = field + line + listHeight + line + footer;
     f32 opacity = Prog__FadeIn(UI_KeyFromStr(0, S("PaletteReveal"))) * state->paletteFade;
     f32 radius = floorf(8.0f * s + 0.5f), x = floorf((view.x1 - view.x0 - width) * 0.5f);
@@ -9666,7 +9702,19 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         UI_Block *list = Prog__Box(UI_Flex(), UI_Pixels(listHeight), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
         state->optionHovered = 0;
         UI_Parent(list) {
+            UI_Block *easeBlock = NULL, *easeParent = NULL;
             for (u32 i = first; i < first + shown; ++i) {
+                // The easing group's rows go in a clip as tall as what shows of them below the scroll.
+                b32 eases = easing && !Prog__RowHeading(i) && Prog__RowGroup(i) == state->paletteEaseGroup;
+                if (eases && !easeBlock) {
+                    f32 above = (f32)(i - easeFirst) * row, inSight = (f32)(Min(easeFirst + easeRows, first + shown) - i) * row;
+                    easeBlock = Prog__Box(UI_Flex(), UI_Pixels(MinF32(MaxF32(0, easeBody - easeHidden - above), inSight)), UI_Layout_Vertical, (R_Color){0}, UI_Flag_Clip);
+                    easeParent = UI_PushParent(easeBlock);
+                }
+                if (!eases && easeBlock) {
+                    UI_PopParent(easeParent);
+                    easeBlock = NULL;
+                }
                 if (options && Prog_OptionHeading(found[i])) {
                     // A section's heading, drawn as a palette's group is, which opens and closes it; the keyboard's is lit once a key is pressed.
                     u32 section = found[i] - Prog_Option_Count;
@@ -9790,6 +9838,9 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                 }
                 if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
             }
+            if (easeBlock) UI_PopParent(easeParent);
+#undef Prog__RowGroup
+#undef Prog__RowHeading
             if (count > visible) {
                 // The scroll bar: a thumb as long as the share of rows shown, where they are among all of them. It sits in the list's padding,
                 // which moves up with the rows while they slide part of a row, so it is moved back down by as much.

@@ -767,6 +767,25 @@ static_assert((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_Count <= UINT
 
 function Prog_GroupBy Prog_GroupingOf(Prog_CommandKind kind);
 
+// Whether the palette's group, or the Options' section, `group` is easing shut, whose rows are listed until it has.
+function b32 Prog__PaletteFolding(const Prog_State *state, u32 group)
+{
+    return state->paletteEaseStart && state->paletteEaseFolding && state->paletteEaseGroup == group;
+}
+
+// Opens or closes the palette's group, or the Options' section, `group`, easing its rows into sight or out of it.
+function void Prog__PaletteFold(Prog_State *state, u32 group, b32 open)
+{
+    b32 options = state->paletteMode == Prog_PaletteMode_Options;
+    b32 wasOpen = options ? !(state->optionsFolded & (1u << group)) : (state->paletteExpanded & (1u << group)) != 0;
+    if (wasOpen == open) return;
+    if (options) state->optionsFolded = open ? (u8)(state->optionsFolded & ~(1u << group)) : (u8)(state->optionsFolded | (1u << group));
+    else state->paletteExpanded = open ? (u16)(state->paletteExpanded | (1u << group)) : (u16)(state->paletteExpanded & ~(1u << group));
+    state->paletteEaseStart = PlatformNowMicroseconds();
+    state->paletteEaseGroup = (u8)group;
+    state->paletteEaseFolding = !open;
+}
+
 // The palette's rows: with nothing typed, each group's title and the commands of the groups open;
 // otherwise the commands the text finds by the score of their label and description, best first, then those only their search words find.
 // `out` has room for Prog_MaxPaletteRows; returns how many it holds.
@@ -901,7 +920,7 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
         }
         if (!Prog_CommandApplies((Prog_CommandKind)item)) continue;
         if (!text.length) {
-            if (state->paletteQuick || (state->paletteExpanded & (1u << group))) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
+            if (state->paletteQuick || (state->paletteExpanded & (1u << group)) || Prog__PaletteFolding(state, group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
         // The English label, tooltip and aliases find a command in any language.
@@ -4836,7 +4855,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     state->paletteHighlight = (u32)chosen;
                     // A section's heading opens or closes it.
                     if (Prog_OptionHeading(found[chosen])) {
-                        state->optionsFolded ^= (u8)(1u << (found[chosen] - Prog_Option_Count));
+                        u32 section = found[chosen] - Prog_Option_Count;
+                        Prog__PaletteFold(state, section, (state->optionsFolded & (1u << section)) != 0);
                         continue;
                     }
                     Prog_Option option = (Prog_Option)found[chosen];
@@ -4889,7 +4909,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (chosen >= count) break;
                 // A group's title opens or closes the group.
                 if (rows[chosen].kind == Prog_CommandKind_None) {
-                    state->paletteExpanded ^= (u16)(1u << rows[chosen].group);
+                    Prog__PaletteFold(state, rows[chosen].group, !(state->paletteExpanded & (1u << rows[chosen].group)));
                     state->paletteHighlight = (u32)chosen;
                     break;
                 }
@@ -5649,9 +5669,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 // In Options, Right opens the highlighted section and Left closes it, as the palette's groups do.
                 if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && Prog_OptionHeading(options[state->paletteHighlight]) &&
                     (event->key == Key_Left || event->key == Key_Right)) {
-                    u8 bit = (u8)(1u << (options[state->paletteHighlight] - Prog_Option_Count));
-                    if (event->key == Key_Right) state->optionsFolded &= (u8)~bit;
-                    else state->optionsFolded |= bit;
+                    Prog__PaletteFold(state, options[state->paletteHighlight] - Prog_Option_Count, event->key == Key_Right);
                     continue;
                 }
                 // And Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
@@ -5722,9 +5740,9 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 b32 tree = state->paletteMode == Prog_PaletteMode_Commands && !state->palette.length && state->paletteHighlight < count;
                 if (tree && (event->key == Key_Right || event->key == Key_Left)) {
                     Prog_PaletteRow at = matches[state->paletteHighlight];
-                    if (event->key == Key_Right && at.kind == Prog_CommandKind_None) state->paletteExpanded |= (u16)(1u << at.group);
+                    if (event->key == Key_Right && at.kind == Prog_CommandKind_None) Prog__PaletteFold(state, at.group, true);
                     if (event->key == Key_Left) {
-                        state->paletteExpanded &= (u16)~(1u << at.group);
+                        Prog__PaletteFold(state, at.group, false);
                         while (matches[state->paletteHighlight].kind != Prog_CommandKind_None) --state->paletteHighlight;
                     }
                     continue;

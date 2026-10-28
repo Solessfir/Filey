@@ -4259,8 +4259,11 @@ function void TestPanels(TestFileFixture *fixture)
         state.paletteExpanded = 0;
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
         Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > groups && matches[1].group == Prog_CommandGroup_Quick && matches[1].kind != Prog_CommandKind_None);
+        // Closed, its rows stay while they ease shut, and go once they have.
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
-        Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) == groups);
+        Check(state.paletteOpen && Prog__PaletteFolding(&state, Prog_CommandGroup_Quick) && Prog_PaletteMatches(&state, matches) > groups);
+        state.paletteEaseStart = 0;
+        Check(Prog_PaletteMatches(&state, matches) == groups);
         for (const char *c = "split b"; *c; ++c) Prog__EditInsert(&state.palette, (rune)*c);
         Check(Prog_PaletteMatches(&state, matches) >= 1 && matches[0].kind == Prog_CommandKind_SplitBottom);
         state.palette = (Prog_TextEdit){0};

@@ -1033,6 +1033,7 @@ typedef enum Prog_Option {
 enum { Prog_OptionSectionCount = 8, Prog_OptionRows = Prog_Option_Count + Prog_OptionSectionCount };
 static_assert(Prog_OptionRows <= 256, "the Options rows fit a byte");
 function b32 Prog_OptionHeading(u8 row);
+function u32 Prog_OptionSection(u32 option);
 
 typedef enum Prog_OptionControl {
     Prog_OptionControl_Switch,
@@ -1788,6 +1789,10 @@ typedef struct Prog_State {
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     u8 optionsFolded;         // bits by the Options' sections, those shown closed
+    // The palette's group or the Options' section easing open or shut, as a list's group does, since when; its rows stay listed while it shuts.
+    u64 paletteEaseStart;
+    u8 paletteEaseGroup;
+    b32 paletteEaseFolding;
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
     b32 inspectorSliding;     // the inspector being drawn slides open or shut, at widths it does not keep
     u32 fitColumn;            // the active panel's column, by its place + 1, that the next build sizes to its values; UINT32_MAX all of them
