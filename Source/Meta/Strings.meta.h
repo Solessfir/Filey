@@ -334,7 +334,7 @@ global const char *const Prog_Strings[] = {
     "Filter %u types...",
     "Toggle All",
     "Untoggle All",
-    "Filter %S files...",
+    "Filter %S items...",
     "Zoom",
     "Select a layout...",
     "No layout has that name",
@@ -1199,7 +1199,7 @@ global const char *const Prog_Strings[] = {
 };
 
 global const char *const Prog_PluralStrings[] = {
-    "Filter %u files...",
+    "Filter %u items...",
     "%u changes not committed. Switch to \"%S\" and take them along?",
     "Compressing %u videos",
     "Moving %u items to %S",

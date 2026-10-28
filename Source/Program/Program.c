@@ -5367,7 +5367,7 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
                 }
             } else {
                 Prog__SearchIcon(m->iconSlot - m->gap, m->pill, theme->textDim, 0.5f, floorf(0.8f * m->scale + 0.5f), m);
-                String placeholder = StrFormat(&state->frameArena, TrN(state->directory.count, "Filter %u file...", "Filter %u files..."), (u32)state->directory.count);
+                String placeholder = StrFormat(&state->frameArena, TrN(state->directory.count, "Filter %u item...", "Filter %u items..."), (u32)state->directory.count);
                 Prog__Label(placeholder, UI_Flex(), m->pill, m->gap * 0.5f, theme->textDim, 0);
                 // In the pill's middle, as the buttons of the filter field are in theirs.
                 UI_Block *slot = Prog__Box(UI_Pixels(Prog__ToolbarButtonWidth(m)), UI_Pixels(m->pill), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -8191,7 +8191,7 @@ function void Prog__FilesPopup(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextFloatingOffset((UI_Vec2){ 0, top });
                     UI_SetNextPrefHeight(UI_Pixels(m->line));
                     UI_SetNextColors((UI_Colors){ .text = theme->textDim });
-                    UI_SetNextText(StrFormat(frame, TrF("Filter %S files..."), many));
+                    UI_SetNextText(StrFormat(frame, TrF("Filter %S items..."), many));
                     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawText);
                 }
                 Prog__EditContents(&state->filesSearch, 0, top, true, m);
@@ -8333,7 +8333,8 @@ function void Prog__ZoomPopup(Prog_State *state, const Prog_Metrics *m)
         UI_Block *heading = UI_AddBlock(UI_Flag_Floating);
         UI_Parent(heading) {
             Prog__Label(Tr("Zoom"), UI_Flex(), header, 0, theme->textDim, 0);
-            Prog__Label(StrFormat(&state->frameArena, "%u%%", state->zoom / 10), UI_TextContent(), header, 0, theme->text, 0);
+            // How far the icons are zoomed, which the views of rows have nothing of.
+            if (Prog_ZoomView(state->zoom) == Prog_View_Icons) Prog__Label(StrFormat(&state->frameArena, "%u%%", state->zoom / 10), UI_TextContent(), header, 0, theme->text, 0);
         }
         UI_SetNextFloatingOffset((UI_Vec2){ 0, header });
         UI_SetNextPrefWidth(UI_Pixels(width));
