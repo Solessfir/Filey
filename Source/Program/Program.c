@@ -3069,6 +3069,18 @@ function String Prog__DriveName(const Prog_State *state, String path)
     return StrFromTo(path, 0, 2);
 }
 
+// The crumb of the folder `path` ends at, `end` long, as the path bar names it: a drive by its name, the Network and the bin by theirs.
+function String Prog_CrumbLabel(Prog_State *state, String path, u64 end, b32 drive, b32 first)
+{
+    String folder = StrFromTo(path, 0, (i64)end);
+    if (drive && first) return Prog__DriveName(state, path);
+    if (StrIsEqual(folder, P_NetworkFolder())) return Tr("Network");
+    if (P_IsTrashFolder(folder)) return Prog_PathName(state, folder);
+    u64 at = end;
+    while (at > 0 && path.value[at - 1] != '/') --at;
+    return StrFromTo(path, at, (i64)end);
+}
+
 // A folder as its crumbs read, "Local\Temp\Fixture", in the system's separators.
 function String Prog__CrumbPath(Prog_State *state, String path)
 {
@@ -3095,7 +3107,7 @@ function String Prog__GoToWhere(Prog_State *state, String path)
 // "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
 // Every segment but the current one opens its folder. The crumb under the pointer comes back, as the length of its path, 0 for This PC, or
 // UINT64_MAX for none.
-function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
+function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, const Prog_Metrics *m)
 {
     u64 hovered = UINT64_MAX;
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3106,9 +3118,45 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     u64 start = Prog__CrumbStart(state, path, &drive);
     // The slot of the chevron between two crumbs.
     f32 chevron = floorf(m->line * 1.6f - 4.0f * m->scale);
+    // Too long for its room, the path leaves out whole crumbs from its start, with This PC and the Network's, for a "…" that lists them, rather than cutting the first one shown in two.
+    u64 ends[128];
+    u32 count = 0, skip = 0;
+    for (u64 at = start; at < path.length && count < CArrayCount(ends);) {
+        u64 end = at + StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail).value;
+        if (end > at) ends[count++] = end;
+        at = end + 1;
+    }
+    if (room > 0 && count > 1) {
+        f32 widths[CArrayCount(ends)], total = 0;
+        for (u32 i = 0; i < count; ++i) {
+            String label = Prog_CrumbLabel(state, path, ends[i], drive, i == 0);
+            if (ends[i] == shownEnd && state->expanded) label = StrFormat(&state->frameArena, "%S [...]", label);
+            widths[i] = R_TextWidth(m->font, label) + m->gap + (i ? chevron : 0);
+            total += widths[i];
+        }
+        if (drive || thisPC) total += R_TextWidth(m->font, Tr("This PC")) + m->gap + chevron;
+        if (Prog_PathServer(path).length && P_NetworkFolder().length) total += R_TextWidth(m->font, Tr("Network")) + m->gap + chevron;
+        f32 more = R_TextWidth(m->font, NoTr("\u2026")) + m->gap + chevron + floorf(1.6f * m->scale + 0.5f);
+        if (total > room) {
+            total = more;
+            for (u32 i = 0; i < count; ++i) total += widths[i];
+            while (skip + 1 < count && total > room) total -= widths[skip++];
+            if (!skip) skip = 1;
+        }
+    }
+    if (skip) {
+        UI_Interaction button = Prog__TextButton(S("Crumb/More"), NoTr("\u2026"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, true, m);
+        if (button.clicked) {
+            UI_Block *more = UI__Find(UI_KeyFromStr(0, S("Crumb/More")));
+            Prog_QueueCommand(state, Prog_CommandKind_CrumbsMenu, skip, 0, button.clickOrder)->at = more ? (UI_Vec2){ more->rect.x0, more->rect.y1 } : UI->mouse;
+        }
+        start = ends[skip - 1];
+        drive = false;
+        thisPC = false;
+    }
     // This PC before a drive's crumbs, whose dropdown, from the separator after it, lists the drives; while open, it is lit with the
     // separator turned down in it.
-    b32 thisOpen = drive && state->filesOpen && StrIsEqual(state->filesFolder, Prog_ThisPC);
+    b32 thisOpen = !skip && drive && state->filesOpen && StrIsEqual(state->filesFolder, Prog_ThisPC);
     if (thisOpen) {
         String name = Tr("This PC");
         UI_SetNextPrefWidth(UI_Pixels(m->gap * 0.5f + R_TextWidth(m->font, name) + chevron));
@@ -3131,7 +3179,7 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
         if (UI->hotKey == UI_KeyFromStr(0, S("Crumb/ThisPC"))) hovered = 0;
     }
     // A server's crumbs follow the Network's, where there is one, which goes to it.
-    b32 server = Prog_PathServer(path).length && P_NetworkFolder().length;
+    b32 server = !skip && Prog_PathServer(path).length && P_NetworkFolder().length;
     if (server) {
         UI_Interaction button = Prog__TextButton(S("Crumb/Network"), Tr("Network"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text,
                                                  theme->textDim, true, m);
@@ -3141,7 +3189,7 @@ function u64 Prog__Breadcrumbs(Prog_State *state, const Prog_Metrics *m)
     }
     if (drive || thisPC) {
         drive = drive || (thisPC && path.length);
-    } else if (start == 1) {
+    } else if (start == 1 && !skip) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
     }
     for (u64 at = start; at < path.length;) {
@@ -3338,7 +3386,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         u64 hovered = UINT64_MAX;
         if (state->currentPanel == state->activePanel) state->pathMenuAt = (UI_Vec2){ crumbs->rect.x0, crumbs->rect.y1 };
         UI_Parent(crumbs) {
-            hovered = Prog__Breadcrumbs(state, m);
+            hovered = Prog__Breadcrumbs(state, crumbs->rect.x1 - crumbs->rect.x0, m);
             // A path copied flashes the path bar: the selection color washes in and out over it.
             u64 since = UI->nowMicroseconds > state->pathFlashTime ? UI->nowMicroseconds - state->pathFlashTime : 0;
             if (state->pathFlashTime && since < 450000 && crumbs->rect.x1 > crumbs->rect.x0) {

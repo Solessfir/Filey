@@ -1488,9 +1488,9 @@ function String Prog__CrumbTarget(Prog_State *state, u64 row)
 function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 {
     Scratch scratch = GetScratch();
-    u32 capacity = Max(Prog_MaxTabs, (u32)state->history.header.count) + 32, count = 0;
+    u32 capacity = Max(Max(Prog_MaxTabs, (u32)state->history.header.count), 128u) + 32, count = 0;
     Prog_MenuCommand *items = ArenaPushArray(scratch.arena, capacity, Prog_MenuCommand);
-#define Prog__Item(...) (items[count++] = (Prog_MenuCommand){ __VA_ARGS__ })
+#define Prog__Item(...) (count < capacity ? (void)(items[count++] = (Prog_MenuCommand){ __VA_ARGS__ }) : (void)0)
     switch (command->kind) {
         case Prog_CommandKind_ViewMenu: {
             u16 kinds[] = { Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns, Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons,
@@ -1518,6 +1518,19 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
             u16 closers[] = { Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs, Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll };
             for (u32 i = 0; i < CArrayCount(closers); ++i) Prog__Item(.kind = closers[i], .icon = Icon_SquareX, .disabled = !Prog_CommandAvailable(state, (Prog_CommandKind)closers[i]));
+        } break;
+        // The path bar's crumbs left out for room, the nearest last, as they read.
+        case Prog_CommandKind_CrumbsMenu: {
+            String path;
+            u64 shownEnd, ends[128];
+            u32 total = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends));
+            b32 drive;
+            Prog__CrumbStart(state, path, &drive);
+            if (drive || StrIsEqual(state->directory.path, Prog_ThisPC)) Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = 0, .label = Tr("This PC"), .icon = Icon_Monitor);
+            if (Prog_PathServer(path).length && P_NetworkFolder().length) Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = Prog_NetworkCrumb, .label = Tr("Network"), .icon = Icon_Folder);
+            for (u32 i = 0; i < total && i < command->row; ++i) {
+                Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = ends[i], .label = Prog_CrumbLabel(state, path, ends[i], drive, i == 0), .icon = Icon_Folder);
+            }
         } break;
         case Prog_CommandKind_HistoryMenu: {
             // Newest first, as browsers list it.
@@ -4850,6 +4863,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColumnMenu:
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:
+            case Prog_CommandKind_CrumbsMenu:
             case Prog_CommandKind_MainMenu:
             case Prog_CommandKind_PanelMenu:
             case Prog_CommandKind_PathMenu:

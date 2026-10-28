@@ -1555,6 +1555,10 @@ command ViewMenu {
 command HistoryMenu {
 }
 
+// The folders of the path bar's crumbs left out for room, from its first crumb, "…"; carries how many there are.
+command CrumbsMenu {
+}
+
 // The palette in its tab mode, under the strip's tab list button: typing finds tabs by name or folder, and Enter shows the one picked.
 command TabList {
     label   = "Search Tabs^tabs,switch,find,list"
