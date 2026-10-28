@@ -1789,6 +1789,7 @@ typedef struct Prog_State {
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
     u8 optionsFolded;         // bits by the Options' sections, those shown closed
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
+    b32 inspectorSliding;     // the inspector being drawn slides open or shut, at widths it does not keep
     u32 fitColumn;            // the active panel's column, by its place + 1, that the next build sizes to its values; UINT32_MAX all of them
     u64 listBytes, volumeBytes;  // what the usage columns of the list being built are shares of: its items' bytes and its drive's
     // What Settings.conf last set the inspector's text size and layout to: they apply when the file changes them, and the inspector's own controls change them meanwhile.

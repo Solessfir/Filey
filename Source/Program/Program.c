@@ -11809,7 +11809,8 @@ function void Prog__InspectorPdf(Prog_State *state, const Prog_Metrics *m)
             for (u32 d = 0; d < Prog_PdfDrawn && !drawn; ++d) if (state->pdf.drawn[d].texture.u64[0] && state->pdf.drawn[d].page == i) drawn = &state->pdf.drawn[d];
             if (drawn) drawn->used = UI->frameIndex;
             // Drawn again once the view is a tenth wider or narrower than the page was drawn for.
-            if ((!drawn || fabsf((f32)drawn->width - width) > width * 0.1f) && wanted == UINT32_MAX) wanted = i;
+            // Not while the inspector slides, whose widths on the way would each be drawn for nothing.
+            if ((!drawn || fabsf((f32)drawn->width - width) > width * 0.1f) && wanted == UINT32_MAX && !state->inspectorSliding) wanted = i;
             R_TextureHandle texture = drawn ? drawn->texture : i == 0 && state->previewPicture ? state->previewTexture : (R_TextureHandle){0};
             UI_SetNextPrefWidth(UI_Pixels(width));
             UI_SetNextPrefHeight(UI_Pixels(height));
@@ -13070,9 +13071,11 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     f32 open = inspecting ? 1.0f : 0.0f;
     u64 tab = state->tabCount ? state->tabs[state->activeTab].id : 0;
     UI_Animation *slide = UI__Animation(UI_KeyFromStr(0, StrFormat(&state->frameArena, "InspectorSlide/%" PRIu64, tab)), open);
+    state->inspectorSliding = false;
     if (slide && UI->animate && fabsf(open - slide->value) > 0.002f) {
         slide->value += (open - slide->value) * (1.0f - expf(-UI->dt / (inspecting ? 0.020f : 0.012f)));
         open = slide->value;
+        state->inspectorSliding = true;
         UI_KeepAnimating();
     } else if (slide) {
         slide->value = open;
