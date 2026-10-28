@@ -2258,6 +2258,12 @@ function void TestPasteLinkAndQuick(TestFileFixture *fixture)
     Prog_PaletteRow rows[Prog_MaxPaletteRows];
     u32 count = Prog_PaletteMatches(&state, rows);
     Check(count == 2 && rows[0].kind == Prog_CommandKind_Refresh && rows[1].kind == Prog_CommandKind_TabNew);
+    // A command whose label is what is typed comes first, however far apart the letters lie in its description.
+    state.paletteQuick = false;
+    Prog__EditReplace(&state.palette, (const u8 *)"hide ui", 7);
+    count = Prog_PaletteMatches(&state, rows);
+    Check(count && rows[0].kind == Prog_CommandKind_ToggleHideUI);
+    state.palette = (Prog_TextEdit){0};
     String target = Prog_JoinPath(&arena, fixture->path, S("Folder10")), first = {0}, second = {0};
     Check(!P_CreateLink(&arena, fixture->path, target, &first).code && !P_CreateLink(&arena, fixture->path, target, &second).code);
     Check(first.length && second.length && !StrIsEqual(first, second));

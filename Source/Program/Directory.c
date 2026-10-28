@@ -388,8 +388,8 @@ function i32 Prog__FuzzyTerm(Prog__FuzzyText *t, const rune *term, u32 termCount
     return score;
 }
 
-// The score of a name and its path for `typed`: for each of its space-separated terms, the name's score and three quarters
-// of the path's, rounded half away from zero, where a text that does not hold the term's letters in order, ignoring case, scores 0.
+// The score of a name and its path for `typed`: for each of its space-separated terms, the name's score and three quarters of the path's, rounded, where a text that does not hold the term's letters in order, ignoring case, scores 0.
+// A path whose letters lie far apart adds nothing rather than taking from the name's, as "hide ui" scattered through Hide UI's description would rank it under weaker names.
 // `nameMarks` and `pathMarks`, when not NULL, flag the bytes of the letters placed.
 function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMarks, u8 *pathMarks)
 {
@@ -413,7 +413,7 @@ function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMar
         result += Prog__FuzzyTerm(&names, term, termCount, termText, nameMarks);
         if (path.length) {
             f32 scaled = (f32)Prog__FuzzyTerm(&paths, term, termCount, termText, pathMarks) * 0.75f;
-            result += (i32)(scaled < 0 ? scaled - 0.5f : scaled + 0.5f);
+            result += Max((i32)(scaled + 0.5f), 0);
         }
     }
     return result;
