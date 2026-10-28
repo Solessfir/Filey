@@ -3124,7 +3124,7 @@ function String Prog__GoToWhere(Prog_State *state, String path)
 // "C:/Git/Filey" -> "This PC" › "Local Disk (C:)" › "Git" › "Filey", and a folder inside one of the path roots from that root on, as "Pictures" › "Screenshots".
 // Every segment but the current one opens its folder. The crumb under the pointer comes back, as the length of its path, 0 for This PC, or
 // UINT64_MAX for none.
-function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, const Prog_Metrics *m)
+function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, b32 *fromStart, const Prog_Metrics *m)
 {
     u64 hovered = UINT64_MAX;
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -3136,13 +3136,8 @@ function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, const Prog_Metrics *
     // The slot of the chevron between two crumbs.
     f32 chevron = floorf(m->line * 1.6f - 4.0f * m->scale);
     // Too long for its room, the path leaves out whole crumbs from its start, with This PC and the Network's, for a "…" that lists them, rather than cutting the first one shown in two.
-    u64 ends[128];
-    u32 count = 0, skip = 0;
-    for (u64 at = start; at < path.length && count < CArrayCount(ends);) {
-        u64 end = at + StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail).value;
-        if (end > at) ends[count++] = end;
-        at = end + 1;
-    }
+    u64 ends[128], stopAt = path.length;
+    u32 count = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends)), skip = 0;
     if (room > 0 && count > 1) {
         f32 widths[CArrayCount(ends)], total = 0;
         for (u32 i = 0; i < count; ++i) {
@@ -3153,18 +3148,38 @@ function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, const Prog_Metrics *
         }
         if (drive || thisPC) total += R_TextWidth(m->font, Tr("This PC")) + m->gap + chevron;
         if (Prog_PathServer(path).length && P_NetworkFolder().length) total += R_TextWidth(m->font, Tr("Network")) + m->gap + chevron;
-        f32 more = R_TextWidth(m->font, NoTr("\u2026")) + m->gap + chevron + floorf(1.6f * m->scale + 0.5f);
+        // The "…", whose separator after it the first crumb kept counts.
+        f32 more = R_TextWidth(m->font, NoTr("\u2026")) + m->gap + floorf(1.6f * m->scale + 0.5f);
+        // The shown folder's crumb stays, This PC's too: a trail past it too long for the rest of the room is cut at its end instead.
+        u32 most = thisPC ? 0 : count - 1;
+        for (u32 i = 0; i < count; ++i) if (ends[i] == shownEnd) most = i;
         if (total > room) {
+            // What goes before the crumbs, This PC and the Network.
+            f32 before = total;
+            for (u32 i = 0; i < count; ++i) before -= widths[i];
             total = more;
             for (u32 i = 0; i < count; ++i) total += widths[i];
-            while (skip + 1 < count && total > room) total -= widths[skip++];
-            if (!skip) skip = 1;
+            while (skip < most && total > room) total -= widths[skip++];
+            // With none left out, there is no "…", and what goes before is drawn instead.
+            if (!skip) total += before - more;
+            *fromStart = total > room;
+            // Then the trail ends at its last crumb that fits whole.
+            f32 used = skip ? more : before;
+            for (u32 i = skip; *fromStart && i < count; ++i) {
+                if (i > most && used + widths[i] > room) {
+                    stopAt = ends[i - 1];
+                    break;
+                }
+                used += widths[i];
+            }
         }
     }
     if (skip) {
-        UI_Interaction button = Prog__TextButton(S("Crumb/More"), NoTr("\u2026"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, true, m);
+        // Keyed by its path, as the crumbs are, so that each panel's is its own.
+        String key = StrFormat(&state->frameArena, "Crumb/More/%S", path);
+        UI_Interaction button = Prog__TextButton(key, NoTr("\u2026"), NULL, UI_TextContent(), m->bar * 0.75f, m->gap * 0.5f, theme->textDim, theme->text, theme->textDim, true, m);
         if (button.clicked) {
-            UI_Block *more = UI__Find(UI_KeyFromStr(0, S("Crumb/More")));
+            UI_Block *more = UI__Find(UI_KeyFromStr(0, key));
             Prog_QueueCommand(state, Prog_CommandKind_CrumbsMenu, skip, 0, button.clickOrder)->at = more ? (UI_Vec2){ more->rect.x0, more->rect.y1 } : UI->mouse;
         }
         start = ends[skip - 1];
@@ -3209,7 +3224,7 @@ function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, const Prog_Metrics *
     } else if (start == 1 && !skip) {
         Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(Prog__StripHeight(m)));
     }
-    for (u64 at = start; at < path.length;) {
+    for (u64 at = start; at < path.length && at <= stopAt;) {
         Index slash = StrIndexChar(StrFrom(path, at), '/', SSF_CountOnFail);
         u64 end = at + slash.value;
         String segment = StrFromTo(path, at, (i64)end);
@@ -3227,9 +3242,7 @@ function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, const Prog_Metrics *
                                                             theme->textDim, true, m);
                 if (separator.clicked) Prog_QueueCommand(state, Prog_CommandKind_FilesPopupOpen, 0, 0, separator.clickOrder)->target = Prog_ThisPCCrumb;
             }
-            if (drive && at == 0) segment = Prog__DriveName(state, path);
-            else if (StrIsEqual(StrFromTo(path, 0, (i64)end), P_NetworkFolder())) segment = Tr("Network");
-            else if (P_IsTrashFolder(StrFromTo(path, 0, (i64)end))) segment = Prog_PathName(state, StrFromTo(path, 0, (i64)end));
+            segment = Prog_CrumbLabel(state, path, end, drive, at == 0);
             // A walk through the whole tree is marked after the folder walked.
             if (current && state->expanded) segment = StrFormat(&state->frameArena, "%S [...]", segment);
             String identity = StrFormat(&state->frameArena, "Crumb/%S", StrFromTo(path, 0, (i64)end));
@@ -3403,7 +3416,9 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         u64 hovered = UINT64_MAX;
         if (state->currentPanel == state->activePanel) state->pathMenuAt = (UI_Vec2){ crumbs->rect.x0, crumbs->rect.y1 };
         UI_Parent(crumbs) {
-            hovered = Prog__Breadcrumbs(state, crumbs->rect.x1 - crumbs->rect.x0, m);
+            b32 fromStart = false;
+            hovered = Prog__Breadcrumbs(state, crumbs->rect.x1 - crumbs->rect.x0, &fromStart, m);
+            if (fromStart) crumbs->scrollOffset.x = crumbs->scrollShown.x = 0;
             // A path copied flashes the path bar: the selection color washes in and out over it.
             u64 since = UI->nowMicroseconds > state->pathFlashTime ? UI->nowMicroseconds - state->pathFlashTime : 0;
             if (state->pathFlashTime && since < 450000 && crumbs->rect.x1 > crumbs->rect.x0) {
