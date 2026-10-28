@@ -4236,7 +4236,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 // The last one shown again closes it.
                 if (!kept) state->mutedOpen = false;
             } break;
-            case Prog_CommandKind_NoticeCopy:
             case Prog_CommandKind_CheckForUpdates: Prog_CheckForUpdates(state, true); break;
             case Prog_CommandKind_PlaceHiddenToggle: Prog_TogglePlaceHidden(state, command->row); break;
             case Prog_CommandKind_PlaceMove: Prog_MovePlace(state, command->row, command->target); break;
@@ -4318,6 +4317,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 state->pickNames = (ArrayStr){0};
                 ArrayPush(&state->pickArena, state->pickNames, StrCopy(&state->pickArena, attached.length ? attached : name));
             } break;
+            case Prog_CommandKind_NoticeCopy:
             case Prog_CommandKind_NoticeClose: {
                 for (u32 i = 0; i < state->noticeCount; ++i) {
                     Prog_Notice *notice = &state->notices[i];
