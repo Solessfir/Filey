@@ -9536,7 +9536,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         local_persist const String groupNames[] = { TrInit("Quick"), TrInit("Folder"), TrInit("View"), TrInit("Sort"), TrInit("Inspector"), TrInit("Panels"), TrInit("Tabs"), TrInit("Go To"),
                                                     TrInit("Misc"), TrInit("Options"), TrInit("Rename"), TrInit("Text"), TrInit("Scroll") };
         const String groupIcons[] = { Icon_StarFilled, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
-                                                    Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextCursorInput, Icon_ChevronsUpDown };
+                                                    Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextAlignStart, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
         // The groups in front of found commands are as wide as the widest name, as some languages' are long.
         f32 groupWidth = floorf(63.2f * s + 0.5f);
