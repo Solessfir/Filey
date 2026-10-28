@@ -873,12 +873,12 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0 && state.groupBy == Prog_GroupBy_None);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state));
-        // Kept with its subfolders, the view goes into Empty too, which changing it there leaves alone and shows as changed until it is restored; set as the default, new tabs start in it. A drive's root keeps the folders below it.
+        // Kept with its subfolders, the view goes into Empty too, which changing it there leaves alone and shows as changed until it is restored. A drive's root keeps the folders below it.
         Check(StrIsEqual(Prog__FolderViewTree(S("C:/*")), S("C:/")) && StrIsEqual(Prog__FolderViewTree(S("/*")), S("/")) && StrIsEqual(Prog__FolderViewTree(S("/a/b/*")), S("/a/b")));
         Check(Prog__PathInside(S("C:/Games"), S("C:/")) && Prog__PathInside(S("/a/b/c"), S("/a/b")) && !Prog__PathInside(S("/a/bc"), S("/a/b")));
-        // This PC, which joins a name as the name alone, kept with its subfolders is no default.
+        // This PC, which joins a name as the name alone, kept with its subfolders keeps its name.
         String computer = Prog__FolderViewTreeKey(&kept, Prog_ThisPC);
-        Check(!StrIsEqual(computer, Prog_DefaultViewKey) && StrIsEqual(Prog__FolderViewTree(computer), Prog_ThisPC) && StrIsEqual(Prog__FolderViewTreeKey(&kept, S("C:/")), S("C:/*")));
+        Check(!StrIsEqual(computer, S("*")) && StrIsEqual(Prog__FolderViewTree(computer), Prog_ThisPC) && StrIsEqual(Prog__FolderViewTreeKey(&kept, S("C:/")), S("C:/*")));
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
         u32 treeZoom = state.zoom;
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_Tree);
@@ -890,14 +890,10 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(Prog_FolderViewModified(&state) && Prog_FolderView(&state, here, &view) && view.zoom == treeZoom);
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewRestore, 0);
         Check(state.zoom == treeZoom && !Prog_FolderViewModified(&state));
-        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewSetDefault, 0);
-        Check(Prog_DefaultView(&state).zoom == treeZoom);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state));
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_None);
         Check(!Prog_FolderView(&state, here, &view) && !Prog_FolderView(&state, empty, &view));
-        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewsClear, 0);
-        Check(Prog_DefaultView(&state).zoom == 0);
         // The columns read back as written; a line from before the columns keeps the defaults.
         Prog_ColumnSet written = { .count = 3, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size, Prog_ColumnKind_Created }, .shares = { 0, 0.125f, 0 } }, read = {0};
         Check(Prog_ParseColumns(Prog_ColumnsText(&kept, written), &read) && read.count == 3 && read.kinds[2] == Prog_ColumnKind_Created && read.shares[1] == 0.125f);
@@ -3490,17 +3486,21 @@ function void TestTabs(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     Check(state.tabCount == 2 && state.activeTab == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
-    // It starts in Details by name, whatever the shown tab's zoom and sort, and whatever view is set as the default to restore folders to.
+    // It starts in the settings' view by name, Details unless they say otherwise, whatever the shown tab's zoom and sort.
     {
         u32 zoom = state.zoom;
         Prog_Sort sort = state.sort;
         state.zoom = Prog_ZoomIcons, state.sort = Prog_Sort_Size, state.descending = true;
-        Prog_SetDefaultView(&state);
         TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
         Check(TestWaitDirectory(&state) && state.zoom == 0 && state.sort == Prog_Sort_Name && !state.descending);
         TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+        Prog_ApplySettings(&state, S("newtab.view = list\n"));
+        Check(Prog_OptionValue(&state, Prog_Option_NewTabView) == Prog_NewTabView_List);
+        TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
+        Check(TestWaitDirectory(&state) && state.zoom == Prog_ZoomList && state.sort == Prog_Sort_Name);
+        TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
+        state.newTabView = Prog_NewTabView_Details;
         state.zoom = zoom, state.sort = (u8)sort, state.descending = false;
-        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewsClear, 0);
     }
     state.newTab = Prog_NewTab_Current;
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);

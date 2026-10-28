@@ -1208,12 +1208,7 @@ command FolderViewScope {
 
 command FolderViewRestore {
     label   = "Restore Folder View^reset,saved,default"
-    tooltip = "Show the folder as its view is saved, or in the default view when it has none."
-}
-
-command FolderViewSetDefault {
-    label   = "Set Folder View as Default^restore,reset"
-    tooltip = "Restore folders without a saved view to the view the folder shows now."
+    tooltip = "Show the folder as its view is saved, or with none saved, in the view new tabs start in."
 }
 
 // The column header's menu, opened by a right click on a title; carries the column's place among the panel's columns.

@@ -3404,17 +3404,14 @@ This folder and subfolders
 Restore view
 = Ansicht wiederherstellen
 
-Set as default
-= Als Standard festlegen
-
 Restore Folder View
 = Ordneransicht wiederherstellen
 
-Show the folder as its view is saved, or in the default view when it has none.
-= Zeigt den Ordner in seiner gespeicherten Ansicht oder, ohne eine, in der Standardansicht.
+New Tab View
+= Ansicht neuer Tabs
 
-Set Folder View as Default
-= Ordneransicht als Standard festlegen
+View new tabs and splits start in, and a folder without its own saved view is restored to.
+= Ansicht, in der neue Tabs und Teilungen öffnen und auf die ein Ordner ohne eigene gespeicherte Ansicht zurückgesetzt wird.
 
-Restore folders without a saved view to the view the folder shows now.
-= Ordner ohne gespeicherte Ansicht werden auf die Ansicht zurückgesetzt, in der der Ordner jetzt gezeigt wird.
+Show the folder as its view is saved, or with none saved, in the view new tabs start in.
+= Zeigt den Ordner in seiner gespeicherten Ansicht oder, ohne eine, in der Ansicht neuer Tabs.

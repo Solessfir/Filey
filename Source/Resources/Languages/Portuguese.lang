@@ -3405,17 +3405,14 @@ This folder and subfolders
 Restore view
 = Restaurar exibição
 
-Set as default
-= Definir como padrão
-
 Restore Folder View
 = Restaurar Exibição da Pasta
 
-Show the folder as its view is saved, or in the default view when it has none.
-= Mostra a pasta na exibição salva para ela ou, sem uma, na exibição padrão.
+New Tab View
+= Exibição de Nova Aba
 
-Set Folder View as Default
-= Definir Exibição da Pasta como Padrão
+View new tabs and splits start in, and a folder without its own saved view is restored to.
+= Exibição em que novas abas e divisões abrem e para a qual uma pasta sem exibição salva própria é restaurada.
 
-Restore folders without a saved view to the view the folder shows now.
-= Pastas sem exibição salva são restauradas para a exibição que a pasta mostra agora.
+Show the folder as its view is saved, or with none saved, in the view new tabs start in.
+= Mostra a pasta na exibição salva para ela ou, sem uma, na exibição de novas abas.

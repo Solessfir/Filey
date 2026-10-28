@@ -705,7 +705,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
     Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_GroupByNone,
-    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_FolderViewToggle, Prog_CommandKind_FolderViewRestore, Prog_CommandKind_FolderViewSetDefault,
+    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_FolderViewToggle, Prog_CommandKind_FolderViewRestore,
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
@@ -822,7 +822,6 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_BookmarksClear: return state->bookmarks.header.count != 0;
         case Prog_CommandKind_FolderViewsClear: return state->folderViews.header.count != 0;
         case Prog_CommandKind_FolderViewRestore: return state->directory.path.length && Prog_FolderViewModified(state);
-        case Prog_CommandKind_FolderViewSetDefault: return state->directory.path.length != 0;
         case Prog_CommandKind_PanelSelectNext: case Prog_CommandKind_PanelSelectPrev: case Prog_CommandKind_PanelLeft: case Prog_CommandKind_PanelRight:
         case Prog_CommandKind_PanelUp: case Prog_CommandKind_PanelDown:
             return panels > 1;
@@ -1548,7 +1547,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleCompactPath, .label = Tr("Compact Path"), .toggle = true, .checked = !state->fullPaths);
             Prog__Item(.kind = Prog_CommandKind_ToggleBreadcrumbs, .label = Tr("Path Breadcrumbs"), .toggle = true, .checked = !state->noTrail);
         } break;
-        // The lock button's: whether the view shown is as kept, then how it is kept, chosen as a radio button, its restore and the default.
+        // The lock button's: whether the view shown is as kept, then how it is kept, chosen as a radio button, and its restore.
         case Prog_CommandKind_FolderViewMenu: {
             Prog_ViewSettings kept;
             Prog_ViewScope scope = Prog_FolderViewScope(state, state->directory.path, &kept);
@@ -1562,9 +1561,6 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_FolderViewScope, .row = Prog_ViewScope_Tree, .label = Tr("This folder and subfolders"), .icon = Icon_FolderTree, .toggle = true, .radio = true,
                        .checked = scope == Prog_ViewScope_Tree || scope == Prog_ViewScope_Inherited);
             Prog__Item(.kind = Prog_CommandKind_FolderViewRestore, .label = Tr("Restore view"), .icon = Icon_RotateCcw, .disabled = (b8)!modified);
-            Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_FolderViewSetDefault, .label = Tr("Set as default"), .icon = Icon_Check,
-                       .disabled = (b8)Prog__SameView(Prog_CurrentView(state), Prog_DefaultView(state)));
         } break;
         // The disk usage's, for the item chosen.
         case Prog_CommandKind_InspectorUsageMenu: {
@@ -3611,7 +3607,6 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_FolderViewToggle: Prog_ToggleFolderView(state); break;
             case Prog_CommandKind_FolderViewScope: if (command->row < Prog_ViewScope_Inherited) Prog_SetFolderViewScope(state, (Prog_ViewScope)command->row); break;
             case Prog_CommandKind_FolderViewRestore: Prog_RestoreFolderView(state); break;
-            case Prog_CommandKind_FolderViewSetDefault: Prog_SetDefaultView(state); break;
             case Prog_CommandKind_FolderViewsClear: Prog_ClearFolderViews(state); break;
             case Prog_CommandKind_BookmarksClear: {
                 Prog__SetList(&state->bookmarkArena, &state->bookmarks, NULL, 0);

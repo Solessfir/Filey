@@ -66,6 +66,17 @@ typedef enum Prog_FolderSort {
 typedef struct Prog_ViewSettings Prog_ViewSettings;
 
 // How a folder's view is kept: not at all, by its own line, by its own with its subfolders', or as a folder's above it is with its subfolders'.
+// The view new tabs start in, the settings' newtab.view.
+typedef enum Prog_NewTabView {
+    Prog_NewTabView_Details,
+    Prog_NewTabView_List,
+    Prog_NewTabView_Columns,
+    Prog_NewTabView_Icons,
+    Prog_NewTabView_LargeIcons,
+    Prog_NewTabView_ExtraLargeIcons,
+    Prog_NewTabView_Count,
+} Prog_NewTabView;
+
 typedef enum Prog_ViewScope {
     Prog_ViewScope_None,
     Prog_ViewScope_Folder,
@@ -993,6 +1004,7 @@ typedef enum Prog_Option {
     Prog_Option_HighlightCode,
     Prog_Option_LoadOnStartup,
     Prog_Option_NewTabShow,
+    Prog_Option_NewTabView,
     Prog_Option_SingleWindow,
     Prog_Option_VSync,
     Prog_Option_Transparency,
@@ -1842,6 +1854,7 @@ typedef struct Prog_State {
     // Where a start and a new tab go, how the recents are kept, whether the lists mark them and sort them first, and whether frames wait for the display.
     enum8(Prog_Startup) startup;
     enum8(Prog_NewTab) newTab;
+    enum8(Prog_NewTabView) newTabView;  // the view new tabs and splits start in
     enum8(Prog_StoreRecents) storeRecents;
     u8 archiveLevel;  // the compression level of the archives Filey writes, 0 to 9
     u8 videoCodec;    // what Compress Video encodes to, a Prog_OptionVideoCodecs index
@@ -2381,7 +2394,6 @@ function b32 Prog_FolderViewModified(const Prog_State *state);
 function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b);
 function void Prog_SetFolderViewScope(Prog_State *state, Prog_ViewScope scope);
 function void Prog_RestoreFolderView(Prog_State *state);
-function void Prog_SetDefaultView(Prog_State *state);
 function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);

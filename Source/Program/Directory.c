@@ -5539,13 +5539,13 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
         return UINT32_MAX;
     }
     u32 at = state->panelCount++;
-    // The new panel starts in Details by name, as a new tab does, with the hidden-item choice of the one it splits; a locked folder brings back
-    // its own view.
+    // The new panel starts in the settings' view by name, as a new tab does, with the hidden-item choice of the one it splits; a locked folder brings back its own view.
     b32 current = index == state->currentPanel;
     state->panels[at] = (Prog_Panel){
         .id = ++state->nextPanelId,
         .splitMicroseconds = PlatformNowMicroseconds(),
         .showHidden = current ? state->showHidden : state->panels[index].showHidden,
+        .zoom = Prog_DefaultView(state).zoom,
     };
     state->splits[added] = (Prog_Split){ .kind = Prog_SplitKind_Panel, .panel = state->panels[at].id };
     state->splits[leaf] = (Prog_Split){ .kind = (u8)kind, .first = (u8)(before ? added : kept), .second = (u8)(before ? kept : added), .ratio = 0.5f };
@@ -6075,8 +6075,7 @@ function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String 
     return true;
 }
 
-// FolderViews.conf keys a folder's own view by its path, the view of a folder and the folders below it by the path and "/*" after it, and the default view, which a folder without one is restored to, by "*".
-#define Prog_DefaultViewKey S("*")
+// FolderViews.conf keys a folder's own view by its path, and the view of a folder and the folders below it by the path and "/*" after it.
 
 // The folder a key of a folder and the folders below it names, as "C:/Games" for "C:/Games/*" and "C:/" for "C:/*"; empty for another key.
 function String Prog__FolderViewTree(String key)
@@ -6087,7 +6086,7 @@ function String Prog__FolderViewTree(String key)
     return folder;
 }
 
-// The key of `path` kept with its subfolders: its path and "/*", which a folder that is no path, as This PC, keeps apart from the default's "*".
+// The key of `path` kept with its subfolders: its path and "/*", which a folder that is no path, as This PC, joins as "This PC/*" rather than "*".
 function String Prog__FolderViewTreeKey(Arena *arena, String path)
 {
     return StrFormat(arena, path.length && path.value[path.length - 1] == '/' ? "%S*" : "%S/*", path);
@@ -6129,16 +6128,11 @@ function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSett
     return Prog_FolderViewScope(state, path, view) != Prog_ViewScope_None;
 }
 
-// The view a folder without its own is restored to: the one set as the default, else by name in Details with the usual columns, which new tabs start in.
+// The view new tabs and splits start in, and a folder without its own is restored to: the settings' view, by name with the usual columns.
 function Prog_ViewSettings Prog_DefaultView(const Prog_State *state)
 {
-    Prog_ViewSettings result = { .folders = Prog_FolderSort_First };
-    for (u64 i = 0; i < state->folderViews.header.count; ++i) {
-        String at;
-        Prog_ViewSettings found;
-        if (Prog__ParseFolderView(state->folderViews.v[i], &found, &at) && StrIsEqual(at, Prog_DefaultViewKey)) result = found;
-    }
-    return result;
+    local_persist const u32 zooms[Prog_NewTabView_Count] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
+    return (Prog_ViewSettings){ .zoom = zooms[Min((u32)state->newTabView, (u32)Prog_NewTabView_Count - 1)], .folders = Prog_FolderSort_First };
 }
 
 // Whether two views are the same, their columns by their text, which rounds their shares as the file does.
@@ -6245,12 +6239,6 @@ function void Prog_RestoreFolderView(Prog_State *state)
     else if (regroup) Prog_ApplyFilter(state, false);
 }
 
-// Keeps the shown folder's view as the one a folder without its own is restored to.
-function void Prog_SetDefaultView(Prog_State *state)
-{
-    Prog_ViewSettings shown = Prog_CurrentView(state);
-    Prog__SetFolderViewKey(state, Prog_DefaultViewKey, (String){0}, &shown);
-}
 
 // Back to the panel's own view after the shown folder's lets go of its, listed again when its order changes.
 function void Prog__RestoreOwnView(Prog_State *state)
@@ -6828,7 +6816,7 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     if (at <= state->activeTab) ++state->activeTab;
     Prog_Tab *tab = &state->tabs[at];
     // It starts in the default view, by name in Details with the usual columns, whatever the shown tab has; a locked folder brings back its own.
-    *tab = (Prog_Tab){ .id = ++state->nextTabId, .showHidden = state->showHidden, .previewShown = state->previewShown };
+    *tab = (Prog_Tab){ .id = ++state->nextTabId, .showHidden = state->showHidden, .previewShown = state->previewShown, .zoom = Prog_DefaultView(state).zoom };
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);

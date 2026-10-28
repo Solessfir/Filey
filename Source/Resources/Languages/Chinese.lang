@@ -3404,17 +3404,14 @@ This folder and subfolders
 Restore view
 = 恢复视图
 
-Set as default
-= 设为默认
-
 Restore Folder View
 = 恢复文件夹视图
 
-Show the folder as its view is saved, or in the default view when it has none.
-= 以文件夹保存的视图显示它；没有保存的视图时使用默认视图。
+New Tab View
+= 新标签页视图
 
-Set Folder View as Default
-= 将文件夹视图设为默认
+View new tabs and splits start in, and a folder without its own saved view is restored to.
+= 新标签页和拆分窗格打开时使用的视图，也是没有保存视图的文件夹恢复到的视图。
 
-Restore folders without a saved view to the view the folder shows now.
-= 没有保存视图的文件夹恢复为文件夹当前的视图。
+Show the folder as its view is saved, or with none saved, in the view new tabs start in.
+= 以文件夹保存的视图显示它；没有保存的视图时使用新标签页的视图。

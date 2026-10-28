@@ -734,6 +734,7 @@ global const String Prog_OptionVideoCodecs[] = { SInit("hevc"), SInit("h264"), S
 global const String Prog_OptionNotices[Prog_NoticeKind_Count + 1] = { SInit("all"), SInit("warnings"), SInit("errors"), SInit("off") };
 global const String Prog_OptionStartups[Prog_Startup_Count] = { SInit("session"), SInit("root"), SInit("home") };
 global const String Prog_OptionNewTabs[Prog_NewTab_Count] = { SInit("root"), SInit("home"), SInit("current") };
+global const String Prog_OptionNewTabViews[Prog_NewTabView_Count] = { SInit("details"), SInit("list"), SInit("columns"), SInit("icons"), SInit("large"), SInit("xlarge") };
 global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit("filter"), SInit("hotkey"), SInit("select") };
 
 // Applies settings `text`, lines of "name = value", over the defaults; unknown names and bad values are skipped, and a line starting with '#' is a comment.
@@ -808,6 +809,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->separateInstances = state->gitFetch = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
+    state->newTabView = Prog_NewTabView_Details;
     state->storeRecents = Prog_StoreRecents_Persistent;
     state->archiveLevel = 9;
     state->videoCodec = 0;
@@ -901,6 +903,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             }
         } else if (StrIsEqual(name, S("newtab"))) {
             for (u32 i = 0; i < Prog_NewTab_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabs[i])) state->newTab = (u8)i;
+        } else if (StrIsEqual(name, S("newtab.view"))) {
+            for (u32 i = 0; i < Prog_NewTabView_Count; ++i) if (Prog__EqualFolded(value, Prog_OptionNewTabViews[i])) state->newTabView = (u8)i;
         } else if (StrIsEqual(name, S("language"))) {
             state->language.length = (u32)Min(value.length, (u64)sizeof(state->language.text));
             MemCopy(state->language.text, value.value, state->language.length);
@@ -1079,7 +1083,9 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
                                 "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"));
     StrBuildStr(arena, &text, S("# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
-                                "# startup = session\n# newtab = root\n\n"
+                                "# startup = session\n# newtab = root\n"
+                                "# The view a new tab or split starts in, and a folder without its own saved view is restored to: details, list, columns, icons, large or xlarge.\n"
+                                "# newtab.view = details\n\n"
                                 "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
                                 "# than opening another window.\n# instances.single = true\n\n"
                                 "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n"
@@ -1289,6 +1295,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                     Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
     [Prog_Option_NewTabShow] = { TrInit("New Tab Show"), TrInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), SInit("newtab") },
+    [Prog_Option_NewTabView] = { TrInit("New Tab View"), TrInit("View new tabs and splits start in, and a folder without its own saved view is restored to."), Prog_OptionControl_Choice, 0, 0,
+                                 Prog_OptionNewTabViews, CArrayCount(Prog_OptionNewTabViews), SInit("newtab.view") },
     [Prog_Option_SingleWindow] = { TrInit("Open In One Window"), TrInit("Starting Filey or opening a folder from elsewhere uses the open window, in a new tab."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("instances.single") },
     [Prog_Option_VSync] = { TrInit("VSync"), TrInit("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
@@ -1408,6 +1416,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
             return state->startup;
         }
         case Prog_Option_NewTabShow: return state->newTab;
+        case Prog_Option_NewTabView: return state->newTabView;
         case Prog_Option_SingleWindow: return !state->separateInstances;
         case Prog_Option_VSync: return !state->noVSync;
         case Prog_Option_HighlightCode: return !state->noHighlight;
@@ -1918,6 +1927,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_InactiveOpacity: return 60;
         case Prog_Option_LoadOnStartup: return Prog_Startup_LastSession;
         case Prog_Option_NewTabShow: return Prog_NewTab_Root;
+        case Prog_Option_NewTabView: return Prog_NewTabView_Details;
         case Prog_Option_StoreRecents: return Prog_StoreRecents_Persistent;
         case Prog_Option_Notices: return Prog_NoticeKind_Info;
         case Prog_Option_CharacterKeyAction: return Prog_CharacterKeys_TypeInFilter;
@@ -7454,6 +7464,11 @@ function String Prog__OptionName(Arena *arena, Prog_Option option, String name)
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("right"))) return Tr("Horizontal");
     if (option == Prog_Option_InspectorLayout && StrIsEqual(name, S("below"))) return Tr("Vertical");
     if (option == Prog_Option_LoadOnStartup && StrIsEqual(name, S("session"))) return Tr("Last Session");
+    if (option == Prog_Option_NewTabView) {
+        if (StrIsEqual(name, S("icons"))) return Tr("M Icons");
+        if (StrIsEqual(name, S("large"))) return Tr("L Icons");
+        if (StrIsEqual(name, S("xlarge"))) return Tr("XL Icons");
+    }
     if (option == Prog_Option_Notices) {
         if (StrIsEqual(name, S("warnings"))) return Tr("Warnings And Errors");
         if (StrIsEqual(name, S("errors"))) return Tr("Errors Only");

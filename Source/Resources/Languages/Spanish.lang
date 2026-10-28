@@ -3404,17 +3404,14 @@ This folder and subfolders
 Restore view
 = Restaurar vista
 
-Set as default
-= Establecer como predeterminada
-
 Restore Folder View
 = Restaurar vista de carpeta
 
-Show the folder as its view is saved, or in the default view when it has none.
-= Muestra la carpeta con su vista guardada o, si no tiene, con la vista predeterminada.
+New Tab View
+= Vista de pestaña nueva
 
-Set Folder View as Default
-= Establecer vista de carpeta como predeterminada
+View new tabs and splits start in, and a folder without its own saved view is restored to.
+= Vista con la que se abren las pestañas y divisiones nuevas, y a la que se restaura una carpeta sin vista guardada propia.
 
-Restore folders without a saved view to the view the folder shows now.
-= Las carpetas sin vista guardada se restauran a la vista que muestra ahora la carpeta.
+Show the folder as its view is saved, or with none saved, in the view new tabs start in.
+= Muestra la carpeta con su vista guardada o, si no tiene, con la vista de las pestañas nuevas.

@@ -3403,17 +3403,14 @@ This folder and subfolders
 Restore view
 = Восстановить вид
 
-Set as default
-= Сделать видом по умолчанию
-
 Restore Folder View
 = Восстановить вид папки
 
-Show the folder as its view is saved, or in the default view when it has none.
-= Показывает папку в сохранённом для неё виде, а без него — в виде по умолчанию.
+New Tab View
+= Вид новой вкладки
 
-Set Folder View as Default
-= Сделать вид папки видом по умолчанию
+View new tabs and splits start in, and a folder without its own saved view is restored to.
+= Вид, в котором открываются новые вкладки и разделения и к которому восстанавливается папка без своего сохранённого вида.
 
-Restore folders without a saved view to the view the folder shows now.
-= Папки без сохранённого вида восстанавливаются к виду, в котором сейчас показана папка.
+Show the folder as its view is saved, or with none saved, in the view new tabs start in.
+= Показывает папку в сохранённом для неё виде, а без него — в виде новых вкладок.

@@ -3405,17 +3405,14 @@ This folder and subfolders
 Restore view
 = Przywróć widok
 
-Set as default
-= Ustaw jako domyślny
-
 Restore Folder View
 = Przywróć widok folderu
 
-Show the folder as its view is saved, or in the default view when it has none.
-= Pokazuje folder w zapisanym dla niego widoku, a bez niego w widoku domyślnym.
+New Tab View
+= Widok nowej karty
 
-Set Folder View as Default
-= Ustaw widok folderu jako domyślny
+View new tabs and splits start in, and a folder without its own saved view is restored to.
+= Widok, w jakim otwierają się nowe karty i podziały i do którego wraca folder bez własnego zapisanego widoku.
 
-Restore folders without a saved view to the view the folder shows now.
-= Foldery bez zapisanego widoku są przywracane do widoku, w jakim folder jest teraz pokazany.
+Show the folder as its view is saved, or with none saved, in the view new tabs start in.
+= Pokazuje folder w zapisanym dla niego widoku, a bez niego w widoku nowych kart.
