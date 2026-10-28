@@ -876,6 +876,9 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         // Kept with its subfolders, the view goes into Empty too, which changing it there leaves alone and shows as changed until it is restored; set as the default, new tabs start in it. A drive's root keeps the folders below it.
         Check(StrIsEqual(Prog__FolderViewTree(S("C:/*")), S("C:/")) && StrIsEqual(Prog__FolderViewTree(S("/*")), S("/")) && StrIsEqual(Prog__FolderViewTree(S("/a/b/*")), S("/a/b")));
         Check(Prog__PathInside(S("C:/Games"), S("C:/")) && Prog__PathInside(S("/a/b/c"), S("/a/b")) && !Prog__PathInside(S("/a/bc"), S("/a/b")));
+        // This PC, which joins a name as the name alone, kept with its subfolders is no default.
+        String computer = Prog__FolderViewTreeKey(&kept, Prog_ThisPC);
+        Check(!StrIsEqual(computer, Prog_DefaultViewKey) && StrIsEqual(Prog__FolderViewTree(computer), Prog_ThisPC) && StrIsEqual(Prog__FolderViewTreeKey(&kept, S("C:/")), S("C:/*")));
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
         u32 treeZoom = state.zoom;
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_Tree);

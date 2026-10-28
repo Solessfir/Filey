@@ -6091,6 +6091,12 @@ function String Prog__FolderViewTree(String key)
     return folder;
 }
 
+// The key of `path` kept with its subfolders: its path and "/*", which a folder that is no path, as This PC, keeps apart from the default's "*".
+function String Prog__FolderViewTreeKey(Arena *arena, String path)
+{
+    return StrFormat(arena, path.length && path.value[path.length - 1] == '/' ? "%S*" : "%S/*", path);
+}
+
 // Whether `path` is `folder` or inside it.
 function b32 Prog__PathInside(String path, String folder)
 {
@@ -6184,7 +6190,7 @@ function void Prog__SetFolderViewKey(Prog_State *state, String key, String also,
 function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view)
 {
     Scratch scratch = GetScratch();
-    Prog__SetFolderViewKey(state, path, Prog_JoinPath(scratch.arena, path, S("*")), view);
+    Prog__SetFolderViewKey(state, path, Prog__FolderViewTreeKey(scratch.arena, path), view);
     ReleaseScratch(scratch);
 }
 
@@ -6213,7 +6219,7 @@ function void Prog_KeepLockedView(Prog_State *state)
     Prog_ViewSettings shown = Prog_CurrentView(state);
     if (Prog__SameView(shown, saved)) return;
     Scratch scratch = GetScratch();
-    String key = scope == Prog_ViewScope_Tree ? Prog_JoinPath(scratch.arena, state->directory.path, S("*")) : state->directory.path;
+    String key = scope == Prog_ViewScope_Tree ? Prog__FolderViewTreeKey(scratch.arena, state->directory.path) : state->directory.path;
     Prog__SetFolderViewKey(state, key, (String){0}, &shown);
     ReleaseScratch(scratch);
 }
@@ -6225,7 +6231,7 @@ function void Prog_SetFolderViewScope(Prog_State *state, Prog_ViewScope scope)
     if (!path.length) return;
     Prog_ViewSettings shown = Prog_CurrentView(state);
     Scratch scratch = GetScratch();
-    String tree = Prog_JoinPath(scratch.arena, path, S("*"));
+    String tree = Prog__FolderViewTreeKey(scratch.arena, path);
     if (scope == Prog_ViewScope_Tree) Prog__SetFolderViewKey(state, tree, path, &shown);
     else Prog__SetFolderViewKey(state, path, tree, scope == Prog_ViewScope_Folder ? &shown : NULL);
     ReleaseScratch(scratch);
