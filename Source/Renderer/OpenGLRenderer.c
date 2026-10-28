@@ -575,6 +575,13 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
     GL.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 }
 
+function void R_TextureLinear(R_TextureHandle texture)
+{
+    GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    GL.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
 function void R_TextureSmooth(R_TextureHandle texture)
 {
     GL.BindTexture(GL_TEXTURE_2D, GL__TextureRefFromHandle(texture));

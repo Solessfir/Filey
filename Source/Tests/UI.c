@@ -128,6 +128,7 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 }
 
 function void R_TextureSmooth(R_TextureHandle texture) {}
+function void R_TextureLinear(R_TextureHandle texture) {}
 function R_TextureHandle R_TexturePremultiplied(R_TextureHandle texture) { return texture; }
 function void R_MeshIndices(R_MeshHandle mesh, u64 first, const u32 *indices, u64 count) {}
 function void R_DrawLine(f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, R_Color color) {}

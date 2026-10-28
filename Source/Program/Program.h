@@ -368,6 +368,7 @@ typedef struct Prog_IconAtlas {
     u32 cell;
     i32 size;
     i32 pageSize;
+    b32 smooth;  // its pictures are drawn at other sizes than its own, which it samples smoothly, each a half texel in from its cell's edge
 } Prog_IconAtlas;
 
 // Zoom levels, smallest first: Details, List, Columns, then icon grids that grow a step at a time.

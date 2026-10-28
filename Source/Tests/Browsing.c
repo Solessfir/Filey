@@ -1152,6 +1152,10 @@ function void TestFileIcons(TestFileFixture *fixture)
     u32 wide[2] = { 0xFF00FF00u, 0xFF00FF00u };
     u32 *fit = Prog_ResizeIcon(&arena, (P_Image){ wide, 2, 1 }, 4);
     Check(fit[0] == 0 && fit[4] == 0xFF00FF00u && fit[11] == 0xFF00FF00u && fit[12] == 0);
+    // 3x1 into 2 wide: each takes a pixel and a half, so the one half over the clear pixel is two thirds covered.
+    u32 three[3] = { 0xFFFFFFFFu, 0x00000000u, 0x00000000u };
+    u32 *halves = Prog_ResizeIcon(&arena, (P_Image){ three, 3, 1 }, 2);
+    Check(halves[0] >> 24 == 170 && (halves[0] & 0xFFFFFF) == 0xFFFFFF && halves[1] == 0);
 
     // System-language names, so only their presence is checked.
     Check(P_FileTypeName(&arena, S("plain.txt"), P_FileKind_File).length);

@@ -61,6 +61,8 @@ function void R_TextureUpdateRGBA(R_TextureHandle texture, i32 x, i32 y, i32 wid
 // A picture drawn smaller than its size, as a page fitted to the inspector, averages its pixels from mipmaps made of it as it is now,
 // rather than skipping most of them; drawn larger it keeps its pixels sharp. Called again after each update.
 function void R_TextureSmooth(R_TextureHandle texture);
+// A picture drawn a little larger or smaller than its size blends the pixels around each point rather than taking the nearest, without mipmaps, so that updates need nothing more.
+function void R_TextureLinear(R_TextureHandle texture);
 // A {0} handle is ignored.
 function void R_TextureRelease(R_TextureHandle texture);
 // The same texture, marked as holding colors premultiplied by their alpha, which R_DrawImage then draws as they are.

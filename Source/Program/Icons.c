@@ -4,8 +4,27 @@
 
 #define Prog_IconPageSize 512
 
+// The source pixels a span of `from` to `to` covers, each weighted by how much of it the span takes, for Prog_ResizeIcon; at least one.
+typedef struct Prog__Span { i32 first, count; f32 weights[512]; } Prog__Span;
+
+function Prog__Span Prog__IconSpan(f64 from, f64 to, i32 limit)
+{
+    Prog__Span span = { .first = Min((i32)from, limit - 1) };
+    if (to - from <= 1) {
+        span.count = 1, span.weights[0] = 1;
+        return span;
+    }
+    for (i32 at = span.first; at < limit && at < to && span.count < 512; ++at) {
+        f64 covered = MinF64(to, at + 1) - MaxF64(from, at);
+        if (covered > 0) span.weights[span.count++] = (f32)covered;
+        else if (!span.count) ++span.first;
+    }
+    return span;
+}
+
 // Scales `source` to fit a size x size square, centered.
-// Downscaling averages the covered source pixels, weighted by alpha so transparent edges do not darken.
+// Downscaling averages the area of the source each pixel covers, a pixel cut by its edge counting for the part inside, weighted by alpha so transparent edges do not darken; whole pixels only, as a span alternately two and three pixels wide, left straight edges notched.
+// Upscaling takes the nearest pixel.
 function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size)
 {
     u32 *result = ArenaPushArray(arena, (u64)size * (u64)size, u32);
@@ -14,27 +33,27 @@ function u32 *Prog_ResizeIcon(Arena *arena, P_Image source, i32 size)
     i32 width = Max(1, (i32)((i64)source.width * size / longest));
     i32 height = Max(1, (i32)((i64)source.height * size / longest));
     i32 left = (size - width) / 2, top = (size - height) / 2;
+    f64 stepX = (f64)source.width / width, stepY = (f64)source.height / height;
     for (i32 y = 0; y < height; ++y) {
-        i32 sy0 = (i32)((i64)y * source.height / height);
-        i32 sy1 = Max(sy0 + 1, (i32)((i64)(y + 1) * source.height / height));
+        Prog__Span rows = Prog__IconSpan(y * stepY, (y + 1) * stepY, source.height);
         for (i32 x = 0; x < width; ++x) {
-            i32 sx0 = (i32)((i64)x * source.width / width);
-            i32 sx1 = Max(sx0 + 1, (i32)((i64)(x + 1) * source.width / width));
-            u64 r = 0, g = 0, b = 0, a = 0, count = 0;
-            for (i32 sy = sy0; sy < sy1; ++sy) {
-                for (i32 sx = sx0; sx < sx1; ++sx) {
-                    u32 p = source.pixels[(i64)sy * source.width + sx];
-                    u64 alpha = p >> 24;
-                    r += (p & 0xFF) * alpha;
-                    g += ((p >> 8) & 0xFF) * alpha;
-                    b += ((p >> 16) & 0xFF) * alpha;
+            Prog__Span columns = Prog__IconSpan(x * stepX, (x + 1) * stepX, source.width);
+            f32 r = 0, g = 0, b = 0, a = 0, total = 0;
+            for (i32 j = 0; j < rows.count; ++j) {
+                const u32 *line = source.pixels + (i64)(rows.first + j) * source.width + columns.first;
+                for (i32 i = 0; i < columns.count; ++i) {
+                    u32 p = line[i];
+                    f32 weight = rows.weights[j] * columns.weights[i], alpha = (f32)(p >> 24) * weight;
+                    r += (f32)(p & 0xFF) * alpha;
+                    g += (f32)((p >> 8) & 0xFF) * alpha;
+                    b += (f32)((p >> 16) & 0xFF) * alpha;
                     a += alpha;
-                    ++count;
+                    total += weight;
                 }
             }
             u32 pixel = 0;
-            if (a) {
-                pixel = (u32)(r / a) | (u32)(g / a) << 8 | (u32)(b / a) << 16 | (u32)((a + count / 2) / count) << 24;
+            if (a > 0) {
+                pixel = (u32)(r / a + 0.5f) | (u32)(g / a + 0.5f) << 8 | (u32)(b / a + 0.5f) << 16 | (u32)(a / total + 0.5f) << 24;
             }
             result[(i64)(top + y) * size + left + x] = pixel;
         }
@@ -203,6 +222,8 @@ function void Prog__ResetThumbnails(Prog_ThumbnailSlot *slot, i32 size)
     // At most 64 MB of pages.
     i32 pageSize = 2048;
     Prog__ResetAtlas(&slot->atlas, size, pageSize, (u32)Max((i64)1, (i64)(UINT64_C(64) << 20) / ((i64)pageSize * pageSize * 4)));
+    // A tier's pictures are drawn at the sizes up to it, a nearest pixel each of which would notch their edges.
+    slot->atlas.smooth = true;
 }
 
 // The size thumbnails load at for `size`: the next of a few tiers, each half again the last, so that what is drawn is never scaled down by
@@ -465,7 +486,10 @@ function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *
     u32 cell = atlas->cell % (u32)(perRow * perRow);
     if (page >= atlas->pageLimit) return false;
     if (page >= atlas->pageCount) {
-        if (!atlas->pages[page].u64[0]) atlas->pages[page] = R_TextureCreateRGBA(atlas->pageSize, atlas->pageSize, NULL);
+        if (!atlas->pages[page].u64[0]) {
+            atlas->pages[page] = R_TextureCreateRGBA(atlas->pageSize, atlas->pageSize, NULL);
+            if (atlas->smooth) R_TextureLinear(atlas->pages[page]);
+        }
         atlas->pageCount = page + 1;
     }
     ++atlas->cell;
@@ -473,7 +497,8 @@ function b32 Prog__PlaceIcon(Prog_IconAtlas *atlas, Prog_Icon *icon, const u32 *
     R_TextureUpdateRGBA(atlas->pages[page], x, y, size, size, pixels);
     f32 scale = 1.0f / (f32)atlas->pageSize;
     icon->texture = atlas->pages[page];
-    icon->uv = (R_Rect){ (f32)x * scale, (f32)y * scale, (f32)(x + size) * scale, (f32)(y + size) * scale };
+    f32 in = atlas->smooth ? 0.5f : 0;
+    icon->uv = (R_Rect){ ((f32)x + in) * scale, ((f32)y + in) * scale, ((f32)(x + size) - in) * scale, ((f32)(y + size) - in) * scale };
     icon->state = Prog_IconState_Loaded;
     Prog__MeasurePicture(icon, pixels, size);
     return true;
