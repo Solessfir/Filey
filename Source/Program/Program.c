@@ -3379,6 +3379,7 @@ typedef struct Prog_Columns {
     u32 count;
     f32 room;      // the rows' width the shares are of
     f32 shrink;    // what the shares were scaled by, where they add up to more than Name leaves room for
+    b32 narrowed;  // some columns are left out for room, as none wide, which are then neither dragged nor resized
     Prog_Column v[Prog_ColumnKind_Count + 1];
 } Prog_Columns;
 
@@ -3419,24 +3420,59 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
     for (u32 i = 0; i < set.count; ++i) if (set.kinds[i] != Prog_ColumnKind_Name) others += set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare((Prog_ColumnKind)set.kinds[i]);
     f32 shrink = others > 0.9f ? 0.9f / others : 1;
     result.shrink = shrink;
+    // Too narrow for their values, the least telling columns go first, as none, the others taking their room, until the rest fit theirs;
+    // a value cut down to its first characters says nothing.
+    local_persist const f32 least[Prog_ColumnKind_Count] = {
+        [Prog_ColumnKind_Type] = 90, [Prog_ColumnKind_Size] = 64, [Prog_ColumnKind_Items] = 72, [Prog_ColumnKind_Created] = 120, [Prog_ColumnKind_Modified] = 120,
+        [Prog_ColumnKind_Accessed] = 120, [Prog_ColumnKind_VolumeUsage] = 56, [Prog_ColumnKind_FolderUsage] = 56, [Prog_ColumnKind_Git] = 48,
+        [Prog_ColumnKind_FileSystem] = 64, [Prog_ColumnKind_FreeSpace] = 72, [Prog_ColumnKind_PercentFull] = 80, [Prog_ColumnKind_OriginalLocation] = 100,
+        [Prog_ColumnKind_DateDeleted] = 120,
+    };
+    local_persist const u8 keep[Prog_ColumnKind_Count] = {
+        [Prog_ColumnKind_Name] = UINT8_MAX, [Prog_ColumnKind_PercentFull] = 10, [Prog_ColumnKind_Size] = 9, [Prog_ColumnKind_Modified] = 8, [Prog_ColumnKind_FreeSpace] = 7,
+        [Prog_ColumnKind_DateDeleted] = 7, [Prog_ColumnKind_Type] = 6, [Prog_ColumnKind_OriginalLocation] = 6, [Prog_ColumnKind_Items] = 5,
+        [Prog_ColumnKind_FileSystem] = 4, [Prog_ColumnKind_Git] = 4, [Prog_ColumnKind_VolumeUsage] = 3, [Prog_ColumnKind_FolderUsage] = 3,
+        [Prog_ColumnKind_Created] = 2, [Prog_ColumnKind_Accessed] = 1,
+    };
+    b8 hidden[Prog_ColumnKind_Count] = {0};
+    f32 grow = 1;
+    for (;;) {
+        f32 kept = 0;
+        for (u32 i = 0; i < set.count; ++i) if (!hidden[i] && set.kinds[i] != Prog_ColumnKind_Name) kept += set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare((Prog_ColumnKind)set.kinds[i]);
+        grow = kept > 0 ? others / kept : 1;
+        b32 cramped = false;
+        u32 drop = UINT32_MAX;
+        for (u32 i = 0; i < set.count; ++i) {
+            Prog_ColumnKind kind = (Prog_ColumnKind)set.kinds[i];
+            if (hidden[i] || kind == Prog_ColumnKind_Name) continue;
+            f32 share = (set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind)) * shrink * grow;
+            cramped |= share * room < least[kind] * scale;
+            if (drop == UINT32_MAX || keep[kind] < keep[set.kinds[drop]]) drop = i;
+        }
+        if (!cramped || drop == UINT32_MAX) break;
+        hidden[drop] = true;
+        result.narrowed = true;
+    }
+    u32 last = 0;
+    for (u32 i = 0; i < set.count; ++i) if (!hidden[i]) last = i;
     for (u32 i = 0; i < set.count; ++i) {
         Prog_ColumnKind kind = (Prog_ColumnKind)set.kinds[i];
-        f32 share = (set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind)) * shrink;
+        f32 share = (set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind)) * shrink * grow;
         u32 parts = kind == Prog_ColumnKind_Items ? 2 : 1;
-        f32 slot = floorf(share * room + 0.5f);
+        f32 slot = hidden[i] ? 0 : floorf(share * room + 0.5f);
         for (u32 part = 0; part < parts; ++part) {
             Prog_ColumnId id = (Prog_ColumnId)((u32)ids[kind] + part);
             // Of the slot they share, Folders takes a little more than half and Files the rest.
-            f32 folders = floorf(slot * 0.5f + 4.8f * scale + 0.5f);
+            f32 folders = hidden[i] ? 0 : floorf(slot * 0.5f + 4.8f * scale + 0.5f);
             f32 width = id == Prog_ColumnId_Name ? floorf((1 - others * shrink) * room) : parts == 1 ? slot : part == 0 ? folders : slot - folders;
-            // The last takes what the others leave, so that the rows end where the room does.
-            if (i + 1 == set.count && part + 1 == parts) {
+            // The last shown takes what the others leave, so that the rows end where the room does.
+            if (i == last && part + 1 == parts) {
                 f32 used = 0;
                 for (u32 c = 0; c < result.count; ++c) used += result.v[c].width;
                 width = MaxF32(0, room - used);
             }
             b32 right = (id == Prog_ColumnId_Size && !drives) || id == Prog_ColumnId_FolderUsage || id == Prog_ColumnId_VolumeUsage;
-            result.v[result.count++] = (Prog_Column){ Prog_Tr(Prog_ColumnTitles[id]), width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i + 1 < set.count) };
+            result.v[result.count++] = (Prog_Column){ Prog_Tr(Prog_ColumnTitles[id]), width, right ? 1.0f : 0, (u8)id, (u8)i, (b8)(part + 1 == parts && i < last && !hidden[i]) };
         }
     }
     return result;
@@ -3462,7 +3498,8 @@ function void Prog__FitColumns(Prog_State *state, const Prog_Columns *columns, c
 {
     u32 fit = state->fitColumn;
     state->fitColumn = 0;
-    if (!fit || columns->room <= 0) return;
+    // A panel narrowed for room has none to fit its columns to, its shares scaled for the ones it shows.
+    if (!fit || columns->room <= 0 || columns->narrowed) return;
     f32 widths[Prog_ColumnKind_Count] = {0};
     u64 rows = Min(state->viewCount, (u64)5000);
     for (u32 c = 0; c < columns->count; ++c) {
@@ -3553,7 +3590,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
         for (u32 pass = 0; pass < 2; ++pass) for (u32 c = 0; c < columns->count; ++c) {
             const Prog_Column *column = &columns->v[c];
             b32 held = state->columnDrag && column->place == dragged;
-            if (held != (pass == 1)) continue;
+            if (held != (pass == 1) || (columns->narrowed && column->id != Prog_ColumnId_Name && column->width <= 0)) continue;
             u32 id = column->id;
             Prog_Sort sort = Prog_ColumnSort[id];
             b32 sorted = sort < Prog_Sort_Count && state->sort == sort && (sort != Prog_Sort_Size || id == sizeArrow);
@@ -3561,7 +3598,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
             b32 sortable = sort < Prog_Sort_Count && !state->loading;
             // Not while an edge or another title is dragged across it.
             b32 hot = UI->hotKey == key && sortable && (!UI->activeKey || UI->activeKey == key);
-            b32 movable = id != Prog_ColumnId_Name && fixed;
+            b32 movable = id != Prog_ColumnId_Name && fixed && !columns->narrowed;
             UI_SetNextPrefWidth(column->width > 0 ? UI_Pixels(column->width) : UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
@@ -3669,7 +3706,7 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
         // The edges between columns drag to resize them, the edge following the pointer: the columns on either side of it trade width, so
         // that the rest stay where they are, and after Name the column after it alone changes, Name taking what is left as always.
         f32 grip = floorf(8.0f * m->scale + 0.5f), least = floorf(24.0f * m->scale + 0.5f);
-        for (u32 c = 0; c + 1 < columns->count && !sliding; ++c) {
+        for (u32 c = 0; c + 1 < columns->count && !sliding && !columns->narrowed; ++c) {
             const Prog_Column *column = &columns->v[c];
             if (!column->lineAfter || ends[c] <= x0) continue;
             UI_SetNextFloatingOffset((UI_Vec2){ ends[c] - x0 - grip * 0.5f, 0 });
@@ -4502,6 +4539,8 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
         for (u32 c = 0; c < (nameOnly ? 1u : columns->count); ++c) {
             const Prog_Column *column = &columns->v[c];
             u32 i = nameOnly ? (u32)Prog_ColumnId_Name : column->id;
+            // A column left out for room has no width, which would otherwise take what is left.
+            if (columns->narrowed && !nameOnly && i != Prog_ColumnId_Name && column->width <= 0) continue;
             // The icon before the name is inside Name's width, as the header counts it, and so is a tree's depth.
             f32 columnWidth = i == Prog_ColumnId_Name ? MaxF32(0, column->width - (m->iconSlot - m->gap) - treeIndent) : column->width;
             UI_Size width = column->width > 0 && !nameOnly ? UI_Pixels(columnWidth) : UI_Flex();
