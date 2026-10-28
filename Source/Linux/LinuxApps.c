@@ -549,6 +549,7 @@ typedef struct P__MenuData {
     b8 *setDefault;    // Set as Default items, whose application becomes the type's default
     String *commands;  // a Nemo action's shell command, by item; empty for the rest
     b8 *inTerminal;    // and whether it runs in a terminal
+    u32 itemCount;     // the items these are by, which the program may show fewer of
     String *scripts;   // a Nemo script, by item, run on the items
     u32 rootItem;      // Open as Root's index, past the items when there is none
     String eject;      // where Eject takes the drive the menu is for from, as GIO names it; empty when it cannot be ejected
@@ -960,6 +961,7 @@ function b32 P_ContextMenuOpen(Arena *arena, String directory, const String *nam
     data->commands = ArenaPushArray(arena, itemCount, String);
     data->inTerminal = ArenaPushArray(arena, itemCount, b8);
     data->scripts = ArenaPushArray(arena, itemCount, String);
+    data->itemCount = itemCount;
     if (count && appCount) {
         Scratch types = GetScratchEx(arena);
         data->mime = StrCopy(arena, P__MimeForName(names[0], P__IsDirectory(types.arena, data->paths[0])));
@@ -1002,7 +1004,7 @@ function P_FileError P_ContextMenuInvoke(Arena *arena, P_ContextMenu *menu, u32 
 {
     P__MenuData *data = menu->native;
     u32 index = id - 1;
-    if (!data || !id || index >= menu->count) return P__FileError(arena, EINVAL);
+    if (!data || !id || index >= data->itemCount) return P__FileError(arena, EINVAL);
     if (data->terminal[index]) return P__OpenTerminal(arena, data->paths[0]);
     // pkexec gives root a clean environment, so the window's own session comes with it: Wayland's socket, the runtime folder it is in, and X's.
     if (index == data->rootItem) {

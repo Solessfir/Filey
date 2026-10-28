@@ -1668,6 +1668,29 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
     ReleaseScratch(scratch);
 }
 
+// Leaves out the system menu's top-level items that repeat one before them, as some handlers add theirs twice; those with submenus stay, as do those that do something else, and a disabled copy does not hide one that works.
+function void Prog__MenuDropRepeats(Prog_State *state)
+{
+    P_MenuItem *items = state->menu.items;
+    u32 roots = state->menu.rootCount, kept = 0;
+    b8 *drop = ArenaPushArray(&state->frameArena, roots + 1, b8);
+    for (u32 i = 0; i < roots; ++i) {
+        for (u32 j = 0; j < i && !drop[i]; ++j) {
+            drop[i] = !items[i].separator && !items[i].childCount && !items[j].childCount && !drop[j] && (items[i].disabled || !items[j].disabled) && items[i].action == items[j].action && StrIsEqual(items[i].verb, items[j].verb) && items[i].label.length &&
+                      StrIsEqual(items[i].label, items[j].label);
+        }
+        kept += !drop[i];
+    }
+    if (kept == roots) return;
+    P_MenuItem *result = ArenaPushArray(&state->menuArena, state->menu.count - (roots - kept), P_MenuItem);
+    u32 at = 0;
+    for (u32 i = 0; i < state->menu.count; ++i) if (i >= roots || !drop[i]) result[at++] = items[i];
+    for (u32 i = 0; i < at; ++i) if (result[i].childCount) result[i].firstChild -= roots - kept;
+    state->menu.items = result;
+    state->menu.count = at;
+    state->menu.rootCount = kept;
+}
+
 // Puts Filey's own `item`, with `icon` when one is given, and a line after it at the top of the open menu.
 function void Prog__MenuPrepend(Prog_State *state, P_MenuItem item, String icon)
 {
@@ -1959,6 +1982,7 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
         Prog_CloseMenu(state);
         return;
     }
+    Prog__MenuDropRepeats(state);
     // In the bin its items start with putting them back, and its background with putting everything back, as in Explorer.
     b32 restores = false;
     for (u32 i = 0; i < state->menu.rootCount; ++i) restores |= StrIsEqual(state->menu.items[i].verb, S("undelete"));
@@ -3799,6 +3823,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                     Prog_CloseMenu(state);
                     break;
                 }
+                Prog__MenuDropRepeats(state);
                 // The bin's menu starts with emptying it, while it holds anything.
                 if (P_IsTrashFolder(path) && P_TrashHasItems()) {
                     Prog__MenuPrepend(state, (P_MenuItem){ .label = StrFormat(&state->menuArena, TrF("Empty %S"), Prog_PathName(state, path)), .action = P_MenuAction_EmptyTrash }, path);
