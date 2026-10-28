@@ -4747,7 +4747,7 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
         } else if (entry->drive) {
             u64 total = entry->file.size;
             Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(5.6f * m->scale + 0.5f)));
-            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text), UI_Pixels(width), m->line, 0, theme->text, 0.5f);
+            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, Prog_EntryName(state, entry), text), UI_Pixels(width), m->line, 0, entry->selected ? theme->contentSelection : hot ? theme->contentHover : theme->text, 0.5f);
             if (total) {
                 Prog__Spacer(UI_Pixels(width), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
                 f32 bar = MaxF32(0, width - 2 * floorf(12.8f * m->scale + 0.5f)), tall = Prog__DriveBarHeight(iconSize, m);
@@ -4770,14 +4770,15 @@ function void Prog__IconCell(Prog_State *state, u64 index, UI_Key key, f32 width
                             ? StrFormat(&state->frameArena, TrF("%S free of %S (%S)"), values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size], values[Prog_ColumnId_FileSystem])
                             : StrFormat(&state->frameArena, TrF("%S free of %S"), values[Prog_ColumnId_FreeSpace], values[Prog_ColumnId_Size]);
                 UI_SetNextFont(m->detail);
-                Prog__Label(Prog__Ellipsize(&state->frameArena, m->detail, free, text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
+                Prog__Label(Prog__Ellipsize(&state->frameArena, m->detail, free, text), UI_Pixels(width), m->line, 0, Prog__ItemInk(state, entry, hot, false), 0.5f);
             }
         } else {
             // A long name takes a second line, as in Explorer.
             String lines[Prog_IconNameLines];
             u32 count = Prog__WrapName(&state->frameArena, m->font, Prog_EntryName(state, entry), text, lines, Prog_IconNameLines);
             for (u32 i = 0; i < count; ++i) Prog__Label(lines[i], UI_Pixels(width), m->line, 0, Prog__ItemInk(state, entry, hot, true), 0.5f);
-            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, theme->textDim, 0.5f);
+            // The size in the item's ink for what is not its name, as a list row's, which stays readable on the selection.
+            Prog__Label(Prog__Ellipsize(&state->frameArena, m->font, values[Prog_ColumnId_Size], text), UI_Pixels(width), m->line, 0, Prog__ItemInk(state, entry, hot, false), 0.5f);
         }
     }
 }
