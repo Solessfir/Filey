@@ -12842,26 +12842,29 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
         // The window's top border, over the title bar.
         if (top) Prog__Box(UI_Flex(), UI_Pixels(m->separator), UI_Layout_Horizontal, theme->tabBorder, 0);
         Prog__TabStrip(state, width, top, top && (state->sidebarHidden || state->uiHidden) && rect.x0 <= area.x0, top && rect.x1 >= area.x1, scale, m);
+        // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more slowly; the one that stops being it fades to dim, while the new one brightens at once.
+        Prog_Panel *own = &state->panels[index];
+        if (!own->drawn || own->wasActive != active) {
+            // A panel's first frame shows it settled, so the window does not open with a slide.
+            if (own->drawn) own->focusMicroseconds = UI->nowMicroseconds;
+            own->wasActive = (b8)active;
+            own->drawn = true;
+        }
+        // Hide UI leaves a panel its status bar only while it filters, as the filter's box is in it.
+        f32 shown = active && (!state->uiHidden || state->filtering || state->filter.length) ? 1 : 0, dimmed = active ? 0 : 1;
+        if (own->focusMicroseconds && UI->animate) {
+            f32 since = (f32)(UI->nowMicroseconds - Min(own->focusMicroseconds, UI->nowMicroseconds));
+            if (shown > 0 || !active) shown = active ? 1 - expf(-since / 60000.0f) : expf(-since / 28000.0f);
+            if (!active) dimmed = 1 - expf(-since / 25000.0f);
+            if (since < 400000) UI_KeepAnimating();
+            else own->focusMicroseconds = 0;
+        }
+        // Dimmed under a layer of the background, or on a see-through window, whose clear background would make that layer a dark slab over it, faded as much.
+        f32 dim = (1.0f - (f32)(60 + state->inactiveShift) / 100.0f) * dimmed;
+        // The fade would take the drop zones drawn inside it too, so it waits out a tab's drag.
+        if (state->transparent && dim > 0.01f && !state->tabDrag) UI_SetNextOpacity(1 - dim);
         UI_Block *main = Prog__Box(UI_Flex(), UI_Flex(), below ? UI_Layout_Vertical : UI_Layout_Horizontal, theme->background, 0);
         UI_Parent(main) {
-            // The status bar slides up into the panel that becomes active and down out of the one that stops being it, the first more
-            // slowly; the one that stops being it fades to dim, while the new one brightens at once.
-            Prog_Panel *own = &state->panels[index];
-            if (!own->drawn || own->wasActive != active) {
-                // A panel's first frame shows it settled, so the window does not open with a slide.
-                if (own->drawn) own->focusMicroseconds = UI->nowMicroseconds;
-                own->wasActive = (b8)active;
-                own->drawn = true;
-            }
-            // Hide UI leaves a panel its status bar only while it filters, as the filter's box is in it.
-            f32 shown = active && (!state->uiHidden || state->filtering || state->filter.length) ? 1 : 0, dimmed = active ? 0 : 1;
-            if (own->focusMicroseconds && UI->animate) {
-                f32 since = (f32)(UI->nowMicroseconds - Min(own->focusMicroseconds, UI->nowMicroseconds));
-                if (shown > 0 || !active) shown = active ? 1 - expf(-since / 60000.0f) : expf(-since / 28000.0f);
-                if (!active) dimmed = 1 - expf(-since / 25000.0f);
-                if (since < 400000) UI_KeepAnimating();
-                else own->focusMicroseconds = 0;
-            }
             UI_Block *listSide = Prog__Box(below ? UI_Flex() : UI_Pixels(listWidth), below ? UI_Pixels(mainHeight - previewHeight) : UI_Flex(), UI_Layout_Vertical, theme->background, 0);
             UI_Parent(listSide) {
                 if (!state->uiHidden) Prog__Toolbar(state, m);
@@ -12892,13 +12895,13 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                 Prog__Box(below ? UI_Flex() : UI_Pixels(m->separator), below ? UI_Pixels(m->separator) : UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
                 Prog__Spacer(below ? UI_Flex() : UI_Pixels(MaxF32(0, previewWidth - m->separator)), below ? UI_Pixels(MaxF32(0, previewHeight - m->separator)) : UI_Flex());
             }
-            if (dimmed > 0.01f) {
+            if (!state->transparent && dim > 0.01f) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                 UI_SetNextPrefWidth(UI_Pixels(width));
                 UI_SetNextPrefHeight(UI_Pixels(MaxF32(0, height - m->bar)));
-                R_Color dim = theme->background;
-                dim.a = (1.0f - (f32)(60 + state->inactiveShift) / 100.0f) * dimmed;
-                UI_SetNextColors((UI_Colors){ .background = dim });
+                R_Color layer = theme->background;
+                layer.a = dim;
+                UI_SetNextColors((UI_Colors){ .background = layer });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
             // Every panel shows its zones from the start of a drag, over the dimming so that an inactive panel's show as clearly.
