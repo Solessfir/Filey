@@ -1084,7 +1084,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"));
     StrBuildStr(arena, &text, S("# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
                                 "# startup = session\n# newtab = root\n"
-                                "# The view a new tab or split starts in, and a folder without its own saved view is restored to: details, list, columns, icons, large or xlarge.\n"
+                                "# The view a new tab or split starts in: details, list, columns, icons, large or xlarge.\n"
                                 "# newtab.view = details\n\n"
                                 "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
                                 "# than opening another window.\n# instances.single = true\n\n"
@@ -1295,7 +1295,7 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                     Prog_OptionStartups, CArrayCount(Prog_OptionStartups), SInit("startup") },
     [Prog_Option_NewTabShow] = { TrInit("New Tab Show"), TrInit("Location to open in a new tab."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionNewTabs, CArrayCount(Prog_OptionNewTabs), SInit("newtab") },
-    [Prog_Option_NewTabView] = { TrInit("New Tab View"), TrInit("View new tabs and splits start in, and a folder without its own saved view is restored to."), Prog_OptionControl_Choice, 0, 0,
+    [Prog_Option_NewTabView] = { TrInit("New Tab View"), TrInit("View new tabs and splits start in."), Prog_OptionControl_Choice, 0, 0,
                                  Prog_OptionNewTabViews, CArrayCount(Prog_OptionNewTabViews), SInit("newtab.view") },
     [Prog_Option_SingleWindow] = { TrInit("Open In One Window"), TrInit("Starting Filey or opening a folder from elsewhere uses the open window, in a new tab."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("instances.single") },

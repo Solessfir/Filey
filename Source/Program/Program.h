@@ -2388,12 +2388,10 @@ function void Prog_SessionWindow(String configDirectory, PlatformWindowDesc *des
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);
-function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String path, Prog_ViewSettings *view);
+function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String path, Prog_ViewSettings *view, String *key);
 function Prog_ViewSettings Prog_DefaultView(const Prog_State *state);
-function b32 Prog_FolderViewModified(const Prog_State *state);
 function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b);
 function void Prog_SetFolderViewScope(Prog_State *state, Prog_ViewScope scope);
-function void Prog_RestoreFolderView(Prog_State *state);
 function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);

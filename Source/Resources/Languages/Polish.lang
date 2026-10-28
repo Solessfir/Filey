@@ -3402,17 +3402,8 @@ This folder
 This folder and subfolders
 = Ten folder i podfoldery
 
-Restore view
-= Przywróć widok
-
-Restore Folder View
-= Przywróć widok folderu
-
 New Tab View
 = Widok nowej karty
 
-View new tabs and splits start in, and a folder without its own saved view is restored to.
-= Widok, w jakim otwierają się nowe karty i podziały i do którego wraca folder bez własnego zapisanego widoku.
-
-Show the folder as its view is saved, or with none saved, in the view new tabs start in.
-= Pokazuje folder w zapisanym dla niego widoku, a bez niego w widoku nowych kart.
+View new tabs and splits start in.
+= Widok, w jakim otwierają się nowe karty i podziały.

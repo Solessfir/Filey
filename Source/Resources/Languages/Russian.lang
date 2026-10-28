@@ -3400,17 +3400,8 @@ This folder
 This folder and subfolders
 = Эта папка и вложенные
 
-Restore view
-= Восстановить вид
-
-Restore Folder View
-= Восстановить вид папки
-
 New Tab View
 = Вид новой вкладки
 
-View new tabs and splits start in, and a folder without its own saved view is restored to.
-= Вид, в котором открываются новые вкладки и разделения и к которому восстанавливается папка без своего сохранённого вида.
-
-Show the folder as its view is saved, or with none saved, in the view new tabs start in.
-= Показывает папку в сохранённом для неё виде, а без него — в виде новых вкладок.
+View new tabs and splits start in.
+= Вид, в котором открываются новые вкладки и разделения.

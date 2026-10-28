@@ -6100,7 +6100,8 @@ function b32 Prog__PathInside(String path, String folder)
 }
 
 // How `path`'s view is kept and as what: by its own line (Prog_ViewScope_Folder), its own with its subfolders' (Prog_ViewScope_Tree), the nearest folder above it kept with its subfolders (Prog_ViewScope_Inherited), or not at all.
-function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String path, Prog_ViewSettings *view)
+// `key`, when given, gets the key of the line that keeps it.
+function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String path, Prog_ViewSettings *view, String *key)
 {
     Prog_ViewScope result = Prog_ViewScope_None;
     u64 nearest = 0;
@@ -6110,12 +6111,14 @@ function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String pat
         if (!Prog__ParseFolderView(state->folderViews.v[i], &found, &at)) continue;
         if (StrIsEqual(at, path)) {
             *view = found;
+            if (key) *key = at;
             return Prog_ViewScope_Folder;
         }
         String tree = Prog__FolderViewTree(at);
         if (tree.length >= Max(nearest, (u64)1) && Prog__PathInside(path, tree)) {
             nearest = tree.length;
             *view = found;
+            if (key) *key = at;
             result = tree.length == path.length ? Prog_ViewScope_Tree : Prog_ViewScope_Inherited;
         }
     }
@@ -6125,10 +6128,10 @@ function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String pat
 // The kept view of folder `path`, its own or a folder's above it kept with its subfolders; false when it has none.
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view)
 {
-    return Prog_FolderViewScope(state, path, view) != Prog_ViewScope_None;
+    return Prog_FolderViewScope(state, path, view, NULL) != Prog_ViewScope_None;
 }
 
-// The view new tabs and splits start in, and a folder without its own is restored to: the settings' view, by name with the usual columns.
+// The view new tabs and splits start in: the settings' view, by name with the usual columns.
 function Prog_ViewSettings Prog_DefaultView(const Prog_State *state)
 {
     local_persist const u32 zooms[Prog_NewTabView_Count] = { 0, Prog_ZoomList, Prog_ZoomColumns, Prog_ZoomIcons, Prog_ZoomLarge, Prog_ZoomMax };
@@ -6143,14 +6146,6 @@ function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b)
                  StrIsEqual(Prog_ColumnsText(scratch.arena, a.columns), Prog_ColumnsText(scratch.arena, b.columns));
     ReleaseScratch(scratch);
     return result;
-}
-
-// Whether the shown folder's view is not what it is kept as, or with none kept, not the default.
-function b32 Prog_FolderViewModified(const Prog_State *state)
-{
-    Prog_ViewSettings kept;
-    if (!Prog_FolderView(state, state->directory.path, &kept)) kept = Prog_DefaultView(state);
-    return !Prog__SameView(Prog_CurrentView(state), kept);
 }
 
 // Keeps the view under `key` as `view`, or with NULL lets it go, and saves the list; the lines of `also`, when given, go too.
@@ -6204,13 +6199,12 @@ function void Prog_KeepLockedView(Prog_State *state)
 {
     Prog_ViewSettings saved;
     if (!state->ownView || (UI && UI->activeKey) || !state->directory.path.length) return;
-    Prog_ViewScope scope = Prog_FolderViewScope(state, state->directory.path, &saved);
-    if (scope != Prog_ViewScope_Folder && scope != Prog_ViewScope_Tree) return;
+    String key = {0};
+    if (!Prog_FolderViewScope(state, state->directory.path, &saved, &key)) return;
     Prog_ViewSettings shown = Prog_CurrentView(state);
     if (Prog__SameView(shown, saved)) return;
     Scratch scratch = GetScratch();
-    String key = scope == Prog_ViewScope_Tree ? Prog__FolderViewTreeKey(scratch.arena, state->directory.path) : state->directory.path;
-    Prog__SetFolderViewKey(state, key, (String){0}, &shown);
+    Prog__SetFolderViewKey(state, StrCopy(scratch.arena, key), (String){0}, &shown);
     ReleaseScratch(scratch);
 }
 
@@ -6226,17 +6220,6 @@ function void Prog_SetFolderViewScope(Prog_State *state, Prog_ViewScope scope)
     else Prog__SetFolderViewKey(state, path, tree, scope == Prog_ViewScope_Folder ? &shown : NULL);
     ReleaseScratch(scratch);
     if (scope != Prog_ViewScope_None) Prog__ApplyFolderView(state, path);
-}
-
-// Shows the shown folder as it is kept, or with none kept, in the default view; listed again when its order changes.
-function void Prog_RestoreFolderView(Prog_State *state)
-{
-    Prog_ViewSettings view;
-    if (!Prog_FolderView(state, state->directory.path, &view)) view = Prog_DefaultView(state);
-    b32 resort = state->sort != view.sort || state->descending != view.descending || state->folderSort != view.folders, regroup = state->groupBy != view.groupBy;
-    Prog__SetCurrentView(state, view);
-    if (resort) Prog_Reload(state);
-    else if (regroup) Prog_ApplyFilter(state, false);
 }
 
 

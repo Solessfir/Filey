@@ -3401,17 +3401,8 @@ This folder
 This folder and subfolders
 = 此文件夹及其子文件夹
 
-Restore view
-= 恢复视图
-
-Restore Folder View
-= 恢复文件夹视图
-
 New Tab View
 = 新标签页视图
 
-View new tabs and splits start in, and a folder without its own saved view is restored to.
-= 新标签页和拆分窗格打开时使用的视图，也是没有保存视图的文件夹恢复到的视图。
-
-Show the folder as its view is saved, or with none saved, in the view new tabs start in.
-= 以文件夹保存的视图显示它；没有保存的视图时使用新标签页的视图。
+View new tabs and splits start in.
+= 新标签页和拆分窗格打开时使用的视图。

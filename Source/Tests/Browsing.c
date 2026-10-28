@@ -873,7 +873,7 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0 && state.groupBy == Prog_GroupBy_None);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state));
-        // Kept with its subfolders, the view goes into Empty too, which changing it there leaves alone and shows as changed until it is restored. A drive's root keeps the folders below it.
+        // Kept with its subfolders, the view goes into Empty too, and what changes there is kept for the whole tree. A drive's root keeps the folders below it.
         Check(StrIsEqual(Prog__FolderViewTree(S("C:/*")), S("C:/")) && StrIsEqual(Prog__FolderViewTree(S("/*")), S("/")) && StrIsEqual(Prog__FolderViewTree(S("/a/b/*")), S("/a/b")));
         Check(Prog__PathInside(S("C:/Games"), S("C:/")) && Prog__PathInside(S("/a/b/c"), S("/a/b")) && !Prog__PathInside(S("/a/bc"), S("/a/b")));
         // This PC, which joins a name as the name alone, kept with its subfolders keeps its name.
@@ -882,14 +882,13 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
         u32 treeZoom = state.zoom;
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_Tree);
-        Check(Prog_FolderViewScope(&state, here, &view) == Prog_ViewScope_Tree && Prog_FolderViewScope(&state, empty, &view) == Prog_ViewScope_Inherited && view.zoom == treeZoom);
-        Check(Prog_FolderViewScope(&state, Prog_ParentPath(here), &view) == Prog_ViewScope_None);
+        Check(Prog_FolderViewScope(&state, here, &view, NULL) == Prog_ViewScope_Tree && Prog_FolderViewScope(&state, empty, &view, NULL) == Prog_ViewScope_Inherited && view.zoom == treeZoom);
+        Check(Prog_FolderViewScope(&state, Prog_ParentPath(here), &view, NULL) == Prog_ViewScope_None);
         Prog_RequestDirectory(&state, empty, true, 0);
-        Check(TestWaitDirectory(&state) && state.zoom == treeZoom && !Prog_FolderViewModified(&state));
+        Check(TestWaitDirectory(&state) && state.zoom == treeZoom);
         TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
-        Check(Prog_FolderViewModified(&state) && Prog_FolderView(&state, here, &view) && view.zoom == treeZoom);
-        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewRestore, 0);
-        Check(state.zoom == treeZoom && !Prog_FolderViewModified(&state));
+        u32 deeper = state.zoom;
+        Check(deeper != treeZoom && Prog_FolderView(&state, here, &view) && view.zoom == deeper && Prog_FolderViewScope(&state, empty, &view, NULL) == Prog_ViewScope_Inherited);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state));
         TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_None);

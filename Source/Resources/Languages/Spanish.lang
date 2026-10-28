@@ -3401,17 +3401,8 @@ This folder
 This folder and subfolders
 = Esta carpeta y sus subcarpetas
 
-Restore view
-= Restaurar vista
-
-Restore Folder View
-= Restaurar vista de carpeta
-
 New Tab View
 = Vista de pestaña nueva
 
-View new tabs and splits start in, and a folder without its own saved view is restored to.
-= Vista con la que se abren las pestañas y divisiones nuevas, y a la que se restaura una carpeta sin vista guardada propia.
-
-Show the folder as its view is saved, or with none saved, in the view new tabs start in.
-= Muestra la carpeta con su vista guardada o, si no tiene, con la vista de las pestañas nuevas.
+View new tabs and splits start in.
+= Vista con la que se abren las pestañas y divisiones nuevas.

@@ -3402,17 +3402,8 @@ This folder
 This folder and subfolders
 = Esta pasta e subpastas
 
-Restore view
-= Restaurar exibição
-
-Restore Folder View
-= Restaurar Exibição da Pasta
-
 New Tab View
 = Exibição de Nova Aba
 
-View new tabs and splits start in, and a folder without its own saved view is restored to.
-= Exibição em que novas abas e divisões abrem e para a qual uma pasta sem exibição salva própria é restaurada.
-
-Show the folder as its view is saved, or with none saved, in the view new tabs start in.
-= Mostra a pasta na exibição salva para ela ou, sem uma, na exibição de novas abas.
+View new tabs and splits start in.
+= Exibição em que novas abas e divisões abrem.

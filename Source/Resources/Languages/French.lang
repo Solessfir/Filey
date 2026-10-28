@@ -3402,17 +3402,8 @@ This folder
 This folder and subfolders
 = Ce dossier et ses sous-dossiers
 
-Restore view
-= Restaurer l’affichage
-
-Restore Folder View
-= Restaurer l’affichage du dossier
-
 New Tab View
 = Affichage des nouveaux onglets
 
-View new tabs and splits start in, and a folder without its own saved view is restored to.
-= Affichage dans lequel s’ouvrent les nouveaux onglets et divisions, et dans lequel est restauré un dossier sans affichage enregistré.
-
-Show the folder as its view is saved, or with none saved, in the view new tabs start in.
-= Montre le dossier dans son affichage enregistré ou, s’il n’en a pas, dans celui des nouveaux onglets.
+View new tabs and splits start in.
+= Affichage dans lequel s’ouvrent les nouveaux onglets et divisions.
