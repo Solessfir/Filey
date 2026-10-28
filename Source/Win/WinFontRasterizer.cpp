@@ -153,8 +153,10 @@ extern "C" WinFontFace *WinFontOpen(const wchar *family, const u8 *data, u64 dat
             FAILED(font->factory->CreateRenderingParams(&defaultParams))) break;
         // ClearType level 0 gives grayscale coverage, identical in every channel; GDI-natural outlines snap stems to the pixel grid, which
         // gives crisper text. Gamma and contrast are fixed rather than the system's, so that text looks the same on every machine.
-        if (FAILED(font->factory->CreateCustomRenderingParams(1.5f, 1.0f, 0.0f,
-                                                              DWRITE_PIXEL_GEOMETRY_FLAT, DWRITE_RENDERING_MODE_GDI_NATURAL, &font->params))) break;
+        // GDI-natural smooths edges only across, which leaves the icon font's circles and diagonals stepped top and bottom, so a font from
+        // memory, the icons', is smoothed both ways.
+        DWRITE_RENDERING_MODE mode = data != nullptr ? DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC : DWRITE_RENDERING_MODE_GDI_NATURAL;
+        if (FAILED(font->factory->CreateCustomRenderingParams(1.5f, 1.0f, 0.0f, DWRITE_PIXEL_GEOMETRY_FLAT, mode, &font->params))) break;
         HDC dc = font->target->GetMemoryDC();
         DIBSECTION dib = {};
         if (GetObjectW(GetCurrentObject(dc, OBJ_BITMAP), sizeof(dib), &dib) != sizeof(dib)) break;
