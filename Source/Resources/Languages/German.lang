@@ -3631,3 +3631,9 @@ Open Filey's page on GitHub.
 
 Couldn't open the page
 = Die Seite konnte nicht geöffnet werden
+
+Agent Access
+= Agentenzugriff
+
+Lets AI agents see what Filey shows and act in it, through filey --mcp, which an agent starts as an MCP server.
+= Lässt KI-Agenten sehen, was Filey zeigt, und darin handeln, über filey --mcp, das ein Agent als MCP-Server startet.

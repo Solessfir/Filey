@@ -202,6 +202,8 @@ global const char *const Prog_Strings[] = {
     "View new tabs and splits start in.",
     "Open In One Window",
     "Starting Filey or opening a folder from elsewhere uses the open window, in a new tab.",
+    "Agent Access",
+    "Lets AI agents see what Filey shows and act in it, through filey --mcp, which an agent starts as an MCP server.",
     "VSync",
     "Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag.",
     "Transparency",

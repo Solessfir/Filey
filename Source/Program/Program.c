@@ -751,27 +751,31 @@ global const String Prog_OptionCharacterKeys[Prog_CharacterKeys_Count] = { SInit
 //   transparent = true            the transparent theme
 //   inspector.fontSize = 10       the inspector's text size in points, and inspector.layout = auto, right or below where it sits
 //   hotkey.<Command> = Ctrl+K, F6  replaces the command's default hotkeys; "none" leaves it without
+// The value Settings.conf in `configDirectory` gives `name`, the last line's that sets it, in `arena`; empty without one. For what is read before the settings are.
+function String Prog_SettingFromFile(Arena *arena, String configDirectory, String name)
+{
+    String text = {0}, result = {0};
+    if (!configDirectory.length || !P_ReadFile(arena, Prog_JoinPath(arena, configDirectory, S("Settings.conf")), &text)) return result;
+    ArrayStr lines = StrSplit(arena, text, '\n');
+    for (u64 l = 0; l < lines.header.count; ++l) {
+        String line = lines.v[l];
+        while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
+        while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
+        Index equals = StrIndexChar(line, '=', SSF_None);
+        if (!equals.exists || line.value[0] == '#') continue;
+        String field = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
+        while (field.length && field.value[field.length - 1] == ' ') --field.length;
+        while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
+        if (StrIsEqual(field, name)) result = value;
+    }
+    return result;
+}
+
 // Whether the settings in `configDirectory` give each run a window of its own, read before the window opens.
 function b32 Prog_SeparateInstances(String configDirectory)
 {
-    if (!configDirectory.length) return false;
     Scratch scratch = GetScratch();
-    String text = {0};
-    b32 result = false;
-    if (P_ReadFile(scratch.arena, Prog_JoinPath(scratch.arena, configDirectory, S("Settings.conf")), &text)) {
-        ArrayStr lines = StrSplit(scratch.arena, text, '\n');
-        for (u64 l = 0; l < lines.header.count; ++l) {
-            String line = lines.v[l];
-            while (line.length && (line.value[line.length - 1] == '\r' || line.value[line.length - 1] == ' ')) --line.length;
-            while (line.length && line.value[0] == ' ') line = StrFrom(line, 1);
-            Index equals = StrIndexChar(line, '=', SSF_None);
-            if (!equals.exists || line.value[0] == '#') continue;
-            String name = StrFromTo(line, 0, (i64)equals.value), value = StrFrom(line, equals.value + 1);
-            while (name.length && name.value[name.length - 1] == ' ') --name.length;
-            while (value.length && value.value[0] == ' ') value = StrFrom(value, 1);
-            if (StrIsEqual(name, S("instances.single"))) result = Prog__SettingOff(value);
-        }
-    }
+    b32 result = Prog__SettingOff(Prog_SettingFromFile(scratch.arena, configDirectory, S("instances.single")));
     ReleaseScratch(scratch);
     return result;
 }
@@ -806,7 +810,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->noTooltips = state->separateInstances = state->gitFetch = false;
+    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->newTabView = Prog_NewTabView_Details;
@@ -952,6 +956,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->noTrashConfirm = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("instances.single"))) {
             state->separateInstances = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("mcp"))) {
+            state->mcp = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("thumbnails"))) {
             if (Prog__EqualFolded(value, S("never"))) state->thumbnailMode = Prog_Thumbnails_Never;
             if (Prog__EqualFolded(value, S("always"))) state->thumbnailMode = Prog_Thumbnails_Always;
@@ -1091,6 +1097,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# newtab.view = details\n\n"
                                 "# Whether starting Filey, or opening a folder in it from elsewhere, brings the open window forward, the folder in a new tab, rather\n"
                                 "# than opening another window.\n# instances.single = true\n\n"
+                                "# Whether AI agents can see what Filey shows and act in it, through `filey --mcp`, which an agent starts as an MCP server.\n# mcp = false\n\n"
                                 "# The notices in the window's corner: all, warnings (and errors), errors or off.\n# notices = all\n"
                                 "# Whether they and the progress of copies and downloads stack at the bottom of the sidebar while it shows, not in a panel's corner.\n"
                                 "# notices.sidebar = true\n\n"
@@ -1304,6 +1311,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                  Prog_OptionNewTabViews, CArrayCount(Prog_OptionNewTabViews), SInit("newtab.view") },
     [Prog_Option_SingleWindow] = { TrInit("Open In One Window"), TrInit("Starting Filey or opening a folder from elsewhere uses the open window, in a new tab."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("instances.single") },
+    [Prog_Option_Mcp] = { TrInit("Agent Access"), TrInit("Lets AI agents see what Filey shows and act in it, through filey --mcp, which an agent starts as an MCP server."),
+                          Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("mcp") },
     [Prog_Option_VSync] = { TrInit("VSync"), TrInit("Reduces hardware demands during high activity, such as rapid mouse movements. This comes at the cost of slight input lag."),
                             Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("vsync") },
     [Prog_Option_Transparency] = { TrInit("Transparency"), TrInit("Shows what is behind the window through it, blurred."), Prog_OptionControl_Switch, 0, 1,
@@ -1448,6 +1457,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_NewTabShow: return state->newTab;
         case Prog_Option_NewTabView: return state->newTabView;
         case Prog_Option_SingleWindow: return !state->separateInstances;
+        case Prog_Option_Mcp: return state->mcp;
         case Prog_Option_VSync: return !state->noVSync;
         case Prog_Option_HighlightCode: return !state->noHighlight;
         case Prog_Option_LoadThumbnails: return state->thumbnailMode == Prog_Thumbnails_Never ? 0 : state->thumbnailMode == Prog_Thumbnails_Always ? 2 : 1;

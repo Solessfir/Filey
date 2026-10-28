@@ -11,6 +11,8 @@
 #include <string.h>
 #include <sys/eventfd.h>
 #include <sys/inotify.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/sysmacros.h>
@@ -18,6 +20,7 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <stddef.h>
 #include <time.h>
 #include <unistd.h>
 #include <execinfo.h>
@@ -319,9 +322,9 @@ function char *P__FindExecutable(Arena *arena, String name, u32 *error)
     return NULL;
 }
 
-// Starts `executable` with `args` in `directory` (the current one when NULL), detached from Filey.
+// Starts `executable` with `args` in `directory` (the current one when NULL), detached from Filey, with `quiet` its input and outputs no one's.
 // Returns the error of starting it, which includes a failed exec.
-function u32 P__Spawn(const char *executable, char **args, const char *directory)
+function u32 P__SpawnWith(const char *executable, char **args, const char *directory, b32 quiet)
 {
     u32 error = 0;
     i32 pipeEnds[2] = {0};
@@ -334,6 +337,8 @@ function u32 P__Spawn(const char *executable, char **args, const char *directory
             pid_t launcher = _Fork();
             if (launcher == 0) {
                 setsid();
+                i32 none = quiet ? open("/dev/null", O_RDWR) : -1;
+                if (none >= 0) dup2(none, STDIN_FILENO), dup2(none, STDOUT_FILENO), dup2(none, STDERR_FILENO);
                 if (!directory || chdir(directory) == 0) execve(executable, args, environ);
             }
             if (launcher <= 0) {
@@ -365,6 +370,8 @@ function u32 P__Spawn(const char *executable, char **args, const char *directory
     }
     return error;
 }
+
+function u32 P__Spawn(const char *executable, char **args, const char *directory) { return P__SpawnWith(executable, args, directory, false); }
 
 function String P_ExecutablePath(Arena *arena)
 {
@@ -1708,6 +1715,111 @@ function String P_ExpandVariables(Arena *arena, String text, b32 final)
     String result = changed ? StrCopy(arena, out.buffer) : text;
     ReleaseScratch(scratch);
     return result;
+}
+
+// The control channel's socket for the settings folder `key`, in the user's runtime folder, which only the user can reach; the same for the window that listens on it and the run that asks it.
+function b32 P__ControlAddress(String key, struct sockaddr_un *address, socklen_t *size)
+{
+    const char *runtime = getenv("XDG_RUNTIME_DIR");
+    if (!runtime || !runtime[0]) return false;
+    *address = (struct sockaddr_un){ .sun_family = AF_UNIX };
+    i32 length = snprintf(address->sun_path, sizeof(address->sun_path), "%s/filey-control-%016" PRIx64 ".sock", runtime, MapHashBytes(key.value, key.length) | 1);
+    if (length <= 0 || (u64)length >= sizeof(address->sun_path)) return false;
+    *size = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + (u64)length + 1);
+    return true;
+}
+
+// Sends `text` and a line break on the socket `fd`, without the signal a closed one would raise; false when it could not.
+function b32 P__SendLine(i32 fd, String text)
+{
+    for (u64 at = 0; at <= text.length;) {
+        const char *from = at < text.length ? text.value + at : "\n";
+        ssize_t wrote = send(fd, from, at < text.length ? text.length - at : 1, MSG_NOSIGNAL);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) return false;
+        at += (u64)wrote;
+    }
+    return true;
+}
+
+function b32 P_ControlAsk(Arena *arena, String key, String request, String *reply, u32 timeoutMs, b32 *reached)
+{
+    *reply = (String){0};
+    *reached = false;
+    struct sockaddr_un address;
+    socklen_t size = 0;
+    if (!P__ControlAddress(key, &address, &size)) return false;
+    i32 fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return false;
+    if (connect(fd, (struct sockaddr *)&address, size) != 0) {
+        close(fd);
+        return false;
+    }
+    *reached = true;
+    b32 sent = P__SendLine(fd, request);
+    StrBuilder text = {0};
+    char buffer[4096];
+    struct pollfd wait = { .fd = fd, .events = POLLIN };
+    b32 whole = false;
+    while (sent && !whole && poll(&wait, 1, (i32)timeoutMs) > 0) {
+        ssize_t got = read(fd, buffer, sizeof(buffer));
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) break;
+        StrBuildStr(arena, &text, StrMake(buffer, (u64)got));
+        whole = StrIndexChar(StrMake(buffer, (u64)got), '\n', SSF_None).exists;
+    }
+    close(fd);
+    Index end = StrIndexChar(text.buffer, '\n', SSF_None);
+    *reply = end.exists ? StrFromTo(text.buffer, 0, (i64)end.value) : text.buffer;
+    return sent && whole;
+}
+
+function b32 P_StdinReadLine(Arena *arena, String *line)
+{
+    // What came past the last line, kept for the next.
+    local_persist char held[65536];
+    local_persist u64 heldStart, heldEnd;
+    StrBuilder text = {0};
+    b32 any = false;
+    for (;;) {
+        if (heldStart == heldEnd) {
+            ssize_t got = read(STDIN_FILENO, held, sizeof(held));
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) break;
+            heldStart = 0, heldEnd = (u64)got;
+        }
+        any = true;
+        String rest = StrMake(held + heldStart, heldEnd - heldStart);
+        Index end = StrIndexChar(rest, '\n', SSF_None);
+        StrBuildStr(arena, &text, end.exists ? StrFromTo(rest, 0, (i64)end.value) : rest);
+        heldStart = end.exists ? heldStart + end.value + 1 : heldEnd;
+        if (end.exists) break;
+    }
+    String result = text.buffer;
+    while (result.length && result.value[result.length - 1] == '\r') --result.length;
+    *line = result;
+    return any;
+}
+
+function void P_StdoutWrite(String text)
+{
+    for (u64 at = 0; at < text.length;) {
+        ssize_t wrote = write(STDOUT_FILENO, text.value + at, text.length - at);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) break;
+        at += (u64)wrote;
+    }
+}
+
+function b32 P_StartSelf(void)
+{
+    char executable[PATH_MAX];
+    i64 length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    if (length <= 0) return false;
+    executable[length] = 0;
+    char *args[] = {executable, NULL};
+    // Its input and outputs no one's, as the MCP server's, which starts it, are the agent's pipes, which it would hold open and write into.
+    return P__SpawnWith(executable, args, NULL, true) == 0;
 }
 
 function b32 P_StartupFlag(String flag)

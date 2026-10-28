@@ -93,6 +93,9 @@ typedef struct LinuxWindowState {
     struct wp_viewporter *viewporter;
     struct xdg_activation_v1 *activation;  // brings the window forward with a token a later run's launcher gave it
     i32 instanceFd;                         // the socket later runs hand their folders to, -1 for none
+    i32 controlFd;                          // the control channel's socket, 0 for none
+    char controlPath[108];                  // and its file, removed as it stops
+    u32 controlWaiting;                     // requests taken and not yet answered, which no hold keeps back
     struct wp_fractional_scale_v1 *fractional;
     struct wp_viewport *viewport;
     u32 compositorVersion;
@@ -1174,6 +1177,7 @@ function PlatformWindowInfo PlatformWindowGetInfo(void)
 }
 
 function void LinuxTakeInstanceMessage(void);
+function void LinuxTakeControlRequest(void);
 
 function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
 {
@@ -1187,7 +1191,7 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
     b32 woken = false;
     for (;;) {
         u64 now = PlatformNowMicroseconds();
-        b32 holding = !Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && now < Wl.frameDeadline && !LinuxDrawsEarly()));
+        b32 holding = !Wl.closed && !Wl.closeRequested && !Wl.controlWaiting && (Wl.suspended || (Wl.frameCallback && now < Wl.frameDeadline && !LinuxDrawsEarly()));
         b32 pacing = holding && !Wl.suspended;
         i32 timeout = 0;
         if (holding || (wait && EventQueue.pending.count == 0)) {
@@ -1212,6 +1216,7 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
             { .fd = Wl.wakeFd, .events = POLLIN },
             { .fd = Wl.instanceFd > 0 ? Wl.instanceFd : -1, .events = POLLIN },
             { .fd = Wl.mountsFd > 0 ? Wl.mountsFd : -1, .events = POLLPRI },
+            { .fd = Wl.controlFd > 0 ? Wl.controlFd : -1, .events = POLLIN },
         };
         if (poll(fds, CArrayCount(fds), timeout) > 0 && (fds[0].revents & POLLIN)) {
             wl_display_read_events(Wl.display);
@@ -1226,6 +1231,10 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
         }
         if (fds[2].revents & POLLIN) {
             LinuxTakeInstanceMessage();
+            woken = true;
+        }
+        if (fds[4].revents & POLLIN) {
+            LinuxTakeControlRequest();
             woken = true;
         }
         // A drive mounted or taken away; the event stays raised until the table is read again, so it is read through, from the start.
@@ -1246,7 +1255,7 @@ function PlatformEventList PlatformPollEvents(b32 wait, u64 wakeAt)
             PlatformPushEvent(PlatformEventKind_CloseRequested);
         }
 
-        if (!Wl.closed && !Wl.closeRequested && (Wl.suspended || (Wl.frameCallback && PlatformNowMicroseconds() < Wl.frameDeadline && !LinuxDrawsEarly()))) continue;
+        if (!Wl.closed && !Wl.closeRequested && !Wl.controlWaiting && (Wl.suspended || (Wl.frameCallback && PlatformNowMicroseconds() < Wl.frameDeadline && !LinuxDrawsEarly()))) continue;
         if (!wait || timeout == 0 || woken || Wl.closed || EventQueue.pending.count) break;
     }
 
@@ -1530,6 +1539,79 @@ function void PlatformInstanceRelease(void)
 {
     if (Wl.instanceFd > 0) close(Wl.instanceFd);
     Wl.instanceFd = -1;
+}
+
+function b32 PlatformControlListen(String key)
+{
+    if (Wl.controlFd > 0) return true;
+    struct sockaddr_un address;
+    socklen_t size = 0;
+    if (!P__ControlAddress(key, &address, &size)) return false;
+    i32 fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return false;
+    // A window that answers on it keeps it, as one for the same settings when they open windows of their own.
+    // A file a run left behind as it did not close is taken over.
+    if (connect(fd, (struct sockaddr *)&address, size) == 0) {
+        close(fd);
+        return false;
+    }
+    close(fd);
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return false;
+    unlink(address.sun_path);
+    if (bind(fd, (struct sockaddr *)&address, size) != 0 || listen(fd, 8) != 0) {
+        close(fd);
+        return false;
+    }
+    Wl.controlFd = fd;
+    MemCopy(Wl.controlPath, address.sun_path, sizeof(Wl.controlPath));
+    return true;
+}
+
+// A request, read up to its line break, comes as an event whose id is its connection, which the answer is written to and closes.
+function void LinuxTakeControlRequest(void)
+{
+    i32 client = accept4(Wl.controlFd, NULL, NULL, SOCK_CLOEXEC);
+    if (client < 0) return;
+    Scratch scratch = GetScratch();
+    StrBuilder text = {0};
+    char buffer[4096];
+    struct pollfd fd = { .fd = client, .events = POLLIN };
+    b32 whole = false;
+    // The client sends its request whole as it connects, so the window waits for all of it a moment at most, however it comes.
+    u64 until = PlatformNowMicroseconds() + 200000;
+    for (u64 now = PlatformNowMicroseconds(); !whole && text.buffer.length < Megabytes(16) && now < until && poll(&fd, 1, (i32)((until - now + 999) / 1000)) > 0;
+         now = PlatformNowMicroseconds()) {
+        ssize_t got = read(client, buffer, sizeof(buffer));
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) break;
+        StrBuildStr(scratch.arena, &text, StrMake(buffer, (u64)got));
+        whole = StrIndexChar(StrMake(buffer, (u64)got), '\n', SSF_None).exists;
+    }
+    Index end = StrIndexChar(text.buffer, '\n', SSF_None);
+    if (whole) PlatformPushEventText(PlatformEventKind_ControlRequest, StrFromTo(text.buffer, 0, (i64)end.value))->id = (u64)client + 1, ++Wl.controlWaiting;
+    else close(client);
+    ReleaseScratch(scratch);
+}
+
+function void PlatformControlReply(u64 id, String reply)
+{
+    if (!id) return;
+    i32 client = (i32)(id - 1);
+    if (Wl.controlWaiting) --Wl.controlWaiting;
+    P__SendLine(client, reply);
+    close(client);
+}
+
+function void PlatformControlStop(void)
+{
+    if (Wl.controlFd <= 0) return;
+    // Requests still unanswered no longer keep the window from waiting for the compositor.
+    Wl.controlWaiting = 0;
+    if (Wl.controlPath[0]) unlink(Wl.controlPath);
+    Wl.controlPath[0] = 0;
+    close(Wl.controlFd);
+    Wl.controlFd = 0;
 }
 
 // A later run's message, read whole, as it writes it at once and closes.

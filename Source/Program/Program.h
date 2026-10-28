@@ -1021,6 +1021,7 @@ typedef enum Prog_Option {
     Prog_Option_NewTabShow,
     Prog_Option_NewTabView,
     Prog_Option_SingleWindow,
+    Prog_Option_Mcp,
     Prog_Option_VSync,
     Prog_Option_Transparency,
     Prog_Option_WindowOpacity,
@@ -1864,6 +1865,9 @@ typedef struct Prog_State {
     // git.fetch: the shown folder's repository is fetched from its remote now and then, which keeps the commits to pull counted.
     // The last ones fetched, by the hash of their folder, and when, so that each is fetched at most every few minutes.
     b32 gitFetch;
+    b32 mcp;         // the settings' mcp: agents reach the window through `filey --mcp`, on the control channel
+    b32 mcpWanted;   // and whether the channel listens, as it was asked to
+    u64 mcpRetryAt;  // when a listen that failed, as another window held the channel, is tried again
     // ponytail: the last few repositories only; one pushed out of them is fetched again on its next visit.
     struct { u64 hash, time; } gitFetched[8];
     P_Job *gitFetchJob;

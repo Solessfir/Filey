@@ -40,6 +40,7 @@
 #include "Program/Media.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
+#include "Program/Mcp.c"
 
 global i32 CheckFailures;
 
@@ -316,6 +317,18 @@ function void TestStrings(void)
         Check(StrDecodeUtf8(utf8, &pos) == expected[i]);
     }
     Check(pos == utf8.length);
+    // Encoded back, each character is its bytes; one past U+10FFFF, or a surrogate's half, is none.
+    rune encoded[] = { 'a', 0xE9, 0x20AC, 0x1F600 };
+    u64 at = 0;
+    for (u64 i = 0; i < CArrayCount(encoded); ++i) {
+        u8 bytes[4];
+        u32 count = StrEncodeUtf8(encoded[i], bytes);
+        u64 back = 0;
+        Check(count && MemCompare(bytes, utf8.value + at, count) == 0 && StrDecodeUtf8(StrMake((const char *)bytes, count), &back) == encoded[i] && back == count);
+        at += count;
+    }
+    u8 past[4];
+    Check(StrEncodeUtf8(0x110000, past) == 0 && StrEncodeUtf8(0xD83D, past) == 0);
 
     StrBuilder builder = {0};
     StrBuild(&arena, &builder, "Files: ");

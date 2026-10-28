@@ -2109,22 +2109,7 @@ function void Prog__EditSwap(Prog_TextEdit *edit, b32 redo)
 function void Prog__EditInsert(Prog_TextEdit *edit, rune c)
 {
     u8 bytes[4];
-    u32 count = 0;
-    if (c < 0x80) {
-        bytes[count++] = (u8)c;
-    } else if (c < 0x800) {
-        bytes[count++] = (u8)(0xC0 | (c >> 6));
-        bytes[count++] = (u8)(0x80 | (c & 0x3F));
-    } else if (c < 0x10000) {
-        bytes[count++] = (u8)(0xE0 | (c >> 12));
-        bytes[count++] = (u8)(0x80 | ((c >> 6) & 0x3F));
-        bytes[count++] = (u8)(0x80 | (c & 0x3F));
-    } else if (c < 0x110000) {
-        bytes[count++] = (u8)(0xF0 | (c >> 18));
-        bytes[count++] = (u8)(0x80 | ((c >> 12) & 0x3F));
-        bytes[count++] = (u8)(0x80 | ((c >> 6) & 0x3F));
-        bytes[count++] = (u8)(0x80 | (c & 0x3F));
-    }
+    u32 count = StrEncodeUtf8(c, bytes);
     Prog__EditReplaceTyped(edit, bytes, count, true);
 }
 
@@ -5434,8 +5419,20 @@ function u32 Prog__InspectorAt(const Prog_State *state, f32 x, f32 y)
     return UINT32_MAX;
 }
 
+function String Prog_ControlAnswer(Prog_State *state, Arena *arena, String request);
+
 function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
 {
+    // The control channel listens while the settings turn it on, in the main window, as the agents' server asks the settings folder's.
+    // One another window held is tried again every few seconds, for when that one closes.
+    b32 wanted = state->mcp && !state->separateWindow && state->configDirectory.length;
+    if (wanted && !state->mcpWanted && PlatformNowMicroseconds() >= state->mcpRetryAt) {
+        state->mcpWanted = PlatformControlListen(state->configDirectory);
+        if (!state->mcpWanted) state->mcpRetryAt = PlatformNowMicroseconds() + Millions(5), Prog_WakeAt(state, state->mcpRetryAt);
+    } else if (!wanted && state->mcpWanted) {
+        state->mcpWanted = false;
+        PlatformControlStop();
+    }
     u64 order = 0;
     for (PlatformEvent *event = events.first; event; event = event->next) {
         ++order;
@@ -5443,6 +5440,12 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
         // The settings take the system's new mode, and with it its scheme.
         if (event->kind == PlatformEventKind_ColorsChanged && state->systemScheme) Prog_ReloadSettingsFile(state);
         if (event->kind == PlatformEventKind_OpenPaths) Prog_OpenPaths(state, event->text);
+        // A request on the control channel is answered at once, from what the window shows now.
+        if (event->kind == PlatformEventKind_ControlRequest) {
+            Scratch scratch = GetScratch();
+            PlatformControlReply(event->id, Prog_ControlAnswer(state, scratch.arena, event->text));
+            ReleaseScratch(scratch);
+        }
         if (event->kind == PlatformEventKind_TabHover) {
             state->foreignDrag = event->focused;
             state->foreignPoint = (UI_Vec2){ event->x, event->y };

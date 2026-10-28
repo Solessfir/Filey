@@ -128,6 +128,14 @@ function String P_ExpandVariables(Arena *arena, String text, b32 final);
 // Adds to the program search path what the user's saved one has and it lacks, as a run started by the shell's own launchers, such as Win+E,
 // can get an older or shortened one, which would leave the tools Filey runs, such as ffmpeg, unfound. Nothing on Linux.
 function void P_CompleteSearchPath(void);
+// Asks the window that listens on the control channel for `key` (PlatformControlListen), `request` a line without its line break, and puts its answer in `reply`, waiting up to `timeoutMs` for it; false when no window listens or it did not answer.
+// `reached` says whether one listened, which one too slow to answer did.
+function b32 P_ControlAsk(Arena *arena, String key, String request, String *reply, u32 timeoutMs, b32 *reached);
+// The next line of the standard input without its line break, false at its end; and text written to the standard output as it is, which a run from a console without one of its own, as the Windows build is, writes to that console.
+function b32  P_StdinReadLine(Arena *arena, String *line);
+function void P_StdoutWrite(String text);
+// Starts this program again with no arguments, as a launcher would, for a window to open.
+function b32 P_StartSelf(void);
 // Whether the command line has `flag`, such as "--new-window", which P_StartupPaths leaves out.
 function b32 P_StartupFlag(String flag);
 // What follows `prefix`, such as "--tab=", in the argument that starts with it; empty without one.

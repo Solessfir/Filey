@@ -4,6 +4,7 @@
 #undef function
 #include <dwmapi.h>
 #include <dbt.h>
+#include <sddl.h>
 #pragma pop_macro("function")
 
 #define WGL_CONTEXT_MAJOR_VERSION_ARB    0x2091
@@ -183,6 +184,119 @@ function b32 PlatformOtherWindowAtPointer(String paths)
     COPYDATASTRUCT data = { .dwData = WinOpenPathsMagic, .cbData = (DWORD)paths.length, .lpData = (void *)paths.value };
     DWORD_PTR answer = 0;
     return SendMessageTimeoutW(window, WM_COPYDATA, (WPARAM)Win.window, (LPARAM)&data, SMTO_ABORTIFHUNG, 2000, &answer) && answer;
+}
+
+// The control channel's pipe, served by a thread of its own: it takes one request at a time, posts it to the window as a message, which turns it into a ControlRequest event, and waits for the answer to write back, or answers that none came.
+#define WinControlMessage (WM_APP + 4)
+typedef struct WinControlState {
+    HANDLE thread, replied;
+    CRITICAL_SECTION lock;
+    wchar name[96];
+    Arena arena;     // the request and its answer, cleared for each one
+    String request, reply;
+    u64 id;          // the request waited on, 0 while none is
+    u64 counter;     // the last request's id, which never comes again
+    volatile LONG stop;
+} WinControlState;
+global WinControlState WinControl;
+
+function HANDLE Win__ControlPipe(b32 first)
+{
+    // Only its owner, the user, and the system may open it, not other users, who could otherwise hold its thread up reading.
+    SECURITY_ATTRIBUTES security = { .nLength = sizeof(security) };
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:P(A;;GA;;;OW)(A;;GA;;;SY)", SDDL_REVISION_1, &security.lpSecurityDescriptor, NULL)) return INVALID_HANDLE_VALUE;
+    // The first one of the name, which a second window for the same settings cannot take from the first.
+    HANDLE result = CreateNamedPipeW(WinControl.name, PIPE_ACCESS_DUPLEX | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
+                                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &security);
+    LocalFree(security.lpSecurityDescriptor);
+    return result;
+}
+
+function DWORD WINAPI Win__ControlThread(void *first)
+{
+    HANDLE pipe = first;
+    while (pipe != INVALID_HANDLE_VALUE && !WinControl.stop) {
+        b32 connected = ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED;
+        // The next one waits while this one is answered, so that a request right after another finds the pipe there.
+        HANDLE next = WinControl.stop ? INVALID_HANDLE_VALUE : Win__ControlPipe(false);
+        if (connected && !WinControl.stop) {
+            ArenaClear(&WinControl.arena);
+            StrBuilder text = {0};
+            char buffer[4096];
+            DWORD got = 0;
+            b32 whole = false;
+            while (!whole && text.buffer.length < Megabytes(16) && ReadFile(pipe, buffer, sizeof(buffer), &got, NULL) && got) {
+                StrBuildStr(&WinControl.arena, &text, StrMake(buffer, got));
+                whole = StrIndexChar(StrMake(buffer, got), '\n', SSF_None).exists;
+            }
+            Index end = StrIndexChar(text.buffer, '\n', SSF_None);
+            String reply = S("{\"error\":\"Filey did not answer.\"}");
+            EnterCriticalSection(&WinControl.lock);
+            WinControl.request = end.exists ? StrFromTo(text.buffer, 0, (i64)end.value) : text.buffer;
+            WinControl.reply = (String){0};
+            u64 id = WinControl.id = ++WinControl.counter;
+            ResetEvent(WinControl.replied);
+            LeaveCriticalSection(&WinControl.lock);
+            // Woken with no answer, as the channel stops, it answers that none came.
+            if (PostMessageW(Win.window, WinControlMessage, (WPARAM)id, 0) && WaitForSingleObject(WinControl.replied, 60000) == WAIT_OBJECT_0 && WinControl.reply.length) reply = WinControl.reply;
+            EnterCriticalSection(&WinControl.lock);
+            WinControl.id = 0;
+            LeaveCriticalSection(&WinControl.lock);
+            P__WriteLine(pipe, reply);
+            FlushFileBuffers(pipe);
+        }
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
+        pipe = next;
+    }
+    if (pipe != INVALID_HANDLE_VALUE) CloseHandle(pipe);
+    return 0;
+}
+
+function b32 PlatformControlListen(String key)
+{
+    if (WinControl.thread) return true;
+    P__ControlPipeName(WinControl.name, key);
+    if (!WinControl.replied) {
+        WinControl.replied = CreateEventW(NULL, TRUE, FALSE, NULL);
+        InitializeCriticalSection(&WinControl.lock);
+    }
+    if (!WinControl.replied) return false;
+    WinControl.stop = 0;
+    // Made here, so that one already taken is known at once.
+    HANDLE first = Win__ControlPipe(true);
+    if (first == INVALID_HANDLE_VALUE) return false;
+    WinControl.thread = CreateThread(NULL, 0, Win__ControlThread, first, 0, NULL);
+    if (!WinControl.thread) CloseHandle(first);
+    return WinControl.thread != NULL;
+}
+
+function void PlatformControlReply(u64 id, String reply)
+{
+    if (!WinControl.replied) return;
+    EnterCriticalSection(&WinControl.lock);
+    // One the thread gave up on waiting for is dropped.
+    if (id && id == WinControl.id) {
+        WinControl.reply = StrCopy(&WinControl.arena, reply);
+        SetEvent(WinControl.replied);
+    }
+    LeaveCriticalSection(&WinControl.lock);
+}
+
+function void PlatformControlStop(void)
+{
+    if (!WinControl.thread) return;
+    WinControl.stop = 1;
+    // A connection of its own lets the thread out of its wait for one, and a request waited on is let go, as is a read or write of a client that sends or reads nothing.
+    // Again and again until the thread is out, so that a later Listen never meets it still running.
+    HANDLE poke = CreateFileW(WinControl.name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    do {
+        SetEvent(WinControl.replied);
+        CancelSynchronousIo(WinControl.thread);
+    } while (WaitForSingleObject(WinControl.thread, 100) == WAIT_TIMEOUT);
+    if (poke != INVALID_HANDLE_VALUE) CloseHandle(poke);
+    CloseHandle(WinControl.thread);
+    WinControl.thread = NULL;
 }
 
 function void PlatformInstanceRelease(void)
@@ -429,6 +543,13 @@ function LRESULT CALLBACK WinWindowProc(HWND window, UINT message, WPARAM wParam
             event->focused = wParam != 0;
             event->x = (f32)point.x;
             event->y = (f32)point.y;
+        } return 0;
+
+        // A request on the control channel, which its thread waits to answer.
+        case WinControlMessage: {
+            EnterCriticalSection(&WinControl.lock);
+            if ((u64)wParam == WinControl.id) PlatformPushEventText(PlatformEventKind_ControlRequest, WinControl.request)->id = (u64)wParam;
+            LeaveCriticalSection(&WinControl.lock);
         } return 0;
 
         // A later run's folders, or none when it only brings the window forward.

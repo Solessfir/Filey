@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdckdint.h>
 
@@ -463,6 +464,8 @@ function ArrayStr StrSplit(Arena *arena, String s, char separator);
 // Decodes the codepoint at *pos and advances past it.
 // Malformed, overlong or truncated sequences give U+FFFD and advance one byte.
 function rune StrDecodeUtf8(String s, u64 *pos);
+// `c` as UTF-8 in `out`, its byte count back; 0 for no character, a surrogate's half or past U+10FFFF, which UTF-8 cannot hold.
+function u32  StrEncodeUtf8(rune c, u8 out[4]);
 
 // Format specifiers follow printf, plus %S for a String argument.
 function String StrFormat(Arena *arena, const char *format, ...);

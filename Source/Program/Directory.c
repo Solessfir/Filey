@@ -8806,6 +8806,8 @@ function void Prog_OpenRow(Prog_State *state, u64 row)
 function void Prog_Release(Prog_State *state)
 {
     Prog_CloseMenu(state);
+    if (state->mcpWanted) PlatformControlStop();
+    state->mcpWanted = false;
     // The session is written while the panels still hold it, by whichever window closes last, so that one is the next run's.
     if (state->configDirectory.length && state->panelCount && !state->leavesSession) {
         Scratch scratch = GetScratch();

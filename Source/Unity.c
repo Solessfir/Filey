@@ -49,6 +49,7 @@
 #include "Program/Media.c"
 #include "Program/Commands.c"
 #include "Program/Program.c"
+#include "Program/Mcp.c"
 
 #if defined(LOG_EVENTS)
 function void LogEvent(const PlatformEvent *event)
@@ -345,6 +346,24 @@ function void Prog__WriteProfile(void)
 }
 #endif
 
+// What -h and --help print.
+#define Prog_HelpText \
+    "Filey " FILEY_VERSION ", a file manager.\n\n" \
+    "Usage: filey [options] [folder or file ...]\n\n" \
+    "Folders open in tabs of the open window, or of a new one; a file opens its folder with it selected.\n\n" \
+    "Options:\n" \
+    "  -h, --help          Print this help and quit.\n" \
+    "  --new-window        Open a window of its own rather than tabs in the open one.\n" \
+    "  --replace           Show the first folder in the shown tab rather than a new one.\n" \
+    "  --split[=bottom]    Show the folders in a new split, on the right or below.\n" \
+    "  --inspect           Show a file given in the inspector.\n" \
+    "  --this-pc           Open This PC.\n" \
+    "  --mcp               Serve MCP over the standard input and output, for AI agents to see what Filey shows and act in it;\n" \
+    "                      the window answers while its settings have mcp = on (Options, Agent Access).\n" \
+    "  --uninstall         Open Filey Setup to uninstall.\n\n" \
+    "Environment:\n" \
+    "  FILEY_CONFIG_DIR    The folder the settings, session and lists are kept in.\n"
+
 int main(void)
 {
     Prog_Loop loop = { .running = true, .needsFrame = true, .startTime = PlatformNowMicroseconds() };
@@ -356,10 +375,21 @@ int main(void)
     }
 #endif
     b32 ok = false;
+    // -h or --help says how Filey is started, and starts nothing.
+    if (P_StartupFlag(S("-h")) || P_StartupFlag(S("--help"))) {
+        P_StdoutWrite(S(Prog_HelpText));
+        return 0;
+    }
     // The window opens at the size the last run left it at, rather than growing to it once the settings are read, and as they make it look.
     Scratch startup = GetScratch();
     P_CompleteSearchPath();
     String configDirectory = P_ConfigDirectory(startup.arena);
+    // An agent's MCP server, which serves over the standard input and output and asks the window, opening none of its own.
+    if (P_StartupFlag(S("--mcp"))) {
+        i32 served = Prog_McpServe(configDirectory);
+        ReleaseScratch(startup);
+        return served;
+    }
     // Folders given on the command line, as the desktop entry and "Open with" pass them, open in tabs instead of the working directory.
     ArrayStr startPaths = P_StartupPaths(startup.arena);
     // With one window for the settings, a later run hands its folders to the one already open and quits; New Window's runs get their own.

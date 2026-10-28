@@ -381,6 +381,34 @@ function rune StrDecodeUtf8(String s, u64 *pos)
     return valid ? result : 0xFFFD;
 }
 
+function u32 StrEncodeUtf8(rune c, u8 out[4])
+{
+    if (c < 0 || IsBetween(c, 0xD800, 0xDFFF)) return 0;
+    if (c < 0x80) {
+        out[0] = (u8)c;
+        return 1;
+    }
+    if (c < 0x800) {
+        out[0] = (u8)(0xC0 | (c >> 6));
+        out[1] = (u8)(0x80 | (c & 0x3F));
+        return 2;
+    }
+    if (c < 0x10000) {
+        out[0] = (u8)(0xE0 | (c >> 12));
+        out[1] = (u8)(0x80 | ((c >> 6) & 0x3F));
+        out[2] = (u8)(0x80 | (c & 0x3F));
+        return 3;
+    }
+    if (c < 0x110000) {
+        out[0] = (u8)(0xF0 | (c >> 18));
+        out[1] = (u8)(0x80 | ((c >> 12) & 0x3F));
+        out[2] = (u8)(0x80 | ((c >> 6) & 0x3F));
+        out[3] = (u8)(0x80 | (c & 0x3F));
+        return 4;
+    }
+    return 0;
+}
+
 function Index StrSearchResult(String s, b32 found, u64 at, u64 matchLength, StrSearchFlags flags)
 {
     Index result = { .exists = found, .value = found ? at : 0 };

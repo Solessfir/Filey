@@ -987,6 +987,7 @@ typedef struct Prog__Json Prog__Json;
 struct Prog__Json {
     String key;          // its name, in an object
     String text;         // a string's characters with escapes as written, or a number's or keyword's
+    String raw;          // the whole value as written, as the MCP server hands a call's params on
     Prog__Json **items;  // an object's or array's members
     u64 count;
     u8 kind;             // '{', '[', '"', or 'v' for a number, true, false or null
@@ -1018,6 +1019,7 @@ function Prog__Json *Prog__JsonValue(Arena *arena, const char **at, const char *
     Prog__JsonSkip(at, end);
     const char *p = *at;
     if (p >= end || depth > 64) return NULL;
+    const char *begin = p;
     Prog__Json *node = ArenaPushStruct(arena, Prog__Json);
     if (*p == '{' || *p == '[') {
         char close = *p == '{' ? '}' : ']';
@@ -1062,6 +1064,7 @@ function Prog__Json *Prog__JsonValue(Arena *arena, const char **at, const char *
         node->kind = 'v';
         node->text = StrMake(start, (u64)(p - start));
     }
+    node->raw = StrMake(begin, (u64)(p - begin));
     *at = p;
     return node;
 }

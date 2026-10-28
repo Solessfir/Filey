@@ -3466,6 +3466,70 @@ finish:
 }
 
 // Tabs keep their own listing and selection, and closing, reopening and moving them keeps the shown one in place.
+// The MCP server's answers, without a window to ask, and the window's tools, on the fixture.
+function void TestMcp(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    // JSON's strings, written and read back.
+    Check(StrIsEqual(Prog_JsonQuote(&arena, S("a\"b\\c\n")), S("\"a\\\"b\\\\c\\n\"")));
+    // A byte that starts no character, as a Linux name may hold, goes as the replacement character, and a whole one as it is.
+    Check(StrIsEqual(Prog_JsonQuote(&arena, S("a\xFF" "b\xC3\xA9")), S("\"a\\ufffdb\xC3\xA9\"")));
+    const char *text = "\"caf\\u00e9 \\ud83d\\ude00 \\\"q\\\"\"";
+    const char *at = text;
+    Prog__Json *word = Prog__JsonValue(&arena, &at, text + strlen(text), 0);
+    Check(word && StrIsEqual(Prog_JsonText(&arena, word), S("caf\xC3\xA9 \xF0\x9F\x98\x80 \"q\"")));
+    // Half of a pair alone is the replacement character.
+    const char *lone = "\"a\\ud83db\"";
+    at = lone;
+    word = Prog__JsonValue(&arena, &at, lone + strlen(lone), 0);
+    Check(word && StrIsEqual(Prog_JsonText(&arena, word), S("a\xEF\xBF\xBD" "b")));
+    // The server answers the handshake and the tools' list alone, says nothing to a notification, and turns down what it does not know.
+    String nowhere = Prog_JoinPath(&arena, fixture->path, S("NoSettings"));
+    String answer = Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}"), false);
+    Check(StrIndexStr(answer, S("\"id\":1,"), SSF_None).exists && StrIndexStr(answer, S("\"protocolVersion\":\"2025-06-18\""), SSF_None).exists);
+    Check(!Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"), false).length);
+    answer = Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"id\":\"two\",\"method\":\"tools/list\"}"), false);
+    Check(StrIndexStr(answer, S("\"id\":\"two\""), SSF_None).exists && StrIndexStr(answer, S("\"run_command\""), SSF_None).exists && StrIndexStr(answer, S("\"search\""), SSF_None).exists);
+    Check(StrIndexStr(Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"nope\"}"), false), S("-32601"), SSF_None).exists);
+    Check(StrIndexStr(Prog_McpRespond(&arena, nowhere, S("{not json"), false), S("-32700"), SSF_None).exists);
+    Check(StrIndexStr(Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"ping\"}"), false), S("\"id\":null"), SSF_None).exists);
+    Check(StrIndexStr(Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\"}"), false), S("-32602"), SSF_None).exists);
+    // A call with no window listening, whose settings leave it off, says how to turn it on, and starts nothing.
+    answer = Prog_McpRespond(&arena, nowhere, S("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"get_state\",\"arguments\":{}}}"), false);
+    Check(StrIndexStr(answer, S("\"isError\":true"), SSF_None).exists && StrIndexStr(answer, S("Agent Access"), SSF_None).exists);
+    // The window's tools, as the control channel would ask them.
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (state.jobs.initialized && TestWaitDirectory(&state)) {
+        answer = Prog_ControlAnswer(&state, &arena, S("{\"name\":\"select\",\"arguments\":{\"names\":[\"plain.txt\",\"Folder2\",\"missing\"]}}"));
+        Check(StrIsEqual(answer, S("{\"selected\":2}")) && state.selectedCount == 2);
+        answer = Prog_ControlAnswer(&state, &arena, S("{\"name\":\"get_state\",\"arguments\":{}}"));
+        Check(StrIndexStr(answer, S("\"selectedCount\":2"), SSF_None).exists && StrIndexStr(answer, S("\"plain.txt\""), SSF_None).exists);
+        Check(StrIndexStr(answer, Prog_JsonQuote(&arena, P_NativePath(&arena, fixture->path)), SSF_None).exists);
+        answer = Prog_ControlAnswer(&state, &arena, S("{\"name\":\"list_commands\",\"arguments\":{\"query\":\"tree view\"}}"));
+        Check(StrIndexStr(answer, S("\"ToggleTreeView\""), SSF_None).exists);
+        Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"run_command\",\"arguments\":{\"name\":\"NoSuchCommand\"}}")), S("\"error\""), SSF_None).exists);
+        answer = Prog_ControlAnswer(&state, &arena, S("{\"name\":\"run_command\",\"arguments\":{\"name\":\"ToggleTreeView\"}}"));
+        b32 tree = state.tree;
+        Prog_ProcessCommands(&state);
+        Check(StrIndexStr(answer, S("\"ran\""), SSF_None).exists && state.tree != tree);
+        if (state.tree != tree) TestBrowsingCommand(&state, Prog_CommandKind_ToggleTreeView, 0);
+        Check(TestWaitDirectory(&state));
+        // A folder opens with the items named selected once it is listed.
+        String folder = Prog_JoinPath(&arena, fixture->path, S("Folder2"));
+        answer = Prog_ControlAnswer(&state, &arena, StrFormat(&arena, "{\"name\":\"open_path\",\"arguments\":{\"path\":%S,\"select\":[\"inside.txt\"]}}",
+                                                              Prog_JsonQuote(&arena, P_NativePath(&arena, folder))));
+        Check(StrIndexStr(answer, S("\"folder\""), SSF_None).exists && TestWaitDirectory(&state) && TestEndsWith(state.directory.path, S("/Folder2")));
+        u64 inside = TestEntryIndex(&state, S("inside.txt"));
+        Check(inside != UINT64_MAX && state.directory.entries[inside].selected);
+        Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"open_path\",\"arguments\":{\"path\":\"/no/such/folder\"}}")), S("\"error\""), SSF_None).exists);
+        Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"search\",\"arguments\":{\"query\":\"documents\"}}")), S("\"results\":["), SSF_None).exists);
+        Check(StrIndexStr(Prog_ControlAnswer(&state, &arena, S("{\"name\":\"nope\"}")), S("\"error\""), SSF_None).exists);
+    }
+    Prog_Release(&state);
+    ArenaRelease(&arena);
+}
+
 function void TestTabs(TestFileFixture *fixture)
 {
     Prog_State state = {0};
@@ -5130,6 +5194,7 @@ function void TestBrowsing(void)
 #endif
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);
+        TestMcp(&fixture);
         TestPanels(&fixture);
         TestColumnEdgeDrag(&fixture);
         TestInspectorSelection(&fixture);

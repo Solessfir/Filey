@@ -92,6 +92,10 @@ function b32 PlatformClipboardGetFiles(Arena *arena, ArrayStr *paths, b32 *cut)
 // The window code is left out too.
 global u32 TestWindowCalls[4];  // minimize, maximize, close, move
 
+// The control channel has no window to listen in, in the tests.
+function b32 PlatformControlListen(String key) { (void)key; return false; }
+function void PlatformControlReply(u64 id, String reply) { (void)id, (void)reply; }
+function void PlatformControlStop(void) {}
 function b32 PlatformWindowHasButtons(void) { return true; }
 function b32 PlatformHasBackdrops(void) { return true; }
 function b32 PlatformHasVSync(void) { return true; }

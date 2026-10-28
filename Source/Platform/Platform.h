@@ -101,6 +101,7 @@ typedef enum PlatformEventKind {
     PlatformEventKind_OpenPaths,      // a later run of the program handed this one its folders, in `text` a line each; none to come forward only
     PlatformEventKind_TabHover,       // another of the program's windows drags a tab over this one, at `x`, `y`; `focused` false once it has left
     PlatformEventKind_ColorsChanged,  // the system's light or dark mode changed
+    PlatformEventKind_ControlRequest, // another process asks through the control channel, `text` its request and `id` what PlatformControlReply answers
 
     PlatformEventKind_Count,
 } PlatformEventKind;
@@ -127,7 +128,8 @@ struct PlatformEvent {
     i32 width;     // Resized
     i32 height;
 
-    String text;   // OpenPaths, in the event's own memory
+    String text;   // OpenPaths and ControlRequest, in the event's own memory
+    u64 id;        // ControlRequest
 
     u64 timeMicroseconds;  // PlatformNowMicroseconds when the OS delivered it
 };
@@ -215,6 +217,11 @@ function void PlatformWindowHide(void);
 function b32  PlatformInstanceClaim(String key, ArrayStr paths);
 // Lets a later run open a window of its own, as this one closes.
 function void PlatformInstanceRelease(void);
+// The control channel for `key`, the settings folder, by which another process of the user's, as `filey --mcp`, asks the window for what it shows and has it act: a request is a line of text, which comes as a ControlRequest event, and its answer a line back, PlatformControlReply's.
+// A named pipe on Windows that no other computer reaches; a socket in the user's own runtime folder on Linux.
+function b32  PlatformControlListen(String key);
+function void PlatformControlReply(u64 id, String reply);
+function void PlatformControlStop(void);
 // A picture following the pointer above every window, as a tab dragged out of the window shows, `width` by `height` premultiplied BGRA top
 // row first, the pointer at (`hotX`, `hotY`) in it; NULL takes it away. Nothing where windows cannot be placed at the pointer, as on Wayland.
 function void PlatformDragGhost(const u32 *bgra, i32 width, i32 height, i32 hotX, i32 hotY);

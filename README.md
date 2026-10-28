@@ -22,6 +22,7 @@
 - **Themes**: Catppuccin, Nord, Gruvbox, Tokyo Night, One Dark and Filey Dark built in, schemes of your own, starting from the system's light or dark mode until you pick one, and a transparent glass look in any of them.
 - **Linux desktop**: the file manager other programs open for Show in Folder, New from your Templates folder, Set as Default in Open With, your Nemo actions and scripts in the right-click menu, and Open as Root.
 - **Languages**: English, Chinese, French, German, Polish, Portuguese, Russian and Spanish, plus your own through a translation file.
+- **AI agents**: an [MCP server](#ai-agents-mcp), `filey --mcp`, through which an agent sees the folder and selection you are looking at, shows you what it found or made, and runs Filey's commands.
 
 ## Optional tools
 
@@ -59,7 +60,17 @@ curl -sSL https://raw.githubusercontent.com/Solessfir/Filey/main/install.sh | ba
 
 ### Command line
 
-`filey <folder or file>...` opens each in a new tab of the open window, a file in its folder with it selected. `--replace` shows the first in the current tab instead, `--split` (or `--split=bottom`) opens each in a new panel beside the current one, `--inspect` opens the inspector on a file given, and `--new-window` opens a window of its own.
+`filey <folder or file>...` opens each in a new tab of the open window, a file in its folder with it selected. `--replace` shows the first in the current tab instead, `--split` (or `--split=bottom`) opens each in a new panel beside the current one, `--inspect` opens the inspector on a file given, and `--new-window` opens a window of its own. `filey --help` lists the options and starts nothing.
+
+### AI agents (MCP)
+
+`filey --mcp` is an [MCP](https://modelcontextprotocol.io) server over standard input and output, through which an agent sees what Filey shows and acts in it. Turn on **Agent Access** in the Options (or `mcp = on` in `Settings.conf`), then add it to your agent, for example in Claude Code:
+
+```
+claude mcp add filey -- filey --mcp
+```
+
+Its tools are `get_state` (the folder shown, the focused item, the selection, the tabs and panels), `open_path` (show a folder, in a new tab if asked, with items selected, or a file in its folder), `select`, `list_commands` and `run_command` (any of Filey's commands by name, as its hotkey would; destructive ones still ask in the window), and `search` (Go To's search of the drives, places, bookmarks, recents and the drive index). The server talks to the open window, starting Filey when it is not running, over a channel only your user can reach.
 
 ### Updates
 

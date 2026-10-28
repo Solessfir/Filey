@@ -1151,6 +1151,147 @@ function String P_ExpandVariables(Arena *arena, String text, b32 final)
     return result;
 }
 
+// The control channel's pipe for the settings folder `key`, the same for the window that serves it and the run that asks it.
+function void P__ControlPipeName(wchar name[96], String key)
+{
+    swprintf(name, 96, L"\\\\.\\pipe\\Filey-Control-%016" PRIx64, MapHashBytes(key.value, key.length) | 1);
+}
+
+// Writes `text` and a line break to `handle`, false when it could not.
+function b32 P__WriteLine(HANDLE handle, String text)
+{
+    for (u64 at = 0; at <= text.length;) {
+        DWORD wrote = 0;
+        const char *from = at < text.length ? text.value + at : "\n";
+        DWORD size = at < text.length ? (DWORD)Min(text.length - at, (u64)65536) : 1;
+        if (!WriteFile(handle, from, size, &wrote, NULL) || !wrote) return false;
+        at += wrote;
+    }
+    return true;
+}
+
+// Whether the process serving `pipe` runs as this one's user, so that a pipe of the name another user made first is not trusted.
+function b32 P__PipeServerIsOwn(HANDLE pipe)
+{
+    ULONG server = 0;
+    if (!GetNamedPipeServerProcessId(pipe, &server)) return false;
+    b32 result = false;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, server), theirs = NULL, ours = NULL;
+    if (process && OpenProcessToken(process, TOKEN_QUERY, &theirs) && OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &ours)) {
+        u8 theirUser[256], ourUser[256];
+        DWORD size = 0;
+        if (GetTokenInformation(theirs, TokenUser, theirUser, sizeof(theirUser), &size) && GetTokenInformation(ours, TokenUser, ourUser, sizeof(ourUser), &size)) {
+            result = EqualSid(((TOKEN_USER *)theirUser)->User.Sid, ((TOKEN_USER *)ourUser)->User.Sid);
+        }
+    }
+    if (theirs) CloseHandle(theirs);
+    if (ours) CloseHandle(ours);
+    if (process) CloseHandle(process);
+    return result;
+}
+
+function b32 P_ControlAsk(Arena *arena, String key, String request, String *reply, u32 timeoutMs, b32 *reached)
+{
+    *reply = (String){0};
+    *reached = false;
+    wchar name[96];
+    P__ControlPipeName(name, key);
+    u64 until = PlatformNowMicroseconds() + (u64)timeoutMs * 1000;
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    // Busy while it answers another, which the wait lets finish.
+    for (;;) {
+        pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (pipe != INVALID_HANDLE_VALUE || GetLastError() != ERROR_PIPE_BUSY || PlatformNowMicroseconds() >= until) break;
+        WaitNamedPipeW(name, 200);
+    }
+    if (pipe == INVALID_HANDLE_VALUE) return false;
+    if (!P__PipeServerIsOwn(pipe)) {
+        CloseHandle(pipe);
+        return false;
+    }
+    *reached = true;
+    b32 sent = P__WriteLine(pipe, request);
+    StrBuilder text = {0};
+    char buffer[4096];
+    DWORD got = 0, ready = 0;
+    b32 whole = false;
+    // Read once something has come, so that a window that answers nothing is given up on in time.
+    while (sent && !whole && PeekNamedPipe(pipe, NULL, 0, NULL, &ready, NULL)) {
+        if (!ready) {
+            if (PlatformNowMicroseconds() >= until) break;
+            Sleep(5);
+            continue;
+        }
+        if (!ReadFile(pipe, buffer, (DWORD)Min((u64)ready, sizeof(buffer)), &got, NULL) || !got) break;
+        StrBuildStr(arena, &text, StrMake(buffer, got));
+        whole = StrIndexChar(StrMake(buffer, got), '\n', SSF_None).exists;
+    }
+    CloseHandle(pipe);
+    Index end = StrIndexChar(text.buffer, '\n', SSF_None);
+    *reply = end.exists ? StrFromTo(text.buffer, 0, (i64)end.value) : text.buffer;
+    return sent && whole;
+}
+
+function b32 P_StdinReadLine(Arena *arena, String *line)
+{
+    // What came past the last line, kept for the next.
+    local_persist char held[65536];
+    local_persist u64 heldStart, heldEnd;
+    HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+    StrBuilder text = {0};
+    b32 any = false;
+    for (;;) {
+        if (heldStart == heldEnd) {
+            DWORD got = 0;
+            if (!input || input == INVALID_HANDLE_VALUE || !ReadFile(input, held, sizeof(held), &got, NULL) || !got) break;
+            heldStart = 0, heldEnd = got;
+        }
+        any = true;
+        String rest = StrMake(held + heldStart, heldEnd - heldStart);
+        Index end = StrIndexChar(rest, '\n', SSF_None);
+        StrBuildStr(arena, &text, end.exists ? StrFromTo(rest, 0, (i64)end.value) : rest);
+        heldStart = end.exists ? heldStart + end.value + 1 : heldEnd;
+        if (end.exists) break;
+    }
+    String result = text.buffer;
+    while (result.length && result.value[result.length - 1] == '\r') --result.length;
+    *line = result;
+    return any;
+}
+
+function void P_StdoutWrite(String text)
+{
+    local_persist HANDLE output = NULL;
+    if (!output) {
+        output = GetStdHandle(STD_OUTPUT_HANDLE);
+        // A windowed program started from a console has none, so it writes to the console it was started from.
+        if ((!output || output == INVALID_HANDLE_VALUE) && AttachConsole(ATTACH_PARENT_PROCESS)) {
+            output = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        }
+    }
+    if (!output || output == INVALID_HANDLE_VALUE) return;
+    for (u64 at = 0; at < text.length;) {
+        DWORD wrote = 0;
+        if (!WriteFile(output, text.value + at, (DWORD)Min(text.length - at, (u64)65536), &wrote, NULL) || !wrote) break;
+        at += wrote;
+    }
+}
+
+function b32 P_StartSelf(void)
+{
+    wchar executable[1024];
+    u32 length = GetModuleFileNameW(NULL, executable, (u32)CArrayCount(executable));
+    if (!length || length >= CArrayCount(executable)) return false;
+    wchar line[1100];
+    swprintf(line, CArrayCount(line), L"\"%ls\"", executable);
+    STARTUPINFOW startup = { .cb = sizeof(startup) };
+    PROCESS_INFORMATION process = {0};
+    if (!CreateProcessW(executable, line, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) return false;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return true;
+}
+
 function b32 P_StartupFlag(String flag)
 {
     i32 count = 0;
