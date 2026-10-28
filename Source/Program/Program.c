@@ -12322,9 +12322,13 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                     UI_SetNextCornerRadius(m->radius);
-                    UI_SetNextColors((UI_Colors){ .background = picked ? theme->selection : theme->hover });
+                    // Lit and outlined as the list's rows are, with their text in the colors that read on that: the selection's while chosen, the pointer's under it.
+                    b32 hot = UI->hotKey == key;
+                    Prog_ItemLook look = Prog__ItemLook(picked, hot, false);
+                    R_Color ink = picked ? theme->contentSelection : hot ? theme->contentHover : theme->text, dim = picked || hot ? ink : theme->textDim;
+                    UI_SetNextColors((UI_Colors){ .background = look.fill, .border = look.border });
                     UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (list ? 0 : UI_Flag_RightMouseClickable) |
-                                                         (picked || UI->hotKey == key ? UI_Flag_DrawBackground : 0));
+                                                         look.flags);
                     UI_Interaction act = UI_InteractionFromBlock(entry);
                     UI_Parent(entry) {
                         if (list) {
@@ -12338,13 +12342,13 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                             String name = type->extension.length ? StrFormat(frame, ".%S", type->extension) : Tr("(No extension)");
                             if (type->name.length) name = StrFormat(frame, "%S  %S", name, type->name);
                             f32 fixed = swatch + m->gap + percentWidth + sizeWidth + (counts ? countWidth : 0);
-                            Prog__LabelPadded(Prog__Ellipsize(frame, m->font, name, MaxF32(0, rowWidth - fixed - m->gap)), UI_Flex(), row, floorf(m->gap * 0.5f), 0, theme->text, 0);
+                            Prog__LabelPadded(Prog__Ellipsize(frame, m->font, name, MaxF32(0, rowWidth - fixed - m->gap)), UI_Flex(), row, floorf(m->gap * 0.5f), 0, ink, 0);
                             Prog__UsagePercent(frame, type->bytes, usage->folders[0].bytes, percentWidth, row, m);
                             UI_SetNextFont(m->detail);
-                            Prog__Label(Prog_FormatSize(frame, type->bytes), UI_Pixels(sizeWidth), row, 0, theme->text, 1);
+                            Prog__Label(Prog_FormatSize(frame, type->bytes), UI_Pixels(sizeWidth), row, 0, ink, 1);
                             if (counts) {
                                 UI_SetNextFont(m->detail);
-                                Prog__Label(Prog__FormatCount(frame, type->files), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                                Prog__Label(Prog__FormatCount(frame, type->files), UI_Pixels(countWidth), row, 0, dim, 1);
                             }
                             continue;
                         }
@@ -12370,23 +12374,23 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                         }
                         Prog__Spacer(UI_Pixels((f32)depths[i] * indent), UI_Pixels(row));
                         b32 opens = !filesRow && (folder->firstChild != UINT32_MAX || folder->fileCount || folder->restFiles);
-                        if (opens) Prog__SmallIcon(state->usageOpen[index] ? Icon_ChevronDown : Icon_ChevronRight, chevron, row, theme->textDim, 0.5f, m);
+                        if (opens) Prog__SmallIcon(state->usageOpen[index] ? Icon_ChevronDown : Icon_ChevronRight, chevron, row, dim, 0.5f, m);
                         else Prog__Spacer(UI_Pixels(chevron), UI_Pixels(row));
-                        R_Color nameColor = filesRow || folder->hidden || folder->system || folder->unreadable ? theme->textDim : theme->text;
+                        R_Color nameColor = filesRow || folder->hidden || folder->system || folder->unreadable ? dim : ink;
                         f32 fixed = (f32)depths[i] * indent + chevron + percentWidth + sizeWidth + (counts ? 2 * countWidth : 0) + (dates ? dateWidth : 0);
                         Prog__LabelPadded(Prog__Ellipsize(frame, m->font, name, MaxF32(0, rowWidth - fixed - m->gap)), UI_Flex(), row, floorf(m->gap * 0.5f), 0, nameColor, 0);
                         Prog__UsagePercent(frame, bytes, parentBytes, percentWidth, row, m);
                         UI_SetNextFont(m->detail);
-                        Prog__Label(Prog_FormatSize(frame, bytes), UI_Pixels(sizeWidth), row, 0, theme->text, 1);
+                        Prog__Label(Prog_FormatSize(frame, bytes), UI_Pixels(sizeWidth), row, 0, ink, 1);
                         if (counts) {
                             UI_SetNextFont(m->detail);
-                            Prog__Label(Prog__FormatCount(frame, files), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                            Prog__Label(Prog__FormatCount(frame, files), UI_Pixels(countWidth), row, 0, dim, 1);
                             UI_SetNextFont(m->detail);
-                            Prog__Label(filesRow ? (String){0} : Prog__FormatCount(frame, folders), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                            Prog__Label(filesRow ? (String){0} : Prog__FormatCount(frame, folders), UI_Pixels(countWidth), row, 0, dim, 1);
                         }
                         if (dates) {
                             UI_SetNextFont(m->detail);
-                            Prog__LabelPadded(!filesRow && folder->modified ? P_FormatFileTime(frame, folder->modified) : (String){0}, UI_Pixels(dateWidth), row, m->gap, 0, theme->textDim, 0);
+                            Prog__LabelPadded(!filesRow && folder->modified ? P_FormatFileTime(frame, folder->modified) : (String){0}, UI_Pixels(dateWidth), row, m->gap, 0, dim, 0);
                         }
                     }
                 }
