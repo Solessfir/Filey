@@ -4611,6 +4611,15 @@ function b32 Prog__Row(Prog_State *state, u64 index, u64 position, UI_Key key, c
         if (Prog__MarksRecents(state) && entry->recent) Prog__Icon(Icon_Clock, Prog__RecentGutter(m->scale), height, theme->text, 0.5f, m);
         else if (Prog__MarksRecents(state)) Prog__Spacer(UI_Pixels(Prog__RecentGutter(m->scale)), UI_Pixels(height));
         if (tree) {
+            // A line down from each folder it is in, under that folder's arrow, so that where a folder's items end shows.
+            f32 gutter = Prog__MarksRecents(state) ? Prog__RecentGutter(m->scale) : 0, step = floorf(16.0f * m->scale + 0.5f);
+            for (u64 d = 0; d < depth; ++d) {
+                UI_SetNextFloatingOffset((UI_Vec2){ gutter + (f32)d * step + floorf((arrow - m->separator) * 0.5f), 0 });
+                UI_SetNextPrefWidth(UI_Pixels(m->separator));
+                UI_SetNextPrefHeight(UI_Pixels(m->row));
+                UI_SetNextColors((UI_Colors){ .background = theme->tabBorder });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
             Prog__Spacer(UI_Pixels(treeIndent - arrow), UI_Pixels(height));
             if (entry->file.kind == P_FileKind_Directory) {
                 UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "TreeArrow/%S", entry->file.name));
