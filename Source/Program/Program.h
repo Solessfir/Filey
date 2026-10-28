@@ -1695,6 +1695,7 @@ typedef struct Prog_State {
     Arena menuEditArena;
     ArrayStr menuEditLabels;
     ArrayStr menuEditSystem;
+    P_Image *menuEditIcons;  // the icon of each of menuEditSystem's items, as the menu had it
     b8 *menuEditSubs;
     u32 menuEditDrag;
     // The palette's Quick group: the starred commands by name, in the order they were starred.

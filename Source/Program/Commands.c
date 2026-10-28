@@ -4589,10 +4589,18 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 ArenaClear(&state->menuEditArena);
                 state->menuEditLabels = state->menuEditSystem = (ArrayStr){0};
                 state->menuEditSubs = ArenaPushArray(&state->menuEditArena, base.rootCount + 1, b8);
+                state->menuEditIcons = ArenaPushArray(&state->menuEditArena, base.rootCount + 1, P_Image);
                 for (u32 i = 0; i < base.rootCount; ++i) {
                     const P_MenuItem *item = &base.items[i];
                     if (item->separator || !item->label.length || Prog__ListPlace(&state->menuEditSystem, item->label) >= 0) continue;
                     state->menuEditSubs[state->menuEditSystem.header.count] = item->childCount != 0;
+                    // The icon outlives the menu, which closes as the editor opens.
+                    if (item->icon.pixels) {
+                        P_Image *icon = &state->menuEditIcons[state->menuEditSystem.header.count];
+                        u64 size = (u64)item->icon.width * (u64)item->icon.height;
+                        *icon = (P_Image){ ArenaPushArrayNoZero(&state->menuEditArena, size, u32), item->icon.width, item->icon.height };
+                        MemCopy(icon->pixels, item->icon.pixels, size * sizeof(u32));
+                    }
                     ArrayPush(&state->menuEditArena, state->menuEditSystem, StrCopy(&state->menuEditArena, item->label));
                 }
                 u64 total = state->menuEditSystem.header.count;

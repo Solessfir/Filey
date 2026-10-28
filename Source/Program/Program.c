@@ -10275,8 +10275,20 @@ function void Prog__DeleteConfirmation(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// The menu editor, in the place of the system menu whose pencil opened it: the top level's items in their order, each with dots to drag it by
-// and a minus that hides it, then the hidden ones, each with a plus that brings it back. Reset brings back the system's order and every item.
+// A system menu item's own icon in the menu editor, as the menu showed it; none for one without.
+function void Prog__MenuEditIcon(Prog_State *state, String label, f32 height, f32 opacity, const Prog_Metrics *m)
+{
+    i64 at = Prog__ListPlace(&state->menuEditSystem, label);
+    const Prog_Icon *icon = at >= 0 && state->menuEditIcons ? Prog_ImageIcon(state, state->menuEditIcons[at]) : NULL;
+    UI_SetNextPrefWidth(UI_Pixels((f32)state->iconSize + floorf(8.0f * m->scale + 0.5f)));
+    UI_SetNextPrefHeight(UI_Pixels(height));
+    UI_SetNextTextAlignment((UI_Vec2){ 0, 0.5f });
+    if (icon) UI_SetNextImage(icon->texture, icon->uv, (UI_Vec2){ (f32)state->iconSize, (f32)state->iconSize }, (R_Color){ 1, 1, 1, opacity });
+    UI_AddBlock(icon ? UI_Flag_DrawImage : 0);
+}
+
+// The menu editor, in the place of the system menu whose pencil opened it: the top level's items in their order, each with dots to drag it by and a minus that hides it, then the hidden ones, each with a plus that brings it back.
+// Reset brings back the system's order and every item.
 function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
 {
     if (!state->menuEditing) return;
@@ -10378,6 +10390,7 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
                         state->menuEditDrag = 0;
                     }
                     UI_Parent(handle) Prog__Icon(Icon_GripVertical, grip, row, UI->hotKey == gripKey || drag.active ? theme->text : theme->textDim, 0.5f, m);
+                    Prog__MenuEditIcon(state, label, row, 1, m);
                     Prog__Label(label, UI_Flex(), row, 0, theme->text, 0);
                     if (state->menuEditSubs[index]) Prog__Icon(Icon_ChevronRight, chevron, row, theme->textDim, 0.5f, m);
                     UI_Interaction hide = Prog__TextButton(StrFormat(frame, "MenuEditHide/%S", label), Icon_CircleMinus, m->icons, UI_Pixels(button), button, 0, theme->icon, theme->text,
@@ -10428,6 +10441,7 @@ function void Prog__MenuEditor(Prog_State *state, const Prog_Metrics *m)
                 UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                 UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
                 UI_Parent(line) {
+                    Prog__MenuEditIcon(state, label, row, 0.4f, m);
                     Prog__Label(label, UI_Flex(), row, 0, theme->textDim, 0);
                     UI_Interaction back = Prog__TextButton(StrFormat(frame, "MenuEditShow/%S", label), Icon_CirclePlus, m->icons, UI_Pixels(button), button, 0, theme->accent, theme->text,
                                                            theme->iconDisabled, true, m);
