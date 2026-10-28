@@ -539,6 +539,7 @@ typedef enum P_MenuAction {
     P_MenuAction_CompressVideo,
     P_MenuAction_DownloadTorrent,
     P_MenuAction_AddToGroup,  // the item's id is the group
+    P_MenuAction_Command,     // the item's id is one of the program's commands, which it runs
     P_MenuAction_Count,
 } P_MenuAction;
 
@@ -553,6 +554,7 @@ typedef struct P_MenuItem {
     b8 disabled;
     b8 isDefault;
     b8 own;            // the label is Filey's own English, as Linux's menu has, which the program shows translated
+    b8 choice;         // one of a set, drawn as a ring with a dot in the one chosen, which isDefault marks
     enum8(P_MenuAction) action;
 } P_MenuItem;
 

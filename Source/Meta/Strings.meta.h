@@ -516,6 +516,8 @@ global const char *const Prog_Strings[] = {
     "Add to \"%S.zip\"",
     "Add to \"%S.7z\"",
     "Add to %S",
+    "Sort by",
+    "Group by",
     "Restore",
     "Restore all items",
     "%S failed",

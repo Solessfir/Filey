@@ -1706,6 +1706,71 @@ function void Prog__MenuAddGroups(Prog_State *state, b32 folders)
     }
 }
 
+// The folder's own menu starts with its view, sort and grouping, each a submenu of choices, and Refresh.
+function void Prog__MenuAddViews(Prog_State *state)
+{
+    if (state->menuRowCount) return;
+    Arena *arena = &state->menuArena;
+    local_persist const u16 views[] = { Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns, Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons };
+    local_persist const String viewNames[] = { TrInit("Details"), TrInit("List"), TrInit("Columns"), TrInit("M Icons"), TrInit("L Icons"), TrInit("XL Icons") };
+    local_persist const u16 groups[] = { Prog_CommandKind_GroupByNone, Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize };
+    local_persist const String groupNames[] = { TrInit("None"), TrInit("Type"), TrInit("Date Modified"), TrInit("Size") };
+    // The shown columns' sorts, the usage columns sorting as Size does and Git by nothing.
+    local_persist const u16 sorts[Prog_ColumnKind_Count] = {
+        [Prog_ColumnKind_Name] = Prog_CommandKind_SortByName, [Prog_ColumnKind_Type] = Prog_CommandKind_SortByType, [Prog_ColumnKind_Size] = Prog_CommandKind_SortBySize,
+        [Prog_ColumnKind_Items] = Prog_CommandKind_SortByItemCount, [Prog_ColumnKind_Created] = Prog_CommandKind_SortByDateCreated,
+        [Prog_ColumnKind_Modified] = Prog_CommandKind_SortByDateModified, [Prog_ColumnKind_Accessed] = Prog_CommandKind_SortByDateAccessed,
+        [Prog_ColumnKind_FileSystem] = Prog_CommandKind_SortByFileSystem, [Prog_ColumnKind_FreeSpace] = Prog_CommandKind_SortByFreeSpace,
+        [Prog_ColumnKind_PercentFull] = Prog_CommandKind_SortByPercentFull, [Prog_ColumnKind_OriginalLocation] = Prog_CommandKind_SortByOriginalLocation,
+        [Prog_ColumnKind_DateDeleted] = Prog_CommandKind_SortByDateDeleted, [Prog_ColumnKind_VolumeUsage] = Prog_CommandKind_SortBySize,
+        [Prog_ColumnKind_FolderUsage] = Prog_CommandKind_SortBySize,
+    };
+    local_persist const String sortNames[Prog_ColumnKind_Count] = {
+        [Prog_ColumnKind_Name] = TrInit("Name"), [Prog_ColumnKind_Type] = TrInit("Type"), [Prog_ColumnKind_Size] = TrInit("Size"), [Prog_ColumnKind_Items] = TrInit("Total Items"),
+        [Prog_ColumnKind_Created] = TrInit("Date Created"), [Prog_ColumnKind_Modified] = TrInit("Date Modified"), [Prog_ColumnKind_Accessed] = TrInit("Date Accessed"),
+        [Prog_ColumnKind_FileSystem] = TrInit("File System"), [Prog_ColumnKind_FreeSpace] = TrInit("Free Space"), [Prog_ColumnKind_PercentFull] = TrInit("Percent Full"),
+        [Prog_ColumnKind_OriginalLocation] = TrInit("Original Location"), [Prog_ColumnKind_DateDeleted] = TrInit("Date Deleted"),
+        [Prog_ColumnKind_VolumeUsage] = TrInit("Size"), [Prog_ColumnKind_FolderUsage] = TrInit("Size"),
+    };
+    Prog_ColumnSet set = Prog_PanelColumns(state);
+    u16 sortKinds[Prog_ColumnKind_Count];
+    String sortLabels[Prog_ColumnKind_Count];
+    u32 sortCount = 0;
+    for (u32 i = 0; i < set.count; ++i) {
+        u16 kind = set.kinds[i] < Prog_ColumnKind_Count ? sorts[set.kinds[i]] : 0;
+        b32 seen = false;
+        for (u32 j = 0; j < sortCount; ++j) seen |= sortKinds[j] == kind;
+        if (kind && !seen) sortKinds[sortCount] = kind, sortLabels[sortCount++] = Prog_Tr(sortNames[set.kinds[i]]);
+    }
+    // A line parts them from the rest, where there is any.
+    u32 roots = state->menu.rootCount ? 5 : 4, children = CArrayCount(views) + sortCount + CArrayCount(groups);
+    u32 count = roots + state->menu.count + children;
+    P_MenuItem *items = ArenaPushArray(arena, count, P_MenuItem);
+    for (u32 i = 0; i < state->menu.rootCount; ++i) items[roots + i] = state->menu.items[i];
+    // The children of the menu's own submenus go after the new ones'.
+    u32 child = roots + state->menu.rootCount;
+    for (u32 i = state->menu.rootCount; i < state->menu.count; ++i) items[child + children + (i - state->menu.rootCount)] = state->menu.items[i];
+    for (u32 i = roots; i < roots + state->menu.rootCount; ++i) if (items[i].childCount) items[i].firstChild += roots + children;
+    for (u32 i = roots + state->menu.rootCount + children; i < count; ++i) if (items[i].childCount) items[i].firstChild += roots + children;
+    items[0] = (P_MenuItem){ .label = Tr("View"), .firstChild = child, .childCount = CArrayCount(views) };
+    for (u32 i = 0; i < CArrayCount(views); ++i) {
+        items[child++] = (P_MenuItem){ .label = Prog_Tr(viewNames[i]), .action = P_MenuAction_Command, .id = views[i], .choice = true, .isDefault = (b8)Prog_CommandChecked(state, (Prog_CommandKind)views[i]) };
+    }
+    items[1] = (P_MenuItem){ .label = Tr("Sort by"), .firstChild = child, .childCount = sortCount };
+    for (u32 i = 0; i < sortCount; ++i) {
+        items[child++] = (P_MenuItem){ .label = sortLabels[i], .action = P_MenuAction_Command, .id = sortKinds[i], .choice = true, .isDefault = (b8)Prog_CommandChecked(state, (Prog_CommandKind)sortKinds[i]) };
+    }
+    items[2] = (P_MenuItem){ .label = Tr("Group by"), .firstChild = child, .childCount = CArrayCount(groups) };
+    for (u32 i = 0; i < CArrayCount(groups); ++i) {
+        items[child++] = (P_MenuItem){ .label = Prog_Tr(groupNames[i]), .action = P_MenuAction_Command, .id = groups[i], .choice = true, .isDefault = (b8)Prog_CommandChecked(state, (Prog_CommandKind)groups[i]) };
+    }
+    items[3] = (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_Refresh), .action = P_MenuAction_Command, .id = Prog_CommandKind_Refresh };
+    if (roots == 5) items[4] = (P_MenuItem){ .separator = true };
+    state->menu.items = items;
+    state->menu.count = count;
+    state->menu.rootCount += roots;
+}
+
 // `item` at the end of the menu's top level, but before the system's Properties.
 function void Prog__MenuAddLast(Prog_State *state, P_MenuItem item)
 {
@@ -1830,7 +1895,8 @@ function void Prog__OpenMenu(Prog_State *state, Prog_Command *command)
     b32 folders = state->menuRowCount != 0 && !state->directory.archive && !P_IsTrashFolder(state->directory.path);
     for (u32 i = 0; i < state->menuRowCount; ++i) folders &= state->directory.entries[state->menuRows[i]].file.kind == P_FileKind_Directory;
     Prog__MenuAddGroups(state, folders);
-    // A menu left with nothing in it, as an empty bin's background is, does not open.
+    if (state->menuOpen) Prog__MenuAddViews(state);
+    // A menu left with nothing in it does not open.
     if (!state->menu.count) {
         Prog_CloseMenu(state);
         return;
@@ -2252,6 +2318,12 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     if (!state->menuOpen || index >= state->menu.count) return;
     P_MenuItem item = state->menu.items[index];
     if (item.separator || item.disabled || item.childCount) return;
+    if (item.action == P_MenuAction_Command) {
+        Prog_CloseMenu(state);
+        // The choice already made is kept, rather than a sort chosen again turning around.
+        if (!(item.choice && item.isDefault)) Prog_QueueCommand(state, (Prog_CommandKind)item.id, 0, 0, UINT64_MAX);
+        return;
+    }
     if (state->menuCommands) {
         Prog_MenuCommand chosen = state->menuCommands[index];
         Prog_CloseMenu(state);
@@ -2312,7 +2384,7 @@ function void Prog__InvokeMenu(Prog_State *state, u32 index)
     }
     // Items Filey implements itself, which are all of them on Linux.
     if (item.action) {
-        static_assert(P_MenuAction_Count == 20);
+        static_assert(P_MenuAction_Count == 21);
         local_persist const Prog_CommandKind actions[P_MenuAction_Count] = {
             [P_MenuAction_CompressZip] = Prog_CommandKind_CompressZip,
             [P_MenuAction_Compress7z] = Prog_CommandKind_Compress7z,

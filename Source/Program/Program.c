@@ -6318,8 +6318,14 @@ function void Prog__DropShadow(f32 x, f32 y, f32 width, f32 height, f32 radius, 
     UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
 }
 
-// One menu level as a floating panel, kept inside the window.
-// Sets `child` when one of its items has its submenu open.
+// A system menu item that runs a Filey command, as one, so that it shows the command's hotkeys and a choice its ring; NULL for the rest.
+function const Prog_MenuCommand *Prog__OwnMenuCommand(const P_MenuItem *item, Prog_MenuCommand *own)
+{
+    if (item->action != P_MenuAction_Command) return NULL;
+    *own = (Prog_MenuCommand){ .kind = (u16)item->id, .label = item->label, .checked = item->isDefault, .toggle = item->choice, .radio = item->choice };
+    return own;
+}
+
 // The Filey command that does what a system menu's verb does, whose hotkeys its row shows; None for the rest.
 function Prog_CommandKind Prog__VerbCommand(String verb)
 {
@@ -6331,6 +6337,8 @@ function Prog_CommandKind Prog__VerbCommand(String verb)
     return Prog_CommandKind_None;
 }
 
+// One menu level as a floating panel, kept inside the window.
+// Sets `child` when one of its items has its submenu open.
 function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place, const Prog_Metrics *m, Prog_MenuPlace *child, Prog_MenuBorder *border,
                              Prog_MenuBorder *parentBorder)
 {
@@ -6373,7 +6381,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
         anySubmenu |= item->childCount != 0;
         if (!item->separator) {
             // A system item shows the hotkeys of the Filey command that does the same.
-            const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[visible[i]] : NULL;
+            Prog_MenuCommand own;
+            const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[visible[i]] : Prog__OwnMenuCommand(item, &own);
             u32 mouse = command && command->mouse.length ? 1 : 0;
             if (mouse) chips[i * 3] = (Prog_HotkeyChip){ .text = command->mouse, .slot = UINT8_MAX };
             Prog_CommandKind kind = command ? (Prog_CommandKind)(command->hotkeysOf ? command->hotkeysOf : command->kind) : Prog__VerbCommand(item->verb);
@@ -6665,7 +6674,8 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                 R_Color color = enabled ? theme->text : theme->textDim;
                 // Looked up as it is drawn, as a full icon atlas can give its cell to another.
                 const Prog_Icon *icon = Prog_ImageIcon(state, item->icon);
-                const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[index] : NULL;
+                Prog_MenuCommand own;
+                const Prog_MenuCommand *command = state->menuCommands ? &state->menuCommands[index] : Prog__OwnMenuCommand(item, &own);
                 // An open submenu's items sit in from its item's.
                 if (depths[i]) Prog__Spacer(UI_Pixels(depths[i] * indent), UI_Pixels(itemHeight));
                 UI_SetNextPrefWidth(UI_Pixels(iconColumn));
