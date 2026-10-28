@@ -81,7 +81,7 @@ typedef struct Prog_Loop {
     f32 monoPixels;
     // The Setup page's text at its three sizes, made while it shows, and the scale they were made for.
     Arena setupArena;
-    R_Font setupFonts[3];
+    R_Font setupFonts[4];
     f32 setupScale;
     // The families the fonts were last made from.
     Prog_FontName fontName, monoName;
@@ -244,14 +244,14 @@ function void Prog__Frame(void *user, PlatformEventList events)
             }
             state->monoFont = loop->mono.cache ? &loop->mono : NULL;
         }
-        // The Setup page's 20, 14 and 11 point text, in the interface's font, gone again with the page.
+        // The Setup page's 20, 14 and 11 point text and its 30 point name, in the interface's font, gone again with the page.
         if (state->setupOpen != (loop->setupScale == scale)) {
             for (u32 i = 0; i < CArrayCount(loop->setupFonts); ++i) R_FontRelease(&loop->setupFonts[i]);
             ArenaRelease(&loop->setupArena);
             MemZero(loop->setupFonts, sizeof(loop->setupFonts));
             loop->setupScale = 0;
             if (state->setupOpen) {
-                local_persist const f32 points[3] = { 20, 14, 11 };
+                local_persist const f32 points[4] = { 20, 14, 11, 30 };
                 String family = state->font.length ? StrMake(state->font.text, state->font.length) : Prog_DefaultFont;
                 b32 made = true;
                 for (u32 i = 0; i < CArrayCount(points); ++i) made = made && R_FontCreate(&loop->setupArena, family, points[i] * (96.0f / 72.0f) * scale, &loop->setupFonts[i]);

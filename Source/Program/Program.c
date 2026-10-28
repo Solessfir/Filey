@@ -13467,7 +13467,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
     R_Rect view = UI->root->rect;
     f32 s = m->scale, middle = floorf((view.x1 - view.x0) * 0.5f);
     const R_Font *large = state->setupFonts[0] ? state->setupFonts[0] : m->font, *medium = state->setupFonts[1] ? state->setupFonts[1] : m->font;
-    const R_Font *fine = state->setupFonts[2] ? state->setupFonts[2] : m->font;
+    const R_Font *fine = state->setupFonts[2] ? state->setupFonts[2] : m->font, *title = state->setupFonts[3] ? state->setupFonts[3] : large;
     const P_Install *setup = &state->setup;
     UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
     UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
@@ -13501,7 +13501,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         String name = NoTr("Filey");
         R_Color nameInk = theme->icon;
         nameInk.a *= named;
-        Prog__SetupText(name, large, nameInk, middle - floorf(R_TextWidth(large, name) * 0.5f), floorf(217.6f * s + 0.5f));
+        Prog__SetupText(name, title, nameInk, middle - floorf(R_TextWidth(title, name) * 0.5f), floorf(220.0f * s + 0.5f));
         // What runs and what is installed: the version in a brighter color.
         String before, version, after;
         if (setup->running) {

@@ -1990,7 +1990,7 @@ typedef struct Prog_State {
     R_TextureHandle setupLogo;
     i32 setupLogoSize;
     u64 setupOpenedAt;  // when Setup last opened, from which its logo comes in
-    const R_Font *setupFonts[3];
+    const R_Font *setupFonts[4];
     Prog_TextEdit layoutName;
     // What the layouts ask first, about the layout named `layoutAskName`.
     enum8(Prog_LayoutAsk) layoutAsk;
