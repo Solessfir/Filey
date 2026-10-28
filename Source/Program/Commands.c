@@ -1283,9 +1283,15 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
             if (Prog_GoToFolded(state, section)) continue;
             if (section == Prog_GoToSection_Storage || section == Prog_GoToSection_Places) {
                 const P_ArrayPlace *places = section == Prog_GoToSection_Storage ? &state->drives : &state->places;
+                // A place bookmarked shows once, among the bookmarks, while they show.
+                b32 bookmarksShown = !Prog_GoToFolded(state, Prog_GoToSection_Bookmarks);
                 for (u64 i = 0; i < places->header.count; ++i) {
                     const P_Place *place = &places->v[i];
-                    result[(*count)++] = (Prog_GoToItem){ place->path, (u8)section, false, false, place->name, section == Prog_GoToSection_Storage ? place : NULL };
+                    b32 bookmarked = false;
+                    for (u64 b = 0; section == Prog_GoToSection_Places && bookmarksShown && b < state->bookmarks.header.count && !bookmarked; ++b) {
+                        bookmarked = Prog__EqualFolded(state->bookmarks.v[b], place->path);
+                    }
+                    if (!bookmarked) result[(*count)++] = (Prog_GoToItem){ place->path, (u8)section, false, false, place->name, section == Prog_GoToSection_Storage ? place : NULL };
                 }
                 continue;
             }
