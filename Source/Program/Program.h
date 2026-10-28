@@ -2198,6 +2198,10 @@ typedef struct Prog_State {
     b8 *usageOpen;
     u32 usageSelected, usageType, usageHover;
     b32 usageReveal;  // the chosen folder's row scrolls into sight
+    // The file chosen in the treemap, in usage.files, UINT32_MAX while the folder is; and the press that chose it, which while it is the last press the keys that trash and delete files act on the chosen item rather than the list's.
+    u32 usageFile;
+    u64 usagePress;
+    b32 usageMenu;  // its menu's Trash or Delete runs, which acts on the item chosen whatever was pressed last
     Arena usageCellsArena;
     Prog_UsageCell *usageCells;
     u32 usageCellCount;
@@ -2249,6 +2253,10 @@ function b32 Prog_IsModel(String path);
 function b32 Prog_IsBlp(String path);
 function b32 Prog_ScanUsage(Arena *arena, String path, Prog_UsageProgress *progress, const P_CancelToken *cancel, Prog_Usage *usage);
 function u32 Prog_UsageLayout(Arena *arena, const Prog_Usage *usage, u32 root, R_Rect rect, Prog_UsageCell **cells);
+function u32 Prog_UsageRemove(Prog_Usage *usage, String path);
+function String Prog_UsageChosen(Prog_State *state, Arena *arena, b32 any);
+function b32 Prog__UsageHasChoice(const Prog_State *state);
+function String Prog_UsageFolderPath(Arena *arena, const Prog_Usage *usage, u32 index);
 function b32 Prog_DecodeBlp(Arena *arena, String data, i32 maxSide, P_Image *out, i32 *fullWidth, i32 *fullHeight);
 function b32 Prog_LoadBlp(Arena *arena, String path, i32 maxSide, P_Image *out, i32 *fullWidth, i32 *fullHeight);
 // A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.

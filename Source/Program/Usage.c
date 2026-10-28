@@ -236,6 +236,21 @@ function b32 Prog_ScanUsage(Arena *arena, String path, Prog_UsageProgress *progr
     return result;
 }
 
+// The path of the usage's folder `index`, from its root's.
+function String Prog_UsageFolderPath(Arena *arena, const Prog_Usage *usage, u32 index)
+{
+    u32 depth = 0;
+    for (u32 at = index; at != UINT32_MAX; at = usage->folders[at].parent) ++depth;
+    Scratch scratch = GetScratchEx(arena);
+    u32 *chain = ArenaPushArray(scratch.arena, depth + 1, u32), n = 0;
+    for (u32 at = index; at != UINT32_MAX; at = usage->folders[at].parent) chain[n++] = at;
+    String path = usage->folders[chain[n - 1]].name;
+    for (u32 i = n - 1; i-- > 0;) path = Prog_JoinPath(scratch.arena, path, usage->folders[chain[i]].name);
+    path = StrCopy(arena, path);
+    ReleaseScratch(scratch);
+    return path;
+}
+
 // What a folder's treemap lays out: its folders, its kept files and its smaller files together.
 typedef struct Prog__UsageItem {
     u64 bytes;
@@ -323,4 +338,49 @@ function u32 Prog_UsageLayout(Arena *arena, const Prog_Usage *usage, u32 root, R
     if (root < usage->folderCount && rect.x1 - rect.x0 >= 2 && rect.y1 - rect.y0 >= 2) Prog__UsageLayoutFolder(arena, usage, root, rect, &laid);
     *cells = laid.v;
     return (u32)laid.header.count;
+}
+
+// Takes the item at `path`, a folder or a kept file below the folder scanned, out of `usage`, as when it was deleted, with its bytes and counts out of the folders it was in; returns the folder it was in, or UINT32_MAX when the usage has no such item.
+// ponytail: the types keep a gone folder's files, which a scan again brings right.
+function u32 Prog_UsageRemove(Prog_Usage *usage, String path)
+{
+    String root = usage->path;
+    while (root.length > 1 && root.value[root.length - 1] == '/') --root.length;
+    if (!usage->folderCount || path.length <= root.length + 1 || !StrIsEqual(StrFromTo(path, 0, (i64)root.length), root) || path.value[root.length] != '/') return UINT32_MAX;
+    String rest = StrFrom(path, root.length + 1);
+    u32 at = 0;
+    for (;;) {
+        Index slash = StrIndexChar(rest, '/', SSF_None);
+        String name = slash.exists ? StrFromTo(rest, 0, (i64)slash.value) : rest;
+        u32 child = usage->folders[at].firstChild, previous = UINT32_MAX;
+        while (child != UINT32_MAX && !StrIsEqual(usage->folders[child].name, name)) previous = child, child = usage->folders[child].nextSibling;
+        if (slash.exists) {
+            if (child == UINT32_MAX) return UINT32_MAX;
+            at = child, rest = StrFrom(rest, slash.value + 1);
+            continue;
+        }
+        u64 bytes = 0, files = 0, folders = 0;
+        if (child != UINT32_MAX) {
+            Prog_UsageFolder *gone = &usage->folders[child];
+            bytes = gone->bytes, files = gone->files, folders = gone->folders + 1;
+            if (previous == UINT32_MAX) usage->folders[at].firstChild = gone->nextSibling;
+            else usage->folders[previous].nextSibling = gone->nextSibling;
+        } else {
+            Prog_UsageFolder *folder = &usage->folders[at];
+            u32 found = UINT32_MAX;
+            for (u32 f = 0; f < folder->fileCount && found == UINT32_MAX; ++f) if (StrIsEqual(usage->files[folder->firstFile + f].name, name)) found = folder->firstFile + f;
+            if (found == UINT32_MAX) return UINT32_MAX;
+            Prog_UsageFile *file = &usage->files[found];
+            bytes = file->bytes, files = 1;
+            if (file->type < usage->typeCount) usage->types[file->type].bytes -= Min(file->bytes, usage->types[file->type].bytes), usage->types[file->type].files -= Min(1u, (u32)usage->types[file->type].files);
+            // The kept files close up over it, in their order.
+            MemMove(file, file + 1, (folder->fileCount - (found - folder->firstFile) - 1) * sizeof(Prog_UsageFile));
+            --folder->fileCount;
+        }
+        for (u32 up = at; up != UINT32_MAX; up = usage->folders[up].parent) {
+            Prog_UsageFolder *folder = &usage->folders[up];
+            folder->bytes -= Min(bytes, folder->bytes), folder->files -= Min(files, folder->files), folder->folders -= Min(folders, folder->folders);
+        }
+        return at;
+    }
 }

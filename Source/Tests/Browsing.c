@@ -2513,6 +2513,17 @@ function void TestMeasure(TestFileFixture *fixture)
         b32 within = count > 1 && cells[0].frame && cells[0].folder == 0;
         for (u32 i = 0; i < count; ++i) within &= cells[i].rect.x0 >= 0 && cells[i].rect.y0 >= 0 && cells[i].rect.x1 <= 400 && cells[i].rect.y1 <= 300 && cells[i].rect.x1 > cells[i].rect.x0;
         Check(within);
+        // An item deleted leaves it, a file and then its folder, with the folders it was in made smaller; one it does not have changes nothing.
+        u32 folder2 = UINT32_MAX;
+        for (u32 child = root->firstChild; child != UINT32_MAX; child = usage.folders[child].nextSibling) if (StrIsEqual(usage.folders[child].name, S("Folder2"))) folder2 = child;
+        u64 bytes = root->bytes, files = root->files, folders = root->folders;
+        Check(Prog_UsageRemove(&usage, Prog_JoinPath(&kept, fixture->path, S("Folder2/inside.txt"))) == folder2);
+        Check(root->bytes == bytes - 5 && root->files == files - 1 && usage.folders[folder2].bytes == 0 && !usage.folders[folder2].fileCount);
+        Check(StrIsEqual(Prog_UsageFolderPath(&kept, &usage, folder2), Prog_JoinPath(&kept, fixture->path, S("Folder2"))));
+        Check(Prog_UsageRemove(&usage, Prog_JoinPath(&kept, fixture->path, S("Folder2"))) == 0 && root->folders == folders - 1);
+        b32 linked = false;
+        for (u32 child = root->firstChild; child != UINT32_MAX; child = usage.folders[child].nextSibling) linked |= child == folder2;
+        Check(!linked && Prog_UsageRemove(&usage, Prog_JoinPath(&kept, fixture->path, S("missing.txt"))) == UINT32_MAX && root->files == files - 1);
         ArenaRelease(&kept);
     }
     P_RequestCancel(&token);

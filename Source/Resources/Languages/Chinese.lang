@@ -3382,3 +3382,12 @@ Scan the folder the inspector's disk usage shows again.
 
 [%S files]
 = [%S 个文件]
+
+Show in Folder
+= 在文件夹中显示
+
+Show the item chosen in the inspector's disk usage in its folder, in a new tab.
+= 在新标签页中，于所在文件夹显示检查器磁盘占用中选中的项目。
+
+Delete Permanently
+= 永久删除

@@ -12044,21 +12044,6 @@ function R_Color Prog__UsageColor(u32 type)
     return Prog_HsbToRgb(fmodf(0.08f + (f32)type * 0.618034f, 1.0f), 0.62f, 0.86f, 1);
 }
 
-// The path of the usage's folder `index`, from its root's.
-function String Prog__UsagePath(Arena *arena, const Prog_Usage *usage, u32 index)
-{
-    u32 depth = 0;
-    for (u32 at = index; at != UINT32_MAX; at = usage->folders[at].parent) ++depth;
-    Scratch scratch = GetScratchEx(arena);
-    u32 *chain = ArenaPushArray(scratch.arena, depth + 1, u32), n = 0;
-    for (u32 at = index; at != UINT32_MAX; at = usage->folders[at].parent) chain[n++] = at;
-    String path = usage->folders[chain[n - 1]].name;
-    for (u32 i = n - 1; i-- > 0;) path = Prog_JoinPath(scratch.arena, path, usage->folders[chain[i]].name);
-    path = StrCopy(arena, path);
-    ReleaseScratch(scratch);
-    return path;
-}
-
 // The path of the usage's folder `index` as the view shows it: from the folder scanned, by its name, in the system's separators, cut at its start to `width` so that its end shows.
 function String Prog__UsageShownPath(Prog_State *state, String path, const R_Font *font, f32 width)
 {
@@ -12183,10 +12168,10 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
             if (cell->frame) {
                 R_Color edge = theme->background;
                 quads[quadCount++] = (UI_Quad){ cell->rect, { edge, edge, edge, edge } };
-                if (cell->folder == state->usageSelected && cell->folder) chosen = cell->rect;
+                if (cell->folder == state->usageSelected && cell->folder && state->usageFile == UINT32_MAX) chosen = cell->rect;
                 continue;
             }
-            if (cell->folder == state->usageSelected && !cell->rest && cell->file == UINT32_MAX) chosen = cell->rect;
+            if (cell->folder == state->usageSelected && !cell->rest && cell->file == state->usageFile) chosen = cell->rect;
             R_Color color = Prog__UsageColor(cell->type);
             if (state->usageType != UINT32_MAX && cell->type != state->usageType) color = (R_Color){ color.r * 0.3f, color.g * 0.3f, color.b * 0.3f, 1 };
             quads[quadCount++] = Prog__UsageQuad(cell->rect, color);
@@ -12204,7 +12189,7 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextQuads(quads, quadCount);
         UI_SetNextPrefWidth(UI_Pixels(wanted.x1));
         UI_SetNextPrefHeight(UI_Pixels(mapHeight));
-        UI_Block *map = UI_AddBlockFromKey(mapKey, UI_Flag_LeftMouseClickable | UI_Flag_Clip);
+        UI_Block *map = UI_AddBlockFromKey(mapKey, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable | UI_Flag_Clip);
         UI_Interaction pick = UI_InteractionFromBlock(map);
         u32 over = UINT32_MAX;
         if ((pick.hot || pick.active) && UI__Contains(map->rect, UI->mouse)) {
@@ -12219,12 +12204,16 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
             UI_KeepAnimating();
         }
         hover = over;
-        // A press chooses the folder of what it is on, whose rows in the tree open to it.
+        // A press chooses what it is on, a file or its folder, whose rows in the tree open to it, and the keys that trash and delete act on it; a double one shows it in its folder, and the right button opens its menu.
         if (pick.pressed && hover != UINT32_MAX) {
             const Prog_UsageCell *cell = &state->usageCells[hover];
             state->usageSelected = cell->folder;
+            state->usageFile = cell->file;
+            state->usagePress = UI->lastPressTime;
             state->usageReveal = true;
             for (u32 at = usage->folders[cell->folder].parent; at != UINT32_MAX; at = usage->folders[at].parent) state->usageOpen[at] = true;
+            if (pick.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_InspectorUsageMenu, 0, 0, pick.pressOrder)->at = UI->mouse;
+            else if (pick.pressCount == 2) Prog_QueueCommand(state, Prog_CommandKind_InspectorUsageShowInFolder, 0, 0, pick.pressOrder);
         }
         // What the pointer is over, or the folder chosen, with its size after its path.
         String about, size;
@@ -12232,7 +12221,7 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
         if (hover != UINT32_MAX) {
             const Prog_UsageCell *cell = &state->usageCells[hover];
             const Prog_UsageFolder *at = &usage->folders[cell->folder];
-            about = Prog__UsagePath(frame, usage, cell->folder);
+            about = Prog_UsageFolderPath(frame, usage, cell->folder);
             shownFolder = cell->folder;
             if (cell->file != UINT32_MAX) {
                 about = Prog_JoinPath(frame, about, usage->files[cell->file].name);
@@ -12243,7 +12232,7 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                 size = Prog_FormatSize(frame, at->bytes);
             }
         } else {
-            about = Prog__UsagePath(frame, usage, shownFolder);
+            about = Prog_UsageFolderPath(frame, usage, shownFolder);
             size = Prog_FormatSize(frame, usage->folders[shownFolder].bytes);
         }
         UI_Block *status = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
@@ -12322,7 +12311,8 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                     UI_SetNextCornerRadius(m->radius);
                     UI_SetNextColors((UI_Colors){ .background = picked ? theme->selection : theme->hover });
-                    UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (picked || UI->hotKey == key ? UI_Flag_DrawBackground : 0));
+                    UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (list ? 0 : UI_Flag_RightMouseClickable) |
+                                                         (picked || UI->hotKey == key ? UI_Flag_DrawBackground : 0));
                     UI_Interaction act = UI_InteractionFromBlock(entry);
                     UI_Parent(entry) {
                         if (list) {
@@ -12356,11 +12346,15 @@ function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
                             for (u32 child = folder->firstChild; child != UINT32_MAX; child = usage->folders[child].nextSibling) below += usage->folders[child].bytes;
                             parentBytes = bytes, bytes -= below, files = folder->fileCount + folder->restFiles, folders = 0;
                             name = StrFormat(frame, TrN(files, "[%S file]", "[%S files]"), Prog__FormatCount(frame, files));
-                        } else if (act.clicked) {
+                        } else if (act.pressed && act.button == MouseButton_Right) {
+                            // The right button chooses it and opens its menu.
+                            state->usageSelected = index, state->usageFile = UINT32_MAX, state->usagePress = UI->lastPressTime;
+                            Prog_QueueCommand(state, Prog_CommandKind_InspectorUsageMenu, 0, 0, act.pressOrder)->at = UI->mouse;
+                        } else if (act.clicked && act.button == MouseButton_Left) {
                             // A press chooses the folder; one on the chosen folder, a double one, or one on its arrow opens or closes it.
                             f32 arrowEnd = entry->rect.x0 + (f32)depths[i] * indent + chevron;
-                            if (picked || act.pressCount == 2 || UI->mouse.x < arrowEnd) state->usageOpen[index] = !state->usageOpen[index];
-                            state->usageSelected = index;
+                            if ((picked && state->usageFile == UINT32_MAX) || act.pressCount == 2 || UI->mouse.x < arrowEnd) state->usageOpen[index] = !state->usageOpen[index];
+                            state->usageSelected = index, state->usageFile = UINT32_MAX, state->usagePress = UI->lastPressTime;
                         }
                         Prog__Spacer(UI_Pixels((f32)depths[i] * indent), UI_Pixels(row));
                         b32 opens = !filesRow && (folder->firstChild != UINT32_MAX || folder->fileCount || folder->restFiles);

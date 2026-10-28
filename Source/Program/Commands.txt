@@ -2167,6 +2167,22 @@ command InspectorUsageRescan {
     tooltip = "Scan the folder the inspector's disk usage shows again."
 }
 
+// The disk usage view's menu of the item chosen, at `at`.
+command InspectorUsageMenu {
+}
+
+// The disk usage menu's Trash and Delete, which act on the item chosen whatever was pressed last.
+command InspectorUsageTrash {
+}
+
+command InspectorUsageDelete {
+}
+
+command InspectorUsageShowInFolder {
+    label   = "Show in Folder^reveal,locate,open"
+    tooltip = "Show the item chosen in the inspector's disk usage in its folder, in a new tab."
+}
+
 command InspectorToggleWhitespace {
     label   = "Toggle Inspector Whitespace^show,hide"
     tooltip = "Toggle display of whitespace in the previewed text in the inspector."

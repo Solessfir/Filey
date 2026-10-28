@@ -7514,7 +7514,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     state->usageOpen = ArenaPushArray(&state->usage.arena, state->usage.folderCount + 1, b8);
                     state->usageOpen[0] = true;
                     state->usageSelected = 0;
-                    state->usageType = state->usageHover = UINT32_MAX;
+                    state->usageType = state->usageHover = state->usageFile = UINT32_MAX;
+                    state->usagePress = 0;
                     state->usageCellsFor = (R_Rect){0};
                 }
             }
@@ -7741,6 +7742,16 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             }
             // Items sent to the bin can be taken back out.
             if (!error.code && input->kind == Prog_JobKind_Trash) Prog_PushUndo(state, Prog_UndoKind_Trash, NULL, input->paths, input->pathCount);
+            // What is gone leaves the disk usage shown, which keeps the rest as it was scanned; the folder it was in is chosen in its place.
+            if (!error.code && (input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete)) {
+                for (u64 i = 0; i < input->pathCount; ++i) {
+                    u32 left = Prog_UsageRemove(&state->usage, input->paths[i]);
+                    if (left == UINT32_MAX) continue;
+                    state->usageSelected = left;
+                    state->usageFile = state->usageHover = UINT32_MAX;
+                    state->usageCellsFor = (R_Rect){0};
+                }
+            }
             if (!error.code && input->kind == Prog_JobKind_Create && job->result) {
                 String created = Prog_JoinPath(&state->frameArena, input->path, ((Prog_Created *)job->result)->name);
                 Prog_PushUndo(state, Prog_UndoKind_Create, NULL, &created, 1);

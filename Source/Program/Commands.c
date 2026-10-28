@@ -715,7 +715,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorUsageShowInFolder, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -837,6 +837,7 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_InspectorDecreaseContentsSize: case Prog_CommandKind_InspectorToggleHex: case Prog_CommandKind_InspectorToggleUsage:
             return state->previewShown;
         case Prog_CommandKind_InspectorUsageRescan: return state->previewShown && state->inspectorUsage && state->usage.path.length;
+        case Prog_CommandKind_InspectorUsageShowInFolder: return Prog__UsageHasChoice(state);
         case Prog_CommandKind_InspectorToggleWordWrap: case Prog_CommandKind_InspectorToggleLineNumbers: case Prog_CommandKind_InspectorToggleWhitespace:
         case Prog_CommandKind_InspectorStartFilter:
             return state->previewShown && state->previewText.length;
@@ -1544,6 +1545,15 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleCompactPath, .label = Tr("Compact Path"), .toggle = true, .checked = !state->fullPaths);
             Prog__Item(.kind = Prog_CommandKind_ToggleBreadcrumbs, .label = Tr("Path Breadcrumbs"), .toggle = true, .checked = !state->noTrail);
+        } break;
+        // The disk usage's, for the item chosen.
+        case Prog_CommandKind_InspectorUsageMenu: {
+            b32 none = !Prog__UsageHasChoice(state);
+            Prog__Item(.kind = Prog_CommandKind_InspectorUsageShowInFolder, .icon = Icon_FolderSearch, .disabled = (b8)none);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            // Delete sends it to the bin, as Explorer's does, and Delete Permanently removes it for good.
+            Prog__Item(.kind = Prog_CommandKind_InspectorUsageTrash, .label = Tr("Delete"), .hotkeysOf = Prog_CommandKind_Trash, .disabled = (b8)none);
+            Prog__Item(.kind = Prog_CommandKind_InspectorUsageDelete, .label = Tr("Delete Permanently"), .hotkeysOf = Prog_CommandKind_SelectionDelete, .disabled = (b8)none);
         } break;
         // The header's, for the column right-clicked: moving it, its width, then which columns there are.
         case Prog_CommandKind_ColumnMenu: {
@@ -2840,12 +2850,36 @@ function u64 Prog__GroupedLineStep(const Prog_State *state, u64 position, u64 st
     return position;
 }
 
+// The item the inspector's disk usage chose, a file or a folder below the one scanned, while the last press was on it or with `any`; empty otherwise, and for the folder scanned itself, which the list has.
+function b32 Prog__UsageHasChoice(const Prog_State *state)
+{
+    const Prog_Usage *usage = &state->usage;
+    return state->inspectorUsage && usage->folderCount && state->usagePress && state->usageSelected < usage->folderCount && (state->usageSelected || state->usageFile != UINT32_MAX);
+}
+
+function String Prog_UsageChosen(Prog_State *state, Arena *arena, b32 any)
+{
+    Prog_Usage *usage = &state->usage;
+    if (!Prog__UsageHasChoice(state) || (!any && state->usagePress != UI->lastPressTime)) return (String){0};
+    String path = Prog_UsageFolderPath(arena, usage, state->usageSelected);
+    if (state->usageFile < usage->fileCount) path = Prog_JoinPath(arena, path, usage->files[state->usageFile].name);
+    return path;
+}
+
 function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
 {
     if (state->loading || state->renaming) return;
     Arena *frame = &state->frameArena;
     String *paths = NULL;
     u64 count = Prog__SelectedPaths(state, frame, &paths);
+    // The keys that trash and delete act on what the disk usage chose, while it was pressed last.
+    String folder = state->directory.path;
+    String chosen = kind == Prog_CommandKind_Trash || kind == Prog_CommandKind_SelectionDelete ? Prog_UsageChosen(state, frame, state->usageMenu) : (String){0};
+    if (chosen.length) {
+        paths[0] = chosen;
+        count = 1;
+        folder = Prog_ParentPath(chosen);
+    }
     switch (kind) {
         case Prog_CommandKind_CopySelection:
         case Prog_CommandKind_CutSelection: {
@@ -2884,8 +2918,8 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
         } break;
         case Prog_CommandKind_Trash:
             // In the bin, as in Explorer's, the key that trashes deletes for good, after asking.
-            if (!P_IsTrashFolder(state->directory.path)) {
-                Prog__FileJob(state, Prog_JobKind_Trash, paths, count, state->directory.path, false, (String){0});
+            if (!P_IsTrashFolder(folder)) {
+                Prog__FileJob(state, Prog_JobKind_Trash, paths, count, folder, false, (String){0});
                 break;
             }
             [[fallthrough]];
@@ -2894,7 +2928,7 @@ function void Prog__FileCommand(Prog_State *state, Prog_CommandKind kind)
             // until the confirmation here is accepted.
             if (!count) break;
             if (P_DeleteAsks()) {
-                Prog__FileJob(state, Prog_JobKind_Delete, paths, count, state->directory.path, true, (String){0});
+                Prog__FileJob(state, Prog_JobKind_Delete, paths, count, folder, true, (String){0});
                 break;
             }
             ArenaClear(&state->confirmArena);
@@ -3433,6 +3467,16 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             } break;
             // The usage of the folder shown is scanned as it shows, and again when asked.
             case Prog_CommandKind_InspectorToggleUsage: state->inspectorUsage = !state->inspectorUsage; break;
+            case Prog_CommandKind_InspectorUsageShowInFolder: {
+                String chosen = Prog_UsageChosen(state, &state->frameArena, true);
+                if (chosen.length) Prog_ShowInFolder(state, chosen, true);
+            } break;
+            case Prog_CommandKind_InspectorUsageTrash:
+            case Prog_CommandKind_InspectorUsageDelete: {
+                state->usageMenu = true;
+                Prog__FileCommand(state, command->kind == Prog_CommandKind_InspectorUsageTrash ? Prog_CommandKind_Trash : Prog_CommandKind_SelectionDelete);
+                state->usageMenu = false;
+            } break;
             case Prog_CommandKind_InspectorUsageRescan: {
                 u64 owner = state->panels[state->currentPanel].inspectorOf;
                 u32 back = state->currentPanel;
@@ -4629,6 +4673,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             // Fitting measures the values, which the next build of the header does.
             case Prog_CommandKind_ColumnFit: state->fitColumn = (u32)command->row + 1; break;
             case Prog_CommandKind_SizeAllColumnsToFit: state->fitColumn = UINT32_MAX; break;
+            case Prog_CommandKind_InspectorUsageMenu:
             case Prog_CommandKind_ColumnMenu:
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:

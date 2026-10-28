@@ -3381,3 +3381,12 @@ Scan the folder the inspector's disk usage shows again.
 
 [%S files]
 = [%S файл] | [%S файла] | [%S файлов]
+
+Show in Folder
+= Показать в папке
+
+Show the item chosen in the inspector's disk usage in its folder, in a new tab.
+= Показывает выбранный в занятом месте инспектора элемент в его папке, в новой вкладке.
+
+Delete Permanently
+= Удалить навсегда

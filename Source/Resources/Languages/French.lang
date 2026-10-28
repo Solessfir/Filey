@@ -3383,3 +3383,12 @@ Scan the folder the inspector's disk usage shows again.
 
 [%S files]
 = [%S fichier] | [%S fichiers]
+
+Show in Folder
+= Afficher dans le dossier
+
+Show the item chosen in the inspector's disk usage in its folder, in a new tab.
+= Affiche l’élément choisi dans l’utilisation du disque de l’inspecteur dans son dossier, dans un nouvel onglet.
+
+Delete Permanently
+= Supprimer définitivement

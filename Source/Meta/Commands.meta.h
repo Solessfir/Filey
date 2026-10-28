@@ -406,6 +406,10 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_InspectorToggleHex,
     Prog_CommandKind_InspectorToggleUsage,
     Prog_CommandKind_InspectorUsageRescan,
+    Prog_CommandKind_InspectorUsageMenu,
+    Prog_CommandKind_InspectorUsageTrash,
+    Prog_CommandKind_InspectorUsageDelete,
+    Prog_CommandKind_InspectorUsageShowInFolder,
     Prog_CommandKind_InspectorToggleWhitespace,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
@@ -812,6 +816,10 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_InspectorToggleHex] = { .name = { "InspectorToggleHex", 18 }, .label = { "Toggle Inspector Hex View", 25 }, .aliases = { "bytes,binary,hexadecimal", 24 }, .tooltip = { "Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.", 99 } },
     [Prog_CommandKind_InspectorToggleUsage] = { .name = { "InspectorToggleUsage", 20 }, .label = { "Toggle Inspector Disk Usage", 27 }, .aliases = { "treemap,space,size,sizes,wiztree,largest,biggest", 48 }, .tooltip = { "Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it.", 125 } },
     [Prog_CommandKind_InspectorUsageRescan] = { .name = { "InspectorUsageRescan", 20 }, .label = { "Scan Disk Usage Again", 21 }, .aliases = { "refresh,reload,rescan", 21 }, .tooltip = { "Scan the folder the inspector's disk usage shows again.", 55 } },
+    [Prog_CommandKind_InspectorUsageMenu] = { .name = { "InspectorUsageMenu", 18 } },
+    [Prog_CommandKind_InspectorUsageTrash] = { .name = { "InspectorUsageTrash", 19 } },
+    [Prog_CommandKind_InspectorUsageDelete] = { .name = { "InspectorUsageDelete", 20 } },
+    [Prog_CommandKind_InspectorUsageShowInFolder] = { .name = { "InspectorUsageShowInFolder", 26 }, .label = { "Show in Folder", 14 }, .aliases = { "reveal,locate,open", 18 }, .tooltip = { "Show the item chosen in the inspector's disk usage in its folder, in a new tab.", 79 } },
     [Prog_CommandKind_InspectorToggleWhitespace] = { .name = { "InspectorToggleWhitespace", 25 }, .label = { "Toggle Inspector Whitespace", 27 }, .aliases = { "show,hide", 9 }, .tooltip = { "Toggle display of whitespace in the previewed text in the inspector.", 68 } },
 };
 
