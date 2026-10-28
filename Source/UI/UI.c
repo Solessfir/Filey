@@ -578,9 +578,10 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
             UI_Vec2 size = block->props.imageSize;
             f32 innerWidth = block->rect.x1 - block->rect.x0 - pad.left - pad.right;
             f32 innerHeight = block->rect.y1 - block->rect.y0 - pad.top - pad.bottom;
-            // Whole pixels, since images are uploaded at their drawn size.
-            f32 x = floorf(block->rect.x0 + pad.left + (innerWidth - size.x) * UI__Clamp(block->props.textAlignment.x, 0, 1) + 0.5f);
-            f32 y = floorf(block->rect.y0 + pad.top + (innerHeight - size.y) * UI__Clamp(block->props.textAlignment.y, 0, 1) + 0.5f);
+            // Whole pixels, since images are uploaded at their drawn size, unless the block asks otherwise.
+            f32 x = block->rect.x0 + pad.left + (innerWidth - size.x) * UI__Clamp(block->props.textAlignment.x, 0, 1);
+            f32 y = block->rect.y0 + pad.top + (innerHeight - size.y) * UI__Clamp(block->props.textAlignment.y, 0, 1);
+            if (!FlagExists(block->flags, UI_Flag_ImageSubpixel)) x = floorf(x + 0.5f), y = floorf(y + 0.5f);
             R_DrawImage((R_Rect){ x, y, x + size.x, y + size.y }, block->props.imageUV, block->props.image, UI__Faded(block->props.imageTint, opacity));
         }
         if (FlagExists(block->flags, UI_Flag_DrawText) && block->props.font) {

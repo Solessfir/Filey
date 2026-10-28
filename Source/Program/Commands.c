@@ -2881,8 +2881,10 @@ function void Prog__OpenSetup(Prog_State *state)
     Prog_CloseMenu(state);
     state->paletteOpen = false;
     state->setupOpen = true;
+    state->setupOpenedAt = PlatformNowMicroseconds();
     Prog__ReadSetup(state);
-    i32 size = (i32)floorf(128.0f * (state->iconScale > 0 ? state->iconScale : 1.0f) + 0.5f);
+    // Twice the size it is drawn at and filtered, so that it scales smoothly as it moves rather than a pixel at a time.
+    i32 size = 2 * (i32)floorf(128.0f * (state->iconScale > 0 ? state->iconScale : 1.0f) + 0.5f);
     if (state->setupLogoSize != size) {
         R_TextureRelease(state->setupLogo);
         state->setupLogo = (R_TextureHandle){0};
@@ -2891,6 +2893,7 @@ function void Prog__OpenSetup(Prog_State *state)
         P_Image image = {0};
         if (P_LoadAppIcon(scratch.arena, size, &image)) {
             state->setupLogo = R_TextureCreateRGBA(image.width, image.height, image.pixels);
+            R_TextureSmooth(state->setupLogo);
             state->setupLogoSize = size;
         }
         ReleaseScratch(scratch);

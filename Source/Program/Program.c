@@ -13476,16 +13476,32 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
     UI_Interaction drag = UI_InteractionFromBlock(page);
     if (drag.pressed) Prog_QueueCommand(state, Prog_CommandKind_WindowMove, 0, 0, drag.pressOrder);
     UI_Parent(page) {
-        f32 logo = floorf(128.0f * s + 0.5f);
+        f32 logo = floorf(128.0f * s + 0.5f), logoTop = floorf(51.6f * s + 0.5f);
+        // The logo comes in as the page opens: it fades in and grows from 60% past its size and back, over 600 ms, and the name fades in after it.
+        // The pointer coming onto it bounces it a little.
+        f32 since = (f32)(UI->nowMicroseconds - Min(state->setupOpenedAt, UI->nowMicroseconds)) / 1e6f, t = UI->animate ? MinF32(since / 0.6f, 1) : 1;
+        f32 back = 1 + 2.70158f * (t - 1) * (t - 1) * (t - 1) + 1.70158f * (t - 1) * (t - 1);
+        f32 grown = 0.6f + 0.4f * back, shown = MinF32(t * 2.5f, 1), named = UI->animate ? MinF32(MaxF32((since - 0.2f) / 0.4f, 0), 1) : 1;
+        b32 over = UI->mouseKnown && UI->mouse.x >= middle - logo * 0.5f && UI->mouse.x < middle + logo * 0.5f && UI->mouse.y >= logoTop && UI->mouse.y < logoTop + logo;
+        UI_Animation *hover = UI__Animation(UI_KeyFromStr(0, S("SetupLogoHover")), 0);
+        if (hover && over && hover->value == 0 && t >= 1) hover->startMicroseconds = UI->nowMicroseconds;
+        if (hover) hover->value = over ? 1.0f : 0.0f;
+        f32 bounced = hover ? (f32)(UI->nowMicroseconds - Min(hover->startMicroseconds, UI->nowMicroseconds)) / 1e6f : 1;
+        if (UI->animate && bounced < 0.4f && t >= 1) grown += 0.08f * sinf(bounced / 0.4f * 3.14159265f) * (1 - bounced / 0.4f);
+        if (t < 1 || named < 1 || (UI->animate && bounced < 0.4f)) UI_KeepAnimating();
         if (state->setupLogo.u64[0]) {
-            UI_SetNextFloatingOffset((UI_Vec2){ middle - floorf(logo * 0.5f), floorf(51.6f * s + 0.5f) });
-            UI_SetNextPrefWidth(UI_Pixels(logo));
-            UI_SetNextPrefHeight(UI_Pixels(logo));
-            UI_SetNextImage(state->setupLogo, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ logo, logo }, (R_Color){ 1, 1, 1, 1 });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage);
+            // Unrounded while it moves, so that it grows smoothly about its middle rather than a pixel at a time, which would also shake it.
+            f32 size = grown == 1 ? logo : logo * grown;
+            UI_SetNextFloatingOffset((UI_Vec2){ middle - size * 0.5f, logoTop + (logo - size) * 0.5f });
+            UI_SetNextPrefWidth(UI_Pixels(size));
+            UI_SetNextPrefHeight(UI_Pixels(size));
+            UI_SetNextImage(state->setupLogo, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, shown });
+            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage | (grown == 1 ? 0 : UI_Flag_ImageSubpixel));
         }
         String name = NoTr("Filey");
-        Prog__SetupText(name, large, theme->icon, middle - floorf(R_TextWidth(large, name) * 0.5f), floorf(217.6f * s + 0.5f));
+        R_Color nameInk = theme->icon;
+        nameInk.a *= named;
+        Prog__SetupText(name, large, nameInk, middle - floorf(R_TextWidth(large, name) * 0.5f), floorf(217.6f * s + 0.5f));
         // What runs and what is installed: the version in a brighter color.
         String before, version, after;
         if (setup->running) {
