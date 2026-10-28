@@ -6234,17 +6234,14 @@ function void Prog__RestoreOwnView(Prog_State *state)
     else if (regroup) Prog_ApplyFilter(state, false);
 }
 
-// Locks the shown folder's view as the panel shows it, or unlocks it. What the panel shows stays either way; the panel's own comes back in
-// the next folder without a lock.
+// Locks the shown folder's view as the panel shows it, for it alone, or lets its own lock go, alone or with its subfolders; a folder whose
+// view comes from one above it gets a lock of its own. What the panel shows stays either way; the panel's own comes back in the next folder
+// without a lock.
 function void Prog_ToggleFolderView(Prog_State *state)
 {
-    String path = state->directory.path;
     Prog_ViewSettings view;
-    if (!path.length) return;
-    b32 locked = Prog_FolderView(state, path, &view);
-    Prog_ViewSettings shown = Prog_CurrentView(state);
-    Prog__SetFolderView(state, path, locked ? NULL : &shown);
-    if (!locked) Prog__ApplyFolderView(state, path);
+    Prog_ViewScope scope = Prog_FolderViewScope(state, state->directory.path, &view, NULL);
+    Prog_SetFolderViewScope(state, scope == Prog_ViewScope_Folder || scope == Prog_ViewScope_Tree ? Prog_ViewScope_None : Prog_ViewScope_Folder);
 }
 
 function void Prog_ClearFolderViews(Prog_State *state)

@@ -2184,8 +2184,9 @@ function R_Color Prog__ButtonWash(UI_Key key, b32 hot, b32 pressed, R_Color wash
 
 // Text button that tints its text when hot and greys out when disabled, washed in `washColor` under the pointer.
 // A NULL font uses the default one.
-function UI_Interaction Prog__WashedButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
-                                           R_Color color, R_Color hotColor, R_Color disabledColor, R_Color washColor, b32 enabled, const Prog_Metrics *m)
+// `clickable` says the buttons that press it, the left one or more.
+function UI_Interaction Prog__WashedButtonBy(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding, R_Color color, R_Color hotColor,
+                                             R_Color disabledColor, R_Color washColor, b32 enabled, UI_Flags clickable, const Prog_Metrics *m)
 {
     UI_Key key = UI_KeyFromStr(0, identity);
     b32 hot = enabled && UI->hotKey == key, pressed = enabled && UI->activeKey == key;
@@ -2198,10 +2199,16 @@ function UI_Interaction Prog__WashedButton(String identity, String text, const R
     UI_SetNextColors((UI_Colors){ .background = wash, .text = !enabled ? disabledColor : hot || pressed ? hotColor : color });
     UI_SetNextText(text);
     if (font) UI_SetNextFont(font);
-    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (wash.a > 0 ? UI_Flag_DrawBackground : 0) | (enabled ? UI_Flag_LeftMouseClickable : 0));
+    UI_Block *block = UI_AddBlockFromKey(key, UI_Flag_DrawText | (wash.a > 0 ? UI_Flag_DrawBackground : 0) | (enabled ? clickable : 0));
     UI_Interaction result = UI_InteractionFromBlock(block);
     if (!enabled) result.clicked = false;
     return result;
+}
+
+function UI_Interaction Prog__WashedButton(String identity, String text, const R_Font *font, UI_Size width, f32 height, f32 padding,
+                                           R_Color color, R_Color hotColor, R_Color disabledColor, R_Color washColor, b32 enabled, const Prog_Metrics *m)
+{
+    return Prog__WashedButtonBy(identity, text, font, width, height, padding, color, hotColor, disabledColor, washColor, enabled, UI_Flag_LeftMouseClickable, m);
 }
 
 // Under the pointer, the same wash of the selection color as a hovered row.
@@ -3195,15 +3202,18 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
     // A little narrower than the other toolbar buttons and further apart.
     f32 width = floorf(25.6f * m->scale + 0.5f), height = Prog__ToolbarButtonHeight(m);
     // A kept view's lock is colored as a bookmarked folder's bookmark, so that it tells apart from an open one at a glance.
-    UI_Interaction lock = Prog__TextButton(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,
-                                           kept ? theme->textMatch : theme->icon, kept ? theme->textMatch : theme->text, theme->iconDisabled, path.length != 0, m);
+    UI_Interaction lock = Prog__WashedButtonBy(S("FolderView"), kept ? Icon_LockKeyhole : Icon_LockKeyholeOpen, m->icons, UI_Pixels(width), height, 0,
+                                               kept ? theme->textMatch : theme->icon, kept ? theme->textMatch : theme->text, theme->iconDisabled, theme->selection,
+                                               path.length != 0, UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable, m);
     if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_FolderViewToggle, kept ? Tr("Folder view settings saved and applied.\nIcons, sort, folders first, list columns.")
                                                                                         : Tr("No folder view settings saved.\nUsing panel's view settings."));
-    // It opens the menu of how the folder's view is kept, under it.
-    if (lock.clicked) {
+    // A click locks the folder's view or lets it go; the right button opens the menu of how it is kept, under it.
+    if (lock.clicked && lock.button == MouseButton_Right) {
         UI_Block *button = UI__Find(UI_KeyFromStr(0, S("FolderView")));
         UI_Vec2 at = button ? (UI_Vec2){ button->rect.x0, button->rect.y1 + floorf(2.4f * m->scale + 0.5f) } : UI->mouse;
         Prog_QueueCommand(state, Prog_CommandKind_FolderViewMenu, 0, 0, lock.clickOrder)->at = at;
+    } else if (lock.clicked) {
+        Prog_QueueCommand(state, Prog_CommandKind_FolderViewToggle, 0, 0, lock.clickOrder);
     }
     Prog__Spacer(UI_Pixels(apart), UI_Pixels(Prog__StripHeight(m)));
     b32 bookmarked = Prog_IsBookmarked(state, path);
