@@ -7005,8 +7005,8 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     ++state->tabCount;
     if (at <= state->activeTab) ++state->activeTab;
     Prog_Tab *tab = &state->tabs[at];
-    // It starts in the default view, by name in Details with the usual columns, whatever the shown tab has; a locked folder brings back its own.
-    *tab = (Prog_Tab){ .id = ++state->nextTabId, .showHidden = state->showHidden, .previewShown = state->previewShown, .zoom = Prog_DefaultView(state).zoom };
+    // It starts in the default view, by name in Details with the usual columns and its inspector closed, whatever the shown tab has; a locked folder brings back its own.
+    *tab = (Prog_Tab){ .id = ++state->nextTabId, .showHidden = state->showHidden, .zoom = Prog_DefaultView(state).zoom };
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);

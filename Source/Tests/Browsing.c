@@ -4130,10 +4130,9 @@ function void TestPanels(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
     TestBrowsingCommand(&state, Prog_CommandKind_PanelSelectNext, 0);
     Check(state.activePanel == 0 && state.previewShown);
-    // A new tab opens with the inspector its tab had, and closing it there leaves the other tab's.
+    // A new tab opens with its inspector closed, which leaves the other tab's open.
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
-    Check(state.activeTab == 1 && state.previewShown);
-    TestBrowsingCommand(&state, Prog_CommandKind_TogglePreview, 0);
+    Check(state.activeTab == 1 && !state.previewShown);
     Prog_SelectTab(&state, 0);
     Check(state.previewShown && !state.tabs[1].previewShown);
     Prog_CloseTab(&state, 1);
