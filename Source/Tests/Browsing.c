@@ -4014,8 +4014,13 @@ function void TestPanels(TestFileFixture *fixture)
     Check(state.panelCount == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, fixture->path));
     state.newTab = Prog_NewTab_Current;
     u64 first = state.panels[0].id;
+    // It starts in Details by name, as a new tab does, whatever the panel it splits shows.
+    u32 splitZoom = state.zoom;
+    state.zoom = Prog_ZoomIcons, state.sort = Prog_Sort_Size;
     TestBrowsingCommand(&state, Prog_CommandKind_SplitRight, 0);
     Check(state.panelCount == 2 && state.activePanel == 1 && state.currentPanel == 1 && StrIsEqual(state.directory.path, fixture->path));
+    Check(TestWaitDirectory(&state) && state.zoom == 0 && state.sort == Prog_Sort_Name && state.panels[0].zoom == Prog_ZoomIcons);
+    state.panels[0].zoom = splitZoom, state.panels[0].sort = Prog_Sort_Name;
     Check(state.splits[0].kind == Prog_SplitKind_Horizontal && Prog__FirstPanelOf(&state, 0) == first);
     u64 empty = TestEntryIndex(&state, S("Empty"));
     Check(empty != UINT64_MAX);

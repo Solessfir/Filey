@@ -5539,17 +5539,13 @@ function u32 Prog_SplitPanel(Prog_State *state, u32 index, Prog_SplitKind kind, 
         return UINT32_MAX;
     }
     u32 at = state->panelCount++;
-    // The new panel starts with the order and hidden-item choice of the one it splits.
+    // The new panel starts in Details by name, as a new tab does, with the hidden-item choice of the one it splits; a locked folder brings back
+    // its own view.
     b32 current = index == state->currentPanel;
     state->panels[at] = (Prog_Panel){
         .id = ++state->nextPanelId,
         .splitMicroseconds = PlatformNowMicroseconds(),
-        .sort = current ? state->sort : state->panels[index].sort,
-        .descending = current ? state->descending : state->panels[index].descending,
-        .folderSort = current ? state->folderSort : state->panels[index].folderSort,
-        .columnSet = current ? state->columnSet : state->panels[index].columnSet,
         .showHidden = current ? state->showHidden : state->panels[index].showHidden,
-        .zoom = current ? state->zoom : state->panels[index].zoom,
     };
     state->splits[added] = (Prog_Split){ .kind = Prog_SplitKind_Panel, .panel = state->panels[at].id };
     state->splits[leaf] = (Prog_Split){ .kind = (u8)kind, .first = (u8)(before ? added : kept), .second = (u8)(before ? kept : added), .ratio = 0.5f };
