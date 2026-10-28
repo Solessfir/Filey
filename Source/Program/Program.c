@@ -6917,7 +6917,10 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     String path = state->tooltipPath;
-    Prog_InspectFolder(state, path);
+    // A drive's tip is its room, which is known, rather than what it holds, which would walk all of it.
+    const P_Place *drive = NULL;
+    for (u64 i = 0; i < state->drives.header.count && !drive; ++i) if (Prog__EqualFolded(state->drives.v[i].path, path)) drive = &state->drives.v[i];
+    if (!drive) Prog_InspectFolder(state, path);
     f32 s = m->scale, pad = floorf(12.0f * s + 0.5f), side = floorf(8.8f * s + 0.5f), row = floorf(21.6f * s + 0.5f), margin = floorf(6.4f * s + 0.5f);
     Arena *frame = &state->frameArena;
     b32 known = state->tipKnown;
@@ -6931,6 +6934,14 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
         known ? Prog_FormatSize(frame, state->tip.totals.bytes) : waiting,
         Tr("Open In New Tab"),
     };
+    if (drive) {
+        labels[1] = Tr("Type:"), labels[2] = Tr("File System:"), labels[3] = Tr("Free:");
+        values[0] = P_NativePath(frame, path);
+        values[1] = drive->type.length ? Prog_Tr(drive->type) : S("--");
+        values[2] = drive->fileSystem.length ? drive->fileSystem : S("--");
+        values[3] = drive->totalBytes ? Prog_FormatSize(frame, drive->freeBytes) : S("--");
+        values[4] = drive->totalBytes ? Prog_FormatSize(frame, drive->totalBytes) : S("--");
+    }
     String chips[] = { Tr("Ctrl+Click"), Tr("Middle Click") };
     f32 column = 0, valueWidth = 0, chipGap = floorf(4.8f * s + 0.5f), chipPad = floorf(4.8f * s + 0.5f);
     for (u32 i = 0; i < CArrayCount(labels); ++i) column = MaxF32(column, R_TextWidth(m->font, labels[i]));
@@ -6972,6 +6983,14 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
 
 function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 {
+    // A folder's tip gone, or another's shown, as a drive's, what it was counting stops, as a big folder's walk would go on to its end for nothing.
+    // A press hides the tip only while it is held, which keeps the count.
+    if (state->tipJob && !StrIsEqual(state->tooltipPath, state->tipPath) && (state->tooltipPath.length || !UI->activeKey)) {
+        P_RequestCancel(&state->tipJob->cancelToken);
+        state->tipJob = NULL;
+        state->tipPath = (String){0};
+        state->tipKnown = false;
+    }
     if (state->noTooltips || !state->tooltipKey || ((state->menuOpen || state->paletteOpen) && !state->tooltipAbove)) return;
     // None while something is dragged.
     if (state->tabDrag || state->dragging || P_DropPending()) return;
