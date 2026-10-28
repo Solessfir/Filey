@@ -1173,7 +1173,7 @@ global const char *const Prog_Strings[] = {
     "Toggle inspector image scale between fit to viewport and original source size.",
     "Scale Up Inspector Image",
     "Scale Down Inspector Image",
-    "Increase Contents Size",
+    "Increase Inspector Contents Size",
     "Increase contents size in the inspector; font size for text, zoom for images, etc.",
     "Decrease Inspector Contents Size",
     "Decrease contents size in the inspector; font size for text, zoom for images, etc.",

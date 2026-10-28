@@ -2234,7 +2234,7 @@ command InspectorSetImageScale {
 }
 
 command InspectorIncreaseContentsSize {
-    label   = "Increase Contents Size^large,big,scale"
+    label   = "Increase Inspector Contents Size^large,big,scale"
     tooltip = "Increase contents size in the inspector; font size for text, zoom for images, etc."
     hotkey  = "Shift+Equals"
 }
