@@ -4374,22 +4374,38 @@ function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, 
     UI_Block *cell = UI_AddBlock(0);
     if (!value.length) return;
     UI_Parent(cell) {
+        // Rounded as the status bar's zoom bar is; the fill is the bar's rounded shape cut off where it ends, so that its end is straight.
+        f32 radius = floorf(4.0f * m->scale + 0.5f), fill = floorf(bar * MinF32(percent, 100) / 100.0f);
         UI_SetNextPrefWidth(UI_Pixels(bar));
         UI_SetNextPrefHeight(UI_Pixels(tall));
+        UI_SetNextCornerRadius(radius);
         UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * m->scale + 0.5f)));
         UI_SetNextColors((UI_Colors){ .background = theme->background, .border = theme->outline });
         UI_Block *track = UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip);
         UI_Parent(track) {
-            f32 fill = floorf(bar * MinF32(percent, 100) / 100.0f);
             UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
             UI_SetNextPrefWidth(UI_Pixels(fill));
             UI_SetNextPrefHeight(UI_Pixels(tall));
+            UI_Block *cut = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
+            UI_Parent(cut) {
+                UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+                UI_SetNextPrefWidth(UI_Pixels(bar));
+                UI_SetNextPrefHeight(UI_Pixels(tall));
+                UI_SetNextCornerRadius(radius);
+                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+            }
+            // The percent at the fill's end, inside it where it fits and just past it where it does not.
+            f32 pad = floorf(6.4f * m->scale + 0.5f);
+            b32 inside = fill >= R_TextWidth(m->detail, value) + 2 * pad;
+            UI_SetNextFloatingOffset((UI_Vec2){ inside ? 0 : fill, 0 });
+            UI_SetNextPrefWidth(UI_Pixels(inside ? fill : MaxF32(0, bar - fill)));
+            UI_SetNextPrefHeight(UI_Pixels(tall));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
-            UI_SetNextChildrenAlignment((UI_Vec2){ 1, 0.5f });
-            UI_SetNextChildrenPadding((UI_Padding){ 0, 0, floorf(6.4f * m->scale + 0.5f), 0 });
-            UI_SetNextColors((UI_Colors){ .background = theme->selection });
-            UI_Block *filled = UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-            UI_Parent(filled) {
+            UI_SetNextChildrenAlignment((UI_Vec2){ inside ? 1.0f : 0.0f, 0.5f });
+            UI_SetNextChildrenPadding((UI_Padding){ inside ? 0 : pad, 0, inside ? pad : 0, 0 });
+            UI_Block *end = UI_AddBlock(UI_Flag_Floating);
+            UI_Parent(end) {
                 UI_SetNextFont(m->detail);
                 Prog__LabelPadded(value, UI_TextContent(), tall, 0, 0, theme->text, 1);
             }
@@ -12095,20 +12111,11 @@ function UI_Quad Prog__UsageQuad(R_Rect rect, R_Color color)
     return (UI_Quad){ rect, { light, color, color, dark } };
 }
 
-// A percent of the whole, drawn as a bar behind its number.
+// A percent of the whole, as the Percent Full column shows a drive's fullness.
 function void Prog__UsagePercent(Arena *frame, u64 part, u64 whole, f32 width, f32 height, const Prog_Metrics *m)
 {
-    const Prog_Theme *theme = Prog_CurrentTheme();
-    f32 fraction = whole ? (f32)((f64)part / (f64)whole) : 0, inset = floorf(3.2f * m->scale + 0.5f);
-    UI_Quad *bar = ArenaPushArray(frame, 2, UI_Quad);
-    R_Rect track = { 0, inset, width - inset, height - inset };
-    bar[0] = (UI_Quad){ track, { theme->track, theme->track, theme->track, theme->track } };
-    R_Color fill = theme->accent;
-    fill.a *= 0.55f;
-    bar[1] = (UI_Quad){ { track.x0, track.y0, track.x0 + floorf((track.x1 - track.x0) * fraction + 0.5f), track.y1 }, { fill, fill, fill, fill } };
-    UI_SetNextQuads(bar, 2);
-    UI_SetNextFont(m->detail);
-    Prog__LabelPadded(StrFormat(frame, "%.1f %%", (f64)fraction * 100), UI_Pixels(width), height, 0, inset * 2, theme->text, 1);
+    f32 fraction = whole ? (f32)((f64)part / (f64)whole) : 0;
+    Prog__FullnessCell(StrFormat(frame, "%.1f%%", (f64)fraction * 100), width, height, 0, m);
 }
 
 // The inspector's disk usage view of the folder it shows: what it holds in all, a treemap of everything in it by size, its folders as a tree and its kinds of file, with what the pointer is over in a line under the treemap.
