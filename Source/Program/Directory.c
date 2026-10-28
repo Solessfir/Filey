@@ -6079,7 +6079,7 @@ function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String 
     return true;
 }
 
-// FolderViews.conf keys a folder's own view by its path, the view of a folder and the folders below it by the path and "/*" after it, and the default view, which new tabs start with, by "*".
+// FolderViews.conf keys a folder's own view by its path, the view of a folder and the folders below it by the path and "/*" after it, and the default view, which a folder without one is restored to, by "*".
 #define Prog_DefaultViewKey S("*")
 
 // The folder a key of a folder and the folders below it names, as "C:/Games" for "C:/Games/*" and "C:/" for "C:/*"; empty for another key.
@@ -6133,7 +6133,7 @@ function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSett
     return Prog_FolderViewScope(state, path, view) != Prog_ViewScope_None;
 }
 
-// The view new tabs start in: the one set as the default, else by name in Details with the usual columns.
+// The view a folder without its own is restored to: the one set as the default, else by name in Details with the usual columns, which new tabs start in.
 function Prog_ViewSettings Prog_DefaultView(const Prog_State *state)
 {
     Prog_ViewSettings result = { .folders = Prog_FolderSort_First };
@@ -6249,7 +6249,7 @@ function void Prog_RestoreFolderView(Prog_State *state)
     else if (regroup) Prog_ApplyFilter(state, false);
 }
 
-// Keeps the shown folder's view as the one new tabs start in.
+// Keeps the shown folder's view as the one a folder without its own is restored to.
 function void Prog_SetDefaultView(Prog_State *state)
 {
     Prog_ViewSettings shown = Prog_CurrentView(state);
@@ -6833,9 +6833,6 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     Prog_Tab *tab = &state->tabs[at];
     // It starts in the default view, by name in Details with the usual columns, whatever the shown tab has; a locked folder brings back its own.
     *tab = (Prog_Tab){ .id = ++state->nextTabId, .showHidden = state->showHidden, .previewShown = state->previewShown };
-    Prog_ViewSettings start = Prog_DefaultView(state);
-    tab->zoom = start.zoom, tab->sort = start.sort, tab->descending = start.descending, tab->folderSort = start.folders, tab->columnSet = start.columns;
-    tab->groupBy = start.groupBy;
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);

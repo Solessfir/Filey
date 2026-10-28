@@ -3490,15 +3490,17 @@ function void TestTabs(TestFileFixture *fixture)
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
     Check(state.tabCount == 2 && state.activeTab == 1 && TestWaitDirectory(&state) && StrIsEqual(state.directory.path, Prog_ThisPC));
     TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
-    // It starts in the default view, whatever the shown tab's zoom and sort.
+    // It starts in Details by name, whatever the shown tab's zoom and sort, and whatever view is set as the default to restore folders to.
     {
         u32 zoom = state.zoom;
         Prog_Sort sort = state.sort;
         state.zoom = Prog_ZoomIcons, state.sort = Prog_Sort_Size, state.descending = true;
+        Prog_SetDefaultView(&state);
         TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);
         Check(TestWaitDirectory(&state) && state.zoom == 0 && state.sort == Prog_Sort_Name && !state.descending);
         TestBrowsingCommand(&state, Prog_CommandKind_TabClose, 0);
         state.zoom = zoom, state.sort = (u8)sort, state.descending = false;
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewsClear, 0);
     }
     state.newTab = Prog_NewTab_Current;
     TestBrowsingCommand(&state, Prog_CommandKind_TabNew, 0);

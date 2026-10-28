@@ -3417,5 +3417,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = Definir Exibição da Pasta como Padrão
 
-Start new tabs in the view the folder shows now.
-= Novas abas abrem na exibição que a pasta mostra agora.
+Restore folders without a saved view to the view the folder shows now.
+= Pastas sem exibição salva são restauradas para a exibição que a pasta mostra agora.

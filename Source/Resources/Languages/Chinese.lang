@@ -3416,5 +3416,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = 将文件夹视图设为默认
 
-Start new tabs in the view the folder shows now.
-= 新标签页以文件夹当前的视图打开。
+Restore folders without a saved view to the view the folder shows now.
+= 没有保存视图的文件夹恢复为文件夹当前的视图。

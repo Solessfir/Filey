@@ -3417,5 +3417,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = Ustaw widok folderu jako domyślny
 
-Start new tabs in the view the folder shows now.
-= Nowe karty otwierają się w widoku, w jakim folder jest teraz pokazany.
+Restore folders without a saved view to the view the folder shows now.
+= Foldery bez zapisanego widoku są przywracane do widoku, w jakim folder jest teraz pokazany.

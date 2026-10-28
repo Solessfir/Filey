@@ -3417,5 +3417,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = Définir l’affichage du dossier par défaut
 
-Start new tabs in the view the folder shows now.
-= Les nouveaux onglets s’ouvrent dans l’affichage que montre le dossier maintenant.
+Restore folders without a saved view to the view the folder shows now.
+= Les dossiers sans affichage enregistré sont restaurés dans l’affichage que montre le dossier maintenant.

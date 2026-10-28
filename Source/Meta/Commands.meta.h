@@ -626,7 +626,7 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_FolderViewMenu] = { .name = { "FolderViewMenu", 14 } },
     [Prog_CommandKind_FolderViewScope] = { .name = { "FolderViewScope", 15 } },
     [Prog_CommandKind_FolderViewRestore] = { .name = { "FolderViewRestore", 17 }, .label = { "Restore Folder View", 19 }, .aliases = { "reset,saved,default", 19 }, .tooltip = { "Show the folder as its view is saved, or in the default view when it has none.", 78 } },
-    [Prog_CommandKind_FolderViewSetDefault] = { .name = { "FolderViewSetDefault", 20 }, .label = { "Set Folder View as Default", 26 }, .aliases = { "new tabs,start", 14 }, .tooltip = { "Start new tabs in the view the folder shows now.", 48 } },
+    [Prog_CommandKind_FolderViewSetDefault] = { .name = { "FolderViewSetDefault", 20 }, .label = { "Set Folder View as Default", 26 }, .aliases = { "restore,reset", 13 }, .tooltip = { "Restore folders without a saved view to the view the folder shows now.", 70 } },
     [Prog_CommandKind_ColumnMenu] = { .name = { "ColumnMenu", 10 } },
     [Prog_CommandKind_ColumnShiftLeft] = { .name = { "ColumnShiftLeft", 15 } },
     [Prog_CommandKind_ColumnShiftRight] = { .name = { "ColumnShiftRight", 16 } },

@@ -3416,5 +3416,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = Ordneransicht als Standard festlegen
 
-Start new tabs in the view the folder shows now.
-= Neue Tabs öffnen in der Ansicht, in der der Ordner jetzt gezeigt wird.
+Restore folders without a saved view to the view the folder shows now.
+= Ordner ohne gespeicherte Ansicht werden auf die Ansicht zurückgesetzt, in der der Ordner jetzt gezeigt wird.

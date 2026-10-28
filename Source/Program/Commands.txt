@@ -1212,8 +1212,8 @@ command FolderViewRestore {
 }
 
 command FolderViewSetDefault {
-    label   = "Set Folder View as Default^new tabs,start"
-    tooltip = "Start new tabs in the view the folder shows now."
+    label   = "Set Folder View as Default^restore,reset"
+    tooltip = "Restore folders without a saved view to the view the folder shows now."
 }
 
 // The column header's menu, opened by a right click on a title; carries the column's place among the panel's columns.

@@ -3415,5 +3415,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = Сделать вид папки видом по умолчанию
 
-Start new tabs in the view the folder shows now.
-= Новые вкладки открываются в том виде, в котором сейчас показана папка.
+Restore folders without a saved view to the view the folder shows now.
+= Папки без сохранённого вида восстанавливаются к виду, в котором сейчас показана папка.

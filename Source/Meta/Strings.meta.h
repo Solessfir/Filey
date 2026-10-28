@@ -902,7 +902,7 @@ global const char *const Prog_Strings[] = {
     "Restore Folder View",
     "Show the folder as its view is saved, or in the default view when it has none.",
     "Set Folder View as Default",
-    "Start new tabs in the view the folder shows now.",
+    "Restore folders without a saved view to the view the folder shows now.",
     "Toggle Highlight Recents",
     "Toggle marking recently accessed files and directories.",
     "Toggle Sort Recents",

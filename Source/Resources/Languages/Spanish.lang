@@ -3416,5 +3416,5 @@ Show the folder as its view is saved, or in the default view when it has none.
 Set Folder View as Default
 = Establecer vista de carpeta como predeterminada
 
-Start new tabs in the view the folder shows now.
-= Las pestañas nuevas se abren con la vista que muestra ahora la carpeta.
+Restore folders without a saved view to the view the folder shows now.
+= Las carpetas sin vista guardada se restauran a la vista que muestra ahora la carpeta.
