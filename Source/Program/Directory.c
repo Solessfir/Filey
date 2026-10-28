@@ -2759,6 +2759,11 @@ function void Prog__DirectoryJob(P_Job *job)
         job->result = result;
         return;
     }
+    if (input->kind == Prog_JobKind_Usage) {
+        Prog_Usage *result = ArenaPushStruct(&job->arena, Prog_Usage);
+        job->result = Prog_ScanUsage(&job->arena, input->path, &input->usage, &job->cancelToken, result) ? result : NULL;
+        return;
+    }
     // Which of the recents at `names` are gone: kept first in `names` and `rows`, as many as `rowCount` then says.
     if (input->kind == Prog_JobKind_RecentsCheck) {
         u64 gone = 0;
@@ -5575,6 +5580,27 @@ function u32 Prog_InspectorPanel(Prog_State *state, u64 owner, b32 make)
     return at;
 }
 
+// Scans the disk usage of `path` for the inspector, unless it shows it already or a scan of it runs; a scan of another folder stops.
+// `again` scans it even so.
+function void Prog_RequestUsage(Prog_State *state, String path, b32 again)
+{
+    if (!path.length) return;
+    if (state->usageJob) {
+        if (!again && StrIsEqual(((Prog_JobInput *)state->usageJob->input)->path, path)) return;
+        P_RequestCancel(&state->usageJob->cancelToken);
+        state->usageJob = NULL;
+    } else if (!again && StrIsEqual(state->usage.path, path)) {
+        return;
+    }
+    P_Job *job = P_JobCreate(&state->toolJobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_Usage;
+    input->path = StrCopy(&job->arena, path);
+    job->input = input;
+    state->usageJob = job;
+    P_JobSubmit(job);
+}
+
 // Lists `path`, a folder in the current panel, in its inspector's panel.
 function void Prog_ListInInspector(Prog_State *state, String path)
 {
@@ -7475,6 +7501,24 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_Reload(state);
             }
             changed = true;
+        } else if (input->kind == Prog_JobKind_Usage) {
+            // The scan finished takes the place of the one shown, its root open and chosen.
+            Prog_Usage *result = job->result;
+            if (state->usageJob == job) {
+                state->usageJob = NULL;
+                if (result) {
+                    ArenaRelease(&state->usage.arena);
+                    state->usage = *result;
+                    state->usage.arena = job->arena;
+                    job->arena = (Arena){0};
+                    state->usageOpen = ArenaPushArray(&state->usage.arena, state->usage.folderCount + 1, b8);
+                    state->usageOpen[0] = true;
+                    state->usageSelected = 0;
+                    state->usageType = state->usageHover = UINT32_MAX;
+                    state->usageCellsFor = (R_Rect){0};
+                }
+            }
+            changed = true;
         } else if (input->kind == Prog_JobKind_RecentsCheck) {
             if (state->recentsCheckJob == job) state->recentsCheckJob = NULL;
             // The recents left out by path, as they may have changed since the check started.
@@ -8448,6 +8492,8 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->menuArena);
     P_DirectoryWatchStop(&state->configWatch);
     ArenaRelease(&state->configWatch.arena);
+    // A disk usage scan stops rather than walking a drive to its end first.
+    if (state->usageJob) P_RequestCancel(&state->usageJob->cancelToken);
     P_JobsShutdown(&state->toolJobs);
     P_JobsShutdown(&state->thumbnailJobs);
     P_JobsShutdown(&state->jobs);
@@ -8465,6 +8511,8 @@ function void Prog_Release(Prog_State *state)
         ReleaseScratch(scratch);
     }
     UI_Release(&state->ui);
+    ArenaRelease(&state->usage.arena);
+    ArenaRelease(&state->usageCellsArena);
     ArenaRelease(&state->frameArena);
     ArenaRelease(&state->iconArena);
     for (u32 i = 0; i < Prog_ThumbnailSlots; ++i) ArenaRelease(&state->thumbnailSlots[i].arena);

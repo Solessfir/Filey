@@ -2482,10 +2482,48 @@ function void TestMeasure(TestFileFixture *fixture)
         Check(!missing.complete && !missing.files);
         for (u32 i = 0; i < CArrayCount(paths); ++i) Check(atomic_load(&trees[i].pending) == 0);
     }
+    // A disk usage scan comes to what the measure does, its folders largest first, its types adding up to the whole, and a treemap inside its rectangle that starts with the root's frame.
+    {
+        Prog_TreeTotals tree = {0};
+        Check(Prog_MeasureTrees(&fixture->path, 1, &tree, &token));
+        P_DirectoryTotals totals = Prog_TreeTotalsTaken(&tree, true);
+        Arena kept = {0};
+        Prog_UsageProgress progress = {0};
+        Prog_Usage usage = {0};
+        Check(Prog_ScanUsage(&kept, fixture->path, &progress, &token, &usage) && usage.folderCount == totals.folders + 1);
+        const Prog_UsageFolder *root = &usage.folders[0];
+        Check(root->bytes == totals.bytes && root->files == totals.files && root->folders == totals.folders && atomic_load(&progress.files) == totals.files);
+        b32 sorted = true, inside = false;
+        for (u32 child = root->firstChild; child != UINT32_MAX; child = usage.folders[child].nextSibling) {
+            u32 next = usage.folders[child].nextSibling;
+            if (next != UINT32_MAX && usage.folders[next].bytes > usage.folders[child].bytes) sorted = false;
+            if (StrIsEqual(usage.folders[child].name, S("Folder2"))) inside = usage.folders[child].bytes == 5 && usage.folders[child].fileCount == 1;
+        }
+        // Its own files are all kept, as it has few, and the one in Folder2 is that folder's.
+        Check(sorted && inside && !root->restFiles && root->fileCount + 1 == root->files);
+        u64 typed = 0, typedFiles = 0, texts = 0;
+        for (u32 t = 0; t < usage.typeCount; ++t) {
+            typed += usage.types[t].bytes, typedFiles += usage.types[t].files;
+            if (t && usage.types[t].bytes > usage.types[t - 1].bytes) sorted = false;
+            if (StrIsEqual(usage.types[t].extension, S("txt"))) texts = usage.types[t].bytes;
+        }
+        Check(sorted && typed == root->bytes && typedFiles == root->files && texts >= 21);
+        Prog_UsageCell *cells = NULL;
+        u32 count = Prog_UsageLayout(&kept, &usage, 0, (R_Rect){ 0, 0, 400, 300 }, &cells);
+        b32 within = count > 1 && cells[0].frame && cells[0].folder == 0;
+        for (u32 i = 0; i < count; ++i) within &= cells[i].rect.x0 >= 0 && cells[i].rect.y0 >= 0 && cells[i].rect.x1 <= 400 && cells[i].rect.y1 <= 300 && cells[i].rect.x1 > cells[i].rect.x0;
+        Check(within);
+        ArenaRelease(&kept);
+    }
     P_RequestCancel(&token);
     {
         Prog_TreeTotals tree = {0};
         Check(!Prog_MeasureTrees(&fixture->path, 1, &tree, &token));
+        Arena kept = {0};
+        Prog_UsageProgress progress = {0};
+        Prog_Usage usage = {0};
+        Check(!Prog_ScanUsage(&kept, fixture->path, &progress, &token, &usage) && !usage.folderCount);
+        ArenaRelease(&kept);
     }
 
     Prog_State state = {0};

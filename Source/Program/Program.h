@@ -309,6 +309,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Fonts,
     Prog_JobKind_Play,         // plays the audio file `path` from `offset` milliseconds in
     Prog_JobKind_Mount,        // connects to the server at `name`, whose folder the panel then shows
+    Prog_JobKind_Usage,        // the disk usage of the folder `path`, for the inspector
     Prog_JobKind_TorrentProgress,  // how far the torrent's files `paths`, `sizes` long, are, by aria2c's control file `path`, for the inspector showing `name`
     Prog_JobKind_Count,
 } Prog_JobKind;
@@ -422,6 +423,60 @@ typedef struct Prog_TreeTotals {
 
 typedef struct Prog_Partial Prog_Partial;
 
+// A folder's disk usage, which the inspector's usage view shows: the folders below it by size, the largest files in each one, and the kinds of file by extension. Each folder keeps its Prog_UsageKeptFiles largest files by name; the rest count together as its smaller files.
+#define Prog_UsageKeptFiles 32
+typedef struct Prog_UsageFolder {
+    String name;          // the root's is its whole path
+    u32 parent;           // UINT32_MAX for the root, the first folder
+    u32 firstChild;       // its largest folder, UINT32_MAX for none; the others follow by nextSibling, largest first
+    u32 nextSibling;
+    u32 firstFile;        // its largest files, fileCount of them in Prog_Usage.files, largest first
+    u32 fileCount;
+    u64 restFiles;        // its files too small to keep one by one, and their bytes
+    u64 restBytes;
+    u64 bytes;            // everything below it, at any depth
+    u64 files, folders;
+    i64 modified;         // the newest change below it
+    b8 hidden, system;
+    b8 unreadable;        // its listing failed, as without the rights to read it
+} Prog_UsageFolder;
+typedef struct Prog_UsageFile {
+    String name;
+    u64 bytes;
+    u32 type;  // in Prog_Usage.types
+} Prog_UsageFile;
+// Files by extension, lowercase and without its dot; an empty one is the files without one. `name` is the system's name of the type.
+typedef struct Prog_UsageType {
+    String extension;
+    String name;
+    u64 bytes;
+    u64 files;
+} Prog_UsageType;
+typedef struct Prog_Usage {
+    Arena arena;  // holds everything here once it is taken from its job
+    String path;
+    Prog_UsageFolder *folders;
+    u32 folderCount;
+    Prog_UsageFile *files;
+    u32 fileCount;
+    Prog_UsageType *types;  // largest first
+    u32 typeCount;
+    u64 microseconds;  // how long the scan took
+} Prog_Usage;
+// What a scan has found so far, read while it runs.
+typedef struct Prog_UsageProgress {
+    atomic_uint_fast64_t folders, files, bytes;
+} Prog_UsageProgress;
+// A treemap's cell: a folder's frame, which its contents are drawn over, a file, or a folder's files too small to show or a folder too small to go into, which have no file (UINT32_MAX). `type` colors a file, UINT32_MAX for none.
+typedef struct Prog_UsageCell {
+    R_Rect rect;
+    u32 folder;
+    u32 file;
+    u32 type;
+    b8 frame;
+    b8 rest;  // a folder's smaller files, rather than a folder too small to go into
+} Prog_UsageCell;
+
 // What a Transfer does with archives instead of copying: packs `paths` into the new archive `name` in `path`, or takes the archive `paths[0]`
 // out into `path` itself or into the new folder `name` there.
 typedef enum Prog_TransferOp {
@@ -507,6 +562,8 @@ typedef struct Prog_JobInput {
     Prog_TreeTotals *trees;
     // Directory: what it has found so far, which the status bar shows while it walks a big tree; the totals count hidden items too.
     atomic_uint_fast64_t foundFolders, foundFiles, shownFolders, shownFiles;
+    // Usage: what the scan has found so far.
+    Prog_UsageProgress usage;
     // Icons
     Prog_IconRequest *icons;
     u64 iconCount;
@@ -2134,6 +2191,17 @@ typedef struct Prog_State {
     b32 mutedOpen;          // the dropdown of them under their option
     u32 noticeCount;
     u64 noticeIds;
+    // The inspector's disk usage view, while inspectorUsage, of usage.path: its tree's open folders, the folder and the type chosen (UINT32_MAX for none) and the one pointed at, and its treemap's cells as last laid out for usageCellsFor.
+    b32 inspectorUsage;
+    Prog_Usage usage;
+    P_Job *usageJob;
+    b8 *usageOpen;
+    u32 usageSelected, usageType, usageHover;
+    b32 usageReveal;  // the chosen folder's row scrolls into sight
+    Arena usageCellsArena;
+    Prog_UsageCell *usageCells;
+    u32 usageCellCount;
+    R_Rect usageCellsFor;
     P_Job *recentsCheckJob;        // looking for recents that are gone, at most one at a time; a request meanwhile checks again after it
     b32 recentsCheckAgain;
     u64 recentsCheckTime;
@@ -2179,6 +2247,8 @@ function u32 *Prog_ModelThumbnail(Arena *arena, String path, i32 size, const P_C
 // Whether `path` names a 3D model the readers know, by its extension.
 function b32 Prog_IsModel(String path);
 function b32 Prog_IsBlp(String path);
+function b32 Prog_ScanUsage(Arena *arena, String path, Prog_UsageProgress *progress, const P_CancelToken *cancel, Prog_Usage *usage);
+function u32 Prog_UsageLayout(Arena *arena, const Prog_Usage *usage, u32 root, R_Rect rect, Prog_UsageCell **cells);
 function b32 Prog_DecodeBlp(Arena *arena, String data, i32 maxSide, P_Image *out, i32 *fullWidth, i32 *fullHeight);
 function b32 Prog_LoadBlp(Arena *arena, String path, i32 maxSide, P_Image *out, i32 *fullWidth, i32 *fullHeight);
 // A Word document's or a spreadsheet's text for the inspector, from the zip archive of XML a .docx or an .xlsx is; empty when it has none.
@@ -2337,6 +2407,7 @@ function void Prog_StartUp(Prog_State *state);
 function String Prog_HomePath(Arena *arena);
 function b32 Prog_ShowsThumbnails(const Prog_State *state);
 function void Prog_ListInInspector(Prog_State *state, String path);
+function void Prog_RequestUsage(Prog_State *state, String path, b32 again);
 function void Prog_DropInspectorPanel(Prog_State *state, u64 owner);
 function void Prog_ClosePanel(Prog_State *state, u32 index);
 function void Prog_DropTab(Prog_State *state, Prog_TabDropTarget drop);

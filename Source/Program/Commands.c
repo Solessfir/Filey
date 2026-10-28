@@ -715,7 +715,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(Inspector),
     Prog_CommandKind_TogglePreview, Prog_CommandKind_InspectorToggleDetails, Prog_CommandKind_InspectorChangeLayout, Prog_CommandKind_InspectorIncreaseContentsSize,
     Prog_CommandKind_InspectorDecreaseContentsSize, Prog_CommandKind_InspectorToggleWordWrap, Prog_CommandKind_InspectorToggleLineNumbers,
-    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
+    Prog_CommandKind_InspectorToggleWhitespace, Prog_CommandKind_InspectorToggleHex, Prog_CommandKind_InspectorToggleUsage, Prog_CommandKind_InspectorUsageRescan, Prog_CommandKind_InspectorPlay, Prog_CommandKind_InspectorMute, Prog_CommandKind_InspectorStartFilter, Prog_CommandKind_InspectorToggleImageGrid,
     Prog_CommandKind_InspectorToggleImageMinimap, Prog_CommandKind_InspectorToggleImageScale, Prog_CommandKind_InspectorScaleImageUp,
     Prog_CommandKind_InspectorScaleImageDown,
     Prog__PaletteGroup(Panels),
@@ -834,8 +834,9 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_TabSelect5: case Prog_CommandKind_TabSelect6: case Prog_CommandKind_TabSelect7: case Prog_CommandKind_TabSelect8:
             return state->tabCount > (u32)(kind - Prog_CommandKind_TabSelect1);
         case Prog_CommandKind_InspectorToggleDetails: case Prog_CommandKind_InspectorChangeLayout: case Prog_CommandKind_InspectorIncreaseContentsSize:
-        case Prog_CommandKind_InspectorDecreaseContentsSize: case Prog_CommandKind_InspectorToggleHex:
+        case Prog_CommandKind_InspectorDecreaseContentsSize: case Prog_CommandKind_InspectorToggleHex: case Prog_CommandKind_InspectorToggleUsage:
             return state->previewShown;
+        case Prog_CommandKind_InspectorUsageRescan: return state->previewShown && state->inspectorUsage && state->usage.path.length;
         case Prog_CommandKind_InspectorToggleWordWrap: case Prog_CommandKind_InspectorToggleLineNumbers: case Prog_CommandKind_InspectorToggleWhitespace:
         case Prog_CommandKind_InspectorStartFilter:
             return state->previewShown && state->previewText.length;
@@ -2406,6 +2407,8 @@ function void Prog__UpdatePreview(Prog_State *state)
         size = entry->file.size;
         stamp = archive ? entry->file.size ^ (u64)entry->file.modifiedTimeUnix : 0;
     }
+    b32 drive = want.length && state->focusedRow < state->directory.count && state->directory.entries[state->focusedRow].file.kind == P_FileKind_Drive;
+    if (state->inspectorUsage && (drive || (folder && !archive))) Prog_RequestUsage(state, want, false);
     if (StrIsEqual(want, state->previewPath)) {
         // A folder whose list went with the inspector closing is listed again as it opens.
         if (state->previewFolder && want.length && Prog_InspectorPanel(state, state->panels[state->currentPanel].id, false) == UINT32_MAX) Prog_ListInInspector(state, want);
@@ -3427,6 +3430,15 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_InspectorToggleWordWrap: {
                 if (state->previewDocument) state->documentUnwrapped = !state->documentUnwrapped;
                 else state->inspectorWrap = !state->inspectorWrap;
+            } break;
+            // The usage of the folder shown is scanned as it shows, and again when asked.
+            case Prog_CommandKind_InspectorToggleUsage: state->inspectorUsage = !state->inspectorUsage; break;
+            case Prog_CommandKind_InspectorUsageRescan: {
+                u64 owner = state->panels[state->currentPanel].inspectorOf;
+                u32 back = state->currentPanel;
+                if (owner && Prog_PanelIndex(state, owner) != UINT32_MAX) Prog__UsePanel(state, Prog_PanelIndex(state, owner));
+                if (state->usage.path.length) Prog_RequestUsage(state, state->usage.path, true);
+                Prog__UsePanel(state, back);
             } break;
             case Prog_CommandKind_InspectorToggleHex: {
                 // The file is read again, the other way.

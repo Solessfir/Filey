@@ -3343,3 +3343,42 @@ Version copied
 
 Couldn't mount %S
 = 无法挂载 %S
+
+Scanning... %S, %S, %S
+= 正在扫描... %S，%S，%S
+
+%S in %S and %S, scanned in %S
+= %S，%S 和 %S，扫描用时 %S
+
+%.1f s
+= %.1f 秒
+
+Scanning...
+= 正在扫描...
+
+Percent
+= 百分比
+
+(No extension)
+= （无扩展名）
+
+Toggle Inspector Disk Usage
+= 切换检查器磁盘占用视图
+
+Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it.
+= 在检查器中显示文件夹的空间占用：按大小排列的子文件夹、文件类型以及其中所有内容的分布图。
+
+Scan Disk Usage Again
+= 重新扫描磁盘占用
+
+Scan the folder the inspector's disk usage shows again.
+= 重新扫描检查器正在显示其磁盘占用的文件夹。
+
+%S files
+= %S 个文件
+
+%S smaller files, %S
+= %S 个较小的文件，%S
+
+[%S files]
+= [%S 个文件]

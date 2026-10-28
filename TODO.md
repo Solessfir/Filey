@@ -3,7 +3,6 @@
 ## Possible features
 
 - Faster drive index without running Filey as an administrator. An Options switch registers, with one UAC prompt, a scheduled task with the highest privileges whose only job is `Filey.exe --build-index` (the NTFS file tables into `Index.bin`); Filey starts it without a prompt when the index is stale and takes the new file when it lands. The switch off removes the task. Filey itself stays unelevated, for drag and drop and so that what it opens is not run as an administrator.
-- A disk usage view for a folder or drive in the inspector, as WizTree shows one, toggled against the plain folder list. It would have a tree of folders by size, with percent of parent, size, allocated size, items, files, folders, modified time and attributes. Beside it, a list of extensions by size, each with a color, its type name, percent, size, allocated size and file count. Below, a treemap of every file, colored by extension, whose tooltip and status line give the hovered file's path and sizes. It would reuse the folder size scan (or the NTFS file table read when elevated) and fill in as the scan goes.
 
 ## Linux
 

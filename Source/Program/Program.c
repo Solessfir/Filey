@@ -12037,6 +12037,361 @@ function void Prog__InspectorFacts(Prog_State *state, const Prog_Entry *entry, c
     Prog__Label(Prog_EntryModified(frame, entry), UI_Flex(), m->row, 0, theme->textDim, 0);
 }
 
+// A treemap cell's color by its file's type: the twenty largest types each a hue of their own, the others and a folder's smaller files gray.
+function R_Color Prog__UsageColor(u32 type)
+{
+    if (type >= 20) return (R_Color){ 0.42f, 0.42f, 0.44f, 1 };
+    return Prog_HsbToRgb(fmodf(0.08f + (f32)type * 0.618034f, 1.0f), 0.62f, 0.86f, 1);
+}
+
+// The path of the usage's folder `index`, from its root's.
+function String Prog__UsagePath(Arena *arena, const Prog_Usage *usage, u32 index)
+{
+    u32 depth = 0;
+    for (u32 at = index; at != UINT32_MAX; at = usage->folders[at].parent) ++depth;
+    Scratch scratch = GetScratchEx(arena);
+    u32 *chain = ArenaPushArray(scratch.arena, depth + 1, u32), n = 0;
+    for (u32 at = index; at != UINT32_MAX; at = usage->folders[at].parent) chain[n++] = at;
+    String path = usage->folders[chain[n - 1]].name;
+    for (u32 i = n - 1; i-- > 0;) path = Prog_JoinPath(scratch.arena, path, usage->folders[chain[i]].name);
+    path = StrCopy(arena, path);
+    ReleaseScratch(scratch);
+    return path;
+}
+
+// The path of the usage's folder `index` as the view shows it: from the folder scanned, by its name, in the system's separators, cut at its start to `width` so that its end shows.
+function String Prog__UsageShownPath(Prog_State *state, String path, const R_Font *font, f32 width)
+{
+    Arena *frame = &state->frameArena;
+    String root = state->usage.path, text = Prog_PathName(state, root);
+    if (path.length > root.length) text = StrFormat(frame, "%S/%S", text, StrFrom(path, root.length + (root.value[root.length - 1] == '/' ? 0 : 1)));
+    text = P_NativePath(frame, text);
+    if (R_TextWidth(font, text) <= width) return text;
+    String dots = S("...");
+    f32 room = width - R_TextWidth(font, dots);
+    u64 from = text.length;
+    // ponytail: measures every suffix, as Prog__Ellipsize does every prefix; a path is short enough for that.
+    while (from > 0) {
+        u64 at = from - 1;
+        while (at > 0 && (text.value[at] & 0xC0) == 0x80) --at;
+        if (R_TextWidth(font, StrFrom(text, at)) > room) break;
+        from = at;
+    }
+    return StrFormat(frame, "%S%S", dots, StrFrom(text, from));
+}
+
+// The tree's rows: each folder, and while it is open its folders, largest first, then a row for its files (marked by the top bit), up to `most`.
+function void Prog__UsageRows(const Prog_Usage *usage, const b8 *open, u32 index, u32 depth, u32 *rows, u8 *depths, u32 *count, u32 most)
+{
+    if (*count >= most) return;
+    rows[*count] = index;
+    depths[(*count)++] = (u8)Min(depth, 255u);
+    if (!open[index]) return;
+    const Prog_UsageFolder *folder = &usage->folders[index];
+    for (u32 child = folder->firstChild; child != UINT32_MAX && *count < most; child = usage->folders[child].nextSibling) {
+        Prog__UsageRows(usage, open, child, depth + 1, rows, depths, count, most);
+    }
+    if ((folder->fileCount || folder->restFiles) && *count < most) {
+        rows[*count] = index | 0x80000000u;
+        depths[(*count)++] = (u8)Min(depth + 1, 255u);
+    }
+}
+
+// A cell's shaded square: lighter at its top left, darker at its bottom right, as a cushion lit from above.
+function UI_Quad Prog__UsageQuad(R_Rect rect, R_Color color)
+{
+    R_Color light = { MinF32(1, color.r * 1.22f), MinF32(1, color.g * 1.22f), MinF32(1, color.b * 1.22f), color.a };
+    R_Color dark = { color.r * 0.55f, color.g * 0.55f, color.b * 0.55f, color.a };
+    return (UI_Quad){ rect, { light, color, color, dark } };
+}
+
+// A percent of the whole, drawn as a bar behind its number.
+function void Prog__UsagePercent(Arena *frame, u64 part, u64 whole, f32 width, f32 height, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    f32 fraction = whole ? (f32)((f64)part / (f64)whole) : 0, inset = floorf(3.2f * m->scale + 0.5f);
+    UI_Quad *bar = ArenaPushArray(frame, 2, UI_Quad);
+    R_Rect track = { 0, inset, width - inset, height - inset };
+    bar[0] = (UI_Quad){ track, { theme->track, theme->track, theme->track, theme->track } };
+    R_Color fill = theme->accent;
+    fill.a *= 0.55f;
+    bar[1] = (UI_Quad){ { track.x0, track.y0, track.x0 + floorf((track.x1 - track.x0) * fraction + 0.5f), track.y1 }, { fill, fill, fill, fill } };
+    UI_SetNextQuads(bar, 2);
+    UI_SetNextFont(m->detail);
+    Prog__LabelPadded(StrFormat(frame, "%.1f %%", (f64)fraction * 100), UI_Pixels(width), height, 0, inset * 2, theme->text, 1);
+}
+
+// The inspector's disk usage view of the folder it shows: what it holds in all, a treemap of everything in it by size, its folders as a tree and its kinds of file, with what the pointer is over in a line under the treemap.
+function void Prog__InspectorUsage(Prog_State *state, const Prog_Metrics *m)
+{
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    f32 s = m->scale, row = m->row, line = m->separator;
+    Prog_Usage *usage = &state->usage;
+    b32 shown = usage->folderCount && StrIsEqual(usage->path, state->previewPath);
+    Prog_JobInput *scanning = state->usageJob ? state->usageJob->input : NULL;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(UI_Flex());
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_SetNextChildrenPadding((UI_Padding){ m->inset, 0, m->inset, 0 });
+    UI_Block *body = UI_AddBlockFromKey(UI_KeyFromStr(0, S("InspectorUsageView")), UI_Flag_Clip);
+    f32 width = MaxF32(0, body->rect.x1 - body->rect.x0 - 2 * m->inset), height = body->rect.y1 - body->rect.y0;
+    UI_Parent(body) {
+        // What it holds in all, or what the scan has found so far, which the next frames bring up to date.
+        UI_Block *summary = Prog__Box(UI_Flex(), UI_Pixels(m->bar), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(summary) {
+            String text;
+            if (scanning) {
+                u64 folders = atomic_load(&scanning->usage.folders), files = atomic_load(&scanning->usage.files), bytes = atomic_load(&scanning->usage.bytes);
+                text = StrFormat(frame, TrF("Scanning... %S, %S, %S"), StrFormat(frame, TrN(files, "%S file", "%S files"), Prog__FormatCount(frame, files)),
+                                 StrFormat(frame, TrN(folders, "%S folder", "%S folders"), Prog__FormatCount(frame, folders)), Prog_FormatSize(frame, bytes));
+                Prog_WakeAt(state, UI->nowMicroseconds + 100000);
+            } else if (shown) {
+                const Prog_UsageFolder *root = &usage->folders[0];
+                text = StrFormat(frame, TrF("%S in %S and %S, scanned in %S"), Prog_FormatSize(frame, root->bytes),
+                                 StrFormat(frame, TrN(root->files, "%S file", "%S files"), Prog__FormatCount(frame, root->files)),
+                                 StrFormat(frame, TrN(root->folders, "%S folder", "%S folders"), Prog__FormatCount(frame, root->folders)),
+                                 StrFormat(frame, TrF("%.1f s"), (f64)usage->microseconds / 1e6));
+            } else {
+                text = Tr("Scanning...");
+            }
+            UI_SetNextFont(m->detail);
+            Prog__Label(Prog__Ellipsize(frame, m->detail, text, MaxF32(0, width - Prog__ToolbarButtonWidth(m))), UI_Flex(), m->bar, 0, theme->textDim, 0);
+            if (shown || scanning) Prog__ToolbarRowButton(state, S("UsageRescan"), Icon_RotateCcw, Prog_CommandKind_InspectorUsageRescan, 0, (String){0}, m);
+        }
+        if (!shown) continue;
+
+        // The treemap, laid out again only when its size or the usage changes.
+        f32 mapHeight = floorf(MaxF32(MinF32(height * 0.45f, width), floorf(96.0f * s + 0.5f)));
+        R_Rect wanted = { 0, 0, floorf(width), mapHeight };
+        if (wanted.x1 != state->usageCellsFor.x1 || wanted.y1 != state->usageCellsFor.y1) {
+            ArenaClear(&state->usageCellsArena);
+            state->usageCellCount = Prog_UsageLayout(&state->usageCellsArena, usage, 0, wanted, &state->usageCells);
+            state->usageCellsFor = wanted;
+            state->usageHover = UINT32_MAX;
+        }
+        UI_Key mapKey = UI_KeyFromStr(0, S("UsageMap"));
+        // The cell the pointer was over in the last frame, which this one brings up to date.
+        u32 hover = state->usageHover < state->usageCellCount ? state->usageHover : UINT32_MAX;
+        // A cell each, dimmed but for the type chosen, then the chosen folder's outline and the pointed cell's.
+        u32 count = state->usageCellCount;
+        UI_Quad *quads = ArenaPushArray(frame, count + 8, UI_Quad);
+        u32 quadCount = 0;
+        R_Rect chosen = {0};
+        for (u32 i = 0; i < count; ++i) {
+            const Prog_UsageCell *cell = &state->usageCells[i];
+            if (cell->frame) {
+                R_Color edge = theme->background;
+                quads[quadCount++] = (UI_Quad){ cell->rect, { edge, edge, edge, edge } };
+                if (cell->folder == state->usageSelected && cell->folder) chosen = cell->rect;
+                continue;
+            }
+            if (cell->folder == state->usageSelected && !cell->rest && cell->file == UINT32_MAX) chosen = cell->rect;
+            R_Color color = Prog__UsageColor(cell->type);
+            if (state->usageType != UINT32_MAX && cell->type != state->usageType) color = (R_Color){ color.r * 0.3f, color.g * 0.3f, color.b * 0.3f, 1 };
+            quads[quadCount++] = Prog__UsageQuad(cell->rect, color);
+        }
+        R_Rect outlines[2] = { chosen, hover != UINT32_MAX ? state->usageCells[hover].rect : (R_Rect){0} };
+        R_Color outlineColors[2] = { theme->accent, theme->text };
+        for (u32 o = 0; o < 2; ++o) {
+            R_Rect r = outlines[o];
+            if (r.x1 <= r.x0) continue;
+            f32 t = o ? 1 : MaxF32(2, floorf(1.6f * s + 0.5f));
+            R_Color c = outlineColors[o];
+            R_Rect sides[4] = { { r.x0, r.y0, r.x1, r.y0 + t }, { r.x0, r.y1 - t, r.x1, r.y1 }, { r.x0, r.y0, r.x0 + t, r.y1 }, { r.x1 - t, r.y0, r.x1, r.y1 } };
+            for (u32 k = 0; k < 4; ++k) quads[quadCount++] = (UI_Quad){ sides[k], { c, c, c, c } };
+        }
+        UI_SetNextQuads(quads, quadCount);
+        UI_SetNextPrefWidth(UI_Pixels(wanted.x1));
+        UI_SetNextPrefHeight(UI_Pixels(mapHeight));
+        UI_Block *map = UI_AddBlockFromKey(mapKey, UI_Flag_LeftMouseClickable | UI_Flag_Clip);
+        UI_Interaction pick = UI_InteractionFromBlock(map);
+        u32 over = UINT32_MAX;
+        if ((pick.hot || pick.active) && UI__Contains(map->rect, UI->mouse)) {
+            f32 x = UI->mouse.x - map->rect.x0, y = UI->mouse.y - map->rect.y0;
+            for (u32 i = state->usageCellCount; i-- > 0 && over == UINT32_MAX;) {
+                R_Rect r = state->usageCells[i].rect;
+                if (!state->usageCells[i].frame && x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1) over = i;
+            }
+        }
+        if (over != state->usageHover) {
+            state->usageHover = over;
+            UI_KeepAnimating();
+        }
+        hover = over;
+        // A press chooses the folder of what it is on, whose rows in the tree open to it.
+        if (pick.pressed && hover != UINT32_MAX) {
+            const Prog_UsageCell *cell = &state->usageCells[hover];
+            state->usageSelected = cell->folder;
+            state->usageReveal = true;
+            for (u32 at = usage->folders[cell->folder].parent; at != UINT32_MAX; at = usage->folders[at].parent) state->usageOpen[at] = true;
+        }
+        // What the pointer is over, or the folder chosen, with its size after its path.
+        String about, size;
+        u32 shownFolder = state->usageSelected;
+        if (hover != UINT32_MAX) {
+            const Prog_UsageCell *cell = &state->usageCells[hover];
+            const Prog_UsageFolder *at = &usage->folders[cell->folder];
+            about = Prog__UsagePath(frame, usage, cell->folder);
+            shownFolder = cell->folder;
+            if (cell->file != UINT32_MAX) {
+                about = Prog_JoinPath(frame, about, usage->files[cell->file].name);
+                size = Prog_FormatSize(frame, usage->files[cell->file].bytes);
+            } else if (cell->rest) {
+                size = StrFormat(frame, TrN(at->restFiles, "%S smaller file, %S", "%S smaller files, %S"), Prog__FormatCount(frame, at->restFiles), Prog_FormatSize(frame, at->restBytes));
+            } else {
+                size = Prog_FormatSize(frame, at->bytes);
+            }
+        } else {
+            about = Prog__UsagePath(frame, usage, shownFolder);
+            size = Prog_FormatSize(frame, usage->folders[shownFolder].bytes);
+        }
+        UI_Block *status = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+        UI_Parent(status) {
+            f32 sizeShown = R_TextWidth(m->detail, size) + m->gap;
+            UI_SetNextFont(m->detail);
+            Prog__Label(Prog__UsageShownPath(state, about, m->detail, MaxF32(0, width - sizeShown)), UI_Flex(), row, 0, hover != UINT32_MAX ? theme->text : theme->textDim, 0);
+            UI_SetNextFont(m->detail);
+            Prog__Label(size, UI_TextContent(), row, 0, theme->textDim, 1);
+        }
+
+        // The folders, as a tree, and the kinds of file, each a list under its column titles; the details that do not fit the width are left out.
+        f32 percentWidth = floorf(68.0f * s + 0.5f), sizeWidth = floorf(76.0f * s + 0.5f), countWidth = floorf(68.0f * s + 0.5f);
+        f32 dateWidth = floorf(132.0f * s + 0.5f), chevron = floorf(16.0f * s + 0.5f), indent = floorf(12.8f * s + 0.5f);
+        b32 counts = width >= floorf(380.0f * s + 0.5f), dates = width >= floorf(600.0f * s + 0.5f);
+        f32 listsHeight = MaxF32(0, height - m->bar - mapHeight - row - 2 * line - 2 * row);
+        f32 treeHeight = floorf(listsHeight * 0.6f), typesHeight = listsHeight - treeHeight;
+        for (u32 list = 0; list < 2; ++list) {
+            Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->tabBorder, 0);
+            // Column titles.
+            UI_Block *titles = Prog__Box(UI_Flex(), UI_Pixels(row), UI_Layout_Horizontal, (R_Color){0}, 0);
+            UI_Parent(titles) {
+                if (list) Prog__Spacer(UI_Pixels(floorf(10.4f * s + 0.5f) + m->gap), UI_Pixels(row));
+                else Prog__Spacer(UI_Pixels(chevron), UI_Pixels(row));
+                UI_SetNextFont(m->detail);
+                Prog__LabelPadded(list ? Tr("Type") : Tr("Folder"), UI_Flex(), row, floorf(m->gap * 0.5f), 0, theme->textDim, 0);
+                UI_SetNextFont(m->detail);
+                Prog__LabelPadded(Tr("Percent"), UI_Pixels(percentWidth), row, 0, floorf(6.4f * s + 0.5f), theme->textDim, 1);
+                UI_SetNextFont(m->detail);
+                Prog__Label(Tr("Size"), UI_Pixels(sizeWidth), row, 0, theme->textDim, 1);
+                if (counts) {
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(Tr("Files"), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                }
+                if (counts && !list) {
+                    UI_SetNextFont(m->detail);
+                    Prog__Label(Tr("Folders"), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                }
+                if (dates && !list) {
+                    UI_SetNextFont(m->detail);
+                    Prog__LabelPadded(Tr("Modified"), UI_Pixels(dateWidth), row, m->gap, 0, theme->textDim, 0);
+                }
+            }
+            u32 most = list ? usage->typeCount : Min(usage->folderCount * 2 + 1, 20000u);
+            u32 *rows = list ? NULL : ArenaPushArray(frame, most + 1, u32), rowCount = list ? usage->typeCount : 0;
+            u8 *depths = list ? NULL : ArenaPushArray(frame, most + 1, u8);
+            if (!list) Prog__UsageRows(usage, state->usageOpen, 0, 0, rows, depths, &rowCount, most);
+            f32 listHeight = MaxF32(0, (list ? typesHeight : treeHeight));
+            UI_SetNextPrefWidth(UI_Flex());
+            UI_SetNextPrefHeight(UI_Pixels(listHeight));
+            UI_SetNextChildrenLayout(UI_Layout_Vertical);
+            b32 scrolls = (f32)rowCount * row > listHeight;
+            UI_Block *view = UI_AddBlockFromKey(UI_KeyFromStr(0, list ? S("UsageTypes") : S("UsageTree")), UI_Flag_Clip | (scrolls ? UI_Flag_Scrollable : 0));
+            // The folder the treemap chose scrolls into sight.
+            if (!list && state->usageReveal) {
+                for (u32 i = 0; i < rowCount; ++i) {
+                    if (rows[i] != state->usageSelected) continue;
+                    f32 top = (f32)i * row;
+                    if (top < view->scrollOffset.y) view->scrollOffset.y = top;
+                    if (top + row > view->scrollOffset.y + listHeight) view->scrollOffset.y = top + row - listHeight;
+                }
+                state->usageReveal = false;
+            }
+            f32 rowWidth = width - (scrolls ? Prog__ScrollGutter(m) : 0), scrolled = view->scrollShown.y;
+            u32 first = (u32)MinF32((f32)rowCount, MaxF32(0, floorf(scrolled / row))), last = Min(rowCount, first + (u32)(listHeight / row) + 2);
+            UI_Parent(view) {
+                for (u32 i = first; i < last; ++i) {
+                    u32 index = list ? i : rows[i] & 0x7FFFFFFFu;
+                    b32 filesRow = !list && (rows[i] & 0x80000000u);
+                    UI_Key key = UI_KeyFromStr(0, StrFormat(frame, list ? "UsageType/%u" : filesRow ? "UsageFiles/%u" : "UsageFolder/%u", index));
+                    b32 picked = list ? state->usageType == index : !filesRow && state->usageSelected == index;
+                    UI_SetNextFloatingOffset((UI_Vec2){ 0, (f32)i * row - scrolled });
+                    UI_SetNextPrefWidth(UI_Pixels(rowWidth));
+                    UI_SetNextPrefHeight(UI_Pixels(row));
+                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_SetNextCornerRadius(m->radius);
+                    UI_SetNextColors((UI_Colors){ .background = picked ? theme->selection : theme->hover });
+                    UI_Block *entry = UI_AddBlockFromKey(key, UI_Flag_Floating | UI_Flag_LeftMouseClickable | (picked || UI->hotKey == key ? UI_Flag_DrawBackground : 0));
+                    UI_Interaction act = UI_InteractionFromBlock(entry);
+                    UI_Parent(entry) {
+                        if (list) {
+                            const Prog_UsageType *type = &usage->types[index];
+                            if (act.clicked) state->usageType = picked ? UINT32_MAX : index;
+                            f32 swatch = floorf(10.4f * s + 0.5f), top = floorf((row - swatch) * 0.5f);
+                            UI_Quad *mark = ArenaPushStruct(frame, UI_Quad);
+                            *mark = Prog__UsageQuad((R_Rect){ 0, top, swatch, top + swatch }, Prog__UsageColor(index));
+                            UI_SetNextQuads(mark, 1);
+                            Prog__Spacer(UI_Pixels(swatch + m->gap), UI_Pixels(row));
+                            String name = type->extension.length ? StrFormat(frame, ".%S", type->extension) : Tr("(No extension)");
+                            if (type->name.length) name = StrFormat(frame, "%S  %S", name, type->name);
+                            f32 fixed = swatch + m->gap + percentWidth + sizeWidth + (counts ? countWidth : 0);
+                            Prog__LabelPadded(Prog__Ellipsize(frame, m->font, name, MaxF32(0, rowWidth - fixed - m->gap)), UI_Flex(), row, floorf(m->gap * 0.5f), 0, theme->text, 0);
+                            Prog__UsagePercent(frame, type->bytes, usage->folders[0].bytes, percentWidth, row, m);
+                            UI_SetNextFont(m->detail);
+                            Prog__Label(Prog_FormatSize(frame, type->bytes), UI_Pixels(sizeWidth), row, 0, theme->text, 1);
+                            if (counts) {
+                                UI_SetNextFont(m->detail);
+                                Prog__Label(Prog__FormatCount(frame, type->files), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                            }
+                            continue;
+                        }
+                        const Prog_UsageFolder *folder = &usage->folders[index];
+                        u64 parentBytes = folder->parent != UINT32_MAX ? usage->folders[folder->parent].bytes : folder->bytes;
+                        u64 bytes = folder->bytes, files = folder->files, folders = folder->folders;
+                        String name = index ? folder->name : Prog_PathName(state, folder->name);
+                        if (filesRow) {
+                            // The folder's own files, which its folders leave of its size.
+                            u64 below = 0;
+                            for (u32 child = folder->firstChild; child != UINT32_MAX; child = usage->folders[child].nextSibling) below += usage->folders[child].bytes;
+                            parentBytes = bytes, bytes -= below, files = folder->fileCount + folder->restFiles, folders = 0;
+                            name = StrFormat(frame, TrN(files, "[%S file]", "[%S files]"), Prog__FormatCount(frame, files));
+                        } else if (act.clicked) {
+                            // A press chooses the folder; one on the chosen folder, a double one, or one on its arrow opens or closes it.
+                            f32 arrowEnd = entry->rect.x0 + (f32)depths[i] * indent + chevron;
+                            if (picked || act.pressCount == 2 || UI->mouse.x < arrowEnd) state->usageOpen[index] = !state->usageOpen[index];
+                            state->usageSelected = index;
+                        }
+                        Prog__Spacer(UI_Pixels((f32)depths[i] * indent), UI_Pixels(row));
+                        b32 opens = !filesRow && (folder->firstChild != UINT32_MAX || folder->fileCount || folder->restFiles);
+                        if (opens) Prog__SmallIcon(state->usageOpen[index] ? Icon_ChevronDown : Icon_ChevronRight, chevron, row, theme->textDim, 0.5f, m);
+                        else Prog__Spacer(UI_Pixels(chevron), UI_Pixels(row));
+                        R_Color nameColor = filesRow || folder->hidden || folder->system || folder->unreadable ? theme->textDim : theme->text;
+                        f32 fixed = (f32)depths[i] * indent + chevron + percentWidth + sizeWidth + (counts ? 2 * countWidth : 0) + (dates ? dateWidth : 0);
+                        Prog__LabelPadded(Prog__Ellipsize(frame, m->font, name, MaxF32(0, rowWidth - fixed - m->gap)), UI_Flex(), row, floorf(m->gap * 0.5f), 0, nameColor, 0);
+                        Prog__UsagePercent(frame, bytes, parentBytes, percentWidth, row, m);
+                        UI_SetNextFont(m->detail);
+                        Prog__Label(Prog_FormatSize(frame, bytes), UI_Pixels(sizeWidth), row, 0, theme->text, 1);
+                        if (counts) {
+                            UI_SetNextFont(m->detail);
+                            Prog__Label(Prog__FormatCount(frame, files), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                            UI_SetNextFont(m->detail);
+                            Prog__Label(filesRow ? (String){0} : Prog__FormatCount(frame, folders), UI_Pixels(countWidth), row, 0, theme->textDim, 1);
+                        }
+                        if (dates) {
+                            UI_SetNextFont(m->detail);
+                            Prog__LabelPadded(!filesRow && folder->modified ? P_FormatFileTime(frame, folder->modified) : (String){0}, UI_Pixels(dateWidth), row, m->gap, 0, theme->textDim, 0);
+                        }
+                    }
+                }
+                // The rows float, so the list scrolls by a stand-in as tall as they are.
+                Prog__Spacer(UI_Pixels(rowWidth), UI_Pixels((f32)rowCount * row));
+            }
+            if (scrolls) Prog__ScrollBar(view, row, list ? S("UsageTypes") : S("UsageTree"), 1, m);
+        }
+    }
+}
+
 // The inspector beside the list or below it, `size` wide or tall with its divider:
 // a toolbar with its layouts, the text view's switches and the item's name, the focused item's text, picture or folder,
 // and a footer with the filter and what the item holds.
@@ -12053,6 +12408,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
     b32 image = entry && state->previewImage && !pdf;
     b32 archive = entry && Prog_PreviewsArchive(state, entry);
     b32 folder = entry && (entry->file.kind == P_FileKind_Directory || archive);
+    // A folder or a drive can show by what takes its space.
+    b32 measurable = entry && !archive && (entry->file.kind == P_FileKind_Directory || entry->file.kind == P_FileKind_Drive);
     UI_SetNextPrefWidth(below ? UI_Flex() : UI_Pixels(inner));
     UI_SetNextPrefHeight(below ? UI_Pixels(inner) : UI_Flex());
     UI_SetNextChildrenLayout(UI_Layout_Vertical);
@@ -12116,7 +12473,18 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
                 Prog__Spacer(UI_Pixels(apart), UI_Pixels(bar));
                 Prog__ToolbarButton(state, S("InspectorWhitespace"), state->inspectorWhitespace ? Icon_Minus : Icon_Space, Prog_CommandKind_InspectorToggleWhitespace, true, m);
             }
-            if (folder) {
+            // A folder shows by what takes its space, or as its list.
+            if (measurable) {
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+                Prog__Box(UI_Pixels(m->separator), UI_Pixels(floorf(m->line * 1.25f + 0.5f)), UI_Layout_Horizontal, theme->tabBorder, 0);
+                Prog__Spacer(UI_Pixels(tight), UI_Pixels(bar));
+                R_Color lit = state->inspectorUsage ? theme->textMatch : theme->icon;
+                UI_Interaction usage = Prog__TextButton(S("InspectorUsage"), Icon_LayoutDashboard, m->icons, UI_Pixels(Prog__ToolbarButtonWidth(m)), Prog__ToolbarButtonHeight(m), 0,
+                                                        lit, state->inspectorUsage ? theme->textMatch : theme->text, theme->iconDisabled, true, m);
+                Prog__NoteTooltip(state, Prog_CommandKind_InspectorToggleUsage, (String){0});
+                if (usage.clicked) Prog_QueueCommand(state, Prog_CommandKind_InspectorToggleUsage, 0, 0, usage.clickOrder);
+            }
+            if (folder && !(state->inspectorUsage && !archive)) {
                 u64 owner = state->panels[state->currentPanel].id;
                 if (Prog__EnterInspectorPanel(state, owner) != UINT32_MAX) {
                     Prog__Spacer(UI_Pixels(floorf(14.4f * s + 0.5f)), UI_Pixels(bar));
@@ -12165,6 +12533,8 @@ function void Prog__Inspector(Prog_State *state, f32 size, b32 below, const Prog
             Prog__InspectorImage(state, m);
         } else if (image) {
             Prog__InspectorImage(state, m);
+        } else if (measurable && state->inspectorUsage) {
+            Prog__InspectorUsage(state, m);
         } else if (folder) {
             if (archive) {
                 String summary = state->previewArchiveCounted ? Prog_ArchiveSummary(&state->frameArena, state->previewArchiveTotals, entry->file.size) : Tr("Counting...");

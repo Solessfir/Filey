@@ -3343,3 +3343,42 @@ Version copied
 
 Couldn't mount %S
 = No se pudo montar %S
+
+Scanning... %S, %S, %S
+= Analizando... %S, %S, %S
+
+%S in %S and %S, scanned in %S
+= %S en %S y %S, analizado en %S
+
+%.1f s
+= %.1f s
+
+Scanning...
+= Analizando...
+
+Percent
+= Porcentaje
+
+(No extension)
+= (Sin extensión)
+
+Toggle Inspector Disk Usage
+= Uso del disco
+
+Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it.
+= Muestra en el inspector qué ocupa el espacio de una carpeta: sus carpetas por tamaño, sus tipos de archivo y un mapa de todo su contenido.
+
+Scan Disk Usage Again
+= Volver a analizar el uso del disco
+
+Scan the folder the inspector's disk usage shows again.
+= Vuelve a analizar la carpeta cuyo uso del disco muestra el inspector.
+
+%S files
+= %S archivo | %S archivos
+
+%S smaller files, %S
+= %S archivo más pequeño, %S | %S archivos más pequeños, %S
+
+[%S files]
+= [%S archivo] | [%S archivos]

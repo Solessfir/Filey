@@ -350,6 +350,7 @@ function void UI_SetNextShape(u32 shape) { UI->next.shape = shape; }
 function void UI_SetNextBlurSource(u32 source) { UI->next.blurSource = source; }
 function void UI_SetNextSoftness(f32 softness) { UI->next.softness = softness; }
 function void UI_SetNextEdgeFade(f32 pixels) { UI->next.edgeFade = pixels; }
+function void UI_SetNextQuads(const UI_Quad *quads, u32 count) { UI->next.quads = quads, UI->next.quadCount = count; }
 function void UI_SetNextScale(f32 scale) { UI->next.scale = scale; }
 
 function UI_Vec2 UI__TextSize(UI_Block *block)
@@ -557,6 +558,16 @@ function void UI__DrawBlockScaled(UI_Block *block, f32 opacity)
         }
         if (FlagExists(block->flags, UI_Flag_DrawBorder)) R_DrawRectOutline(block->rect, UI__Faded(block->props.colors.border, opacity), block->props.cornerRadius, MaxF32(1, block->props.borderThickness));
         R_SetShape(0);
+        if (block->props.quadCount) {
+            R_PushClip(block->clipRect);
+            for (u32 i = 0; i < block->props.quadCount; ++i) {
+                const UI_Quad *quad = &block->props.quads[i];
+                R_Color corners[4];
+                for (u32 k = 0; k < 4; ++k) corners[k] = UI__Faded(quad->corners[k], opacity);
+                R_DrawGradientRect((R_Rect){ block->rect.x0 + quad->rect.x0, block->rect.y0 + quad->rect.y0, block->rect.x0 + quad->rect.x1, block->rect.y0 + quad->rect.y1 }, corners, 0);
+            }
+            R_PopClip();
+        }
         if (FlagExists(block->flags, UI_Flag_DrawLine)) {
             UI_Vec2 from = block->props.lineFrom, to = block->props.lineTo;
             R_DrawLine(block->rect.x0 + from.x, block->rect.y0 + from.y, block->rect.x0 + to.x, block->rect.y0 + to.y, block->props.lineThickness,

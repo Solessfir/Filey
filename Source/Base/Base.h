@@ -396,12 +396,14 @@ function void *_ArrayReserve(Arena *arena, u64 count, u64 *capacity, void *array
 #define ArrayAdd(arena, a, n)      ArrayAddEx_(arena, a, n, false)
 #define ArrayAddClear(arena, a, n) ArrayAddEx_(arena, a, n, true)
 
+// The index is read once, into a variable, so that inserting at a constant 0 is not a comparison GCC warns is always true.
 #define ArrayInsert(arena, a, index, value) \
     do { \
-        Assert((u64)(index) <= (a).header.count); \
+        u64 at_ = (u64)(index); \
+        Assert(at_ <= (a).header.count); \
         (a).v = _ArrayGrow((arena), (a).header.count, &(a).header.capacity, (a).v, sizeof(*(a).v), 1, false); \
-        MemMove((a).v + (index) + 1, (a).v + (index), ((a).header.count - (u64)(index)) * sizeof(*(a).v)); \
-        (a).v[(index)] = (value); \
+        MemMove((a).v + at_ + 1, (a).v + at_, ((a).header.count - at_) * sizeof(*(a).v)); \
+        (a).v[at_] = (value); \
         (a).header.count += 1; \
     } while (0)
 

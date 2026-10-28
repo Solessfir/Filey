@@ -3343,3 +3343,42 @@ Version copied
 
 Couldn't mount %S
 = %S konnte nicht eingehängt werden
+
+Scanning... %S, %S, %S
+= Wird gescannt... %S, %S, %S
+
+%S in %S and %S, scanned in %S
+= %S in %S und %S, gescannt in %S
+
+%.1f s
+= %.1f s
+
+Scanning...
+= Wird gescannt...
+
+Percent
+= Prozent
+
+(No extension)
+= (Keine Erweiterung)
+
+Toggle Inspector Disk Usage
+= Speicherbelegung ein/aus
+
+Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it.
+= Zeigt im Inspektor, was in einem Ordner Platz belegt: seine Ordner nach Größe, seine Dateitypen und eine Karte von allem darin.
+
+Scan Disk Usage Again
+= Speicherbelegung erneut scannen
+
+Scan the folder the inspector's disk usage shows again.
+= Scannt den Ordner, dessen Speicherbelegung der Inspektor zeigt, erneut.
+
+%S files
+= %S Datei | %S Dateien
+
+%S smaller files, %S
+= %S kleinere Datei, %S | %S kleinere Dateien, %S
+
+[%S files]
+= [%S Datei] | [%S Dateien]

@@ -43,6 +43,12 @@ typedef enum UI_Layout {
     UI_Layout_Count,
 } UI_Layout;
 
+// A rectangle drawn over a block's background, from the block's top left corner, shaded from its corners' colors: top left, top right, bottom left and bottom right.
+typedef struct UI_Quad {
+    R_Rect rect;
+    R_Color corners[4];
+} UI_Quad;
+
 typedef struct UI_Properties {
     UI_Size width, height;
     enum8(UI_Layout) childrenLayout;
@@ -68,6 +74,9 @@ typedef struct UI_Properties {
     f32 softness;  // 0 gives the background a sharp edge; otherwise it fades in from its edge over this many pixels
     f32 edgeFade;  // a scrolling block's content fades into its background over this many pixels at an edge it has more past
     u32 shape;     // R_Shape flags for its blur, background and border
+    // Drawn over its background and border, inside it, in the order given; they live in the frame's memory.
+    const UI_Quad *quads;
+    u32 quadCount;
     // 1 has the blurs drawn from it on read the frame as it was before it, until a block with 2, for boxes side by side to blur as one.
     u32 blurSource;
 } UI_Properties;
@@ -192,6 +201,7 @@ function void UI_SetNextShape(u32 shape);
 function void UI_SetNextBlurSource(u32 source);
 function void UI_SetNextSoftness(f32 softness);
 function void UI_SetNextEdgeFade(f32 pixels);
+function void UI_SetNextQuads(const UI_Quad *quads, u32 count);
 function void UI_SetNextScale(f32 scale);
 
 // Eases `value` toward `target`, snapping within `epsilon`; anything still moving asks for another frame.

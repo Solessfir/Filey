@@ -404,6 +404,8 @@ typedef enum Prog_CommandKind {
     Prog_CommandKind_InspectorToggleWordWrap,
     Prog_CommandKind_InspectorToggleLineNumbers,
     Prog_CommandKind_InspectorToggleHex,
+    Prog_CommandKind_InspectorToggleUsage,
+    Prog_CommandKind_InspectorUsageRescan,
     Prog_CommandKind_InspectorToggleWhitespace,
     Prog_CommandKind_Count,
 } Prog_CommandKind;
@@ -808,6 +810,8 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_InspectorToggleWordWrap] = { .name = { "InspectorToggleWordWrap", 23 }, .label = { "Toggle Inspector Word Wrap", 26 }, .tooltip = { "Toggle word wrap option of the previewed text in the inspector.", 63 } },
     [Prog_CommandKind_InspectorToggleLineNumbers] = { .name = { "InspectorToggleLineNumbers", 26 }, .label = { "Toggle Inspector Line Numbers", 29 }, .aliases = { "show,hide", 9 }, .tooltip = { "Toggle display of line numbers for the previewed text in the inspector.", 71 } },
     [Prog_CommandKind_InspectorToggleHex] = { .name = { "InspectorToggleHex", 18 }, .label = { "Toggle Inspector Hex View", 25 }, .aliases = { "bytes,binary,hexadecimal", 24 }, .tooltip = { "Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are.", 99 } },
+    [Prog_CommandKind_InspectorToggleUsage] = { .name = { "InspectorToggleUsage", 20 }, .label = { "Toggle Inspector Disk Usage", 27 }, .aliases = { "treemap,space,size,sizes,wiztree,largest,biggest", 48 }, .tooltip = { "Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it.", 125 } },
+    [Prog_CommandKind_InspectorUsageRescan] = { .name = { "InspectorUsageRescan", 20 }, .label = { "Scan Disk Usage Again", 21 }, .aliases = { "refresh,reload,rescan", 21 }, .tooltip = { "Scan the folder the inspector's disk usage shows again.", 55 } },
     [Prog_CommandKind_InspectorToggleWhitespace] = { .name = { "InspectorToggleWhitespace", 25 }, .label = { "Toggle Inspector Whitespace", 27 }, .aliases = { "show,hide", 9 }, .tooltip = { "Toggle display of whitespace in the previewed text in the inspector.", 68 } },
 };
 

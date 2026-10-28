@@ -2157,6 +2157,16 @@ command InspectorToggleHex {
     tooltip = "Show the bytes of any file in the inspector as hex, or files that are text or pictures as they are."
 }
 
+command InspectorToggleUsage {
+    label   = "Toggle Inspector Disk Usage^treemap,space,size,sizes,wiztree,largest,biggest"
+    tooltip = "Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it."
+}
+
+command InspectorUsageRescan {
+    label   = "Scan Disk Usage Again^refresh,reload,rescan"
+    tooltip = "Scan the folder the inspector's disk usage shows again."
+}
+
 command InspectorToggleWhitespace {
     label   = "Toggle Inspector Whitespace^show,hide"
     tooltip = "Toggle display of whitespace in the previewed text in the inspector."

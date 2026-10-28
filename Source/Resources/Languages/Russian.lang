@@ -3342,3 +3342,42 @@ Version copied
 
 Couldn't mount %S
 = Не удалось подключить %S
+
+Scanning... %S, %S, %S
+= Сканирование... %S, %S, %S
+
+%S in %S and %S, scanned in %S
+= %S в %S и %S, сканирование заняло %S
+
+%.1f s
+= %.1f с
+
+Scanning...
+= Сканирование...
+
+Percent
+= Процент
+
+(No extension)
+= (Без расширения)
+
+Toggle Inspector Disk Usage
+= Занятое место
+
+Show a folder in the inspector by what takes its space: its folders by size, its kinds of file and a map of everything in it.
+= Показывает в инспекторе, что занимает место в папке: её папки по размеру, типы файлов и карту всего содержимого.
+
+Scan Disk Usage Again
+= Пересканировать занятое место
+
+Scan the folder the inspector's disk usage shows again.
+= Снова сканирует папку, занятое место которой показывает инспектор.
+
+%S files
+= %S файл | %S файла | %S файлов
+
+%S smaller files, %S
+= %S мелкий файл, %S | %S мелких файла, %S | %S мелких файлов, %S
+
+[%S files]
+= [%S файл] | [%S файла] | [%S файлов]
