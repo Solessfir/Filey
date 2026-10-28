@@ -1496,7 +1496,7 @@ typedef struct Prog_TreeWatches {
 //     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box; groupHeading: how tall a group's heading was
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
 //   filtering: the filter box has the keyboard; filterRect: its last layout
-//   listing, measureJob, sortPending, regroupPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort and group later
+//   listing, measureJob, sortPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort and group later
 //   watch, watchDirty: the shown folder's watch, and a change it saw that waits for the listing under way; treeWatches: its tree's unfolded folders'
 //   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
 //   renameCreatedUntil: until then, select the one item a listing of this folder adds, and rename it with createdRenames
@@ -1513,7 +1513,7 @@ typedef struct Prog_TreeWatches {
     X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) \
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) X(f32, groupHeading) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
-    X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) X(b32, regroupPending) \
+    X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(Prog_TreeWatches, treeWatches) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \

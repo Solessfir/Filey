@@ -2567,6 +2567,24 @@ function void TestMeasure(TestFileFixture *fixture)
         ArenaRelease(&kept);
     }
 
+    // Grouped by their counts before they are measured, folders leave Unknown once they are.
+    {
+        Prog_State grouped = {0};
+        Check(Prog_Init(&grouped, fixture->path, NULL, NULL));
+        grouped.folderSizesSpinning = true;
+        grouped.groupBy = Prog_GroupBy_Items;
+        if (grouped.jobs.initialized) {
+            Check(TestWaitDirectory(&grouped));
+            for (u64 start = PlatformNowMicroseconds(); grouped.measureJob && PlatformNowMicroseconds() - start < Millions(5);) {
+                Prog_TakeCompletions(&grouped);
+                if (grouped.measureJob) P__TestPause();
+            }
+            u64 folder = TestEntryIndex(&grouped, S("Folder2"));
+            Check(folder != UINT64_MAX && grouped.directory.entries[folder].measured && grouped.groupCount);
+            if (folder != UINT64_MAX && grouped.groupCount) Check(!StrIsEqual(grouped.groups[Prog_GroupAt(&grouped, Prog_ViewPosition(&grouped, folder))].label, Tr("Unknown")));
+        }
+        Prog_Release(&grouped);
+    }
     Prog_State state = {0};
     Check(Prog_Init(&state, fixture->path, NULL, NULL));
     // A build machine's disk can report as spinning, where folders go unmeasured by default.

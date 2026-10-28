@@ -5221,8 +5221,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     }
     state->commandFirst = NULL;
     state->commandLast = NULL;
-    if (state->sortPending) Prog__SortByTotals(state);
-    if (state->regroupPending) Prog__RegroupByTotals(state);
+    // Groups held by a menu or a drag come once they are done, but not while folders are still being measured, whose last measure groups them.
+    if (state->sortPending && !Prog__SortByTotals(state) && !state->measureJob) Prog__RegroupByTotals(state);
     // A view of another kind, as a zoom to the icons, shows a tree's nested items or leaves them out.
     if (state->directory.tree && state->treeNested != Prog_TreeShowsNested(state)) Prog_ApplyFilter(state, false);
     // Files dragged onto the window go into the folder under the pointer, else into the folder of the panel under it.

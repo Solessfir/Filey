@@ -1370,30 +1370,33 @@ function void Prog_TreeToggle(Prog_State *state, String name)
     Prog_Reload(state);
 }
 
-// Groups the list again by the folders' totals, when it is grouped by them, waiting out a menu or a drag, which refer to rows.
+// Groups the list again by the folders' totals, when it is grouped by them, waiting out a menu or a drag, which refer to rows, as the sort does.
 function void Prog__RegroupByTotals(Prog_State *state)
 {
     Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
-    state->regroupPending = false;
     if (by != Prog_GroupBy_Items && by != Prog_GroupBy_FolderUsage && by != Prog_GroupBy_VolumeUsage) return;
-    if (state->menuOpen || state->dragging) {
-        state->regroupPending = true;
-        return;
-    }
-    Prog_ApplyFilter(state, false);
-}
-
-// Sorts on folder totals are redone as the totals arrive.
-// Focus, anchor and selection stay on the same items.
-function void Prog__SortByTotals(Prog_State *state)
-{
-    Prog_Directory *directory = &state->directory;
-    Prog_Sort sort = directory->sort;
-    if (sort != Prog_Sort_Size && sort != Prog_Sort_Folders && sort != Prog_Sort_Files && sort != Prog_Sort_Items) return;
-    // An open menu or a drag refers to rows by index.
     if (state->menuOpen || state->dragging) {
         state->sortPending = true;
         return;
+    }
+    state->sortPending = false;
+    Prog_ApplyFilter(state, false);
+}
+
+// Sorts on folder totals are redone as the totals arrive; whether the list was filtered again, and so grouped again, comes back.
+// Focus, anchor and selection stay on the same items.
+function b32 Prog__SortByTotals(Prog_State *state)
+{
+    Prog_Directory *directory = &state->directory;
+    Prog_Sort sort = directory->sort;
+    if (sort != Prog_Sort_Size && sort != Prog_Sort_Folders && sort != Prog_Sort_Files && sort != Prog_Sort_Items) {
+        state->sortPending = false;
+        return false;
+    }
+    // An open menu or a drag refers to rows by index.
+    if (state->menuOpen || state->dragging) {
+        state->sortPending = true;
+        return false;
     }
     state->sortPending = false;
     // A tree's order goes by its folders, which the check of neighbors does not see, so it is sorted again.
@@ -1401,7 +1404,7 @@ function void Prog__SortByTotals(Prog_State *state)
     for (u64 i = 1; i < directory->count && sorted; ++i) {
         sorted = Prog__CompareEntries(&directory->entries[i - 1], &directory->entries[i], sort, directory->descending, directory->folderSort) <= 0;
     }
-    if (sorted) return;
+    if (sorted) return false;
     String focus = state->hasFocus ? directory->entries[state->focusedRow].file.name : (String){0};
     String anchor = state->hasAnchor ? directory->entries[state->anchorRow].file.name : (String){0};
     Scratch scratch = GetScratch();
@@ -1419,6 +1422,7 @@ function void Prog__SortByTotals(Prog_State *state)
     // Measure results for the old order are matched by name.
     ++state->listing;
     Prog_ApplyFilter(state, false);
+    return true;
 }
 
 // Whether the start of a file reads as text: no NUL bytes, and nearly all of it UTF-8; the end may cut a character.
@@ -8354,7 +8358,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Measure) {
             Prog_Measured *result = job->result;
             if (state->measureJob == job) state->measureJob = NULL;
-            b32 took = result && StrIsEqual(input->path, state->directory.path) && !P_IsCancelled(&job->cancelToken);
+            b32 took = result && StrIsEqual(input->path, state->directory.path) && !P_IsCancelled(&job->cancelToken), refiltered = false;
             if (took) {
                 // A refresh may have replaced the listing while the job ran.
                 b32 sameListing = input->listing == state->listing;
@@ -8382,11 +8386,11 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     else MapsPut(&state->sizeArena, state->sizes, StrCopy(&state->sizeArena, path), result->totals[i]);
                 }
                 changed = true;
-                Prog__SortByTotals(state);
+                refiltered = Prog__SortByTotals(state);
             }
             Prog__MeasureFolders(state);
-            // Groups by the totals take the folders out of Unknown once all are measured, rather than moving rows at every batch.
-            if (took && !state->measureJob) Prog__RegroupByTotals(state);
+            // Groups by the totals take the folders out of Unknown once all are measured, rather than moving rows at every batch, unless the sort just grouped them.
+            if (took && !state->measureJob && !refiltered) Prog__RegroupByTotals(state);
         } else if (input->generation == state->generation) {
             state->directoryJob = NULL;
             state->loading = false;
