@@ -1935,6 +1935,10 @@ command SetupUninstall {
 command SetupBack {
 }
 
+// Setup's logo clicked, which opens Filey's page on GitHub.
+command SetupHomepage {
+}
+
 // The Save Layout box's buttons; carries 0 for Save, 1 for Update and 2 for Cancel.
 command LayoutSaveButton {
 }

@@ -22,7 +22,8 @@ function const char *Prog_TrPlural(u64 count, const char *one, const char *other
 #define NoTrF(text) text
 
 // Where crashes are reported, a new issue of the project's.
-#define Prog_IssuesUrl "https://github.com/Solessfir/Filey/issues/new"
+#define Prog_RepositoryUrl "https://github.com/Solessfir/Filey"
+#define Prog_IssuesUrl Prog_RepositoryUrl "/issues/new"
 
 #ifndef FILEY_VERSION
 #define FILEY_VERSION "0.1.0"

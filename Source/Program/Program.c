@@ -13482,7 +13482,8 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         f32 since = (f32)(UI->nowMicroseconds - Min(state->setupOpenedAt, UI->nowMicroseconds)) / 1e6f, t = UI->animate ? MinF32(since / 0.6f, 1) : 1;
         f32 back = 1 + 2.70158f * (t - 1) * (t - 1) * (t - 1) + 1.70158f * (t - 1) * (t - 1);
         f32 grown = 0.6f + 0.4f * back, shown = MinF32(t * 2.5f, 1), named = UI->animate ? MinF32(MaxF32((since - 0.2f) / 0.4f, 0), 1) : 1;
-        b32 over = UI->mouseKnown && UI->mouse.x >= middle - logo * 0.5f && UI->mouse.x < middle + logo * 0.5f && UI->mouse.y >= logoTop && UI->mouse.y < logoTop + logo;
+        UI_Key logoKey = UI_KeyFromStr(0, S("SetupLogo"));
+        b32 over = UI->hotKey == logoKey;
         UI_Animation *hover = UI__Animation(UI_KeyFromStr(0, S("SetupLogoHover")), 0);
         if (hover && over && hover->value == 0 && t >= 1) hover->startMicroseconds = UI->nowMicroseconds;
         if (hover) hover->value = over ? 1.0f : 0.0f;
@@ -13496,7 +13497,10 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
             UI_SetNextPrefWidth(UI_Pixels(size));
             UI_SetNextPrefHeight(UI_Pixels(size));
             UI_SetNextImage(state->setupLogo, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ size, size }, (R_Color){ 1, 1, 1, shown });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawImage | (grown == 1 ? 0 : UI_Flag_ImageSubpixel));
+            // A click opens Filey's page on GitHub.
+            UI_Interaction click = UI_InteractionFromBlock(UI_AddBlockFromKey(logoKey, UI_Flag_Floating | UI_Flag_DrawImage | UI_Flag_LeftMouseClickable | (grown == 1 ? 0 : UI_Flag_ImageSubpixel)));
+            if (click.clicked) Prog_QueueCommand(state, Prog_CommandKind_SetupHomepage, 0, 0, click.clickOrder);
+            Prog__PopupTooltip(state, Tr("Open Filey's page on GitHub."));
         }
         String name = NoTr("Filey");
         R_Color nameInk = theme->icon;

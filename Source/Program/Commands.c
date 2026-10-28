@@ -4162,6 +4162,10 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__ReadSetup(state);
             } break;
             case Prog_CommandKind_SetupBack: state->setupOpen = false; break;
+            case Prog_CommandKind_SetupHomepage: {
+                P_FileError error = P_OpenUrl(&state->frameArena, S(Prog_RepositoryUrl));
+                if (error.code) Prog_Notify(state, Prog_NoticeKind_Error, S("setup.homepage"), Tr("Couldn't open the page"), error.message);
+            } break;
             case Prog_CommandKind_ExplorerOpen: {
                 // A folder inside an archive opens the archive's folder, and This PC the system's own start.
                 String folder = state->directory.path, archive = {0}, inner = {0};
