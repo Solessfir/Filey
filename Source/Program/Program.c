@@ -4460,8 +4460,15 @@ function void Prog__ScrollBar(UI_Block *view, f32 pitch, String name, f32 opacit
 // The room on the right of a list that scrolls, for its scroll bar.
 function f32 Prog__ScrollGutter(const Prog_Metrics *m) { return floorf(12.8f * m->scale + 0.5f); }
 
-// A drive's fullness in This PC: an outlined bar as wide as the column, filled to the percent `value` holds,
-// with the percent at the fill's end.
+// Text over the accent color: white over a dark accent, a near black over a light one, as a scheme's text may be neither.
+function R_Color Prog__OnAccent(void)
+{
+    R_Color accent = Prog_CurrentTheme()->accent;
+    f32 light = 0.2126f * accent.r + 0.7152f * accent.g + 0.0722f * accent.b;
+    return light > 0.45f ? (R_Color){ 0.08f, 0.08f, 0.1f, 1 } : (R_Color){ 1, 1, 1, 1 };
+}
+
+// A drive's fullness in This PC: an outlined bar as wide as the column, filled to the percent `value` holds, with the percent at the fill's end.
 function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -4515,7 +4522,7 @@ function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, 
             UI_Block *end = UI_AddBlock(UI_Flag_Floating);
             UI_Parent(end) {
                 UI_SetNextFont(m->detail);
-                Prog__LabelPadded(value, UI_TextContent(), tall, 0, 0, theme->text, 1);
+                Prog__LabelPadded(value, UI_TextContent(), tall, 0, 0, inside ? Prog__OnAccent() : theme->text, 1);
             }
         }
     }
@@ -5242,11 +5249,13 @@ function void Prog__FillBar(String label, f32 fraction, const Prog_Metrics *m)
                 UI_SetNextCornerRadius(radius);
                 UI_SetNextColors((UI_Colors){ .background = colors[i] });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                // The label is cut with them, the part over the fill in its contrast and the rest in the text's color.
+                UI_SetNextFloatingOffset((UI_Vec2){ -from[i], 0 });
+                UI_SetNextPrefWidth(UI_Pixels(barWidth));
+                UI_SetNextPrefHeight(UI_Pixels(barHeight));
+                UI_Parent(UI_AddBlock(UI_Flag_Floating)) Prog__Label(label, UI_Pixels(barWidth), barHeight, 0, i ? theme->text : Prog__OnAccent(), 0.5f);
             }
         }
-        // A block's text draws before its children, so the label is a child after the fill.
-        UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-        Prog__Label(label, UI_Pixels(barWidth), barHeight, 0, theme->text, 0.5f);
     }
 }
 
