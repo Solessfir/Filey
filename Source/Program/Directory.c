@@ -400,6 +400,10 @@ function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMar
     paths.text = path, paths.count = 0, paths.decoded = false;
     rune term[Prog_FuzzyTerm];
     i32 result = 0;
+    // Each term's letters in the path, kept only where they add to the score, so that letters lying far apart are not lit.
+    // Only a call that marks the path takes the scratch, as the filter's lanes call this for every item.
+    Scratch scratch = pathMarks && path.length ? GetScratch() : (Scratch){0};
+    u8 *termMarks = scratch.arena ? ArenaPushArray(scratch.arena, path.length, u8) : NULL;
     for (u64 at = 0; at < typed.length;) {
         u32 termCount = 0;
         while (at < typed.length && typed.value[at] == ' ') ++at;
@@ -412,10 +416,13 @@ function i32 Prog_FuzzyScore(String name, String path, String typed, u8 *nameMar
         String termText = StrFromTo(typed, termStart, (i64)at);
         result += Prog__FuzzyTerm(&names, term, termCount, termText, nameMarks);
         if (path.length) {
-            f32 scaled = (f32)Prog__FuzzyTerm(&paths, term, termCount, termText, pathMarks) * 0.75f;
-            result += Max((i32)(scaled + 0.5f), 0);
+            if (termMarks) MemZero(termMarks, path.length);
+            i32 scaled = (i32)((f32)Prog__FuzzyTerm(&paths, term, termCount, termText, termMarks) * 0.75f + 0.5f);
+            result += Max(scaled, 0);
+            for (u64 b = 0; termMarks && scaled > 0 && b < path.length; ++b) pathMarks[b] |= termMarks[b];
         }
     }
+    if (scratch.arena) ReleaseScratch(scratch);
     return result;
 }
 
