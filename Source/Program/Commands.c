@@ -765,6 +765,8 @@ global const u16 Prog_PaletteTree[] = {
 };
 static_assert((u32)Prog_CommandKind_Count + (u32)Prog_CommandGroup_Count <= UINT16_MAX, "commands and groups fit Prog_PaletteTree");
 
+function Prog_GroupBy Prog_GroupingOf(Prog_CommandKind kind);
+
 // The palette's rows: with nothing typed, each group's title and the commands of the groups open;
 // otherwise the commands the text finds by the score of their label and description, best first, then those only their search words find.
 // `out` has room for Prog_MaxPaletteRows; returns how many it holds.
@@ -792,10 +794,9 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
             return focused && !state->directory.archive && Prog_IsArchiveName(state->directory.entries[state->focusedRow].file.name);
         case Prog_CommandKind_Rename: return focused && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_SelectionRestore: return item && P_IsTrashFolder(state->directory.path);
-        // The groupings by what only the bin's items or the drives have.
-        case Prog_CommandKind_GroupByDateDeleted: case Prog_CommandKind_GroupByOriginalLocation: return P_IsTrashFolder(state->directory.path);
-        case Prog_CommandKind_GroupByFreeSpace: case Prog_CommandKind_GroupByFileSystem: case Prog_CommandKind_GroupByPercentFull:
-            return StrIsEqual(state->directory.path, Prog_ThisPC);
+        case Prog_CommandKind_GroupByDateDeleted: case Prog_CommandKind_GroupByOriginalLocation: case Prog_CommandKind_GroupByFreeSpace:
+        case Prog_CommandKind_GroupByFileSystem: case Prog_CommandKind_GroupByPercentFull:
+            return Prog_GroupingApplies(state->directory.path, Prog_GroupingOf(kind));
         case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
         case Prog_CommandKind_OpenContainingPathInTab:
             return focused;
@@ -1431,11 +1432,11 @@ function u32 Prog_GroupingCommands(const Prog_State *state, u16 *kinds)
     u32 count = 0;
     local_persist const u16 all[] = { Prog_CommandKind_GroupByNone, Prog_CommandKind_GroupByName, Prog_CommandKind_GroupByType, Prog_CommandKind_GroupBySize,
                                       Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupByDateCreated, Prog_CommandKind_GroupByDateAccessed,
-                                      Prog_CommandKind_GroupByItemCount, Prog_CommandKind_GroupByVolumeUsage, Prog_CommandKind_GroupByFolderUsage };
-    for (u32 i = 0; i < CArrayCount(all); ++i) kinds[count++] = all[i];
-    if (P_IsTrashFolder(state->directory.path)) kinds[count++] = Prog_CommandKind_GroupByDateDeleted, kinds[count++] = Prog_CommandKind_GroupByOriginalLocation;
-    if (StrIsEqual(state->directory.path, Prog_ThisPC)) {
-        kinds[count++] = Prog_CommandKind_GroupByFreeSpace, kinds[count++] = Prog_CommandKind_GroupByFileSystem, kinds[count++] = Prog_CommandKind_GroupByPercentFull;
+                                      Prog_CommandKind_GroupByItemCount, Prog_CommandKind_GroupByVolumeUsage, Prog_CommandKind_GroupByFolderUsage,
+                                      Prog_CommandKind_GroupByDateDeleted, Prog_CommandKind_GroupByOriginalLocation, Prog_CommandKind_GroupByFreeSpace,
+                                      Prog_CommandKind_GroupByFileSystem, Prog_CommandKind_GroupByPercentFull };
+    for (u32 i = 0; i < CArrayCount(all); ++i) {
+        if (Prog_GroupingApplies(state->directory.path, Prog_GroupingOf((Prog_CommandKind)all[i]))) kinds[count++] = all[i];
     }
     return count;
 }

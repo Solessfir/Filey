@@ -579,13 +579,19 @@ function void Prog__DateGroupStarts(i64 now, i64 starts[CArrayCount(Prog_DateGro
 }
 
 // Whether the list shows its items in groups; a tree's rows keep theirs under their folders.
+// Whether grouping by `by` means anything in the folder `path`: those by what only the bin's items or the drives have do only in the bin or This PC.
+function b32 Prog_GroupingApplies(String path, Prog_GroupBy by)
+{
+    if (by == Prog_GroupBy_Deleted || by == Prog_GroupBy_Original) return P_IsTrashFolder(path);
+    if (by == Prog_GroupBy_FreeSpace || by == Prog_GroupBy_FileSystem || by == Prog_GroupBy_PercentFull) return StrIsEqual(path, Prog_ThisPC);
+    return by < Prog_GroupBy_Count;
+}
+
 function b32 Prog__Grouped(const Prog_State *state)
 {
-    // The groupings by what only the bin's items or the drives have group nothing elsewhere, as a folder's kept view may bring one.
+    // One that groups nothing in the shown folder, as a folder's kept view may bring, leaves it ungrouped.
     Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
-    if ((by == Prog_GroupBy_Deleted || by == Prog_GroupBy_Original) && !P_IsTrashFolder(state->directory.path)) return false;
-    if ((by == Prog_GroupBy_FreeSpace || by == Prog_GroupBy_FileSystem || by == Prog_GroupBy_PercentFull) && !StrIsEqual(state->directory.path, Prog_ThisPC)) return false;
-    return by != Prog_GroupBy_None && by < Prog_GroupBy_Count && !(state->directory.tree && state->treeNested);
+    return by != Prog_GroupBy_None && Prog_GroupingApplies(state->directory.path, by) && !(state->directory.tree && state->treeNested);
 }
 
 function b32 Prog__GroupFolded(const Prog_State *state, String label)
@@ -4462,10 +4468,7 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
         Prog__SetList(&state->treeAllArena, &state->treeAll, NULL, 0);
         Prog__SetList(&state->groupArena, &state->groupsFolded, NULL, 0);
         // The groupings only the bin or This PC have end with leaving them.
-        Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
-        b32 binOnly = by == Prog_GroupBy_Deleted || by == Prog_GroupBy_Original;
-        b32 drivesOnly = by == Prog_GroupBy_FreeSpace || by == Prog_GroupBy_FileSystem || by == Prog_GroupBy_PercentFull;
-        if ((binOnly && !P_IsTrashFolder(path)) || (drivesOnly && !StrIsEqual(path, Prog_ThisPC))) state->groupBy = Prog_GroupBy_None;
+        if (!Prog_GroupingApplies(path, (Prog_GroupBy)state->groupBy)) state->groupBy = Prog_GroupBy_None;
     }
     input->showHidden = state->showHidden;
     input->expanded = state->expanded;
