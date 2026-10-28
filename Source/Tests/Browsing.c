@@ -4427,6 +4427,16 @@ function void TestSettings(void)
         u32 all = Prog_OptionMatches(&options, found);
         options.optionsFolded = 0xFF;
         Check(Prog_OptionMatches(&options, found) == Prog_OptionSectionCount && Prog_OptionHeading(found[0]) && all > Prog_OptionSectionCount);
+        // A path 200 folders deep has a crumb for every one of them.
+        String built = S("/root");
+        for (u32 i = 0; i < 200; ++i) built = StrFormat(&options.frameArena, "%S/a", built);
+        options.directory.path = built;
+        options.noTrail = true;
+        String path;
+        u64 shownEnd, *ends;
+        u32 crumbs = Prog_CrumbEnds(&options, &options.frameArena, &path, &shownEnd, &ends);
+        Check(crumbs >= 200 && ends[crumbs - 1] == path.length);
+        ArenaRelease(&options.frameArena);
     }
     // How the lists look, read back as the options show them; the defaults are {0}'s.
     {

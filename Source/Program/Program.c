@@ -3063,14 +3063,18 @@ function String Prog__CrumbsPath(Prog_State *state, u64 *shownEnd)
     return trail.length ? trail : thisPC ? (String){0} : shown;
 }
 
-function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 *ends, u32 max)
+function u32 Prog_CrumbEnds(Prog_State *state, Arena *arena, String *path, u64 *shownEnd, u64 **ends)
 {
     *path = Prog__CrumbsPath(state, shownEnd);
     b32 drive;
+    u64 start = Prog__CrumbStart(state, *path, &drive), most = 1;
+    // As many as the path has folders, however deep it goes.
+    for (u64 i = start; i < path->length; ++i) most += path->value[i] == '/';
+    *ends = ArenaPushArrayNoZero(arena, most, u64);
     u32 count = 0;
-    for (u64 at = Prog__CrumbStart(state, *path, &drive); at < path->length && count < max;) {
+    for (u64 at = start; at < path->length && count < most;) {
         u64 end = at + StrIndexChar(StrFrom(*path, at), '/', SSF_CountOnFail).value;
-        if (end > at) ends[count++] = end;
+        if (end > at) (*ends)[count++] = end;
         at = end + 1;
     }
     return count;
@@ -3136,10 +3140,10 @@ function u64 Prog__Breadcrumbs(Prog_State *state, f32 room, b32 *fromStart, cons
     // The slot of the chevron between two crumbs.
     f32 chevron = floorf(m->line * 1.6f - 4.0f * m->scale);
     // Too long for its room, the path leaves out whole crumbs from its start, with This PC and the Network's, for a "…" that lists them, rather than cutting the first one shown in two.
-    u64 ends[128], stopAt = path.length;
-    u32 count = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends)), skip = 0;
+    u64 *ends, stopAt = path.length;
+    u32 count = Prog_CrumbEnds(state, &state->frameArena, &path, &shownEnd, &ends), skip = 0;
     if (room > 0 && count > 1) {
-        f32 widths[CArrayCount(ends)], total = 0;
+        f32 *widths = ArenaPushArrayNoZero(&state->frameArena, count, f32), total = 0;
         for (u32 i = 0; i < count; ++i) {
             String label = Prog_CrumbLabel(state, path, ends[i], drive, i == 0);
             if (ends[i] == shownEnd && state->expanded) label = StrFormat(&state->frameArena, "%S [...]", label);

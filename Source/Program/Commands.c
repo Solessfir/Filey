@@ -1495,7 +1495,8 @@ function String Prog__CrumbTarget(Prog_State *state, u64 row)
 function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
 {
     Scratch scratch = GetScratch();
-    u32 capacity = Max(Max(Prog_MaxTabs, (u32)state->history.header.count), 128u) + 32, count = 0;
+    u32 crumbs = command->kind == Prog_CommandKind_CrumbsMenu ? (u32)Min(command->row, (u64)UINT32_MAX - 64) : 0;
+    u32 capacity = Max(Max(Prog_MaxTabs, (u32)state->history.header.count), crumbs) + 32, count = 0;
     Prog_MenuCommand *items = ArenaPushArray(scratch.arena, capacity, Prog_MenuCommand);
 #define Prog__Item(...) (count < capacity ? (void)(items[count++] = (Prog_MenuCommand){ __VA_ARGS__ }) : (void)0)
     switch (command->kind) {
@@ -1529,8 +1530,8 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
         // The path bar's crumbs left out for room, the nearest last, as they read.
         case Prog_CommandKind_CrumbsMenu: {
             String path;
-            u64 shownEnd, ends[128];
-            u32 total = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends));
+            u64 shownEnd, *ends;
+            u32 total = Prog_CrumbEnds(state, scratch.arena, &path, &shownEnd, &ends);
             b32 drive;
             Prog__CrumbStart(state, path, &drive);
             if (drive || StrIsEqual(state->directory.path, Prog_ThisPC)) Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = 0, .label = Tr("This PC"), .icon = Icon_Monitor);
@@ -5063,8 +5064,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_FilesPopupPrev:
             case Prog_CommandKind_FilesPopupNext: {
                 String path;
-                u64 shownEnd, ends[128];
-                u32 count = state->loading ? 0 : Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends)), open = UINT32_MAX, want = UINT32_MAX;
+                u64 shownEnd, *ends = NULL;
+                u32 count = state->loading ? 0 : Prog_CrumbEnds(state, &state->frameArena, &path, &shownEnd, &ends), open = UINT32_MAX, want = UINT32_MAX;
                 for (u32 i = 0; state->filesOpen && i < count; ++i) if (StrIsEqual(Prog__CrumbFolder(path, ends[i]), state->filesFolder)) open = i;
                 // This PC's, before a drive's crumbs, lists the drives with the one shown marked; the crumbs' Prev and Next reach it too.
                 b32 drive = false, thisOpen = state->filesOpen && StrIsEqual(state->filesFolder, Prog_ThisPC);
@@ -5252,8 +5253,8 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     // The folder dropdown closes once its crumb is gone from the path bar, as after going to another folder.
     if (state->filesOpen && !state->loading) {
         String path;
-        u64 shownEnd, ends[128];
-        u32 count = Prog_CrumbEnds(state, &path, &shownEnd, ends, CArrayCount(ends));
+        u64 shownEnd, *ends;
+        u32 count = Prog_CrumbEnds(state, &state->frameArena, &path, &shownEnd, &ends);
         // This PC's crumb is there before a drive's.
         b32 there = false;
         if (count && StrIsEqual(state->filesFolder, Prog_ThisPC)) Prog__CrumbStart(state, path, &there);

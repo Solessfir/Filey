@@ -2291,7 +2291,7 @@ function b32 Prog_TakeCompletions(Prog_State *state);
 function String Prog_ParentPath(String path);
 function String Prog_JoinPath(Arena *arena, String path, String name);
 // The path the crumbs show, where the shown folder ends in it, and where each crumb ends, up to `max`; none in This PC.
-function u32 Prog_CrumbEnds(Prog_State *state, String *path, u64 *shownEnd, u64 *ends, u32 max);
+function u32 Prog_CrumbEnds(Prog_State *state, Arena *arena, String *path, u64 *shownEnd, u64 **ends);
 function String Prog_CrumbLabel(Prog_State *state, String path, u64 end, b32 drive, b32 first);
 // A picture of Prog_PreviewSize squared of the 3D model in the file of `size` bytes at `path`; NULL for a file that is not one or does not read.
 // The model at `path` as a mesh for the GPU, Y up, with only triangles whose vertices are there, and the center and radius of its bounds.
