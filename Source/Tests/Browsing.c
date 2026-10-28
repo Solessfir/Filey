@@ -3474,6 +3474,9 @@ function void TestMcp(TestFileFixture *fixture)
     Check(StrIsEqual(Prog_JsonQuote(&arena, S("a\"b\\c\n")), S("\"a\\\"b\\\\c\\n\"")));
     // A byte that starts no character, as a Linux name may hold, goes as the replacement character, and a whole one as it is.
     Check(StrIsEqual(Prog_JsonQuote(&arena, S("a\xFF" "b\xC3\xA9")), S("\"a\\ufffdb\xC3\xA9\"")));
+    // list_commands finds a query only whole, in any case, not its letters scattered.
+    Check(Prog__HoldsFolded(S("Toggle Tree View"), S("tree")) && Prog__HoldsFolded(S("tree"), S("TREE")) && !Prog__HoldsFolded(S("Trex"), S("tree")));
+    Check(!Prog__HoldsFolded(S("Reload the current folder."), S("tree")) && !Prog__HoldsFolded(S("tre"), S("tree")));
     const char *text = "\"caf\\u00e9 \\ud83d\\ude00 \\\"q\\\"\"";
     const char *at = text;
     Prog__Json *word = Prog__JsonValue(&arena, &at, text + strlen(text), 0);

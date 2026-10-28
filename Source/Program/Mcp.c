@@ -159,7 +159,21 @@ function String Prog__ToolOpen(Prog_State *state, Arena *arena, const Prog__Json
     return S("{\"opened\":\"folder\"}");
 }
 
-// Runs the command `name` names, as its hotkey would, or lists the commands, those `query` finds by their label and description.
+// Whether `text` holds `query` whole, letters of any case alike; unlike the palette's matching, scattered letters do not count, as an
+// agent asking for a word wants the commands that name it.
+function b32 Prog__HoldsFolded(String text, String query)
+{
+    for (u64 start = 0; start < text.length; StrDecodeUtf8(text, &start)) {
+        u64 at = start, from = 0;
+        b32 same = true;
+        while (same && from < query.length) same = at < text.length && Prog__FoldRune(StrDecodeUtf8(text, &at)) == Prog__FoldRune(StrDecodeUtf8(query, &from));
+        if (same) return true;
+    }
+    return false;
+}
+
+// Runs the command `name` names, as its hotkey would, or lists the commands, those that name `query` in their name, label, search words
+// or description.
 function String Prog__ToolCommand(Prog_State *state, Arena *arena, const Prog__Json *arguments, b32 run)
 {
     Prog__UsePanel(state, state->activePanel);
@@ -178,7 +192,8 @@ function String Prog__ToolCommand(Prog_State *state, Arena *arena, const Prog__J
     for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) {
         const Prog_CommandDesc *desc = &Prog_Commands[kind];
         if (!desc->label.length || !Prog_CommandApplies((Prog_CommandKind)kind)) continue;
-        if (query.length && Prog_FuzzyScore(desc->label, desc->tooltip, query, NULL, NULL) <= 0 && !Prog_FilterMatch(desc->aliases, query, NULL)) continue;
+        if (query.length && !Prog__HoldsFolded(desc->name, query) && !Prog__HoldsFolded(Prog_CommandLabel((Prog_CommandKind)kind), query) &&
+            !Prog__HoldsFolded(desc->aliases, query) && !Prog__HoldsFolded(Prog_CommandTooltip((Prog_CommandKind)kind), query)) continue;
         // The label without its search words, which follow a caret.
         String label = Prog_CommandLabel((Prog_CommandKind)kind);
         StrBuildStr(arena, &out, StrFormat(arena, "%s{\"name\":%S,\"label\":%S,\"description\":%S,\"available\":%s}", listed++ ? "," : "", Prog_JsonQuote(arena, desc->name),
@@ -261,7 +276,9 @@ function String Prog__ToolSearch(Prog_State *state, Arena *arena, const Prog__Js
     StrBuildStr(arena, &out, StrFormat(arena, "{\"indexed\":%s,\"complete\":%s,\"results\":[", index->count ? "true" : "false", complete ? "true" : "false"));
     for (u64 i = 0; i < count; ++i) {
         String shown = StrIsEqual(hits[i].path, Prog_ThisPC) ? hits[i].path : P_NativePath(arena, hits[i].path);
-        StrBuildStr(arena, &out, StrFormat(arena, "%s{\"path\":%S,\"kind\":\"%s\"}", i ? "," : "", Prog_JsonQuote(arena, shown), hits[i].file ? "file" : "folder"));
+        // The bookmarks and recents hold files too, which only the index says apart; the few found are asked.
+        b32 file = hits[i].file || (!StrIsEqual(hits[i].path, Prog_ThisPC) && P_PathExists(hits[i].path) && !P_IsDirectory(hits[i].path));
+        StrBuildStr(arena, &out, StrFormat(arena, "%s{\"path\":%S,\"kind\":\"%s\"}", i ? "," : "", Prog_JsonQuote(arena, shown), file ? "file" : "folder"));
     }
     StrBuildStr(arena, &out, S("]}"));
     return out.buffer;

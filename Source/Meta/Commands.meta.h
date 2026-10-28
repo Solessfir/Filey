@@ -572,7 +572,7 @@ global const Prog_CommandDesc Prog_Commands[Prog_CommandKind_Count] = {
     [Prog_CommandKind_CopySelection] = { .name = { "CopySelection", 13 }, .label = { "Copy", 4 }, .tooltip = { "Copy selected files in the folder, placing them in the system clipboard.", 72 }, .noRepeat = true },
     [Prog_CommandKind_CutSelection] = { .name = { "CutSelection", 12 }, .label = { "Cut", 3 }, .tooltip = { "Cut selected files in the folder, placing them in the system clipboard.", 71 }, .noRepeat = true },
     [Prog_CommandKind_Paste] = { .name = { "Paste", 5 }, .label = { "Paste", 5 }, .tooltip = { "Paste files from the system clipboard into the current folder.", 62 }, .noRepeat = true },
-    [Prog_CommandKind_Trash] = { .name = { "Trash", 5 }, .label = { "Trash", 5 }, .aliases = { "delete,remove", 13 }, .tooltip = { "Move selected files into the Trash or Recycle Bin.", 50 }, .noRepeat = true },
+    [Prog_CommandKind_Trash] = { .name = { "Trash", 5 }, .label = { "Trash", 5 }, .aliases = { "delete,remove", 13 }, .tooltip = { "Move selected files into the Recycle Bin.", 41 }, .noRepeat = true },
     [Prog_CommandKind_SelectionDelete] = { .name = { "SelectionDelete", 15 }, .label = { "Delete", 6 }, .aliases = { "remove", 6 }, .tooltip = { "Permanently delete selected files!", 34 }, .noRepeat = true },
     [Prog_CommandKind_DeleteConfirm] = { .name = { "DeleteConfirm", 13 } },
     [Prog_CommandKind_DeleteCancel] = { .name = { "DeleteCancel", 12 } },

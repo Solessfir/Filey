@@ -849,7 +849,7 @@ global const char *const Prog_Strings[] = {
     "Copy selected files in the folder, placing them in the system clipboard.",
     "Cut selected files in the folder, placing them in the system clipboard.",
     "Paste files from the system clipboard into the current folder.",
-    "Move selected files into the Trash or Recycle Bin.",
+    "Move selected files into the Recycle Bin.",
     "Permanently delete selected files!",
     "Duplicate selected files into the same folder.",
     "Add To ZIP",
