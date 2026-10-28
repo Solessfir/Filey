@@ -1521,7 +1521,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_TabDuplicate, .icon = Icon_Copy);
             Prog__Item(.kind = Prog_CommandKind_NewWindow, .icon = Icon_AppWindow, .label = Tr("Duplicate Tab To New Window"));
             Prog__Item(.kind = Prog_CommandKind_None);
-            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
+            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = Tr("Middle Click"));
             u16 closers[] = { Prog_CommandKind_TabCloseOthers, Prog_CommandKind_TabCloseLeftTabs, Prog_CommandKind_TabCloseRightTabs, Prog_CommandKind_TabCloseAll };
             for (u32 i = 0; i < CArrayCount(closers); ++i) Prog__Item(.kind = closers[i], .icon = Icon_SquareX, .disabled = !Prog_CommandAvailable(state, (Prog_CommandKind)closers[i]));
         } break;
@@ -1567,7 +1567,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ToggleHideUI, .icon = Icon_Eye, .toggle = true, .checked = state->uiHidden);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_TabNew, .icon = Icon_SquarePlus);
-            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = S("MouseMiddle"));
+            Prog__Item(.kind = Prog_CommandKind_TabClose, .icon = Icon_SquareX, .mouse = Tr("Middle Click"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_OpenOptions, .icon = Icon_Settings);
             Prog__Item(.kind = Prog_CommandKind_CopyAsPath, .icon = Icon_Copy);
@@ -1608,7 +1608,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             String target = Prog__CrumbTarget(state, at);
             b32 folder = target.length && !StrIsEqual(target, Prog_ThisPC);
             Prog__Item(.kind = Prog_CommandKind_NavigatePrefix, .row = at, .label = Tr("Open"), .icon = Icon_Folder, .disabled = (b8)(!target.length || StrIsEqual(target, state->directory.path)));
-            Prog__Item(.kind = Prog_CommandKind_PanelHeaderDirInTab, .row = at, .label = Tr("Open in New Tab"), .icon = Icon_SquarePlus, .disabled = (b8)!target.length, .mouse = S("MouseMiddle"));
+            Prog__Item(.kind = Prog_CommandKind_PanelHeaderDirInTab, .row = at, .label = Tr("Open in New Tab"), .icon = Icon_SquarePlus, .disabled = (b8)!target.length, .mouse = Tr("Middle Click"));
             Prog__Item(.kind = Prog_CommandKind_PathOpenInWindow, .row = at, .label = Tr("Open in New Window"), .icon = Icon_AppWindow, .disabled = (b8)!target.length);
             Prog__Item(.kind = Prog_CommandKind_PathOpenInRightSplit, .row = at, .label = Tr("Open in Right Split"), .icon = Icon_UnfoldHorizontal, .disabled = (b8)!target.length);
             Prog__Item(.kind = Prog_CommandKind_PathOpenInBottomSplit, .row = at, .label = Tr("Open in Bottom Split"), .icon = Icon_UnfoldVertical, .disabled = (b8)!target.length);
@@ -1649,7 +1649,7 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_ColumnShiftLeft, .row = at, .label = Tr("Shift Column Left"), .icon = Icon_ChevronsLeft);
             Prog__Item(.kind = Prog_CommandKind_ColumnShiftRight, .row = at, .label = Tr("Shift Column Right"), .icon = Icon_ChevronsRight, .disabled = (b8)(name || at + 1 >= set.count));
             Prog__Item(.kind = Prog_CommandKind_ColumnFit, .row = at, .label = Tr("Size Column To Fit"), .icon = Icon_MoveHorizontal);
-            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = Tr("Close Column"), .icon = Icon_X, .disabled = (b8)name, .mouse = S("MouseMiddle"));
+            Prog__Item(.kind = Prog_CommandKind_ColumnClose, .row = at, .label = Tr("Close Column"), .icon = Icon_X, .disabled = (b8)name, .mouse = Tr("Middle Click"));
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_SizeAllColumnsToFit, .icon = Icon_MoveHorizontal);
             Prog__Item(.kind = Prog_CommandKind_ColumnsRestore, .label = Tr("Restore Default Columns"), .icon = Icon_RotateCcw);

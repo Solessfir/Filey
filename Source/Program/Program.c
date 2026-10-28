@@ -6922,7 +6922,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
         known ? Prog_FormatSize(frame, state->tip.totals.bytes) : waiting,
         Tr("Open In New Tab"),
     };
-    String chips[] = { S("Ctrl+MouseLeft"), S("MouseMiddle") };
+    String chips[] = { Tr("Ctrl+Click"), Tr("Middle Click") };
     f32 column = 0, valueWidth = 0, chipGap = floorf(4.8f * s + 0.5f), chipPad = floorf(4.8f * s + 0.5f);
     for (u32 i = 0; i < CArrayCount(labels); ++i) column = MaxF32(column, R_TextWidth(m->font, labels[i]));
     column += floorf(13.6f * s + 0.5f);

@@ -285,6 +285,8 @@ global const char *const Prog_Strings[] = {
     "Size:",
     "Cmd:",
     "Open In New Tab",
+    "Ctrl+Click",
+    "Middle Click",
     "Blank",
     "Search %u tabs...",
     "Open or expand a folder...",
