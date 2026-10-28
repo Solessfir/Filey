@@ -3857,7 +3857,10 @@ function void Prog__EditContents(const Prog_TextEdit *edit, f32 x, f32 y, b32 ca
     // A box given its width in pixels, as the rename box growing with its text is, has this frame's width to go by rather than the last's,
     // which would scroll the text for a frame as each letter widens it.
     UI_Block *box = UI->parent;
-    UI_Block *across = UI_AddBlockFromKey(UI_KeyFromStr(1, StrFormat(UI->frameArena, "EditBox/%p", (const void *)edit)), UI_Flag_Floating);
+    // Keyed by the popup it is in too, as the font dropdown's search and the Options' under it are drawn from the same text.
+    UI_Block *owner = box;
+    while (owner && !owner->key) owner = owner->parent;
+    UI_Block *across = UI_AddBlockFromKey(UI_KeyFromStr(owner ? owner->key : 1, StrFormat(UI->frameArena, "EditBox/%p", (const void *)edit)), UI_Flag_Floating);
     f32 boxWidth = box->props.width.kind == UI_SizeKind_Pixels ? box->props.width.value : across->rect.x1 - across->rect.x0;
     f32 room = boxWidth - x - MaxF32(x, Prog__CaretWidth(m)), scroll = 0;
     if (room > 0) {
