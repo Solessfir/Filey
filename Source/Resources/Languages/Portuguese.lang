@@ -3392,3 +3392,30 @@ Show the item chosen in the inspector's disk usage in its folder, in a new tab.
 
 Delete Permanently
 = Excluir Permanentemente
+
+Saved view settings
+= Exibição salva
+
+This folder
+= Esta pasta
+
+This folder and subfolders
+= Esta pasta e subpastas
+
+Restore view
+= Restaurar exibição
+
+Set as default
+= Definir como padrão
+
+Restore Folder View
+= Restaurar Exibição da Pasta
+
+Show the folder as its view is saved, or in the default view when it has none.
+= Mostra a pasta na exibição salva para ela ou, sem uma, na exibição padrão.
+
+Set Folder View as Default
+= Definir Exibição da Pasta como Padrão
+
+Start new tabs in the view the folder shows now.
+= Novas abas abrem na exibição que a pasta mostra agora.

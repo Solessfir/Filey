@@ -6079,22 +6079,86 @@ function b32 Prog__ParseFolderView(String line, Prog_ViewSettings *view, String 
     return true;
 }
 
-// The kept view of folder `path`, false when it has none.
-function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view)
+// FolderViews.conf keys a folder's own view by its path, the view of a folder and the folders below it by the path and "/*" after it, and the default view, which new tabs start with, by "*".
+#define Prog_DefaultViewKey S("*")
+
+// The folder a key of a folder and the folders below it names, as "C:/Games" for "C:/Games/*" and "C:/" for "C:/*"; empty for another key.
+function String Prog__FolderViewTree(String key)
 {
+    if (key.length < 2 || key.value[key.length - 1] != '*' || key.value[key.length - 2] != '/') return (String){0};
+    String folder = StrFromTo(key, 0, (i64)key.length - 1);
+    if (folder.length > 1 && folder.value[folder.length - 2] != ':') --folder.length;
+    return folder;
+}
+
+// Whether `path` is `folder` or inside it.
+function b32 Prog__PathInside(String path, String folder)
+{
+    if (!folder.length || path.length < folder.length || !StrIsEqual(StrFromTo(path, 0, (i64)folder.length), folder)) return false;
+    return path.length == folder.length || folder.value[folder.length - 1] == '/' || path.value[folder.length] == '/';
+}
+
+// How `path`'s view is kept and as what: by its own line (Prog_ViewScope_Folder), its own with its subfolders' (Prog_ViewScope_Tree), the nearest folder above it kept with its subfolders (Prog_ViewScope_Inherited), or not at all.
+function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String path, Prog_ViewSettings *view)
+{
+    Prog_ViewScope result = Prog_ViewScope_None;
+    u64 nearest = 0;
     for (u64 i = 0; path.length && i < state->folderViews.header.count; ++i) {
         String at;
         Prog_ViewSettings found;
-        if (Prog__ParseFolderView(state->folderViews.v[i], &found, &at) && StrIsEqual(at, path)) {
+        if (!Prog__ParseFolderView(state->folderViews.v[i], &found, &at)) continue;
+        if (StrIsEqual(at, path)) {
             *view = found;
-            return true;
+            return Prog_ViewScope_Folder;
+        }
+        String tree = Prog__FolderViewTree(at);
+        if (tree.length >= Max(nearest, (u64)1) && Prog__PathInside(path, tree)) {
+            nearest = tree.length;
+            *view = found;
+            result = tree.length == path.length ? Prog_ViewScope_Tree : Prog_ViewScope_Inherited;
         }
     }
-    return false;
+    return result;
 }
 
-// Keeps `path`'s view as the current panel shows it, or with `keep` false lets it go, and saves the list.
-function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view)
+// The kept view of folder `path`, its own or a folder's above it kept with its subfolders; false when it has none.
+function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view)
+{
+    return Prog_FolderViewScope(state, path, view) != Prog_ViewScope_None;
+}
+
+// The view new tabs start in: the one set as the default, else by name in Details with the usual columns.
+function Prog_ViewSettings Prog_DefaultView(const Prog_State *state)
+{
+    Prog_ViewSettings result = { .folders = Prog_FolderSort_First };
+    for (u64 i = 0; i < state->folderViews.header.count; ++i) {
+        String at;
+        Prog_ViewSettings found;
+        if (Prog__ParseFolderView(state->folderViews.v[i], &found, &at) && StrIsEqual(at, Prog_DefaultViewKey)) result = found;
+    }
+    return result;
+}
+
+// Whether two views are the same, their columns by their text, which rounds their shares as the file does.
+function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b)
+{
+    Scratch scratch = GetScratch();
+    b32 result = a.zoom == b.zoom && a.sort == b.sort && a.descending == b.descending && a.folders == b.folders && a.groupBy == b.groupBy &&
+                 StrIsEqual(Prog_ColumnsText(scratch.arena, a.columns), Prog_ColumnsText(scratch.arena, b.columns));
+    ReleaseScratch(scratch);
+    return result;
+}
+
+// Whether the shown folder's view is not what it is kept as, or with none kept, not the default.
+function b32 Prog_FolderViewModified(const Prog_State *state)
+{
+    Prog_ViewSettings kept;
+    if (!Prog_FolderView(state, state->directory.path, &kept)) kept = Prog_DefaultView(state);
+    return !Prog__SameView(Prog_CurrentView(state), kept);
+}
+
+// Keeps the view under `key` as `view`, or with NULL lets it go, and saves the list; the lines of `also`, when given, go too.
+function void Prog__SetFolderViewKey(Prog_State *state, String key, String also, const Prog_ViewSettings *view)
 {
     Scratch scratch = GetScratch();
     u64 count = state->folderViews.header.count, kept = 0;
@@ -6102,8 +6166,9 @@ function void Prog__SetFolderView(Prog_State *state, String path, const Prog_Vie
     for (u64 i = 0; i < count; ++i) {
         String at;
         Prog_ViewSettings view;
-        if (!Prog__ParseFolderView(state->folderViews.v[i], &view, &at) || !StrIsEqual(at, path)) lines[kept++] = state->folderViews.v[i];
+        if (!Prog__ParseFolderView(state->folderViews.v[i], &view, &at) || (!StrIsEqual(at, key) && !(also.length && StrIsEqual(at, also)))) lines[kept++] = state->folderViews.v[i];
     }
+    String path = key;
     if (view) {
         // The grouping only when there is one, so that a line without it still reads in an older Filey.
         String groupBy = view->groupBy ? StrFormat(scratch.arena, "%u ", (u32)view->groupBy) : (String){0};
@@ -6112,6 +6177,14 @@ function void Prog__SetFolderView(Prog_State *state, String path, const Prog_Vie
     }
     Prog__SetList(&state->folderViewArena, &state->folderViews, lines, kept);
     Prog__SaveList(state, Prog_FolderViewsFile, state->folderViews);
+    ReleaseScratch(scratch);
+}
+
+// Keeps `path`'s own view as `view`, or with NULL lets it go, whether it was kept alone or with its subfolders.
+function void Prog__SetFolderView(Prog_State *state, String path, const Prog_ViewSettings *view)
+{
+    Scratch scratch = GetScratch();
+    Prog__SetFolderViewKey(state, path, Prog_JoinPath(scratch.arena, path, S("*")), view);
     ReleaseScratch(scratch);
 }
 
@@ -6130,18 +6203,51 @@ function void Prog__ApplyFolderView(Prog_State *state, String path)
     }
 }
 
-// A locked folder keeps what its view is changed to, once nothing is being dragged, such as a column's edge.
+// A locked folder keeps what its view is changed to, once nothing is being dragged, such as a column's edge; a folder below one kept with its subfolders leaves that one's alone, and shows as changed until its view is restored.
 function void Prog_KeepLockedView(Prog_State *state)
 {
     Prog_ViewSettings saved;
-    if (!state->ownView || (UI && UI->activeKey) || !state->directory.path.length || !Prog_FolderView(state, state->directory.path, &saved)) return;
+    if (!state->ownView || (UI && UI->activeKey) || !state->directory.path.length) return;
+    Prog_ViewScope scope = Prog_FolderViewScope(state, state->directory.path, &saved);
+    if (scope != Prog_ViewScope_Folder && scope != Prog_ViewScope_Tree) return;
+    Prog_ViewSettings shown = Prog_CurrentView(state);
+    if (Prog__SameView(shown, saved)) return;
+    Scratch scratch = GetScratch();
+    String key = scope == Prog_ViewScope_Tree ? Prog_JoinPath(scratch.arena, state->directory.path, S("*")) : state->directory.path;
+    Prog__SetFolderViewKey(state, key, (String){0}, &shown);
+    ReleaseScratch(scratch);
+}
+
+// Keeps the shown folder's view as the panel shows it, for it alone or with its subfolders, or with Prog_ViewScope_None lets it go; what the panel shows stays either way.
+function void Prog_SetFolderViewScope(Prog_State *state, Prog_ViewScope scope)
+{
+    String path = state->directory.path;
+    if (!path.length) return;
     Prog_ViewSettings shown = Prog_CurrentView(state);
     Scratch scratch = GetScratch();
-    // The columns by their text, which rounds their shares as the file does.
-    b32 same = shown.zoom == saved.zoom && shown.sort == saved.sort && shown.descending == saved.descending && shown.folders == saved.folders &&
-               shown.groupBy == saved.groupBy && StrIsEqual(Prog_ColumnsText(scratch.arena, shown.columns), Prog_ColumnsText(scratch.arena, saved.columns));
+    String tree = Prog_JoinPath(scratch.arena, path, S("*"));
+    if (scope == Prog_ViewScope_Tree) Prog__SetFolderViewKey(state, tree, path, &shown);
+    else Prog__SetFolderViewKey(state, path, tree, scope == Prog_ViewScope_Folder ? &shown : NULL);
     ReleaseScratch(scratch);
-    if (!same) Prog__SetFolderView(state, state->directory.path, &shown);
+    if (scope != Prog_ViewScope_None) Prog__ApplyFolderView(state, path);
+}
+
+// Shows the shown folder as it is kept, or with none kept, in the default view; listed again when its order changes.
+function void Prog_RestoreFolderView(Prog_State *state)
+{
+    Prog_ViewSettings view;
+    if (!Prog_FolderView(state, state->directory.path, &view)) view = Prog_DefaultView(state);
+    b32 resort = state->sort != view.sort || state->descending != view.descending || state->folderSort != view.folders, regroup = state->groupBy != view.groupBy;
+    Prog__SetCurrentView(state, view);
+    if (resort) Prog_Reload(state);
+    else if (regroup) Prog_ApplyFilter(state, false);
+}
+
+// Keeps the shown folder's view as the one new tabs start in.
+function void Prog_SetDefaultView(Prog_State *state)
+{
+    Prog_ViewSettings shown = Prog_CurrentView(state);
+    Prog__SetFolderViewKey(state, Prog_DefaultViewKey, (String){0}, &shown);
 }
 
 // Back to the panel's own view after the shown folder's lets go of its, listed again when its order changes.
@@ -6721,6 +6827,9 @@ function void Prog_OpenTab(Prog_State *state, String path, u32 at, b32 activate)
     Prog_Tab *tab = &state->tabs[at];
     // It starts in the default view, by name in Details with the usual columns, whatever the shown tab has; a locked folder brings back its own.
     *tab = (Prog_Tab){ .id = ++state->nextTabId, .showHidden = state->showHidden, .previewShown = state->previewShown };
+    Prog_ViewSettings start = Prog_DefaultView(state);
+    tab->zoom = start.zoom, tab->sort = start.sort, tab->descending = start.descending, tab->folderSort = start.folders, tab->columnSet = start.columns;
+    tab->groupBy = start.groupBy;
     // The tab lists its folder when it is first shown.
     ArrayPush(&tab->historyArena, tab->history, StrCopy(&tab->historyArena, path));
     if (activate) Prog_SelectTab(state, at);

@@ -3391,3 +3391,30 @@ Show the item chosen in the inspector's disk usage in its folder, in a new tab.
 
 Delete Permanently
 = 永久删除
+
+Saved view settings
+= 已保存的视图设置
+
+This folder
+= 此文件夹
+
+This folder and subfolders
+= 此文件夹及其子文件夹
+
+Restore view
+= 恢复视图
+
+Set as default
+= 设为默认
+
+Restore Folder View
+= 恢复文件夹视图
+
+Show the folder as its view is saved, or in the default view when it has none.
+= 以文件夹保存的视图显示它；没有保存的视图时使用默认视图。
+
+Set Folder View as Default
+= 将文件夹视图设为默认
+
+Start new tabs in the view the folder shows now.
+= 新标签页以文件夹当前的视图打开。

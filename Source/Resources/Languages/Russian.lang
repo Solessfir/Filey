@@ -3390,3 +3390,30 @@ Show the item chosen in the inspector's disk usage in its folder, in a new tab.
 
 Delete Permanently
 = Удалить навсегда
+
+Saved view settings
+= Сохранённый вид
+
+This folder
+= Эта папка
+
+This folder and subfolders
+= Эта папка и вложенные
+
+Restore view
+= Восстановить вид
+
+Set as default
+= Сделать видом по умолчанию
+
+Restore Folder View
+= Восстановить вид папки
+
+Show the folder as its view is saved, or in the default view when it has none.
+= Показывает папку в сохранённом для неё виде, а без него — в виде по умолчанию.
+
+Set Folder View as Default
+= Сделать вид папки видом по умолчанию
+
+Start new tabs in the view the folder shows now.
+= Новые вкладки открываются в том виде, в котором сейчас показана папка.

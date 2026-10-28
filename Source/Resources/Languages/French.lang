@@ -3392,3 +3392,30 @@ Show the item chosen in the inspector's disk usage in its folder, in a new tab.
 
 Delete Permanently
 = Supprimer définitivement
+
+Saved view settings
+= Affichage enregistré
+
+This folder
+= Ce dossier
+
+This folder and subfolders
+= Ce dossier et ses sous-dossiers
+
+Restore view
+= Restaurer l’affichage
+
+Set as default
+= Définir par défaut
+
+Restore Folder View
+= Restaurer l’affichage du dossier
+
+Show the folder as its view is saved, or in the default view when it has none.
+= Montre le dossier dans son affichage enregistré ou, s’il n’en a pas, dans l’affichage par défaut.
+
+Set Folder View as Default
+= Définir l’affichage du dossier par défaut
+
+Start new tabs in the view the folder shows now.
+= Les nouveaux onglets s’ouvrent dans l’affichage que montre le dossier maintenant.

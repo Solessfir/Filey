@@ -65,6 +65,15 @@ typedef enum Prog_FolderSort {
 // What a panel shows a folder with, as a folder view keeps it.
 typedef struct Prog_ViewSettings Prog_ViewSettings;
 
+// How a folder's view is kept: not at all, by its own line, by its own with its subfolders', or as a folder's above it is with its subfolders'.
+typedef enum Prog_ViewScope {
+    Prog_ViewScope_None,
+    Prog_ViewScope_Folder,
+    Prog_ViewScope_Tree,
+    Prog_ViewScope_Inherited,
+    Prog_ViewScope_Count,
+} Prog_ViewScope;
+
 // What a details column shows, one value of an entry each.
 typedef enum Prog_ColumnId {
     Prog_ColumnId_Name,
@@ -224,6 +233,7 @@ typedef struct Prog_MenuCommand {
     b32 checked;
     String icon;   // a glyph of the icon font before the label, or none
     b8 toggle;     // shows `checked` as a box at the row's end rather than a check before the label
+    b8 radio;      // with toggle, the box is round and chosen shows a dot, as one of the choices around it
     b8 disabled;
     String mouse;  // a mouse button that does it too, in a chip before the hotkeys'
     enum16(Prog_CommandKind) hotkeysOf;  // the command whose hotkeys its chips show, when not its own
@@ -2365,6 +2375,13 @@ function void Prog_SessionWindow(String configDirectory, PlatformWindowDesc *des
 function b32 Prog_IsBookmarked(const Prog_State *state, String path);
 function void Prog_ToggleBookmark(Prog_State *state, String path);
 function b32 Prog_FolderView(const Prog_State *state, String path, Prog_ViewSettings *view);
+function Prog_ViewScope Prog_FolderViewScope(const Prog_State *state, String path, Prog_ViewSettings *view);
+function Prog_ViewSettings Prog_DefaultView(const Prog_State *state);
+function b32 Prog_FolderViewModified(const Prog_State *state);
+function b32 Prog__SameView(Prog_ViewSettings a, Prog_ViewSettings b);
+function void Prog_SetFolderViewScope(Prog_State *state, Prog_ViewScope scope);
+function void Prog_RestoreFolderView(Prog_State *state);
+function void Prog_SetDefaultView(Prog_State *state);
 function Prog_ViewSettings Prog_CurrentView(const Prog_State *state);
 function void Prog_KeepLockedView(Prog_State *state);
 function u32 Prog_ChoiceAt(Prog_Option option, u32 place);

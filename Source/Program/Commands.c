@@ -705,7 +705,7 @@ global const u16 Prog_PaletteTree[] = {
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
     Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_GroupByNone,
-    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_FolderViewToggle,
+    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_FolderViewToggle, Prog_CommandKind_FolderViewRestore, Prog_CommandKind_FolderViewSetDefault,
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
@@ -821,6 +821,8 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
         case Prog_CommandKind_NoticesUnmuteAll: return state->mutedNotices.header.count != 0;
         case Prog_CommandKind_BookmarksClear: return state->bookmarks.header.count != 0;
         case Prog_CommandKind_FolderViewsClear: return state->folderViews.header.count != 0;
+        case Prog_CommandKind_FolderViewRestore: return state->directory.path.length && Prog_FolderViewModified(state);
+        case Prog_CommandKind_FolderViewSetDefault: return state->directory.path.length != 0;
         case Prog_CommandKind_PanelSelectNext: case Prog_CommandKind_PanelSelectPrev: case Prog_CommandKind_PanelLeft: case Prog_CommandKind_PanelRight:
         case Prog_CommandKind_PanelUp: case Prog_CommandKind_PanelDown:
             return panels > 1;
@@ -1545,6 +1547,24 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleCompactPath, .label = Tr("Compact Path"), .toggle = true, .checked = !state->fullPaths);
             Prog__Item(.kind = Prog_CommandKind_ToggleBreadcrumbs, .label = Tr("Path Breadcrumbs"), .toggle = true, .checked = !state->noTrail);
+        } break;
+        // The lock button's: whether the view shown is as kept, then how it is kept, chosen as a radio button, its restore and the default.
+        case Prog_CommandKind_FolderViewMenu: {
+            Prog_ViewSettings kept;
+            Prog_ViewScope scope = Prog_FolderViewScope(state, state->directory.path, &kept);
+            b32 modified = Prog_FolderViewModified(state);
+            String title = modified ? StrFormat(&state->frameArena, "%S \u00B7 %S", Tr("Saved view settings"), Tr("Modified")) : Tr("Saved view settings");
+            Prog__Item(.kind = Prog_CommandKind_FolderViewMenu, .label = title, .disabled = true);
+            Prog__Item(.kind = Prog_CommandKind_FolderViewScope, .row = Prog_ViewScope_None, .label = Tr("None"), .icon = Icon_LockKeyholeOpen, .toggle = true, .radio = true,
+                       .checked = scope == Prog_ViewScope_None, .disabled = (b8)(scope == Prog_ViewScope_Inherited));
+            Prog__Item(.kind = Prog_CommandKind_FolderViewScope, .row = Prog_ViewScope_Folder, .label = Tr("This folder"), .icon = Icon_LockKeyhole, .toggle = true, .radio = true,
+                       .checked = scope == Prog_ViewScope_Folder);
+            Prog__Item(.kind = Prog_CommandKind_FolderViewScope, .row = Prog_ViewScope_Tree, .label = Tr("This folder and subfolders"), .icon = Icon_FolderTree, .toggle = true, .radio = true,
+                       .checked = scope == Prog_ViewScope_Tree || scope == Prog_ViewScope_Inherited);
+            Prog__Item(.kind = Prog_CommandKind_FolderViewRestore, .label = Tr("Restore view"), .icon = Icon_RotateCcw, .disabled = (b8)!modified);
+            Prog__Item(.kind = Prog_CommandKind_None);
+            Prog__Item(.kind = Prog_CommandKind_FolderViewSetDefault, .label = Tr("Set as default"), .icon = Icon_Check,
+                       .disabled = (b8)Prog__SameView(Prog_CurrentView(state), Prog_DefaultView(state)));
         } break;
         // The disk usage's, for the item chosen.
         case Prog_CommandKind_InspectorUsageMenu: {
@@ -3589,6 +3609,9 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_Redo: if (!state->renaming) Prog_RedoLast(state); break;
             case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
             case Prog_CommandKind_FolderViewToggle: Prog_ToggleFolderView(state); break;
+            case Prog_CommandKind_FolderViewScope: if (command->row < Prog_ViewScope_Inherited) Prog_SetFolderViewScope(state, (Prog_ViewScope)command->row); break;
+            case Prog_CommandKind_FolderViewRestore: Prog_RestoreFolderView(state); break;
+            case Prog_CommandKind_FolderViewSetDefault: Prog_SetDefaultView(state); break;
             case Prog_CommandKind_FolderViewsClear: Prog_ClearFolderViews(state); break;
             case Prog_CommandKind_BookmarksClear: {
                 Prog__SetList(&state->bookmarkArena, &state->bookmarks, NULL, 0);
@@ -4674,6 +4697,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ColumnFit: state->fitColumn = (u32)command->row + 1; break;
             case Prog_CommandKind_SizeAllColumnsToFit: state->fitColumn = UINT32_MAX; break;
             case Prog_CommandKind_InspectorUsageMenu:
+            case Prog_CommandKind_FolderViewMenu:
             case Prog_CommandKind_ColumnMenu:
             case Prog_CommandKind_ViewMenu:
             case Prog_CommandKind_HistoryMenu:

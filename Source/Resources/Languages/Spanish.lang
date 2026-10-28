@@ -3391,3 +3391,30 @@ Show the item chosen in the inspector's disk usage in its folder, in a new tab.
 
 Delete Permanently
 = Eliminar permanentemente
+
+Saved view settings
+= Vista guardada
+
+This folder
+= Esta carpeta
+
+This folder and subfolders
+= Esta carpeta y sus subcarpetas
+
+Restore view
+= Restaurar vista
+
+Set as default
+= Establecer como predeterminada
+
+Restore Folder View
+= Restaurar vista de carpeta
+
+Show the folder as its view is saved, or in the default view when it has none.
+= Muestra la carpeta con su vista guardada o, si no tiene, con la vista predeterminada.
+
+Set Folder View as Default
+= Establecer vista de carpeta como predeterminada
+
+Start new tabs in the view the folder shows now.
+= Las pestañas nuevas se abren con la vista que muestra ahora la carpeta.

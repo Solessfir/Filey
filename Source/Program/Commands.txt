@@ -1198,6 +1198,24 @@ command FolderViewToggle {
     tooltip = "Toggle preserving folder view settings: icons, sort order, folders first, and list columns."
 }
 
+// The lock button's menu of how the shown folder's view is kept, at `at`.
+command FolderViewMenu {
+}
+
+// Keeps the shown folder's view by the scope `row` carries: none, the folder alone, or it with its subfolders.
+command FolderViewScope {
+}
+
+command FolderViewRestore {
+    label   = "Restore Folder View^reset,saved,default"
+    tooltip = "Show the folder as its view is saved, or in the default view when it has none."
+}
+
+command FolderViewSetDefault {
+    label   = "Set Folder View as Default^new tabs,start"
+    tooltip = "Start new tabs in the view the folder shows now."
+}
+
 // The column header's menu, opened by a right click on a title; carries the column's place among the panel's columns.
 command ColumnMenu {
 }

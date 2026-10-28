@@ -873,6 +873,28 @@ function void TestProgramBrowsing(TestFileFixture *fixture)
         Check(state.zoom == ownZoom && state.sort == ownSort && state.descending == ownDescending && state.columnSet.count == 0 && state.groupBy == Prog_GroupBy_None);
         TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
         Check(TestWaitDirectory(&state));
+        // Kept with its subfolders, the view goes into Empty too, which changing it there leaves alone and shows as changed until it is restored; set as the default, new tabs start in it. A drive's root keeps the folders below it.
+        Check(StrIsEqual(Prog__FolderViewTree(S("C:/*")), S("C:/")) && StrIsEqual(Prog__FolderViewTree(S("/*")), S("/")) && StrIsEqual(Prog__FolderViewTree(S("/a/b/*")), S("/a/b")));
+        Check(Prog__PathInside(S("C:/Games"), S("C:/")) && Prog__PathInside(S("/a/b/c"), S("/a/b")) && !Prog__PathInside(S("/a/bc"), S("/a/b")));
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
+        u32 treeZoom = state.zoom;
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_Tree);
+        Check(Prog_FolderViewScope(&state, here, &view) == Prog_ViewScope_Tree && Prog_FolderViewScope(&state, empty, &view) == Prog_ViewScope_Inherited && view.zoom == treeZoom);
+        Check(Prog_FolderViewScope(&state, Prog_ParentPath(here), &view) == Prog_ViewScope_None);
+        Prog_RequestDirectory(&state, empty, true, 0);
+        Check(TestWaitDirectory(&state) && state.zoom == treeZoom && !Prog_FolderViewModified(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_ZoomIn, 0);
+        Check(Prog_FolderViewModified(&state) && Prog_FolderView(&state, here, &view) && view.zoom == treeZoom);
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewRestore, 0);
+        Check(state.zoom == treeZoom && !Prog_FolderViewModified(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewSetDefault, 0);
+        Check(Prog_DefaultView(&state).zoom == treeZoom);
+        TestBrowsingCommand(&state, Prog_CommandKind_Back, 0);
+        Check(TestWaitDirectory(&state));
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewScope, Prog_ViewScope_None);
+        Check(!Prog_FolderView(&state, here, &view) && !Prog_FolderView(&state, empty, &view));
+        TestBrowsingCommand(&state, Prog_CommandKind_FolderViewsClear, 0);
+        Check(Prog_DefaultView(&state).zoom == 0);
         // The columns read back as written; a line from before the columns keeps the defaults.
         Prog_ColumnSet written = { .count = 3, .kinds = { Prog_ColumnKind_Name, Prog_ColumnKind_Size, Prog_ColumnKind_Created }, .shares = { 0, 0.125f, 0 } }, read = {0};
         Check(Prog_ParseColumns(Prog_ColumnsText(&kept, written), &read) && read.count == 3 && read.kinds[2] == Prog_ColumnKind_Created && read.shares[1] == 0.125f);

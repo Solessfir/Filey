@@ -3189,7 +3189,12 @@ function void Prog__FolderButtons(Prog_State *state, f32 apart, const Prog_Metri
                                            kept ? theme->textMatch : theme->icon, kept ? theme->textMatch : theme->text, theme->iconDisabled, path.length != 0, m);
     if (path.length) Prog__DescribeTooltip(state, Prog_CommandKind_FolderViewToggle, kept ? Tr("Folder view settings saved and applied.\nIcons, sort, folders first, list columns.")
                                                                                         : Tr("No folder view settings saved.\nUsing panel's view settings."));
-    if (lock.clicked) Prog_QueueCommand(state, Prog_CommandKind_FolderViewToggle, 0, 0, lock.clickOrder);
+    // It opens the menu of how the folder's view is kept, under it.
+    if (lock.clicked) {
+        UI_Block *button = UI__Find(UI_KeyFromStr(0, S("FolderView")));
+        UI_Vec2 at = button ? (UI_Vec2){ button->rect.x0, button->rect.y1 + floorf(2.4f * m->scale + 0.5f) } : UI->mouse;
+        Prog_QueueCommand(state, Prog_CommandKind_FolderViewMenu, 0, 0, lock.clickOrder)->at = at;
+    }
     Prog__Spacer(UI_Pixels(apart), UI_Pixels(Prog__StripHeight(m)));
     b32 bookmarked = Prog_IsBookmarked(state, path);
     UI_Interaction bookmark = Prog__TextButton(NoTr("Bookmark"), Icon_Bookmark, m->icons, UI_Pixels(width), height, 0,
@@ -6660,7 +6665,26 @@ function b32 Prog__MenuPanel(Prog_State *state, u32 level, Prog_MenuPlace place,
                     UI_SetNextChildrenLayout(UI_Layout_Horizontal);
                     UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
                     UI_Block *slot = UI_AddBlock(0);
-                    UI_Parent(slot) {
+                    UI_Parent(slot) if (command->radio) {
+                        // One of a few choices: a ring, with a dot in the one chosen.
+                        R_Color ring = item->isDefault || highlighted ? theme->text : theme->tabBorder, dot = theme->text;
+                        if (!enabled) { ring.a *= 0.5f; dot.a *= 0.5f; }
+                        UI_SetNextPrefWidth(UI_Pixels(box));
+                        UI_SetNextPrefHeight(UI_Pixels(box));
+                        UI_SetNextCornerRadius(box * 0.5f);
+                        UI_SetNextBorderThickness(m->stroke);
+                        UI_SetNextColors((UI_Colors){ .border = ring });
+                        UI_Block *circle = UI_AddBlock(UI_Flag_DrawBorder);
+                        f32 inner = floorf(box * 0.45f + 0.5f);
+                        if (item->isDefault) UI_Parent(circle) {
+                            UI_SetNextFloatingOffset((UI_Vec2){ floorf((box - inner) * 0.5f), floorf((box - inner) * 0.5f) });
+                            UI_SetNextPrefWidth(UI_Pixels(inner));
+                            UI_SetNextPrefHeight(UI_Pixels(inner));
+                            UI_SetNextCornerRadius(inner * 0.5f);
+                            UI_SetNextColors((UI_Colors){ .background = dot });
+                            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
+                        }
+                    } else {
                         UI_SetNextPrefWidth(UI_Pixels(box));
                         UI_SetNextPrefHeight(UI_Pixels(box));
                         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
