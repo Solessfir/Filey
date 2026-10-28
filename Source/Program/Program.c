@@ -4070,6 +4070,9 @@ function void Prog__EntryValues(Prog_State *state, const Prog_Entry *entry, Stri
             if (folderCount) folders = Prog__FormatCount(frame, folderCount);
             if (fileCount) files = Prog__FormatCount(frame, fileCount);
             size = fileCount ? Prog_FormatSize(frame, bytes) : none;
+        } else if (state->directory.archive) {
+            // An archive's folders are not measured, so their totals stay unknown.
+            size = none;
         } else {
             folders = files = (String){0};
         }

@@ -405,7 +405,8 @@ function void P__ArchiveLevel(Arena *arena, const P_FileArray *all, String inner
         b32 deeper = slash.exists, isFolder = deeper || all->v[i].kind == P_FileKind_Directory;
         u64 at = MapsGet(seen, u64, child);
         if (!at) {
-            ArrayPush(arena, result->files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            // A folder only implied by the paths inside it is known to have no time.
+            ArrayPush(arena, result->files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File, .metadataValid = (b8)deeper }));
             at = result->files.header.count;
             MapsPut(scratch.arena, seen, result->files.v[at - 1].name, at);
         }
@@ -461,7 +462,7 @@ function P_DirectoryResult P_EnumerateArchive(Arena *arena, String archive, Stri
         b32 deeper = slash.exists, isFolder = deeper || folder;
         u64 at = MapsGet(seen, u64, child);
         if (!at) {
-            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File }));
+            ArrayPush(arena, result.files, ((P_File){ .name = StrCopy(arena, child), .kind = isFolder ? P_FileKind_Directory : P_FileKind_File, .metadataValid = (b8)deeper }));
             at = result.files.header.count;
             MapsPut(arena, seen, result.files.v[at - 1].name, at);
         }

@@ -11,7 +11,9 @@ function String Prog_JoinPath(Arena *arena, String path, String name)
 
 function String Prog_EntryModified(Arena *arena, const Prog_Entry *entry)
 {
-    return entry->file.metadataValid ? P_FormatFileTime(arena, entry->file.modifiedTimeUnix) : (String){0};
+    // A time not known, as of a folder an archive only implies by the paths inside it, shows as the other unknown values do; one still loading is blank.
+    if (!entry->file.metadataValid) return (String){0};
+    return entry->file.modifiedTimeUnix ? P_FormatFileTime(arena, entry->file.modifiedTimeUnix) : S("--");
 }
 
 function String Prog__PackedName(const u8 *packed)
@@ -671,7 +673,7 @@ function void Prog__GroupView(Prog_State *state, Arena *scratch)
         } else if (dates) {
             i64 time = by == Prog_GroupBy_Modified ? entry->file.modifiedTimeUnix : by == Prog_GroupBy_Created ? entry->file.createdTimeUnix
                      : by == Prog_GroupBy_Accessed ? entry->file.accessedTimeUnix : entry->deletedTimeUnix;
-            if (by != Prog_GroupBy_Modified && !time) id = UINT32_MAX;
+            if (!time) id = UINT32_MAX;
             else while (id < CArrayCount(starts) && time < starts[id]) ++id;
         } else if (by == Prog_GroupBy_Name) {
             String name = entry->label.length ? entry->label : Prog_EntryLeaf(entry->file.name);
