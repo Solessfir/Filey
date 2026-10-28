@@ -111,6 +111,8 @@ function String P_ComputerIconPath(void);
 // "//NAS", this computer among them. It is no folder on disk, so it has no Win32 form. Empty where Filey lists none, as on Linux, whose
 // servers have no paths of their own yet.
 function String P_NetworkFolder(void);
+// Whether two paths that differ only in case name the same file, as on Windows; on Linux they are two.
+function b32 P_PathsIgnoreCase(void);
 // When `path` was created, in seconds since the Unix epoch; 0 when the file system does not say.
 function i64 P_FileCreatedTime(String path);
 // When the item at `path` last changed, in seconds since the Unix epoch; 0 when it is not there.

@@ -1290,7 +1290,7 @@ function Prog_GoToItem *Prog_GoToMatches(Prog_State *state, u32 *count, String *
                     const P_Place *place = &places->v[i];
                     b32 bookmarked = false;
                     for (u64 b = 0; section == Prog_GoToSection_Places && bookmarksShown && b < state->bookmarks.header.count && !bookmarked; ++b) {
-                        bookmarked = Prog__EqualFolded(state->bookmarks.v[b], place->path);
+                        bookmarked = Prog__PathsEqual(state->bookmarks.v[b], place->path);
                     }
                     if (!bookmarked) result[(*count)++] = (Prog_GoToItem){ place->path, (u8)section, false, false, place->name, section == Prog_GoToSection_Storage ? place : NULL };
                 }
@@ -2410,7 +2410,7 @@ function void Prog__RenameInsert(Prog_State *state, Prog_CommandKind kind)
             b32 taken = false;
             for (u64 i = 0; i < state->directory.count && !taken; ++i) {
                 String name = state->directory.entries[i].file.name;
-                taken = name.length == candidate.length && Prog__EqualFolded(name, candidate) && !StrIsEqual(name, renamed);
+                taken = name.length == candidate.length && Prog__PathsEqual(name, candidate) && !StrIsEqual(name, renamed);
             }
             if (!taken) text = number;
         }

@@ -19,6 +19,8 @@ function b32 P__IsDevicePath(String path)
 
 function String P_NetworkFolder(void) { return S("Network"); }
 
+function b32 P_PathsIgnoreCase(void) { return true; }
+
 // The Network folder, or a path under it, which only a mistake would make, as a new folder there.
 function b32 P__IsNetworkPath(String path)
 {

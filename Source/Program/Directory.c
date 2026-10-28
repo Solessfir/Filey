@@ -608,6 +608,11 @@ function u32 Prog__PercentGroup(u64 part, u64 whole)
     return Min((u32)((f64)part * 100.0 / (f64)whole) / 10, 9u);
 }
 
+function b32 Prog__EqualFolded(String a, String b);
+
+// Whether two paths, or two names in one folder, are the same, ignoring case only where the system does.
+function b32 Prog__PathsEqual(String a, String b) { return P_PathsIgnoreCase() ? Prog__EqualFolded(a, b) : StrIsEqual(a, b); }
+
 // The bytes of the listed items, the measured folders' and the files', which the folder usage is a share of.
 function u64 Prog_ListBytes(const Prog_State *state)
 {
@@ -627,7 +632,7 @@ function u64 Prog_VolumeBytes(const Prog_State *state)
     for (u64 i = 0; i < state->drives.header.count; ++i) {
         String root = state->drives.v[i].path;
         b32 whole = root.length && (path.length == root.length || root.value[root.length - 1] == '/' || (root.length < path.length && path.value[root.length] == '/'));
-        if (root.length > longest && root.length <= path.length && whole && Prog__EqualFolded(StrFromTo(path, 0, (i64)root.length), root)) {
+        if (root.length > longest && root.length <= path.length && whole && Prog__PathsEqual(StrFromTo(path, 0, (i64)root.length), root)) {
             longest = root.length;
             result = state->drives.v[i].totalBytes;
         }
@@ -4645,7 +4650,8 @@ function b32 Prog_PathOnline(const Prog_State *state, String path)
     for (u64 i = 0; i < state->drives.header.count; ++i) {
         String root = state->drives.v[i].path;
         while (root.length && root.value[root.length - 1] == '/') --root.length;
-        if (path.length >= root.length && Prog__EqualFolded(StrFromTo(path, 0, (i64)root.length), root) && (path.length == root.length || path.value[root.length] == '/')) return true;
+        // A drive's letter has no case anywhere.
+        if (path.length >= root.length && (lettered ? Prog__EqualFolded : Prog__PathsEqual)(StrFromTo(path, 0, (i64)root.length), root) && (path.length == root.length || path.value[root.length] == '/')) return true;
     }
     return false;
 }
@@ -6039,7 +6045,7 @@ function void Prog_PushUndo(Prog_State *state, Prog_UndoKind kind, const String 
     Prog__PushStep(&state->undoArena, &state->undo, kind, from, to, count);
 }
 
-// Whether `a` and `b` name the same place, whichever separators they use, and ignoring case, as Windows does.
+// Whether `a` and `b` name the same place, whichever separators they use, and ignoring case where the system does.
 function b32 Prog__SamePath(String a, String b)
 {
     while (a.length > 1 && (a.value[a.length - 1] == '/' || a.value[a.length - 1] == '\\')) --a.length;
@@ -6049,8 +6055,8 @@ function b32 Prog__SamePath(String a, String b)
         u8 x = (u8)a.value[i], y = (u8)b.value[i];
         if (x == '\\') x = '/';
         if (y == '\\') y = '/';
-        if (x >= 'A' && x <= 'Z') x += 32;
-        if (y >= 'A' && y <= 'Z') y += 32;
+        if (P_PathsIgnoreCase() && x >= 'A' && x <= 'Z') x += 32;
+        if (P_PathsIgnoreCase() && y >= 'A' && y <= 'Z') y += 32;
         if (x != y) return false;
     }
     return true;

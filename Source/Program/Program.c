@@ -6957,7 +6957,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
     String path = state->tooltipPath;
     // A drive's tip is its room, which is known, rather than what it holds, which would walk all of it.
     const P_Place *drive = NULL;
-    for (u64 i = 0; i < state->drives.header.count && !drive; ++i) if (Prog__EqualFolded(state->drives.v[i].path, path)) drive = &state->drives.v[i];
+    for (u64 i = 0; i < state->drives.header.count && !drive; ++i) if (Prog__PathsEqual(state->drives.v[i].path, path)) drive = &state->drives.v[i];
     if (!drive) Prog_InspectFolder(state, path);
     f32 s = m->scale, pad = floorf(12.0f * s + 0.5f), side = floorf(8.8f * s + 0.5f), row = floorf(21.6f * s + 0.5f), margin = floorf(6.4f * s + 0.5f);
     Arena *frame = &state->frameArena;

@@ -4436,6 +4436,9 @@ function void TestSettings(void)
         u64 shownEnd, *ends;
         u32 crumbs = Prog_CrumbEnds(&options, &options.frameArena, &path, &shownEnd, &ends);
         Check(crumbs >= 200 && ends[crumbs - 1] == path.length);
+        // Paths that differ only in case are the same where the system says so, and two on Linux.
+        Check(Prog__SamePath(S("/home/Music/"), S("/home/music")) == P_PathsIgnoreCase() && Prog__SamePath(S("/home/Music/"), S("/home/Music")));
+        Check(Prog__PathsEqual(S("Music"), S("music")) == P_PathsIgnoreCase() && Prog__PathsEqual(S("Music"), S("Music")));
         ArenaRelease(&options.frameArena);
     }
     // How the lists look, read back as the options show them; the defaults are {0}'s.

@@ -680,6 +680,8 @@ function String P_ComputerIconPath(void) { return S("computer:///"); }
 // ponytail: none until "//server" paths list a server's shares here, through smbclient or GVFS's smb mounts.
 function String P_NetworkFolder(void) { return (String){0}; }
 
+function b32 P_PathsIgnoreCase(void) { return false; }
+
 function b32 P_IsVirtualFolder(String path)
 {
     local_persist const char *virtuals[] = { "/proc", "/sys", "/dev", "/run" };
