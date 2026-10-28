@@ -7159,8 +7159,8 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             UI_Interaction interaction = UI_InteractionFromBlock(row);
             if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
             UI_Parent(row) {
-                // The folder's own picture filling the slot, as the icon views draw it, or its list icon while that loads.
-                const Prog_Icon *picture = path.length ? Prog_FolderPicture(state, path, (i32)floorf(32.0f * s + 0.5f)) : NULL;
+                // The folder's own picture filling the slot, as the icon views draw it, or its list icon while that loads; This PC, no folder, has the computer's icon.
+                const Prog_Icon *picture = path.length && !StrIsEqual(path, Prog_ThisPC) ? Prog_FolderPicture(state, path, (i32)floorf(32.0f * s + 0.5f)) : NULL;
                 const Prog_Icon *icon = picture ? picture : path.length ? Prog_FolderIcon(state, path) : NULL;
                 f32 drawn = picture ? floorf(32.0f * s + 0.5f) : (f32)state->iconSize;
                 UI_SetNextPrefWidth(UI_Pixels(iconSlot));
