@@ -12805,8 +12805,20 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
     b32 below = state->inspectorLayout == Prog_InspectorLayout_Below || (state->inspectorLayout == Prog_InspectorLayout_Auto && mainHeight > width);
     if (inspecting) state->inspectorBelow = below;
     f32 share = state->inspectorShare > 0 ? state->inspectorShare : 0.5f;
-    f32 previewWidth = inspecting && !below ? floorf((width - m->separator) * share) : 0;
-    f32 previewHeight = inspecting && below ? floorf((mainHeight - m->separator) * share) : 0;
+    // The inspector slides open, easing with a 20 ms time constant, and shut with a 12 ms one, the list giving it room as it comes.
+    // Each tab slides its own, so that switching to one shows its inspector as it was.
+    f32 open = inspecting ? 1.0f : 0.0f;
+    u64 tab = state->tabCount ? state->tabs[state->activeTab].id : 0;
+    UI_Animation *slide = UI__Animation(UI_KeyFromStr(0, StrFormat(&state->frameArena, "InspectorSlide/%" PRIu64, tab)), open);
+    if (slide && UI->animate && fabsf(open - slide->value) > 0.002f) {
+        slide->value += (open - slide->value) * (1.0f - expf(-UI->dt / (inspecting ? 0.020f : 0.012f)));
+        open = slide->value;
+        UI_KeepAnimating();
+    } else if (slide) {
+        slide->value = open;
+    }
+    f32 previewWidth = open > 0 && !below ? floorf((width - m->separator) * share * open) : 0;
+    f32 previewHeight = open > 0 && below ? floorf((mainHeight - m->separator) * share * open) : 0;
     f32 listWidth = width - previewWidth;
     Prog_Columns columns = Prog__Columns(state, scale, listWidth - 2 * m->inset - (state->listScrolls ? Prog__ScrollGutter(m) : 0));
     // A panel a split just made zooms in from 60% of its size about its middle, easing with a 38 ms time constant.
@@ -12871,7 +12883,13 @@ function void Prog__PanelUI(Prog_State *state, u32 index, R_Rect rect, R_Rect ar
                     UI_Parent(slide) Prog__StatusBar(state, m);
                 }
             }
-            if (inspecting) Prog__Inspector(state, below ? previewHeight : previewWidth, below, m);
+            // Shutting, it is an empty strip behind its divider, as its folder's list goes with it at once.
+            if (inspecting) {
+                Prog__Inspector(state, below ? previewHeight : previewWidth, below, m);
+            } else if (previewWidth > 0 || previewHeight > 0) {
+                Prog__Box(below ? UI_Flex() : UI_Pixels(m->separator), below ? UI_Pixels(m->separator) : UI_Flex(), UI_Layout_Horizontal, theme->tabBorder, 0);
+                Prog__Spacer(below ? UI_Flex() : UI_Pixels(MaxF32(0, previewWidth - m->separator)), below ? UI_Pixels(MaxF32(0, previewHeight - m->separator)) : UI_Flex());
+            }
             if (dimmed > 0.01f) {
                 UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
                 UI_SetNextPrefWidth(UI_Pixels(width));
