@@ -3796,10 +3796,10 @@ function void TestColumnEdgeDrag(TestFileFixture *fixture)
             UI_Block *nameEdge = UI__Find(UI_KeyFromStr(seed, S("HeaderEdge/0")));
             f32 name = nameEdge ? nameEdge->rect.x0 : 0;
             PlatformEvent press[] = { { .kind = PlatformEventKind_MouseMove, .x = x, .y = y }, { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x, .y = y } };
-            PlatformEvent far[] = { { .kind = PlatformEventKind_MouseMove, .x = x + 2000, .y = y } };
+            PlatformEvent past[] = { { .kind = PlatformEventKind_MouseMove, .x = x + 2000, .y = y } };
             PlatformEvent release[] = { { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x + 2000, .y = y } };
             TestWindowFrame(&state, press, 2, now++);
-            for (u32 i = 0; i < 20; ++i) TestWindowFrame(&state, far, 1, now++);
+            for (u32 i = 0; i < 20; ++i) TestWindowFrame(&state, past, 1, now++);
             TestWindowFrame(&state, release, 1, now++);
             TestWindowFrame(&state, NULL, 0, now++);
             nameEdge = UI__Find(UI_KeyFromStr(seed, S("HeaderEdge/0")));
