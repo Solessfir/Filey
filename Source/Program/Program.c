@@ -9807,12 +9807,14 @@ function u64 Prog_NoticeLeft(const Prog_Notice *notice, u64 now)
     return gone < lasts ? lasts - gone : 0;
 }
 
-// `text` broken at its spaces into lines no wider than `width`, at most `most`, the last one cut with an ellipsis when more is left.
-function u32 Prog__WrapLines(Arena *arena, const R_Font *font, String text, f32 width, String *lines, u32 most)
+// `text` broken at its spaces into lines no wider than `width`, the first no wider than `first`, at most `most`, the last one cut with an ellipsis when more is left.
+function u32 Prog__WrapLines(Arena *arena, const R_Font *font, String text, f32 first, f32 width, String *lines, u32 most)
 {
     u32 count = 0;
     u64 at = 0;
+    f32 full = width;
     while (at < text.length && count < most) {
+        width = count ? full : first;
         while (at < text.length && text.value[at] == ' ') ++at;
         if (at >= text.length) break;
         if (count + 1 == most) {
@@ -9886,9 +9888,13 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
         String icon = notice->kind == Prog_NoticeKind_Error ? Icon_CircleX : notice->kind == Prog_NoticeKind_Warning ? Icon_TriangleAlert : Icon_Info;
         String title = StrMake((const char *)notice->title, notice->titleLength), message = StrMake((const char *)notice->message, notice->messageLength);
         String lines[4];
-        u32 lineCount = Prog__WrapLines(frame, m->detail, message, width - 2 * pad - slot, lines, CArrayCount(lines));
+        u32 lineCount = Prog__WrapLines(frame, m->detail, message, width - 2 * pad - slot, width - 2 * pad - slot, lines, CArrayCount(lines));
+        // The title beside the close button, and the mute and copy buttons on a wide card, going on to a second line, under them, where it is longer.
+        f32 room = width - 2 * pad - slot - Prog__ToolbarButtonWidth(m) - (narrow ? 0 : 2) * m->row - (notice->count > 1 ? m->line * 2 : 0) - m->gap;
+        String titles[2] = { title };
+        u32 titleCount = Max(Prog__WrapLines(frame, m->font, title, MaxF32(0, room), width - 2 * pad - slot, titles, CArrayCount(titles)), 1u);
         f32 actionHeight = notice->action ? m->bar : narrow ? m->row : 0;
-        f32 height = 2 * pad + m->row + (f32)lineCount * lineHeight + actionHeight;
+        f32 height = 2 * pad + m->row + (f32)(titleCount - 1) * m->line + (f32)lineCount * lineHeight + actionHeight;
         bottom -= height + m->gap;
         UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Notice/%" PRIu64, notice->id));
         UI_SetNextPrefWidth(UI_Pixels(width));
@@ -9914,8 +9920,7 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
             UI_Block *head = Prog__Box(UI_Flex(), UI_Pixels(m->row), UI_Layout_Horizontal, (R_Color){0}, 0);
             UI_Parent(head) {
                 Prog__Icon(icon, slot, m->row, tint, 0, m);
-                f32 room = width - 2 * pad - slot - (narrow ? 1 : 3) * m->row - (notice->count > 1 ? m->line * 2 : 0);
-                Prog__Label(Prog__Ellipsize(frame, m->font, title, MaxF32(0, room)), UI_Flex(), m->row, 0, theme->text, 0);
+                Prog__Label(titles[0], UI_Flex(), m->row, 0, theme->text, 0);
                 if (notice->count > 1) {
                     UI_SetNextFont(m->detail);
                     Prog__Label(StrFormat(frame, "\u00D7%u", notice->count), UI_TextContent(), m->row, floorf(4.0f * m->scale + 0.5f), theme->textDim, 0);
@@ -9923,6 +9928,13 @@ function void Prog__Notices(Prog_State *state, Prog__CardStack stack, const Prog
                 if (!narrow) Prog__NoticeButtons(state, notice, m);
                 UI_Interaction close = Prog__CloseButton(StrFormat(frame, "NoticeClose/%" PRIu64, notice->id), m);
                 if (close.clicked) Prog_QueueCommand(state, Prog_CommandKind_NoticeClose, notice->id, 0, close.clickOrder);
+            }
+            for (u32 t = 1; t < titleCount; ++t) {
+                UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(m->line), UI_Layout_Horizontal, (R_Color){0}, 0);
+                UI_Parent(line) {
+                    Prog__Spacer(UI_Pixels(slot), UI_Pixels(m->line));
+                    Prog__Label(titles[t], UI_Flex(), m->line, 0, theme->text, 0);
+                }
             }
             for (u32 l = 0; l < lineCount; ++l) {
                 UI_Block *line = Prog__Box(UI_Flex(), UI_Pixels(lineHeight), UI_Layout_Horizontal, (R_Color){0}, 0);
