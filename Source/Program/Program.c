@@ -7157,6 +7157,8 @@ function void Prog__TabSearch(Prog_State *state, const Prog_Metrics *m)
             UI_Key key = UI_KeyFromStr(Prog__TabKey(state, tab), S("Search"));
             b32 highlighted = i == state->paletteHighlight || UI->hotKey == key;
             String path = Prog_TabPath(state, tab), where = Prog__CrumbPath(state, path);
+            // A place whose path is its name, as This PC, has no second line.
+            if (StrIsEqual(where, path.length ? Prog_PathName(state, path) : Tr("This PC"))) where = (String){0};
             UI_SetNextPrefWidth(UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(rowHeight));
             UI_SetNextChildrenLayout(UI_Layout_Horizontal);
