@@ -5310,49 +5310,6 @@ function void Prog__StatusBar(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
-// A filled drive, which Lucide has only as an outline: a solid top over an outlined base with a light on its left.
-// It sits where an icon glyph's ink would, centered on the glyph's advance.
-function void Prog__DriveGlyph(f32 width, f32 height, R_Color color, const Prog_Metrics *m)
-{
-    f32 size = floorf(m->line * 0.75f + 0.5f);
-    f32 stroke = m->separator;
-    f32 radius = floorf(size * 0.2f + 0.5f);
-    f32 top = floorf(size * 0.55f + 0.5f);
-    f32 light = MaxF32(2, floorf(size * 0.2f + 0.5f));
-    UI_SetNextPrefWidth(UI_Pixels(width));
-    UI_SetNextPrefHeight(UI_Pixels(height));
-    UI_Block *slot = UI_AddBlock(0);
-    UI_Parent(slot) {
-        UI_Vec2 at = { floorf((R_TextWidth(m->icons, Icon_HardDrive) - size) * 0.5f), floorf((height - size) * 0.5f) };
-        // The top is a block rounded more than the base, so that it narrows upward, cut off square where the base starts.
-        UI_SetNextFloatingOffset((UI_Vec2){ at.x + 1, at.y });
-        UI_SetNextPrefWidth(UI_Pixels(size - 2));
-        UI_SetNextPrefHeight(UI_Pixels(top));
-        UI_Block *cut = UI_AddBlock(UI_Flag_Floating | UI_Flag_Clip);
-        UI_Parent(cut) {
-            UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
-            UI_SetNextPrefWidth(UI_Pixels(size - 2));
-            UI_SetNextPrefHeight(UI_Pixels(size));
-            UI_SetNextCornerRadius(floorf(size * 0.33f + 0.5f));
-            UI_SetNextColors((UI_Colors){ .background = color });
-            UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-        }
-        UI_SetNextFloatingOffset((UI_Vec2){ at.x, at.y + top - stroke });
-        UI_SetNextPrefWidth(UI_Pixels(size));
-        UI_SetNextPrefHeight(UI_Pixels(size - top + stroke));
-        UI_SetNextCornerRadius(radius);
-        UI_SetNextBorderThickness(stroke);
-        UI_SetNextColors((UI_Colors){ .border = color });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBorder);
-        UI_SetNextFloatingOffset((UI_Vec2){ at.x + stroke + 1, at.y + top + floorf((size - top - light) * 0.5f) });
-        UI_SetNextPrefWidth(UI_Pixels(light));
-        UI_SetNextPrefHeight(UI_Pixels(light));
-        UI_SetNextCornerRadius(light * 0.3f);
-        UI_SetNextColors((UI_Colors){ .background = color });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-    }
-}
-
 // A sidebar section title, which opens and closes the section; without an icon it shows the filled drive glyph.
 // The box a sidebar name is edited in, in place of its text in a group's title or a folder's row, as the list's rename box looks: as wide
 // as its text up to the room there, with the text where it was. A press anywhere else keeps the name, as Enter does.
@@ -5429,7 +5386,6 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
         R_Color color = hot ? theme->text : theme->textHeading;
         f32 slot = floorf(m->line * 1.5f) - floorf(2.4f * m->scale + 0.5f);
         if (icon.length) Prog__Icon(icon, slot, m->row, color, 0, m);
-        else Prog__DriveGlyph(slot, m->row, color, m);
         if (state->layoutSaving && state->nameFor == 1 && (u32)group == Prog_Group_Count + state->nameGroup) Prog__SidebarNameBox(state, m->row, m);
         else Prog__Label(title, UI_Flex(), m->row, 0, color, 0);
         Prog__Icon(Prog_GroupOpen(state, group) || state->sidebarFilter.length ? Icon_ChevronDown : Icon_ChevronRight, m->line * 1.5f, m->row, color, 0.5f, m);
@@ -5772,7 +5728,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     u64 found = 0;
                     for (u64 i = 0; i < state->drives.header.count; ++i) found += Prog__SidebarFinds(state, state->drives.v[i].name) ? 1 : 0;
                     for (u64 i = 0; i < state->shares.header.count; ++i) found += Prog__SidebarFinds(state, state->shares.v[i].name) ? 1 : 0;
-                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, Tr("Storage"), (String){0}, m);
+                    if (found || !state->sidebarFilter.length) Prog__GroupTitle(state, Prog_Group_Storage, Tr("Storage"), Icon_HardDrive, m);
                     UI_Block *body = found || !state->sidebarFilter.length ? Prog__GroupBody(state, Prog_Group_Storage, m) : NULL;
                     if (body) UI_Parent(body) {
                         for (u64 i = 0; i < state->drives.header.count; ++i) {
@@ -13203,6 +13159,55 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
     }
 }
 
+#if defined(DEBUG)
+// FILEY_ICON_SHEET=1 covers a debug build's window with every icon glyph at the three sizes drawn, each under its number in Icons.txt, then the icons drawn by hand, so that they can be compared side by side.
+function void Prog__IconSheet(Prog_State *state, const Prog_Metrics *m)
+{
+    local_persist i32 wanted = -1;
+    if (wanted < 0) {
+        Scratch scratch = GetScratch();
+        wanted = P_EnvironmentValue(scratch.arena, S("FILEY_ICON_SHEET")).length != 0;
+        ReleaseScratch(scratch);
+    }
+    if (!wanted) return;
+    const Prog_Theme *theme = Prog_CurrentTheme();
+    Arena *frame = &state->frameArena;
+    R_Rect view = UI->root->rect;
+    f32 cell = floorf(m->line * 2.6f + 0.5f), line = m->row;
+    u32 columns = Max(1u, (u32)((view.x1 - view.x0) / cell));
+    UI_SetNextFloatingOffset((UI_Vec2){ 0, 0 });
+    UI_SetNextPrefWidth(UI_Pixels(view.x1 - view.x0));
+    UI_SetNextPrefHeight(UI_Pixels(view.y1 - view.y0));
+    UI_SetNextColors((UI_Colors){ .background = theme->background });
+    UI_Block *sheet = UI_AddBlockFromKey(UI_KeyFromStr(0, S("IconSheet")), UI_Flag_Floating | UI_Flag_DrawBackground | UI_Flag_Clip);
+    const R_Font *faces[3] = { m->icons, m->iconsMedium, m->iconsSmall };
+    UI_Parent(sheet) {
+        for (u32 i = 0; i <= Icon_Count; ++i) {
+            f32 x = (f32)(i % columns) * cell, y = (f32)(i / columns) * (4 * line);
+            UI_SetNextFloatingOffset((UI_Vec2){ x, y });
+            UI_SetNextPrefWidth(UI_Pixels(cell));
+            UI_SetNextPrefHeight(UI_Pixels(4 * line));
+            UI_SetNextChildrenLayout(UI_Layout_Vertical);
+            UI_Parent(UI_AddBlock(UI_Flag_Floating)) {
+                UI_SetNextFont(m->detail);
+                Prog__Label(i < Icon_Count ? StrFormat(frame, "%u", i) : S("hand"), UI_Pixels(cell), line, 0, theme->textDim, 0.5f);
+                if (i == Icon_Count) {
+                    Prog__SearchIcon(cell, line, theme->icon, 0.5f, 0, m);
+                    continue;
+                }
+                u32 rune = Icon_FirstRune + i;
+                char *bytes = ArenaPushArray(frame, 3, char);
+                bytes[0] = (char)(0xE0 | (rune >> 12)), bytes[1] = (char)(0x80 | ((rune >> 6) & 0x3F)), bytes[2] = (char)(0x80 | (rune & 0x3F));
+                for (u32 f = 0; f < 3; ++f) {
+                    UI_SetNextFont(faces[f]);
+                    Prog__Label((String){ bytes, 3 }, UI_Pixels(cell), line, 0, theme->icon, 0.5f);
+                }
+            }
+        }
+    }
+}
+#endif
+
 function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *icons, f32 scale)
 {
     state->iconsPending = 0;
@@ -13355,6 +13360,9 @@ function void Prog_BuildUI(Prog_State *state, const R_Font *font, const R_Font *
     Prog__LayoutSaveBox(state, m);
     Prog__PasswordBox(state, m);
     Prog__LayoutQuestion(state, m);
+#if defined(DEBUG)
+    Prog__IconSheet(state, m);
+#endif
     Prog__WindowBorder(m);
     // A chip being rebound that went out of sight, with its menu or its palette row, stops.
     if (state->hotkeyKind && !state->hotkeyChipShown) Prog_QueueCommand(state, Prog_CommandKind_HotkeyCancel, 0, 0, 0);
