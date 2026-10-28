@@ -7721,7 +7721,8 @@ function UI_Interaction Prog__Switch(UI_Key key, b32 on, f32 wide, f32 tall, f32
     UI_SetNextPrefHeight(UI_Pixels(tall));
     UI_SetNextCornerRadius(tall * 0.5f);
     UI_SetNextBorderThickness(MaxF32(1, floorf(0.8f * m->scale + 0.5f)));
-    UI_SetNextColors((UI_Colors){ .background = on ? theme->selection : theme->track, .border = theme->outline });
+    // On, it fills with the accent, as the bars do, which stands apart from the track on a light scheme as well as a dark one.
+    UI_SetNextColors((UI_Colors){ .background = on ? theme->accent : theme->track, .border = theme->outline });
     UI_Block *toggle = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_LeftMouseClickable | (on ? 0 : UI_Flag_DrawBorder));
     UI_Interaction result = UI_InteractionFromBlock(toggle);
     // The knob slides across, easing; the color changes at once.
@@ -7732,7 +7733,7 @@ function UI_Interaction Prog__Switch(UI_Key key, b32 on, f32 wide, f32 tall, f32
         UI_SetNextPrefHeight(UI_Pixels(knob));
         UI_SetNextCornerRadius(knob * 0.5f);
         // The knob's side and the track's color say whether it is on, without a check on it.
-        UI_SetNextColors((UI_Colors){ .background = on ? theme->text : theme->textDim });
+        UI_SetNextColors((UI_Colors){ .background = on ? Prog__OnAccent() : theme->textDim });
         UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
     }
     return result;
