@@ -717,6 +717,15 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
     String parent = path.length > 1 && path.value[path.length - 1] == '/' ? StrFromTo(path, 0, (i64)path.length - 1) : path;
     struct stat folder = {0};
     b32 device = stream && fstat(dirfd(stream), &folder) == 0;
+    // The kernel's own file systems hold no data, and some of their files give sizes that are not any, as /proc/kcore's 128 TB; their
+    // files are counted without bytes: proc, sysfs, cgroup, cgroup2, debugfs, tracefs, securityfs, bpf, configfs, pstore and efivarfs.
+    b32 sized = true;
+    struct statfs system;
+    if (stream && fstatfs(dirfd(stream), &system) == 0) {
+        local_persist const u32 virtuals[] = { 0x9FA0, 0x62656572, 0x27E0EB, 0x63677270, 0x64626720, 0x74726163, 0x73636673, 0xCAFE4A11,
+                                               0x62656570, 0x6165676C, 0xDE5E81E4 };
+        for (u64 i = 0; i < CArrayCount(virtuals); ++i) sized &= (u32)system.f_type != virtuals[i];
+    }
     if (stream) {
         for (struct dirent *entry; (entry = readdir(stream));) {
             const char *name = entry->d_name;
@@ -739,7 +748,7 @@ function b32 P_CountFolder(Arena *arena, String path, P_DirectoryTotals *totals,
                 }
             } else {
                 ++totals->files;
-                if (statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) totals->bytes += (u64)metadata.st_size;
+                if (sized && statted && S_ISREG(metadata.st_mode) && metadata.st_size > 0) totals->bytes += (u64)metadata.st_size;
             }
         }
         closedir(stream);

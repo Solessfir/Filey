@@ -2427,6 +2427,10 @@ function void TestMeasure(TestFileFixture *fixture)
         b32 proc = false, usr = false;
         for (u64 i = 0; i < below.header.count; ++i) proc |= StrIsEqual(below.v[i], S("/proc")), usr |= StrIsEqual(below.v[i], S("/usr"));
         Check(!proc && usr);
+        // /proc's own walk counts its files, kcore among them, but none of their sizes, which are not data.
+        P_DirectoryTotals kernel = {0};
+        ArrayStr inside = {0};
+        Check(P_CountFolder(&arena, S("/proc"), &kernel, &inside) && kernel.files > 0 && kernel.bytes == 0);
     }
 #endif
     // An image file is read at its own size or shrunk to fit, and a text file is not taken for a picture.
