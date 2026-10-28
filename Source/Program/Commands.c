@@ -2880,9 +2880,9 @@ function void Prog__OpenSetup(Prog_State *state)
 function u32 Prog__HighlightedOption(Prog_State *state)
 {
     if (state->paletteMode != Prog_PaletteMode_Options) return Prog_Option_Count;
-    u8 found[Prog_Option_Count];
+    u8 found[Prog_OptionRows];
     u32 count = Prog_OptionMatches(state, found);
-    return state->paletteHighlight < count ? found[state->paletteHighlight] : Prog_Option_Count;
+    return state->paletteHighlight < count && !Prog_OptionHeading(found[state->paletteHighlight]) ? found[state->paletteHighlight] : Prog_Option_Count;
 }
 
 // After the typed text changes, the first row is highlighted, but Options keeps the option `kept` it had where that still shows, and Go To
@@ -2890,10 +2890,12 @@ function u32 Prog__HighlightedOption(Prog_State *state)
 function void Prog__KeepHighlight(Prog_State *state, u32 kept)
 {
     state->paletteHighlight = state->paletteMode == Prog_PaletteMode_GoTo ? Prog__GoToFirstRow(state) : 0;
-    if (kept >= Prog_Option_Count) return;
-    u8 found[Prog_Option_Count];
+    if (state->paletteMode != Prog_PaletteMode_Options) return;
+    u8 found[Prog_OptionRows];
     u32 count = Prog_OptionMatches(state, found);
-    for (u32 i = 0; i < count; ++i) if (found[i] == kept) state->paletteHighlight = i;
+    // Past the first section's heading.
+    while (state->paletteHighlight + 1 < count && Prog_OptionHeading(found[state->paletteHighlight])) ++state->paletteHighlight;
+    for (u32 i = 0; kept < Prog_Option_Count && i < count; ++i) if (found[i] == kept) state->paletteHighlight = i;
 }
 
 // The schemes' dropdown under `option`, highlighting the scheme it shows, or closed when it is open there.
@@ -4354,7 +4356,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->row >= Prog_Option_Count) break;
                 Prog_BeginSliderEdit(state, (Prog_Option)command->row);
                 // Its row takes the highlight, as a press on the row would.
-                u8 options[Prog_Option_Count];
+                u8 options[Prog_OptionRows];
                 u32 shown = Prog_OptionMatches(state, options);
                 for (u32 i = 0; i < shown; ++i) if (options[i] == command->row) state->paletteHighlight = i;
             } break;
@@ -4367,7 +4369,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 Prog__EditReplace(&state->hexEdit, (const u8 *)text.value, (u32)text.length);
                 state->hexEdit.anchor = state->hexEdit.cursor;
                 // Its row takes the highlight, as a press on the row would.
-                u8 options[Prog_Option_Count];
+                u8 options[Prog_OptionRows];
                 u32 shown = Prog_OptionMatches(state, options);
                 for (u32 i = 0; i < shown; ++i) if (options[i] == option) state->paletteHighlight = i;
             } break;
@@ -4817,11 +4819,16 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 }
                 if (state->paletteMode == Prog_PaletteMode_Options) {
                     // Enter turns a switch over and moves a choice on; steppers and sliders change with Left and Right.
-                    u8 found[Prog_Option_Count];
+                    u8 found[Prog_OptionRows];
                     u32 count = Prog_OptionMatches(state, found);
                     u64 chosen = command->row == UINT64_MAX ? state->paletteHighlight : command->row;
                     if (chosen >= count) break;
                     state->paletteHighlight = (u32)chosen;
+                    // A section's heading opens or closes it.
+                    if (Prog_OptionHeading(found[chosen])) {
+                        state->optionsFolded ^= (u8)(1u << (found[chosen] - Prog_Option_Count));
+                        continue;
+                    }
                     Prog_Option option = (Prog_Option)found[chosen];
                     const Prog_OptionDesc *desc = &Prog_Options[option];
                     i32 value = Prog_OptionValue(state, option);
@@ -5617,7 +5624,7 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                 u32 count = 0;
                 String folder = {0};
                 Prog_GoToItem *found = goTo ? Prog_GoToMatches(state, &count, &folder) : NULL;
-                u8 options[Prog_Option_Count];
+                u8 options[Prog_OptionRows];
                 u32 layouts[Prog_MaxLayouts];
                 if (!goTo && state->paletteMode == Prog_PaletteMode_Options) count = Prog_OptionMatches(state, options);
                 else if (!goTo && state->paletteMode == Prog_PaletteMode_Layouts) count = Prog_LayoutMatches(state, layouts);
@@ -5629,8 +5636,17 @@ function void Prog_HandleInput(Prog_State *state, PlatformEventList events)
                     if (option < Prog_Option_Count) Prog_QueueCommand(state, Prog_CommandKind_OptionRestore, option, 0, order);
                     continue;
                 }
-                // In Options, Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
-                if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && (event->key == Key_Left || event->key == Key_Right)) {
+                // In Options, Right opens the highlighted section and Left closes it, as the palette's groups do.
+                if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && Prog_OptionHeading(options[state->paletteHighlight]) &&
+                    (event->key == Key_Left || event->key == Key_Right)) {
+                    u8 bit = (u8)(1u << (options[state->paletteHighlight] - Prog_Option_Count));
+                    if (event->key == Key_Right) state->optionsFolded &= (u8)~bit;
+                    else state->optionsFolded |= bit;
+                    continue;
+                }
+                // And Left and Right step the highlighted option down and up, a slider by a twentieth of its range, while nothing is typed.
+                if (state->paletteMode == Prog_PaletteMode_Options && !state->palette.length && state->paletteHighlight < count && !Prog_OptionHeading(options[state->paletteHighlight]) &&
+                    (event->key == Key_Left || event->key == Key_Right)) {
                     Prog_Option option = (Prog_Option)options[state->paletteHighlight];
                     const Prog_OptionDesc *desc = &Prog_Options[option];
                     i32 step = desc->control == Prog_OptionControl_Slider ? Max((desc->most - desc->least) / 20, 1) : 1, value = Prog_OptionValue(state, option);

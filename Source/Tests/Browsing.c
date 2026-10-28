@@ -3841,7 +3841,7 @@ function void TestTabs(TestFileFixture *fixture)
         // Options are a mode of the palette, found by their words.
         TestBrowsingCommand(&state, Prog_CommandKind_OpenOptions, 0);
         Prog__EditReplace(&state.palette, (const u8 *)"anim", 4);
-        u8 options[Prog_Option_Count];
+        u8 options[Prog_OptionRows];
         Check(state.paletteOpen && state.paletteMode == Prog_PaletteMode_Options && Prog_OptionMatches(&state, options) == 1 && options[0] == Prog_Option_Animations);
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, UINT64_MAX);
         Check(state.animationsOff && state.paletteOpen);
@@ -4390,7 +4390,7 @@ function void TestSettings(void)
     // An option that narrows the one above it shows only while that one is on.
     {
         Prog_State options = {0};
-        u8 found[Prog_Option_Count];
+        u8 found[Prog_OptionRows];
         u32 shown = Prog_OptionMatches(&options, found);
         options.noFolderSizes = true;
         Check(Prog_OptionMatches(&options, found) == shown - 3);
@@ -4400,6 +4400,10 @@ function void TestSettings(void)
         Prog__SetList(&options.mutedArena, &options.mutedNotices, muted, 1);
         Check(Prog_OptionMatches(&options, found) == shown - 1);
         ArenaRelease(&options.mutedArena);
+        // A folded section keeps its heading and leaves out its options, until something is typed.
+        u32 all = Prog_OptionMatches(&options, found);
+        options.optionsFolded = 0xFF;
+        Check(Prog_OptionMatches(&options, found) == Prog_OptionSectionCount && Prog_OptionHeading(found[0]) && all > Prog_OptionSectionCount);
     }
     // How the lists look, read back as the options show them; the defaults are {0}'s.
     {

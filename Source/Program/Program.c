@@ -1346,10 +1346,20 @@ function u8 Prog_ShownScheme(const Prog_State *state, String *name)
     return light ? state->lightScheme : state->scheme;
 }
 
+// The sections the Options run in, each from its first option on, headed by their names while nothing is typed, each heading folding its options away as a palette's group does.
+global const struct { u8 first; String name; } Prog_OptionSections[Prog_OptionSectionCount] = {
+    { Prog_Option_Language, TrInit("Appearance") }, { Prog_Option_ShowFileExtension, TrInit("Files") }, { Prog_Option_CompressionLevel, TrInit("Archives and Media") },
+    { Prog_Option_Notices, TrInit("Notices and Updates") }, { Prog_Option_StoreRecents, TrInit("Recents and Sizes") }, { Prog_Option_ActOnPress, TrInit("Mouse and Keyboard") },
+    { Prog_Option_InspectorLayout, TrInit("Inspector") }, { Prog_Option_LoadOnStartup, TrInit("Startup and Window") },
+};
+
+// The row of Options' list that is a section's heading, rather than an option.
+function b32 Prog_OptionHeading(u8 row) { return row >= Prog_Option_Count; }
+
 function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
 {
     String typed = Prog_EditText(&state->palette);
-    u32 count = 0;
+    u32 count = 0, section = UINT32_MAX;
     for (u32 i = 0; i < Prog_Option_Count; ++i) {
         if (!Prog_OptionApplies((Prog_Option)i)) continue;
         // One scheme to choose, which starts as the system's mode's.
@@ -1363,7 +1373,14 @@ function u32 Prog_OptionMatches(Prog_State *state, u8 *found)
         if (i == Prog_Option_MutedNotices && !state->mutedNotices.header.count) continue;
         b32 colors = i == Prog_Option_ColorGroups || Prog_Options[i].control == Prog_OptionControl_Color;
         if (colors && (Prog_ShownScheme(state, NULL) < Prog_BuiltInSchemes || typed.length || (i != Prog_Option_ColorGroups && !state->colorsExpanded))) continue;
-        if (!typed.length || Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) > 0) found[count++] = (u8)i;
+        if (typed.length && Prog_FuzzyScore(Prog_Tr(Prog_Options[i].label), Prog_Tr(Prog_Options[i].tooltip), typed, NULL, NULL) <= 0) continue;
+        // A section's heading goes before the first of its options shown.
+        u32 own = 0;
+        while (own + 1 < Prog_OptionSectionCount && Prog_OptionSections[own + 1].first <= i) ++own;
+        if (!typed.length && own != section) found[count++] = (u8)(Prog_Option_Count + own);
+        section = own;
+        if (!typed.length && (state->optionsFolded & (1u << own))) continue;
+        found[count++] = (u8)i;
     }
     return count;
 }
@@ -9445,7 +9462,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
     // The Options popup is the palette with options in its rows.
     b32 options = state->paletteMode == Prog_PaletteMode_Options;
     Prog_PaletteRow rows[Prog_MaxPaletteRows];
-    u8 found[Prog_Option_Count];
+    u8 found[Prog_OptionRows];
     u32 count = options ? Prog_OptionMatches(state, found) : Prog_PaletteMatches(state, rows);
     state->paletteHighlight = count ? Min(state->paletteHighlight, count - 1) : 0;
     String typed = Prog_EditText(&state->palette);
@@ -9538,6 +9555,8 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         const String groupIcons[] = { Icon_StarFilled, Icon_Folder, Icon_Image, Icon_ArrowDownAZ, Icon_ScanEye, Icon_LayoutPanelLeft, Icon_AppWindow,
                                                     Icon_FolderSearch, Icon_Share2, Icon_SlidersHorizontal, Icon_TextCursorInput, Icon_TextAlignStart, Icon_ChevronsUpDown };
         static_assert(CArrayCount(groupNames) == Prog_CommandGroup_Count && CArrayCount(groupIcons) == Prog_CommandGroup_Count, "a name and an icon for every group");
+        const String sectionIcons[] = { Icon_Eye, Icon_File, Icon_Play, Icon_Info, Icon_Clock, Icon_TextCursorInput, Icon_ScanEye, Icon_AppWindow };
+        static_assert(CArrayCount(sectionIcons) == Prog_OptionSectionCount, "an icon for every section of the Options");
         // The groups in front of found commands are as wide as the widest name, as some languages' are long.
         f32 groupWidth = floorf(63.2f * s + 0.5f);
         for (u32 g = 0; g < Prog_CommandGroup_Count; ++g) groupWidth = MaxF32(groupWidth, ceilf(R_TextWidth(m->font, Prog_Tr(groupNames[g])) + m->gap));
@@ -9548,6 +9567,34 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
         state->optionHovered = 0;
         UI_Parent(list) {
             for (u32 i = first; i < first + shown; ++i) {
+                if (options && Prog_OptionHeading(found[i])) {
+                    // A section's heading, drawn as a palette's group is, which opens and closes it; the keyboard's is lit once a key is pressed.
+                    u32 section = found[i] - Prog_Option_Count;
+                    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "OptionSection/%u", section));
+                    b32 highlighted = i == state->paletteHighlight && state->paletteKeyed, hot = UI->hotKey == key && !highlighted;
+                    f32 face = row - line, slot = floorf(21.6f * s + 0.5f);
+                    R_Color washed = theme->selection;
+                    washed.a *= theme->hoverAmount.r;
+                    UI_SetNextPrefWidth(UI_Flex());
+                    UI_SetNextPrefHeight(UI_Pixels(face));
+                    UI_SetNextChildrenLayout(UI_Layout_Horizontal);
+                    UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
+                    UI_SetNextChildrenPadding((UI_Padding){ floorf(8.0f * s + 0.5f), 0, floorf(12.0f * s + 0.5f), 0 });
+                    UI_SetNextCornerRadius(floorf(4.0f * s + 0.5f));
+                    UI_SetNextBorderThickness(m->stroke);
+                    UI_SetNextColors((UI_Colors){ .background = highlighted ? theme->selection : washed, .border = theme->selection });
+                    UI_Block *heading = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_Clip | (highlighted || hot ? UI_Flag_DrawBackground : 0) | (hot ? UI_Flag_DrawBorder : 0));
+                    UI_Interaction interaction = UI_InteractionFromBlock(heading);
+                    if (interaction.clicked) Prog_QueueCommand(state, Prog_CommandKind_PaletteRun, i, 0, interaction.clickOrder);
+                    UI_Parent(heading) {
+                        R_Color icon = highlighted ? theme->text : theme->icon;
+                        Prog__Icon(sectionIcons[section], slot, face, icon, 0, m);
+                        Prog__Label(Prog_Tr(Prog_OptionSections[section].name), UI_Flex(), face, 0, theme->text, 0);
+                        Prog__Icon(state->optionsFolded & (1u << section) ? Icon_ChevronRight : Icon_ChevronDown, floorf(m->line * 1.2f), face, icon, 0.5f, m);
+                    }
+                    if (i + 1 < first + shown) Prog__Box(UI_Flex(), UI_Pixels(line), UI_Layout_Horizontal, theme->separator, 0);
+                    continue;
+                }
                 if (options) {
                     // The keyboard's row is outlined once a key is pressed, not as Options opens.
                     Prog__OptionRow(state, (Prog_Option)found[i], i, i == state->paletteHighlight && state->paletteKeyed, row - line, m);

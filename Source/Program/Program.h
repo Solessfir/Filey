@@ -1029,6 +1029,11 @@ typedef enum Prog_Option {
     Prog_Option_Count,
 } Prog_Option;
 
+// The Options popup's rows: the options, and while nothing is typed, the headings of their sections, as Prog_Option_Count and past it.
+enum { Prog_OptionSectionCount = 8, Prog_OptionRows = Prog_Option_Count + Prog_OptionSectionCount };
+static_assert(Prog_OptionRows <= 256, "the Options rows fit a byte");
+function b32 Prog_OptionHeading(u8 row);
+
 typedef enum Prog_OptionControl {
     Prog_OptionControl_Switch,
     Prog_OptionControl_Stepper,
@@ -1781,6 +1786,7 @@ typedef struct Prog_State {
     u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
     u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
+    u8 optionsFolded;         // bits by the Options' sections, those shown closed
     b32 paletteCompact;       // its rows are only the commands' names, without their descriptions
     u32 fitColumn;            // the active panel's column, by its place + 1, that the next build sizes to its values; UINT32_MAX all of them
     u64 listBytes, volumeBytes;  // what the usage columns of the list being built are shares of: its items' bytes and its drive's
