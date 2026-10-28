@@ -4145,6 +4145,25 @@ function String Prog__Ellipsize(Arena *arena, const R_Font *font, String text, f
     return StrFormat(arena, "%S%S", StrMake(text.value, fit), dots);
 }
 
+// `text` cut to `width` in its middle, keeping its start and more of its end, as a path's last folders say most about it.
+function String Prog__EllipsizeMiddle(Arena *arena, const R_Font *font, String text, f32 width)
+{
+    if (R_TextWidth(font, text) <= width) return text;
+    String dots = S("...");
+    f32 room = width - R_TextWidth(font, dots);
+    // The end takes up to two thirds of the room, the start what is left.
+    u64 from = text.length;
+    while (from > 0) {
+        u64 at = from - 1;
+        while (at > 0 && (text.value[at] & 0xC0) == 0x80) --at;
+        if (R_TextWidth(font, StrFrom(text, at)) > room * (2.0f / 3.0f)) break;
+        from = at;
+    }
+    String tail = StrFrom(text, from);
+    String head = Prog__Ellipsize(arena, font, StrMake(text.value, from), room - R_TextWidth(font, tail) + R_TextWidth(font, dots));
+    return StrFormat(arena, "%S%S", head, tail);
+}
+
 function b32 Prog__EntryFaded(const Prog_Entry *entry);
 function b32 Prog__EntryCut(const Prog_State *state, const Prog_Entry *entry);
 
@@ -11323,10 +11342,11 @@ function void Prog__InspectorDetails(Prog_State *state, const Prog_Entry *entry,
                     UI_SetNextFont(m->detail);
                     Prog__Label(labels[i], UI_TextContent(), row, 0, theme->text, 0);
                     Prog__Spacer(UI_Pixels(m->gap), UI_Pixels(row));
-                    // A value too long for the card, such as the path, ends in an ellipsis.
+                    // A value too long for the card ends in an ellipsis, and the path is cut in its middle, keeping its last folders.
                     f32 room = width - left - right - m->gap - R_TextWidth(m->detail, labels[i]);
                     UI_SetNextFont(m->detail);
-                    Prog__Label(Prog__Ellipsize(frame, m->detail, values[i], room), UI_Flex(), row, 0, theme->textDim, 1);
+                    String shown = i == 0 ? Prog__EllipsizeMiddle(frame, m->detail, values[i], room) : Prog__Ellipsize(frame, m->detail, values[i], room);
+                    Prog__Label(shown, UI_Flex(), row, 0, theme->textDim, 1);
                 }
             }
         }
