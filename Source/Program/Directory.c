@@ -5929,7 +5929,7 @@ function void Prog_EditColumns(Prog_State *state, Prog_CommandKind kind, u64 col
         } break;
         case Prog_CommandKind_ColumnResize: {
             if (column >= set.count) return;
-            set.shares[column] = UI__Clamp((f32)value / 1e6f, 0.02f, 0.8f);
+            set.shares[column] = UI__Clamp((f32)value / 1e6f, Prog_ColumnShareMin, Prog_ColumnShareMax);
         } break;
         case Prog_CommandKind_ColumnsRestore: set = (Prog_ColumnSet){0}; break;
         default: return;

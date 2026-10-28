@@ -112,6 +112,10 @@ typedef enum Prog_ColumnKind {
 #define Prog_FolderColumnKinds (Prog_ColumnKind_Git + 1)
 
 // A panel's columns in their order, each with its share of the row; a share of 0 is the kind's own, and no columns at all are the defaults.
+// The least and the most of the row a resized column takes.
+#define Prog_ColumnShareMin 0.02f
+#define Prog_ColumnShareMax 0.8f
+
 typedef struct Prog_ColumnSet {
     u32 count;
     u8 kinds[Prog_ColumnKind_Count];

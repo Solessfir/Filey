@@ -3724,14 +3724,17 @@ function void TestTabs(TestFileFixture *fixture)
     ArenaRelease(&driveArena);
 }
 
-// One frame of a 1200 by 800 window as the app runs it: `events` taken in, the commands they queued run, the UI built and laid out,
-// and the commands it queued run.
+// The test window's width, which a test may widen.
+global f32 TestWindowWidth = 1200;
+
+// One frame of a TestWindowWidth by 800 window as the app runs it: `events` taken in, the commands they queued run, the UI built and
+// laid out, and the commands it queued run.
 function void TestWindowFrame(Prog_State *state, PlatformEvent *events, u32 count, u64 now)
 {
     PlatformEventList list = count ? TestUIEvents(events, count) : (PlatformEventList){0};
     ArenaClear(&state->frameArena);
     state->ui.defaultFont = &TestUIFont;
-    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, 1200, 800 }, list, now);
+    UI_BeginFrame(&state->ui, &state->frameArena, (R_Rect){ 0, 0, TestWindowWidth, 800 }, list, now);
     Prog_HandleInput(state, list);
     Prog_ProcessCommands(state);
     Prog_BuildUI(state, &TestUIFont, &TestUIFont, 1);
@@ -3744,6 +3747,95 @@ function void TestPanelsFrame(Prog_State *state, b32 move, f32 x, f32 y, u64 now
 {
     PlatformEvent event = { .kind = PlatformEventKind_MouseMove, .x = x, .y = y };
     TestWindowFrame(state, &event, move ? 1 : 0, now);
+}
+
+// An edge between the header's titles drags to resize the column before it, rather than taking the column along the header.
+function void TestColumnEdgeDrag(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized || !TestWaitDirectory(&state)) return;
+    u64 now = 1;
+    // The edges sit where the last layout put the titles, a few frames on.
+    for (u32 i = 0; i < 6; ++i) TestWindowFrame(&state, NULL, 0, now++);
+    UI_Key seed = Prog_PanelKeySeed(state.panels[0].id);
+    // The one after Name, and one between two others, each dragged both ways.
+    for (u32 c = 0; c < 2; ++c) {
+        for (i32 way = -1; way <= 1; way += 2) {
+            UI_Block *edge = UI__Find(UI_KeyFromStr(seed, StrFormat(&state.frameArena, "HeaderEdge/%u", c)));
+            Check(edge != NULL);
+            if (!edge) continue;
+            f32 x = (edge->rect.x0 + edge->rect.x1) * 0.5f, y = (edge->rect.y0 + edge->rect.y1) * 0.5f, to = x + 30.0f * (f32)way;
+            PlatformEvent press[] = { { .kind = PlatformEventKind_MouseMove, .x = x, .y = y }, { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x, .y = y } };
+            PlatformEvent drag[] = { { .kind = PlatformEventKind_MouseMove, .x = to, .y = y } };
+            PlatformEvent release[] = { { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = to, .y = y } };
+            TestWindowFrame(&state, press, 2, now++);
+            Check(state.cursor == PlatformCursor_ResizeHorizontal);
+            for (u32 i = 0; i < 3; ++i) TestWindowFrame(&state, drag, 1, now++);
+            TestWindowFrame(&state, release, 1, now++);
+            TestWindowFrame(&state, NULL, 0, now++);
+            TestWindowFrame(&state, NULL, 0, now++);
+            edge = UI__Find(UI_KeyFromStr(seed, StrFormat(&state.frameArena, "HeaderEdge/%u", c)));
+            f32 at = edge ? (edge->rect.x0 + edge->rect.x1) * 0.5f : 0;
+            Check(!state.columnDrag && at > to - 2 && at < to + 2);
+        }
+    }
+    // Held far past where the column beside it stops, frame after frame, the others keep their widths, in a window wide enough that
+    // the least share is wider than the least width.
+    TestWindowWidth = 2400;
+    for (u32 i = 0; i < 4; ++i) TestWindowFrame(&state, NULL, 0, now++);
+    {
+        UI_Block *edge = UI__Find(UI_KeyFromStr(seed, S("HeaderEdge/1")));
+        Check(edge != NULL);
+        if (edge) {
+            f32 x = (edge->rect.x0 + edge->rect.x1) * 0.5f, y = (edge->rect.y0 + edge->rect.y1) * 0.5f;
+            UI_Block *nameEdge = UI__Find(UI_KeyFromStr(seed, S("HeaderEdge/0")));
+            f32 name = nameEdge ? nameEdge->rect.x0 : 0;
+            PlatformEvent press[] = { { .kind = PlatformEventKind_MouseMove, .x = x, .y = y }, { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x, .y = y } };
+            PlatformEvent far[] = { { .kind = PlatformEventKind_MouseMove, .x = x + 2000, .y = y } };
+            PlatformEvent release[] = { { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x + 2000, .y = y } };
+            TestWindowFrame(&state, press, 2, now++);
+            for (u32 i = 0; i < 20; ++i) TestWindowFrame(&state, far, 1, now++);
+            TestWindowFrame(&state, release, 1, now++);
+            TestWindowFrame(&state, NULL, 0, now++);
+            nameEdge = UI__Find(UI_KeyFromStr(seed, S("HeaderEdge/0")));
+            Check(name > 0 && nameEdge && nameEdge->rect.x0 == name);
+        }
+    }
+    // With shares past nine tenths of the row, which shrink together, dragging the edge before the last column, which takes the pixels
+    // left over, moves none of the edges before it.
+    Prog_QueueCommand(&state, Prog_CommandKind_ColumnResize, 2, 0, 0)->target = 205272;
+    Prog_QueueCommand(&state, Prog_CommandKind_ColumnResize, 3, 0, 0)->target = 455412;
+    Prog_QueueCommand(&state, Prog_CommandKind_ColumnResize, 4, 0, 0)->target = 38698;
+    for (u32 i = 0; i < 4; ++i) TestWindowFrame(&state, NULL, 0, now++);
+    {
+        f32 kept[3] = {0};
+        for (u32 c = 0; c < 3; ++c) {
+            UI_Block *e = UI__Find(UI_KeyFromStr(seed, StrFormat(&state.frameArena, "HeaderEdge/%u", c)));
+            kept[c] = e ? e->rect.x0 : -1;
+        }
+        UI_Block *edge = NULL;
+        // The last edge, before the last column.
+        for (i32 c = 7; c >= 3 && !edge; --c) edge = UI__Find(UI_KeyFromStr(seed, StrFormat(&state.frameArena, "HeaderEdge/%d", c)));
+        Check(edge != NULL);
+        f32 x = edge ? (edge->rect.x0 + edge->rect.x1) * 0.5f : 0, y = edge ? (edge->rect.y0 + edge->rect.y1) * 0.5f : 0;
+        PlatformEvent press[] = { { .kind = PlatformEventKind_MouseMove, .x = x, .y = y }, { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x, .y = y } };
+        TestWindowFrame(&state, press, 2, now++);
+        for (i32 i = 1; i < 24; ++i) {
+            PlatformEvent move[] = { { .kind = PlatformEventKind_MouseMove, .x = x - 40.0f * (f32)(i < 12 ? i : 24 - i), .y = y } };
+            TestWindowFrame(&state, move, 1, now++);
+        }
+        PlatformEvent release[] = { { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x, .y = y } };
+        TestWindowFrame(&state, release, 1, now++);
+        b32 still = true;
+        for (u32 c = 0; c < 3; ++c) {
+            UI_Block *e = UI__Find(UI_KeyFromStr(seed, StrFormat(&state.frameArena, "HeaderEdge/%u", c)));
+            still &= e && e->rect.x0 == kept[c];
+        }
+        Check(still);
+    }
+    TestWindowWidth = 1200;
+    Prog_Release(&state);
 }
 
 // The inspector's text is selected with the pointer, a word with a double click and a line with a third, and Ctrl+C copies it rather than the file.
@@ -4848,6 +4940,7 @@ function void TestBrowsing(void)
         TestProgramBrowsing(&fixture);
         TestTabs(&fixture);
         TestPanels(&fixture);
+        TestColumnEdgeDrag(&fixture);
         TestInspectorSelection(&fixture);
         TestUndo(&fixture);
         TestSettings();

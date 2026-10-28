@@ -3347,6 +3347,7 @@ typedef struct Prog_Column {
 typedef struct Prog_Columns {
     u32 count;
     f32 room;      // the rows' width the shares are of
+    f32 shrink;    // what the shares were scaled by, where they add up to more than Name leaves room for
     Prog_Column v[Prog_ColumnKind_Count + 1];
 } Prog_Columns;
 
@@ -3386,6 +3387,7 @@ function Prog_Columns Prog__Columns(const Prog_State *state, f32 scale, f32 room
     f32 others = 0;
     for (u32 i = 0; i < set.count; ++i) if (set.kinds[i] != Prog_ColumnKind_Name) others += set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare((Prog_ColumnKind)set.kinds[i]);
     f32 shrink = others > 0.9f ? 0.9f / others : 1;
+    result.shrink = shrink;
     for (u32 i = 0; i < set.count; ++i) {
         Prog_ColumnKind kind = (Prog_ColumnKind)set.kinds[i];
         f32 share = (set.shares[i] > 0 ? set.shares[i] : Prog_ColumnShare(kind)) * shrink;
@@ -3526,7 +3528,8 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
             b32 sorted = sort < Prog_Sort_Count && state->sort == sort && (sort != Prog_Sort_Size || id == sizeArrow);
             UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Header/%S", column->title));
             b32 sortable = sort < Prog_Sort_Count && !state->loading;
-            b32 hot = UI->hotKey == key && sortable;
+            // Not while an edge or another title is dragged across it.
+            b32 hot = UI->hotKey == key && sortable && (!UI->activeKey || UI->activeKey == key);
             b32 movable = id != Prog_ColumnId_Name && fixed;
             UI_SetNextPrefWidth(column->width > 0 ? UI_Pixels(column->width) : UI_Flex());
             UI_SetNextPrefHeight(UI_Pixels(m->row));
@@ -3632,33 +3635,61 @@ function void Prog__Header(Prog_State *state, const Prog_Columns *columns, const
                 }
             }
         }
-        // The edges between columns drag to resize: the column before an edge, or after it where the one before is Name, which takes what is left.
-        f32 grip = floorf(8.0f * m->scale + 0.5f);
+        // The edges between columns drag to resize them, the edge following the pointer: the columns on either side of it trade width, so
+        // that the rest stay where they are, and after Name the column after it alone changes, Name taking what is left as always.
+        f32 grip = floorf(8.0f * m->scale + 0.5f), least = floorf(24.0f * m->scale + 0.5f);
         for (u32 c = 0; c + 1 < columns->count && !sliding; ++c) {
             const Prog_Column *column = &columns->v[c];
             if (!column->lineAfter || ends[c] <= x0) continue;
-            b32 afterName = column->id == Prog_ColumnId_Name;
-            u32 place = afterName ? column->place + 1u : column->place;
             UI_SetNextFloatingOffset((UI_Vec2){ ends[c] - x0 - grip * 0.5f, 0 });
             UI_SetNextPrefWidth(UI_Pixels(grip));
             UI_SetNextPrefHeight(UI_Pixels(m->row));
             UI_Block *edge = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "HeaderEdge/%u", c)), UI_Flag_Floating | UI_Flag_LeftMouseClickable);
             UI_Interaction drag = UI_InteractionFromBlock(edge);
+            if (drag.hot || drag.active) state->cursor = PlatformCursor_ResizeHorizontal;
             if (!drag.active || !drag.isDragging) continue;
-            // The resized column's other edge stays where it is.
-            f32 from = 0, to = 0;
-            for (u32 k = 0; k < columns->count; ++k) {
-                if (columns->v[k].place != place) continue;
-                to = ends[k];
-                if (from == 0) from = ends[k] - columns->v[k].width;
+            u32 before = column->place, after = column->place + 1u;
+            b32 afterName = column->id == Prog_ColumnId_Name;
+            // From where this frame's widths put the edge, which last frame's layout does not know of while a resize is under way.
+            f32 edgeX = x0;
+            for (u32 k = 0; k <= c; ++k) edgeX += columns->v[k].width;
+            f32 delta = UI->mouse.x - edgeX;
+            // Each keeps a little width and at most the most a share may be, the limits a resize keeps it to, so that the two trade
+            // exactly; and Name, which gives what the column after it takes, room for a name.
+            f32 scale = columns->room * (columns->shrink > 0 ? columns->shrink : 1);
+            // A column keeps room for its title, and Items for both of its, of which Folders takes a little more than half.
+            f32 titled[2] = {0};
+            u32 places[2] = { before, after };
+            for (u32 side = 0; side < 2; ++side) {
+                f32 widest = 0;
+                u32 parts = 0;
+                for (u32 k = 0; k < columns->count; ++k) {
+                    if (columns->v[k].place != places[side]) continue;
+                    u32 id = columns->v[k].id;
+                    widest = MaxF32(widest, Prog__ColumnLeft(id, m) + Prog__ColumnRight(id, m) + R_TextWidth(m->font, columns->v[k].title));
+                    ++parts;
+                }
+                titled[side] = parts > 1 ? (widest + floorf(4.8f * m->scale + 0.5f)) * (f32)parts : widest;
             }
-            f32 width = afterName ? to - UI->mouse.x : UI->mouse.x - from;
-            // Name keeps room for a name; the others' widths are what they are now.
-            f32 others = 0;
-            for (u32 k = 0; k < columns->count; ++k) if (columns->v[k].place != place) others += columns->v[k].width;
-            width = MinF32(width, columns->room - others - floorf(160.0f * m->scale + 0.5f));
-            Prog_Command *command = Prog_QueueCommand(state, Prog_CommandKind_ColumnResize, place, 0, 0);
-            command->target = (u64)(MaxF32(width, 1) / columns->room * 1e6f);
+            f32 low = MaxF32(least, ceilf(Prog_ColumnShareMin * scale)), high = floorf(Prog_ColumnShareMax * scale);
+            f32 lowBefore = MaxF32(low, ceilf(titled[0])), lowAfter = MaxF32(low, ceilf(titled[1]));
+            f32 nameWidth = 0;
+            for (u32 k = 0; k < columns->count; ++k) if (columns->v[k].id == Prog_ColumnId_Name) nameWidth = columns->v[k].width;
+            // A column narrower than that already, as one sized before, may grow but not shrink further.
+            f32 shrinkBefore = afterName ? nameWidth - floorf(160.0f * m->scale + 0.5f) : placeWidth[before] - lowBefore;
+            f32 lower = MaxF32(placeWidth[after] - high, -MaxF32(0, shrinkBefore)), upper = MaxF32(0, placeWidth[after] - lowAfter);
+            if (!afterName) upper = MinF32(upper, high - placeWidth[before]);
+            delta = upper >= lower ? UI__Clamp(delta, lower, upper) : 0;
+            // The shares trade what the edge moved, so that their sum, which places the rest, stays as it was; the last column's width is
+            // what is left over rather than its share, so widths would not keep it.
+            Prog_ColumnSet set = Prog_PanelColumns(state);
+            f32 moved = delta / scale;
+            for (u32 side = afterName ? 1 : 0; side < 2; ++side) {
+                u32 place = side ? after : before;
+                if (place >= set.count) continue;
+                f32 share = set.shares[place] > 0 ? set.shares[place] : Prog_ColumnShare((Prog_ColumnKind)set.kinds[place]);
+                Prog_QueueCommand(state, Prog_CommandKind_ColumnResize, place, 0, 0)->target = (u64)((side ? share - moved : share + moved) * 1e6f + 0.5f);
+            }
         }
     }
 }
