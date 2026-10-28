@@ -8925,6 +8925,8 @@ function void Prog__SchemesDropdown(Prog_State *state, const Prog_Metrics *m)
     row = floorf(row * grow + 0.5f);
     // The schemes' is as wide as their names and buttons need; another a little wider than its button, or than its longest name.
     f32 width = floorf(205.6f * s + 0.5f);
+    // A name longer than that, as Catppuccin Frappé, widens it rather than being cut, past the swatch and the copy and choice buttons the row keeps room for.
+    for (u32 i = 0; schemes && i < count; ++i) width = MaxF32(width, 2 * inset + 4 * slot + R_TextWidth(m->font, Prog__OptionName(frame, option, names[i])));
     if (!schemes) {
         width = floorf(170.4f * s + 0.5f);
         for (u32 i = 0; i < count; ++i) width = MaxF32(width, 2 * inset + lead + R_TextWidth(m->font, Prog__OptionName(frame, option, names[i])) + trail);
