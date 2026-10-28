@@ -4294,7 +4294,7 @@ function void Prog__UsageCell(String value, f32 width, f32 height, f32 left, f32
                 UI_SetNextPrefWidth(UI_Pixels(MaxF32(thick, floorf(bar * MinF32(percent, 100) / 100.0f))));
                 UI_SetNextPrefHeight(UI_Pixels(thick));
                 UI_SetNextCornerRadius(thick * 0.5f);
-                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_SetNextColors((UI_Colors){ .background = theme->accent });
                 if (percent > 0) UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
             Prog__Spacer(UI_Pixels(gap), UI_Pixels(height));
@@ -4392,7 +4392,7 @@ function void Prog__FullnessCell(String value, f32 width, f32 height, f32 left, 
                 UI_SetNextPrefWidth(UI_Pixels(bar));
                 UI_SetNextPrefHeight(UI_Pixels(tall));
                 UI_SetNextCornerRadius(radius);
-                UI_SetNextColors((UI_Colors){ .background = theme->selection });
+                UI_SetNextColors((UI_Colors){ .background = theme->accent });
                 UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
             }
             // The percent at the fill's end, inside it where it fits and just past it where it does not.
