@@ -2882,6 +2882,17 @@ function void Prog__OpenSetup(Prog_State *state)
     state->paletteOpen = false;
     state->setupOpen = true;
     state->setupOpenedAt = PlatformNowMicroseconds();
+    if (!state->setupFade.u64[0]) {
+        // Smoothstepped over the outer third at each end, filtered so that it stretches without steps.
+        u32 fade[256];
+        for (u32 x = 0; x < CArrayCount(fade); ++x) {
+            f32 edge = MinF32((f32)x + 0.5f, (f32)CArrayCount(fade) - (f32)x - 0.5f) / ((f32)CArrayCount(fade) / 3.0f);
+            edge = MinF32(edge, 1);
+            fade[x] = ((u32)(edge * edge * (3 - 2 * edge) * 255.0f + 0.5f) << 24) | 0x00FFFFFFu;
+        }
+        state->setupFade = R_TextureCreateRGBA((i32)CArrayCount(fade), 1, fade);
+        R_TextureLinear(state->setupFade);
+    }
     Prog__ReadSetup(state);
     // Twice the size it is drawn at and filtered, so that it scales smoothly as it moves rather than a pixel at a time.
     i32 size = 2 * (i32)floorf(128.0f * (state->iconScale > 0 ? state->iconScale : 1.0f) + 0.5f);

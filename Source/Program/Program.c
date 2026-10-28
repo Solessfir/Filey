@@ -13440,22 +13440,16 @@ function void Prog__SetupButton(Prog_State *state, String identity, String word,
     if (enabled && tip.length) Prog__PopupTooltip(state, tip);
 }
 
-// The Setup page's lines across it, fading out at their ends.
-function void Prog__SetupLine(f32 middle, f32 y, const Prog_Metrics *m)
+// The Setup page's lines across it, fading out smoothly at their ends: the fade's strip stretched across, in the line's color.
+function void Prog__SetupLine(Prog_State *state, f32 middle, f32 y, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
     f32 half = floorf(356.0f * m->scale + 0.5f), thick = MaxF32(1, floorf(1.6f * m->scale + 0.5f));
-    // ponytail: the fade is a few steps of the line's color, as the renderer has no gradients.
-    for (u32 step = 0; step < 4; ++step) {
-        f32 inset = half * (f32)step * 0.06f;
-        R_Color color = theme->tabBorder;
-        color.a *= (f32)(step + 1) / 4.0f;
-        UI_SetNextFloatingOffset((UI_Vec2){ floorf(middle - half + inset + 0.5f), floorf(y + 0.5f) });
-        UI_SetNextPrefWidth(UI_Pixels(floorf(2 * (half - inset) + 0.5f)));
-        UI_SetNextPrefHeight(UI_Pixels(thick));
-        UI_SetNextColors((UI_Colors){ .background = color });
-        UI_AddBlock(UI_Flag_Floating | UI_Flag_DrawBackground);
-    }
+    UI_SetNextFloatingOffset((UI_Vec2){ middle - half, floorf(y + 0.5f) });
+    UI_SetNextPrefWidth(UI_Pixels(2 * half));
+    UI_SetNextPrefHeight(UI_Pixels(thick));
+    UI_SetNextImage(state->setupFade, (R_Rect){ 0, 0, 1, 1 }, (UI_Vec2){ 2 * half, thick }, theme->tabBorder);
+    UI_AddBlock(UI_Flag_Floating | (state->setupFade.u64[0] ? UI_Flag_DrawImage : 0));
 }
 
 // Filey Setup, in place of the panels: the logo over the version, a line, where the install goes and its switches, then the buttons that
@@ -13521,7 +13515,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
         Prog__SetupText(before, medium, theme->textDim, x, y);
         if (version.length) Prog__SetupText(version, medium, theme->icon, x + R_TextWidth(medium, before), y);
         if (after.length) Prog__SetupText(after, medium, theme->textDim, x + R_TextWidth(medium, before) + R_TextWidth(medium, version), y);
-        Prog__SetupLine(middle, floorf(318.4f * s + 0.5f), m);
+        Prog__SetupLine(state, middle, floorf(318.4f * s + 0.5f), m);
         // Where it goes, which is always the same folder.
         f32 boxWidth = floorf(504.0f * s + 0.5f), boxLeft = middle - floorf(boxWidth * 0.5f), boxTop = floorf(393.6f * s + 0.5f), boxHeight = floorf(44.8f * s + 0.5f);
         Prog__SetupText(setup->installed ? Tr("Installed Path:") : Tr("Install Path:"), large, theme->textDim, boxLeft, floorf(360.8f * s + 0.5f));
@@ -13569,7 +13563,7 @@ function void Prog__SetupPage(Prog_State *state, const Prog_Metrics *m)
                    : setup->same ? Tr("This will apply modifications to the existing installation.")
                                  : StrFormat(frame, TrF("This will overwrite the existing version %S with version %s."), setup->version, FILEY_VERSION);
         Prog__SetupButton(state, S("SetupInstall"), word, tip, Prog_CommandKind_SetupInstall, !setup->installed || !setup->same || changed, middle, floorf(608.0f * s + 0.5f), large, m);
-        Prog__SetupLine(middle, floorf(646.4f * s + 0.5f), m);
+        Prog__SetupLine(state, middle, floorf(646.4f * s + 0.5f), m);
         if (setup->installed) {
             Prog__SetupButton(state, S("SetupUninstall"), Tr("Uninstall"), Tr("This will remove the current version from your PC, including its shortcuts, right-click entries, default program registration and PATH changes."),
                               Prog_CommandKind_SetupUninstall, true, middle, floorf(688.8f * s + 0.5f), large, m);

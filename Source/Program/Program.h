@@ -1989,6 +1989,7 @@ typedef struct Prog_State {
     P_Install setup;
     b32 setupDesktop, setupOnPath, setupDefault, setupMenu;
     R_TextureHandle setupLogo;
+    R_TextureHandle setupFade;  // white, its alpha easing to nothing at both ends, which Setup's lines are drawn with in their color
     i32 setupLogoSize;
     u64 setupOpenedAt;  // when Setup last opened, from which its logo comes in
     const R_Font *setupFonts[4];
