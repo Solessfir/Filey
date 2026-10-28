@@ -403,12 +403,44 @@ function P_FileError P_OpenConsole(Arena *arena, String directory)
 {
     Scratch scratch = GetScratchEx(arena);
     wchar *folder = P__FilePathWide(scratch.arena, directory);
-    wchar line[] = L"cmd.exe";
     STARTUPINFOW startup = { .cb = sizeof(startup) };
     PROCESS_INFORMATION process = {0};
     P_FileError result = {0};
-    // Its own console, which Windows opens in the terminal the user set as the default.
-    if (folder && CreateProcessW(NULL, line, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, folder, &startup, &process)) {
+    // Windows Terminal, where it is installed, as Explorer's Open in Terminal does, which opens the shell its settings make the default, as PowerShell.
+    // Not where the user set Windows Console Host as the default terminal, in Windows' settings, which is kept as the console's own.
+    wchar delegation[64] = {0};
+    DWORD delegationSize = sizeof(delegation);
+    b32 consoleHost = RegGetValueW(HKEY_CURRENT_USER, L"Console\\%%Startup", L"DelegationTerminal", RRF_RT_REG_SZ, NULL, delegation, &delegationSize) == ERROR_SUCCESS &&
+                      lstrcmpiW(delegation, L"{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}") == 0;
+    wchar terminal[MAX_PATH];
+    wchar *line = NULL;
+    if (folder && !consoleHost && SearchPathW(NULL, L"wt.exe", NULL, MAX_PATH, terminal, NULL)) {
+        // Its argument for the folder in quotes, a backslash before the closing one taken as escaping it and a ';' as starting another command.
+        u64 length = wcslen(folder);
+        wchar *quoted = ArenaPushArray(scratch.arena, length * 2 + 4, wchar);
+        u64 at = 0;
+        for (u64 i = 0; i < length; ++i) {
+            if (folder[i] == L';') quoted[at++] = L'\\';
+            quoted[at++] = folder[i];
+        }
+        if (at && quoted[at - 1] == L'\\') quoted[at++] = L'.';
+        quoted[at] = 0;
+        u64 room = wcslen(terminal) + at + 16;
+        line = ArenaPushArray(scratch.arena, room, wchar);
+        swprintf(line, room, L"\"%ls\" -d \"%ls\"", terminal, quoted);
+    }
+    if (line && CreateProcessW(terminal, line, NULL, NULL, FALSE, 0, NULL, folder, &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        ReleaseScratch(scratch);
+        return result;
+    }
+    // Else the system's own shell, %ComSpec%, cmd unless it was changed, in a console of its own, which Windows opens in the terminal the user set as the default.
+    wchar shell[MAX_PATH + 2] = L"cmd.exe";
+    wchar comspec[MAX_PATH];
+    DWORD comspecLength = GetEnvironmentVariableW(L"ComSpec", comspec, MAX_PATH);
+    if (comspecLength && comspecLength < MAX_PATH) swprintf(shell, CArrayCount(shell), L"\"%ls\"", comspec);
+    if (folder && CreateProcessW(NULL, shell, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, folder, &startup, &process)) {
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
     } else {
