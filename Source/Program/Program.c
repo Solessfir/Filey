@@ -9774,7 +9774,7 @@ function void Prog__PaletteBody(Prog_State *state, const Prog_Metrics *m)
                     R_Color icon = highlighted ? theme->text : able ? theme->icon : theme->iconDisabled, named = able || highlighted ? theme->text : theme->textDim;
                     if (at.kind == Prog_CommandKind_None) {
                         // A group's title, which opens and closes it.
-                        b32 open = state->paletteExpanded & (1u << at.group);
+                        b32 open = !(state->paletteFolded & (1u << at.group));
                         Prog__Icon(groupIcons[at.group], slot, face, icon, 0, m);
                         Prog__Label(Prog_Tr(groupNames[at.group]), UI_Flex(), face, 0, theme->text, 0);
                         Prog__Icon(open ? Icon_ChevronDown : Icon_ChevronRight, floorf(m->line * 1.2f), face, icon, 0.5f, m);

@@ -4237,10 +4237,14 @@ function void TestPanels(TestFileFixture *fixture)
     {
         Prog_PaletteRow matches[Prog_MaxPaletteRows];
         TestBrowsingCommand(&state, Prog_CommandKind_CommandPalette, 0);
+        // Every group is open at first; with them all closed, only their titles show.
+        u32 opened = Prog_PaletteMatches(&state, matches);
+        state.paletteFolded = (u16)((1u << Prog_CommandGroup_Count) - 1);
         u32 groups = Prog_PaletteMatches(&state, matches);
+        Check(opened > groups);
         Check(state.paletteOpen && groups >= 5 && matches[0].group == Prog_CommandGroup_Quick && matches[0].kind == Prog_CommandKind_None);
         // Every command with a label that does anything here is in exactly one group.
-        state.paletteExpanded = (u16)((1u << Prog_CommandGroup_Count) - 1);
+        state.paletteFolded = 0;
         u32 all = Prog_PaletteMatches(&state, matches), seen[Prog_CommandKind_Count] = {0};
         for (u32 i = 0; i < all; ++i) ++seen[matches[i].kind];
         for (u32 kind = Prog_CommandKind_None + 1; kind < Prog_CommandKind_Count; ++kind) {
@@ -4256,7 +4260,7 @@ function void TestPanels(TestFileFixture *fixture)
         Check(starred == all && quickAt == inQuick && Prog_IsQuick(&state, Prog_CommandKind_ToggleFullscreen));
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteQuickToggle, Prog_CommandKind_ToggleFullscreen);
         Check(!Prog_IsQuick(&state, Prog_CommandKind_ToggleFullscreen) && Prog_PaletteMatches(&state, matches) == all);
-        state.paletteExpanded = 0;
+        state.paletteFolded = (u16)((1u << Prog_CommandGroup_Count) - 1);
         TestBrowsingCommand(&state, Prog_CommandKind_PaletteRun, 0);
         Check(state.paletteOpen && Prog_PaletteMatches(&state, matches) > groups && matches[1].group == Prog_CommandGroup_Quick && matches[1].kind != Prog_CommandKind_None);
         // Closed, its rows stay while they ease shut, and go once they have.

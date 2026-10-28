@@ -777,10 +777,10 @@ function b32 Prog__PaletteFolding(const Prog_State *state, u32 group)
 function void Prog__PaletteFold(Prog_State *state, u32 group, b32 open)
 {
     b32 options = state->paletteMode == Prog_PaletteMode_Options;
-    b32 wasOpen = options ? !(state->optionsFolded & (1u << group)) : (state->paletteExpanded & (1u << group)) != 0;
+    b32 wasOpen = options ? !(state->optionsFolded & (1u << group)) : !(state->paletteFolded & (1u << group));
     if (wasOpen == open) return;
     if (options) state->optionsFolded = open ? (u8)(state->optionsFolded & ~(1u << group)) : (u8)(state->optionsFolded | (1u << group));
-    else state->paletteExpanded = open ? (u16)(state->paletteExpanded | (1u << group)) : (u16)(state->paletteExpanded & ~(1u << group));
+    else state->paletteFolded = open ? (u16)(state->paletteFolded & ~(1u << group)) : (u16)(state->paletteFolded | (1u << group));
     state->paletteEaseStart = PlatformNowMicroseconds();
     state->paletteEaseGroup = (u8)group;
     state->paletteEaseFolding = !open;
@@ -920,7 +920,7 @@ function u32 Prog_PaletteMatches(const Prog_State *state, Prog_PaletteRow *out)
         }
         if (!Prog_CommandApplies((Prog_CommandKind)item)) continue;
         if (!text.length) {
-            if (state->paletteQuick || (state->paletteExpanded & (1u << group)) || Prog__PaletteFolding(state, group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
+            if (state->paletteQuick || !(state->paletteFolded & (1u << group)) || Prog__PaletteFolding(state, group)) out[count++] = (Prog_PaletteRow){ (u8)group, (u16)item };
             continue;
         }
         // The English label, tooltip and aliases find a command in any language.
@@ -4909,7 +4909,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (chosen >= count) break;
                 // A group's title opens or closes the group.
                 if (rows[chosen].kind == Prog_CommandKind_None) {
-                    Prog__PaletteFold(state, rows[chosen].group, !(state->paletteExpanded & (1u << rows[chosen].group)));
+                    Prog__PaletteFold(state, rows[chosen].group, (state->paletteFolded & (1u << rows[chosen].group)) != 0);
                     state->paletteHighlight = (u32)chosen;
                     break;
                 }

@@ -1787,7 +1787,7 @@ typedef struct Prog_State {
     u64 wakeAt;               // when the frame wants another without input, for what shows only after a while; 0 for no such time
     u8 optionHovered;         // the Options row under the pointer, plus one
     b32 paletteWheeled;       // the wheel scrolled the list last, which keeps its place rather than following the highlight until a key is pressed
-    u16 paletteExpanded;      // bits by Prog_CommandGroup, the groups shown open
+    u16 paletteFolded;        // bits by Prog_CommandGroup, the groups shown closed; all open at first
     u8 optionsFolded;         // bits by the Options' sections, those shown closed
     // The palette's group or the Options' section easing open or shut, as a list's group does, since when; its rows stay listed while it shuts.
     u64 paletteEaseStart;
