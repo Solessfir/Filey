@@ -6068,7 +6068,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
 }
 
 // A key chip as the menus and the palette show hotkeys, centered in a slot `slotHeight` tall; `lit` draws it for a highlighted row, and `idle`
-// edges it in the danger color for a hotkey that does nothing now.
+// fades it for a hotkey that does nothing now, as a key that types while letters filter, rather than marking it as an error.
 function void Prog__Chip(String text, f32 slotHeight, b32 lit, b32 idle, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
@@ -6083,9 +6083,10 @@ function void Prog__Chip(String text, f32 slotHeight, b32 lit, b32 idle, const P
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
         UI_SetNextCornerRadius(floorf(4.0f * m->scale + 0.5f));
-        UI_SetNextBorderThickness((idle ? 1.2f : 0.8f) * m->scale);
+        UI_SetNextBorderThickness(0.8f * m->scale);
         UI_SetNextFont(m->detail);
-        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = idle ? theme->danger : lit ? theme->text : theme->outline, .text = lit ? theme->text : theme->icon });
+        if (idle) UI_SetNextOpacity(0.45f);
+        UI_SetNextColors((UI_Colors){ .background = theme->track, .border = lit ? theme->text : theme->outline, .text = lit ? theme->text : theme->icon });
         UI_SetNextText(text);
         UI_AddBlock(UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_DrawText);
     }
@@ -6140,12 +6141,14 @@ function void Prog__HotkeyChipButton(Prog_State *state, String identity, Prog_Co
         UI_Key key = UI_KeyFromStr(0, StrFormat(frame, "Hotkey/%S/%u/%u", identity, (u32)kind, (u32)chip->slot));
         b32 hot = !mouse && UI->hotKey == key;
         R_Color background = chip->conflict ? theme->danger : chip->adds ? theme->selection : theme->track;
-        R_Color border = cross || chip->idle || chip->conflict ? theme->danger : lit || hot || chip->adds ? theme->text : theme->outline;
+        R_Color border = cross || chip->conflict ? theme->danger : lit || hot || chip->adds ? theme->text : theme->outline;
         UI_SetNextPrefWidth(UI_Flex());
         UI_SetNextPrefHeight(UI_Pixels(height));
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextCornerRadius(radius);
-        UI_SetNextBorderThickness((cross || chip->idle || chip->conflict ? 1.2f : 0.8f) * m->scale);
+        UI_SetNextBorderThickness((cross || chip->conflict ? 1.2f : 0.8f) * m->scale);
+        // A key that does nothing now is faded, its tip saying why, rather than edged as an error.
+        if (chip->idle && !hot && !chip->recording) UI_SetNextOpacity(0.45f);
         UI_SetNextColors((UI_Colors){ .background = background, .border = border });
         UI_Block *face = UI_AddBlockFromKey(key, UI_Flag_DrawBackground | UI_Flag_DrawBorder | UI_Flag_Clip | (mouse ? 0 : UI_Flag_LeftMouseClickable));
         UI_Interaction interaction = UI_InteractionFromBlock(face);
