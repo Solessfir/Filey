@@ -3413,3 +3413,180 @@ Sort by
 
 Group by
 = Agrupar por
+
+Tooltips
+= Dicas
+
+Shows tips when the pointer rests on files, folders and buttons.
+= Mostra dicas quando o ponteiro para sobre arquivos, pastas e botões.
+
+Last year
+= Ano passado
+
+Other
+= Outros
+
+Few (1 - 9)
+= Poucos (1 - 9)
+
+Dozens (10 - 99)
+= Dezenas (10 - 99)
+
+Hundreds (100 - 999)
+= Centenas (100 - 999)
+
+Thousands (1K - 9K)
+= Milhares (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= Dezenas de milhares (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= Centenas de milhares (100K - 999K)
+
+Millions (1M+)
+= Milhões (1M+)
+
+0% - 9% free
+= 0% - 9% livre
+
+10% - 19% free
+= 10% - 19% livre
+
+20% - 29% free
+= 20% - 29% livre
+
+30% - 39% free
+= 30% - 39% livre
+
+40% - 49% free
+= 40% - 49% livre
+
+50% - 59% free
+= 50% - 59% livre
+
+60% - 69% free
+= 60% - 69% livre
+
+70% - 79% free
+= 70% - 79% livre
+
+80% - 89% free
+= 80% - 89% livre
+
+90% - 99% free
+= 90% - 99% livre
+
+100% free
+= 100% livre
+
+Unknown
+= Desconhecido
+
+Cycle Folder View
+= Alternar Modo da Exibição da Pasta
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= Alterna como as configurações de exibição da pasta são guardadas: nada, para esta pasta, ou para ela e suas subpastas.
+
+Open In Tree
+= Abrir na Árvore
+
+Unfold the selected folders in the tree.
+= Expande as pastas selecionadas na árvore.
+
+Close In Tree
+= Fechar na Árvore
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= Recolhe as pastas selecionadas na árvore. Para arquivos, recolhe as pastas em que estão.
+
+Open All In Tree
+= Abrir Tudo na Árvore
+
+Unfold the selected folders and every folder inside them in the tree.
+= Expande as pastas selecionadas e todas as pastas dentro delas na árvore.
+
+Close All In Tree
+= Fechar Tudo na Árvore
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= Recolhe as pastas selecionadas e todas as pastas dentro delas na árvore. Para arquivos, recolhe as pastas em que estão.
+
+Group By Name
+= Agrupar por Nome
+
+Group the items under headings by the first character of their names.
+= Agrupa os itens sob títulos pelo primeiro caractere de seus nomes.
+
+Group By Date Created
+= Agrupar por Data de Criação
+
+Group the items under headings by when they were made.
+= Agrupa os itens sob títulos por quando foram criados.
+
+Group By Date Accessed
+= Agrupar por Data de Acesso
+
+Group the items under headings by when they were last opened.
+= Agrupa os itens sob títulos por quando foram abertos pela última vez.
+
+Group By Total Items
+= Agrupar por Total de Itens
+
+Group the folders under headings by how many items they hold, the files apart.
+= Agrupa as pastas sob títulos por quantos itens contêm, com os arquivos à parte.
+
+Group By Date Deleted
+= Agrupar por Data de Exclusão
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= Agrupa os itens sob títulos por quando foram excluídos. Vale na Lixeira.
+
+Group By Original Location
+= Agrupar por Local Original
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= Agrupa os itens sob títulos pela pasta de onde foram excluídos. Vale na Lixeira.
+
+Group By Free Space
+= Agrupar por Espaço Livre
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= Agrupa as unidades sob títulos por quanto delas está livre. Vale em Este Computador.
+
+Group By File System
+= Agrupar por Sistema de Arquivos
+
+Group the drives under headings by their file system. Applies in This PC.
+= Agrupa as unidades sob títulos por seu sistema de arquivos. Vale em Este Computador.
+
+Group By Percent Full
+= Agrupar por Porcentagem Usada
+
+Group the drives under headings by how full they are. Applies in This PC.
+= Agrupa as unidades sob títulos por quão cheias estão. Vale em Este Computador.
+
+Group By Volume Usage
+= Agrupar por Uso do Volume
+
+Group the items under headings by their share of the drive's space.
+= Agrupa os itens sob títulos por sua parte do espaço da unidade.
+
+Group By Folder Usage
+= Agrupar por Uso da Pasta
+
+Group the items under headings by their share of the space the folder's items take.
+= Agrupa os itens sob títulos por sua parte do espaço que os itens da pasta ocupam.
+
+Collapse All Groups
+= Recolher Todos os Grupos
+
+Fold every group away, leaving their headings.
+= Recolhe todos os grupos, deixando seus títulos.
+
+Expand All Groups
+= Expandir Todos os Grupos
+
+Show every group's items again.
+= Mostra novamente os itens de todos os grupos.

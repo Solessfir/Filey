@@ -704,8 +704,12 @@ global const u16 Prog_PaletteTree[] = {
     Prog_CommandKind_BookmarksToggle,
     Prog__PaletteGroup(View),
     Prog_CommandKind_ZoomIn, Prog_CommandKind_ZoomOut, Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns,
-    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_GroupByNone,
-    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_FolderViewToggle,
+    Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView,
+    Prog_CommandKind_OpenInTree, Prog_CommandKind_CloseInTree, Prog_CommandKind_OpenAllInTree, Prog_CommandKind_CloseAllInTree, Prog_CommandKind_GroupByNone,
+    Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_GroupByName, Prog_CommandKind_GroupByDateCreated,
+    Prog_CommandKind_GroupByDateAccessed, Prog_CommandKind_GroupByItemCount, Prog_CommandKind_GroupByDateDeleted, Prog_CommandKind_GroupByOriginalLocation,
+    Prog_CommandKind_GroupByFreeSpace, Prog_CommandKind_GroupByFileSystem, Prog_CommandKind_GroupByPercentFull, Prog_CommandKind_GroupByVolumeUsage,
+    Prog_CommandKind_GroupByFolderUsage, Prog_CommandKind_GroupCollapseAll, Prog_CommandKind_GroupExpandAll, Prog_CommandKind_FolderViewToggle, Prog_CommandKind_FolderViewCycle,
     Prog_CommandKind_SizeAllColumnsToFit, Prog_CommandKind_CycleFolderSort,
     Prog__PaletteGroup(Sort),
     Prog_CommandKind_SortByName, Prog_CommandKind_SortBySize, Prog_CommandKind_SortByDateCreated, Prog_CommandKind_SortByDateModified,
@@ -788,6 +792,10 @@ function b32 Prog_CommandAvailable(const Prog_State *state, Prog_CommandKind kin
             return focused && !state->directory.archive && Prog_IsArchiveName(state->directory.entries[state->focusedRow].file.name);
         case Prog_CommandKind_Rename: return focused && !P_IsTrashFolder(state->directory.path);
         case Prog_CommandKind_SelectionRestore: return item && P_IsTrashFolder(state->directory.path);
+        // The groupings by what only the bin's items or the drives have.
+        case Prog_CommandKind_GroupByDateDeleted: case Prog_CommandKind_GroupByOriginalLocation: return P_IsTrashFolder(state->directory.path);
+        case Prog_CommandKind_GroupByFreeSpace: case Prog_CommandKind_GroupByFileSystem: case Prog_CommandKind_GroupByPercentFull:
+            return StrIsEqual(state->directory.path, Prog_ThisPC);
         case Prog_CommandKind_ToggleCursorSelection: case Prog_CommandKind_OpenContainingPath:
         case Prog_CommandKind_OpenContainingPathInTab:
             return focused;
@@ -1388,6 +1396,44 @@ function void Prog__GoToOpen(Prog_State *state, Prog_GoToItem item)
     Prog_OpenFile(state, item.path);
 }
 
+// The grouping a Group By command picks, Prog_GroupBy_Count for other commands.
+function Prog_GroupBy Prog_GroupingOf(Prog_CommandKind kind)
+{
+    switch (kind) {
+        case Prog_CommandKind_GroupByNone: return Prog_GroupBy_None;
+        case Prog_CommandKind_GroupByType: return Prog_GroupBy_Type;
+        case Prog_CommandKind_GroupByDateModified: return Prog_GroupBy_Modified;
+        case Prog_CommandKind_GroupBySize: return Prog_GroupBy_Size;
+        case Prog_CommandKind_GroupByName: return Prog_GroupBy_Name;
+        case Prog_CommandKind_GroupByDateCreated: return Prog_GroupBy_Created;
+        case Prog_CommandKind_GroupByDateAccessed: return Prog_GroupBy_Accessed;
+        case Prog_CommandKind_GroupByItemCount: return Prog_GroupBy_Items;
+        case Prog_CommandKind_GroupByDateDeleted: return Prog_GroupBy_Deleted;
+        case Prog_CommandKind_GroupByOriginalLocation: return Prog_GroupBy_Original;
+        case Prog_CommandKind_GroupByFreeSpace: return Prog_GroupBy_FreeSpace;
+        case Prog_CommandKind_GroupByFileSystem: return Prog_GroupBy_FileSystem;
+        case Prog_CommandKind_GroupByPercentFull: return Prog_GroupBy_PercentFull;
+        case Prog_CommandKind_GroupByVolumeUsage: return Prog_GroupBy_VolumeUsage;
+        case Prog_CommandKind_GroupByFolderUsage: return Prog_GroupBy_FolderUsage;
+        default: return Prog_GroupBy_Count;
+    }
+}
+
+// The Group By commands a menu offers for the shown folder: the ones for every folder, then the bin's own there and This PC's there.
+function u32 Prog_GroupingCommands(const Prog_State *state, u16 *kinds)
+{
+    u32 count = 0;
+    local_persist const u16 all[] = { Prog_CommandKind_GroupByNone, Prog_CommandKind_GroupByName, Prog_CommandKind_GroupByType, Prog_CommandKind_GroupBySize,
+                                      Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupByDateCreated, Prog_CommandKind_GroupByDateAccessed,
+                                      Prog_CommandKind_GroupByItemCount, Prog_CommandKind_GroupByVolumeUsage, Prog_CommandKind_GroupByFolderUsage };
+    for (u32 i = 0; i < CArrayCount(all); ++i) kinds[count++] = all[i];
+    if (P_IsTrashFolder(state->directory.path)) kinds[count++] = Prog_CommandKind_GroupByDateDeleted, kinds[count++] = Prog_CommandKind_GroupByOriginalLocation;
+    if (StrIsEqual(state->directory.path, Prog_ThisPC)) {
+        kinds[count++] = Prog_CommandKind_GroupByFreeSpace, kinds[count++] = Prog_CommandKind_GroupByFileSystem, kinds[count++] = Prog_CommandKind_GroupByPercentFull;
+    }
+    return count;
+}
+
 // Whether a command that picks one of a set or turns something on stands for what the panel shows now, as the view, the sort and the
 // grouping, which the view menu and the palette check; false for the rest.
 function b32 Prog_CommandChecked(const Prog_State *state, Prog_CommandKind kind)
@@ -1402,10 +1448,11 @@ function b32 Prog_CommandChecked(const Prog_State *state, Prog_CommandKind kind)
         case Prog_CommandKind_ViewXLIcons: return zoom >= Prog_ZoomMax;
         case Prog_CommandKind_ToggleMillerColumns: return state->miller;
         case Prog_CommandKind_ToggleTreeView: return state->tree;
-        case Prog_CommandKind_GroupByNone: return state->groupBy == Prog_GroupBy_None;
-        case Prog_CommandKind_GroupByType: return state->groupBy == Prog_GroupBy_Type;
-        case Prog_CommandKind_GroupByDateModified: return state->groupBy == Prog_GroupBy_Modified;
-        case Prog_CommandKind_GroupBySize: return state->groupBy == Prog_GroupBy_Size;
+        case Prog_CommandKind_GroupByNone: case Prog_CommandKind_GroupByType: case Prog_CommandKind_GroupByDateModified: case Prog_CommandKind_GroupBySize:
+        case Prog_CommandKind_GroupByName: case Prog_CommandKind_GroupByDateCreated: case Prog_CommandKind_GroupByDateAccessed: case Prog_CommandKind_GroupByItemCount:
+        case Prog_CommandKind_GroupByDateDeleted: case Prog_CommandKind_GroupByOriginalLocation: case Prog_CommandKind_GroupByFreeSpace:
+        case Prog_CommandKind_GroupByFileSystem: case Prog_CommandKind_GroupByPercentFull: case Prog_CommandKind_GroupByVolumeUsage:
+        case Prog_CommandKind_GroupByFolderUsage: return state->groupBy == Prog_GroupingOf(kind);
         case Prog_CommandKind_SortByName: return state->sort == Prog_Sort_Name;
         case Prog_CommandKind_SortBySize: return state->sort == Prog_Sort_Size;
         case Prog_CommandKind_SortByDateCreated: return state->sort == Prog_Sort_Created;
@@ -1447,9 +1494,16 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
     switch (command->kind) {
         case Prog_CommandKind_ViewMenu: {
             u16 kinds[] = { Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns, Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons,
-                            Prog_CommandKind_ViewXLIcons, Prog_CommandKind_None, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_None,
-                            Prog_CommandKind_GroupByNone, Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize, Prog_CommandKind_None };
+                            Prog_CommandKind_ViewXLIcons, Prog_CommandKind_None, Prog_CommandKind_ToggleMillerColumns, Prog_CommandKind_ToggleTreeView, Prog_CommandKind_None };
             for (u32 i = 0; i < CArrayCount(kinds); ++i) Prog__Item(.kind = kinds[i], .checked = Prog_CommandChecked(state, (Prog_CommandKind)kinds[i]));
+            u16 groupings[Prog_GroupBy_Count];
+            u32 groupingCount = Prog_GroupingCommands(state, groupings);
+            for (u32 i = 0; i < groupingCount; ++i) Prog__Item(.kind = groupings[i], .checked = Prog_CommandChecked(state, (Prog_CommandKind)groupings[i]));
+            if (state->groupCount) {
+                Prog__Item(.kind = Prog_CommandKind_GroupCollapseAll);
+                Prog__Item(.kind = Prog_CommandKind_GroupExpandAll);
+            }
+            Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ZoomIn);
             Prog__Item(.kind = Prog_CommandKind_ZoomOut);
         } break;
@@ -1713,8 +1767,16 @@ function void Prog__MenuAddViews(Prog_State *state)
     Arena *arena = &state->menuArena;
     local_persist const u16 views[] = { Prog_CommandKind_ViewDetails, Prog_CommandKind_ViewList, Prog_CommandKind_ViewColumns, Prog_CommandKind_ViewMediumIcons, Prog_CommandKind_ViewLargeIcons, Prog_CommandKind_ViewXLIcons };
     local_persist const String viewNames[] = { TrInit("Details"), TrInit("List"), TrInit("Columns"), TrInit("M Icons"), TrInit("L Icons"), TrInit("XL Icons") };
-    local_persist const u16 groups[] = { Prog_CommandKind_GroupByNone, Prog_CommandKind_GroupByType, Prog_CommandKind_GroupByDateModified, Prog_CommandKind_GroupBySize };
-    local_persist const String groupNames[] = { TrInit("None"), TrInit("Type"), TrInit("Date Modified"), TrInit("Size") };
+    // The groupings by what they group by.
+    local_persist const String groupNames[Prog_GroupBy_Count] = {
+        [Prog_GroupBy_None] = TrInit("None"), [Prog_GroupBy_Type] = TrInit("Type"), [Prog_GroupBy_Modified] = TrInit("Date Modified"), [Prog_GroupBy_Size] = TrInit("Size"),
+        [Prog_GroupBy_Name] = TrInit("Name"), [Prog_GroupBy_Created] = TrInit("Date Created"), [Prog_GroupBy_Accessed] = TrInit("Date Accessed"),
+        [Prog_GroupBy_Items] = TrInit("Total Items"), [Prog_GroupBy_Deleted] = TrInit("Date Deleted"), [Prog_GroupBy_Original] = TrInit("Original Location"),
+        [Prog_GroupBy_FreeSpace] = TrInit("Free Space"), [Prog_GroupBy_FileSystem] = TrInit("File System"), [Prog_GroupBy_PercentFull] = TrInit("Percent Full"),
+        [Prog_GroupBy_VolumeUsage] = TrInit("Volume Usage"), [Prog_GroupBy_FolderUsage] = TrInit("Folder Usage"),
+    };
+    u16 groups[Prog_GroupBy_Count];
+    u32 groupCount = Prog_GroupingCommands(state, groups);
     // The shown columns' sorts, the usage columns sorting as Size does and Git by nothing.
     local_persist const u16 sorts[Prog_ColumnKind_Count] = {
         [Prog_ColumnKind_Name] = Prog_CommandKind_SortByName, [Prog_ColumnKind_Type] = Prog_CommandKind_SortByType, [Prog_ColumnKind_Size] = Prog_CommandKind_SortBySize,
@@ -1743,7 +1805,7 @@ function void Prog__MenuAddViews(Prog_State *state)
         if (kind && !seen) sortKinds[sortCount] = kind, sortLabels[sortCount++] = Prog_Tr(sortNames[set.kinds[i]]);
     }
     // A line parts them from the rest, where there is any.
-    u32 roots = state->menu.rootCount ? 5 : 4, children = CArrayCount(views) + sortCount + CArrayCount(groups);
+    u32 roots = state->menu.rootCount ? 5 : 4, children = (u32)CArrayCount(views) + sortCount + groupCount;
     u32 count = roots + state->menu.count + children;
     P_MenuItem *items = ArenaPushArray(arena, count, P_MenuItem);
     for (u32 i = 0; i < state->menu.rootCount; ++i) items[roots + i] = state->menu.items[i];
@@ -1760,9 +1822,10 @@ function void Prog__MenuAddViews(Prog_State *state)
     for (u32 i = 0; i < sortCount; ++i) {
         items[child++] = (P_MenuItem){ .label = sortLabels[i], .action = P_MenuAction_Command, .id = sortKinds[i], .choice = true, .isDefault = (b8)Prog_CommandChecked(state, (Prog_CommandKind)sortKinds[i]) };
     }
-    items[2] = (P_MenuItem){ .label = Tr("Group by"), .firstChild = child, .childCount = CArrayCount(groups) };
-    for (u32 i = 0; i < CArrayCount(groups); ++i) {
-        items[child++] = (P_MenuItem){ .label = Prog_Tr(groupNames[i]), .action = P_MenuAction_Command, .id = groups[i], .choice = true, .isDefault = (b8)Prog_CommandChecked(state, (Prog_CommandKind)groups[i]) };
+    items[2] = (P_MenuItem){ .label = Tr("Group by"), .firstChild = child, .childCount = groupCount };
+    for (u32 i = 0; i < groupCount; ++i) {
+        items[child++] = (P_MenuItem){ .label = Prog_Tr(groupNames[Prog_GroupingOf((Prog_CommandKind)groups[i])]), .action = P_MenuAction_Command, .id = groups[i], .choice = true,
+                                       .isDefault = (b8)Prog_CommandChecked(state, (Prog_CommandKind)groups[i]) };
     }
     items[3] = (P_MenuItem){ .label = Prog_CommandLabel(Prog_CommandKind_Refresh), .action = P_MenuAction_Command, .id = Prog_CommandKind_Refresh };
     if (roots == 5) items[4] = (P_MenuItem){ .separator = true };
@@ -3673,6 +3736,13 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_Redo: if (!state->renaming) Prog_RedoLast(state); break;
             case Prog_CommandKind_BookmarksToggle: Prog_ToggleBookmark(state, state->directory.path); break;
             case Prog_CommandKind_FolderViewToggle: Prog_ToggleFolderView(state); break;
+            // A folder kept by one above it starts as one kept by none.
+            case Prog_CommandKind_FolderViewCycle: {
+                if (!state->directory.path.length) break;
+                Prog_ViewSettings kept;
+                Prog_ViewScope scope = Prog_FolderViewScope(state, state->directory.path, &kept, NULL);
+                Prog_SetFolderViewScope(state, scope == Prog_ViewScope_Folder ? Prog_ViewScope_Tree : scope == Prog_ViewScope_Tree ? Prog_ViewScope_None : Prog_ViewScope_Folder);
+            } break;
             case Prog_CommandKind_FolderViewScope: if (command->row < Prog_ViewScope_Inherited) Prog_SetFolderViewScope(state, (Prog_ViewScope)command->row); break;
             case Prog_CommandKind_FolderViewsClear: Prog_ClearFolderViews(state); break;
             case Prog_CommandKind_BookmarksClear: {
@@ -3947,22 +4017,39 @@ function b32 Prog_ProcessCommands(Prog_State *state)
             case Prog_CommandKind_ToggleTreeView: {
                 // Turned off, it folds everything, which turning it on again starts from.
                 state->tree = !state->tree;
-                if (!state->tree) Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0);
+                if (!state->tree) Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0), Prog__SetList(&state->treeAllArena, &state->treeAll, NULL, 0);
                 state->revealFocus = true;
                 Prog_Reload(state);
             } break;
+            case Prog_CommandKind_OpenInTree:
+            case Prog_CommandKind_CloseInTree:
+            case Prog_CommandKind_OpenAllInTree:
+            case Prog_CommandKind_CloseAllInTree: Prog_TreeCommand(state, (Prog_CommandKind)command->kind); break;
             case Prog_CommandKind_TreeToggle: {
                 if (state->loading || command->row >= state->directory.count || state->directory.entries[command->row].file.kind != P_FileKind_Directory) break;
                 Prog_TreeToggle(state, state->directory.entries[command->row].file.name);
             } break;
-            case Prog_CommandKind_GroupByNone:
-            case Prog_CommandKind_GroupByType:
-            case Prog_CommandKind_GroupByDateModified:
-            case Prog_CommandKind_GroupBySize: {
+            case Prog_CommandKind_GroupByNone: case Prog_CommandKind_GroupByType: case Prog_CommandKind_GroupByDateModified: case Prog_CommandKind_GroupBySize:
+            case Prog_CommandKind_GroupByName: case Prog_CommandKind_GroupByDateCreated: case Prog_CommandKind_GroupByDateAccessed: case Prog_CommandKind_GroupByItemCount:
+            case Prog_CommandKind_GroupByDateDeleted: case Prog_CommandKind_GroupByOriginalLocation: case Prog_CommandKind_GroupByFreeSpace:
+            case Prog_CommandKind_GroupByFileSystem: case Prog_CommandKind_GroupByPercentFull: case Prog_CommandKind_GroupByVolumeUsage:
+            case Prog_CommandKind_GroupByFolderUsage: {
+                // Those of the bin and This PC only there, whatever hotkey asks.
+                if (!Prog_CommandAvailable(state, (Prog_CommandKind)command->kind)) break;
                 // Another grouping starts with every group shown.
-                state->groupBy = command->kind == Prog_CommandKind_GroupByType ? Prog_GroupBy_Type : command->kind == Prog_CommandKind_GroupByDateModified ? Prog_GroupBy_Modified
-                               : command->kind == Prog_CommandKind_GroupBySize ? Prog_GroupBy_Size : Prog_GroupBy_None;
+                state->groupBy = (u8)Prog_GroupingOf((Prog_CommandKind)command->kind);
                 Prog__SetList(&state->groupArena, &state->groupsFolded, NULL, 0);
+                Prog_ApplyFilter(state, false);
+                state->revealFocus = true;
+            } break;
+            case Prog_CommandKind_GroupCollapseAll:
+            case Prog_CommandKind_GroupExpandAll: {
+                if (state->loading || !state->groupCount) break;
+                Scratch scratch = GetScratch();
+                String *labels = ArenaPushArray(scratch.arena, state->groupCount, String);
+                for (u32 g = 0; g < state->groupCount; ++g) labels[g] = state->groups[g].label;
+                Prog__SetList(&state->groupArena, &state->groupsFolded, labels, command->kind == Prog_CommandKind_GroupCollapseAll ? state->groupCount : 0);
+                ReleaseScratch(scratch);
                 Prog_ApplyFilter(state, false);
                 state->revealFocus = true;
             } break;
@@ -5074,6 +5161,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
     state->commandFirst = NULL;
     state->commandLast = NULL;
     if (state->sortPending) Prog__SortByTotals(state);
+    if (state->regroupPending) Prog__RegroupByTotals(state);
     // A view of another kind, as a zoom to the icons, shows a tree's nested items or leaves them out.
     if (state->directory.tree && state->treeNested != Prog_TreeShowsNested(state)) Prog_ApplyFilter(state, false);
     // Files dragged onto the window go into the folder under the pointer, else into the folder of the panel under it.

@@ -3412,3 +3412,180 @@ Sort by
 
 Group by
 = 分组方式
+
+Tooltips
+= 工具提示
+
+Shows tips when the pointer rests on files, folders and buttons.
+= 指针停在文件、文件夹和按钮上时显示提示。
+
+Last year
+= 去年
+
+Other
+= 其他
+
+Few (1 - 9)
+= 少量 (1 - 9)
+
+Dozens (10 - 99)
+= 数十 (10 - 99)
+
+Hundreds (100 - 999)
+= 数百 (100 - 999)
+
+Thousands (1K - 9K)
+= 数千 (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= 数万 (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= 数十万 (100K - 999K)
+
+Millions (1M+)
+= 数百万 (1M+)
+
+0% - 9% free
+= 可用 0% - 9%
+
+10% - 19% free
+= 可用 10% - 19%
+
+20% - 29% free
+= 可用 20% - 29%
+
+30% - 39% free
+= 可用 30% - 39%
+
+40% - 49% free
+= 可用 40% - 49%
+
+50% - 59% free
+= 可用 50% - 59%
+
+60% - 69% free
+= 可用 60% - 69%
+
+70% - 79% free
+= 可用 70% - 79%
+
+80% - 89% free
+= 可用 80% - 89%
+
+90% - 99% free
+= 可用 90% - 99%
+
+100% free
+= 可用 100%
+
+Unknown
+= 未知
+
+Cycle Folder View
+= 循环切换文件夹视图
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= 循环切换文件夹视图设置的保存方式：不保存、仅此文件夹，或此文件夹及其子文件夹。
+
+Open In Tree
+= 在树中展开
+
+Unfold the selected folders in the tree.
+= 在树中展开所选文件夹。
+
+Close In Tree
+= 在树中折叠
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= 在树中折叠所选文件夹。对于文件，折叠其所在的文件夹。
+
+Open All In Tree
+= 在树中全部展开
+
+Unfold the selected folders and every folder inside them in the tree.
+= 在树中展开所选文件夹及其中的所有文件夹。
+
+Close All In Tree
+= 在树中全部折叠
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= 在树中折叠所选文件夹及其中的所有文件夹。对于文件，折叠其所在的文件夹。
+
+Group By Name
+= 按名称分组
+
+Group the items under headings by the first character of their names.
+= 按名称的首个字符将项目分组到标题下。
+
+Group By Date Created
+= 按创建日期分组
+
+Group the items under headings by when they were made.
+= 按创建时间将项目分组到标题下。
+
+Group By Date Accessed
+= 按访问日期分组
+
+Group the items under headings by when they were last opened.
+= 按上次打开的时间将项目分组到标题下。
+
+Group By Total Items
+= 按项目总数分组
+
+Group the folders under headings by how many items they hold, the files apart.
+= 按包含的项目数将文件夹分组到标题下，文件单独分组。
+
+Group By Date Deleted
+= 按删除日期分组
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= 按删除时间将项目分组到标题下。适用于回收站。
+
+Group By Original Location
+= 按原位置分组
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= 按删除前所在的文件夹将项目分组到标题下。适用于回收站。
+
+Group By Free Space
+= 按可用空间分组
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= 按可用空间比例将驱动器分组到标题下。适用于此电脑。
+
+Group By File System
+= 按文件系统分组
+
+Group the drives under headings by their file system. Applies in This PC.
+= 按文件系统将驱动器分组到标题下。适用于此电脑。
+
+Group By Percent Full
+= 按已用百分比分组
+
+Group the drives under headings by how full they are. Applies in This PC.
+= 按已用程度将驱动器分组到标题下。适用于此电脑。
+
+Group By Volume Usage
+= 按卷占用分组
+
+Group the items under headings by their share of the drive's space.
+= 按占驱动器空间的比例将项目分组到标题下。
+
+Group By Folder Usage
+= 按文件夹占用分组
+
+Group the items under headings by their share of the space the folder's items take.
+= 按占文件夹中项目所用空间的比例将项目分组到标题下。
+
+Collapse All Groups
+= 折叠所有分组
+
+Fold every group away, leaving their headings.
+= 折叠每个分组，只保留标题。
+
+Expand All Groups
+= 展开所有分组
+
+Show every group's items again.
+= 再次显示每个分组的项目。

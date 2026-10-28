@@ -3413,3 +3413,180 @@ Sort by
 
 Group by
 = Grupuj według
+
+Tooltips
+= Podpowiedzi
+
+Shows tips when the pointer rests on files, folders and buttons.
+= Pokazuje podpowiedzi, gdy wskaźnik zatrzyma się na plikach, folderach i przyciskach.
+
+Last year
+= W zeszłym roku
+
+Other
+= Inne
+
+Few (1 - 9)
+= Kilka (1 - 9)
+
+Dozens (10 - 99)
+= Dziesiątki (10 - 99)
+
+Hundreds (100 - 999)
+= Setki (100 - 999)
+
+Thousands (1K - 9K)
+= Tysiące (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= Dziesiątki tysięcy (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= Setki tysięcy (100K - 999K)
+
+Millions (1M+)
+= Miliony (1M+)
+
+0% - 9% free
+= 0% - 9% wolne
+
+10% - 19% free
+= 10% - 19% wolne
+
+20% - 29% free
+= 20% - 29% wolne
+
+30% - 39% free
+= 30% - 39% wolne
+
+40% - 49% free
+= 40% - 49% wolne
+
+50% - 59% free
+= 50% - 59% wolne
+
+60% - 69% free
+= 60% - 69% wolne
+
+70% - 79% free
+= 70% - 79% wolne
+
+80% - 89% free
+= 80% - 89% wolne
+
+90% - 99% free
+= 90% - 99% wolne
+
+100% free
+= 100% wolne
+
+Unknown
+= Nieznane
+
+Cycle Folder View
+= Przełącz zapamiętywanie widoku folderu
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= Przełącza sposób zapamiętywania ustawień widoku folderu: wcale, dla tego folderu albo dla niego i jego podfolderów.
+
+Open In Tree
+= Otwórz w drzewie
+
+Unfold the selected folders in the tree.
+= Rozwija zaznaczone foldery w drzewie.
+
+Close In Tree
+= Zamknij w drzewie
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= Zwija zaznaczone foldery w drzewie. Dla plików zwija foldery, w których się znajdują.
+
+Open All In Tree
+= Otwórz wszystko w drzewie
+
+Unfold the selected folders and every folder inside them in the tree.
+= Rozwija zaznaczone foldery i wszystkie foldery w nich w drzewie.
+
+Close All In Tree
+= Zamknij wszystko w drzewie
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= Zwija zaznaczone foldery i wszystkie foldery w nich w drzewie. Dla plików zwija foldery, w których się znajdują.
+
+Group By Name
+= Grupuj według nazwy
+
+Group the items under headings by the first character of their names.
+= Grupuje elementy pod nagłówkami według pierwszego znaku ich nazwy.
+
+Group By Date Created
+= Grupuj według daty utworzenia
+
+Group the items under headings by when they were made.
+= Grupuje elementy pod nagłówkami według tego, kiedy zostały utworzone.
+
+Group By Date Accessed
+= Grupuj według daty dostępu
+
+Group the items under headings by when they were last opened.
+= Grupuje elementy pod nagłówkami według tego, kiedy zostały ostatnio otwarte.
+
+Group By Total Items
+= Grupuj według liczby elementów
+
+Group the folders under headings by how many items they hold, the files apart.
+= Grupuje foldery pod nagłówkami według tego, ile elementów zawierają, pliki osobno.
+
+Group By Date Deleted
+= Grupuj według daty usunięcia
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= Grupuje elementy pod nagłówkami według tego, kiedy zostały usunięte. Dotyczy Kosza.
+
+Group By Original Location
+= Grupuj według pierwotnej lokalizacji
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= Grupuje elementy pod nagłówkami według folderu, z którego zostały usunięte. Dotyczy Kosza.
+
+Group By Free Space
+= Grupuj według wolnego miejsca
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= Grupuje dyski pod nagłówkami według tego, ile miejsca jest na nich wolne. Dotyczy folderu Ten komputer.
+
+Group By File System
+= Grupuj według systemu plików
+
+Group the drives under headings by their file system. Applies in This PC.
+= Grupuje dyski pod nagłówkami według ich systemu plików. Dotyczy folderu Ten komputer.
+
+Group By Percent Full
+= Grupuj według zapełnienia
+
+Group the drives under headings by how full they are. Applies in This PC.
+= Grupuje dyski pod nagłówkami według tego, jak bardzo są zapełnione. Dotyczy folderu Ten komputer.
+
+Group By Volume Usage
+= Grupuj według udziału w dysku
+
+Group the items under headings by their share of the drive's space.
+= Grupuje elementy pod nagłówkami według ich udziału w miejscu na dysku.
+
+Group By Folder Usage
+= Grupuj według udziału w folderze
+
+Group the items under headings by their share of the space the folder's items take.
+= Grupuje elementy pod nagłówkami według ich udziału w miejscu zajmowanym przez elementy folderu.
+
+Collapse All Groups
+= Zwiń wszystkie grupy
+
+Fold every group away, leaving their headings.
+= Zwija każdą grupę, zostawiając ich nagłówki.
+
+Expand All Groups
+= Rozwiń wszystkie grupy
+
+Show every group's items again.
+= Ponownie pokazuje elementy każdej grupy.

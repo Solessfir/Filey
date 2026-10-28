@@ -3609,6 +3609,51 @@ function void TestTabs(TestFileFixture *fixture)
         Prog_RequestDirectory(&state, fixture->path, true, 0);
         Check(TestWaitDirectory(&state) && !state.tree && !state.directory.tree);
     }
+    // Open All In Tree unfolds a folder with every folder inside it, Close In Tree folds it keeping those unfolded for when it is unfolded again, and Close All In Tree folds them too.
+    {
+        Arena nestArena = {0};
+        String made = {0};
+        Check(!P_CreateItem(&nestArena, fixture->path, S("Nest"), true, &made).code);
+        String nest = Prog_JoinPath(&nestArena, fixture->path, made);
+        Check(!P_CreateItem(&nestArena, nest, S("Inner"), true, &made).code);
+        String inner = Prog_JoinPath(&nestArena, nest, made);
+        Check(!P_CreateItem(&nestArena, inner, S("Deep"), true, &made).code && !P_CreateItem(&nestArena, inner, S("leaf.txt"), false, &made).code);
+        Prog_Reload(&state);
+        Check(TestWaitDirectory(&state));
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_OpenAllInTree, 0);
+        // The folders found inside are unfolded as the listing comes, and listed again with them.
+        Prog_Reload(&state);
+        Check(TestWaitDirectory(&state) && state.tree && Prog_TreeIsOpen(&state, S("Nest")) && Prog_TreeIsOpen(&state, S("Nest/Inner")));
+        Check(TestEntryIndex(&state, S("Nest/Inner/Deep")) != UINT64_MAX);
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_CloseInTree, 0);
+        Check(!Prog_TreeIsOpen(&state, S("Nest")) && Prog_TreeIsOpen(&state, S("Nest/Inner")) && TestEntryIndex(&state, S("Nest/Inner")) == UINT64_MAX);
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_OpenInTree, 0);
+        Check(TestEntryIndex(&state, S("Nest/Inner/Deep")) != UINT64_MAX);
+        // Unfolding all again lists a folder unfolded already once.
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_CloseInTree, 0);
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_OpenAllInTree, 0);
+        Check(TestWaitDirectory(&state));
+        u64 deep = 0;
+        for (u64 i = 0; i < state.directory.count; ++i) if (StrIsEqual(state.directory.entries[i].file.name, S("Nest/Inner/Deep"))) ++deep;
+        Check(deep == 1 && !state.treeAll.header.count);
+        // A file folds the folder it is in, and with everything, the folders inside that.
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest/Inner/leaf.txt")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_CloseInTree, 0);
+        Check(!Prog_TreeIsOpen(&state, S("Nest/Inner")) && Prog_TreeIsOpen(&state, S("Nest")));
+        Prog_SelectRow(&state, TestEntryIndex(&state, S("Nest/Inner")), 0);
+        TestBrowsingCommand(&state, Prog_CommandKind_CloseAllInTree, 0);
+        Check(!state.treeOpen.header.count);
+        TestBrowsingCommand(&state, Prog_CommandKind_ToggleTreeView, 0);
+        Check(!P_DeleteItems(&nestArena, &nest, 1, false, NULL).code);
+        Prog_Reload(&state);
+        Check(TestWaitDirectory(&state) && !state.tree && TestEntryIndex(&state, S("Nest")) == UINT64_MAX);
+        ArenaRelease(&nestArena);
+    }
     // Grouped by type, the view runs group after group, each holding the items of its type; a folded group keeps its heading and count and
     // leaves its items out until it is shown again.
     {
@@ -3638,6 +3683,17 @@ function void TestTabs(TestFileFixture *fixture)
         // By date, what was made just now is today's, which comes first.
         TestBrowsingCommand(&state, Prog_CommandKind_GroupByDateModified, 0);
         Check(Prog_GroupAt(&state, Prog_ViewPosition(&state, plain)) == 0 && StrIsEqual(state.groups[0].label, S("Today")));
+        // By name, by the first letter, the others last; by count the files stand apart from the folders, unknown until they are measured.
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupByName, 0);
+        Check(StrIsEqual(state.groups[Prog_GroupAt(&state, Prog_ViewPosition(&state, plain))].label, S("I - P")));
+        Check(StrIsEqual(state.groups[Prog_GroupAt(&state, Prog_ViewPosition(&state, TestEntryIndex(&state, S("Folder2"))))].label, S("A - H")) && StrIsEqual(state.groups[0].label, S("A - H")));
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupByItemCount, 0);
+        Check(StrIsEqual(state.groups[Prog_GroupAt(&state, Prog_ViewPosition(&state, plain))].label, S("Files")) && state.viewCount == all);
+        // Collapse All folds every group to its heading, and Expand All shows them again.
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupCollapseAll, 0);
+        Check(state.groupCount >= 2 && !state.viewCount && !state.groups[state.groupCount - 1].count && state.groups[0].total);
+        TestBrowsingCommand(&state, Prog_CommandKind_GroupExpandAll, 0);
+        Check(state.viewCount == all && !state.groupsFolded.header.count);
         // In a grid two across, a line down from a group's last line goes to the next group's first, and up from there to the last item above
         // when that line is short.
         TestBrowsingCommand(&state, Prog_CommandKind_GroupBySize, 0);

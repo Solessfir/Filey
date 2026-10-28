@@ -157,6 +157,17 @@ typedef enum Prog_GroupBy {
     Prog_GroupBy_Type,
     Prog_GroupBy_Modified,
     Prog_GroupBy_Size,
+    Prog_GroupBy_Name,
+    Prog_GroupBy_Created,
+    Prog_GroupBy_Accessed,
+    Prog_GroupBy_Items,
+    Prog_GroupBy_Deleted,
+    Prog_GroupBy_Original,
+    Prog_GroupBy_FreeSpace,
+    Prog_GroupBy_FileSystem,
+    Prog_GroupBy_PercentFull,
+    Prog_GroupBy_VolumeUsage,
+    Prog_GroupBy_FolderUsage,
     Prog_GroupBy_Count,
 } Prog_GroupBy;
 
@@ -536,6 +547,8 @@ typedef struct Prog_JobInput {
     b32 tree;               // a tree: the folders `treeOpen` names, by their paths from `path`, are listed too
     String *treeOpen;
     u64 treeOpenCount;
+    String *treeAll;        // and of those, the ones whose subfolders are all unfolded too
+    u64 treeAllCount;
     Prog_Partial *partial;  // an expanded listing's rows found so far, handed over while its walk goes on
     b32 addHistory;
     u64 historyAt;
@@ -916,6 +929,7 @@ typedef enum Prog_Option {
     Prog_Option_Animations,
     Prog_Option_RoundCorners,
     Prog_Option_InlineSubmenus,
+    Prog_Option_Tooltips,
     Prog_Option_SystemScheme,
     Prog_Option_ColorScheme,
     Prog_Option_LightScheme,
@@ -1331,6 +1345,7 @@ typedef struct Prog_Directory {
     b32 expanded;
     // A tree: the unfolded folders' items too, named so, each right after its folder.
     b32 tree;
+    ArrayStr treeAdded;  // the folders unfolded with all inside one, which the tree keeps unfolded
     b32 archive;      // a folder inside an archive, listed from it
     b32 locked;       // and the archive has encrypted entries
     // The folders their entries are in, each once, for what is worked out per folder rather than per entry.
@@ -1439,12 +1454,13 @@ typedef struct Prog_PdfView {
 // (ownView, ownSettings), which the next folder without one gets back.
 // The filter keeps the rows it lets through in `view`, best match first and in listing order within a score; rows it hides are never selected, so commands cannot act on them.
 // With groupBy the view runs group after group, as `groups` says, and the groups folded away, by their labels in groupsFolded, leave their items out of it.
+// treeAll names the folders the next listing unfolds with everything inside them, which it takes.
 #define Prog_TabFields(X) \
     X(Arena, directoryArena) X(Prog_Directory, directory) X(Arena, historyArena) X(ArrayStr, history) X(u64, historyAt) \
     X(u64, focusedRow) X(u64, anchorRow) X(u64, selectedCount) X(b32, hasFocus) X(b32, hasAnchor) \
     X(b32, showHidden) X(enum8(Prog_Sort), sort) X(b32, descending) X(enum8(Prog_FolderSort), folderSort) X(u32, zoom) X(Prog_ColumnSet, columnSet) \
     X(b32, ownView) X(Prog_ViewSettings, ownSettings) \
-    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(b32, treeNested) X(enum8(Prog_GroupBy), groupBy) X(Arena, groupArena) X(ArrayStr, groupsFolded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
+    X(Prog_TextEdit, filter) X(b32, filterSticky) X(b32, expanded) X(b32, tree) X(Arena, treeArena) X(ArrayStr, treeOpen) X(Arena, treeAllArena) X(ArrayStr, treeAll) X(b32, treeNested) X(enum8(Prog_GroupBy), groupBy) X(Arena, groupArena) X(ArrayStr, groupsFolded) X(b32, hideFolders) X(b32, hideFiles) X(Prog_TypeFilter, types) \
     X(Arena, viewArena) X(u64 *, view) X(u64 *, viewAt) X(u64, viewCount) X(u64, viewFolders) X(Prog_ListGroup *, groups) X(u32, groupCount) X(UI_Vec2, scroll) X(Prog_Trail, trail) \
     Prog_PreviewFields(X)
 
@@ -1475,7 +1491,7 @@ typedef struct Prog_TreeWatches {
 //     items per line (1 in Details and List), the step from one cell to the next, and the first cell's item box; groupHeading: how tall a group's heading was
 //   marquee, marqueeKey, marqueeAnchor, marqueeBox, marqueeAdds: the box selection; the key is the block the drag began on, kept after it so that its release is not a click
 //   filtering: the filter box has the keyboard; filterRect: its last layout
-//   listing, measureJob, sortPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort later
+//   listing, measureJob, sortPending, regroupPending: folder totals; each adopted listing gets a new id, and totals that arrive while a menu or drag holds the rows still sort and group later
 //   watch, watchDirty: the shown folder's watch, and a change it saw that waits for the listing under way; treeWatches: its tree's unfolded folders'
 //   focusedRowRect: last layout of the focused row, to place a keyboard-opened menu
 //   renameCreatedUntil: until then, select the one item a listing of this folder adds, and rename it with createdRenames
@@ -1492,7 +1508,7 @@ typedef struct Prog_TreeWatches {
     X(Arena, tabArena) X(Prog_Tab *, tabs) X(u32, tabCount) X(u32, activeTab) \
     X(u64, gridColumns) X(UI_Vec2, gridPitch) X(R_Rect, gridItem) X(f32, groupHeading) \
     X(b32, marquee) X(UI_Key, marqueeKey) X(UI_Vec2, marqueeAnchor) X(R_Rect, marqueeBox) X(KeyMods, marqueeAdds) \
-    X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) \
+    X(b32, filtering) X(R_Rect, filterRect) X(u64, listing) X(P_Job *, measureJob) X(b32, sortPending) X(b32, regroupPending) \
     X(P_DirectoryWatch, watch) X(b32, watchDirty) X(Prog_TreeWatches, treeWatches) X(R_Rect, focusedRowRect) X(u64, renameCreatedUntil) X(b32, createdRenames) X(R_Rect, panelRect)     X(u64, listStarted) X(u64, listTook) \
     X(f32, statusRight) X(b32, listScrolls) \
     X(Prog_ViewSettings, inspectorView) \
@@ -1650,6 +1666,7 @@ typedef struct Prog_State {
     b32 menuApart[9];         // each submenu that could not sit against its opener's panel in the last build, whose opener is then lit
     u32 menuSquare[9];        // each level's corners that the submenu joined to it squared off in the last build, as R_Shape flags
     b32 menuInline;           // submenus open inside their menu, under their item, rather than beside it
+    b32 noTooltips;           // no tips under the pointer's resting place
     u32 menuExpanded[32];     // with menuInline, the items whose submenus are open, in the order they were opened
     u32 menuExpandedCount;
     f32 menuTop;              // with menuInline, where the menu opened, which it keeps as it grows; set for menuSerial + 1 in menuTopSerial
@@ -2455,6 +2472,7 @@ function void Prog_ShowInFolder(Prog_State *state, String path, b32 inTab);
 function b32 Prog_TreeIsOpen(const Prog_State *state, String name);
 function void Prog__SetList(Arena *arena, ArrayStr *list, const String *items, u64 count);
 function void Prog_TreeToggle(Prog_State *state, String name);
+function void Prog_TreeCommand(Prog_State *state, Prog_CommandKind kind);
 function String Prog_NewTabPath(Prog_State *state, Arena *arena, String current);
 function const P_Place *Prog_PathDrive(const Prog_State *state, String path);
 function String Prog_PathName(const Prog_State *state, String path);

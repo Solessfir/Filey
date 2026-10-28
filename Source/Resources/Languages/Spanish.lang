@@ -3412,3 +3412,180 @@ Sort by
 
 Group by
 = Agrupar por
+
+Tooltips
+= Información sobre herramientas
+
+Shows tips when the pointer rests on files, folders and buttons.
+= Muestra indicaciones cuando el puntero se detiene sobre archivos, carpetas y botones.
+
+Last year
+= El año pasado
+
+Other
+= Otros
+
+Few (1 - 9)
+= Pocos (1 - 9)
+
+Dozens (10 - 99)
+= Decenas (10 - 99)
+
+Hundreds (100 - 999)
+= Cientos (100 - 999)
+
+Thousands (1K - 9K)
+= Miles (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= Decenas de miles (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= Cientos de miles (100K - 999K)
+
+Millions (1M+)
+= Millones (1M+)
+
+0% - 9% free
+= 0% - 9% libre
+
+10% - 19% free
+= 10% - 19% libre
+
+20% - 29% free
+= 20% - 29% libre
+
+30% - 39% free
+= 30% - 39% libre
+
+40% - 49% free
+= 40% - 49% libre
+
+50% - 59% free
+= 50% - 59% libre
+
+60% - 69% free
+= 60% - 69% libre
+
+70% - 79% free
+= 70% - 79% libre
+
+80% - 89% free
+= 80% - 89% libre
+
+90% - 99% free
+= 90% - 99% libre
+
+100% free
+= 100% libre
+
+Unknown
+= Desconocido
+
+Cycle Folder View
+= Alternar vista de carpeta
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= Alternar cómo se guardan los ajustes de vista de la carpeta: nada, para esta carpeta, o para ella y sus subcarpetas.
+
+Open In Tree
+= Abrir en el árbol
+
+Unfold the selected folders in the tree.
+= Desplegar las carpetas seleccionadas en el árbol.
+
+Close In Tree
+= Cerrar en el árbol
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= Plegar las carpetas seleccionadas en el árbol. Para archivos, pliega las carpetas en las que están.
+
+Open All In Tree
+= Abrir todo en el árbol
+
+Unfold the selected folders and every folder inside them in the tree.
+= Desplegar las carpetas seleccionadas y todas las carpetas que contienen en el árbol.
+
+Close All In Tree
+= Cerrar todo en el árbol
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= Plegar las carpetas seleccionadas y todas las carpetas que contienen en el árbol. Para archivos, pliega las carpetas en las que están.
+
+Group By Name
+= Agrupar por nombre
+
+Group the items under headings by the first character of their names.
+= Agrupar los elementos bajo encabezados según el primer carácter de su nombre.
+
+Group By Date Created
+= Agrupar por fecha de creación
+
+Group the items under headings by when they were made.
+= Agrupar los elementos bajo encabezados según cuándo se crearon.
+
+Group By Date Accessed
+= Agrupar por fecha de acceso
+
+Group the items under headings by when they were last opened.
+= Agrupar los elementos bajo encabezados según cuándo se abrieron por última vez.
+
+Group By Total Items
+= Agrupar por total de elementos
+
+Group the folders under headings by how many items they hold, the files apart.
+= Agrupar las carpetas bajo encabezados según cuántos elementos contienen, con los archivos aparte.
+
+Group By Date Deleted
+= Agrupar por fecha de eliminación
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= Agrupar los elementos bajo encabezados según cuándo se eliminaron. Se aplica en la Papelera de reciclaje.
+
+Group By Original Location
+= Agrupar por ubicación original
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= Agrupar los elementos bajo encabezados según la carpeta de la que se eliminaron. Se aplica en la Papelera de reciclaje.
+
+Group By Free Space
+= Agrupar por espacio libre
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= Agrupar las unidades bajo encabezados según cuánto de ellas está libre. Se aplica en Este equipo.
+
+Group By File System
+= Agrupar por sistema de archivos
+
+Group the drives under headings by their file system. Applies in This PC.
+= Agrupar las unidades bajo encabezados según su sistema de archivos. Se aplica en Este equipo.
+
+Group By Percent Full
+= Agrupar por porcentaje ocupado
+
+Group the drives under headings by how full they are. Applies in This PC.
+= Agrupar las unidades bajo encabezados según lo llenas que están. Se aplica en Este equipo.
+
+Group By Volume Usage
+= Agrupar por uso del volumen
+
+Group the items under headings by their share of the drive's space.
+= Agrupar los elementos bajo encabezados según su parte del espacio de la unidad.
+
+Group By Folder Usage
+= Agrupar por uso de la carpeta
+
+Group the items under headings by their share of the space the folder's items take.
+= Agrupar los elementos bajo encabezados según su parte del espacio que ocupan los elementos de la carpeta.
+
+Collapse All Groups
+= Contraer todos los grupos
+
+Fold every group away, leaving their headings.
+= Plegar todos los grupos, dejando sus encabezados.
+
+Expand All Groups
+= Expandir todos los grupos
+
+Show every group's items again.
+= Volver a mostrar los elementos de todos los grupos.

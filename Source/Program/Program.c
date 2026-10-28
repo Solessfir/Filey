@@ -806,7 +806,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->hideExtensions = state->showSystem = false;
     state->fullPaths = state->noTrail = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
-    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->separateInstances = state->gitFetch = false;
+    state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->noTooltips = state->separateInstances = state->gitFetch = false;
     state->startup = Prog_Startup_LastSession;
     state->newTab = Prog_NewTab_Root;
     state->newTabView = Prog_NewTabView_Details;
@@ -892,6 +892,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->noTrail = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("menus.inline"))) {
             state->menuInline = Prog__SettingOn(value);
+        } else if (StrIsEqual(name, S("tooltips"))) {
+            state->noTooltips = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("startup"))) {
             // Any other value names a saved layout.
             state->startupLayoutLength = 0;
@@ -1080,6 +1082,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# paths.short = true\n# paths.trail = true\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
+                                "# Tips under the pointer when it rests on files, folders and buttons.\n# tooltips = true\n\n"
                                 "# Whether emptying the Recycle Bin (the Trash) asks first.\n# trash.confirm = true\n\n"
                                 "# How hard the archives Filey writes are compressed, from 0 (stored) to 9 (smallest, slowest).\n# archive.level = 9\n\n"));
     StrBuildStr(arena, &text, S("# What a start without folders to open shows: the last session, root (This PC) or home; what a new tab shows: root, home or current.\n"
@@ -1162,6 +1165,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                    0, 1, Prog_OptionCorners, 2, SInit("corners") },
     [Prog_Option_InlineSubmenus] = { TrInit("Inline Submenus"), TrInit("Opens a menu's submenus inside it, under their item, rather than beside it."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("menus.inline") },
+    [Prog_Option_Tooltips] = { TrInit("Tooltips"), TrInit("Shows tips when the pointer rests on files, folders and buttons."), Prog_OptionControl_Switch, 0, 1,
+                               Prog_OptionSwitch, 2, SInit("tooltips") },
     [Prog_Option_SystemScheme] = { TrInit("System Light / Dark Scheme"), TrInit("Automatically adapt between light and dark color schemes based on system settings."),
                                    Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("theme.system") },
     [Prog_Option_ColorScheme] = { TrInit("Color Scheme"), TrInit("Applies a color palette to all UI elements."),
@@ -1378,6 +1383,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_Borders: return (i32)state->borderSize;
         case Prog_Option_RoundCorners: return !state->squareCorners;
         case Prog_Option_InlineSubmenus: return state->menuInline;
+        case Prog_Option_Tooltips: return !state->noTooltips;
         case Prog_Option_SystemScheme: return state->systemScheme;
         case Prog_Option_AlternatingRows: return state->alternatingRows;
         case Prog_Option_InactiveOpacity: return 60 + state->inactiveShift;
@@ -1947,7 +1953,7 @@ function i32 Prog__OptionDefault(Prog_Option option)
         case Prog_Option_LoadThumbnails: case Prog_Option_Animations: case Prog_Option_RoundCorners: case Prog_Option_ShowFileExtension: case Prog_Option_SystemScheme:
         case Prog_Option_ShortenedPaths: case Prog_Option_Breadcrumbs: case Prog_Option_ConfirmEmptyTrash: case Prog_Option_SingleWindow:
         case Prog_Option_VSync: case Prog_Option_HighlightCode: case Prog_Option_CalcFolderSizes: case Prog_Option_CalcFolderSizesSSD:
-        case Prog_Option_ActOnPress: case Prog_Option_UnderlineOnHover: case Prog_Option_ClickToRename: case Prog_Option_Overscroll: return 1;
+        case Prog_Option_ActOnPress: case Prog_Option_UnderlineOnHover: case Prog_Option_ClickToRename: case Prog_Option_Overscroll: case Prog_Option_Tooltips: return 1;
         default: return 0;
     }
 }
@@ -4800,21 +4806,7 @@ function void Prog__List(Prog_State *state, const Prog_Columns *columns, const P
     state->listBytes = state->volumeBytes = 0;
     b32 usage = false;
     for (u32 c = 0; c < columns->count; ++c) usage |= columns->v[c].id == Prog_ColumnId_FolderUsage || columns->v[c].id == Prog_ColumnId_VolumeUsage;
-    if (usage) {
-        for (u64 i = 0; i < state->directory.count; ++i) {
-            const Prog_Entry *entry = &state->directory.entries[i];
-            state->listBytes += entry->file.kind == P_FileKind_Directory ? (entry->measured ? entry->bytes : 0) : entry->file.size;
-        }
-        String path = state->directory.path;
-        u64 longest = 0;
-        for (u64 i = 0; i < state->drives.header.count; ++i) {
-            String root = state->drives.v[i].path;
-            if (root.length > longest && root.length <= path.length && Prog__EqualFolded(StrFromTo(path, 0, (i64)root.length), root)) {
-                longest = root.length;
-                state->volumeBytes = state->drives.v[i].totalBytes;
-            }
-        }
-    }
+    if (usage) state->listBytes = Prog_ListBytes(state), state->volumeBytes = Prog_VolumeBytes(state);
     UI_SetNextPrefWidth(UI_Flex());
     UI_SetNextPrefHeight(UI_Flex());
     // While the items run past the bottom, the rows leave room on the right for the scroll bar.
@@ -6838,7 +6830,7 @@ function void Prog__FolderTip(Prog_State *state, f32 opacity, const Prog_Metrics
 
 function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
 {
-    if (!state->tooltipKey || ((state->menuOpen || state->paletteOpen) && !state->tooltipAbove)) return;
+    if (state->noTooltips || !state->tooltipKey || ((state->menuOpen || state->paletteOpen) && !state->tooltipAbove)) return;
     // None while something is dragged.
     if (state->tabDrag || state->dragging || P_DropPending()) return;
     if (UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait"))) < 700000) {

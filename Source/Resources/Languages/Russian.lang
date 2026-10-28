@@ -3411,3 +3411,180 @@ Sort by
 
 Group by
 = Группировка
+
+Tooltips
+= Подсказки
+
+Shows tips when the pointer rests on files, folders and buttons.
+= Показывает подсказки, когда указатель задерживается на файлах, папках и кнопках.
+
+Last year
+= В прошлом году
+
+Other
+= Другое
+
+Few (1 - 9)
+= Немного (1 - 9)
+
+Dozens (10 - 99)
+= Десятки (10 - 99)
+
+Hundreds (100 - 999)
+= Сотни (100 - 999)
+
+Thousands (1K - 9K)
+= Тысячи (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= Десятки тысяч (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= Сотни тысяч (100K - 999K)
+
+Millions (1M+)
+= Миллионы (1M+)
+
+0% - 9% free
+= 0% - 9% свободно
+
+10% - 19% free
+= 10% - 19% свободно
+
+20% - 29% free
+= 20% - 29% свободно
+
+30% - 39% free
+= 30% - 39% свободно
+
+40% - 49% free
+= 40% - 49% свободно
+
+50% - 59% free
+= 50% - 59% свободно
+
+60% - 69% free
+= 60% - 69% свободно
+
+70% - 79% free
+= 70% - 79% свободно
+
+80% - 89% free
+= 80% - 89% свободно
+
+90% - 99% free
+= 90% - 99% свободно
+
+100% free
+= 100% свободно
+
+Unknown
+= Неизвестно
+
+Cycle Folder View
+= Переключить запоминание вида папки
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= Переключить, как запоминаются настройки вида папки: никак, для этой папки или для неё и её подпапок.
+
+Open In Tree
+= Открыть в дереве
+
+Unfold the selected folders in the tree.
+= Развернуть выбранные папки в дереве.
+
+Close In Tree
+= Закрыть в дереве
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= Свернуть выбранные папки в дереве. Для файлов сворачивает папки, в которых они лежат.
+
+Open All In Tree
+= Открыть всё в дереве
+
+Unfold the selected folders and every folder inside them in the tree.
+= Развернуть выбранные папки и все папки внутри них в дереве.
+
+Close All In Tree
+= Закрыть всё в дереве
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= Свернуть выбранные папки и все папки внутри них в дереве. Для файлов сворачивает папки, в которых они лежат.
+
+Group By Name
+= Группировать по имени
+
+Group the items under headings by the first character of their names.
+= Группировать элементы под заголовками по первому символу их имени.
+
+Group By Date Created
+= Группировать по дате создания
+
+Group the items under headings by when they were made.
+= Группировать элементы под заголовками по тому, когда они созданы.
+
+Group By Date Accessed
+= Группировать по дате доступа
+
+Group the items under headings by when they were last opened.
+= Группировать элементы под заголовками по тому, когда их открывали в последний раз.
+
+Group By Total Items
+= Группировать по числу элементов
+
+Group the folders under headings by how many items they hold, the files apart.
+= Группировать папки под заголовками по тому, сколько в них элементов, файлы отдельно.
+
+Group By Date Deleted
+= Группировать по дате удаления
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= Группировать элементы под заголовками по тому, когда они удалены. Работает в Корзине.
+
+Group By Original Location
+= Группировать по исходному расположению
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= Группировать элементы под заголовками по папке, из которой они удалены. Работает в Корзине.
+
+Group By Free Space
+= Группировать по свободному месту
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= Группировать диски под заголовками по тому, сколько на них свободно. Работает в папке Этот компьютер.
+
+Group By File System
+= Группировать по файловой системе
+
+Group the drives under headings by their file system. Applies in This PC.
+= Группировать диски под заголовками по их файловой системе. Работает в папке Этот компьютер.
+
+Group By Percent Full
+= Группировать по заполненности
+
+Group the drives under headings by how full they are. Applies in This PC.
+= Группировать диски под заголовками по тому, насколько они заполнены. Работает в папке Этот компьютер.
+
+Group By Volume Usage
+= Группировать по доле диска
+
+Group the items under headings by their share of the drive's space.
+= Группировать элементы под заголовками по их доле места на диске.
+
+Group By Folder Usage
+= Группировать по доле папки
+
+Group the items under headings by their share of the space the folder's items take.
+= Группировать элементы под заголовками по их доле места, занятого элементами папки.
+
+Collapse All Groups
+= Свернуть все группы
+
+Fold every group away, leaving their headings.
+= Свернуть каждую группу, оставив их заголовки.
+
+Expand All Groups
+= Развернуть все группы
+
+Show every group's items again.
+= Снова показать элементы каждой группы.

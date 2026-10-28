@@ -519,7 +519,16 @@ function void Prog__FilterLane(void *user, u32 lane)
 // After an edit the focus moves to the first match, so that Enter opens it; a listing without a focused item puts it on the first one, as a cursor that selects nothing.
 // The date groups, newest first, and the size groups, smallest first and then the folders, which have no size of their own.
 global const String Prog_DateGroups[] = { TrInit("Today"), TrInit("Yesterday"), TrInit("Earlier this week"), TrInit("Last week"), TrInit("Earlier this month"),
-                                          TrInit("Last month"), TrInit("Earlier this year"), TrInit("A long time ago") };
+                                          TrInit("Last month"), TrInit("Earlier this year"), TrInit("Last year"), TrInit("A long time ago") };
+// The names by their first character, and the folders by how many items they hold, then the files, which hold none.
+global const String Prog_NameGroups[] = { NoTrInit("0 - 9"), NoTrInit("A - H"), NoTrInit("I - P"), NoTrInit("Q - Z"), TrInit("Other") };
+global const String Prog_CountGroups[] = { TrInit("Empty"), TrInit("Few (1 - 9)"), TrInit("Dozens (10 - 99)"), TrInit("Hundreds (100 - 999)"), TrInit("Thousands (1K - 9K)"),
+                                           TrInit("Tens of thousands (10K - 99K)"), TrInit("Hundreds of thousands (100K - 999K)"), TrInit("Millions (1M+)"), TrInit("Files") };
+// A share by its tens, and the same of a drive's room left.
+global const String Prog_PercentGroups[] = { NoTrInit("0% - 9%"), NoTrInit("10% - 19%"), NoTrInit("20% - 29%"), NoTrInit("30% - 39%"), NoTrInit("40% - 49%"), NoTrInit("50% - 59%"),
+                                             NoTrInit("60% - 69%"), NoTrInit("70% - 79%"), NoTrInit("80% - 89%"), NoTrInit("90% - 99%"), NoTrInit("100%") };
+global const String Prog_FreeGroups[] = { TrInit("0% - 9% free"), TrInit("10% - 19% free"), TrInit("20% - 29% free"), TrInit("30% - 39% free"), TrInit("40% - 49% free"),
+                                          TrInit("50% - 59% free"), TrInit("60% - 69% free"), TrInit("70% - 79% free"), TrInit("80% - 89% free"), TrInit("90% - 99% free"), TrInit("100% free") };
 global const String Prog_SizeGroups[] = { TrInit("Empty"), TrInit("Tiny (under 16 kB)"), TrInit("Small (16 kB to 1 MB)"), TrInit("Medium (1 to 128 MB)"),
                                           TrInit("Large (128 MB to 1 GB)"), TrInit("Huge (1 to 4 GB)"), TrInit("Gigantic (over 4 GB)"), TrInit("Folders") };
 
@@ -549,14 +558,13 @@ function i64 Prog__LocalDayStart(i64 day)
     return day * 86400 - P_LocalOffset(guess);
 }
 
-// Where the date groups after the first begin, in Unix seconds: yesterday, this week from its Monday, last week, this month, last month and
-// this year. An item goes in the first group whose start it is not before, so a group whose start comes after an earlier one's gets nothing.
+// Where the date groups after the first begin, in Unix seconds: yesterday, this week from its Monday, last week, this month, last month, this year and last year. An item goes in the first group whose start it is not before, so a group whose start comes after an earlier one's gets nothing.
 function void Prog__DateGroupStarts(i64 now, i64 starts[CArrayCount(Prog_DateGroups) - 1])
 {
     i64 local = now + P_LocalOffset(now), today = (local >= 0 ? local : local - 86399) / 86400, monday = today - (today + 3) % 7, year = 0, month = 0;
     Prog__CivilFromDays(today, &year, &month);
     i64 days[] = { today, today - 1, monday, monday - 7, Prog__DaysFromCivil(year, month, 1),
-                   Prog__DaysFromCivil(month == 1 ? year - 1 : year, month == 1 ? 12 : month - 1, 1), Prog__DaysFromCivil(year, 1, 1) };
+                   Prog__DaysFromCivil(month == 1 ? year - 1 : year, month == 1 ? 12 : month - 1, 1), Prog__DaysFromCivil(year, 1, 1), Prog__DaysFromCivil(year - 1, 1, 1) };
     static_assert(CArrayCount(days) == CArrayCount(Prog_DateGroups) - 1);
     for (u32 i = 0; i < CArrayCount(days); ++i) starts[i] = Prog__LocalDayStart(days[i]);
 }
@@ -564,7 +572,11 @@ function void Prog__DateGroupStarts(i64 now, i64 starts[CArrayCount(Prog_DateGro
 // Whether the list shows its items in groups; a tree's rows keep theirs under their folders.
 function b32 Prog__Grouped(const Prog_State *state)
 {
-    return state->groupBy != Prog_GroupBy_None && state->groupBy < Prog_GroupBy_Count && !(state->directory.tree && state->treeNested);
+    // The groupings by what only the bin's items or the drives have group nothing elsewhere, as a folder's kept view may bring one.
+    Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
+    if ((by == Prog_GroupBy_Deleted || by == Prog_GroupBy_Original) && !P_IsTrashFolder(state->directory.path)) return false;
+    if ((by == Prog_GroupBy_FreeSpace || by == Prog_GroupBy_FileSystem || by == Prog_GroupBy_PercentFull) && !StrIsEqual(state->directory.path, Prog_ThisPC)) return false;
+    return by != Prog_GroupBy_None && by < Prog_GroupBy_Count && !(state->directory.tree && state->treeNested);
 }
 
 function b32 Prog__GroupFolded(const Prog_State *state, String label)
@@ -573,58 +585,144 @@ function b32 Prog__GroupFolded(const Prog_State *state, String label)
     return false;
 }
 
-// Puts the view in groups, each in the view's order: types by name, the dates newest first and the sizes smallest first, the other way while
-// the list is sorted down by the same thing, and groups of folders first or last as the folders are. A folded group keeps its heading only.
+// The share `part` is of `whole` as its group of tens, 10 being all of it; UINT32_MAX without a whole.
+function u32 Prog__PercentGroup(u64 part, u64 whole)
+{
+    if (!whole) return UINT32_MAX;
+    if (part >= whole) return 10;
+    return Min((u32)((f64)part * 100.0 / (f64)whole) / 10, 9u);
+}
+
+// The bytes of the listed items, the measured folders' and the files', which the folder usage is a share of.
+function u64 Prog_ListBytes(const Prog_State *state)
+{
+    u64 result = 0;
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        result += entry->file.kind == P_FileKind_Directory ? (entry->measured ? entry->bytes : 0) : entry->file.size;
+    }
+    return result;
+}
+
+// The size of the drive the shown folder is on, which the volume usage is a share of; 0 when it is on none of the drives.
+function u64 Prog_VolumeBytes(const Prog_State *state)
+{
+    String path = state->directory.path;
+    u64 longest = 0, result = 0;
+    for (u64 i = 0; i < state->drives.header.count; ++i) {
+        String root = state->drives.v[i].path;
+        b32 whole = root.length && (path.length == root.length || root.value[root.length - 1] == '/' || (root.length < path.length && path.value[root.length] == '/'));
+        if (root.length > longest && root.length <= path.length && whole && Prog__EqualFolded(StrFromTo(path, 0, (i64)root.length), root)) {
+            longest = root.length;
+            result = state->drives.v[i].totalBytes;
+        }
+    }
+    return result;
+}
+
+// Puts the view in groups, each in the view's order.
+// Those named by what their items are (types, file systems, the folders binned items came from) go by name, the rest in their own order: dates newest first, names from 0 and amounts from the least, the other way while the list is sorted the other way by the same thing.
+// Groups of folders go first or last as the folders do, and what cannot be told goes last, as Unknown.
+// A folded group keeps its heading only.
 function void Prog__GroupView(Prog_State *state, Arena *scratch)
 {
     state->groups = NULL;
     state->groupCount = 0;
     if (!Prog__Grouped(state) || !state->viewCount) return;
     Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
+    b32 dates = by == Prog_GroupBy_Modified || by == Prog_GroupBy_Created || by == Prog_GroupBy_Accessed || by == Prog_GroupBy_Deleted;
+    b32 named = by == Prog_GroupBy_Type || by == Prog_GroupBy_FileSystem || by == Prog_GroupBy_Original;
+    b32 drives = by == Prog_GroupBy_PercentFull || by == Prog_GroupBy_FreeSpace, usage = by == Prog_GroupBy_VolumeUsage || by == Prog_GroupBy_FolderUsage;
     ArrayStr labels = {0};
-    if (by == Prog_GroupBy_Modified) for (u32 i = 0; i < CArrayCount(Prog_DateGroups); ++i) ArrayPush(scratch, labels, Prog_DateGroups[i]);
-    if (by == Prog_GroupBy_Size) for (u32 i = 0; i < CArrayCount(Prog_SizeGroups); ++i) ArrayPush(scratch, labels, Prog_SizeGroups[i]);
+    const String *fixed = dates ? Prog_DateGroups : by == Prog_GroupBy_Size ? Prog_SizeGroups : by == Prog_GroupBy_Name ? Prog_NameGroups
+                        : by == Prog_GroupBy_Items ? Prog_CountGroups : by == Prog_GroupBy_FreeSpace ? Prog_FreeGroups : drives || usage ? Prog_PercentGroups : NULL;
+    u32 fixedCount = dates ? CArrayCount(Prog_DateGroups) : by == Prog_GroupBy_Size ? CArrayCount(Prog_SizeGroups) : by == Prog_GroupBy_Name ? CArrayCount(Prog_NameGroups)
+                   : by == Prog_GroupBy_Items ? CArrayCount(Prog_CountGroups) : by == Prog_GroupBy_FreeSpace ? CArrayCount(Prog_FreeGroups) : drives || usage ? CArrayCount(Prog_PercentGroups) : 0;
+    for (u32 i = 0; i < fixedCount; ++i) ArrayPush(scratch, labels, fixed[i]);
+    // Unknown is made as its first item comes.
+    u32 unknown = UINT32_MAX;
     i64 starts[CArrayCount(Prog_DateGroups) - 1] = {0};
-    if (by == Prog_GroupBy_Modified) Prog__DateGroupStarts(P_NowUnix(), starts);
+    if (dates) Prog__DateGroupStarts(P_NowUnix(), starts);
     local_persist const u64 sizeLimits[] = { 1, UINT64_C(16) << 10, UINT64_C(1) << 20, UINT64_C(128) << 20, UINT64_C(1) << 30, UINT64_C(4) << 30 };
-    u32 sizeFolders = CArrayCount(Prog_SizeGroups) - 1;
-    // Each item's group, by its label's index; a type's group is made as its first item comes.
-    struct { MapHeader header; struct { String key; u32 value; } *v; } types = {0};
+    local_persist const u64 countLimits[] = { 1, 10, 100, 1000, 10000, 100000, 1000000 };
+    u32 sizeFolders = CArrayCount(Prog_SizeGroups) - 1, countFiles = CArrayCount(Prog_CountGroups) - 1;
+    // The usage groups' wholes, as their columns have them: the measured items' bytes and the drive's.
+    u64 listBytes = by == Prog_GroupBy_FolderUsage ? Prog_ListBytes(state) : 0, volumeBytes = by == Prog_GroupBy_VolumeUsage ? Prog_VolumeBytes(state) : 0;
+    // Each item's group, by its label's index; a named group is made as its first item comes.
+    struct { MapHeader header; struct { String key; u32 value; } *v; } names = {0};
     u32 *of = ArenaPushArrayNoZero(scratch, state->viewCount, u32);
     for (u64 p = 0; p < state->viewCount; ++p) {
         const Prog_Entry *entry = &state->directory.entries[state->view[p]];
+        b32 folder = entry->file.kind == P_FileKind_Directory;
         u32 id = 0;
-        if (by == Prog_GroupBy_Type) {
-            u32 *known = MapsGetPtrNull(types, entry->type);
-            if (known) {
+        if (named) {
+            // A binned item's folder is labeled as it was shown, made once for its group in the view's arena, which outlasts the view.
+            String name = by == Prog_GroupBy_Type ? entry->type : by == Prog_GroupBy_FileSystem ? entry->fileSystem : entry->original;
+            u32 *known = name.length ? MapsGetPtrNull(names, name) : NULL;
+            if (!name.length) {
+                id = UINT32_MAX;
+            } else if (known) {
                 id = *known;
             } else {
                 id = (u32)labels.header.count;
-                ArrayPush(scratch, labels, entry->type);
-                MapsPut(scratch, types, entry->type, id);
+                ArrayPush(scratch, labels, by == Prog_GroupBy_Original ? P_NativePath(&state->viewArena, name) : name);
+                MapsPut(scratch, names, name, id);
             }
-        } else if (by == Prog_GroupBy_Modified) {
-            while (id < CArrayCount(starts) && entry->file.modifiedTimeUnix < starts[id]) ++id;
-        } else if (entry->file.kind == P_FileKind_Directory) {
+        } else if (dates) {
+            i64 time = by == Prog_GroupBy_Modified ? entry->file.modifiedTimeUnix : by == Prog_GroupBy_Created ? entry->file.createdTimeUnix
+                     : by == Prog_GroupBy_Accessed ? entry->file.accessedTimeUnix : entry->deletedTimeUnix;
+            if (by != Prog_GroupBy_Modified && !time) id = UINT32_MAX;
+            else while (id < CArrayCount(starts) && time < starts[id]) ++id;
+        } else if (by == Prog_GroupBy_Name) {
+            String name = entry->label.length ? entry->label : Prog_EntryLeaf(entry->file.name);
+            u8 c = name.length ? (u8)name.value[0] : 0;
+            if (c >= 'a' && c <= 'z') c = (u8)(c - 'a' + 'A');
+            id = c >= '0' && c <= '9' ? 0 : c >= 'A' && c <= 'H' ? 1 : c >= 'I' && c <= 'P' ? 2 : c >= 'Q' && c <= 'Z' ? 3 : 4;
+        } else if (by == Prog_GroupBy_Items) {
+            if (!folder) id = countFiles;
+            else if (!entry->measured || entry->drive) id = UINT32_MAX;
+            else while (id < CArrayCount(countLimits) && entry->folders + entry->files >= countLimits[id]) ++id;
+        } else if (drives) {
+            // A drive's size is its room, and its free bytes what is left of it.
+            u64 used = entry->file.size > entry->freeBytes ? entry->file.size - entry->freeBytes : 0;
+            id = entry->drive ? Prog__PercentGroup(by == Prog_GroupBy_FreeSpace ? entry->freeBytes : used, entry->file.size) : UINT32_MAX;
+        } else if (usage) {
+            u64 bytes = folder ? entry->bytes : entry->file.size;
+            id = folder && !entry->measured ? UINT32_MAX : Prog__PercentGroup(bytes, by == Prog_GroupBy_VolumeUsage ? volumeBytes : listBytes);
+        } else if (folder) {
             id = sizeFolders;
         } else {
             while (id < CArrayCount(sizeLimits) && entry->file.size >= sizeLimits[id]) ++id;
         }
+        if (id == UINT32_MAX) {
+            if (unknown == UINT32_MAX) {
+                unknown = (u32)labels.header.count;
+                ArrayPush(scratch, labels, Tr("Unknown"));
+            }
+            id = unknown;
+        }
         of[p] = id;
     }
-    // A group of types or sizes whose first item is a folder holds folders, which go first or last; the dates mix them.
+    // A group of types, sizes or counts whose first item is a folder holds folders, which go first or last; the others mix them.
+    b32 apart = by == Prog_GroupBy_Type || by == Prog_GroupBy_Size || by == Prog_GroupBy_Items;
     u32 count = (u32)labels.header.count;
     b8 *seen = ArenaPushArray(scratch, count, b8);
     u32 *place = ArenaPushArray(scratch, count, u32);
     for (u64 p = 0; p < state->viewCount; ++p) {
         if (seen[of[p]]) continue;
         seen[of[p]] = true;
-        b32 folders = by != Prog_GroupBy_Modified && state->directory.entries[state->view[p]].file.kind == P_FileKind_Directory;
-        place[of[p]] = !folders || state->folderSort == Prog_FolderSort_Mixed ? 1 : state->folderSort == Prog_FolderSort_First ? 0 : 2;
+        b32 folders = apart && state->directory.entries[state->view[p]].file.kind == P_FileKind_Directory;
+        place[of[p]] = of[p] == unknown ? 3 : !folders || state->folderSort == Prog_FolderSort_Mixed ? 1 : state->folderSort == Prog_FolderSort_First ? 0 : 2;
     }
-    // Then by name or by their own order, turned round while the list is sorted down by the same thing.
-    b32 reverse = (by == Prog_GroupBy_Type && state->sort == Prog_Sort_Type && state->descending) ||
-                  (by == Prog_GroupBy_Modified && state->sort == Prog_Sort_Modified && !state->descending) || (by == Prog_GroupBy_Size && state->sort == Prog_Sort_Size && state->descending);
+    // Then by name or by their own order, turned round while the list is sorted the other way by the same thing.
+    local_persist const u8 sorts[Prog_GroupBy_Count] = {
+        [Prog_GroupBy_None] = Prog_Sort_Count, [Prog_GroupBy_Type] = Prog_Sort_Type, [Prog_GroupBy_Modified] = Prog_Sort_Modified, [Prog_GroupBy_Size] = Prog_Sort_Size,
+        [Prog_GroupBy_Name] = Prog_Sort_Name, [Prog_GroupBy_Created] = Prog_Sort_Created, [Prog_GroupBy_Accessed] = Prog_Sort_Accessed, [Prog_GroupBy_Items] = Prog_Sort_Items,
+        [Prog_GroupBy_Deleted] = Prog_Sort_Deleted, [Prog_GroupBy_Original] = Prog_Sort_Original, [Prog_GroupBy_FreeSpace] = Prog_Sort_FreeSpace,
+        [Prog_GroupBy_FileSystem] = Prog_Sort_FileSystem, [Prog_GroupBy_PercentFull] = Prog_Sort_PercentFull, [Prog_GroupBy_VolumeUsage] = Prog_Sort_Size,
+        [Prog_GroupBy_FolderUsage] = Prog_Sort_Size,
+    };
+    b32 reverse = state->sort == sorts[by] && (dates ? !state->descending : state->descending);
     u32 *order = ArenaPushArrayNoZero(scratch, count, u32), *rank = ArenaPushArrayNoZero(scratch, count, u32);
     // ponytail: insertion sort, fine for the few hundred types a folder has at most.
     for (u32 id = 0; id < count; ++id) {
@@ -633,7 +731,7 @@ function void Prog__GroupView(Prog_State *state, Arena *scratch)
             u32 other = order[at - 1];
             i32 compare = place[id] != place[other] ? (place[id] < place[other] ? -1 : 1) : 0;
             if (!compare) {
-                compare = by == Prog_GroupBy_Type ? Prog_CompareNames(labels.v[id], labels.v[other]) : id < other ? -1 : 1;
+                compare = named ? Prog_CompareNames(labels.v[id], labels.v[other]) : id < other ? -1 : 1;
                 if (reverse) compare = -compare;
             }
             if (compare >= 0) break;
@@ -1123,13 +1221,33 @@ function void Prog__StopTreeWatches(Prog_State *state)
 }
 
 // Watches the folders a tree unfolds as the shown one is, after each listing, as what is unfolded changes with it.
+// The unfolded folders the tree lists, those whose folders above are unfolded too, copied into `arena` and put in `shown`, as many as treeOpen holds; their count comes back.
+function u64 Prog__TreeShownFolders(Arena *arena, const Prog_State *state, String *shown)
+{
+    Scratch scratch = GetScratchEx(arena);
+    struct { MapHeader header; struct { String key; b32 value; } *v; } open = {0};
+    for (u64 i = 0; i < state->treeOpen.header.count; ++i) MapsPut(scratch.arena, open, state->treeOpen.v[i], true);
+    u64 count = 0;
+    for (u64 i = 0; i < state->treeOpen.header.count; ++i) {
+        String name = state->treeOpen.v[i];
+        b32 shows = true;
+        for (u64 c = 0; c < name.length && shows; ++c) shows = name.value[c] != '/' || MapsGet(open, b32, StrFromTo(name, 0, (i64)c));
+        if (shows) shown[count++] = StrCopy(arena, name);
+    }
+    ReleaseScratch(scratch);
+    return count;
+}
+
 function void Prog__StartTreeWatches(Prog_State *state)
 {
     Prog__StopTreeWatches(state);
     if (!state->directory.tree || state->directory.archive) return;
+    // Only the folders the tree shows, as those folded inside a folded one wait unwatched.
     Scratch scratch = GetScratch();
-    for (u64 i = 0; i < state->treeOpen.header.count && state->treeWatches.count < Prog_TreeWatchMax; ++i) {
-        String path = Prog_JoinPath(scratch.arena, state->directory.path, state->treeOpen.v[i]);
+    String *shown = ArenaPushArray(scratch.arena, state->treeOpen.header.count + 1, String);
+    u64 count = Prog__TreeShownFolders(scratch.arena, state, shown);
+    for (u64 i = 0; i < count && state->treeWatches.count < Prog_TreeWatchMax; ++i) {
+        String path = Prog_JoinPath(scratch.arena, state->directory.path, shown[i]);
         if (P_DirectoryWatchStart(&state->treeWatches.v[state->treeWatches.count], path, state->jobs.wake, state->jobs.wakeUser)) ++state->treeWatches.count;
     }
     ReleaseScratch(scratch);
@@ -1147,6 +1265,47 @@ function b32 Prog_TreeIsOpen(const Prog_State *state, String name)
 {
     for (u64 i = 0; i < state->treeOpen.header.count; ++i) if (StrIsEqual(state->treeOpen.v[i], name)) return true;
     return false;
+}
+
+function b32 Prog__PathInside(String path, String folder);
+
+// Unfolds the tree's folders, or folds them: Open In Tree and Open All In Tree unfold the selected folders, the second with everything inside them as the listing finds it; Close In Tree folds them, keeping what is unfolded inside for when they are unfolded again, and Close All In Tree folds that too.
+// A file folds the folder it is in, and opening turns the tree on.
+function void Prog_TreeCommand(Prog_State *state, Prog_CommandKind kind)
+{
+    if (state->loading || !state->directory.count) return;
+    b32 opening = kind == Prog_CommandKind_OpenInTree || kind == Prog_CommandKind_OpenAllInTree;
+    b32 all = kind == Prog_CommandKind_OpenAllInTree || kind == Prog_CommandKind_CloseAllInTree;
+    if (!opening && !state->tree) return;
+    Scratch scratch = GetScratch();
+    u64 rows = state->selectedCount ? state->selectedCount : 1;
+    String *kept = ArenaPushArray(scratch.arena, state->treeOpen.header.count + rows, String), *everything = ArenaPushArray(scratch.arena, rows, String);
+    u64 count = 0, everythingCount = 0;
+    for (u64 i = 0; i < state->treeOpen.header.count; ++i) kept[count++] = StrCopy(scratch.arena, state->treeOpen.v[i]);
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        const Prog_Entry *entry = &state->directory.entries[i];
+        if (state->selectedCount ? !entry->selected : !(state->hasFocus && i == state->focusedRow)) continue;
+        b32 folder = entry->file.kind == P_FileKind_Directory;
+        String name = entry->file.name;
+        if (opening) {
+            if (!folder) continue;
+            b32 known = false;
+            for (u64 k = 0; k < count && !known; ++k) known = StrIsEqual(kept[k], name);
+            if (!known) kept[count++] = name;
+            if (all) everything[everythingCount++] = name;
+            continue;
+        }
+        String target = folder && Prog_TreeIsOpen(state, name) ? name : Prog_EntryParent(name);
+        if (!target.length) continue;
+        u64 left = 0;
+        for (u64 k = 0; k < count; ++k) if (!StrIsEqual(kept[k], target) && !(all && Prog__PathInside(kept[k], target))) kept[left++] = kept[k];
+        count = left;
+    }
+    if (opening) state->tree = true;
+    Prog__SetList(&state->treeArena, &state->treeOpen, kept, count);
+    Prog__SetList(&state->treeAllArena, &state->treeAll, everything, everythingCount);
+    ReleaseScratch(scratch);
+    Prog_Reload(state);
 }
 
 // Unfolds the folder `name` or folds it, with everything unfolded inside it, and lists the folder again to show it.
@@ -1194,6 +1353,19 @@ function void Prog_TreeToggle(Prog_State *state, String name)
         }
     }
     Prog_Reload(state);
+}
+
+// Groups the list again by the folders' totals, when it is grouped by them, waiting out a menu or a drag, which refer to rows.
+function void Prog__RegroupByTotals(Prog_State *state)
+{
+    Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
+    state->regroupPending = false;
+    if (by != Prog_GroupBy_Items && by != Prog_GroupBy_FolderUsage && by != Prog_GroupBy_VolumeUsage) return;
+    if (state->menuOpen || state->dragging) {
+        state->regroupPending = true;
+        return;
+    }
+    Prog_ApplyFilter(state, false);
 }
 
 // Sorts on folder totals are redone as the totals arrive.
@@ -3313,15 +3485,31 @@ function void Prog__DirectoryJob(P_Job *job)
         // A tree lists its unfolded folders too, their items named by their path from the listed folder; one gone since is left out.
         P_FileArray all = {0};
         for (u64 i = 0; i < files.header.count; ++i) ArrayPush(&job->arena, all, files.v[i]);
-        for (u64 o = 0; o < input->treeOpenCount && !P_IsCancelled(&job->cancelToken); ++o) {
-            String folder = input->treeOpen[o];
+        // A folder unfolded with all inside it has its subfolders listed after it as they are found, which the result names.
+        // A folder found that is unfolded already is listed once; the subfolders added stop at a number that keeps the list and its lookups quick.
+        ArrayStr folders = {0};
+        struct { MapHeader header; struct { String key; b32 value; } *v; } listed = {0};
+        for (u64 o = 0; o < input->treeOpenCount; ++o) {
+            ArrayPush(&job->arena, folders, input->treeOpen[o]);
+            MapsPut(&job->arena, listed, input->treeOpen[o], true);
+        }
+        for (u64 o = 0; o < folders.header.count && !P_IsCancelled(&job->cancelToken); ++o) {
+            String folder = folders.v[o];
             P_DirectoryResult inside = result->archive ? P_EnumerateArchive(&job->arena, archive, inner.length ? Prog_JoinPath(&job->arena, inner, folder) : folder, &job->cancelToken)
                                                        : P_EnumerateDirectory(&job->arena, Prog_JoinPath(&job->arena, input->path, folder), &job->cancelToken);
             if (inside.errorCode || inside.cancelled) continue;
+            b32 everything = false;
+            for (u64 a = 0; a < input->treeAllCount && !everything; ++a) everything = Prog__PathInside(folder, input->treeAll[a]);
             for (u64 i = 0; i < inside.files.header.count; ++i) {
                 P_File file = inside.files.v[i];
                 file.name = StrFormat(&job->arena, "%S/%S", folder, file.name);
                 ArrayPush(&job->arena, all, file);
+                if (everything && file.kind == P_FileKind_Directory && !file.symbolicLink && (!file.hidden || input->showHidden) && !MapsGet(listed, b32, file.name) &&
+                    result->treeAdded.header.count < 1000) {
+                    ArrayPush(&job->arena, folders, file.name);
+                    ArrayPush(&job->arena, result->treeAdded, file.name);
+                    MapsPut(&job->arena, listed, file.name, true);
+                }
             }
         }
         files = all;
@@ -4262,15 +4450,26 @@ function void Prog_RequestDirectory(Prog_State *state, String path, b32 addHisto
     // A tree starts folded in another folder.
     if (state->directory.path.length && !StrIsEqual(path, state->directory.path)) {
         Prog__SetList(&state->treeArena, &state->treeOpen, NULL, 0);
+        Prog__SetList(&state->treeAllArena, &state->treeAll, NULL, 0);
         Prog__SetList(&state->groupArena, &state->groupsFolded, NULL, 0);
+        // The groupings only the bin or This PC have end with leaving them.
+        Prog_GroupBy by = (Prog_GroupBy)state->groupBy;
+        b32 binOnly = by == Prog_GroupBy_Deleted || by == Prog_GroupBy_Original;
+        b32 drivesOnly = by == Prog_GroupBy_FreeSpace || by == Prog_GroupBy_FileSystem || by == Prog_GroupBy_PercentFull;
+        if ((binOnly && !P_IsTrashFolder(path)) || (drivesOnly && !StrIsEqual(path, Prog_ThisPC))) state->groupBy = Prog_GroupBy_None;
     }
     input->showHidden = state->showHidden;
     input->expanded = state->expanded;
     input->tree = state->tree && !state->expanded;
+    // Only the unfolded folders whose folders above are unfolded too show; the rest wait, kept unfolded, for those to be.
     if (input->tree && state->treeOpen.header.count) {
-        input->treeOpenCount = state->treeOpen.header.count;
-        input->treeOpen = ArenaPushArray(&job->arena, input->treeOpenCount, String);
-        for (u64 i = 0; i < input->treeOpenCount; ++i) input->treeOpen[i] = StrCopy(&job->arena, state->treeOpen.v[i]);
+        input->treeOpen = ArenaPushArray(&job->arena, state->treeOpen.header.count, String);
+        input->treeOpenCount = Prog__TreeShownFolders(&job->arena, state, input->treeOpen);
+    }
+    if (input->tree && state->treeAll.header.count) {
+        input->treeAllCount = state->treeAll.header.count;
+        input->treeAll = ArenaPushArray(&job->arena, input->treeAllCount, String);
+        for (u64 i = 0; i < input->treeAllCount; ++i) input->treeAll[i] = StrCopy(&job->arena, state->treeAll.v[i]);
     }
     if (input->expanded) {
         input->partial = ArenaPushStruct(&job->arena, Prog_Partial);
@@ -5413,6 +5612,7 @@ function void Prog__ReleaseCurrentPanel(Prog_State *state)
     ArenaRelease(&state->directoryArena);
     ArenaRelease(&state->historyArena);
     ArenaRelease(&state->treeArena);
+    ArenaRelease(&state->treeAllArena);
     ArenaRelease(&state->groupArena);
     ArenaRelease(&state->viewArena);
     ArenaRelease(&state->errorArena);
@@ -6689,6 +6889,7 @@ function void Prog__ReleaseTab(Prog_Tab *tab)
     ArenaRelease(&tab->directoryArena);
     ArenaRelease(&tab->historyArena);
     ArenaRelease(&tab->treeArena);
+    ArenaRelease(&tab->treeAllArena);
     ArenaRelease(&tab->groupArena);
     ArenaRelease(&tab->viewArena);
     *tab = (Prog_Tab){0};
@@ -8141,7 +8342,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
         } else if (input->kind == Prog_JobKind_Measure) {
             Prog_Measured *result = job->result;
             if (state->measureJob == job) state->measureJob = NULL;
-            if (result && StrIsEqual(input->path, state->directory.path) && !P_IsCancelled(&job->cancelToken)) {
+            b32 took = result && StrIsEqual(input->path, state->directory.path) && !P_IsCancelled(&job->cancelToken);
+            if (took) {
                 // A refresh may have replaced the listing while the job ran.
                 b32 sameListing = input->listing == state->listing;
                 struct { MapHeader header; struct { String key; u64 value; } *v; } rows = {0};
@@ -8171,6 +8373,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog__SortByTotals(state);
             }
             Prog__MeasureFolders(state);
+            // Groups by the totals take the folders out of Unknown once all are measured, rather than moving rows at every batch.
+            if (took && !state->measureJob) Prog__RegroupByTotals(state);
         } else if (input->generation == state->generation) {
             state->directoryJob = NULL;
             state->loading = false;
@@ -8340,6 +8544,21 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     ArenaRelease(&state->directoryArena);
                     state->directoryArena = job->arena;
                     state->directory = *result;
+                    // What a tree unfolded with all inside it stays unfolded, the request taken once a listing has done it.
+                    Prog__SetList(&state->treeAllArena, &state->treeAll, NULL, 0);
+                    if (result->treeAdded.header.count) {
+                        Scratch scratch = GetScratch();
+                        String *open = ArenaPushArray(scratch.arena, state->treeOpen.header.count + result->treeAdded.header.count, String);
+                        struct { MapHeader header; struct { String key; b32 value; } *v; } known = {0};
+                        u64 openCount = 0;
+                        for (u64 i = 0; i < state->treeOpen.header.count; ++i) {
+                            open[openCount++] = StrCopy(scratch.arena, state->treeOpen.v[i]);
+                            MapsPut(scratch.arena, known, open[openCount - 1], true);
+                        }
+                        for (u64 i = 0; i < result->treeAdded.header.count; ++i) if (!MapsGet(known, b32, result->treeAdded.v[i])) open[openCount++] = result->treeAdded.v[i];
+                        Prog__SetList(&state->treeArena, &state->treeOpen, open, openCount);
+                        ReleaseScratch(scratch);
+                    }
                     if (result->archive && result->locked) {
                         String archive = {0}, inner = {0};
                         if (Prog_InArchive(result->path, &archive, &inner)) Prog_AskArchivePassword(state, archive);

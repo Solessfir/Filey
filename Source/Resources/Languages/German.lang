@@ -3412,3 +3412,180 @@ Sort by
 
 Group by
 = Gruppieren nach
+
+Tooltips
+= Tooltips
+
+Shows tips when the pointer rests on files, folders and buttons.
+= Zeigt Hinweise, wenn der Zeiger auf Dateien, Ordnern und Schaltflächen ruht.
+
+Last year
+= Letztes Jahr
+
+Other
+= Andere
+
+Few (1 - 9)
+= Wenige (1 - 9)
+
+Dozens (10 - 99)
+= Dutzende (10 - 99)
+
+Hundreds (100 - 999)
+= Hunderte (100 - 999)
+
+Thousands (1K - 9K)
+= Tausende (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= Zehntausende (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= Hunderttausende (100K - 999K)
+
+Millions (1M+)
+= Millionen (1M+)
+
+0% - 9% free
+= 0% - 9% frei
+
+10% - 19% free
+= 10% - 19% frei
+
+20% - 29% free
+= 20% - 29% frei
+
+30% - 39% free
+= 30% - 39% frei
+
+40% - 49% free
+= 40% - 49% frei
+
+50% - 59% free
+= 50% - 59% frei
+
+60% - 69% free
+= 60% - 69% frei
+
+70% - 79% free
+= 70% - 79% frei
+
+80% - 89% free
+= 80% - 89% frei
+
+90% - 99% free
+= 90% - 99% frei
+
+100% free
+= 100% frei
+
+Unknown
+= Unbekannt
+
+Cycle Folder View
+= Ordneransicht durchschalten
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= Durchschalten, wie die Ansichtseinstellungen des Ordners behalten werden: gar nicht, für diesen Ordner oder für ihn und seine Unterordner.
+
+Open In Tree
+= Im Baum öffnen
+
+Unfold the selected folders in the tree.
+= Die ausgewählten Ordner im Baum aufklappen.
+
+Close In Tree
+= Im Baum schließen
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= Die ausgewählten Ordner im Baum zuklappen. Bei Dateien die Ordner, in denen sie liegen.
+
+Open All In Tree
+= Alle im Baum öffnen
+
+Unfold the selected folders and every folder inside them in the tree.
+= Die ausgewählten Ordner und alle Ordner darin im Baum aufklappen.
+
+Close All In Tree
+= Alle im Baum schließen
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= Die ausgewählten Ordner und alle Ordner darin im Baum zuklappen. Bei Dateien die Ordner, in denen sie liegen.
+
+Group By Name
+= Nach Name gruppieren
+
+Group the items under headings by the first character of their names.
+= Die Elemente unter Überschriften nach dem ersten Zeichen ihres Namens gruppieren.
+
+Group By Date Created
+= Nach Erstellungsdatum gruppieren
+
+Group the items under headings by when they were made.
+= Die Elemente unter Überschriften danach gruppieren, wann sie erstellt wurden.
+
+Group By Date Accessed
+= Nach Zugriffsdatum gruppieren
+
+Group the items under headings by when they were last opened.
+= Die Elemente unter Überschriften danach gruppieren, wann sie zuletzt geöffnet wurden.
+
+Group By Total Items
+= Nach Elementanzahl gruppieren
+
+Group the folders under headings by how many items they hold, the files apart.
+= Die Ordner unter Überschriften danach gruppieren, wie viele Elemente sie enthalten, die Dateien getrennt.
+
+Group By Date Deleted
+= Nach Löschdatum gruppieren
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= Die Elemente unter Überschriften danach gruppieren, wann sie gelöscht wurden. Gilt im Papierkorb.
+
+Group By Original Location
+= Nach ursprünglichem Ort gruppieren
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= Die Elemente unter Überschriften nach dem Ordner gruppieren, aus dem sie gelöscht wurden. Gilt im Papierkorb.
+
+Group By Free Space
+= Nach freiem Speicher gruppieren
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= Die Laufwerke unter Überschriften danach gruppieren, wie viel von ihnen frei ist. Gilt in Dieser PC.
+
+Group By File System
+= Nach Dateisystem gruppieren
+
+Group the drives under headings by their file system. Applies in This PC.
+= Die Laufwerke unter Überschriften nach ihrem Dateisystem gruppieren. Gilt in Dieser PC.
+
+Group By Percent Full
+= Nach Belegung gruppieren
+
+Group the drives under headings by how full they are. Applies in This PC.
+= Die Laufwerke unter Überschriften danach gruppieren, wie voll sie sind. Gilt in Dieser PC.
+
+Group By Volume Usage
+= Nach Laufwerksanteil gruppieren
+
+Group the items under headings by their share of the drive's space.
+= Die Elemente unter Überschriften nach ihrem Anteil am Speicher des Laufwerks gruppieren.
+
+Group By Folder Usage
+= Nach Ordneranteil gruppieren
+
+Group the items under headings by their share of the space the folder's items take.
+= Die Elemente unter Überschriften nach ihrem Anteil am Speicher gruppieren, den die Elemente des Ordners belegen.
+
+Collapse All Groups
+= Alle Gruppen zuklappen
+
+Fold every group away, leaving their headings.
+= Jede Gruppe zuklappen, sodass nur ihre Überschriften bleiben.
+
+Expand All Groups
+= Alle Gruppen aufklappen
+
+Show every group's items again.
+= Die Elemente jeder Gruppe wieder zeigen.

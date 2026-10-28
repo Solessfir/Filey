@@ -1198,6 +1198,12 @@ command FolderViewToggle {
     tooltip = "Toggle preserving folder view settings: icons, sort order, folders first, and list columns."
 }
 
+// Steps the shown folder's lock on: none, the folder alone, the folder with its subfolders, and none again.
+command FolderViewCycle {
+    label   = "Cycle Folder View^toggle,save,store,directory,subfolders"
+    tooltip = "Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders."
+}
+
 // The lock button's menu of how the shown folder's view is kept, at `at`.
 command FolderViewMenu {
 }
@@ -1766,6 +1772,26 @@ command ToggleTreeView {
     hotkey  = "Ctrl+Shift+8"
 }
 
+command OpenInTree {
+    label   = "Open In Tree^unfold,expand,tree,hierarchy"
+    tooltip = "Unfold the selected folders in the tree."
+}
+
+command CloseInTree {
+    label   = "Close In Tree^fold,collapse,tree,hierarchy"
+    tooltip = "Fold the selected folders in the tree. For files, folds the folders they are in."
+}
+
+command OpenAllInTree {
+    label   = "Open All In Tree^unfold,expand,tree,hierarchy,recursive,deep"
+    tooltip = "Unfold the selected folders and every folder inside them in the tree."
+}
+
+command CloseAllInTree {
+    label   = "Close All In Tree^fold,collapse,tree,hierarchy,recursive,deep"
+    tooltip = "Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in."
+}
+
 // A press on a tree's arrow, which unfolds row's folder or folds it.
 command TreeToggle {
 }
@@ -1788,6 +1814,71 @@ command GroupByDateModified {
 command GroupBySize {
     label   = "Group By Size^headings,sections,tiny,small,medium,large,huge"
     tooltip = "Group the items under headings by size, from empty to gigantic, the folders apart."
+}
+
+command GroupByName {
+    label   = "Group By Name^headings,sections,letter,alphabet"
+    tooltip = "Group the items under headings by the first character of their names."
+}
+
+command GroupByDateCreated {
+    label   = "Group By Date Created^headings,sections,day,week,month,year,today,yesterday"
+    tooltip = "Group the items under headings by when they were made."
+}
+
+command GroupByDateAccessed {
+    label   = "Group By Date Accessed^headings,sections,day,week,month,year,today,yesterday"
+    tooltip = "Group the items under headings by when they were last opened."
+}
+
+command GroupByItemCount {
+    label   = "Group By Total Items^headings,sections,entries,count"
+    tooltip = "Group the folders under headings by how many items they hold, the files apart."
+}
+
+command GroupByDateDeleted {
+    label   = "Group By Date Deleted^headings,sections,day,week,month,year,bin,trash"
+    tooltip = "Group the items under headings by when they were deleted. Applies in the Recycle Bin."
+}
+
+command GroupByOriginalLocation {
+    label   = "Group By Original Location^headings,sections,folder,bin,trash"
+    tooltip = "Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin."
+}
+
+command GroupByFreeSpace {
+    label   = "Group By Free Space^headings,sections,drive,room"
+    tooltip = "Group the drives under headings by how much of them is free. Applies in This PC."
+}
+
+command GroupByFileSystem {
+    label   = "Group By File System^headings,sections,drive,ntfs,format"
+    tooltip = "Group the drives under headings by their file system. Applies in This PC."
+}
+
+command GroupByPercentFull {
+    label   = "Group By Percent Full^headings,sections,drive,used"
+    tooltip = "Group the drives under headings by how full they are. Applies in This PC."
+}
+
+command GroupByVolumeUsage {
+    label   = "Group By Volume Usage^headings,sections,share,drive,space"
+    tooltip = "Group the items under headings by their share of the drive's space."
+}
+
+command GroupByFolderUsage {
+    label   = "Group By Folder Usage^headings,sections,share,space"
+    tooltip = "Group the items under headings by their share of the space the folder's items take."
+}
+
+command GroupCollapseAll {
+    label   = "Collapse All Groups^close,hide,fold"
+    tooltip = "Fold every group away, leaving their headings."
+}
+
+command GroupExpandAll {
+    label   = "Expand All Groups^open,show,unfold"
+    tooltip = "Show every group's items again."
 }
 
 // A press on a group's heading, which folds its items away or shows them again; carries the group.

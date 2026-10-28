@@ -3413,3 +3413,180 @@ Sort by
 
 Group by
 = Grouper par
+
+Tooltips
+= Infobulles
+
+Shows tips when the pointer rests on files, folders and buttons.
+= Affiche des indications quand le pointeur s'arrête sur les fichiers, les dossiers et les boutons.
+
+Last year
+= L'année dernière
+
+Other
+= Autres
+
+Few (1 - 9)
+= Quelques-uns (1 - 9)
+
+Dozens (10 - 99)
+= Dizaines (10 - 99)
+
+Hundreds (100 - 999)
+= Centaines (100 - 999)
+
+Thousands (1K - 9K)
+= Milliers (1K - 9K)
+
+Tens of thousands (10K - 99K)
+= Dizaines de milliers (10K - 99K)
+
+Hundreds of thousands (100K - 999K)
+= Centaines de milliers (100K - 999K)
+
+Millions (1M+)
+= Millions (1M+)
+
+0% - 9% free
+= 0% - 9% libre
+
+10% - 19% free
+= 10% - 19% libre
+
+20% - 29% free
+= 20% - 29% libre
+
+30% - 39% free
+= 30% - 39% libre
+
+40% - 49% free
+= 40% - 49% libre
+
+50% - 59% free
+= 50% - 59% libre
+
+60% - 69% free
+= 60% - 69% libre
+
+70% - 79% free
+= 70% - 79% libre
+
+80% - 89% free
+= 80% - 89% libre
+
+90% - 99% free
+= 90% - 99% libre
+
+100% free
+= 100% libre
+
+Unknown
+= Inconnu
+
+Cycle Folder View
+= Faire défiler l'affichage du dossier
+
+Cycle how the folder's view settings are kept: not at all, for this folder, or for it and its subfolders.
+= Faire défiler la façon dont les réglages d'affichage du dossier sont gardés : pas du tout, pour ce dossier, ou pour lui et ses sous-dossiers.
+
+Open In Tree
+= Ouvrir dans l'arborescence
+
+Unfold the selected folders in the tree.
+= Déplier les dossiers sélectionnés dans l'arborescence.
+
+Close In Tree
+= Fermer dans l'arborescence
+
+Fold the selected folders in the tree. For files, folds the folders they are in.
+= Replier les dossiers sélectionnés dans l'arborescence. Pour des fichiers, replie les dossiers qui les contiennent.
+
+Open All In Tree
+= Tout ouvrir dans l'arborescence
+
+Unfold the selected folders and every folder inside them in the tree.
+= Déplier les dossiers sélectionnés et tous les dossiers qu'ils contiennent dans l'arborescence.
+
+Close All In Tree
+= Tout fermer dans l'arborescence
+
+Fold the selected folders and every folder inside them in the tree. For files, folds the folders they are in.
+= Replier les dossiers sélectionnés et tous les dossiers qu'ils contiennent dans l'arborescence. Pour des fichiers, replie les dossiers qui les contiennent.
+
+Group By Name
+= Regrouper par nom
+
+Group the items under headings by the first character of their names.
+= Regrouper les éléments sous des en-têtes selon le premier caractère de leur nom.
+
+Group By Date Created
+= Regrouper par date de création
+
+Group the items under headings by when they were made.
+= Regrouper les éléments sous des en-têtes selon leur date de création.
+
+Group By Date Accessed
+= Regrouper par date d'accès
+
+Group the items under headings by when they were last opened.
+= Regrouper les éléments sous des en-têtes selon leur dernière ouverture.
+
+Group By Total Items
+= Regrouper par nombre d'éléments
+
+Group the folders under headings by how many items they hold, the files apart.
+= Regrouper les dossiers sous des en-têtes selon le nombre d'éléments qu'ils contiennent, les fichiers à part.
+
+Group By Date Deleted
+= Regrouper par date de suppression
+
+Group the items under headings by when they were deleted. Applies in the Recycle Bin.
+= Regrouper les éléments sous des en-têtes selon leur date de suppression. S'applique dans la Corbeille.
+
+Group By Original Location
+= Regrouper par emplacement d'origine
+
+Group the items under headings by the folder they were deleted from. Applies in the Recycle Bin.
+= Regrouper les éléments sous des en-têtes selon le dossier d'où ils ont été supprimés. S'applique dans la Corbeille.
+
+Group By Free Space
+= Regrouper par espace libre
+
+Group the drives under headings by how much of them is free. Applies in This PC.
+= Regrouper les lecteurs sous des en-têtes selon la part libre. S'applique dans Ce PC.
+
+Group By File System
+= Regrouper par système de fichiers
+
+Group the drives under headings by their file system. Applies in This PC.
+= Regrouper les lecteurs sous des en-têtes selon leur système de fichiers. S'applique dans Ce PC.
+
+Group By Percent Full
+= Regrouper par taux de remplissage
+
+Group the drives under headings by how full they are. Applies in This PC.
+= Regrouper les lecteurs sous des en-têtes selon leur remplissage. S'applique dans Ce PC.
+
+Group By Volume Usage
+= Regrouper par part du volume
+
+Group the items under headings by their share of the drive's space.
+= Regrouper les éléments sous des en-têtes selon leur part de l'espace du lecteur.
+
+Group By Folder Usage
+= Regrouper par part du dossier
+
+Group the items under headings by their share of the space the folder's items take.
+= Regrouper les éléments sous des en-têtes selon leur part de l'espace qu'occupent les éléments du dossier.
+
+Collapse All Groups
+= Replier tous les groupes
+
+Fold every group away, leaving their headings.
+= Replier chaque groupe, en ne laissant que leurs en-têtes.
+
+Expand All Groups
+= Déplier tous les groupes
+
+Show every group's items again.
+= Afficher à nouveau les éléments de chaque groupe.
