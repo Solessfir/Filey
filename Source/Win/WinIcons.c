@@ -329,10 +329,39 @@ function b32 P__ShellThumbnail(Arena *arena, String path, P_FileKind kind, i32 s
     return result;
 }
 
+// Moves a picture that fills less than half of `image` each way to its middle, as the image list leaves an old small icon in a big one's top left corner.
+function void P__CenterSmallPicture(P_Image *image)
+{
+    i32 w = image->width, h = image->height, x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (i32 y = 0; y < h; ++y) {
+        for (i32 x = 0; x < w; ++x) {
+            if (!(image->pixels[(i64)y * w + x] >> 24)) continue;
+            x0 = Min(x0, x), y0 = Min(y0, y), x1 = Max(x1, x), y1 = Max(y1, y);
+        }
+    }
+    if (x1 < 0 || (x1 - x0 + 1) * 2 > w || (y1 - y0 + 1) * 2 > h) return;
+    i32 dx = (w - (x1 - x0 + 1)) / 2 - x0, dy = (h - (y1 - y0 + 1)) / 2 - y0;
+    if (!dx && !dy) return;
+    // From the far side first, so that what moves is not written over before it is read.
+    for (i32 yi = 0; yi < h; ++yi) {
+        i32 y = dy > 0 ? h - 1 - yi : yi;
+        for (i32 xi = 0; xi < w; ++xi) {
+            i32 x = dx > 0 ? w - 1 - xi : xi, fromX = x - dx, fromY = y - dy;
+            b32 inside = fromX >= 0 && fromX < w && fromY >= 0 && fromY < h;
+            image->pixels[(i64)y * w + x] = inside ? image->pixels[(i64)fromY * w + fromX] : 0;
+        }
+    }
+}
+
 function b32 P_LoadFileThumbnail(Arena *arena, String path, P_FileKind kind, i32 size, b32 thumbnailOnly, const P_CancelToken *cancel, P_Image *image)
 {
     (void)cancel;
-    return P__ShellThumbnail(arena, path, kind, size, thumbnailOnly ? SIIGBF_THUMBNAILONLY : 0, image) || (!thumbnailOnly && P_LoadFileIcon(arena, path, kind, size, 1, false, image));
+    // A file with no thumbnail of its own takes its icon from the image list, as the shell draws an old icon without its transparency, on black.
+    SIIGBF flags = thumbnailOnly || kind == P_FileKind_File ? SIIGBF_THUMBNAILONLY : 0;
+    if (P__ShellThumbnail(arena, path, kind, size, flags, image)) return true;
+    if (thumbnailOnly || !P_LoadFileIcon(arena, path, kind, size, 1, false, image)) return false;
+    P__CenterSmallPicture(image);
+    return true;
 }
 
 // The shell's thumbnail cache answers without opening the file, which for a video on a spinning disk takes a second or more.
