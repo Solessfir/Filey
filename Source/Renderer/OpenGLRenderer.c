@@ -182,6 +182,14 @@ typedef struct GL_ArrayBatch    { ArrayHeader header; GL_Batch *v; } GL_ArrayBat
 #define GL_MaxClipDepth 64
 #define GL_BlurLevels 6
 
+#define GL_MaxSolids 8
+
+// The pixels `cover` holds, in whole pixels, filled with `color`, and the box around what has been drawn over them since.
+typedef struct GL_Solid {
+    R_Rect  cover, touched;
+    R_Color color;
+} GL_Solid;
+
 typedef struct GL_State {
 #define X(ret, name, ...) GL_##name##Fn *name;
     GL_FUNCTIONS(X)
@@ -215,6 +223,9 @@ typedef struct GL_State {
     u32              shape;
     GLuint           sourceTexture;
     b32              inSource;
+    // The last opaque fills drawn into the frame, the clear first, with what has been drawn over each since, so that a fill in the same color within one where nothing was drawn is left out.
+    GL_Solid         solids[GL_MaxSolids];
+    u32              solidCount;
     // Meshes are drawn into a texture through a multisampled color and depth target, made at the largest size asked for so far.
     GLuint           meshProgram;
     GLint            meshViewLocation, meshScaleLocation, meshColorLocation, meshTexturedLocation, meshBlendLocation;
@@ -743,6 +754,8 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.scale = 1;
     GL.offsetX = GL.offsetY = 0;
     GL.inSource = false;
+    GL.solidCount = 0;
+    if (clear.a >= 1) GL.solids[GL.solidCount++] = (GL_Solid){ .cover = { 0, 0, (f32)width, (f32)height }, .color = clear };
     GL.width = width;
     GL.height = height;
 #if defined(PROFILE)
@@ -789,6 +802,48 @@ function R_Rect GL__Scaled(R_Rect rect)
     return (R_Rect){ rect.x0 * GL.scale + GL.offsetX, rect.y0 * GL.scale + GL.offsetY, rect.x1 * GL.scale + GL.offsetX, rect.y1 * GL.scale + GL.offsetY };
 }
 
+// The pixels `rect` can shade under `clip`, as whole pixels and the scissor round them.
+function R_Rect GL__Covered(R_Rect rect, R_Rect clip)
+{
+    return (R_Rect){ MaxF32(floorf(rect.x0), floorf(clip.x0)), MaxF32(floorf(rect.y0), floorf(clip.y0)), MinF32(ceilf(rect.x1), ceilf(clip.x1)), MinF32(ceilf(rect.y1), ceilf(clip.y1)) };
+}
+
+function b32 GL__Inside(R_Rect inner, R_Rect outer)
+{
+    return inner.x0 >= outer.x0 && inner.y0 >= outer.y0 && inner.x1 <= outer.x1 && inner.y1 <= outer.y1;
+}
+
+// What is drawn into the frame under `area` since each solid was laid down, so that the solid no longer tells what is there.
+function void GL__Touch(R_Rect area)
+{
+    for (u32 i = 0; i < GL.solidCount; ++i) {
+        GL_Solid *solid = &GL.solids[i];
+        R_Rect part = { MaxF32(area.x0, solid->cover.x0), MaxF32(area.y0, solid->cover.y0), MinF32(area.x1, solid->cover.x1), MinF32(area.y1, solid->cover.y1) };
+        if (part.x1 <= part.x0 || part.y1 <= part.y0) continue;
+        R_Rect *t = &solid->touched;
+        *t = t->x1 > t->x0 ? (R_Rect){ MinF32(t->x0, part.x0), MinF32(t->y0, part.y0), MaxF32(t->x1, part.x1), MaxF32(t->y1, part.y1) } : part;
+    }
+}
+
+// Whether `instance`, shading `shaded`, would leave the frame as it is: wholly clear, or in the color of a solid it lies in where nothing has been drawn since, as the backgrounds of a panel, its tab and its list are on the panel's.
+// Each such instance is a pass of the fragment shader over its area, which full-window backgrounds stacked so add up to several times the window.
+function b32 GL__ChangesNothing(const GL_Instance *instance, R_Rect shaded)
+{
+    b32 gradient = ((u32)instance->shape & GL_ShapeGradient) != 0;
+    if (!gradient && instance->color.a <= 0) return true;
+    // A layer's texture starts clear, whatever the frame holds.
+    if (gradient || instance->textured != 0 || GL.inLayer) return false;
+    for (u32 i = GL.solidCount; i-- > 0;) {
+        const GL_Solid *solid = &GL.solids[i];
+        if (!GL__Inside(shaded, solid->cover)) continue;
+        const R_Rect *t = &solid->touched;
+        b32 untouched = t->x1 <= t->x0 || shaded.x1 <= t->x0 || shaded.x0 >= t->x1 || shaded.y1 <= t->y0 || shaded.y0 >= t->y1;
+        R_Color c = solid->color;
+        if (untouched && c.r == instance->color.r && c.g == instance->color.g && c.b == instance->color.b) return true;
+    }
+    return false;
+}
+
 function void GL__PushInstance(GL_Instance instance, GLuint texture)
 {
     b32 line = ((u32)instance.shape & GL_ShapeLine) != 0;
@@ -802,6 +857,19 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     instance.shape = (f32)(GL.shape | (line ? GL_ShapeLine : 0) | ((u32)instance.shape & GL_ShapeGradient));
     R_Rect clip = GL__CurrentClip();
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
+    R_Rect shaded = GL__Covered(instance.rect, clip);
+    if (GL__ChangesNothing(&instance, shaded)) return;
+    if (!GL.inLayer) {
+        GL__Touch(shaded);
+        // An opaque fill with square, whole-pixel edges leaves its color on every pixel it covers.
+        R_Rect r = instance.rect;
+        b32 whole = floorf(r.x0) == r.x0 && floorf(r.y0) == r.y0 && floorf(r.x1) == r.x1 && floorf(r.y1) == r.y1;
+        if (whole && instance.color.a >= 1 && instance.shape == 0 && instance.textured == 0 && instance.radius == 0 && instance.thickness == 0 && instance.softness == 0 &&
+            shaded.x1 > shaded.x0 && shaded.y1 > shaded.y0) {
+            if (GL.solidCount == GL_MaxSolids) MemMove(GL.solids, GL.solids + 1, sizeof(GL.solids[0]) * --GL.solidCount);
+            GL.solids[GL.solidCount++] = (GL_Solid){ .cover = shaded, .color = instance.color };
+        }
+    }
     b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
     b32 compatibleTexture = batch != NULL && (texture == 0 || batch->texture == 0 || batch->texture == texture);
     if (!sameClip || !compatibleTexture || batch->blur || batch->layer || batch->source) {
@@ -858,6 +926,7 @@ function void R_BlurBehind(R_Rect rect, f32 cornerRadius, f32 radius, f32 opacit
     GL_Batch *batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
     *batch = (GL_Batch){ .clip = clip, .first = (u32)GL.instances.header.count, .count = 2, .blur = true, .region = { region[0], region[1], region[2], region[3] }, .radius = radius,
                          .fromSource = GL.inSource };
+    GL__Touch(GL__Covered(rect, clip));
     // First the frame under the box is taken away, then the blur is added in its place, both by the box's rounded coverage.
     ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .color = { 0, 0, 0, opacity }, .radius = cornerRadius, .shape = (f32)GL.shape }));
     ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .uv = uv, .color = { 1, 1, 1, opacity }, .radius = cornerRadius, .textured = 3.0f, .shape = (f32)GL.shape }));
@@ -1066,6 +1135,7 @@ function void R_PopLayer(f32 opacity)
     R_Rect clip = start->clip;
     GL_Batch *batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
     *batch = (GL_Batch){ .clip = clip, .first = (u32)GL.instances.header.count, .count = 1, .layer = 2 };
+    GL__Touch(GL__Covered(rect, clip));
     ArrayPush(&GL.frameArena, GL.instances, ((GL_Instance){ .rect = rect, .uv = uv, .color = { 1, 1, 1, opacity }, .textured = 3.0f }));
 }
 
