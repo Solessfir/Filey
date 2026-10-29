@@ -525,6 +525,12 @@ function void TestModels(void)
         }
         Check(pixels && alone && over && solid);
     }
+    // A .blend saved compressed as one zstd frame, without a seek table, and the frame cut short.
+    {
+        String packed = S("\x28\xB5\x2F\xFD\x24\x2E\x25\x01\x00\xF0\x42\x4C\x45\x4E\x44\x45\x52\x2D\x76\x33\x30\x30\x20\x7A\x73\x74\x64\x20\x72\x6F\x75\x6E\x64\x20\x74\x72\x69\x70\x2C\x2E\x01\x00\x11\x32\x9D\x82\x38\xF9\xAE");
+        Check(StrIsEqual(Prog__BlendInflate(&arena, packed), S("BLENDER-v300 zstd round trip, zstd round trip.")));
+        Check(!Prog__BlendInflate(&arena, StrFromTo(packed, 0, 30)).length);
+    }
     // A .blend's modifiers on its polygons: a cube's Catmull-Clark level makes a quad of each corner, its points pulled in toward a sphere,
     // its corners' colors taken between; a mirror doubles it across an axis, and an array copies it a step apart.
     {

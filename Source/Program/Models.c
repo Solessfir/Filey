@@ -13,6 +13,10 @@
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Weverything"
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
 #endif
 #define ZDEC_NO_MESSAGE
 #include "Lib/zstd/zstd_decompress.c"
@@ -21,6 +25,8 @@
 #undef MAX
 #if defined(__clang__)
 #pragma clang diagnostic pop
+#else
+#pragma GCC diagnostic pop
 #endif
 #pragma pop_macro("global")
 #pragma pop_macro("function")
@@ -2108,16 +2114,20 @@ function void Prog__BlendFrameLane(void *user, u32 lane)
 {
     (void)lane;
     Prog__BlendFrames *frames = user;
+    // A corrupt frame jumps out past ZSTD_decompress's own free of its dictionary, so the lane keeps one.
+    dictionary_t *dict = create_dictionary();
     jmp_buf failed;
     zstd_error_jump = &failed;
     if (setjmp(failed)) {
         atomic_store(&frames->failed, true);
+        free_dictionary(dict);
         return;
     }
     for (u64 i; !atomic_load(&frames->failed) && (i = atomic_fetch_add(&frames->next, 1)) < frames->count;) {
         u64 unpacked = frames->to[i + 1] - frames->to[i];
-        if (ZSTD_decompress(frames->out + frames->to[i], unpacked, frames->in + frames->from[i], frames->from[i + 1] - frames->from[i]) != unpacked) atomic_store(&frames->failed, true);
+        if (ZSTD_decompress_with_dict(frames->out + frames->to[i], unpacked, frames->in + frames->from[i], frames->from[i + 1] - frames->from[i], dict) != unpacked) atomic_store(&frames->failed, true);
     }
+    free_dictionary(dict);
 }
 
 // The decompressed file: zstd frames laid out by the seek table at their end, as Blender writes them, or one frame; gzip; or as it is.
@@ -2138,21 +2148,20 @@ function String Prog__BlendInflate(Arena *arena, String data)
         if (!frames) total = ZSTD_get_decompressed_size(data.value, data.length);
         if (!total || total == (u64)-1 || total > Prog_ModelMaxBytes * 4) return (String){0};
         u8 *out = ArenaPushArrayNoZero(arena, total, u8);
-        jmp_buf failed;
-        zstd_error_jump = &failed;
-        if (setjmp(failed)) return (String){0};
-        if (!frames) return StrMake((const char *)out, ZSTD_decompress(out, total, data.value, data.length));
         Scratch scratch = GetScratchEx(arena);
-        u64 *from = ArenaPushArrayNoZero(scratch.arena, frames + 1, u64), *to = ArenaPushArrayNoZero(scratch.arena, frames + 1, u64);
+        // One frame without a seek table is the whole file.
+        u64 count = Max(frames, UINT64_C(1));
+        u64 *from = ArenaPushArrayNoZero(scratch.arena, count + 1, u64), *to = ArenaPushArrayNoZero(scratch.arena, count + 1, u64);
         from[0] = to[0] = 0;
+        if (!frames) from[1] = table = data.length, to[1] = total;
         for (u64 i = 0; i < frames; ++i) {
             from[i + 1] = from[i] + Prog__Read32(d + table + i * entry);
             to[i + 1] = to[i] + Prog__Read32(d + table + i * entry + 4);
         }
-        Prog__BlendFrames work = { .in = d, .out = out, .from = from, .to = to, .count = frames };
-        if (from[frames] > table) work.failed = true;
+        Prog__BlendFrames work = { .in = d, .out = out, .from = from, .to = to, .count = count };
+        if (from[count] > table) work.failed = true;
         // The frames stand alone, so they unpack side by side.
-        else P_RunLanes((u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), frames), Prog__BlendFrameLane, &work);
+        else P_RunLanes((u32)Min((u64)Max(1u, Min(P_ProcessorCount(), 8u)), count), Prog__BlendFrameLane, &work);
         ReleaseScratch(scratch);
         return atomic_load(&work.failed) ? (String){0} : StrMake((const char *)out, total);
     }
