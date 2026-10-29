@@ -3979,6 +3979,44 @@ function void TestPanelsFrame(Prog_State *state, b32 move, f32 x, f32 y, u64 now
     TestWindowFrame(state, &event, move ? 1 : 0, now);
 }
 
+// A notice's copy button puts its title and message on the clipboard, one with a button of its own, as the update's, too.
+function void TestNoticeCopy(TestFileFixture *fixture)
+{
+    Prog_State state = {0};
+    Check(Prog_Init(&state, fixture->path, NULL, NULL));
+    if (!state.jobs.initialized || !TestWaitDirectory(&state)) return;
+    u64 now = 1;
+    for (u32 withAction = 0; withAction < 2; ++withAction) {
+        state.noticeCount = 0;
+        if (withAction) Prog_NotifyAction(&state, Prog_NoticeKind_Info, S("test.action"), S("Filey 9.9.9 is out"), S("Whats new"), Prog_CommandKind_UpdateInstall, S("Update"));
+        else Prog_Notify(&state, Prog_NoticeKind_Error, S("test.copy"), S("Couldn't do it"), S("The reason why"));
+        for (u32 i = 0; i < 4; ++i) TestWindowFrame(&state, NULL, 0, now++);
+        Check(state.noticeCount == 1);
+        if (!state.noticeCount) continue;
+        UI_Block *copy = NULL;
+        String name = StrFormat(&state.frameArena, "NoticeCopy/%" PRIu64, state.notices[0].id);
+        for (u32 slot = 0; slot < UI_HashSlotCount && !copy; ++slot) {
+            for (UI_Block *block = state.ui.hashSlots[slot]; block && !copy; block = block->hashNext) {
+                for (u32 p = 0; p <= state.panelCount && !copy; ++p) {
+                    UI_Key seed = p < state.panelCount ? Prog_PanelKeySeed(state.panels[p].id) : 0;
+                    if (block->key == UI_KeyFromStr(seed, name)) copy = block;
+                }
+            }
+        }
+        Check(copy != NULL);
+        if (!copy) continue;
+        f32 x = (copy->rect.x0 + copy->rect.x1) * 0.5f, y = (copy->rect.y0 + copy->rect.y1) * 0.5f;
+        PlatformEvent click[] = { { .kind = PlatformEventKind_MouseMove, .x = x, .y = y }, { .kind = PlatformEventKind_MouseDown, .button = MouseButton_Left, .x = x, .y = y },
+                                  { .kind = PlatformEventKind_MouseUp, .button = MouseButton_Left, .x = x, .y = y } };
+        PlatformClipboardSetText(S("before"));
+        TestWindowFrame(&state, click, 1, now++);
+        TestWindowFrame(&state, click + 1, 2, now++);
+        TestWindowFrame(&state, NULL, 0, now++);
+        Check(StrIsEqual(TestClipboard, withAction ? S("Filey 9.9.9 is out: Whats new") : S("Couldn't do it: The reason why")));
+    }
+    Prog_Release(&state);
+}
+
 // An edge between the header's titles drags to resize the column before it, rather than taking the column along the header.
 function void TestColumnEdgeDrag(TestFileFixture *fixture)
 {
@@ -5199,6 +5237,7 @@ function void TestBrowsing(void)
         TestTabs(&fixture);
         TestMcp(&fixture);
         TestPanels(&fixture);
+        TestNoticeCopy(&fixture);
         TestColumnEdgeDrag(&fixture);
         TestInspectorSelection(&fixture);
         TestUndo(&fixture);
