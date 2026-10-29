@@ -11,6 +11,10 @@
 #       | moveframes x y n interval tag, downframes, upframes, clickframes, rclickframes (the same for the pointer: moves, presses, releases or clicks at x y)
 #       | wheelframes x y notches n interval tag
 #       writes <out>/<name><tag>_{ref,filey}.png and a stacked <name><tag>.png; frames also write <name><tag>_<side>.times in milliseconds
+#   python Source/Tools/Compare/Compare.py trace "<steps>" [ngfx options]
+#       Filey under Nsight Graphics' GPU Trace (COMPARE_NGFX names its ngfx.exe, else the newest installed one), off the screen at COMPARE_X, COMPARE_Y unless they say otherwise.
+#       After the steps the pointer goes on moving over the list, since Filey draws only when something changes, until the trace is taken and exported to <out>/trace (BASE/*.xls, and the .ngfx-gputrace for Nsight's window), and the main figures are printed.
+#       The options default to --start-after-frames 60 --limit-to-frames 30; per-unit throughput needs --architecture <the graphics card's, such as Ada> --metric-set-name "Throughput Metrics" --multi-pass-metrics.
 #   python Source/Tools/Compare/Compare.py zoom <name> x0 y0 x1 y1 scale      the same crop of both shots, enlarged, to zoom.png
 #   python Source/Tools/Compare/Compare.py runs <png> y0 y1 x0 x1 threshold   column runs brighter than threshold in a band, for measuring positions
 #   python Source/Tools/Compare/Compare.py frames <name> <tag> <side>         changed pixels between consecutive frames, for animation timing
@@ -19,7 +23,7 @@
 # run and put back after it. COMPARE_OUT is the output folder (%TEMP%/filey-compare); Filey's settings live in its Config folder, which starts
 # with "theme = filey-dark", so that the system's light mode stays out. COMPARE_PATH overrides the folder both apps open; COMPARE_W, COMPARE_H, COMPARE_X and COMPARE_Y the window, and COMPARE_MAXIMIZED=1 maximizes it.
 # COMPARE_STARTUP=1 prints when each window first looked as it does 3 s after its launch, for start-up times; =frames also saves each change.
-import ctypes, ctypes.wintypes as wt, os, re, shutil, subprocess, sys, time
+import ctypes, ctypes.wintypes as wt, glob, os, re, shutil, statistics, subprocess, sys, time
 from PIL import Image, ImageChops
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +37,7 @@ u32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 u32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
 k32.CreateFileMappingA.restype = wt.HANDLE; k32.MapViewOfFile.restype = ctypes.c_void_p
 k32.OpenProcess.restype = wt.HANDLE; k32.VirtualAllocEx.restype = ctypes.c_void_p
+k32.QueryFullProcessImageNameW.argtypes = [wt.HANDLE, wt.DWORD, wt.LPWSTR, ctypes.POINTER(wt.DWORD)]; k32.CloseHandle.argtypes = [wt.HANDLE]
 k32.VirtualAllocEx.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.c_size_t, wt.DWORD, wt.DWORD]
 k32.WriteProcessMemory.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
 k32.GetProcAddress.restype = ctypes.c_void_p; k32.GetProcAddress.argtypes = [wt.HMODULE, ctypes.c_char_p]
@@ -80,15 +85,34 @@ def windows_of(pid):
     u32.EnumWindows(each, 0)
     return found
 
+def image_of(pid):
+    process = k32.OpenProcess(0x1000, False, pid)
+    if not process: return ''
+    name = ctypes.create_unicode_buffer(1024); size = wt.DWORD(1024)
+    ok = k32.QueryFullProcessImageNameW(process, 0, name, ctypes.byref(size)); k32.CloseHandle(process)
+    return name.value if ok else ''
+
+# The processes running `exe` that show a window, for an app another program starts.
+def showing(exe):
+    found = set()
+    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    def each(h, _):
+        owner = wt.DWORD(); u32.GetWindowThreadProcessId(h, ctypes.byref(owner))
+        if u32.IsWindowVisible(h) and os.path.normcase(image_of(owner.value)) == os.path.normcase(exe): found.add(owner.value)
+        return True
+    u32.EnumWindows(each, 0)
+    return found
+
 class BIH(ctypes.Structure):
     _fields_ = [('a', wt.DWORD), ('w', ctypes.c_long), ('h', ctypes.c_long), ('p', wt.WORD), ('b', wt.WORD), ('c', wt.DWORD), ('s', wt.DWORD), ('x', ctypes.c_long), ('y', ctypes.c_long), ('u', wt.DWORD), ('i', wt.DWORD)]
 
 class App:
-    def __init__(self, exe, args, env, w, h, x, y):
+    # `via` is a command that starts `exe` itself, as Nsight's ngfx does, with the file its output goes to.
+    def __init__(self, exe, args, env, w, h, x, y, via=None):
         e = dict(os.environ); e.update(env)
         self.frames = None
         # COMPARE_GRAB takes Filey's frames off the screen too, so that both apps' timings are measured from the key press the same way.
-        if exe == FILEY and not os.environ.get('COMPARE_GRAB'):
+        if exe == FILEY and not via and not os.environ.get('COMPARE_GRAB'):
             self.frames = os.path.join(OUT, 'frames'); shutil.rmtree(self.frames, ignore_errors=True); os.makedirs(self.frames)
             e['FILEY_CAPTURE_DIR'] = self.frames; e['FILEY_CAPTURE_SEQUENCE'] = '1'
         # Shown without being activated; the runs also lock the foreground, so the window being worked in keeps the keyboard.
@@ -96,11 +120,22 @@ class App:
         launched = time.perf_counter()
         # COMPARE_LOG keeps what the app writes to stderr, as a build with logging writes there.
         log = open(os.environ['COMPARE_LOG'], 'a') if os.environ.get('COMPARE_LOG') else subprocess.DEVNULL
-        self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=log, startupinfo=startup)
-        self.mapping, self.fake = inject(self.process.pid)
+        pid = None
+        if via:
+            # The app is the new window of its executable; the tool runs without a console window of its own.
+            before = showing(exe)
+            self.process = subprocess.Popen(via[0], stdout=open(via[1], 'w'), stderr=subprocess.STDOUT, creationflags=0x08000000)
+            while pid is None and self.process.poll() is None and time.perf_counter() - launched < 60:
+                pid = next(iter(showing(exe) - before), None)
+                if pid is None: time.sleep(0.002)
+            assert pid, f'the app opened no window; see {via[1]}'
+        else:
+            self.process = subprocess.Popen([exe, *args], env=e, stdout=subprocess.DEVNULL, stderr=log, startupinfo=startup)
+            pid = self.process.pid
+        self.mapping, self.fake = inject(pid)
         self.window = None
         for _ in range(100):
-            found = windows_of(self.process.pid)
+            found = windows_of(pid)
             if found: self.window = found[0]; break
             time.sleep(0.1)
         assert self.window, 'the app opened no window'
@@ -331,6 +366,46 @@ def run(side, name, text, tags):
         u32.LockSetForegroundWindow(2)
         for i, p in enumerate(saved): shutil.copy2(os.path.join(os.path.join(OUT, 'reference-state'), f'{i}'), p)
 
+def trace(text, options):
+    root, config = fixture()
+    out = os.path.join(OUT, 'trace'); shutil.rmtree(out, ignore_errors=True); os.makedirs(out)
+    installed = glob.glob(os.path.join(os.environ.get('ProgramFiles', ''), 'NVIDIA Corporation', 'Nsight Graphics *', 'host', 'windows-desktop-nomad-x64', 'ngfx.exe'))
+    ngfx = os.environ.get('COMPARE_NGFX') or max(installed, default='')
+    if not os.path.exists(ngfx): raise SystemExit('Nsight Graphics was not found; set COMPARE_NGFX to its ngfx.exe')
+    path = os.environ.get('COMPARE_PATH', root)
+    # No --platform, which Qt takes for the name of its own display plugin, and gives up.
+    command = [ngfx, '--activity', 'GPU Trace Profiler', '--exe', FILEY, '--dir', os.path.dirname(FILEY), '--args', f'"{path}"' if ' ' in path else path,
+               '--env', f'FILEY_CONFIG_DIR={config}; FILEY_POSTED_POINTER=1;', '--output-dir', out, '--auto-export', *(options or ['--start-after-frames', '60', '--limit-to-frames', '30'])]
+    geometry = [int(os.environ.get('COMPARE_W', 1600)), int(os.environ.get('COMPARE_H', 1000)), int(os.environ.get('COMPARE_X', -4000)), int(os.environ.get('COMPARE_Y', 100))]
+    u32.LockSetForegroundWindow(1)
+    app = App(FILEY, [], {}, *geometry, via=(command, os.path.join(out, 'ngfx.log')))
+    try:
+        steps(app, text, 'filey', 'trace', set())
+        # Filey draws only when something changes, so the pointer goes on moving over the list until the trace is taken.
+        moves = 0
+        while app.process.poll() is None and moves < 20000: app.mouse(500, 150 + (moves * 7) % 600, 0.008); moves += 1
+        app.process.wait(120)
+    finally:
+        app.close(); u32.LockSetForegroundWindow(2)
+    base = os.path.join(out, 'BASE')
+    if not os.path.exists(os.path.join(base, 'FRAME.xls')):
+        print(open(os.path.join(out, 'ngfx.log'), errors='replace').read()[-2000:]); raise SystemExit('ngfx exported nothing')
+    rows = {}
+    for name in ('FRAME.xls', 'GPUTRACE_FRAME.xls'):
+        for line in open(os.path.join(base, name), encoding='utf-8', errors='replace'):
+            cells = line.rstrip('\n').split('\t')
+            values = [float(c) for c in cells[1:] if re.fullmatch(r'-?[\d.]+(e[-+]?\d+)?', c.strip())]
+            if values: rows[cells[0]] = values
+    def column(suffix): return next((v for k, v in rows.items() if k.endswith(suffix)), [])
+    def median(suffix): return statistics.median(column(suffix)) if column(suffix) else float('nan')
+    # A frame's share of busy cycles is of the time to the next one, which the pointer's pace sets, so it is turned into time frame by frame.
+    clock = column('gpc__cycles_elapsed.avg.per_second')
+    busy = [e * a / 100 / (c * 1e3) for e, a, c in zip(column('gpc__cycles_elapsed.avg'), column('gr__cycles_active.avg.pct_of_peak_sustained_elapsed'), clock)]
+    print(f'{out}: medians over the traced frames')
+    print(f'  GPU busy {statistics.median(busy) if busy else float("nan"):.3f} ms a frame at the {median("gpc__cycles_elapsed.avg.per_second"):.0f} MHz the trace locks, frames {median("GPU frame time"):.3f} ms apart')
+    print(f'  {median("fe__draw_count.sum"):.0f} draws, {median("prop__prop2crop_pixels_realtime.sum") / (geometry[0] * geometry[1]):.2f} window-sizes of pixels blended, {median("sm__inst_executed_realtime.sum") / 1e6:.1f}M shader instructions')
+    print(f'  shaders {median("sm__throughput.avg.pct_of_peak_sustained_elapsed"):.1f}%, blending {median("crop__throughput.avg.pct_of_peak_sustained_elapsed"):.1f}%, memory {median("dramc__throughput.avg.pct_of_peak_sustained_elapsed"):.1f}% of peak')
+
 def main(argv):
     os.makedirs(OUT, exist_ok=True)
     command = argv[1] if len(argv) > 1 else ''
@@ -346,6 +421,8 @@ def main(argv):
                 stacked = Image.new('RGB', (max(a.width, b.width), a.height + b.height)); stacked.paste(a, (0, 0)); stacked.paste(b, (0, a.height))
                 stacked.save(os.path.join(OUT, f'{name}{tag}.png'))
         print(OUT, sorted(tags))
+    elif command == 'trace':
+        trace(argv[2] if len(argv) > 2 else '', argv[3:])
     elif command == 'zoom':
         name = argv[2]; x0, y0, x1, y1, z = map(int, argv[3:8])
         a, b = [Image.open(os.path.join(OUT, f'{name}_{s}.png')).crop((x0, y0, x1, y1)) for s in ('ref', 'filey')]
