@@ -66,6 +66,11 @@ if [ "$analyze" = 1 ]; then
 fi
 
 $cc $cflags $app_cflags "$root/Source/Unity.c" $app_libs -lm -o "$out/filey"
+# The release executable's debug info, most of its size, moves to filey.debug as Windows keeps its own in Filey.pdb, to read crash stacks with.
+if [ "$mode" = release ]; then
+    objcopy --only-keep-debug "$out/filey" "$out/filey.debug"
+    objcopy --strip-all --add-gnu-debuglink="$out/filey.debug" "$out/filey"
+fi
 
 if [ "$test" = 1 ]; then
     $cc $cflags "$root/Source/Tests/Tests.c" -lm -o "$out/filey-tests"

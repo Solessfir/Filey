@@ -1,5 +1,5 @@
 # A pushed tag such as v1.2.3 builds Filey 1.2.3 on Windows and Linux, runs the tests on both, and publishes a GitHub release with both
-# builds and notes made of the commits since the tag before.
+# builds, their debug symbols for reading crash reports, and notes made of the commits since the tag before.
 name: Release
 
 on:
@@ -28,10 +28,11 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
           Compress-Archive -Path Bin/release/Filey.exe -DestinationPath "Filey-$version-windows-x64.zip"
+          Compress-Archive -Path Bin/release/Filey.pdb -DestinationPath "Filey-$version-windows-x64-symbols.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: Filey-*-windows-x64.zip
+          path: Filey-*-windows-x64*.zip
 
   linux:
     runs-on: ubuntu-24.04
@@ -53,10 +54,11 @@ jobs:
           cp Bin/release/filey Source/Resources/filey.desktop Source/Resources/filey.FileManager1.service Source/Resources/Filey.svg Source/Resources/filey-symbolic.svg "$folder/"
           cp Source/Resources/Icons/filey-*.png "$folder/icons/"
           tar -czf "filey-$version-linux-x64.tar.gz" "$folder"
+          tar -czf "filey-$version-linux-x64-symbols.tar.gz" -C Bin/release filey.debug
       - uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: filey-*-linux-x64.tar.gz
+          path: filey-*-linux-x64*.tar.gz
 
   release:
     needs: [windows, linux]
@@ -68,6 +70,6 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: |
-            Filey-*-windows-x64.zip
-            filey-*-linux-x64.tar.gz
+            Filey-*-windows-x64*.zip
+            filey-*-linux-x64*.tar.gz
           generate_release_notes: true
