@@ -271,6 +271,7 @@ function void Prog__Frame(void *user, PlatformEventList events)
             PlatformSetCursor(state->cursor);
         }
         ProfileScope("Layout") UI_EndFrame();
+        if (state->ui.wakeAt) Prog_WakeAt(state, state->ui.wakeAt);
         ProfileScope("ProcessCommands") loop->needsFrame = Prog_ProcessCommands(state) || handled || completed || events.count != 0 || state->ui.animating;
         Prog_PrepareMenu(state);
         // The first frame waits for the folder, the sidebar and their icons, for a moment at most, so that the window opens whole rather

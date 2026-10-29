@@ -141,6 +141,8 @@ typedef struct UI_Context {
     UI_Key keySeed;
     // Off by default, so that a layout depends only on its input; animating says the last frame left something moving.
     b32 animate, animating, wasAnimating;
+    // When something still to change without input next needs a frame, rather than every frame meanwhile; 0 for none.
+    u64 wakeAt;
     f32 dt;  // seconds the animations advance this frame
     u32 noInput;  // inside UI_NoInput, blocks take no presses
     UI_Animation animations[UI_MaxAnimations];
@@ -222,3 +224,4 @@ function f32 UI_Kept(UI_Key key);
 function u64 UI_TimeSince(UI_Key key);
 // Asks for another frame, for animations that are not eased values.
 function void UI_KeepAnimating(void);
+function void UI_WakeAt(u64 microseconds);

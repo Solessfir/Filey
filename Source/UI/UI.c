@@ -112,6 +112,7 @@ function u64 UI_TimeSince(UI_Key key)
 }
 
 function void UI_KeepAnimating(void) { if (UI->animate) UI->animating = true; }
+function void UI_WakeAt(u64 microseconds) { UI->wakeAt = UI->wakeAt ? Min(UI->wakeAt, microseconds) : microseconds; }
 
 function UI_Block *UI__Find(UI_Key key)
 {
@@ -241,6 +242,7 @@ function void UI_BeginFrame(UI_Context *context, Arena *frameArena, R_Rect viewp
     // After an idle wait, the first step is one frame's worth rather than the whole wait.
     UI->dt = UI->wasAnimating && nowMicroseconds > UI->nowMicroseconds ? MinF32((f32)(nowMicroseconds - UI->nowMicroseconds) / 1e6f, 0.05f) : 1.0f / 60.0f;
     UI->animating = false;
+    UI->wakeAt = 0;
     UI->nowMicroseconds = nowMicroseconds;
     ++UI->frameIndex;
     UI->wheel = (UI_Vec2){0};

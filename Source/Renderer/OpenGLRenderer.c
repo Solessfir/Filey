@@ -65,6 +65,9 @@ typedef i64       GLsizeiptr;
 #define GL_FRAMEBUFFER           0x8D40
 #define GL_READ_FRAMEBUFFER      0x8CA8
 #define GL_COLOR_ATTACHMENT0     0x8CE0
+#define GL_TIME_ELAPSED          0x88BF
+#define GL_QUERY_RESULT          0x8866
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
 
 #if defined(_WIN32)
 #define GL_API __stdcall
@@ -130,7 +133,12 @@ typedef i64       GLsizeiptr;
     X(void,            FramebufferRenderbuffer, GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) \
     X(void,            BlitFramebuffer,         GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) \
     X(void,            UniformMatrix4fv,        GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) \
-    X(void,            Uniform4f,               GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)
+    X(void,            Uniform4f,               GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) \
+    X(void,            GenQueries,              GLsizei n, GLuint *ids) \
+    X(void,            BeginQuery,              GLenum target, GLuint id) \
+    X(void,            EndQuery,                GLenum target) \
+    X(void,            GetQueryObjectiv,        GLuint id, GLenum pname, GLint *params) \
+    X(void,            GetQueryObjectui64v,     GLuint id, GLenum pname, u64 *params)
 
 #define X(ret, name, ...) typedef ret GL_API GL_##name##Fn(__VA_ARGS__);
 GL_FUNCTIONS(X)
@@ -213,6 +221,12 @@ typedef struct GL_State {
     b32              blending;  // a mesh's see-through parts are being drawn
     GLuint           meshFramebuffer, meshColor, meshDepth;
     i32              meshWidth, meshHeight;
+#if defined(PROFILE)
+    // The GPU's time for each frame, read a few frames later so that asking never waits for it.
+    GLuint           timers[4];
+    u32              timerNext, timerPending;
+    b32              timing;
+#endif
 } GL_State;
 
 // A mesh's handle holds its vertex array and vertex buffer in its first word, and its index buffer and index count in its second. The
@@ -731,6 +745,22 @@ function void R_BeginFrame(i32 width, i32 height, R_Color clear)
     GL.inSource = false;
     GL.width = width;
     GL.height = height;
+#if defined(PROFILE)
+    if (!GL.timers[0]) GL.GenQueries(CArrayCount(GL.timers), GL.timers);
+    while (GL.timerPending) {
+        GLuint oldest = GL.timers[(GL.timerNext - GL.timerPending) % CArrayCount(GL.timers)];
+        GLint available = 0;
+        GL.GetQueryObjectiv(oldest, GL_QUERY_RESULT_AVAILABLE, &available);
+        if (!available && GL.timerPending < CArrayCount(GL.timers)) break;
+        u64 nanoseconds = 0;
+        GL.GetQueryObjectui64v(oldest, GL_QUERY_RESULT, &nanoseconds);
+        u64 now = PlatformNowMicroseconds();
+        P_ProfileRecord("GPU", now - nanoseconds / 1000, now);
+        --GL.timerPending;
+    }
+    GL.BeginQuery(GL_TIME_ELAPSED, GL.timers[GL.timerNext]);
+    GL.timing = true;
+#endif
 
     GL.Viewport(0, 0, width, height);
     GL.Scissor(0, 0, width, height);
@@ -1058,10 +1088,22 @@ function void R_ReadRect(i32 x, i32 y, i32 width, i32 height, u32 *bgra)
     }
 }
 
+function void GL__EndTimer(void)
+{
+#if defined(PROFILE)
+    if (!GL.timing) return;
+    GL.EndQuery(GL_TIME_ELAPSED);
+    GL.timing = false;
+    GL.timerNext = (GL.timerNext + 1) % CArrayCount(GL.timers);
+    ++GL.timerPending;
+#endif
+}
+
 function void R_EndFrame(void)
 {
     Assert(GL.clipDepth == 0);
     if (GL.instances.header.count == 0) {
+        GL__EndTimer();
         return;
     }
 
@@ -1119,4 +1161,5 @@ function void R_EndFrame(void)
         GL.BindTexture(GL_TEXTURE_2D, batch->texture);
         GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)batch->count);
     }
+    GL__EndTimer();
 }

@@ -3869,8 +3869,13 @@ function f32 Prog__CaretOpacity(const Prog_TextEdit *edit)
 {
     UI_Key key = UI_KeyFromStr(0, StrFormat(UI->frameArena, "Caret/%p/%u/%u/%llu", (const void *)edit, edit->cursor, edit->anchor, (unsigned long long)Prog_EditText(edit).length));
     u64 since = (UI_TimeSince(key) + 150000) % 1050000;
-    UI_KeepAnimating();
-    if (!UI->animate || since < 325000) return 1;
+    if (!UI->animate) return 1;
+    // It holds still while lit, and its fade is drawn at about 30 frames a second rather than at the display's rate, which would keep the GPU busy for a blink.
+    if (since < 325000) {
+        UI_WakeAt(UI->nowMicroseconds + 325000 - since);
+        return 1;
+    }
+    UI_WakeAt(UI->nowMicroseconds + 33000);
     f32 high = 0.9f, low = 0.04f;
     if (since < 665000) return high + (low - high) * (f32)(since - 325000) / 340000.0f;
     return low + (high - low) * (f32)(since - 665000) / 385000.0f;
@@ -5849,7 +5854,7 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
         Prog_QueueCommand(state, Prog_CommandKind_SidebarRename, state->sidebarRenameGroup - 1, 0, 0)->target = state->sidebarRenameIndex;
         state->sidebarRenameAt = 0;
     } else if (state->sidebarRenameAt) {
-        UI_KeepAnimating();
+        Prog_WakeAt(state, state->sidebarRenameAt);
     }
     // A right click on its empty space, where no group or place takes it, opens the sidebar's own menu.
     UI_Interaction background = UI_InteractionFromBlock(sidebar);
@@ -7049,8 +7054,9 @@ function void Prog__Tooltip(Prog_State *state, const Prog_Metrics *m)
     if (state->noTooltips || !state->tooltipKey || ((state->menuOpen || state->paletteOpen) && !state->tooltipAbove)) return;
     // None while something is dragged.
     if (state->tabDrag || state->dragging || P_DropPending()) return;
-    if (UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait"))) < 700000) {
-        UI_KeepAnimating();
+    u64 waited = UI_TimeSince(UI_KeyFromStr(state->tooltipKey, S("TooltipWait")));
+    if (waited < 700000) {
+        UI_WakeAt(UI->nowMicroseconds + 700000 - waited);
         return;
     }
     const Prog_Theme *theme = Prog_CurrentTheme();
