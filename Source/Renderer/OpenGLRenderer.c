@@ -2,7 +2,8 @@
 // Entry points are loaded at runtime through the platform, so no system GL headers are needed.
 //
 // Every primitive is one instanced quad; the fragment shader turns it into a solid, rounded, outlined or texture-masked rectangle.
-// Draw calls only split when the clip or the texture changes.
+// Draw calls split only when a primitive reaches past a clip that changed, or needs a fifth texture.
+// Before the frame is drawn, what later opaque fills cover is left out of it, so that each pixel is shaded about once.
 
 #include <math.h>
 
@@ -26,6 +27,7 @@ typedef i64       GLsizeiptr;
 #define GL_SCISSOR_TEST          0x0C11
 #define GL_UNPACK_ALIGNMENT      0x0CF5
 #define GL_TEXTURE_2D            0x0DE1
+#define GL_TEXTURE0              0x84C0
 #define GL_UNSIGNED_BYTE         0x1401
 #define GL_FLOAT                 0x1406
 #define GL_RED                   0x1903
@@ -138,7 +140,8 @@ typedef i64       GLsizeiptr;
     X(void,            BeginQuery,              GLenum target, GLuint id) \
     X(void,            EndQuery,                GLenum target) \
     X(void,            GetQueryObjectiv,        GLuint id, GLenum pname, GLint *params) \
-    X(void,            GetQueryObjectui64v,     GLuint id, GLenum pname, u64 *params)
+    X(void,            GetQueryObjectui64v,     GLuint id, GLenum pname, u64 *params) \
+    X(void,            ActiveTexture,           GLenum texture)
 
 #define X(ret, name, ...) typedef ret GL_API GL_##name##Fn(__VA_ARGS__);
 GL_FUNCTIONS(X)
@@ -159,9 +162,17 @@ typedef struct GL_Instance {
 
 #define GL_ShapeLine     32
 #define GL_ShapeGradient 64
+// Shades only the pixels in `uv` of its shape, which an untextured instance has no other use for: a part of it the culling left.
+#define GL_ShapeRegion   128
+// A square fill on whole pixels, which covers each of them wholly, so that its color needs no shape worked out: most of a frame's pixels.
+#define GL_ShapePlain    256
+
+#define GL_BatchTextures 4
 
 typedef struct GL_Batch {
-    GLuint texture;     // 0 until a textured instance joins the batch
+    // The textures its instances draw from, each in the slot their `textured` gives above its kind; a batch splits only when they are more.
+    GLuint textures[GL_BatchTextures];
+    u32    textureCount;
     R_Rect clip;
     u32    first;
     u32    count;
@@ -319,6 +330,7 @@ global const char GL_VertexShader[] =
     "out vec2 vHalfSize;\n"
     "out vec4 vStyle;\n"
     "flat out int vShape;\n"
+    "flat out int vSlot;\n"
     "flat out vec4 vSegment;\n"
     "out vec2 vPosition;\n"
     "void main() {\n"
@@ -326,8 +338,8 @@ global const char GL_VertexShader[] =
     "    vec2 corner = vec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
     // A shape drawn from its distance reaches a pixel past its box, for an edge between pixels to shade the one it half covers; images, inverted
     // shapes, which cover all of their box, and empty boxes are not.
-    "    float fringe = aStyle.z > 0.0 || (vShape & 16) != 0 || aRect.z <= aRect.x || aRect.w <= aRect.y ? 0.0 : 1.0;\n"
-    "    vec2 position = mix(aRect.xy - fringe, aRect.zw + fringe, corner);\n"
+    "    float fringe = aStyle.z > 0.0 || (vShape & (16 | 256)) != 0 || aRect.z <= aRect.x || aRect.w <= aRect.y ? 0.0 : 1.0;\n"
+    "    vec2 position = (vShape & 128) != 0 ? mix(aUV.xy, aUV.zw, corner) : mix(aRect.xy - fringe, aRect.zw + fringe, corner);\n"
     "    vHalfSize = 0.5 * (aRect.zw - aRect.xy);\n"
     "    vLocal = position - 0.5 * (aRect.xy + aRect.zw);\n"
     "    vUV = mix(aUV.xy, aUV.zw, corner);\n"
@@ -336,14 +348,17 @@ global const char GL_VertexShader[] =
     "    vColor = aColor;\n"
     "    vCorners = vec4[4](aColor, aTopRight, aBottomLeft, aBottomRight);\n"
     "    vAcross = (position - aRect.xy) / max(aRect.zw - aRect.xy, vec2(1e-6));\n"
-    "    vStyle = aStyle;\n"
+    "    int textured = int(aStyle.z + 0.5);\n"
+    "    vSlot = textured >> 3;\n"
+    "    vStyle = vec4(aStyle.xy, float(textured & 7), aStyle.w);\n"
     "    vec2 ndc = position / uViewport * 2.0 - 1.0;\n"
     "    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);\n"
     "}\n";
 
 global const char GL_FragmentShader[] =
     "#version 330 core\n"
-    "uniform sampler2D uTexture;\n"
+    "uniform sampler2D uTexture, uTexture1, uTexture2, uTexture3;\n"
+    "flat in int vSlot;\n"
     "in vec2 vUV;\n"
     "in vec4 vColor;\n"
     "flat in vec4 vCorners[4];\n"
@@ -355,7 +370,15 @@ global const char GL_FragmentShader[] =
     "flat in vec4 vSegment;\n"
     "in vec2 vPosition;\n"
     "out vec4 fragColor;\n"
+    // A batch draws from up to four textures, each instance from its own, which is the same over all of its pixels.
+    "vec4 Sample(vec2 uv) {\n"
+    "    return vSlot == 1 ? texture(uTexture1, uv) : vSlot == 2 ? texture(uTexture2, uv) : vSlot == 3 ? texture(uTexture3, uv) : texture(uTexture, uv);\n"
+    "}\n"
     "void main() {\n"
+    "    if ((vShape & 256) != 0) {\n"
+    "        fragColor = vColor;\n"
+    "        return;\n"
+    "    }\n"
     // A gradient goes between its corners' colors by where the pixel is across the box.
     "    vec2 t = clamp(vAcross, 0.0, 1.0);\n"
     "    vec4 shade = (vShape & 64) == 0 ? vColor : mix(mix(vCorners[0], vCorners[1], t.x), mix(vCorners[2], vCorners[3], t.x), t.y);\n"
@@ -379,17 +402,17 @@ global const char GL_FragmentShader[] =
     "        alpha *= clamp(0.5 + distance + vStyle.y, 0.0, 1.0);\n"
     "    }\n"
     "    if (vStyle.z > 2.5 && vStyle.z < 3.5) {\n"
-    "        fragColor = texture(uTexture, vUV) * (shade.a * alpha);\n"
+    "        fragColor = Sample(vUV) * (shade.a * alpha);\n"
     "        return;\n"
     "    }\n"
     "    vec4 color = shade;\n"
     "    if (vStyle.z > 3.5) {\n"
-    "        vec4 picture = texture(uTexture, vUV);\n"
+    "        vec4 picture = Sample(vUV);\n"
     "        color *= vec4(picture.rgb / max(picture.a, 0.004), picture.a);\n"
     "    } else if (vStyle.z > 1.5) {\n"
-    "        color *= texture(uTexture, vUV);\n"
+    "        color *= Sample(vUV);\n"
     "    } else if (vStyle.z > 0.0) {\n"
-    "        alpha *= texture(uTexture, vUV).r;\n"
+    "        alpha *= Sample(vUV).r;\n"
     "    }\n"
     "    fragColor = vec4(color.rgb, color.a * alpha);\n"
     "}\n";
@@ -501,6 +524,10 @@ function b32 R_Init(void)
         return false;
     }
     GL.viewportLocation = GL.GetUniformLocation(GL.program, "uViewport");
+    GL.UseProgram(GL.program);
+    GL.Uniform1i(GL.GetUniformLocation(GL.program, "uTexture1"), 1);
+    GL.Uniform1i(GL.GetUniformLocation(GL.program, "uTexture2"), 2);
+    GL.Uniform1i(GL.GetUniformLocation(GL.program, "uTexture3"), 3);
 
     GLuint blurVertex = GL__CompileShader(GL_VERTEX_SHADER, GL_BlurVertexShader), blurFragment = GL__CompileShader(GL_FRAGMENT_SHADER, GL_BlurFragmentShader);
     if (blurVertex == 0 || blurFragment == 0) return false;
@@ -844,6 +871,20 @@ function b32 GL__ChangesNothing(const GL_Instance *instance, R_Rect shaded)
     return false;
 }
 
+// The slot `texture` has in `batch`, or the next free one, which is GL_BatchTextures when there is none.
+function u32 GL__TextureSlot(const GL_Batch *batch, GLuint texture)
+{
+    for (u32 i = 0; i < batch->textureCount; ++i) {
+        if (batch->textures[i] == texture) return i;
+    }
+    return batch->textureCount;
+}
+
+function R_Rect GL__Scissor(R_Rect clip)
+{
+    return (R_Rect){ floorf(clip.x0), floorf(clip.y0), ceilf(clip.x1), ceilf(clip.y1) };
+}
+
 function void GL__PushInstance(GL_Instance instance, GLuint texture)
 {
     b32 line = ((u32)instance.shape & GL_ShapeLine) != 0;
@@ -859,26 +900,32 @@ function void GL__PushInstance(GL_Instance instance, GLuint texture)
     GL_Batch *batch = GL.batches.header.count > 0 ? &GL.batches.v[GL.batches.header.count - 1] : NULL;
     R_Rect shaded = GL__Covered(instance.rect, clip);
     if (GL__ChangesNothing(&instance, shaded)) return;
+    R_Rect r = instance.rect;
+    b32 plain = floorf(r.x0) == r.x0 && floorf(r.y0) == r.y0 && floorf(r.x1) == r.x1 && floorf(r.y1) == r.y1 && instance.textured == 0 && instance.radius == 0 &&
+                instance.thickness == 0 && instance.softness == 0 && !((u32)instance.shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient));
+    if (plain) instance.shape = (f32)((u32)instance.shape | GL_ShapePlain);
     if (!GL.inLayer) {
         GL__Touch(shaded);
-        // An opaque fill with square, whole-pixel edges leaves its color on every pixel it covers.
-        R_Rect r = instance.rect;
-        b32 whole = floorf(r.x0) == r.x0 && floorf(r.y0) == r.y0 && floorf(r.x1) == r.x1 && floorf(r.y1) == r.y1;
-        if (whole && instance.color.a >= 1 && instance.shape == 0 && instance.textured == 0 && instance.radius == 0 && instance.thickness == 0 && instance.softness == 0 &&
-            shaded.x1 > shaded.x0 && shaded.y1 > shaded.y0) {
+        // An opaque plain fill leaves its color on every pixel it covers.
+        if (plain && instance.color.a >= 1 && shaded.x1 > shaded.x0 && shaded.y1 > shaded.y0) {
             if (GL.solidCount == GL_MaxSolids) MemMove(GL.solids, GL.solids + 1, sizeof(GL.solids[0]) * --GL.solidCount);
             GL.solids[GL.solidCount++] = (GL_Solid){ .cover = shaded, .color = instance.color };
         }
     }
-    b32 sameClip = batch != NULL && MemCompare(&batch->clip, &clip, sizeof(clip)) == 0;
-    b32 compatibleTexture = batch != NULL && (texture == 0 || batch->texture == 0 || batch->texture == texture);
+    // An instance inside both clips shades the same pixels under either, so it joins the batch it follows, as most of a list's rows do.
+    R_Rect whole = GL__Covered(instance.rect, instance.rect);
+    b32 sameClip = batch != NULL && (MemCompare(&batch->clip, &clip, sizeof(clip)) == 0 ||
+                                     (GL__Inside(whole, GL__Scissor(clip)) && GL__Inside(whole, GL__Scissor(batch->clip))));
+    b32 compatibleTexture = batch != NULL && (texture == 0 || GL__TextureSlot(batch, texture) < GL_BatchTextures);
     if (!sameClip || !compatibleTexture || batch->blur || batch->layer || batch->source) {
         batch = ArrayAddClear(&GL.frameArena, GL.batches, 1);
         batch->clip = clip;
         batch->first = (u32)GL.instances.header.count;
     }
     if (texture != 0) {
-        batch->texture = texture;
+        u32 slot = GL__TextureSlot(batch, texture);
+        if (slot == batch->textureCount) batch->textures[batch->textureCount++] = texture;
+        instance.textured += (f32)(8 * slot);
     }
     batch->count += 1;
     ArrayPush(&GL.frameArena, GL.instances, instance);
@@ -1169,9 +1216,140 @@ function void GL__EndTimer(void)
 #endif
 }
 
+// Instances smaller than this many pixels are drawn whole, as cutting them saves less than it costs.
+#define GL_CullArea 4096
+#define GL_MaxPieces 16
+
+typedef struct GL_Occluder {
+    u32    index;
+    R_Rect box;
+} GL_Occluder;
+typedef struct GL_ArrayOccluder { ArrayHeader header; GL_Occluder *v; } GL_ArrayOccluder;
+
+function R_Rect GL__Intersect(R_Rect a, R_Rect b)
+{
+    return (R_Rect){ MaxF32(a.x0, b.x0), MaxF32(a.y0, b.y0), MinF32(a.x1, b.x1), MinF32(a.y1, b.y1) };
+}
+
+function f32 GL__Area(R_Rect r)
+{
+    return r.x1 > r.x0 && r.y1 > r.y0 ? (r.x1 - r.x0) * (r.y1 - r.y0) : 0;
+}
+
+// The whole pixels well inside `rect`, `inset` in from each edge.
+function R_Rect GL__Inner(R_Rect rect, f32 inset)
+{
+    return (R_Rect){ ceilf(rect.x0 + inset), ceilf(rect.y0 + inset), floorf(rect.x1 - inset), floorf(rect.y1 - inset) };
+}
+
+// Takes `hole` out of the rectangles in `pieces`, as up to four around it each; false when that would make more than GL_MaxPieces.
+function b32 GL__Subtract(R_Rect *pieces, u32 *count, R_Rect hole)
+{
+    R_Rect kept[GL_MaxPieces];
+    u32 n = 0;
+    for (u32 i = 0; i < *count; ++i) {
+        R_Rect p = pieces[i];
+        R_Rect o = GL__Intersect(p, hole);
+        R_Rect around[5];
+        u32 m = 0;
+        if (GL__Area(o) <= 0) {
+            around[m++] = p;
+        } else {
+            if (o.y0 > p.y0) around[m++] = (R_Rect){ p.x0, p.y0, p.x1, o.y0 };
+            if (o.y1 < p.y1) around[m++] = (R_Rect){ p.x0, o.y1, p.x1, p.y1 };
+            if (o.x0 > p.x0) around[m++] = (R_Rect){ p.x0, o.y0, o.x0, o.y1 };
+            if (o.x1 < p.x1) around[m++] = (R_Rect){ o.x1, o.y0, p.x1, o.y1 };
+        }
+        if (n + m > GL_MaxPieces) return false;
+        for (u32 k = 0; k < m; ++k) kept[n++] = around[k];
+    }
+    MemCopy(pieces, kept, sizeof(R_Rect) * n);
+    *count = n;
+    return true;
+}
+
+// The whole pixels an instance paints fully opaque, a fill's but for its rounded corners, or nothing.
+function R_Rect GL__OpaqueBox(const GL_Instance *instance, R_Rect clip)
+{
+    u32 shape = (u32)instance->shape;
+    if (instance->color.a < 1 || instance->textured != 0 || instance->thickness != 0 || instance->softness != 0 ||
+        (shape & (R_Shape_Inverted | GL_ShapeLine | GL_ShapeGradient | GL_ShapeRegion))) return (R_Rect){0};
+    return GL__Intersect(GL__Inner(instance->rect, instance->radius > 0 ? ceilf(instance->radius) + 1 : 0), GL__Scissor(clip));
+}
+
+// Leaves out of the frame the parts of large instances that later opaque fills paint over, and the inside of a large outline, which shades nothing there: such an instance is drawn as the pieces that show, each over its own pixels, or not at all.
+// A blur, a copy of the frame and a layer read or change what is under them, so nothing is left out across one.
+function void GL__Cull(void)
+{
+    GL_ArrayInstance kept = {0};
+    ArrayReserve(&GL.frameArena, kept, GL.instances.header.count + 64);
+    u64 batchCount = GL.batches.header.count;
+    for (u64 b = 0; b < batchCount;) {
+        GL_Batch *batch = &GL.batches.v[b];
+        if (batch->blur || batch->layer || batch->source) {
+            u32 first = (u32)kept.header.count;
+            for (u32 i = 0; i < batch->count; ++i) ArrayPush(&GL.frameArena, kept, GL.instances.v[batch->first + i]);
+            batch->first = first;
+            ++b;
+            continue;
+        }
+        u64 end = b;
+        while (end < batchCount && !(GL.batches.v[end].blur || GL.batches.v[end].layer || GL.batches.v[end].source)) ++end;
+        Scratch scratch = GetScratch();
+        GL_ArrayOccluder occluders = {0};
+        for (u64 o = b; o < end; ++o) {
+            const GL_Batch *at = &GL.batches.v[o];
+            for (u32 i = 0; i < at->count; ++i) {
+                R_Rect box = GL__OpaqueBox(&GL.instances.v[at->first + i], at->clip);
+                if (GL__Area(box) >= GL_CullArea) ArrayPush(scratch.arena, occluders, ((GL_Occluder){ at->first + i, box }));
+            }
+        }
+        u64 nextOccluder = 0;
+        for (u64 o = b; o < end; ++o) {
+            GL_Batch *at = &GL.batches.v[o];
+            u32 first = (u32)kept.header.count;
+            for (u32 i = 0; i < at->count; ++i) {
+                u32 index = at->first + i;
+                GL_Instance instance = GL.instances.v[index];
+                while (nextOccluder < occluders.header.count && occluders.v[nextOccluder].index <= index) ++nextOccluder;
+                R_Rect area = GL__Covered(instance.rect, at->clip);
+                if (GL__Area(area) < GL_CullArea) {
+                    ArrayPush(&GL.frameArena, kept, instance);
+                    continue;
+                }
+                R_Rect pieces[GL_MaxPieces] = { area };
+                u32 count = 1;
+                b32 cut = true;
+                u32 shape = (u32)instance.shape;
+                b32 cuttable = instance.textured == 0 && !(shape & (GL_ShapeLine | GL_ShapeRegion));
+                if (cuttable && instance.thickness > 0 && !(shape & R_Shape_Inverted)) cut = GL__Subtract(pieces, &count, GL__Inner(instance.rect, MaxF32(ceilf(instance.radius), ceilf(instance.thickness)) + 1));
+                for (u64 k = nextOccluder; cut && count && k < occluders.header.count; ++k) cut = GL__Subtract(pieces, &count, occluders.v[k].box);
+                if (!cut || (count == 1 && MemCompare(&pieces[0], &area, sizeof(area)) == 0)) {
+                    ArrayPush(&GL.frameArena, kept, instance);
+                } else if (cuttable) {
+                    for (u32 p = 0; p < count; ++p) {
+                        GL_Instance piece = instance;
+                        piece.uv = pieces[p];
+                        piece.shape = (f32)(shape | GL_ShapeRegion);
+                        ArrayPush(&GL.frameArena, kept, piece);
+                    }
+                } else if (count) {
+                    ArrayPush(&GL.frameArena, kept, instance);
+                }
+            }
+            at->first = first;
+            at->count = (u32)kept.header.count - first;
+        }
+        ReleaseScratch(scratch);
+        b = end;
+    }
+    GL.instances = kept;
+}
+
 function void R_EndFrame(void)
 {
     Assert(GL.clipDepth == 0);
+    GL__Cull();
     if (GL.instances.header.count == 0) {
         GL__EndTimer();
         return;
@@ -1190,8 +1368,17 @@ function void R_EndFrame(void)
             continue;
         }
         if (batch->source) {
-            GL.BindTexture(GL_TEXTURE_2D, GL.sourceTexture);
-            GL.CopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, GL.width, GL.height);
+            // Only what the blurs reading the copy take of it, until the next copy, which is a menu's box rather than the window.
+            i32 x0 = GL.width, y0 = GL.height, x1 = 0, y1 = 0;
+            for (u64 k = i + 1; k < GL.batches.header.count && !GL.batches.v[k].source; ++k) {
+                const GL_Batch *blur = &GL.batches.v[k];
+                if (!blur->blur || !blur->fromSource) continue;
+                x0 = Min(x0, blur->region[0]), y0 = Min(y0, blur->region[1]), x1 = Max(x1, blur->region[2]), y1 = Max(y1, blur->region[3]);
+            }
+            if (x1 > x0 && y1 > y0) {
+                GL.BindTexture(GL_TEXTURE_2D, GL.sourceTexture);
+                GL.CopyTexSubImage2D(GL_TEXTURE_2D, 0, x0, GL.height - y1, x0, GL.height - y1, x1 - x0, y1 - y0);
+            }
             continue;
         }
         if (batch->layer == 1) {
@@ -1228,7 +1415,10 @@ function void R_EndFrame(void)
         i32 x1 = (i32)ceilf(batch->clip.x1);
         i32 y1 = (i32)ceilf(batch->clip.y1);
         GL.Scissor(x0, GL.height - y1, x1 - x0, y1 - y0);
-        GL.BindTexture(GL_TEXTURE_2D, batch->texture);
+        for (u32 t = batch->textureCount; t-- > 0;) {
+            GL.ActiveTexture(GL_TEXTURE0 + t);
+            GL.BindTexture(GL_TEXTURE_2D, batch->textures[t]);
+        }
         GL.DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)batch->count);
     }
     GL__EndTimer();
