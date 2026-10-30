@@ -3431,8 +3431,8 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
         UI_SetNextChildrenLayout(UI_Layout_Horizontal);
         UI_SetNextChildrenAlignment((UI_Vec2){ 0, 0.5f });
         UI_SetNextScrollOffset((UI_Vec2){ 1e9f, 0 });
-        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Breadcrumbs/%" PRIu64, Prog__PanelId(state))), UI_Flag_Clip | UI_Flag_RightMouseClickable);
-        // A right click opens the path's menu for the crumb under the pointer, or the shown folder away from the crumbs.
+        UI_Block *crumbs = UI_AddBlockFromKey(UI_KeyFromStr(0, StrFormat(&state->frameArena, "Breadcrumbs/%" PRIu64, Prog__PanelId(state))), UI_Flag_Clip | UI_Flag_LeftMouseClickable | UI_Flag_RightMouseClickable);
+        // A right click opens the path's menu for the crumb under the pointer, or the shown folder away from the crumbs; a left click away from them edits the path.
         UI_Interaction strip = UI_InteractionFromBlock(crumbs);
         u64 hovered = UINT64_MAX;
         if (state->currentPanel == state->activePanel) state->pathMenuAt = (UI_Vec2){ crumbs->rect.x0, crumbs->rect.y1 };
@@ -3460,6 +3460,7 @@ function void Prog__Toolbar(Prog_State *state, const Prog_Metrics *m)
             Prog__CrumbsPath(state, &shownEnd);
             Prog_QueueCommand(state, Prog_CommandKind_PathMenu, hovered != UINT64_MAX ? hovered : shownEnd, 0, strip.pressOrder)->at = UI->mouse;
         }
+        if (strip.clicked && strip.button == MouseButton_Left && hovered == UINT64_MAX) Prog_QueueCommand(state, Prog_CommandKind_EditPath, 0, 0, strip.clickOrder);
         Prog__GitStatus(state, m);
         Prog__MenuButton(state, S("PanelMenu"), Icon_EllipsisVertical, Prog_CommandKind_PanelMenu, true, 0, m);
         Prog__Spacer(UI_Pixels(m->inset * 0.4f), UI_Pixels(bar));
