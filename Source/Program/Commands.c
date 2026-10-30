@@ -1635,7 +1635,10 @@ function void Prog__OpenProgramMenu(Prog_State *state, Prog_Command *command)
             Prog__Item(.kind = Prog_CommandKind_PathOpenInBottomSplit, .row = at, .label = Tr("Open in Bottom Split"), .icon = Icon_UnfoldVertical, .disabled = (b8)!target.length);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_EditPath, .icon = Icon_Pencil);
-            Prog__Item(.kind = Prog_CommandKind_PathCopy, .row = at, .label = Tr("Copy Path"), .icon = Icon_Copy, .disabled = (b8)!folder);
+            // Copy As Path's hotkey copies the shown folder's path while nothing is selected, so it shows for that one then.
+            b32 copies = folder && !state->selectedCount && StrIsEqual(target, state->directory.path);
+            Prog__Item(.kind = Prog_CommandKind_PathCopy, .row = at, .label = Tr("Copy Path"), .icon = Icon_Copy, .disabled = (b8)!folder,
+                       .hotkeysOf = copies ? Prog_CommandKind_CopyAsPath : Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_None);
             Prog__Item(.kind = Prog_CommandKind_ToggleCompactPath, .label = Tr("Compact Path"), .toggle = true, .checked = !state->fullPaths);
             Prog__Item(.kind = Prog_CommandKind_ToggleBreadcrumbs, .label = Tr("Path Breadcrumbs"), .toggle = true, .checked = !state->noTrail);
