@@ -8500,7 +8500,8 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     b32 renamePicked = (renameCreated && created == 1 && !pick.length && state->createdRenames) || (state->selectRename && pick.length && pickRow < result->count);
                     if (picking) state->selectRename = false, state->selectLength = 0;
                     if (created) state->renameCreatedUntil = 0;
-                    if (!renameStillThere) state->renaming = false;
+                    // The rename is in the active panel, so another's listing, as the inspector's of the folder being renamed, leaves it.
+                    if (!renameStillThere && state->currentPanel == state->activePanel) state->renaming = false;
                     if (pickRow < result->count) {
                         for (u64 i = 0; i < result->count; ++i) result->entries[i].selected = i == pickRow;
                         state->selectedCount = 1;

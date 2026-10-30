@@ -2862,6 +2862,16 @@ function void TestProgramFileCommands(TestFileFixture *fixture)
     TestFileCommand(&state, Prog_CommandKind_CreateFolder);
     u64 folder = TestEntryIndex(&state, S("New folder"));
     Check(folder != UINT64_MAX && state.renaming && state.focusedRow == folder && StrIsEqual(Prog_EditText(&state.rename), S("New folder")));
+    // The inspector listing it in its own panel leaves the rename going.
+    Prog_ListInInspector(&state, Prog_JoinPath(&arena, root, S("New folder")));
+    u32 inner = Prog_InspectorPanel(&state, state.panels[state.currentPanel].id, false);
+    Check(inner != UINT32_MAX);
+    for (u64 start = PlatformNowMicroseconds(); state.panels[inner].directoryJob && PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(&state);
+        if (state.panels[inner].directoryJob) P__TestPause();
+    }
+    Check(!state.panels[inner].directoryJob && state.renaming);
+    Prog_DropInspectorPanel(&state, state.panels[state.currentPanel].id);
     TestRenameKey(&state, Key_Escape, 0);
 
     // Copy and Paste in the same folder makes a numbered or "- Copy" duplicate, as does Duplicate.
