@@ -3251,6 +3251,7 @@ function b32 Prog__RunsDropped(const Prog_Entry *entry)
 // The folder of sidebar item `index` in `group`; empty when there is no such item.
 function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64 index)
 {
+    if (group == Prog_Group_Tree) return (index & UINT32_MAX) < state->treeNodes.header.count ? state->treeNodes.v[index & UINT32_MAX].path : (String){0};
     switch (group) {
         case Prog_Group_Recents: return index < state->recents.header.count ? state->recents.v[index] : (String){0};
         case Prog_Group_Bookmarks: return index < state->bookmarks.header.count ? state->bookmarks.v[index] : (String){0};
@@ -3272,7 +3273,7 @@ function String Prog__SidebarPath(const Prog_State *state, Prog_Group group, u64
 // which the user put there, rather than a place, a drive or This PC; not a drive's root, a folder inside an archive or one of the system's.
 function b32 Prog__SidebarRenamable(Prog_Group group, String path)
 {
-    b32 own = group == Prog_Group_Bookmarks || group == Prog_Group_Recents || (u32)group >= Prog_Group_Count;
+    b32 own = group == Prog_Group_Bookmarks || group == Prog_Group_Recents || ((u32)group >= Prog_Group_Count && group != Prog_Group_Tree);
     String parent = Prog_ParentPath(path), archive = {0}, inner = {0};
     return own && path.length && parent.length && !StrIsEqual(parent, path) && !StrIsEqual(path, Prog_ThisPC) && !P_IsTrashFolder(path) &&
            !P_IsVirtualFolder(path) && !Prog_InArchive(path, &archive, &inner);
@@ -3828,6 +3829,7 @@ function b32 Prog_ProcessCommands(Prog_State *state)
                 if (command->kind == Prog_CommandKind_SidebarOpenInTab) Prog_OpenTab(state, path, state->activeTab + 1, false);
                 else if (!StrIsEqual(path, state->directory.path)) Prog_RequestDirectory(state, path, true, 0);
             } break;
+            case Prog_CommandKind_SidebarTreeToggle: Prog_SidebarTreeToggle(state, (u32)command->row); break;
             case Prog_CommandKind_SidebarMenu:
             case Prog_CommandKind_MillerMenu: {
                 // A Miller column's item, or a sidebar place: the menu of the item itself, acting on it rather than on the list's selection.

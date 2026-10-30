@@ -1330,6 +1330,10 @@ command SidebarOpenInTab {
 command SidebarMenu {
 }
 
+// The arrow of a folder in the sidebar's tree; carries its node.
+command SidebarTreeToggle {
+}
+
 // Sidebar section title click; carries the Prog_Group.
 command ToggleGroup {
 }

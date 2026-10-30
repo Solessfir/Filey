@@ -124,6 +124,8 @@ global const char *const Prog_Strings[] = {
     "Trim paths from the first recognized folder.",
     "Display Path Breadcrumbs",
     "Show previously visited subfolders in the address bar.",
+    "Sidebar Folder Tree",
+    "Unfolds the sidebar's drives into the folders in them, as a tree.",
     "Show Selection Boxes",
     "Toggle visibility of checkboxes when selecting multiple items in a panel.",
     "Confirm Emptying Recycle Bin",

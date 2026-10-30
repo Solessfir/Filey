@@ -613,6 +613,23 @@ function b32 Prog__EqualFolded(String a, String b);
 // Whether two paths, or two names in one folder, are the same, ignoring case only where the system does.
 function b32 Prog__PathsEqual(String a, String b) { return P_PathsIgnoreCase() ? Prog__EqualFolded(a, b) : StrIsEqual(a, b); }
 
+// Whether `path` is `root` or inside it, apart from case where the system's paths ignore it.
+function b32 Prog__UnderRoot(String path, String root)
+{
+    b32 whole = root.length && (path.length == root.length || root.value[root.length - 1] == '/' || (root.length < path.length && path.value[root.length] == '/'));
+    return whole && root.length <= path.length && Prog__PathsEqual(StrFromTo(path, 0, (i64)root.length), root);
+}
+
+// The place of `places` with the longest path holding `path`, as a drive mounted in a folder of another; NULL without one.
+function const P_Place *Prog_PlaceHolding(const P_ArrayPlace *places, String path)
+{
+    const P_Place *result = NULL;
+    for (u64 i = 0; i < places->header.count; ++i) {
+        if (Prog__UnderRoot(path, places->v[i].path) && (!result || places->v[i].path.length > result->path.length)) result = &places->v[i];
+    }
+    return result;
+}
+
 // The bytes of the listed items, the measured folders' and the files', which the folder usage is a share of.
 function u64 Prog_ListBytes(const Prog_State *state)
 {
@@ -627,17 +644,8 @@ function u64 Prog_ListBytes(const Prog_State *state)
 // The size of the drive the shown folder is on, which the volume usage is a share of; 0 when it is on none of the drives.
 function u64 Prog_VolumeBytes(const Prog_State *state)
 {
-    String path = state->directory.path;
-    u64 longest = 0, result = 0;
-    for (u64 i = 0; i < state->drives.header.count; ++i) {
-        String root = state->drives.v[i].path;
-        b32 whole = root.length && (path.length == root.length || root.value[root.length - 1] == '/' || (root.length < path.length && path.value[root.length] == '/'));
-        if (root.length > longest && root.length <= path.length && whole && Prog__PathsEqual(StrFromTo(path, 0, (i64)root.length), root)) {
-            longest = root.length;
-            result = state->drives.v[i].totalBytes;
-        }
-    }
-    return result;
+    const P_Place *drive = Prog_PlaceHolding(&state->drives, state->directory.path);
+    return drive ? drive->totalBytes : 0;
 }
 
 // Puts the view in groups, each in the view's order.
@@ -2598,6 +2606,8 @@ function b32 Prog_VersionNewer(String release, String current);
 function Prog_LatestRelease Prog_ParseRelease(Arena *arena, String json);
 function String Prog__UpdateText(Arena *arena, i64 checked, const Prog_LatestRelease *release, String shown);
 
+function void Prog__SortNames(Arena *arena, String *names, u64 *marks, u64 count);
+
 function void Prog__DirectoryJob(P_Job *job)
 {
     Prog_JobInput *input = job->input;
@@ -2958,6 +2968,22 @@ function void Prog__DirectoryJob(P_Job *job)
     if (input->kind == Prog_JobKind_Usage) {
         Prog_Usage *result = ArenaPushStruct(&job->arena, Prog_Usage);
         job->result = Prog_ScanUsage(&job->arena, input->path, &input->usage, &job->cancelToken, result) ? result : NULL;
+        return;
+    }
+    if (input->kind == Prog_JobKind_SidebarTree) {
+        P_DirectoryResult listed = P_EnumerateDirectory(&job->arena, input->path, &job->cancelToken);
+        u64 total = listed.files.header.count, count = 0;
+        input->names = ArenaPushArray(&job->arena, Max(total, (u64)1), String);
+        input->rows = ArenaPushArray(&job->arena, Max(total, (u64)1), u64);
+        for (u64 i = 0; i < total; ++i) {
+            const P_File *file = &listed.files.v[i];
+            if (file->kind != P_FileKind_Directory) continue;
+            input->names[count] = file->name;
+            input->rows[count++] = (file->hidden ? 1u : 0u) | (file->system ? 2u : 0u);
+        }
+        Prog__SortNames(&job->arena, input->names, input->rows, count);
+        input->rowCount = count;
+        job->result = listed.errorCode || listed.cancelled ? NULL : input;
         return;
     }
     // Which of the recents at `names` are gone: kept first in `names` and `rows`, as many as `rowCount` then says.
@@ -5167,6 +5193,228 @@ function u32 Prog_SidebarGroupCount(const Prog_State *state)
 function u32 Prog_SidebarGroupAt(const Prog_State *state, u32 n)
 {
     return state->groupsOrdered && n < Prog_SidebarGroupCount(state) && state->groupOrder[n] < Prog_SidebarGroupCount(state) ? state->groupOrder[n] : n;
+}
+
+// Sorts `names` as the lists sort names, keeping `marks` in step: runs merged into ones twice as long, through room from `arena`.
+function void Prog__SortNames(Arena *arena, String *names, u64 *marks, u64 count)
+{
+    String *nameTo = ArenaPushArrayNoZero(arena, Max(count, (u64)1), String);
+    u64 *markTo = ArenaPushArrayNoZero(arena, Max(count, (u64)1), u64);
+    for (u64 width = 1; width < count; width *= 2) {
+        for (u64 low = 0; low < count; low += 2 * width) {
+            u64 middle = Min(low + width, count), high = Min(low + 2 * width, count), a = low, b = middle;
+            for (u64 k = low; k < high; ++k) {
+                u64 from = a < middle && (b >= high || Prog_CompareNames(names[a], names[b]) <= 0) ? a++ : b++;
+                nameTo[k] = names[from];
+                markTo[k] = marks[from];
+            }
+        }
+        MemCopy(names, nameTo, count * sizeof(String));
+        MemCopy(marks, markTo, count * sizeof(u64));
+    }
+}
+
+// Whether the sidebar's tree unfolds `path`: a folder on a drive or a share, rather than This PC, the network or the bin, which the drives list too; told by its path alone, as it is asked every frame.
+function b32 Prog_TreeFolder(String path)
+{
+    return path.length && !Prog__IsUnder(path, Prog_ThisPC) && !Prog__IsUnder(path, P_NetworkFolder()) && !P_IsTrashFolder(path);
+}
+
+// Whether `path`, inside `root`, is the root itself, whatever slashes end it.
+function b32 Prog__TreeIsRoot(String path, String root)
+{
+    while (path.length > root.length && path.value[path.length - 1] == '/') --path.length;
+    return Prog__PathsEqual(path, root);
+}
+
+// The drive or share holding `path` whose row the tree hangs from, the one with the longest path; empty without one, as before the drives are listed.
+function String Prog__TreeRoot(const Prog_State *state, String path)
+{
+    const P_Place *drive = Prog_PlaceHolding(&state->drives, path), *share = Prog_PlaceHolding(&state->shares, path);
+    if (share && (!drive || share->path.length > drive->path.length)) drive = share;
+    return drive ? drive->path : (String){0};
+}
+
+// The tree's key for `path`: itself, or its letters folded where the system's paths ignore case, as Windows' do, so that a folder typed in other case is the one listed.
+function String Prog__TreeKey(Arena *arena, String path)
+{
+    if (!P_PathsIgnoreCase()) return path;
+    StrBuilder key = {0};
+    for (u64 at = 0; at < path.length;) {
+        u8 bytes[4];
+        StrBuildBytes(arena, &key, bytes, StrEncodeUtf8(Prog__FoldRune(StrDecodeUtf8(path, &at)), bytes));
+    }
+    return key.buffer;
+}
+
+// The sidebar tree's node for the folder `path`, made when `make` asks; UINT32_MAX without one.
+function u32 Prog_TreeNodeOf(Prog_State *state, String path, b32 make)
+{
+    String key = Prog__TreeKey(&state->frameArena, path);
+    u32 found = state->treeMap.header.count ? MapsGet(state->treeMap, u32, key) : 0;
+    if (found || !make) return found ? found - 1 : UINT32_MAX;
+    Prog_TreeNode node = { .path = StrCopy(&state->sidebarTreeArena, path) };
+    ArrayPush(&state->sidebarTreeArena, state->treeNodes, node);
+    MapsPut(&state->sidebarTreeArena, state->treeMap, key.value == path.value ? node.path : StrCopy(&state->sidebarTreeArena, key), (u32)state->treeNodes.header.count);
+    return (u32)state->treeNodes.header.count - 1;
+}
+
+// Lists the subfolders of the tree's folder `node` in a job; one asked for while its listing runs is listed again after it.
+function void Prog__TreeList(Prog_State *state, u32 node)
+{
+    Prog_TreeNode *folder = &state->treeNodes.v[node];
+    if (folder->listing) {
+        folder->again = true;
+        return;
+    }
+    folder->listing = true;
+    ++state->treeListings;
+    P_Job *job = P_JobCreate(&state->jobs, Prog__DirectoryJob);
+    Prog_JobInput *input = ArenaPushStruct(&job->arena, Prog_JobInput);
+    input->kind = Prog_JobKind_SidebarTree;
+    input->path = StrCopy(&job->arena, folder->path);
+    job->input = input;
+    P_JobSubmit(job);
+}
+
+// The subfolders a listing of `path` found, sorted by name, with their hidden (1) and system (2) marks, for its node in the tree, in the room of the ones before when they fit.
+function void Prog__TreeTake(Prog_State *state, String path, const String *names, const u64 *marks, u64 count)
+{
+    u32 node = Prog_TreeNodeOf(state, path, false);
+    if (node == UINT32_MAX) return;
+    Prog_TreeNode *before = &state->treeNodes.v[node];
+    u32 *children = before->children && count <= before->childCount ? before->children : ArenaPushArray(&state->sidebarTreeArena, Max(count, (u64)1), u32);
+    for (u64 i = 0; i < count; ++i) {
+        String joined = Prog_JoinPath(&state->frameArena, path, names[i]);
+        u32 child = Prog_TreeNodeOf(state, joined, true);
+        Prog_TreeNode *folder = &state->treeNodes.v[child];
+        // One made from a path typed in other case takes the case the listing has.
+        if (!StrIsEqual(folder->path, joined)) folder->path = StrCopy(&state->sidebarTreeArena, joined);
+        folder->hidden = (marks[i] & 1) != 0;
+        folder->system = (marks[i] & 2) != 0;
+        children[i] = child;
+    }
+    Prog_TreeNode *folder = &state->treeNodes.v[node];
+    folder->children = children;
+    folder->childCount = (u32)count;
+    folder->listed = true;
+}
+
+// Unfolds the tree's folder `node`, listing it again for what changed in it, or folds it.
+function void Prog_SidebarTreeToggle(Prog_State *state, u32 node)
+{
+    if (node >= state->treeNodes.header.count) return;
+    Prog_TreeNode *folder = &state->treeNodes.v[node];
+    folder->open = !folder->open;
+    folder->easing = true;
+    if (folder->open) Prog__TreeList(state, node);
+}
+
+// A folder whose items changed is listed again for the tree while it is unfolded or was listed there, so that one listed without subfolders gets its arrow when one comes.
+function void Prog_TreeChanged(Prog_State *state, String path)
+{
+    u32 node = state->sidebarTree ? Prog_TreeNodeOf(state, path, false) : UINT32_MAX;
+    if (node != UINT32_MAX && (state->treeNodes.v[node].open || state->treeNodes.v[node].listed)) Prog__TreeList(state, node);
+}
+
+// The folder shown, listed, brings its subfolders as they are now to the tree, so that one without any loses its arrow, and one first shown has its node from then on; an expanded listing's nested items are no subfolders.
+function void Prog__TreeListed(Prog_State *state)
+{
+    String path = state->directory.path;
+    if (!state->sidebarTree || state->directory.expanded || state->directory.archive || !Prog_TreeFolder(path) || !Prog__TreeRoot(state, path).length) return;
+    u32 node = Prog_TreeNodeOf(state, path, true);
+    // A listing leaves out the hidden and system folders the panel does not show; where the tree knows of some, it lists the folder whole itself.
+    const Prog_TreeNode *folder = &state->treeNodes.v[node];
+    for (u32 i = 0; i < folder->childCount; ++i) {
+        const Prog_TreeNode *child = &state->treeNodes.v[folder->children[i]];
+        if ((child->hidden && !state->showHidden) || (child->system && !state->showSystem)) {
+            Prog__TreeList(state, node);
+            return;
+        }
+    }
+    Scratch scratch = GetScratch();
+    u64 count = 0;
+    String *names = ArenaPushArray(scratch.arena, Max(state->directory.count, (u64)1), String);
+    u64 *marks = ArenaPushArray(scratch.arena, Max(state->directory.count, (u64)1), u64);
+    for (u64 i = 0; i < state->directory.count; ++i) {
+        const P_File *file = &state->directory.entries[i].file;
+        if (file->kind != P_FileKind_Directory || StrIndexChar(file->name, '/', SSF_None).exists) continue;
+        names[count] = file->name;
+        marks[count++] = (file->hidden ? 1u : 0u) | (file->system ? 2u : 0u);
+    }
+    Prog__SortNames(scratch.arena, names, marks, count);
+    Prog__TreeTake(state, state->directory.path, names, marks, count);
+    ReleaseScratch(scratch);
+}
+
+// The old tree's node `node`, in `from`, copied into the tree that replaces it, with its subfolders while it is unfolded and listed; a folded one's are left behind, to be listed again as it unfolds, though one listed without any stays so.
+function u32 Prog__TreeKeep(Prog_State *state, const Prog_TreeNodes *from, u32 node, u32 depth)
+{
+    const Prog_TreeNode *old = &from->v[node];
+    u32 kept = Prog_TreeNodeOf(state, old->path, true);
+    state->treeNodes.v[kept].open = old->open;
+    state->treeNodes.v[kept].hidden = old->hidden;
+    state->treeNodes.v[kept].system = old->system;
+    state->treeNodes.v[kept].easing = old->easing;
+    state->treeNodes.v[kept].listed = old->listed && !old->childCount;
+    if (!old->open || !old->listed || depth >= 64) return kept;
+    u32 *children = ArenaPushArray(&state->sidebarTreeArena, Max(old->childCount, 1u), u32);
+    for (u32 i = 0; i < old->childCount; ++i) children[i] = Prog__TreeKeep(state, from, old->children[i], depth + 1);
+    state->treeNodes.v[kept].children = children;
+    state->treeNodes.v[kept].childCount = old->childCount;
+    state->treeNodes.v[kept].listed = true;
+    return kept;
+}
+
+// Copies the tree down to what it shows, from the drives and shares through the unfolded folders, into an arena of its own, letting the rest go.
+function void Prog__TreeCompact(Prog_State *state)
+{
+    Arena arena = state->sidebarTreeArena;
+    Prog_TreeNodes nodes = state->treeNodes;
+    Prog_TreeMap map = state->treeMap;
+    String followed = state->treeFollowed;
+    state->sidebarTreeArena = (Arena){0};
+    state->treeNodes = (Prog_TreeNodes){0};
+    state->treeMap = (Prog_TreeMap){0};
+    for (u64 i = 0; i < state->drives.header.count + state->shares.header.count; ++i) {
+        String root = i < state->drives.header.count ? state->drives.v[i].path : state->shares.v[i - state->drives.header.count].path;
+        u32 node = map.header.count ? MapsGet(map, u32, Prog__TreeKey(&state->frameArena, root)) : 0;
+        if (node) Prog__TreeKeep(state, &nodes, node - 1, 0);
+    }
+    state->treeFollowed = StrCopy(&state->sidebarTreeArena, followed);
+    ArenaRelease(&arena);
+    state->treeKept = state->treeNodes.header.count;
+    state->treeKeptBytes = ArenaPos(&state->sidebarTreeArena);
+}
+
+// Copies the tree down to what it shows once it is twice what it kept the last time and no listing for it runs, then unfolds it down to the folder the active panel shows, under its drive or share, when that changed.
+function void Prog__TreeUpdate(Prog_State *state)
+{
+    if (!state->sidebarTree) return;
+    if (!state->treeListings && (state->treeNodes.header.count > 2 * state->treeKept + 4096 || ArenaPos(&state->sidebarTreeArena) > 2 * state->treeKeptBytes + (UINT64_C(8) << 20))) {
+        Prog__TreeCompact(state);
+    }
+    String path = state->directory.path;
+    if (StrIsEqual(path, state->treeFollowed) || state->directory.archive || !Prog_TreeFolder(path)) return;
+    String root = Prog__TreeRoot(state, path);
+    if (!root.length) return;
+    state->treeFollowed = StrCopy(&state->sidebarTreeArena, path);
+    // The drive or share itself shown, folded, stays as it is, and has its own row to show it.
+    if (Prog__TreeIsRoot(path, root)) return;
+    state->treeReveal = true;
+    for (String folder = Prog_ParentPath(path); folder.length && Prog__UnderRoot(folder, root);) {
+        // A share's root comes back from its parent with a slash after it, which its row's path has not.
+        if (Prog__TreeIsRoot(folder, root)) folder = root;
+        u32 node = Prog_TreeNodeOf(state, folder, true);
+        if (!state->treeNodes.v[node].open) {
+            state->treeNodes.v[node].open = true;
+            state->treeNodes.v[node].easing = true;
+            Prog__TreeList(state, node);
+        }
+        String parent = Prog_ParentPath(folder);
+        if (Prog__PathsEqual(folder, root) || StrIsEqual(parent, folder)) break;
+        folder = parent;
+    }
 }
 
 // Moves the sidebar's group `group` a place up or down; back in the default order, it is no longer kept.
@@ -7508,6 +7756,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             else PlatformWindowClose();
         }
     }
+    Prog__TreeUpdate(state);
     // Drives are listed again every few seconds while the sidebar shows them, and at once when the system tells of one coming or going.
     if ((state->placesWanted || state->drivesChanged) && !state->placesJob && (state->drivesChanged || !state->placesTime || now - state->placesTime >= Millions(5))) {
         state->drivesChanged = false;
@@ -7595,7 +7844,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                      (job = P_JobTakeCompleted(&state->toolJobs)) != NULL;) {
         Prog_JobInput *input = job->input;
         // Results about a panel's folder go to that panel, and are dropped once it is closed.
-        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_IndexRefresh || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
+        b32 windowWide = input->kind == Prog_JobKind_TorrentProgress || input->kind == Prog_JobKind_Icons || input->kind == Prog_JobKind_Inspect || input->kind == Prog_JobKind_GoTo || input->kind == Prog_JobKind_Index || input->kind == Prog_JobKind_Places || input->kind == Prog_JobKind_SidebarTree || input->kind == Prog_JobKind_Save || input->kind == Prog_JobKind_WarmMenu || input->kind == Prog_JobKind_Tidy || input->kind == Prog_JobKind_LongPaths || input->kind == Prog_JobKind_IndexRefresh || input->kind == Prog_JobKind_ArchivePassword || input->kind == Prog_JobKind_Play ||
                          (input->kind == Prog_JobKind_FilesList && !input->miller) || input->kind == Prog_JobKind_Fonts;
         u32 owner = windowWide || !input->panel ? state->activePanel : Prog_PanelIndex(state, input->panel);
         // What the window keeps of a job, a transfer card, the pull button or the fetch under way, lets go of it first.
@@ -7819,6 +8068,19 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 }
             }
             changed = true;
+        } else if (input->kind == Prog_JobKind_SidebarTree) {
+            // A listing that failed leaves the subfolders found before.
+            u32 node = Prog_TreeNodeOf(state, input->path, false);
+            if (state->treeListings) --state->treeListings;
+            if (node != UINT32_MAX) {
+                state->treeNodes.v[node].listing = false;
+                if (job->result) Prog__TreeTake(state, input->path, input->names, input->rows, input->rowCount);
+                if (state->treeNodes.v[node].again) {
+                    state->treeNodes.v[node].again = false;
+                    Prog__TreeList(state, node);
+                }
+            }
+            changed = true;
         } else if (input->kind == Prog_JobKind_RecentsCheck) {
             if (state->recentsCheckJob == job) state->recentsCheckJob = NULL;
             // The recents left out by path, as they may have changed since the check started.
@@ -7950,6 +8212,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                 Prog_PushUndo(state, Prog_UndoKind_Rename, &from, &to, 1);
                 Prog__FollowMoved(state, &from, &to, 1);
                 Prog_IndexRefresh(state, input->path);
+                Prog_TreeChanged(state, input->path);
                 state->placesTime = 0;
                 // The folder shown, renamed from the sidebar, goes on showing under its new name.
                 if (Prog__IsUnder(state->directory.path, from)) {
@@ -7978,11 +8241,15 @@ function b32 Prog_TakeCompletions(Prog_State *state)
             b32 created = input->kind == Prog_JobKind_Create || input->kind == Prog_JobKind_Link;
             // The drive index learns of the folders it changed: where the items went, and for a move or a delete where they were.
             Prog_IndexRefresh(state, input->path);
+            Prog_TreeChanged(state, input->path);
             if (input->move || input->kind == Prog_JobKind_Trash || input->kind == Prog_JobKind_Delete) {
                 String last = input->path;
                 for (u64 i = 0; i < input->pathCount; ++i) {
                     String parent = Prog_ParentPath(input->paths[i]);
-                    if (!StrIsEqual(parent, last)) Prog_IndexRefresh(state, parent);
+                    if (!StrIsEqual(parent, last)) {
+                        Prog_IndexRefresh(state, parent);
+                        Prog_TreeChanged(state, parent);
+                    }
                     last = parent;
                 }
             }
@@ -8593,6 +8860,7 @@ function b32 Prog_TakeCompletions(Prog_State *state)
                     Prog__SortByTotals(state);
                     // The drive index learns of what changed in a folder shown.
                     if (!result->archive) Prog_IndexRefresh(state, result->path);
+                    Prog__TreeListed(state);
                     // The listing a tree's folder unfolded for eases from the rows there were; one that folded up is done with any listing.
                     // One that comes while a folder's rows are still easing shut, from a watch, goes on easing in it, the rows after the
                     // folder rising from where they are into their places.
@@ -8870,6 +9138,7 @@ function void Prog_Release(Prog_State *state)
     ArenaRelease(&state->mutedArena);
     ArenaRelease(&state->quickArena);
     ArenaRelease(&state->sizeArena);
+    ArenaRelease(&state->sidebarTreeArena);
     ArenaRelease(&state->tipArena);
     ArenaRelease(&state->gotoArena);
     ArenaRelease(&state->gotoHistoryArena);

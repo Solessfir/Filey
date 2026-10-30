@@ -3056,6 +3056,85 @@ finish:
     ArenaRelease(&arena);
 }
 
+// Takes completions until the sidebar tree's folder `path` is listed, with no listing of it under way.
+function b32 TestWaitTree(Prog_State *state, String path)
+{
+    for (u64 start = PlatformNowMicroseconds(); PlatformNowMicroseconds() - start < Millions(5);) {
+        Prog_TakeCompletions(state);
+        u32 node = Prog_TreeNodeOf(state, path, false);
+        if (node != UINT32_MAX && state->treeNodes.v[node].listed && !state->treeNodes.v[node].listing) return true;
+        P__TestPause();
+    }
+    return false;
+}
+
+// The sidebar's tree unfolds down to the folder shown from the drive holding it, lists a folder's subfolders sorted by name with their hidden marks, lists them again when they change, and folds; its rows open their folders as the sidebar's others do, and are not renamed from it.
+function void TestSidebarTree(TestFileFixture *fixture)
+{
+    Arena arena = {0};
+    String created = {0};
+    Check(!P_CreateItem(&arena, fixture->path, S("Tree"), true, &created).code);
+    String root = Prog_JoinPath(&arena, fixture->path, S("Tree"));
+    Check(!P_CreateItem(&arena, root, S("b10"), true, &created).code);
+    Check(!P_CreateItem(&arena, root, S("b9"), true, &created).code);
+    Check(!P_CreateItem(&arena, root, S(".dot"), true, &created).code);
+    Check(!P_CreateItem(&arena, root, S("file.txt"), false, &created).code);
+    String shown = Prog_JoinPath(&arena, root, S("b9")), outer = Prog_JoinPath(&arena, root, S("b10"));
+    Check(!P_CreateItem(&arena, outer, S("deep"), true, &created).code);
+    Prog_State state = {0};
+    Check(Prog_Init(&state, shown, NULL, NULL));
+    if (!state.jobs.initialized) goto finish;
+    Check(TestWaitDirectory(&state));
+    state.sidebarTree = true;
+    state.drives = (P_ArrayPlace){0};
+    ArrayPush(&arena, state.drives, ((P_Place){ .path = root }));
+    Check(TestWaitTree(&state, root));
+    u32 node = Prog_TreeNodeOf(&state, root, false);
+    const Prog_TreeNode *folder = &state.treeNodes.v[node];
+    Check(folder->open && state.treeReveal && StrIsEqual(state.treeFollowed, shown) && folder->childCount == 3);
+    Check(StrIsEqual(state.treeNodes.v[folder->children[0]].path, Prog_JoinPath(&arena, root, S(".dot"))) && state.treeNodes.v[folder->children[0]].hidden);
+    Check(StrIsEqual(state.treeNodes.v[folder->children[1]].path, shown) && StrIsEqual(state.treeNodes.v[folder->children[2]].path, Prog_JoinPath(&arena, root, S("b10"))));
+    // The folder shown, without subfolders, is listed by its own listing, and its row opens it.
+    TestBrowsingCommand(&state, Prog_CommandKind_Refresh, 0);
+    u32 inner = Prog_TreeNodeOf(&state, shown, false);
+    Check(inner != UINT32_MAX && state.treeNodes.v[inner].listed && !state.treeNodes.v[inner].childCount);
+    Check(StrIsEqual(Prog__SidebarPath(&state, Prog_Group_Tree, inner | ((u64)2 << 32)), shown) && !Prog__SidebarRenamable(Prog_Group_Tree, shown));
+    // A folder made in it is there once the tree hears of the change.
+    Check(!P_CreateItem(&arena, root, S("a1"), true, &created).code);
+    Prog_TreeChanged(&state, root);
+    Check(TestWaitTree(&state, root));
+    folder = &state.treeNodes.v[node];
+    Check(folder->childCount == 4 && StrIsEqual(state.treeNodes.v[folder->children[1]].path, Prog_JoinPath(&arena, root, S("a1"))));
+    // Where paths ignore case, one typed in other case is the same folder.
+    if (P_PathsIgnoreCase()) {
+        u8 *loud = ArenaPushArray(&arena, root.length, u8);
+        for (u64 i = 0; i < root.length; ++i) loud[i] = (u8)(root.value[i] >= 'a' && root.value[i] <= 'z' ? root.value[i] - 32 : root.value[i]);
+        Check(Prog_TreeNodeOf(&state, StrMake((const char *)loud, root.length), false) == node);
+    }
+    // Copied down to what it shows, it keeps the unfolded folder's subfolders, and a folded one's known to be none, and lets the other folded ones' go.
+    u32 middle = Prog_TreeNodeOf(&state, outer, false);
+    Prog_SidebarTreeToggle(&state, middle);
+    Check(TestWaitTree(&state, outer) && state.treeNodes.v[middle].childCount == 1);
+    Prog_SidebarTreeToggle(&state, middle);
+    Prog__TreeCompact(&state);
+    node = Prog_TreeNodeOf(&state, root, false);
+    inner = Prog_TreeNodeOf(&state, shown, false);
+    middle = Prog_TreeNodeOf(&state, outer, false);
+    Check(node != UINT32_MAX && state.treeNodes.v[node].open && state.treeNodes.v[node].listed && state.treeNodes.v[node].childCount == 4);
+    Check(inner != UINT32_MAX && state.treeNodes.v[inner].listed && middle != UINT32_MAX && !state.treeNodes.v[middle].listed && state.treeKept == state.treeNodes.header.count);
+    // The drive folded and then shown stays folded, and its listing, which leaves the hidden folder out, has the tree list it whole.
+    Prog_SidebarTreeToggle(&state, node);
+    Check(!state.treeNodes.v[node].open);
+    Prog_RequestDirectory(&state, root, true, 0);
+    Check(TestWaitDirectory(&state) && StrIsEqual(state.directory.path, root) && TestWaitTree(&state, root));
+    folder = &state.treeNodes.v[node];
+    Check(!folder->open && folder->childCount == 4 && StrIsEqual(state.treeNodes.v[folder->children[0]].path, Prog_JoinPath(&arena, root, S(".dot"))));
+finish:
+    Prog_Release(&state);
+    TestRemoveTree(&arena, fixture, S("Tree"));
+    ArenaRelease(&arena);
+}
+
 // A newer release is told from this build's version, found in GitHub's answer with this system's archive, kept in Update.conf between runs, and
 // put in place of an executable as the update does.
 function void TestUpdates(TestFileFixture *fixture)
@@ -5275,6 +5354,7 @@ function void TestBrowsing(void)
         TestUpdates(&fixture);
         TestPlaces(&fixture);
         TestUserGroups(&fixture);
+        TestSidebarTree(&fixture);
         TestIndexPatch();
         TestSidebarNames(&fixture);
         TestOpenFlags(&fixture);

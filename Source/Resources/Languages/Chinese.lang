@@ -328,6 +328,12 @@ Display Path Breadcrumbs
 Show previously visited subfolders in the address bar.
 = 在地址栏中显示之前访问过的子文件夹。
 
+Sidebar Folder Tree
+= 侧边栏文件夹树
+
+Unfolds the sidebar's drives into the folders in them, as a tree.
+= 将侧边栏中的驱动器展开为其文件夹树。
+
 Show Selection Boxes
 = 显示项目复选框
 

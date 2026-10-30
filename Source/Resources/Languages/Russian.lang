@@ -328,6 +328,12 @@ Display Path Breadcrumbs
 Show previously visited subfolders in the address bar.
 = Показывает в адресной строке посещённые ранее вложенные папки.
 
+Sidebar Folder Tree
+= Дерево папок на боковой панели
+
+Unfolds the sidebar's drives into the folders in them, as a tree.
+= Раскрывает диски боковой панели в дерево их папок.
+
 Show Selection Boxes
 = Флажки выделения
 

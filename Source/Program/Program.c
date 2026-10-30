@@ -808,7 +808,7 @@ function void Prog_ApplySettings(Prog_State *state, String text)
     state->underlineAlways = state->doubleClickToParent = state->noClickRename = state->noOverscroll = state->reverseScroll = false;
     state->characterKeys = Prog_CharacterKeys_TypeInFilter;
     state->hideExtensions = state->showSystem = false;
-    state->fullPaths = state->noTrail = false;
+    state->fullPaths = state->noTrail = state->sidebarTree = false;
     state->thumbnailMode = Prog_Thumbnails_LocalDisk;
     state->showCheckboxes = state->noTrashConfirm = state->menuInline = state->noTooltips = state->separateInstances = state->gitFetch = state->mcp = false;
     state->startup = Prog_Startup_LastSession;
@@ -894,6 +894,8 @@ function void Prog_ApplySettings(Prog_State *state, String text)
             state->fullPaths = Prog__SettingOff(value);
         } else if (StrIsEqual(name, S("paths.trail"))) {
             state->noTrail = Prog__SettingOff(value);
+        } else if (StrIsEqual(name, S("sidebar.tree"))) {
+            state->sidebarTree = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("menus.inline"))) {
             state->menuInline = Prog__SettingOn(value);
         } else if (StrIsEqual(name, S("tooltips"))) {
@@ -1086,6 +1088,7 @@ function String Prog_SettingsTemplate(Arena *arena, const Prog_State *state)
                                 "# files.extensions = true\n# files.hidden = false\n# files.system = false\n\n"
                                 "# The address bar: from the first recognized folder rather than the drive, and with the visited subfolders past the shown one.\n"
                                 "# paths.short = true\n# paths.trail = true\n\n"
+                                "# The sidebar's drives unfolding into the folders in them, as a tree.\n# sidebar.tree = false\n\n"
                                 "# Boxes that check items in place of their icons while several are selected.\n# checkboxes = false\n\n"
                                 "# Submenus that open inside their menu, under their item, rather than beside it.\n# menus.inline = false\n\n"
                                 "# Tips under the pointer when it rests on files, folders and buttons.\n# tooltips = true\n\n"
@@ -1235,6 +1238,8 @@ global const Prog_OptionDesc Prog_Options[Prog_Option_Count] = {
                                      Prog_OptionSwitch, 2, SInit("paths.short") },
     [Prog_Option_Breadcrumbs] = { TrInit("Display Path Breadcrumbs"), TrInit("Show previously visited subfolders in the address bar."), Prog_OptionControl_Switch, 0, 1,
                                   Prog_OptionSwitch, 2, SInit("paths.trail") },
+    [Prog_Option_SidebarTree] = { TrInit("Sidebar Folder Tree"), TrInit("Unfolds the sidebar's drives into the folders in them, as a tree."),
+                                  Prog_OptionControl_Switch, 0, 1, Prog_OptionSwitch, 2, SInit("sidebar.tree") },
     [Prog_Option_ShowCheckboxes] = { TrInit("Show Selection Boxes"), TrInit("Toggle visibility of checkboxes when selecting multiple items in a panel."), Prog_OptionControl_Switch, 0, 1,
                                      Prog_OptionSwitch, 2, SInit("checkboxes") },
     [Prog_Option_ConfirmEmptyTrash] = { TrInit("Confirm Emptying Recycle Bin"), TrInit("Ask before permanently deleting everything in the Recycle Bin."),
@@ -1426,6 +1431,7 @@ function i32 Prog_OptionValue(const Prog_State *state, Prog_Option option)
         case Prog_Option_LongPaths: return state->longPaths;
         case Prog_Option_ShortenedPaths: return !state->fullPaths;
         case Prog_Option_Breadcrumbs: return !state->noTrail;
+        case Prog_Option_SidebarTree: return state->sidebarTree;
         case Prog_Option_ShowCheckboxes: return state->showCheckboxes;
         case Prog_Option_ConfirmEmptyTrash: return !state->noTrashConfirm;
         case Prog_Option_GitFetch: return state->gitFetch;
@@ -5615,6 +5621,53 @@ function void Prog__GroupTitle(Prog_State *state, Prog_Group group, String title
     }
 }
 
+// Whether the sidebar's tree shows its folder `folder`, as the panel would: a hidden or system one only with those files shown, or holding the folder shown, so that the way down to it shows whole.
+function b32 Prog__TreeShows(const Prog_State *state, const Prog_TreeNode *folder)
+{
+    return ((!folder->hidden || state->showHidden) && (!folder->system || state->showSystem)) || Prog__UnderRoot(state->directory.path, folder->path);
+}
+
+// Whether the tree's folder `node` has a subfolder to show, once listed.
+function b32 Prog__TreeHasRows(const Prog_State *state, u32 node)
+{
+    const Prog_TreeNode *folder = &state->treeNodes.v[node];
+    for (u32 i = 0; i < folder->childCount; ++i) if (Prog__TreeShows(state, &state->treeNodes.v[folder->children[i]])) return true;
+    return false;
+}
+
+// How many rows are under the tree's folder `node` while it is unfolded, counted without blocks for those out of sight, once a frame.
+function u32 Prog__TreeRows(Prog_State *state, u32 node)
+{
+    Prog_TreeNode *folder = &state->treeNodes.v[node];
+    if (folder->rowsFrame == UI->frameIndex + 1) return folder->rows;
+    u32 result = 0;
+    for (u32 i = 0; i < folder->childCount; ++i) {
+        u32 child = folder->children[i];
+        if (!Prog__TreeShows(state, &state->treeNodes.v[child])) continue;
+        result += 1 + (state->treeNodes.v[child].open ? Prog__TreeRows(state, child) : 0);
+    }
+    folder = &state->treeNodes.v[node];
+    folder->rows = result;
+    folder->rowsFrame = UI->frameIndex + 1;
+    return result;
+}
+
+// The key of the box of the rows under the tree's folder `node` at `depth`, by its path, which a copy of the tree down to what it shows keeps.
+function UI_Key Prog__TreeBodyKey(Prog_State *state, u32 node, u32 depth)
+{
+    return UI_KeyFromStr(0, StrFormat(&state->frameArena, "TreeBody/%u/%S", depth, state->treeNodes.v[node].path));
+}
+
+// How tall the rows under the tree's folder `node` at `depth` stand: their box's height while it eases, the last layout's, and all of them while it is unfolded otherwise.
+function f32 Prog__TreeBodyHeight(Prog_State *state, u32 node, u32 depth, f32 row)
+{
+    const Prog_TreeNode *folder = &state->treeNodes.v[node];
+    if (!folder->open && !folder->easing) return 0;
+    UI_Block *body = folder->easing ? UI__Find(Prog__TreeBodyKey(state, node, depth)) : NULL;
+    if (body) return body->rect.y1 - body->rect.y0;
+    return folder->easing ? 0 : (f32)Prog__TreeRows(state, node) * row;
+}
+
 // One location under a section title: its folder icon, or a drive glyph, and its name.
 // Drives show how full they are under the name, and bookmarks get a remove button while hovered.
 // A row of the sidebar's `group`; a `faded` one, hidden, is dimmed as the list dims hidden items.
@@ -5623,10 +5676,18 @@ function void Prog__MarkedText(String text, const u8 *marks, const R_Font *font,
 function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, String name, String path, const P_Place *drive, b32 faded, const Prog_Metrics *m)
 {
     const Prog_Theme *theme = Prog_CurrentTheme();
-    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, index, path));
-    UI_Key removeKey = UI_KeyFromStr(key, S("Remove"));
+    // A tree's row is known by its depth and its folder, rather than its node, which a copy of the tree down to what it shows numbers anew.
+    UI_Key key = UI_KeyFromStr(0, StrFormat(&state->frameArena, "Place/%u/%" PRIu64 "/%S", group, group == Prog_Group_Tree ? index >> 32 : index, path));
+    UI_Key removeKey = UI_KeyFromStr(key, S("Remove")), arrowKey = UI_KeyFromStr(key, S("TreeArrow"));
+    // The sidebar's tree unfolds the drives and the shares, and its own folders, by an arrow before the icon, its rows a step in at each depth.
+    u32 node = UINT32_MAX, depth = 0;
+    if (group == Prog_Group_Tree) node = (u32)index, depth = (u32)(index >> 32);
+    else if (state->sidebarTree && group == Prog_Group_Storage && Prog_TreeFolder(path)) node = Prog_TreeNodeOf(state, path, true);
+    f32 arrow = node != UINT32_MAX ? floorf(16.0f * m->scale + 0.5f) : 0, indent = (f32)depth * floorf(12.8f * m->scale + 0.5f);
     // Not lit under a drag, which would hide the line where it goes; a place dragged stays lit.
-    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey) && !P_DropPending() && (!state->sidebarDrag || (state->sidebarDragGroup == (u32)group + 1 && state->sidebarDrag == index + 1));
+    b32 hot = (UI->hotKey == key || UI->hotKey == removeKey || UI->hotKey == arrowKey) && !P_DropPending() &&
+              (!state->sidebarDrag || (state->sidebarDragGroup == (u32)group + 1 && state->sidebarDrag == index + 1));
+    b32 own = (u32)group >= Prog_Group_Count && group != Prog_Group_Tree;
     // Lit while it is shown, or while its menu is open; not under a drag, where only the folder a drop would go into is lit.
     b32 current = !P_DropPending() && (StrIsEqual(path, state->directory.path) || (state->menuOpen && StrIsEqual(path, state->menuTarget)));
     UI_SetNextPrefWidth(UI_Flex());
@@ -5641,15 +5702,24 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         f32 target = !state->bookmarkGap ? 0 : index + 1 == state->bookmarkGap ? apart : index + 2 == state->bookmarkGap ? -apart : 0;
         if (target != 0 || UI_Kept(shiftKey) != 0) shift = floorf(UI_Animate(shiftKey, target, 0) + 0.5f);
     }
-    UI_SetNextChildrenPadding((UI_Padding){ floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f), shift, floorf(m->gap * 0.5f), -shift });
+    UI_SetNextChildrenPadding((UI_Padding){ MaxF32(0, floorf(m->line * 1.5f + m->gap * 0.5f) + floorf(3.2f * m->scale + 0.5f) - arrow) + indent, shift, floorf(m->gap * 0.5f), -shift });
     UI_SetNextCornerRadius(m->radius);
     UI_SetNextColors((UI_Colors){ .background = theme->selection });
     UI_Block *row = UI_AddBlockFromKey(key, UI_Flag_LeftMouseClickable | UI_Flag_MiddleMouseClickable | UI_Flag_RightMouseClickable | (hot || current ? UI_Flag_DrawBackground : 0));
     UI_Interaction interaction = UI_InteractionFromBlock(row);
+    // The folder the tree unfolded down to scrolls into sight once it is laid out.
+    if (state->treeReveal && group == Prog_Group_Tree && Prog__PathsEqual(path, state->directory.path) && row->rect.y1 > row->rect.y0) {
+        UI_Block *sidebar = UI__Find(UI_KeyFromStr(0, S("Sidebar")));
+        if (sidebar) {
+            f32 top = row->rect.y0 - sidebar->rect.y0 + sidebar->scrollShown.y, bottom = top + (row->rect.y1 - row->rect.y0);
+            sidebar->scrollOffset.y = MinF32(MaxF32(sidebar->scrollOffset.y, bottom + m->row - (sidebar->rect.y1 - sidebar->rect.y0)), MaxF32(0, top - m->row));
+        }
+        state->treeReveal = false;
+    }
     if (UI->hotKey == key && path.length) state->hoverMenuPath = path;
     // Under a drag the middle of a row takes it into its folder, lit; a bookmark's edges put it between the bookmarks instead.
     if (P_DropPending() && path.length && !StrIsEqual(path, Prog_ThisPC) && UI__Contains(row->rect, UI->mouse)) {
-        f32 edge = group == Prog_Group_Bookmarks || (u32)group >= Prog_Group_Count ? (row->rect.y1 - row->rect.y0) * 0.25f : 0;
+        f32 edge = group == Prog_Group_Bookmarks || own ? (row->rect.y1 - row->rect.y0) * 0.25f : 0;
         if (UI->mouse.y >= row->rect.y0 + edge && UI->mouse.y < row->rect.y1 - edge) {
             state->dropPlace = StrCopy(&state->dropPlaceArena, path);
             row->flags |= UI_Flag_DrawBackground;
@@ -5666,7 +5736,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
     }
     // A place, or a folder in a group of the user's, dragged moves among its group's, before the one the line the list draws is at; the click
     // its release makes opens nothing.
-    b32 moved = false, draggable = group == Prog_Group_Places || (u32)group >= Prog_Group_Count;
+    b32 moved = false, draggable = group == Prog_Group_Places || own;
     if (draggable && interaction.active && interaction.isDragging && interaction.button == MouseButton_Left) {
         state->sidebarDrag = index + 1;
         state->sidebarDragGroup = (u32)group + 1;
@@ -5696,6 +5766,19 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
         command->target = index;
     }
     UI_Parent(row) {
+        // A folder listed without subfolders it would show has no arrow, nor has the bin, which opens as a list of its own.
+        if (node != UINT32_MAX && ((state->treeNodes.v[node].listed && !Prog__TreeHasRows(state, node)) || P_IsTrashFolder(path))) {
+            Prog__Spacer(UI_Pixels(arrow), UI_Pixels(m->row));
+        } else if (node != UINT32_MAX) {
+            UI_SetNextPrefWidth(UI_Pixels(arrow));
+            UI_SetNextPrefHeight(UI_Pixels(m->row));
+            UI_SetNextTextAlignment((UI_Vec2){ 0.5f, 0.5f });
+            UI_SetNextFont(m->iconsSmall);
+            UI_SetNextColors((UI_Colors){ .text = UI->hotKey == arrowKey ? theme->text : theme->icon });
+            UI_SetNextText(state->treeNodes.v[node].open ? Icon_ChevronDown : Icon_ChevronRight);
+            UI_Interaction unfold = UI_InteractionFromBlock(UI_AddBlockFromKey(arrowKey, UI_Flag_DrawText | UI_Flag_LeftMouseClickable));
+            if (unfold.clicked) Prog_QueueCommand(state, Prog_CommandKind_SidebarTreeToggle, node, 0, unfold.clickOrder);
+        }
         f32 slot = (f32)state->iconSize + floorf(7.2f * m->scale + 0.5f);
         // A drive spinning up a disc shows a spinner until it answers.
         const Prog_Icon *spinner = drive && drive->busy ? Prog_SpinnerIcon(state, UI->nowMicroseconds) : NULL;
@@ -5746,7 +5829,7 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             Prog__MarkedText(name, marks, m->font, m->row, color);
         }
         // A bookmark's x removes it, as a folder's in a group of the user's does; a place's eye hides it, or shows it again while hidden ones show.
-        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places || (u32)group >= Prog_Group_Count) && hot && !state->sidebarDrag) {
+        if ((group == Prog_Group_Bookmarks || group == Prog_Group_Places || own) && hot && !state->sidebarDrag) {
             b32 removeHot = UI->hotKey == removeKey;
             f32 size = floorf(m->line * 1.3f);
             UI_SetNextPrefWidth(UI_Pixels(size));
@@ -5761,8 +5844,50 @@ function void Prog__SidebarItem(Prog_State *state, Prog_Group group, u64 index, 
             UI_Interaction removing = UI_InteractionFromBlock(remove);
             if (removing.clicked && group == Prog_Group_Bookmarks) Prog_QueueCommand(state, Prog_CommandKind_RemoveBookmark, index, 0, removing.clickOrder);
             if (removing.clicked && group == Prog_Group_Places) Prog_QueueCommand(state, Prog_CommandKind_PlaceHiddenToggle, index, 0, removing.clickOrder);
-            if (removing.clicked && (u32)group >= Prog_Group_Count) Prog_QueueCommand(state, Prog_CommandKind_GroupItemRemove, (u64)group, 0, removing.clickOrder)->target = index;
+            if (removing.clicked && own) Prog_QueueCommand(state, Prog_CommandKind_GroupItemRemove, (u64)group, 0, removing.clickOrder)->target = index;
         }
+    }
+}
+
+// The folders under the tree's folder `node`, a step in at `depth`, while it is unfolded, easing open and shut as a group does, none while the sidebar's filter finds items by name.
+// Only the rows in sight get blocks, those above and below a space of their height.
+function void Prog__SidebarTree(Prog_State *state, u32 node, u32 depth, const Prog_Metrics *m)
+{
+    if (node >= state->treeNodes.header.count || state->sidebarFilter.length || depth >= 64) return;
+    b32 open = state->treeNodes.v[node].open;
+    UI_Key key = Prog__TreeBodyKey(state, node, depth);
+    UI_Block *last = UI__Find(key);
+    // Its rows as the last layout had them, folders inside easing open or shut included; the first time, as they will be.
+    f32 full = last ? last->contentSize.y : (f32)Prog__TreeRows(state, node) * m->row;
+    f32 shown = UI_Animate(UI_KeyFromStr(key, S("Shown")), open ? 1.0f : 0.0f, open ? 1.0f : 0.0f);
+    if (shown == (open ? 1.0f : 0.0f)) state->treeNodes.v[node].easing = false;
+    if (!open && shown <= 0) return;
+    UI_SetNextPrefWidth(UI_Flex());
+    UI_SetNextPrefHeight(shown >= 1 ? UI_Fill() : UI_Pixels(floorf(full * shown + 0.5f)));
+    UI_SetNextChildrenLayout(UI_Layout_Vertical);
+    UI_Block *body = UI_AddBlockFromKey(key, UI_Flag_Clip);
+    // Where the rows are on the screen, from the last layout; a new body starts at the sidebar's top.
+    UI_Block *sidebar = UI__Find(UI_KeyFromStr(0, S("Sidebar")));
+    f32 top = sidebar ? sidebar->rect.y0 : 0, bottom = sidebar ? sidebar->rect.y1 : 1e9f, y = last ? last->rect.y0 : top, skipped = 0;
+    UI_Parent(body) {
+        for (u32 i = 0; i < state->treeNodes.v[node].childCount; ++i) {
+            u32 child = state->treeNodes.v[node].children[i];
+            const Prog_TreeNode *folder = &state->treeNodes.v[child];
+            if (!Prog__TreeShows(state, folder)) continue;
+            f32 height = m->row + Prog__TreeBodyHeight(state, child, depth + 1, m->row);
+            // The way down to the folder shown is built out of sight too, while it is to scroll into sight.
+            if ((y + height <= top || y >= bottom) && !(state->treeReveal && Prog__UnderRoot(state->directory.path, folder->path))) {
+                skipped += height;
+                y += height;
+                continue;
+            }
+            if (skipped > 0) Prog__Spacer(UI_Flex(), UI_Pixels(skipped));
+            skipped = 0;
+            Prog__SidebarItem(state, Prog_Group_Tree, child | ((u64)(depth + 1) << 32), Prog_EntryLeaf(folder->path), folder->path, NULL, folder->hidden, m);
+            Prog__SidebarTree(state, child, depth + 1, m);
+            y += height;
+        }
+        if (skipped > 0) Prog__Spacer(UI_Flex(), UI_Pixels(skipped));
     }
 }
 
@@ -5860,6 +5985,8 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
     // A right click on its empty space, where no group or place takes it, opens the sidebar's own menu.
     UI_Interaction background = UI_InteractionFromBlock(sidebar);
     if (background.pressed && background.button == MouseButton_Right) Prog_QueueCommand(state, Prog_CommandKind_SidebarBackgroundMenu, 0, 0, background.pressOrder)->at = UI->mouse;
+    // The folder the tree unfolded to scrolls into sight only while Storage is open and nothing is filtered, rather than whenever that is next so.
+    if (state->treeReveal && (!Prog_GroupOpen(state, Prog_Group_Storage) || state->sidebarFilter.length)) state->treeReveal = false;
     UI_Parent(sidebar) {
         Prog__SidebarFilterBox(state, m);
         Prog__Spacer(UI_Flex(), UI_Pixels(floorf(4.8f * m->scale + 0.5f)));
@@ -5966,12 +6093,16 @@ function void Prog__Sidebar(Prog_State *state, const Prog_Metrics *m)
                     if (body) UI_Parent(body) {
                         for (u64 i = 0; i < state->drives.header.count; ++i) {
                             const P_Place *drive = &state->drives.v[i];
-                            if (Prog__SidebarFinds(state, drive->name)) Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
+                            if (!Prog__SidebarFinds(state, drive->name)) continue;
+                            Prog__SidebarItem(state, Prog_Group_Storage, i, drive->name, drive->path, drive, false, m);
+                            if (state->sidebarTree) Prog__SidebarTree(state, Prog_TreeNodeOf(state, drive->path, false), 0, m);
                         }
                         // Then the shares of the servers the network drives, the bookmarks and the recents are on, as drives.
                         for (u64 i = 0; i < state->shares.header.count; ++i) {
                             const P_Place *share = &state->shares.v[i];
-                            if (Prog__SidebarFinds(state, share->name)) Prog__SidebarItem(state, Prog_Group_Storage, state->drives.header.count + i, share->name, share->path, share, false, m);
+                            if (!Prog__SidebarFinds(state, share->name)) continue;
+                            Prog__SidebarItem(state, Prog_Group_Storage, state->drives.header.count + i, share->name, share->path, share, false, m);
+                            if (state->sidebarTree) Prog__SidebarTree(state, Prog_TreeNodeOf(state, share->path, false), 0, m);
                         }
                     }
                 } break;

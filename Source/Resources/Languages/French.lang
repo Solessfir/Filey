@@ -329,6 +329,12 @@ Display Path Breadcrumbs
 Show previously visited subfolders in the address bar.
 = Affiche dans la barre d'adresse les sous-dossiers visités auparavant.
 
+Sidebar Folder Tree
+= Arborescence dans la barre latérale
+
+Unfolds the sidebar's drives into the folders in them, as a tree.
+= Déplie les lecteurs de la barre latérale en une arborescence de leurs dossiers.
+
 Show Selection Boxes
 = Cases de sélection
 

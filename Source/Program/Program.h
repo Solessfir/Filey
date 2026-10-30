@@ -319,6 +319,7 @@ typedef enum Prog_JobKind {
     Prog_JobKind_Link,
     Prog_JobKind_Places,
     Prog_JobKind_Shares,
+    Prog_JobKind_SidebarTree,  // the subfolders of `path` for the sidebar's tree, in `names`, with their hidden (1) and system (2) marks in `rows`
     Prog_JobKind_UpdateCheck,
     Prog_JobKind_UpdateInstall,
     Prog_JobKind_Save,
@@ -983,6 +984,7 @@ typedef enum Prog_Option {
     Prog_Option_LongPaths,
     Prog_Option_ShortenedPaths,
     Prog_Option_Breadcrumbs,
+    Prog_Option_SidebarTree,
     Prog_Option_ShowCheckboxes,
     Prog_Option_ConfirmEmptyTrash,
     Prog_Option_GitFetch,
@@ -1259,6 +1261,8 @@ typedef enum Prog_Group {
     Prog_Group_Places,
     Prog_Group_Count,
 } Prog_Group;
+// The rows of the sidebar's folder tree go by this group, their index the node they show with its depth above the low 32 bits.
+#define Prog_Group_Tree ((Prog_Group)255)
 
 // The user's own sidebar groups, numbered after the built-in ones: a name, folders by path, and whether it is folded.
 #define Prog_MaxUserGroups 16
@@ -1272,6 +1276,24 @@ typedef struct Prog_UserGroup {
 // Folder totals measured before, by path, so that a folder shown again has its sizes at once.
 typedef struct Prog_PathSet { MapHeader header; struct { String key; b32 value; } *v; } Prog_PathSet;
 typedef struct Prog_SizeMap { MapHeader header; struct { String key; P_DirectoryTotals value; } *v; } Prog_SizeMap;
+
+// A folder of the sidebar's tree, under a drive or a place: its subfolders, by node and sorted by name, once a listing brings them.
+typedef struct Prog_TreeNode {
+    String path;
+    u32 *children;
+    u32 childCount;
+    b8 open;
+    b8 listed;
+    b8 listing;
+    b8 again;   // changed while it was being listed, so it is listed once more after
+    b8 hidden;
+    b8 system;
+    b8 easing;  // folded or unfolded and still easing to it, so that its rows' height is its body's
+    u32 rows;   // the rows under it while it is unfolded, counted in the frame rowsFrame
+    u64 rowsFrame;
+} Prog_TreeNode;
+typedef struct Prog_TreeNodes { ArrayHeader header; Prog_TreeNode *v; } Prog_TreeNodes;
+typedef struct Prog_TreeMap { MapHeader header; struct { String key; u32 value; } *v; } Prog_TreeMap;
 
 // ponytail: the cache starts over past this many folders; evict the oldest if big trees make that common.
 #define Prog_MaxCachedSizes 50000
@@ -2108,6 +2130,16 @@ typedef struct Prog_State {
     f32 sidebarGrab;          // how far right of its edge line the pointer took it
     PlatformCursor cursor;    // the pointer's shape the last build asked for, over an edge that drags
     b32 groupToggled[Prog_Group_Count];  // differs from the group's default, which is open for bookmarks and storage
+    // The sidebar's folder tree, sidebar.tree: the drives and shares unfold to their folders, by path in treeMap, each listed in a job as it unfolds, treeListings of them under way, and down to the folder shown, treeFollowed, as it changes, which then scrolls into sight once its row is laid out, while treeReveal.
+    // Past twice the folders and the bytes it kept the last time it was copied down to what it shows, treeKept and treeKeptBytes, it is copied again.
+    b32 sidebarTree;
+    Arena sidebarTreeArena;
+    Prog_TreeNodes treeNodes;
+    Prog_TreeMap treeMap;
+    String treeFollowed;
+    b32 treeReveal;
+    u32 treeListings;
+    u64 treeKept, treeKeptBytes;
     // The sidebar's groups in the order they were moved to, while groupsOrdered, which Session.conf keeps; the user's own come after the
     // built-in ones by number.
     u8 groupOrder[Prog_SidebarGroupMax];
